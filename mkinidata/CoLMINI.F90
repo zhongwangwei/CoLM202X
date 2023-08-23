@@ -1,6 +1,7 @@
 #include <define.h>
 
 PROGRAM CoLMINI
+   
    ! ======================================================================
    ! Initialization of Land Characteristic Parameters and Initial State Variables
    !
