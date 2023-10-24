@@ -4,7 +4,9 @@ include include/Makeoptions
 HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld -I${NETCDF_INC}
-VPATH = include : share : mksrfdata : mkinidata : main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : CaMa/src : postprocess : .bld
+VPATH = include : share : mksrfdata : mkinidata \
+	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
 .PHONY: all
@@ -51,7 +53,7 @@ OBJS_SHARED =    \
 				  MOD_LandHRU.o                \
 				  MOD_LandPatch.o              \
 				  MOD_LandUrban.o              \
-                                  MOD_LandCrop.o               \
+				  MOD_LandCrop.o               \
 				  MOD_LandPFT.o                \
 				  MOD_SrfdataDiag.o            \
 				  MOD_SrfdataRestart.o         \
@@ -212,6 +214,8 @@ OBJS_CAMA_T = $(addprefix .bld/,${OBJECTS_CAMA})
 endif
 
 OBJS_MAIN = \
+				MOD_DA_GRACE.o                            \
+				MOD_DataAssimilation.o                    \
 				MOD_Hydro_BasinNeighbour.o                \
 				MOD_Hydro_HillslopeFlow.o                 \
 				MOD_Hydro_SubsurfaceFlow.o                \
@@ -248,7 +252,7 @@ OBJS_MAIN = \
 				MOD_BGC_Veg_CNNDynamics.o                 \
 				MOD_BGC_Veg_CNFireBase.o                  \
 				MOD_BGC_Veg_CNFireLi2016.o                \
-				MOD_Irrigation.o 						  \
+				MOD_Irrigation.o                          \
 				MOD_BGC_driver.o                          \
 				MOD_Vars_2DForcing.o                      \
 				MOD_UserSpecifiedForcing.o                \
@@ -259,6 +263,7 @@ OBJS_MAIN = \
 				MOD_FrictionVelocity.o                    \
 				MOD_TurbulenceLEddy.o                     \
 				MOD_Ozone.o                               \
+				MOD_CanopyLayerProfile.o                  \
 				MOD_LeafTemperature.o                     \
 				MOD_LeafTemperaturePC.o                   \
 				MOD_SoilThermalParameters.o               \
@@ -303,7 +308,7 @@ OBJS_MAIN = \
 				MOD_Lulcc_Vars_TimeVariables.o            \
 				MOD_Lulcc_Initialize.o                    \
 				MOD_Lulcc_TMatrix.o                       \
-				MOD_Lulcc_EnergyMassConserve.o                \
+				MOD_Lulcc_EnergyMassConserve.o            \
 				MOD_Lulcc_Driver.o                        \
 				CoLMDRIVER.o                              \
 				CoLMMAIN.o                                \

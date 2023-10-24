@@ -88,6 +88,10 @@ PROGRAM CoLM
    USE MOD_SnowSnicar, only: SnowAge_init, SnowOptics_init
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
+#ifdef DataAssimilation
+   USE MOD_DataAssimilation
+#endif
+
    IMPLICIT NONE
 
    character(LEN=256) :: nlfile
@@ -281,7 +285,7 @@ PROGRAM CoLM
    ENDIF
 
    IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
-      CALL init_ndep_data_annually (sdate(1)) 
+      CALL init_ndep_data_annually (sdate(1))
    ELSEIF(DEF_NDEP_FREQUENCY==2)THEN ! Initial monthly ndep data readin
       CALL init_ndep_data_monthly (sdate(1),s_month) ! sf_add
    ELSE
@@ -297,6 +301,10 @@ PROGRAM CoLM
 
 #if (defined LATERAL_FLOW)
    CALL lateral_flow_init ()
+#endif
+
+#ifdef DataAssimilation
+   CALL init_DataAssimilation ()
 #endif
 
    ! ======================================================================
@@ -363,7 +371,7 @@ PROGRAM CoLM
          IF (jdate(1) /= year_p) THEN
             CALL update_ndep_data_annually (idate(1), iswrite = .true.)
          ENDIF
-      ELSEIF(DEF_NDEP_FREQUENCY==2)THEN! Read Monthly Ndep data 
+      ELSEIF(DEF_NDEP_FREQUENCY==2)THEN! Read Monthly Ndep data
          IF (jdate(1) /= year_p .or. month /= month_p) THEN  !sf_add
             CALL update_ndep_data_monthly (jdate(1), month, iswrite = .true.) !sf_add
          ENDIF
@@ -393,6 +401,10 @@ PROGRAM CoLM
 
 #if(defined CaMa_Flood)
       call colm_CaMa_drv(idate(3)) ! run CaMa-Flood
+#endif
+
+#ifdef DataAssimilation
+      CALL do_DataAssimilation (idate, deltim)
 #endif
 
       ! Write out the model variables for restart run and the histroy file
@@ -525,6 +537,10 @@ PROGRAM CoLM
 
 #if(defined CaMa_Flood)
    CALL colm_cama_exit ! finalize CaMa-Flood
+#endif
+
+#ifdef DataAssimilation
+   CALL final_DataAssimilation ()
 #endif
 
    IF (p_is_master) THEN
