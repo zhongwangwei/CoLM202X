@@ -41,7 +41,12 @@ MODULE MOD_Vars_1DForcing
 
    real(r8), allocatable :: forc_hpbl  (:)   ! atmospheric boundary layer height [m]
    real(r8), allocatable :: forc_aerdep(:,:) ! atmospheric aerosol deposition data [kg/m/s]
-
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: forc_iso_pp_O18(:,:) ! atmospheric isotope precipitation data [kg/m/s]
+   real(r8), allocatable :: forc_iso_pp_H2(:,:) ! atmospheric isotope precipitation data [kg/m/s]
+   real(r8), allocatable :: forc_iso_vp_O18(:,:) ! atmospheric isotope vapor data [kg/m/s]
+   real(r8), allocatable :: forc_iso_vp_H2(:,:) ! atmospheric isotope vapor data [kg/m/s]
+#endif
 
 ! PUBLIC MEMBER FUNCTIONS:
    PUBLIC :: allocate_1D_Forcing
@@ -91,6 +96,12 @@ CONTAINS
             allocate (forc_ozone  (numpatch) ) ! air density [kg/m3]
 
             allocate (forc_hpbl   (numpatch) ) ! atmospheric boundary layer height [m]
+#ifdef USE_ISOTOPE
+            allocate (forc_iso_pp_O18(numpatch) ) ! atmospheric isotope precipitation data [kg/m/s]
+            allocate (forc_iso_pp_H2(numpatch) ) ! atmospheric isotope precipitation data [kg/m/s]
+            allocate (forc_iso_vp_O18(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+            allocate (forc_iso_vp_H2(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+#endif
 
             IF (DEF_USE_Forcing_Downscaling) THEN
                allocate (forc_topo (numpatch))
@@ -143,6 +154,12 @@ CONTAINS
             deallocate ( forc_ozone  ) ! Ozone partial pressure [mol/mol]
 
             deallocate ( forc_hpbl   ) ! atmospheric boundary layer height [m]
+#ifdef USE_ISOTOPE
+            deallocate ( forc_iso_pp_O18 ) ! atmospheric isotope precipitation data [kg/m/s]
+            deallocate ( forc_iso_pp_H2 ) ! atmospheric isotope precipitation data [kg/m/s]
+            deallocate ( forc_iso_vp_O18 ) ! atmospheric isotope vapor data [kg/m/s]
+            deallocate ( forc_iso_vp_H2 ) ! atmospheric isotope vapor data [kg/m/s]
+#endif
 
             IF (DEF_USE_Forcing_Downscaling) THEN
                deallocate (forc_topo)

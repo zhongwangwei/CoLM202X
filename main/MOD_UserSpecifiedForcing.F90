@@ -683,7 +683,7 @@ CONTAINS
       !----------------
          !---2025.03.23   Zhongwang Wei @ SYSU: add the isotope forcing data
 
-         metfilename = '/'//trim(fprefix(var_i))//trim(yearstr)'.nc'
+         metfilename = '/'//trim(fprefix(var_i))//'_'//trim(yearstr)//'.nc'
 
       
       CASE ('POINT')
@@ -935,7 +935,7 @@ CONTAINS
                   CASE ('IsoGSM') ! IsoGSM forcing
 
                      CALL qsadv (forcn(1)%blk(ib,jb)%val(i,j), forcn(3)%blk(ib,jb)%val(i,j), &
-                        es,esdT,qsat_tmp,dqsat_tmpdT)å
+                        es,esdT,qsat_tmp,dqsat_tmpdT)
                      IF (qsat_tmp < forcn(2)%blk(ib,jb)%val(i,j)) THEN
                         forcn(2)%blk(ib,jb)%val(i,j) = qsat_tmp
                         

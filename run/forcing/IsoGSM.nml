@@ -28,14 +28,14 @@
 
    DEF_forcing%groupby           = 'year'  ! file grouped by year/month
 
-   DEF_forcing%fprefix(1) = 'IsoGSM_temperature_'
-   DEF_forcing%fprefix(2) = 'IsoGSM_Q_'
-   DEF_forcing%fprefix(3) = 'IsoGSM_Pressure_'
-   DEF_forcing%fprefix(4) = 'IsoGSM_prate_'
-   DEF_forcing%fprefix(5) = 'IsoGSM_Wind_'
-   DEF_forcing%fprefix(6) = 'IsoGSM_Wind_'
-   DEF_forcing%fprefix(7) = 'IsoGSM_Radiation_'
-   DEF_forcing%fprefix(8) = 'IsoGSM_Radiation_'
+   DEF_forcing%fprefix(1) = 'IsoGSM_temperature'
+   DEF_forcing%fprefix(2) = 'IsoGSM_Q'
+   DEF_forcing%fprefix(3) = 'IsoGSM_Pressure'
+   DEF_forcing%fprefix(4) = 'IsoGSM_prate'
+   DEF_forcing%fprefix(5) = 'IsoGSM_Wind'
+   DEF_forcing%fprefix(6) = 'IsoGSM_Wind'
+   DEF_forcing%fprefix(7) = 'IsoGSM_Radiation'
+   DEF_forcing%fprefix(8) = 'IsoGSM_Radiation'
 
 
    DEF_forcing%vname    = 'tmp2m' 'spfh2m' 'pressfc' 'pratesfc' 'ugrd10m' 'vgrd10m' 'dswrfsfc' 'dlwrfsfc'

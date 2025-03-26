@@ -20,7 +20,12 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_frl       (:)
    real(r8), allocatable :: a_solarin   (:)
    real(r8), allocatable :: a_hpbl      (:)
-
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_forc_iso_pp_O18 (:)
+   real(r8), allocatable :: a_forc_iso_pp_H2 (:)
+   real(r8), allocatable :: a_forc_iso_vp_O18 (:)
+   real(r8), allocatable :: a_forc_iso_vp_H2 (:)
+#endif
    real(r8), allocatable :: a_taux      (:)
    real(r8), allocatable :: a_tauy      (:)
    real(r8), allocatable :: a_fsena     (:)
@@ -424,7 +429,12 @@ CONTAINS
             allocate (a_frl       (numpatch))
             allocate (a_solarin   (numpatch))
             allocate (a_hpbl      (numpatch))
-
+#ifdef USE_ISOTOPE
+            allocate (a_forc_iso_pp_O18 (numpatch))
+            allocate (a_forc_iso_pp_H2 (numpatch))
+            allocate (a_forc_iso_vp_O18 (numpatch))
+            allocate (a_forc_iso_vp_H2 (numpatch))
+#endif
             allocate (a_taux      (numpatch))
             allocate (a_tauy      (numpatch))
             allocate (a_fsena     (numpatch))
@@ -834,7 +844,12 @@ CONTAINS
             deallocate (a_frl    )
             deallocate (a_solarin)
             deallocate (a_hpbl   )
-
+#ifdef USE_ISOTOPE
+            deallocate (a_forc_iso_pp_O18 )
+            deallocate (a_forc_iso_pp_H2 )
+            deallocate (a_forc_iso_vp_O18 )
+            deallocate (a_forc_iso_vp_H2 )
+#endif
             deallocate (a_taux      )
             deallocate (a_tauy      )
             deallocate (a_fsena     )
@@ -1246,7 +1261,12 @@ CONTAINS
             a_frl       (:) = spval
             a_solarin   (:) = spval
             a_hpbl      (:) = spval
-
+#ifdef USE_ISOTOPE
+            a_forc_iso_pp_O18 (:) = spval
+            a_forc_iso_pp_H2 (:) = spval
+            a_forc_iso_vp_O18 (:) = spval
+            a_forc_iso_vp_H2 (:) = spval
+#endif
             a_taux      (:) = spval
             a_tauy      (:) = spval
             a_fsena     (:) = spval
@@ -1685,6 +1705,9 @@ CONTAINS
    real(r8) sumwt
    real(r8) rhoair,thm,th,thv,ur,displa_av,zldis,hgt_u,hgt_t,hgt_q
    real(r8) hpbl ! atmospheric boundary layer height [m]
+#ifdef USE_ISOTOPE
+   real(r8) iso_p_O18, iso_p_H2, iso_v_O18, iso_v_H2
+#endif
    real(r8) z0m_av,z0h_av,z0q_av,us,vs,tm,qm,psrf,taux_e,tauy_e,fsena_e,fevpa_e
    real(r8) r_ustar_e, r_tstar_e, r_qstar_e, r_zol_e, r_ustar2_e, r_fm10m_e
    real(r8) r_fm_e, r_fh_e, r_fq_e, r_rib_e, r_us10m_e, r_vs10m_e
@@ -1712,7 +1735,12 @@ CONTAINS
             IF (DEF_USE_CBL_HEIGHT) THEN
                CALL acc1d (forc_hpbl , a_hpbl)
             ENDIF
-
+#ifdef USE_ISOTOPE
+            CALL acc1d (forc_iso_pp_O18 , a_forc_iso_pp_O18)
+            CALL acc1d (forc_iso_pp_H2 , a_forc_iso_pp_H2)
+            CALL acc1d (forc_iso_vp_O18 , a_forc_iso_vp_O18)
+            CALL acc1d (forc_iso_vp_H2 , a_forc_iso_vp_H2)
+#endif
             CALL acc1d (taux    , a_taux   )
             CALL acc1d (tauy    , a_tauy   )
             CALL acc1d (fsena   , a_fsena  )
@@ -2289,7 +2317,12 @@ CONTAINS
                IF (DEF_USE_CBL_HEIGHT) THEN !//TODO: Shaofeng, 2023.05.18
                   hpbl = sum(forc_hpbl(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
                ENDIF
-
+#ifdef USE_ISOTOPE
+               iso_p_O18 = sum(forc_iso_pp_O18(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               iso_p_H2 = sum(forc_iso_pp_H2(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               iso_v_O18 = sum(forc_iso_vp_O18(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               iso_v_H2 = sum(forc_iso_vp_H2(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+#endif
                z0h_av = z0m_av
                z0q_av = z0m_av
 
