@@ -521,7 +521,12 @@ CONTAINS
          IF (DEF_USE_CBL_HEIGHT) THEN
          CALL block_data_copy (forcn(9), forc_xy_hpbl   )
          ENDIF
-
+#ifdef USE_ISOTOPE
+         CALL block_data_copy (forcn(9), forc_xy_iso_pp_O18)
+         CALL block_data_copy (forcn(10), forc_xy_iso_pp_H2)
+         CALL block_data_copy (forcn(11), forc_xy_iso_vp_O18)
+         CALL block_data_copy (forcn(12), forc_xy_iso_vp_H2)
+#endif
          IF (has_u .and. has_v) THEN
             CALL block_data_copy (forcn(5), forc_xy_us )
             CALL block_data_copy (forcn(6), forc_xy_vs )
@@ -656,7 +661,12 @@ CONTAINS
          IF (DEF_USE_CBL_HEIGHT) THEN
             CALL mg2p_forc%grid2pset (forc_xy_hpbl, forc_hpbl)
          ENDIF
-
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%grid2pset (forc_xy_iso_pp_O18,  forc_iso_pp_O18)
+         CALL mg2p_forc%grid2pset (forc_xy_iso_pp_H2,  forc_iso_pp_H2)
+         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_O18,  forc_iso_vp_O18)
+         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_H2,  forc_iso_vp_H2)
+#endif
          CALL mg2p_forc%grid2pset (forc_xy_t    ,  forc_t    )
          CALL mg2p_forc%grid2pset (forc_xy_q    ,  forc_q    )
          CALL mg2p_forc%grid2pset (forc_xy_prc  ,  forc_prc  )
@@ -708,7 +718,12 @@ CONTAINS
          IF (DEF_USE_CBL_HEIGHT) THEN
             CALL mg2p_forc%grid2pset (forc_xy_hpbl, forc_hpbl)
          ENDIF
-
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%grid2pset (forc_xy_iso_pp_O18,  forc_iso_pp_O18)
+         CALL mg2p_forc%grid2pset (forc_xy_iso_pp_H2,  forc_iso_pp_H2)
+         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_O18,  forc_iso_vp_O18)
+         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_H2,  forc_iso_vp_H2)
+#endif
          ! Mapping the 2d atmospheric fields [lon_points]x[lat_points]
          !     -> the 1d vector of subgrid points [numelm]
          !     by selected mapping methods
@@ -925,6 +940,13 @@ CONTAINS
       IF (DEF_USE_CBL_HEIGHT) THEN
          CALL check_vector_data ('Forcing hpbl  ', forc_hpbl )
       ENDIF
+#ifdef USE_ISOTOPE
+      CALL check_vector_data ('Forcing iso_pp_O18  ', forc_iso_pp_O18 )
+      CALL check_vector_data ('Forcing iso_pp_H2  ', forc_iso_pp_H2 )
+      CALL check_vector_data ('Forcing iso_vp_O18  ', forc_iso_vp_O18 )
+      CALL check_vector_data ('Forcing iso_vp_H2  ', forc_iso_vp_H2 )
+#endif
+
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)

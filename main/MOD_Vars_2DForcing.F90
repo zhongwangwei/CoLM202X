@@ -32,7 +32,12 @@ MODULE MOD_Vars_2DForcing
    type(block_data_real8_2d) :: forc_xy_hgt_q  ! observational height of humidity [m]
    type(block_data_real8_2d) :: forc_xy_rhoair ! air density [kg/m3]
    type(block_data_real8_2d) :: forc_xy_hpbl   ! atmospheric boundary layer height [m]
-
+#ifdef USE_ISOTOPE
+   type(block_data_real8_2d) :: forc_xy_iso_pp_O18 ! atmospheric isotope precipitation data [kg/m/s]
+   type(block_data_real8_2d) :: forc_xy_iso_pp_H2 ! atmospheric isotope precipitation data [kg/m/s]
+   type(block_data_real8_2d) :: forc_xy_iso_vp_O18 ! atmospheric isotope precipitation data [kg/m/s]
+   type(block_data_real8_2d) :: forc_xy_iso_vp_H2 ! atmospheric isotope precipitation data [kg/m/s]
+#endif
    ! PUBLIC MEMBER FUNCTIONS:
    PUBLIC :: allocate_2D_Forcing
 
@@ -73,6 +78,12 @@ CONTAINS
          CALL allocate_block_data (grid, forc_xy_hgt_q ) ! observational height of humidity [m]
          CALL allocate_block_data (grid, forc_xy_rhoair) ! air density [kg/m3]
          CALL allocate_block_data (grid, forc_xy_hpbl  ) ! atmospheric boundary layer height [m]
+#ifdef USE_ISOTOPE
+         CALL allocate_block_data (grid, forc_xy_iso_pp_O18 ) ! atmospheric isotope precipitation data [kg/m/s]
+         CALL allocate_block_data (grid, forc_xy_iso_pp_H2 ) ! atmospheric isotope precipitation data [kg/m/s]
+         CALL allocate_block_data (grid, forc_xy_iso_vp_O18 ) ! atmospheric isotope precipitation data [kg/m/s]
+         CALL allocate_block_data (grid, forc_xy_iso_vp_H2 ) ! atmospheric isotope precipitation data [kg/m/s]
+#endif
       ENDIF
 
    END SUBROUTINE allocate_2D_Forcing

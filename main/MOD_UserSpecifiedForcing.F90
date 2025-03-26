@@ -161,7 +161,7 @@ CONTAINS
 #ifdef USE_ISOTOPE
       ! Add isotope variables
       ivar = NVAR_default
-      IF (DEF_USE_CBL_HEIGHT) ivar = ivar + 1
+      !IF (DEF_USE_CBL_HEIGHT) ivar = ivar + 1
       
       ! O18 precipitation
       ivar = ivar + 1
@@ -393,6 +393,10 @@ CONTAINS
             metfilename = trim(metfilename) //'_mean_surface_downward_short_wave_radiation_flux.nc4'
          CASE (8)
             metfilename = trim(metfilename) //'_mean_surface_downward_long_wave_radiation_flux.nc4'
+         CASE (9)
+            IF (DEF_USE_CBL_HEIGHT) THEN
+               metfilename = '/'//trim(fprefix(var_i))//'_'//trim(yearstr)//'_'//trim(monthstr)//'_boundary_layer_height.nc4'
+            ENDIF  
          END select
       CASE ('MSWX') ! MSWX forcing data
       !DESCRIPTION
@@ -689,12 +693,6 @@ CONTAINS
       CASE ('POINT')
          metfilename = '/'//trim(fprefix(1))
       END select
-      IF (DEF_USE_CBL_HEIGHT) THEN
-         select CASE (var_i)
-         CASE (9)
-            metfilename = '/'//trim(fprefix(9))//'_'//trim(yearstr)//'_'//trim(monthstr)//'_boundary_layer_height.nc4'
-         END select
-      ENDIF
    END FUNCTION metfilename
 
  ! preprocess for forcing data [not applicable yet for PRINCETON]
