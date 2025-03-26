@@ -88,3 +88,5 @@
 
 ! 11. External lake models.
 #undef EXTERNAL_LAKE 
+
+#undef USE_ISOTOPE

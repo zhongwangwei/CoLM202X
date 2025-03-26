@@ -92,11 +92,17 @@ CONTAINS
    integer :: ivar,NVAR_default
 
       NVAR = DEF_forcing%NVAR
-      NVAR_default=NVAR
+      NVAR_default = NVAR
+      
+      ! Calculate total number of variables first
       IF (DEF_USE_CBL_HEIGHT) THEN
-         NVAR=NVAR+1
+         NVAR = NVAR + 1
       ENDIF
+#ifdef USE_ISOTOPE
+      NVAR = NVAR + 4  ! Allocate space for 4 isotope variables
+#endif
 
+      ! Allocate arrays with final NVAR size
       IF (allocated(dtime )) deallocate(dtime)
       IF (allocated(offset)) deallocate(offset)
       allocate (dtime  (NVAR))
@@ -134,19 +140,62 @@ CONTAINS
 
       groupby          = DEF_forcing%groupby          ! file grouped by year/month
 
+      ! Copy default forcing variables
       DO ivar = 1, NVAR_default
          fprefix (ivar) = DEF_forcing%fprefix(ivar)   ! file prefix
          vname   (ivar) = DEF_forcing%vname(ivar)     ! variable name
          timelog (ivar) = DEF_forcing%timelog(ivar)   ! variable name
          tintalgo(ivar) = DEF_forcing%tintalgo(ivar)  ! interpolation algorithm
       ENDDO
+
+      ! Add CBL height variable if enabled
       IF (DEF_USE_CBL_HEIGHT) THEN
-         fprefix (NVAR) = DEF_forcing%CBL_fprefix
-         vname   (NVAR) = DEF_forcing%CBL_vname
-         tintalgo(NVAR) = DEF_forcing%CBL_tintalgo
-         dtime   (NVAR) = DEF_forcing%CBL_dtime
-         offset  (NVAR) = DEF_forcing%CBL_offset
+         ivar = NVAR_default + 1
+         fprefix (ivar) = DEF_forcing%CBL_fprefix
+         vname   (ivar) = DEF_forcing%CBL_vname
+         tintalgo(ivar) = DEF_forcing%CBL_tintalgo
+         dtime   (ivar) = DEF_forcing%CBL_dtime
+         offset  (ivar) = DEF_forcing%CBL_offset
       ENDIF
+
+#ifdef USE_ISOTOPE
+      ! Add isotope variables
+      ivar = NVAR_default
+      IF (DEF_USE_CBL_HEIGHT) ivar = ivar + 1
+      
+      ! O18 precipitation
+      ivar = ivar + 1
+      fprefix (ivar) = DEF_forcing%precipitation_O18_fprefix
+      vname   (ivar) = DEF_forcing%precipitation_O18_vname
+      tintalgo(ivar) = DEF_forcing%precipitation_O18_tintalgo
+      dtime   (ivar) = DEF_forcing%precipitation_O18_dtime
+      offset  (ivar) = DEF_forcing%precipitation_O18_offset
+
+      ! H2 precipitation
+      ivar = ivar + 1
+      fprefix (ivar) = DEF_forcing%precipitation_H2_fprefix
+      vname   (ivar) = DEF_forcing%precipitation_H2_vname
+      tintalgo(ivar) = DEF_forcing%precipitation_H2_tintalgo
+      dtime   (ivar) = DEF_forcing%precipitation_H2_dtime
+      offset  (ivar) = DEF_forcing%precipitation_H2_offset
+
+      !O18 water vapor
+      ivar = ivar + 1
+      fprefix (ivar) = DEF_forcing%water_vapor_O18_fprefix
+      vname   (ivar) = DEF_forcing%water_vapor_O18_vname
+      tintalgo(ivar) = DEF_forcing%water_vapor_O18_tintalgo
+      dtime   (ivar) = DEF_forcing%water_vapor_O18_dtime
+      offset  (ivar) = DEF_forcing%water_vapor_O18_offset
+
+      !H2 water vapor
+      ivar = ivar + 1
+      fprefix (ivar) = DEF_forcing%water_vapor_H2_fprefix
+      vname   (ivar) = DEF_forcing%water_vapor_H2_vname
+      tintalgo(ivar) = DEF_forcing%water_vapor_H2_tintalgo
+      dtime   (ivar) = DEF_forcing%water_vapor_H2_dtime
+      offset  (ivar) = DEF_forcing%water_vapor_H2_offset
+
+#endif
    END SUBROUTINE init_user_specified_forcing
 
    ! ----------------
@@ -570,7 +619,7 @@ CONTAINS
       CASE ('CRA40')
          !DESCRIPTION
          !===========
-            !---CMA’s first-generation global atmospheric reanalysis (RA) covering 1979-2018 (CRA-40)
+            !---CMA's first-generation global atmospheric reanalysis (RA) covering 1979-2018 (CRA-40)
 
          !data source:
          !-------------------
@@ -613,6 +662,30 @@ CONTAINS
          !   zip file to reduce the size of the data; remove offset and scale_factor
 
          metfilename = '/'//trim(fprefix(var_i))//trim(yearstr)//trim(monthstr)//'.nc'
+
+      CASE ('IsoGSM')
+      !DESCRIPTION
+      !===========
+         !--- Isotopes-incorporated Global Spectral Model (IsoGSM)
+
+      !data source:
+      !-------------------
+         !---https://isotope.iis.u-tokyo.ac.jp/about-our-lab?lang=en
+
+      !References:
+      !-------------------
+         !---Bong, H., Cauquoin, A., Okazaki, A., Chang, E.-C., Werner, M., Wei, Z., et al. (2024). 
+         !   Process-based intercomparison of water isotope-enabled models and reanalysis nudging effects. 
+         !   Journal of Geophysical Research: Atmospheres, 129, e2023JD038719. 
+         !   https://doi.org/10.1029/2023JD038719
+
+      !REVISION HISTORY
+      !----------------
+         !---2025.03.23   Zhongwang Wei @ SYSU: add the isotope forcing data
+
+         metfilename = '/'//trim(fprefix(var_i))//trim(yearstr)'.nc'
+
+      
       CASE ('POINT')
          metfilename = '/'//trim(fprefix(1))
       END select
@@ -858,6 +931,15 @@ CONTAINS
                         forcn(2)%blk(ib,jb)%val(i,j) = qsat_tmp
                      ENDIF
                      IF (forcn(4)%blk(ib,jb)%val(i,j) < 0.0)   forcn(4)%blk(ib,jb)%val(i,j) = 0.0
+
+                  CASE ('IsoGSM') ! IsoGSM forcing
+
+                     CALL qsadv (forcn(1)%blk(ib,jb)%val(i,j), forcn(3)%blk(ib,jb)%val(i,j), &
+                        es,esdT,qsat_tmp,dqsat_tmpdT)å
+                     IF (qsat_tmp < forcn(2)%blk(ib,jb)%val(i,j)) THEN
+                        forcn(2)%blk(ib,jb)%val(i,j) = qsat_tmp
+                        
+                     ENDIF
                   END select
 
                ENDDO

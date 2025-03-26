@@ -421,6 +421,31 @@ MODULE MOD_Namelist
       character(len=256) :: CBL_tintalgo       = 'linear'
       integer            :: CBL_dtime          = 21600
       integer            :: CBL_offset         = 10800
+#ifdef USE_ISOTOPE
+      character(len=256) :: precipitation_O18_fprefix        = 'null'
+      character(len=256) :: precipitation_O18_vname          = 'O18'
+      character(len=256) :: precipitation_O18_tintalgo       = 'linear'
+      integer            :: precipitation_O18_dtime          = 21600
+      integer            :: precipitation_O18_offset         = 10800
+
+      character(len=256) :: precipitation_H2_fprefix         = 'null'
+      character(len=256) :: precipitation_H2_vname           = 'H2'
+      character(len=256) :: precipitation_H2_tintalgo        = 'linear'
+      integer            :: precipitation_H2_dtime           = 21600
+      integer            :: precipitation_H2_offset          = 10800
+
+      character(len=256) :: Vapor_O18_fprefix                = 'null'
+      character(len=256) :: Vapor_O18_vname                  = 'O18'
+      character(len=256) :: Vapor_O18_tintalgo               = 'linear'
+      integer            :: Vapor_O18_dtime                  = 21600
+      integer            :: Vapor_O18_offset                 = 10800
+
+      character(len=256) :: Vapor_H2_fprefix                 = 'null'
+      character(len=256) :: Vapor_H2_vname                   = 'H2'
+      character(len=256) :: Vapor_H2_tintalgo                = 'linear'
+      integer            :: Vapor_H2_dtime                   = 21600
+      integer            :: Vapor_H2_offset                  = 10800    
+#endif
    END type nl_forcing_type
 
    type (nl_forcing_type) :: DEF_forcing
@@ -1607,6 +1632,31 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%CBL_tintalgo               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset                 ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+#ifdef USE_ISOTOPE
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_fprefix ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_vname   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_tintalgo,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_dtime   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_offset  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_fprefix ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_vname   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_tintalgo,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_dtime   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_offset  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
+      CALL mpi_bcast (DEF_forcing%Vapor_O18_fprefix        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_O18_vname          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_O18_tintalgo       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_O18_dtime          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_O18_offset         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
+      CALL mpi_bcast (DEF_forcing%Vapor_H2_fprefix         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_H2_vname           ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_H2_tintalgo        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_H2_dtime           ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%Vapor_H2_offset          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+#endif
 #endif
 
       CALL sync_hist_vars (set_defaults = .true.)
