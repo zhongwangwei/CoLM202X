@@ -434,17 +434,17 @@ MODULE MOD_Namelist
       integer            :: precipitation_H2_dtime           = 21600
       integer            :: precipitation_H2_offset          = 10800
 
-      character(len=256) :: Vapor_O18_fprefix                = 'null'
-      character(len=256) :: Vapor_O18_vname                  = 'O18'
-      character(len=256) :: Vapor_O18_tintalgo               = 'linear'
-      integer            :: Vapor_O18_dtime                  = 21600
-      integer            :: Vapor_O18_offset                 = 10800
+      character(len=256) :: water_vapor_O18_fprefix                = 'null'
+      character(len=256) :: water_vapor_O18_vname                  = 'O18'
+      character(len=256) :: water_vapor_O18_tintalgo               = 'linear'
+      integer            :: water_vapor_O18_dtime                  = 21600
+      integer            :: water_vapor_O18_offset                 = 10800
 
-      character(len=256) :: Vapor_H2_fprefix                 = 'null'
-      character(len=256) :: Vapor_H2_vname                   = 'H2'
-      character(len=256) :: Vapor_H2_tintalgo                = 'linear'
-      integer            :: Vapor_H2_dtime                   = 21600
-      integer            :: Vapor_H2_offset                  = 10800    
+      character(len=256) :: water_vapor_H2_fprefix                 = 'null'
+      character(len=256) :: water_vapor_H2_vname                   = 'H2'
+      character(len=256) :: water_vapor_H2_tintalgo                = 'linear'
+      integer            :: water_vapor_H2_dtime                   = 21600
+      integer            :: water_vapor_H2_offset                  = 10800    
 #endif
    END type nl_forcing_type
 
@@ -1626,7 +1626,7 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%lonname                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%groupby                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
-      DO ivar = 1, 8
+      DO ivar = 1, DEF_forcing%NVAR
          CALL mpi_bcast (DEF_forcing%fprefix(ivar)           ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
          CALL mpi_bcast (DEF_forcing%vname(ivar)             ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
          CALL mpi_bcast (DEF_forcing%timelog(ivar)           ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -1650,17 +1650,17 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%precipitation_H2_dtime   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%precipitation_H2_offset  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
 
-      CALL mpi_bcast (DEF_forcing%Vapor_O18_fprefix        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_O18_vname          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_O18_tintalgo       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_O18_dtime          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_O18_offset         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_fprefix        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_vname          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_tintalgo       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_dtime          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_offset         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
 
-      CALL mpi_bcast (DEF_forcing%Vapor_H2_fprefix         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_H2_vname           ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_H2_tintalgo        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_H2_dtime           ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%Vapor_H2_offset          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_fprefix         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_vname           ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_tintalgo        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_dtime           ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_offset          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
 #endif
 #endif
 

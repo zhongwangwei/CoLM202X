@@ -1510,6 +1510,8 @@ CONTAINS
 
       IF (time_i <= 0) THEN
          write(6, *) "got the wrong time record of forcing! STOP!"; CALL CoLM_stop()
+         write(6, *) "time_i = ", time_i
+         write(6, *) "var_i = ", var_i
       ENDIF
 
       RETURN
@@ -1670,6 +1672,8 @@ CONTAINS
 
       IF (time_i < 0) THEN
          write(6, *) "got the wrong time record of forcing! STOP!"; CALL CoLM_stop()
+         write(6, *) "time_i = ", time_i
+         write(6, *) "var_i = ", var_i
       ENDIF
 
       RETURN

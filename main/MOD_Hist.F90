@@ -350,19 +350,19 @@ CONTAINS
          ENDIF
 #ifdef USE_ISOTOPE
          CALL write_history_variable_2d ( DEF_hist_vars%xy_iso_pp_O18, &
-               a_iso_pp_O18, file_hist, 'f_xy_iso_pp_O18', itime_in_file, sumarea, filter, &
+         a_forc_iso_pp_O18, file_hist, 'f_xy_iso_pp_O18', itime_in_file, sumarea, filter, &
                'isotope precipitation O18','kg/m/s')
 
          CALL write_history_variable_2d ( DEF_hist_vars%xy_iso_pp_H2, &
-            a_iso_pp_H2, file_hist, 'f_xy_iso_pp_H2', itime_in_file, sumarea, filter, &
+            a_forc_iso_pp_H2, file_hist, 'f_xy_iso_pp_H2', itime_in_file, sumarea, filter, &
             'isotope precipitation H2','kg/m/s')
 
          CALL write_history_variable_2d ( DEF_hist_vars%xy_iso_vp_O18, &
-            a_iso_vp_O18, file_hist, 'f_xy_iso_vp_O18', itime_in_file, sumarea, filter, &
+            a_forc_iso_vp_O18, file_hist, 'f_xy_iso_vp_O18', itime_in_file, sumarea, filter, &
             'isotope vapor O18','kg/m/s')
 
          CALL write_history_variable_2d ( DEF_hist_vars%xy_iso_vp_H2, &
-            a_iso_vp_H2, file_hist, 'f_xy_iso_vp_H2', itime_in_file, sumarea, filter, &
+            a_forc_iso_vp_H2, file_hist, 'f_xy_iso_vp_H2', itime_in_file, sumarea, filter, &
             'isotope vapor H2','kg/m/s')
 #endif
          ! ------------------------------------------------------------------------------------------
