@@ -336,11 +336,11 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
           ! additional variables required by coupling with WRF model
             emis(i)         ,z0m(i)          ,zol(i)          ,rib(i)          ,&
             ustar(i)        ,qstar(i)        ,tstar(i)        ,fm(i)           ,&
-            fh(i)           ,fq(i)           ,forc_hpbl(i),&                     
+            fh(i)           ,fq(i)           ,forc_hpbl(i)                     &                     
 #ifdef USE_ISOTOPE
-            forc_q_O18(i),   forc_q_H2(i),   forc_prc_O18(i),  forc_prl_O18(i), forc_prc_H2(i),  forc_prl_H2(i),  &
-            forc_rain_O18(i),  forc_snow_O18(i),  forc_rain_H2(i),  forc_snow_H2(i), &
-            ldew_O18(i),     ldew_rain_O18(i), ldew_snow_O18(i), ldew_H2(i),     ldew_rain_H2(i), ldew_snow_H2(i) &
+            ,forc_q_O18(i),forc_q_H2(i),forc_prc_O18(i),forc_prl_O18(i), forc_prc_H2(i),  forc_prl_H2(i),&
+            forc_rain_O18(i),  forc_snow_O18(i),  forc_rain_H2(i),forc_snow_H2(i), &
+            ldew_O18(i),ldew_rain_O18(i), ldew_snow_O18(i), ldew_H2(i), ldew_rain_H2(i), ldew_snow_H2(i),&
 #endif
             )
          ENDIF

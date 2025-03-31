@@ -173,11 +173,11 @@
          ! additional variables required by coupling with WRF model
            emis         ,z0m          ,zol          ,rib          ,&
            ustar        ,qstar        ,tstar        ,fm           ,&
-           fh           ,fq           ,hpbl,  &                       
+           fh           ,fq           ,hpbl                       &
 #ifdef USE_ISOTOPE
-           forc_q_O18,   forc_q_H2,   forc_prc_O18,  forc_prl_O18, forc_prc_H2,  forc_prl_H2,  &
-           forc_rain_O18,  forc_snow_O18,  forc_rain_H2,  forc_snow_H2, &
-           ldew_O18,ldew_rain_O18, ldew_snow_O18, ldew_H2,ldew_rain_H2, ldew_snow_H2 
+          ,forc_q_O18, forc_q_H2, forc_prc_O18, forc_prl_O18, forc_prc_H2, forc_prl_H2, &
+           forc_rain_O18, forc_snow_O18, forc_rain_H2, forc_snow_H2, &
+           ldew_O18, ldew_rain_O18, ldew_snow_O18, ldew_H2, ldew_rain_H2, ldew_snow_H2  &
 #endif
            )
 

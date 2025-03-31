@@ -334,8 +334,9 @@ SUBROUTINE CoLMMAIN ( &
         idate(3)      ! next time-step /year/julian day/second in a day/
 
    real(r8), intent(inout) :: oro       ! ocean(0)/seaice(2)/ flag
-
+#ifdef USE_ISOTOPE
    real(r8), intent(inout) :: forc_rain_O18,  forc_snow_O18,  forc_rain_H2,  forc_snow_H2
+#endif
 
    real(r8), intent(inout) :: &
         z_sno      (maxsnl+1:0)       ,&! layer depth (m)
@@ -552,10 +553,10 @@ SUBROUTINE CoLMMAIN ( &
         pg_rain_H2,  pg_snow_H2,  &
 #endif
         qintr_rain  ,&! rainfall interception (mm h2o/s)
-        qintr_snow  ,&  ! snowfall interception (mm h2o/s)
+        qintr_snow    ! snowfall interception (mm h2o/s)
 
 #ifdef USE_ISOTOPE
-        qintr_rain_O18,  qintr_snow_O18,  &
+   real(r8) ::  qintr_rain_O18,  qintr_snow_O18,  &
         qintr_rain_H2,  qintr_snow_H2
 #endif
    integer snl      ,&! number of snow layers
