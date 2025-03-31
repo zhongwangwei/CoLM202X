@@ -177,7 +177,7 @@
 #ifdef USE_ISOTOPE
            forc_q_O18,   forc_q_H2,   forc_prc_O18,  forc_prl_O18, forc_prc_H2,  forc_prl_H2,  &
            forc_rain_O18,  forc_snow_O18,  forc_rain_H2,  forc_snow_H2, &
-           ldew_O18,ldew_rain_O18, ldew_snow_O18, ldew_H2,ldew_rain_H2, ldew_snow_H2 &
+           ldew_O18,ldew_rain_O18, ldew_snow_O18, ldew_H2,ldew_rain_H2, ldew_snow_H2 
 #endif
            )
 
