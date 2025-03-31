@@ -409,8 +409,8 @@ CONTAINS
                deallocate (forc_q_part     )
 
 #ifdef USE_ISOTOPE
-               deallocate (forc_q_part_O18    )
-               deallocate (forc_q_part_H2    )
+               deallocate (forc_q_part_O18)
+               deallocate (forc_q_part_H2)
 #endif
 
                deallocate (forc_pbot_part  )
