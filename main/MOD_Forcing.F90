@@ -293,8 +293,8 @@ CONTAINS
          CALL mg2p_forc%allocate_part (forc_th_part    )
          CALL mg2p_forc%allocate_part (forc_q_part     )
 #ifdef USE_ISOTOPE
-         CALL mg2p_forc%allocate_part (forc_q_part_O18    )
-         CALL mg2p_forc%allocate_part (forc_q_part_H2    )
+         CALL mg2p_forc%allocate_part (forc_q_part_O18)
+         CALL mg2p_forc%allocate_part (forc_q_part_H2)
 #endif
          CALL mg2p_forc%allocate_part (forc_pbot_part  )
          CALL mg2p_forc%allocate_part (forc_rhoair_part)
@@ -900,8 +900,10 @@ CONTAINS
                      ! adjusted forcing
                      forc_topo(np),                  forc_t_part(np)%val(ipart),      &
                      forc_th_part(np)%val(ipart),    forc_q_part(np)%val(ipart),      &
+#ifdef USE_ISOTOPE
                      forc_q_part_O18(np)%val(ipart), &
                      forc_q_part_H2(np)%val(ipart), &
+#endif
                      forc_pbot_part(np)%val(ipart),  forc_rhoair_part(np)%val(ipart), &
                      forc_prc_part(np)%val(ipart),   forc_prl_part(np)%val(ipart),    &
 #ifdef USE_ISOTOPE
