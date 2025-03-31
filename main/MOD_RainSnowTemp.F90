@@ -20,8 +20,18 @@ CONTAINS
 
 
    SUBROUTINE rain_snow_temp (patchtype,&
-              forc_t,forc_q,forc_psrf,forc_prc,forc_prl,forc_us,forc_vs,tcrit,&
-              prc_rain,prc_snow,prl_rain,prl_snow,t_precip,bifall)
+              forc_t,forc_q,forc_psrf,forc_prc,forc_prl, &
+#ifdef USE_ISOTOPE
+              forc_q_O18,forc_q_H2, &
+              forc_prc_O18,forc_prl_O18,forc_prc_H2,forc_prl_H2, &
+#endif
+              forc_us,forc_vs,tcrit,&
+              prc_rain,prc_snow,prl_rain,prl_snow, &
+#ifdef USE_ISOTOPE
+              prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+              prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+              t_precip,bifall)
 
 !=======================================================================
 !  define the rate of rainfall and snowfall and precipitation water temp
@@ -39,9 +49,19 @@ CONTAINS
 
    real(r8), intent(in)  :: forc_t    ! temperature at agcm reference height [kelvin]
    real(r8), intent(in)  :: forc_q    ! specific humidity at agcm reference height [kg/kg]
+#ifdef USE_ISOTOPE
+   real(r8), intent(in)  :: forc_q_O18    ! specific humidity of O18 at agcm reference height [kg/kg]
+   real(r8), intent(in)  :: forc_q_H2    ! specific humidity of H2 at agcm reference height [kg/kg]
+#endif
    real(r8), intent(in)  :: forc_psrf ! atmosphere pressure at the surface [pa]
    real(r8), intent(in)  :: forc_prc  ! convective precipitation [mm/s]
    real(r8), intent(in)  :: forc_prl  ! large scale precipitation [mm/s]
+#ifdef USE_ISOTOPE
+   real(r8), intent(in)  :: forc_prc_O18  ! convective precipitation of O18 [mm/s]
+   real(r8), intent(in)  :: forc_prl_O18  ! large scale precipitation of O18 [mm/s]
+   real(r8), intent(in)  :: forc_prc_H2  ! convective precipitation of H2 [mm/s]
+   real(r8), intent(in)  :: forc_prl_H2  ! large scale precipitation of H2 [mm/s]
+#endif
    real(r8), intent(in)  :: forc_us   ! wind speed in eastward direction [m/s]
    real(r8), intent(in)  :: forc_vs   ! wind speed in northward direction [m/s]
 
@@ -51,6 +71,16 @@ CONTAINS
    real(r8), intent(out) :: prc_snow  ! convective snowfall [kg/(m2 s)]
    real(r8), intent(out) :: prl_rain  ! large scale rainfall [kg/(m2 s)]
    real(r8), intent(out) :: prl_snow  ! large scale snowfall [kg/(m2 s)]
+#ifdef USE_ISOTOPE
+   real(r8), intent(out) :: prc_rain_O18  ! convective rainfall of O18 [kg/(m2 s)]
+   real(r8), intent(out) :: prc_snow_O18  ! convective snowfall of O18 [kg/(m2 s)]
+   real(r8), intent(out) :: prl_rain_O18  ! large scale rainfall of O18 [kg/(m2 s)]
+   real(r8), intent(out) :: prl_snow_O18  ! large scale snowfall of O18 [kg/(m2 s)]
+   real(r8), intent(out) :: prc_rain_H2  ! convective rainfall of H2 [kg/(m2 s)]
+   real(r8), intent(out) :: prc_snow_H2  ! convective snowfall of H2 [kg/(m2 s)]
+   real(r8), intent(out) :: prl_rain_H2  ! large scale rainfall of H2 [kg/(m2 s)]
+   real(r8), intent(out) :: prl_snow_H2  ! large scale snowfall of H2 [kg/(m2 s)]
+#endif
    real(r8), intent(out) :: t_precip  ! snowfall/rainfall temperature [kelvin]
    real(r8), intent(out) :: bifall    ! bulk density of newly fallen dry snow [kg/m3]
 
@@ -145,6 +175,17 @@ CONTAINS
       prc_snow = forc_prc*(1.-flfall)   ! convective snowfall (mm/s)
       prl_snow = forc_prl*(1.-flfall)   ! large scale snowfall (mm/s)
 
+#ifdef USE_ISOTOPE
+      prc_rain_O18 = forc_prc_O18*flfall        ! convective rainfall of O18 (mm/s)
+      prl_rain_O18 = forc_prl_O18*flfall        ! large scale rainfall of O18 (mm/s)
+      prc_snow_O18 = forc_prc_O18*(1.-flfall)   ! convective snowfall of O18 (mm/s)
+      prl_snow_O18 = forc_prl_O18*(1.-flfall)   ! large scale snowfall of O18 (mm/s)
+      prc_rain_H2  = forc_prc_H2*flfall        ! convective rainfall of H2 (mm/s)
+      prl_rain_H2  = forc_prl_H2*flfall        ! large scale rainfall of H2 (mm/s)
+      prc_snow_H2  = forc_prc_H2*(1.-flfall)   ! convective snowfall of H2 (mm/s)
+      prl_snow_H2  = forc_prl_H2*(1.-flfall)   ! large scale snowfall of H2 (mm/s)
+#endif
+      
       ! -------------------------------------------------------------
       ! temperature of rainfall or snowfall
       ! -------------------------------------------------------------

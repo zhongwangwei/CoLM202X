@@ -120,6 +120,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                forc_rhoair(i),                                                     &
              ! CBL height forcing
                forc_hpbl(i),                                                       &
+#ifdef USE_ISOTOPE
+               forc_prc_O18(i),  forc_prl_O18(i), forc_prc_H2(i),  forc_prl_H2(i),  &
+               forc_rain_O18(i),  forc_snow_O18(i),  forc_rain_H2(i),  forc_snow_H2(i), &
+#endif
              ! Aerosol deposition
                forc_aerdep(:,i),                                                   &
 
@@ -128,7 +132,11 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                t_soisno(maxsnl+1:,i),            wliq_soisno(maxsnl+1:,i),         &
                wice_soisno(maxsnl+1:,i),         smp(1:,i),       hk(1:,i),        &
                t_grnd(i),       tleaf(i),        ldew(i),         ldew_rain(i),    &
-               ldew_snow(i),    fwet_snow(i),    sag(i),          scv(i),          &
+               ldew_snow(i),    fwet_snow(i),   &
+#ifdef USE_ISOTOPE
+               ldew_O18(i),     ldew_rain_O18(i), ldew_snow_O18(i), ldew_H2(i),     ldew_rain_H2(i), ldew_snow_H2(i), &
+#endif
+               sag(i),          scv(i),          &
                snowdp(i),       fveg(i),         fsno(i),         sigf(i),         &
                green(i),        lai(i),          sai(i),          alb(1:,1:,i),    &
                ssun(1:,1:,i),   ssha(1:,1:,i),   ssoi(:,:,i),     ssno(:,:,i),     &
@@ -328,7 +336,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
           ! additional variables required by coupling with WRF model
             emis(i)         ,z0m(i)          ,zol(i)          ,rib(i)          ,&
             ustar(i)        ,qstar(i)        ,tstar(i)        ,fm(i)           ,&
-            fh(i)           ,fq(i)           ,forc_hpbl(i)                      )
+            fh(i)           ,fq(i)           ,forc_hpbl(i),&                     
+#ifdef USE_ISOTOPE
+            forc_q_O18(i),   forc_q_H2(i),   forc_prc_O18(i),  forc_prl_O18(i), forc_prc_H2(i),  forc_prl_H2(i),  &
+            forc_rain_O18(i),  forc_snow_O18(i),  forc_rain_H2(i),  forc_snow_H2(i), &
+            ldew_O18(i),     ldew_rain_O18(i), ldew_snow_O18(i), ldew_H2(i),     ldew_rain_H2(i), ldew_snow_H2(i) &
+#endif
+            )
          ENDIF
 
 #endif

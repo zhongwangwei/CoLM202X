@@ -5,7 +5,7 @@ HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA : main/ISOTOPE \
 	: CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -28,6 +28,7 @@ OBJS_SHARED =    \
 				  MOD_SPMD_Task.o              \
 				  MOD_Namelist.o               \
 				  MOD_Vars_Global.o            \
+				  MOD_Vars_Global_isotope.o    \
 				  MOD_Const_Physical.o         \
 				  MOD_Const_LC.o               \
 				  MOD_Utils.o                  \

@@ -90,7 +90,14 @@ CONTAINS
 
                   ! non-adjusted forcing
                   forc_topo_g ,forc_maxelv_g ,forc_t_g   ,forc_th_g  ,forc_q_g     ,&
-                  forc_pbot_g ,forc_rho_g    ,forc_prc_g ,forc_prl_g ,forc_lwrad_g ,&
+#ifdef USE_ISOTOPE
+                  forc_q_g_O18, forc_q_g_H2, &
+#endif
+                  forc_pbot_g ,forc_rho_g    ,forc_prc_g ,forc_prl_g ,&
+#ifdef USE_ISOTOPE
+                  forc_prc_g_O18, forc_prl_g_O18, forc_prc_g_H2, forc_prl_g_H2, &
+#endif
+                  forc_lwrad_g ,&
                   forc_hgt_g  ,forc_swrad_g  ,forc_us_g  ,forc_vs_g  , &
 
                   ! topography-based factor on patch
@@ -105,8 +112,16 @@ CONTAINS
                   julian_day, coszen, cosazi, alb, &
 
                   ! adjusted forcing
-                  forc_topo_c ,forc_t_c   ,forc_th_c  ,forc_q_c     ,forc_pbot_c ,&
-                  forc_rho_c  ,forc_prc_c ,forc_prl_c ,forc_lwrad_c, forc_swrad_c, &
+                  forc_topo_c ,forc_t_c   ,forc_th_c  ,forc_q_c     , &
+#ifdef USE_ISOTOPE
+                  forc_q_c_O18, forc_q_c_H2, &
+#endif
+                  forc_pbot_c ,&
+                  forc_rho_c  ,forc_prc_c ,forc_prl_c ,&
+#ifdef USE_ISOTOPE
+                  forc_prc_c_O18, forc_prl_c_O18, forc_prc_c_H2, forc_prl_c_H2, &
+#endif
+                  forc_lwrad_c, forc_swrad_c, &
                   forc_us_c   ,forc_vs_c)
 
 !-----------------------------------------------------------------------------
@@ -153,10 +168,20 @@ CONTAINS
    real(r8), intent(in) :: forc_t_g      ! atmospheric temperature [Kelvin]
    real(r8), intent(in) :: forc_th_g     ! atmospheric potential temperature [Kelvin]
    real(r8), intent(in) :: forc_q_g      ! atmospheric specific humidity [kg/kg]
+#ifdef USE_ISOTOPE
+   real(r8), intent(in) :: forc_q_g_O18      ! atmospheric specific humidity [kg/kg]
+   real(r8), intent(in) :: forc_q_g_H2      ! atmospheric specific humidity [kg/kg]
+#endif
    real(r8), intent(in) :: forc_pbot_g   ! atmospheric pressure [Pa]
    real(r8), intent(in) :: forc_rho_g    ! atmospheric density [kg/m**3]
    real(r8), intent(in) :: forc_prc_g    ! convective precipitation in grid [mm/s]
    real(r8), intent(in) :: forc_prl_g    ! large-scale precipitation in grid [mm/s]
+#ifdef USE_ISOTOPE
+   real(r8), intent(in) :: forc_prc_g_O18      ! convective precipitation in grid [kg/kg]
+   real(r8), intent(in) :: forc_prl_g_O18      ! large-scale precipitation in grid [kg/kg]
+   real(r8), intent(in) :: forc_prc_g_H2      ! convective precipitation in grid [kg/kg]
+   real(r8), intent(in) :: forc_prl_g_H2      ! large-scale precipitation in grid [kg/kg]
+#endif
    real(r8), intent(in) :: forc_lwrad_g  ! grid downward longwave [W/m**2]
    real(r8), intent(in) :: forc_swrad_g  ! grid downward shortwave [W/m**2]
    real(r8), intent(in) :: forc_hgt_g    ! atmospheric reference height [m]
@@ -168,10 +193,20 @@ CONTAINS
    real(r8), intent(out) :: forc_t_c     ! atmospheric temperature [Kelvin]
    real(r8), intent(out) :: forc_th_c    ! atmospheric potential temperature [Kelvin]
    real(r8), intent(out) :: forc_q_c     ! atmospheric specific humidity [kg/kg]
+#ifdef USE_ISOTOPE
+   real(r8), intent(out) :: forc_q_c_O18     ! atmospheric specific humidity [kg/kg]
+   real(r8), intent(out) :: forc_q_c_H2     ! atmospheric specific humidity [kg/kg]
+#endif
    real(r8), intent(out) :: forc_pbot_c  ! atmospheric pressure [Pa]
    real(r8), intent(out) :: forc_rho_c   ! atmospheric density [kg/m**3]
    real(r8), intent(out) :: forc_prc_c   ! column convective precipitation [mm/s]
    real(r8), intent(out) :: forc_prl_c   ! column large-scale precipitation [mm/s]
+#ifdef USE_ISOTOPE
+   real(r8), intent(out) :: forc_prc_c_O18   ! column convective precipitation [kg/kg]
+   real(r8), intent(out) :: forc_prl_c_O18   ! column large-scale precipitation [kg/kg]
+   real(r8), intent(out) :: forc_prc_c_H2   ! column convective precipitation [kg/kg]
+   real(r8), intent(out) :: forc_prl_c_H2   ! column large-scale precipitation [kg/kg]
+#endif
    real(r8), intent(out) :: forc_lwrad_c ! column downward longwave [W/m**2]
    real(r8), intent(out) :: forc_swrad_c ! column downward shortwave [W/m**2]
    real(r8), intent(out) :: forc_us_c    ! column eastward wind [m/s]
@@ -295,11 +330,19 @@ CONTAINS
       IF (forc_prl_c < 0) THEN
          write(*,*) 'negative prl', forc_prl_g, forc_maxelv_g, forc_topo_c, forc_topo_g
          forc_prl_c = 0.
+#ifdef USE_ISOTOPE
+         forc_prl_c_O18 = 0.
+         forc_prl_c_H2 = 0.
+#endif
       ENDIF
 
       IF (forc_prc_c < 0) THEN
          write(*,*) 'negative prc', forc_prc_g, forc_maxelv_g, forc_topo_c, forc_topo_g
          forc_prc_c = 0.
+#ifdef USE_ISOTOPE
+         forc_prc_c_O18 = 0.
+         forc_prc_c_H2 = 0.
+#endif
       ENDIF
 
    END SUBROUTINE downscale_forcings

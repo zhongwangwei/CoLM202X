@@ -48,10 +48,20 @@ MODULE MOD_Forcing
    type(pointer_real8_1d), allocatable :: forc_t_grid    (:)
    type(pointer_real8_1d), allocatable :: forc_th_grid   (:)
    type(pointer_real8_1d), allocatable :: forc_q_grid    (:)
+#ifdef USE_ISOTOPE
+   type(pointer_real8_1d), allocatable :: forc_q_grid_O18    (:)
+   type(pointer_real8_1d), allocatable :: forc_q_grid_H2    (:)
+#endif
    type(pointer_real8_1d), allocatable :: forc_pbot_grid (:)
    type(pointer_real8_1d), allocatable :: forc_rho_grid  (:)
    type(pointer_real8_1d), allocatable :: forc_prc_grid  (:)
    type(pointer_real8_1d), allocatable :: forc_prl_grid  (:)
+#ifdef USE_ISOTOPE
+   type(pointer_real8_1d), allocatable :: forc_prc_grid_O18  (:)
+   type(pointer_real8_1d), allocatable :: forc_prl_grid_O18  (:)
+   type(pointer_real8_1d), allocatable :: forc_prc_grid_H2  (:)
+   type(pointer_real8_1d), allocatable :: forc_prl_grid_H2  (:)
+#endif
    type(pointer_real8_1d), allocatable :: forc_lwrad_grid(:)
    type(pointer_real8_1d), allocatable :: forc_swrad_grid(:)
    type(pointer_real8_1d), allocatable :: forc_hgt_grid  (:)
@@ -61,10 +71,20 @@ MODULE MOD_Forcing
    type(pointer_real8_1d), allocatable :: forc_t_part     (:)
    type(pointer_real8_1d), allocatable :: forc_th_part    (:)
    type(pointer_real8_1d), allocatable :: forc_q_part     (:)
+#ifdef USE_ISOTOPE
+   type(pointer_real8_1d), allocatable :: forc_q_part_O18     (:)
+   type(pointer_real8_1d), allocatable :: forc_q_part_H2     (:)
+#endif
    type(pointer_real8_1d), allocatable :: forc_pbot_part  (:)
    type(pointer_real8_1d), allocatable :: forc_rhoair_part(:)
    type(pointer_real8_1d), allocatable :: forc_prc_part   (:)
    type(pointer_real8_1d), allocatable :: forc_prl_part   (:)
+#ifdef USE_ISOTOPE
+   type(pointer_real8_1d), allocatable :: forc_prc_part_O18   (:)
+   type(pointer_real8_1d), allocatable :: forc_prl_part_O18   (:)
+   type(pointer_real8_1d), allocatable :: forc_prc_part_H2   (:)
+   type(pointer_real8_1d), allocatable :: forc_prl_part_H2   (:)
+#endif
    type(pointer_real8_1d), allocatable :: forc_frl_part   (:)
    type(pointer_real8_1d), allocatable :: forc_swrad_part (:)
    type(pointer_real8_1d), allocatable :: forc_us_part    (:)
@@ -248,10 +268,21 @@ CONTAINS
          CALL mg2p_forc%allocate_part (forc_t_grid     )
          CALL mg2p_forc%allocate_part (forc_th_grid    )
          CALL mg2p_forc%allocate_part (forc_q_grid     )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%allocate_part (forc_q_grid_O18 )
+         CALL mg2p_forc%allocate_part (forc_q_grid_H2  )
+#endif
          CALL mg2p_forc%allocate_part (forc_pbot_grid  )
          CALL mg2p_forc%allocate_part (forc_rho_grid   )
          CALL mg2p_forc%allocate_part (forc_prc_grid   )
          CALL mg2p_forc%allocate_part (forc_prl_grid   )
+
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%allocate_part (forc_prc_grid_O18 )
+         CALL mg2p_forc%allocate_part (forc_prl_grid_O18 )
+         CALL mg2p_forc%allocate_part (forc_prc_grid_H2  )
+         CALL mg2p_forc%allocate_part (forc_prl_grid_H2  )
+#endif
          CALL mg2p_forc%allocate_part (forc_lwrad_grid )
          CALL mg2p_forc%allocate_part (forc_swrad_grid )
          CALL mg2p_forc%allocate_part (forc_hgt_grid   )
@@ -261,11 +292,21 @@ CONTAINS
          CALL mg2p_forc%allocate_part (forc_t_part     )
          CALL mg2p_forc%allocate_part (forc_th_part    )
          CALL mg2p_forc%allocate_part (forc_q_part     )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%allocate_part (forc_q_part_O18    )
+         CALL mg2p_forc%allocate_part (forc_q_part_H2    )
+#endif
          CALL mg2p_forc%allocate_part (forc_pbot_part  )
          CALL mg2p_forc%allocate_part (forc_rhoair_part)
          CALL mg2p_forc%allocate_part (forc_prc_part   )
          CALL mg2p_forc%allocate_part (forc_prl_part   )
          CALL mg2p_forc%allocate_part (forc_frl_part   )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%allocate_part (forc_prc_part_O18  )
+         CALL mg2p_forc%allocate_part (forc_prl_part_O18  )
+         CALL mg2p_forc%allocate_part (forc_prc_part_H2  )
+         CALL mg2p_forc%allocate_part (forc_prl_part_H2  )
+#endif
          CALL mg2p_forc%allocate_part (forc_swrad_part )
          CALL mg2p_forc%allocate_part (forc_us_part    )
          CALL mg2p_forc%allocate_part (forc_vs_part    )
@@ -343,10 +384,22 @@ CONTAINS
                deallocate (forc_t_grid     )
                deallocate (forc_th_grid    )
                deallocate (forc_q_grid     )
+#ifdef USE_ISOTOPE
+               deallocate (forc_q_grid_O18    )
+               deallocate (forc_q_grid_H2    )
+#endif
                deallocate (forc_pbot_grid  )
                deallocate (forc_rho_grid   )
                deallocate (forc_prc_grid   )
                deallocate (forc_prl_grid   )
+
+#ifdef USE_ISOTOPE
+               deallocate (forc_prc_grid_O18  )
+               deallocate (forc_prl_grid_O18  )
+               deallocate (forc_prc_grid_H2  )
+               deallocate (forc_prl_grid_H2  )
+#endif
+
                deallocate (forc_lwrad_grid )
                deallocate (forc_swrad_grid )
                deallocate (forc_hgt_grid   )
@@ -354,10 +407,24 @@ CONTAINS
                deallocate (forc_t_part     )
                deallocate (forc_th_part    )
                deallocate (forc_q_part     )
+
+#ifdef USE_ISOTOPE
+               deallocate (forc_q_part_O18    )
+               deallocate (forc_q_part_H2    )
+#endif
+
                deallocate (forc_pbot_part  )
                deallocate (forc_rhoair_part)
                deallocate (forc_prc_part   )
                deallocate (forc_prl_part   )
+
+#ifdef USE_ISOTOPE
+               deallocate (forc_prc_part_O18  )
+               deallocate (forc_prl_part_O18  )
+               deallocate (forc_prc_part_H2  )
+               deallocate (forc_prl_part_H2  )
+#endif
+
                deallocate (forc_frl_part   )
                deallocate (forc_swrad_part )
 
@@ -522,10 +589,15 @@ CONTAINS
          CALL block_data_copy (forcn(9), forc_xy_hpbl   )
          ENDIF
 #ifdef USE_ISOTOPE
-         CALL block_data_copy (forcn(9), forc_xy_iso_pp_O18)
+         CALL block_data_copy (forcn(9),  forc_xy_iso_pp_O18)
          CALL block_data_copy (forcn(10), forc_xy_iso_pp_H2)
-         CALL block_data_copy (forcn(11), forc_xy_iso_vp_O18)
-         CALL block_data_copy (forcn(12), forc_xy_iso_vp_H2)
+         CALL block_data_copy (forcn(11), forc_xy_q_O18)
+         CALL block_data_copy (forcn(12), forc_xy_q_H2)
+         CALL block_data_copy (forcn(9),  forc_xy_prc_O18, sca = 1/3._r8)
+         CALL block_data_copy (forcn(9),  forc_xy_prl_O18, sca = 2/3._r8)
+         CALL block_data_copy (forcn(10), forc_xy_prc_H2, sca = 1/3._r8)
+         CALL block_data_copy (forcn(10), forc_xy_prl_H2, sca = 2/3._r8)
+
 #endif
          IF (has_u .and. has_v) THEN
             CALL block_data_copy (forcn(5), forc_xy_us )
@@ -664,13 +736,19 @@ CONTAINS
 #ifdef USE_ISOTOPE
          CALL mg2p_forc%grid2pset (forc_xy_iso_pp_O18,  forc_iso_pp_O18)
          CALL mg2p_forc%grid2pset (forc_xy_iso_pp_H2,  forc_iso_pp_H2)
-         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_O18,  forc_iso_vp_O18)
-         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_H2,  forc_iso_vp_H2)
+         CALL mg2p_forc%grid2pset (forc_xy_q_O18,  forc_q_O18)
+         CALL mg2p_forc%grid2pset (forc_xy_q_H2,  forc_q_H2)
 #endif
          CALL mg2p_forc%grid2pset (forc_xy_t    ,  forc_t    )
          CALL mg2p_forc%grid2pset (forc_xy_q    ,  forc_q    )
          CALL mg2p_forc%grid2pset (forc_xy_prc  ,  forc_prc  )
          CALL mg2p_forc%grid2pset (forc_xy_prl  ,  forc_prl  )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%grid2pset (forc_xy_prc_O18  ,  forc_prc_O18  )
+         CALL mg2p_forc%grid2pset (forc_xy_prl_O18  ,  forc_prl_O18  )
+         CALL mg2p_forc%grid2pset (forc_xy_prc_H2  ,  forc_prc_H2  )
+         CALL mg2p_forc%grid2pset (forc_xy_prl_H2  ,  forc_prl_H2  )
+#endif
          CALL mg2p_forc%grid2pset (forc_xy_pbot ,  forc_pbot )
          CALL mg2p_forc%grid2pset (forc_xy_frl  ,  forc_frl  )
 
@@ -721,8 +799,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
          CALL mg2p_forc%grid2pset (forc_xy_iso_pp_O18,  forc_iso_pp_O18)
          CALL mg2p_forc%grid2pset (forc_xy_iso_pp_H2,  forc_iso_pp_H2)
-         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_O18,  forc_iso_vp_O18)
-         CALL mg2p_forc%grid2pset (forc_xy_iso_vp_H2,  forc_iso_vp_H2)
+         CALL mg2p_forc%grid2pset (forc_xy_q_O18,  forc_q_O18)
+         CALL mg2p_forc%grid2pset (forc_xy_q_H2,  forc_q_H2)
 #endif
          ! Mapping the 2d atmospheric fields [lon_points]x[lat_points]
          !     -> the 1d vector of subgrid points [numelm]
@@ -731,6 +809,12 @@ CONTAINS
          CALL mg2p_forc%grid2part (forc_xy_q    ,   forc_q_grid    )
          CALL mg2p_forc%grid2part (forc_xy_prc  ,   forc_prc_grid  )
          CALL mg2p_forc%grid2part (forc_xy_prl  ,   forc_prl_grid  )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%grid2part (forc_xy_prc_O18  ,   forc_prc_grid_O18  )
+         CALL mg2p_forc%grid2part (forc_xy_prl_O18  ,   forc_prl_grid_O18  )
+         CALL mg2p_forc%grid2part (forc_xy_prc_H2  ,   forc_prc_grid_H2  )
+         CALL mg2p_forc%grid2part (forc_xy_prl_H2  ,   forc_prl_grid_H2  )
+#endif
          CALL mg2p_forc%grid2part (forc_xy_pbot ,   forc_pbot_grid )
          CALL mg2p_forc%grid2part (forc_xy_frl  ,   forc_lwrad_grid)
          CALL mg2p_forc%grid2part (forc_xy_hgt_t,   forc_hgt_grid  )
@@ -783,9 +867,21 @@ CONTAINS
                      ! non-adjusted forcing
                      forc_topo_grid(np)%val(ipart),  forc_maxelv_grid(np)%val(ipart), &
                      forc_t_grid(np)%val(ipart),     forc_th_grid(np)%val(ipart),     &
-                     forc_q_grid(np)%val(ipart),     forc_pbot_grid(np)%val(ipart),   &
+                     forc_q_grid(np)%val(ipart),     &
+#ifdef USE_ISOTOPE
+                     forc_q_grid_O18(np)%val(ipart), &
+                     forc_q_grid_H2(np)%val(ipart), &
+#endif
+                     forc_pbot_grid(np)%val(ipart),   &
                      forc_rho_grid(np)%val(ipart),   forc_prc_grid(np)%val(ipart),    &
-                     forc_prl_grid(np)%val(ipart),   forc_lwrad_grid(np)%val(ipart),  &
+                     forc_prl_grid(np)%val(ipart),   &
+#ifdef USE_ISOTOPE
+                     forc_prc_grid_O18(np)%val(ipart), &
+                     forc_prl_grid_O18(np)%val(ipart), &
+                     forc_prc_grid_H2(np)%val(ipart), &
+                     forc_prl_grid_H2(np)%val(ipart), &
+#endif
+                     forc_lwrad_grid(np)%val(ipart),  &
                      forc_hgt_grid(np)%val(ipart),   forc_swrad_grid(np)%val(ipart),  &
                      forc_us_grid(np)%val(ipart),    forc_vs_grid(np)%val(ipart),     &
 
@@ -804,9 +900,16 @@ CONTAINS
                      ! adjusted forcing
                      forc_topo(np),                  forc_t_part(np)%val(ipart),      &
                      forc_th_part(np)%val(ipart),    forc_q_part(np)%val(ipart),      &
+                     forc_q_part_O18(np)%val(ipart), &
+                     forc_q_part_H2(np)%val(ipart), &
                      forc_pbot_part(np)%val(ipart),  forc_rhoair_part(np)%val(ipart), &
                      forc_prc_part(np)%val(ipart),   forc_prl_part(np)%val(ipart),    &
-
+#ifdef USE_ISOTOPE
+                     forc_prc_part_O18(np)%val(ipart), &
+                     forc_prl_part_O18(np)%val(ipart), &
+                     forc_prc_part_H2(np)%val(ipart), &
+                     forc_prl_part_H2(np)%val(ipart), &
+#endif
                      forc_frl_part(np)%val(ipart),   forc_swrad_part(np)%val(ipart),  &
                      forc_us_part(np)%val(ipart),    forc_vs_part(np)%val(ipart))
                ENDDO
@@ -816,10 +919,20 @@ CONTAINS
          ! mapping parts to patches
          CALL mg2p_forc%part2pset (forc_t_part,      forc_t     )
          CALL mg2p_forc%part2pset (forc_q_part,      forc_q     )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%part2pset (forc_q_part_O18,  forc_q_O18  )
+         CALL mg2p_forc%part2pset (forc_q_part_H2,  forc_q_H2  )
+#endif
          CALL mg2p_forc%part2pset (forc_pbot_part,   forc_pbot  )
          CALL mg2p_forc%part2pset (forc_rhoair_part, forc_rhoair)
          CALL mg2p_forc%part2pset (forc_prc_part,    forc_prc   )
          CALL mg2p_forc%part2pset (forc_prl_part,    forc_prl   )
+#ifdef USE_ISOTOPE
+         CALL mg2p_forc%part2pset (forc_prc_part_O18,    forc_prc_O18   )
+         CALL mg2p_forc%part2pset (forc_prl_part_O18,    forc_prl_O18   )
+         CALL mg2p_forc%part2pset (forc_prc_part_H2,    forc_prc_H2   )
+         CALL mg2p_forc%part2pset (forc_prl_part_H2,    forc_prl_H2   )
+#endif
          CALL mg2p_forc%part2pset (forc_frl_part,    forc_frl   )
          CALL mg2p_forc%part2pset (forc_swrad_part,  forc_swrad )
          CALL mg2p_forc%part2pset (forc_us_part,     forc_us    )
@@ -850,13 +963,27 @@ CONTAINS
                spaceship(9,1:numpatch) = INT(calday)
                spaceship(10,1:numpatch) = patchlatr
                spaceship(11,1:numpatch) = patchlonr
-
+#ifdef USE_ISOTOPE
+               spaceship(5,1:numpatch) = forc_q_O18
+               spaceship(6,1:numpatch) = forc_q_H2
+#endif
                target_server = p_iam_glb/5+p_np_glb
-               CALL MPI_SEND(spaceship,12*numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,ierr)
+               CALL MPI_SEND(spaceship,14*numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,ierr)
                CALL MPI_RECV(forc_prc,numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE,ierr)
-
+#ifdef USE_ISOTOPE
+               CALL MPI_RECV(forc_prc_O18,numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE,ierr)
+               CALL MPI_RECV(forc_prl_O18,numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE,ierr)
+               CALL MPI_RECV(forc_prc_H2,numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE,ierr)
+               CALL MPI_RECV(forc_prl_H2,numpatch,MPI_REAL8,target_server,0,MPI_COMM_WORLD,MPI_STATUS_IGNORE,ierr)
+#endif
                forc_prl = forc_prc/3600*2/3._r8
                forc_prc = forc_prc/3600*1/3._r8
+#ifdef USE_ISOTOPE
+               forc_prl_O18 = forc_prc_O18/3600*2/3._r8
+               forc_prc_O18 = forc_prc_O18/3600*1/3._r8
+               forc_prl_H2 = forc_prc_H2/3600*2/3._r8
+               forc_prc_H2 = forc_prc_H2/3600*1/3._r8
+#endif
             ENDIF
 
             ! mapping forc_prl to forc_prl_part, forc_prc to forc_prc_part
@@ -867,7 +994,12 @@ CONTAINS
 
                      forc_prl_part(np)%val(ipart) = forc_prl(np)
                      forc_prc_part(np)%val(ipart) = forc_prc(np)
-
+#ifdef USE_ISOTOPE
+                     forc_prl_part_O18(np)%val(ipart) = forc_prl_O18(np)
+                     forc_prc_part_O18(np)%val(ipart) = forc_prc_O18(np)
+                     forc_prl_part_H2(np)%val(ipart) = forc_prl_H2(np)
+                     forc_prc_part_H2(np)%val(ipart) = forc_prc_H2(np)
+#endif
                   ENDDO
                ENDDO
             ENDIF
@@ -875,10 +1007,21 @@ CONTAINS
             ! Conservation of convective and large scale precipitation in the grid of forcing
             CALL mg2p_forc%normalize (forc_xy_prc, forc_prc_part)
             CALL mg2p_forc%normalize (forc_xy_prl, forc_prl_part)
-
+#ifdef USE_ISOTOPE
+            CALL mg2p_forc%normalize (forc_xy_prc_O18, forc_prc_part_O18)
+            CALL mg2p_forc%normalize (forc_xy_prl_O18, forc_prl_part_O18)
+            CALL mg2p_forc%normalize (forc_xy_prc_H2, forc_prc_part_H2)
+            CALL mg2p_forc%normalize (forc_xy_prl_H2, forc_prl_part_H2)
+#endif
             ! mapping parts to patches
             CALL mg2p_forc%part2pset (forc_prc_part, forc_prc)
             CALL mg2p_forc%part2pset (forc_prl_part, forc_prl)
+#ifdef USE_ISOTOPE
+            CALL mg2p_forc%part2pset (forc_prc_part_O18, forc_prc_O18)
+            CALL mg2p_forc%part2pset (forc_prl_part_O18, forc_prl_O18)
+            CALL mg2p_forc%part2pset (forc_prc_part_H2, forc_prc_H2)
+            CALL mg2p_forc%part2pset (forc_prl_part_H2, forc_prl_H2)
+#endif
          ENDIF
 
          ! Conservation of short- and long- waves radiation in the grid of forcing
@@ -930,8 +1073,8 @@ CONTAINS
       CALL check_vector_data ('Forcing t     [kelvin]', forc_t    )
       CALL check_vector_data ('Forcing q     [kg/kg] ', forc_q    )
       CALL check_vector_data ('Forcing prc   [mm/s]  ', forc_prc  )
-      CALL check_vector_data ('Forcing psrf  [pa]    ', forc_psrf )
       CALL check_vector_data ('Forcing prl   [mm/s]  ', forc_prl  )
+      CALL check_vector_data ('Forcing psrf  [pa]    ', forc_psrf )
       CALL check_vector_data ('Forcing sols  [W/m2]  ', forc_sols )
       CALL check_vector_data ('Forcing soll  [W/m2]  ', forc_soll )
       CALL check_vector_data ('Forcing solsd [W/m2]  ', forc_solsd)
@@ -943,8 +1086,12 @@ CONTAINS
 #ifdef USE_ISOTOPE
       CALL check_vector_data ('Forcing iso_pp_O18  ', forc_iso_pp_O18 )
       CALL check_vector_data ('Forcing iso_pp_H2  ', forc_iso_pp_H2 )
-      CALL check_vector_data ('Forcing iso_vp_O18  ', forc_iso_vp_O18 )
-      CALL check_vector_data ('Forcing iso_vp_H2  ', forc_iso_vp_H2 )
+      CALL check_vector_data ('Forcing q_O18  ', forc_q_O18 )
+      CALL check_vector_data ('Forcing q_H2  ', forc_q_H2 )
+      CALL check_vector_data ('Forcing iso_prc_O18  ', forc_prc_O18 )
+      CALL check_vector_data ('Forcing iso_prl_O18  ', forc_prl_O18 )
+      CALL check_vector_data ('Forcing iso_prc_H2  ', forc_prc_H2 )
+      CALL check_vector_data ('Forcing iso_prl_H2  ', forc_prl_H2 )
 #endif
 
 

@@ -23,8 +23,8 @@ MODULE MOD_Vars_1DAccFluxes
 #ifdef USE_ISOTOPE
    real(r8), allocatable :: a_forc_iso_pp_O18 (:)
    real(r8), allocatable :: a_forc_iso_pp_H2 (:)
-   real(r8), allocatable :: a_forc_iso_vp_O18 (:)
-   real(r8), allocatable :: a_forc_iso_vp_H2 (:)
+   real(r8), allocatable :: a_forc_q_O18 (:)
+   real(r8), allocatable :: a_forc_q_H2 (:)
 #endif
    real(r8), allocatable :: a_taux      (:)
    real(r8), allocatable :: a_tauy      (:)
@@ -80,6 +80,14 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_ldew      (:)
    real(r8), allocatable :: a_ldew_rain (:)
    real(r8), allocatable :: a_ldew_snow (:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_ldew_O18      (:)
+   real(r8), allocatable :: a_ldew_rain_O18 (:)
+   real(r8), allocatable :: a_ldew_snow_O18 (:)
+   real(r8), allocatable :: a_ldew_H2      (:)
+   real(r8), allocatable :: a_ldew_rain_H2 (:)
+   real(r8), allocatable :: a_ldew_snow_H2 (:)
+#endif
    real(r8), allocatable :: a_scv       (:)
    real(r8), allocatable :: a_snowdp    (:)
    real(r8), allocatable :: a_fsno      (:)
@@ -99,7 +107,12 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_qref      (:)
    real(r8), allocatable :: a_rain      (:)
    real(r8), allocatable :: a_snow      (:)
-
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_rain_O18      (:)
+   real(r8), allocatable :: a_snow_O18      (:)
+   real(r8), allocatable :: a_rain_H2      (:)
+   real(r8), allocatable :: a_snow_H2      (:)
+#endif
 #ifdef URBAN_MODEL
    real(r8), allocatable :: a_t_room    (:) !temperature of inner building [K]
    real(r8), allocatable :: a_tafu      (:) !temperature of outer building [K]
@@ -432,8 +445,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
             allocate (a_forc_iso_pp_O18 (numpatch))
             allocate (a_forc_iso_pp_H2 (numpatch))
-            allocate (a_forc_iso_vp_O18 (numpatch))
-            allocate (a_forc_iso_vp_H2 (numpatch))
+            allocate (a_forc_q_O18 (numpatch))
+            allocate (a_forc_q_H2 (numpatch))
 #endif
             allocate (a_taux      (numpatch))
             allocate (a_tauy      (numpatch))
@@ -491,6 +504,14 @@ CONTAINS
             allocate (a_ldew_rain (numpatch))
             allocate (a_ldew_snow (numpatch))
             allocate (a_ldew      (numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_ldew_O18      (numpatch))
+            allocate (a_ldew_rain_O18 (numpatch))
+            allocate (a_ldew_snow_O18 (numpatch))
+            allocate (a_ldew_H2       (numpatch))
+            allocate (a_ldew_rain_H2  (numpatch))
+            allocate (a_ldew_snow_H2  (numpatch))
+#endif
             allocate (a_scv       (numpatch))
             allocate (a_snowdp    (numpatch))
             allocate (a_fsno      (numpatch))
@@ -510,6 +531,12 @@ CONTAINS
             allocate (a_qref      (numpatch))
             allocate (a_rain      (numpatch))
             allocate (a_snow      (numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_rain_O18      (numpatch))
+            allocate (a_snow_O18      (numpatch))
+            allocate (a_rain_H2      (numpatch))
+            allocate (a_snow_H2      (numpatch))
+#endif
 #ifdef URBAN_MODEL
             IF (numurban > 0) THEN
                allocate (a_t_room    (numurban))
@@ -847,8 +874,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
             deallocate (a_forc_iso_pp_O18 )
             deallocate (a_forc_iso_pp_H2 )
-            deallocate (a_forc_iso_vp_O18 )
-            deallocate (a_forc_iso_vp_H2 )
+            deallocate (a_forc_q_O18 )
+            deallocate (a_forc_q_H2 )
 #endif
             deallocate (a_taux      )
             deallocate (a_tauy      )
@@ -906,6 +933,14 @@ CONTAINS
             deallocate (a_ldew_rain )
             deallocate (a_ldew_snow )
             deallocate (a_ldew      )
+#ifdef USE_ISOTOPE
+            deallocate (a_ldew_O18    )
+            deallocate (a_ldew_rain_O18 )
+            deallocate (a_ldew_snow_O18)
+            deallocate (a_ldew_H2     )
+            deallocate (a_ldew_rain_H2)
+            deallocate (a_ldew_snow_H2 )
+#endif
             deallocate (a_scv       )
             deallocate (a_snowdp    )
             deallocate (a_fsno      )
@@ -925,6 +960,12 @@ CONTAINS
             deallocate (a_qref      )
             deallocate (a_rain      )
             deallocate (a_snow      )
+#ifdef USE_ISOTOPE
+            deallocate (a_rain_O18      )
+            deallocate (a_snow_O18      )
+            deallocate (a_rain_H2      )
+            deallocate (a_snow_H2      )
+#endif
 #ifdef URBAN_MODEL
             IF (numurban > 0) THEN
                deallocate (a_t_room    )
@@ -1264,8 +1305,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
             a_forc_iso_pp_O18 (:) = spval
             a_forc_iso_pp_H2 (:) = spval
-            a_forc_iso_vp_O18 (:) = spval
-            a_forc_iso_vp_H2 (:) = spval
+            a_forc_q_O18 (:) = spval
+            a_forc_q_H2 (:) = spval
 #endif
             a_taux      (:) = spval
             a_tauy      (:) = spval
@@ -1322,6 +1363,14 @@ CONTAINS
             a_ldew_rain (:) = spval
             a_ldew_snow (:) = spval
             a_ldew      (:) = spval
+#ifdef USE_ISOTOPE
+            a_ldew_rain_O18 (:) = spval
+            a_ldew_snow_O18 (:) = spval
+            a_ldew_O18      (:)  = spval
+            a_ldew_rain_H2 (:)  = spval
+            a_ldew_snow_H2 (:)  = spval
+            a_ldew_H2      (:)  = spval
+#endif
             a_scv       (:) = spval
             a_snowdp    (:) = spval
             a_fsno      (:) = spval
@@ -1341,7 +1390,12 @@ CONTAINS
             a_qref      (:) = spval
             a_rain      (:) = spval
             a_snow      (:) = spval
-
+#ifdef USE_ISOTOPE
+            a_rain_O18      (:) = spval
+            a_snow_O18      (:) = spval
+            a_rain_H2      (:) = spval
+            a_snow_H2      (:) = spval
+#endif
 #ifdef URBAN_MODEL
             IF (numurban > 0) THEN
                a_t_room   (:) = spval
@@ -1738,8 +1792,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
             CALL acc1d (forc_iso_pp_O18 , a_forc_iso_pp_O18)
             CALL acc1d (forc_iso_pp_H2 , a_forc_iso_pp_H2)
-            CALL acc1d (forc_iso_vp_O18 , a_forc_iso_vp_O18)
-            CALL acc1d (forc_iso_vp_H2 , a_forc_iso_vp_H2)
+            CALL acc1d (forc_q_O18 , a_forc_q_O18)
+            CALL acc1d (forc_q_H2 , a_forc_q_H2)
 #endif
             CALL acc1d (taux    , a_taux   )
             CALL acc1d (tauy    , a_tauy   )
@@ -1817,6 +1871,14 @@ CONTAINS
             CALL acc1d (ldew_rain, a_ldew_rain)
             CALL acc1d (ldew_snow, a_ldew_snow)
             CALL acc1d (ldew   , a_ldew   )
+#ifdef USE_ISOTOPE
+            CALL acc1d (ldew_rain_O18, a_ldew_rain_O18)
+            CALL acc1d (ldew_snow_O18, a_ldew_snow_O18)
+            CALL acc1d (ldew_O18, a_ldew_O18)
+            CALL acc1d (ldew_rain_H2, a_ldew_rain_H2)
+            CALL acc1d (ldew_snow_H2, a_ldew_snow_H2)
+            CALL acc1d (ldew_H2, a_ldew_H2)
+#endif
             CALL acc1d (scv    , a_scv    )
             CALL acc1d (snowdp , a_snowdp )
             CALL acc1d (fsno   , a_fsno   )
@@ -1849,7 +1911,12 @@ CONTAINS
 
             CALL acc1d (forc_rain, a_rain )
             CALL acc1d (forc_snow, a_snow )
-
+#ifdef USE_ISOTOPE
+            CALL acc1d (forc_rain_O18, a_rain_O18 )
+            CALL acc1d (forc_snow_O18, a_snow_O18 )
+            CALL acc1d (forc_rain_H2, a_rain_H2 )
+            CALL acc1d (forc_snow_H2, a_snow_H2 )
+#endif
 #ifdef URBAN_MODEL
             IF (numurban > 0) THEN
                CALL acc1d(t_room    , a_t_room    )
@@ -2320,8 +2387,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
                iso_p_O18 = sum(forc_iso_pp_O18(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
                iso_p_H2 = sum(forc_iso_pp_H2(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
-               iso_v_O18 = sum(forc_iso_vp_O18(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
-               iso_v_H2 = sum(forc_iso_vp_H2(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               iso_v_O18 = sum(forc_q_O18(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
+               iso_v_H2 = sum(forc_q_H2(istt:iend) * elm_patch%subfrc(istt:iend), mask = filter) / sumwt
 #endif
                z0h_av = z0m_av
                z0q_av = z0m_av

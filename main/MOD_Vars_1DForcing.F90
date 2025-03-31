@@ -44,8 +44,16 @@ MODULE MOD_Vars_1DForcing
 #ifdef USE_ISOTOPE
    real(r8), allocatable :: forc_iso_pp_O18(:) ! atmospheric isotope precipitation data [kg/m/s]
    real(r8), allocatable :: forc_iso_pp_H2(:) ! atmospheric isotope precipitation data [kg/m/s]
-   real(r8), allocatable :: forc_iso_vp_O18(:) ! atmospheric isotope vapor data [kg/m/s]
-   real(r8), allocatable :: forc_iso_vp_H2(:) ! atmospheric isotope vapor data [kg/m/s]
+   real(r8), allocatable :: forc_q_O18(:) ! atmospheric isotope vapor data [kg/m/s]
+   real(r8), allocatable :: forc_q_H2(:) ! atmospheric isotope vapor data [kg/m/s]
+   real(r8), allocatable :: forc_prc_O18(:) ! convective precipitation [kg/m/s]
+   real(r8), allocatable :: forc_prl_O18(:) ! large scale precipitation [kg/m/s]
+   real(r8), allocatable :: forc_prc_H2(:) ! convective precipitation [kg/m/s]
+   real(r8), allocatable :: forc_prl_H2(:) ! large scale precipitation [kg/m/s]
+   real(r8), allocatable :: forc_rain_O18(:) ! rain [kg/m/s]
+   real(r8), allocatable :: forc_snow_O18(:) ! snow [kg/m/s]
+   real(r8), allocatable :: forc_rain_H2(:) ! rain [kg/m/s]
+   real(r8), allocatable :: forc_snow_H2(:) ! snow [kg/m/s]
 #endif
 
 ! PUBLIC MEMBER FUNCTIONS:
@@ -77,10 +85,28 @@ CONTAINS
             allocate (forc_vs     (numpatch) ) ! wind in northward direction [m/s]
             allocate (forc_t      (numpatch) ) ! temperature at reference height [kelvin]
             allocate (forc_q      (numpatch) ) ! specific humidity at reference height [kg/kg]
+#ifdef USE_ISOTOPE
+            allocate (forc_q_O18(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+            allocate (forc_q_H2(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+#endif
             allocate (forc_prc    (numpatch) ) ! convective precipitation [mm/s]
+#ifdef USE_ISOTOPE
+            allocate (forc_prc_O18(numpatch) ) ! convective precipitation [kg/m/s]
+            allocate (forc_prc_H2(numpatch) ) ! convective precipitation [kg/m/s]
+#endif
             allocate (forc_prl    (numpatch) ) ! large scale precipitation [mm/s]
+#ifdef USE_ISOTOPE
+            allocate (forc_prl_O18(numpatch) ) ! large scale precipitation [kg/m/s]
+            allocate (forc_prl_H2(numpatch) ) ! large scale precipitation [kg/m/s]
+#endif
             allocate (forc_rain   (numpatch) ) ! rain [mm/s]
             allocate (forc_snow   (numpatch) ) ! snow [mm/s]
+#ifdef USE_ISOTOPE
+            allocate (forc_rain_O18(numpatch) ) ! rain [mm/s]
+            allocate (forc_snow_O18(numpatch) ) ! snow [mm/s]
+            allocate (forc_rain_H2(numpatch) ) ! rain [mm/s]
+            allocate (forc_snow_H2(numpatch) ) ! snow [mm/s]
+#endif
             allocate (forc_psrf   (numpatch) ) ! atmospheric pressure at the surface [pa]
             allocate (forc_pbot   (numpatch) ) ! atm bottom level pressure (or reference height) (pa)
             allocate (forc_sols   (numpatch) ) ! atm vis direct beam solar rad onto srf [W/m2]
@@ -99,8 +125,12 @@ CONTAINS
 #ifdef USE_ISOTOPE
             allocate (forc_iso_pp_O18(numpatch) ) ! atmospheric isotope precipitation data [kg/m/s]
             allocate (forc_iso_pp_H2(numpatch) ) ! atmospheric isotope precipitation data [kg/m/s]
-            allocate (forc_iso_vp_O18(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
-            allocate (forc_iso_vp_H2(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+            allocate (forc_q_O18(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+            allocate (forc_q_H2(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
+            allocate (forc_prc_O18(numpatch) ) ! convective precipitation [kg/m/s]
+            allocate (forc_prl_O18(numpatch) ) ! large scale precipitation [kg/m/s]
+            allocate (forc_prc_H2(numpatch) ) ! convective precipitation [kg/m/s]
+            allocate (forc_prl_H2(numpatch) ) ! large scale precipitation [kg/m/s]
 #endif
 
             IF (DEF_USE_Forcing_Downscaling) THEN
@@ -135,10 +165,27 @@ CONTAINS
             deallocate ( forc_vs     ) ! wind in northward direction [m/s]
             deallocate ( forc_t      ) ! temperature at reference height [kelvin]
             deallocate ( forc_q      ) ! specific humidity at reference height [kg/kg]
+#ifdef USE_ISOTOPE
+            deallocate ( forc_q_O18 ) ! atmospheric isotope vapor data [kg/m/s]
+            deallocate ( forc_q_H2 ) ! atmospheric isotope vapor data [kg/m/s]
+#endif
             deallocate ( forc_prc    ) ! convective precipitation [mm/s]
             deallocate ( forc_prl    ) ! large scale precipitation [mm/s]
+#ifdef USE_ISOTOPE
+            deallocate ( forc_prc_O18 ) ! convective precipitation [kg/m/s]
+            deallocate ( forc_prl_O18 ) ! large scale precipitation [kg/m/s]
+            deallocate ( forc_prc_H2 ) ! convective precipitation [kg/m/s]
+            deallocate ( forc_prl_H2 ) ! large scale precipitation [kg/m/s]
+#endif
             deallocate ( forc_rain   ) ! rain [mm/s]
             deallocate ( forc_snow   ) ! snow [mm/s]
+#ifdef USE_ISOTOPE
+            deallocate ( forc_rain_O18   ) ! rain [mm/s]
+            deallocate ( forc_snow_O18   ) ! snow [mm/s]
+            deallocate ( forc_rain_H2   ) ! rain [mm/s]
+            deallocate ( forc_snow_H2   ) ! snow [mm/s]
+
+#endif
             deallocate ( forc_psrf   ) ! atmospheric pressure at the surface [pa]
             deallocate ( forc_pbot   ) ! atm bottom level pressure (or reference height) (pa)
             deallocate ( forc_sols   ) ! atm vis direct beam solar rad onto srf [W/m2]
@@ -157,8 +204,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
             deallocate ( forc_iso_pp_O18 ) ! atmospheric isotope precipitation data [kg/m/s]
             deallocate ( forc_iso_pp_H2 ) ! atmospheric isotope precipitation data [kg/m/s]
-            deallocate ( forc_iso_vp_O18 ) ! atmospheric isotope vapor data [kg/m/s]
-            deallocate ( forc_iso_vp_H2 ) ! atmospheric isotope vapor data [kg/m/s]
+            deallocate ( forc_q_O18 ) ! atmospheric isotope vapor data [kg/m/s]
+            deallocate ( forc_q_H2 ) ! atmospheric isotope vapor data [kg/m/s]
 #endif
 
             IF (DEF_USE_Forcing_Downscaling) THEN

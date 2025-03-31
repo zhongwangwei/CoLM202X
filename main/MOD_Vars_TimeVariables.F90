@@ -30,6 +30,14 @@ MODULE MOD_Vars_PFTimeVariables
    real(r8), allocatable :: ldew_rain_p  (:) !depth of rain on foliage [mm]
    real(r8), allocatable :: ldew_snow_p  (:) !depth of snow on foliage [mm]
    real(r8), allocatable :: fwet_snow_p  (:) !vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: ldew_p_O18       (:) !depth of water on foliage [mm]
+   real(r8), allocatable :: ldew_rain_p_O18  (:) !depth of rain on foliage [mm]
+   real(r8), allocatable :: ldew_snow_p_O18  (:) !depth of snow on foliage [mm]
+   real(r8), allocatable :: ldew_p_H2       (:) !depth of water on foliage [mm]
+   real(r8), allocatable :: ldew_rain_p_H2  (:) !depth of rain on foliage [mm]
+   real(r8), allocatable :: ldew_snow_p_H2  (:) !depth of snow on foliage [mm]
+#endif
    real(r8), allocatable :: sigf_p       (:) !fraction of veg cover, excluding snow-covered veg [-]
    real(r8), allocatable :: tlai_p       (:) !leaf area index
    real(r8), allocatable :: lai_p        (:) !leaf area index
@@ -46,10 +54,18 @@ MODULE MOD_Vars_PFTimeVariables
    !TODO@yuan: to check the below for PC whether they are needed
    real(r8), allocatable :: tref_p       (:) !2 m height air temperature [kelvin]
    real(r8), allocatable :: qref_p       (:) !2 m height air specific humidity
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: qref_p_O18       (:) !2 m height air specific humidity
+   real(r8), allocatable :: qref_p_H2       (:) !2 m height air specific humidity
+#endif
    real(r8), allocatable :: rst_p        (:) !canopy stomatal resistance (s/m)
    real(r8), allocatable :: z0m_p        (:) !effective roughness [m]
 ! Plant Hydraulic variables
    real(r8), allocatable :: vegwp_p    (:,:) !vegetation water potential [mm]
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: vegwp_p_O18    (:,:) !vegetation water potential [mm]
+   real(r8), allocatable :: vegwp_p_H2    (:,:) !vegetation water potential [mm]
+#endif
    real(r8), allocatable :: gs0sun_p     (:) !working copy of sunlit stomata conductance
    real(r8), allocatable :: gs0sha_p     (:) !working copy of shaded stomata conductance
 ! END plant hydraulic variables
@@ -100,6 +116,14 @@ CONTAINS
             allocate (ldew_rain_p  (numpft)) ; ldew_rain_p  (:) = spval !depth of rain on foliage [mm]
             allocate (ldew_snow_p  (numpft)) ; ldew_snow_p  (:) = spval !depth of snow on foliage [mm]
             allocate (fwet_snow_p  (numpft)) ; fwet_snow_p  (:) = spval !vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+            allocate (ldew_p_O18       (numpft)) ; ldew_p_O18       (:) = spval !depth of water on foliage [mm]
+            allocate (ldew_rain_p_O18  (numpft)) ; ldew_rain_p_O18  (:) = spval !depth of rain on foliage [mm]
+            allocate (ldew_snow_p_O18  (numpft)) ; ldew_snow_p_O18  (:) = spval !depth of snow on foliage [mm]
+            allocate (ldew_p_H2        (numpft)) ; ldew_p_H2        (:) = spval !depth of water on foliage [mm]
+            allocate (ldew_rain_p_H2   (numpft)) ; ldew_rain_p_H2   (:) = spval !depth of rain on foliage [mm]
+            allocate (ldew_snow_p_H2   (numpft)) ; ldew_snow_p_H2   (:) = spval !depth of snow on foliage [mm]
+#endif
             allocate (sigf_p       (numpft)) ; sigf_p       (:) = spval !fraction of veg cover, excluding snow-covered veg [-]
             allocate (tlai_p       (numpft)) ; tlai_p       (:) = spval !leaf area index
             allocate (lai_p        (numpft)) ; lai_p        (:) = spval !leaf area index
@@ -115,6 +139,10 @@ CONTAINS
             allocate (extkd_p      (numpft)) ; extkd_p      (:) = spval !diffuse and scattered diffuse PAR extinction coefficient
             allocate (tref_p       (numpft)) ; tref_p       (:) = spval !2 m height air temperature [kelvin]
             allocate (qref_p       (numpft)) ; qref_p       (:) = spval !2 m height air specific humidity
+#ifdef USE_ISOTOPE
+            allocate (qref_p_O18       (numpft)) ; qref_p_O18       (:) = spval !2 m height air specific humidity
+            allocate (qref_p_H2       (numpft)) ; qref_p_H2       (:) = spval !2 m height air specific humidity
+#endif
             allocate (rst_p        (numpft)) ; rst_p        (:) = spval !canopy stomatal resistance (s/m)
             allocate (z0m_p        (numpft)) ; z0m_p        (:) = spval !effective roughness [m]
 ! Plant Hydraulic variables
@@ -158,6 +186,14 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'ldew_rain_p',landpft, ldew_rain_p )
       CALL ncio_read_vector (file_restart, 'ldew_snow_p',landpft, ldew_snow_p )
       CALL ncio_read_vector (file_restart, 'fwet_snow_p',landpft, fwet_snow_p )
+#ifdef USE_ISOTOPE
+      CALL ncio_read_vector (file_restart, 'ldew_p_O18',landpft, ldew_p_O18 )
+      CALL ncio_read_vector (file_restart, 'ldew_rain_p_O18',landpft, ldew_rain_p_O18 )
+      CALL ncio_read_vector (file_restart, 'ldew_snow_p_O18',landpft, ldew_snow_p_O18 )
+      CALL ncio_read_vector (file_restart, 'ldew_p_H2',landpft, ldew_p_H2 )
+      CALL ncio_read_vector (file_restart, 'ldew_rain_p_H2',landpft, ldew_rain_p_H2 )
+      CALL ncio_read_vector (file_restart, 'ldew_snow_p_H2',landpft, ldew_snow_p_H2 )
+#endif
       CALL ncio_read_vector (file_restart, 'sigf_p   ',  landpft, sigf_p      )
       CALL ncio_read_vector (file_restart, 'tlai_p   ',  landpft, tlai_p      )
       CALL ncio_read_vector (file_restart, 'lai_p    ',  landpft, lai_p       )
@@ -173,10 +209,18 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'extkd_p  ',  landpft, extkd_p     )
       CALL ncio_read_vector (file_restart, 'tref_p   ',  landpft, tref_p      )
       CALL ncio_read_vector (file_restart, 'qref_p   ',  landpft, qref_p      )
+#ifdef USE_ISOTOPE
+      CALL ncio_read_vector (file_restart, 'qref_p_O18',  landpft, qref_p_O18      )
+      CALL ncio_read_vector (file_restart, 'qref_p_H2',  landpft, qref_p_H2      )
+#endif
       CALL ncio_read_vector (file_restart, 'rst_p    ',  landpft, rst_p       )
       CALL ncio_read_vector (file_restart, 'z0m_p    ',  landpft, z0m_p       )
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_read_vector (file_restart, 'vegwp_p  ',  nvegwcs, landpft, vegwp_p )
+#ifdef USE_ISOTOPE
+      CALL ncio_read_vector (file_restart, 'vegwp_p_O18  ',  nvegwcs, landpft, vegwp_p_O18 )
+      CALL ncio_read_vector (file_restart, 'vegwp_p_H2  ',  nvegwcs, landpft, vegwp_p_H2 )
+#endif
       CALL ncio_read_vector (file_restart, 'gs0sun_p ',  landpft, gs0sun_p   )
       CALL ncio_read_vector (file_restart, 'gs0sha_p ',  landpft, gs0sha_p   )
 ENDIF
@@ -224,6 +268,14 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'ldew_rain_p','pft',landpft,ldew_rain_p,compress)
       CALL ncio_write_vector (file_restart, 'ldew_snow_p','pft',landpft,ldew_snow_p,compress)
       CALL ncio_write_vector (file_restart, 'fwet_snow_p','pft',landpft,fwet_snow_p,compress)
+#ifdef USE_ISOTOPE
+      CALL ncio_write_vector (file_restart, 'ldew_p_O18       ', 'pft', landpft, ldew_p_O18       , compress)
+      CALL ncio_write_vector (file_restart, 'ldew_rain_p_O18  ', 'pft', landpft, ldew_rain_p_O18  , compress)
+      CALL ncio_write_vector (file_restart, 'ldew_snow_p_O18  ', 'pft', landpft, ldew_snow_p_O18  , compress)
+      CALL ncio_write_vector (file_restart, 'ldew_p_H2        ', 'pft', landpft, ldew_p_H2        , compress)
+      CALL ncio_write_vector (file_restart, 'ldew_rain_p_H2   ', 'pft', landpft, ldew_rain_p_H2   , compress)
+      CALL ncio_write_vector (file_restart, 'ldew_snow_p_H2   ', 'pft', landpft, ldew_snow_p_H2   , compress)
+#endif
       CALL ncio_write_vector (file_restart, 'sigf_p   ', 'pft', landpft, sigf_p   , compress)
       CALL ncio_write_vector (file_restart, 'tlai_p   ', 'pft', landpft, tlai_p   , compress)
       CALL ncio_write_vector (file_restart, 'lai_p    ', 'pft', landpft, lai_p    , compress)
@@ -239,10 +291,18 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'extkd_p  ', 'pft', landpft, extkd_p  , compress)
       CALL ncio_write_vector (file_restart, 'tref_p   ', 'pft', landpft, tref_p   , compress)
       CALL ncio_write_vector (file_restart, 'qref_p   ', 'pft', landpft, qref_p   , compress)
+#ifdef USE_ISOTOPE
+      CALL ncio_write_vector (file_restart, 'qref_p_O18', 'pft', landpft, qref_p_O18, compress)
+      CALL ncio_write_vector (file_restart, 'qref_p_H2', 'pft', landpft, qref_p_H2, compress)
+#endif
       CALL ncio_write_vector (file_restart, 'rst_p    ', 'pft', landpft, rst_p    , compress)
       CALL ncio_write_vector (file_restart, 'z0m_p    ', 'pft', landpft, z0m_p    , compress)
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_write_vector (file_restart, 'vegwp_p  ', 'vegnodes', nvegwcs,  'pft', landpft, vegwp_p, compress)
+#ifdef USE_ISOTOPE
+      CALL ncio_write_vector (file_restart, 'vegwp_p_O18  ', 'vegnodes', nvegwcs,  'pft', landpft, vegwp_p_O18, compress)     
+      CALL ncio_write_vector (file_restart, 'vegwp_p_H2  ', 'vegnodes', nvegwcs,  'pft', landpft, vegwp_p_H2, compress)
+#endif
       CALL ncio_write_vector (file_restart, 'gs0sun_p ', 'pft', landpft, gs0sun_p   , compress)
       CALL ncio_write_vector (file_restart, 'gs0sha_p ', 'pft', landpft, gs0sha_p   , compress)
 ENDIF
@@ -276,6 +336,14 @@ ENDIF
             deallocate (ldew_rain_p    )  ! depth of rain on foliage [mm]
             deallocate (ldew_snow_p    )  ! depth of snow on foliage [mm]
             deallocate (fwet_snow_p    )  ! vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+            deallocate (ldew_p_O18       )  ! depth of water on foliage [mm]
+            deallocate (ldew_rain_p_O18  )  ! depth of rain on foliage [mm]
+            deallocate (ldew_snow_p_O18  )  ! depth of snow on foliage [mm]
+            deallocate (ldew_p_H2        )  ! depth of water on foliage [mm]
+            deallocate (ldew_rain_p_H2   )  ! depth of rain on foliage [mm]
+            deallocate (ldew_snow_p_H2   )  ! depth of snow on foliage [mm]
+#endif
             deallocate (sigf_p         )  ! fraction of veg cover, excluding snow-covered veg [-]
             deallocate (tlai_p         )  ! leaf area index
             deallocate (lai_p          )  ! leaf area index
@@ -291,10 +359,18 @@ ENDIF
             deallocate (extkd_p        )  ! diffuse and scattered diffuse PAR extinction coefficient
             deallocate (tref_p         )  ! 2 m height air temperature [kelvin]
             deallocate (qref_p         )  ! 2 m height air specific humidity
+#ifdef USE_ISOTOPE
+            deallocate (qref_p_O18       )  ! 2 m height air specific humidity
+            deallocate (qref_p_H2       )  ! 2 m height air specific humidity
+#endif
             deallocate (rst_p          )  ! canopy stomatal resistance (s/m)
             deallocate (z0m_p          )  ! effective roughness [m]
 ! Plant Hydraulic variables
             deallocate (vegwp_p        )  ! vegetation water potential [mm]
+#ifdef USE_ISOTOPE
+            deallocate (vegwp_p_O18    )  ! vegetation water potential [mm]
+            deallocate (vegwp_p_H2    )  ! vegetation water potential [mm]
+#endif
             deallocate (gs0sun_p       )  ! working copy of sunlit stomata conductance
             deallocate (gs0sha_p       )  ! working copy of shaded stomata conductance
 ! END plant hydraulic variables
@@ -330,6 +406,14 @@ ENDIF
       CALL check_vector_data ('   ldew_rain_p', ldew_rain_p    )
       CALL check_vector_data ('   ldew_snow_p', ldew_snow_p    )
       CALL check_vector_data ('   fwet_snow_p', fwet_snow_p    )
+#ifdef USE_ISOTOPE
+      CALL check_vector_data ('        ldew_p_O18', ldew_p_O18       )
+      CALL check_vector_data ('   ldew_rain_p_O18', ldew_rain_p_O18  )
+      CALL check_vector_data ('   ldew_snow_p_O18', ldew_snow_p_O18  )
+      CALL check_vector_data ('        ldew_p_H2', ldew_p_H2        )
+      CALL check_vector_data ('   ldew_rain_p_H2', ldew_rain_p_H2   )
+      CALL check_vector_data ('   ldew_snow_p_H2', ldew_snow_p_H2   )
+#endif
       CALL check_vector_data ('        sigf_p', sigf_p         )
       CALL check_vector_data ('        tlai_p', tlai_p         )
       CALL check_vector_data ('         lai_p', lai_p          )
@@ -345,6 +429,10 @@ ENDIF
       CALL check_vector_data ('       extkd_p', extkd_p        )
       CALL check_vector_data ('        tref_p', tref_p         )
       CALL check_vector_data ('        qref_p', qref_p         )
+#ifdef USE_ISOTOPE
+      CALL check_vector_data ('        qref_p_O18', qref_p_O18       )
+      CALL check_vector_data ('        qref_p_H2', qref_p_H2       )
+#endif
       CALL check_vector_data ('         rst_p', rst_p          )
       CALL check_vector_data ('         z0m_p', z0m_p          )
 IF(DEF_USE_PLANTHYDRAULICS)THEN
@@ -443,6 +531,14 @@ MODULE MOD_Vars_TimeVariables
    real(r8), allocatable :: ldew_rain     (:) ! depth of rain on foliage [mm]
    real(r8), allocatable :: ldew_snow     (:) ! depth of rain on foliage [mm]
    real(r8), allocatable :: fwet_snow     (:) ! vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: ldew_O18       (:) ! depth of water on foliage [mm]
+   real(r8), allocatable :: ldew_rain_O18  (:) ! depth of rain on foliage [mm]
+   real(r8), allocatable :: ldew_snow_O18  (:) ! depth of snow on foliage [mm]
+   real(r8), allocatable :: ldew_H2        (:) ! depth of water on foliage [mm]
+   real(r8), allocatable :: ldew_rain_H2   (:) ! depth of rain on foliage [mm]
+   real(r8), allocatable :: ldew_snow_H2   (:) ! depth of snow on foliage [mm]
+#endif
    real(r8), allocatable :: sag           (:) ! non dimensional snow age [-]
    real(r8), allocatable :: scv           (:) ! snow cover, water equivalent [mm]
    real(r8), allocatable :: snowdp        (:) ! snow depth [meter]
@@ -596,6 +692,14 @@ CONTAINS
             allocate (ldew_rain                   (numpatch)); ldew_rain     (:) = spval
             allocate (ldew_snow                   (numpatch)); ldew_snow     (:) = spval
             allocate (fwet_snow                   (numpatch)); fwet_snow     (:) = spval
+#ifdef USE_ISOTOPE
+            allocate (ldew_O18                   (numpatch)); ldew_O18     (:) = spval
+            allocate (ldew_rain_O18              (numpatch)); ldew_rain_O18     (:) = spval
+            allocate (ldew_snow_O18              (numpatch)); ldew_snow_O18     (:) = spval
+            allocate (ldew_H2                    (numpatch)); ldew_H2     (:) = spval
+            allocate (ldew_rain_H2               (numpatch)); ldew_rain_H2     (:) = spval
+            allocate (ldew_snow_H2               (numpatch)); ldew_snow_H2     (:) = spval
+#endif
             allocate (sag                         (numpatch)); sag           (:) = spval
             allocate (scv                         (numpatch)); scv           (:) = spval
             allocate (snowdp                      (numpatch)); snowdp        (:) = spval
@@ -757,6 +861,14 @@ CONTAINS
             deallocate (ldew_rain              )
             deallocate (ldew_snow              )
             deallocate (fwet_snow              )
+#ifdef USE_ISOTOPE
+            deallocate (ldew_O18              )
+            deallocate (ldew_rain_O18         )
+            deallocate (ldew_snow_O18         )
+            deallocate (ldew_H2               )
+            deallocate (ldew_rain_H2          )
+            deallocate (ldew_snow_H2          )
+#endif
             deallocate (sag                    )
             deallocate (scv                    )
             deallocate (snowdp                 )
@@ -986,6 +1098,14 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'ldew_rain'  , 'patch', landpatch, ldew_rain , compress)                    ! depth of water on foliage [mm]
       CALL ncio_write_vector (file_restart, 'ldew_snow'  , 'patch', landpatch, ldew_snow , compress)                    ! depth of water on foliage [mm]
       CALL ncio_write_vector (file_restart, 'fwet_snow'  , 'patch', landpatch, fwet_snow , compress)                    ! vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+      CALL ncio_write_vector (file_restart, 'ldew_O18'     , 'patch', landpatch, ldew_O18 ,      compress )
+      CALL ncio_write_vector (file_restart, 'ldew_rain_O18', 'patch', landpatch, ldew_rain_O18 , compress )
+      CALL ncio_write_vector (file_restart, 'ldew_snow_O18', 'patch', landpatch, ldew_snow_O18 , compress )
+      CALL ncio_write_vector (file_restart, 'ldew_H2'      , 'patch', landpatch, ldew_H2 ,       compress )
+      CALL ncio_write_vector (file_restart, 'ldew_rain_H2' , 'patch', landpatch, ldew_rain_H2 ,  compress )
+      CALL ncio_write_vector (file_restart, 'ldew_snow_H2' , 'patch', landpatch, ldew_snow_H2 ,  compress )
+#endif
       CALL ncio_write_vector (file_restart, 'sag     '   , 'patch', landpatch, sag       , compress)                    ! non dimensional snow age [-]
       CALL ncio_write_vector (file_restart, 'scv     '   , 'patch', landpatch, scv       , compress)                    ! snow cover, water equivalent [mm]
       CALL ncio_write_vector (file_restart, 'snowdp  '   , 'patch', landpatch, snowdp    , compress)                    ! snow depth [meter]
@@ -1169,6 +1289,14 @@ ENDIF
       CALL ncio_read_vector (file_restart, 'ldew_rain'  , landpatch, ldew_rain  ) ! depth of rain on foliage [mm]
       CALL ncio_read_vector (file_restart, 'ldew_snow'  , landpatch, ldew_snow  ) ! depth of snow on foliage [mm]
       CALL ncio_read_vector (file_restart, 'fwet_snow'  , landpatch, fwet_snow  ) ! vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+      CALL ncio_read_vector (file_restart, 'ldew_O18',      landpatch, ldew_O18 )
+      CALL ncio_read_vector (file_restart, 'ldew_rain_O18', landpatch, ldew_rain_O18 )
+      CALL ncio_read_vector (file_restart, 'ldew_snow_O18', landpatch, ldew_snow_O18 )
+      CALL ncio_read_vector (file_restart, 'ldew_H2',       landpatch, ldew_H2 )
+      CALL ncio_read_vector (file_restart, 'ldew_rain_H2',  landpatch, ldew_rain_H2 )
+      CALL ncio_read_vector (file_restart, 'ldew_snow_H2',  landpatch, ldew_snow_H2 )
+#endif
       CALL ncio_read_vector (file_restart, 'sag     '   , landpatch, sag        ) ! non dimensional snow age [-]
       CALL ncio_read_vector (file_restart, 'scv     '   , landpatch, scv        ) ! snow cover, water equivalent [mm]
       CALL ncio_read_vector (file_restart, 'snowdp  '   , landpatch, snowdp     ) ! snow depth [meter]
@@ -1319,6 +1447,14 @@ ENDIF
       CALL check_vector_data ('ldew_rain   [mm]   ', ldew_rain  ) ! depth of rain on foliage [mm]
       CALL check_vector_data ('ldew_snow   [mm]   ', ldew_snow  ) ! depth of snow on foliage [mm]
       CALL check_vector_data ('fwet_snow   [mm]   ', fwet_snow  ) ! vegetation snow fractional cover [-]
+#ifdef USE_ISOTOPE
+      CALL check_vector_data ('ldew_O18       [mm]   ', ldew_O18       ) ! depth of water on foliage [mm]
+      CALL check_vector_data ('ldew_rain_O18  [mm]   ', ldew_rain_O18  ) ! depth of rain on foliage [mm]
+      CALL check_vector_data ('ldew_snow_O18  [mm]   ', ldew_snow_O18  ) ! depth of snow on foliage [mm]
+      CALL check_vector_data ('ldew_H2       [mm]   ', ldew_H2       ) ! depth of water on foliage [mm]
+      CALL check_vector_data ('ldew_rain_H2  [mm]   ', ldew_rain_H2  ) ! depth of rain on foliage [mm]
+      CALL check_vector_data ('ldew_snow_H2  [mm]   ', ldew_snow_H2  ) ! depth of snow on foliage [mm]
+#endif
       CALL check_vector_data ('sag         [-]    ', sag        ) ! non dimensional snow age [-]
       CALL check_vector_data ('scv         [mm]   ', scv        ) ! snow cover, water equivalent [mm]
       CALL check_vector_data ('snowdp      [m]    ', snowdp     ) ! snow depth [meter]

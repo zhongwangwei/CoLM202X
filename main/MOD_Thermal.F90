@@ -59,6 +59,10 @@ CONTAINS
                        fsno          ,sigf          ,dz_soisno     ,z_soisno      ,&
                        zi_soisno     ,tleaf         ,t_soisno      ,wice_soisno   ,&
                        wliq_soisno   ,ldew          ,ldew_rain     ,ldew_snow     ,&
+#ifdef USE_ISOTOPE
+                       ldew_18O      ,ldew_rain_18O,    ldew_snow_18O             ,&
+                       ldew_H2       ,ldew_rain_H2 ,    ldew_snow_H2              ,&
+#endif
                        fwet_snow     ,scv           ,snowdp        ,imelt         ,&
                        taux          ,tauy          ,fsena         ,fevpa         ,&
                        lfevpa        ,fsenl         ,fevpl         ,etr           ,&
@@ -284,6 +288,14 @@ CONTAINS
        ldew,                     &! depth of water on foliage [kg/(m2 s)]
        ldew_rain,                &! depth of rain on foliage [kg/(m2 s)]
        ldew_snow,                &! depth of rain on foliage [kg/(m2 s)]
+#ifdef USE_ISOTOPE
+       ldew_18O,                 &! depth of water on foliage [kg/(m2 s)]
+       ldew_rain_18O,            &! depth of rain on foliage [kg/(m2 s)]
+       ldew_snow_18O,            &! depth of snow on foliage [kg/(m2 s)]
+       ldew_H2,                  &! depth of water on foliage [kg/(m2 s)]
+       ldew_rain_H2,             &! depth of rain on foliage [kg/(m2 s)]
+       ldew_snow_H2,             &! depth of snow on foliage [kg/(m2 s)]
+#endif
        fwet_snow,                &! vegetation canopy snow fractional cover [-]
        scv,                      &! snow cover, water equivalent [mm, kg/m2]
        snowdp                     ! snow depth [m]
@@ -671,6 +683,10 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
                  sigf        ,etrc        ,t_grnd      ,qg          ,rss         ,&
                  t_soil      ,t_snow      ,q_soil      ,q_snow      ,dqgdT       ,&
                  emg         ,tleaf       ,ldew        ,ldew_rain   ,ldew_snow   ,&
+#ifdef USE_ISOTOPE
+                 ldew_18O    ,ldew_rain_18O,ldew_snow_18O,&
+                 ldew_H2     ,ldew_rain_H2 ,ldew_snow_H2 ,&
+#endif
                  fwet_snow   ,taux        ,tauy        ,&
                  fseng       ,fseng_soil  ,fseng_snow  ,&
                  fevpg       ,fevpg_soil  ,fevpg_snow  ,&
@@ -701,6 +717,14 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
          ldew_snow     = 0.
          fwet_snow     = 0.
          ldew          = 0.
+#ifdef USE_ISOTOPE
+         ldew_rain_18O = 0.
+         ldew_snow_18O = 0.
+         ldew_18O      = 0.
+         ldew_rain_H2  = 0.
+         ldew_snow_H2  = 0.
+         ldew_H2       = 0.
+#endif
          rstfacsun_out = 0.
          rstfacsha_out = 0.
          assimsun_out  = 0.
@@ -794,6 +818,14 @@ ENDIF
             ldew_snow_p(i) = 0.
             fwet_snow_p(i) = 0.
             ldew_p(i)      = 0.
+#ifdef USE_ISOTOPE
+            ldew_rain_p_18O(i) = 0.
+            ldew_snow_p_18O(i) = 0.
+            ldew_p_18O(i)      = 0.
+            ldew_rain_p_H2(i)  = 0.
+            ldew_snow_p_H2(i)  = 0.
+            ldew_p_H2(i)       = 0.
+#endif
             rootr_p(:,i)   = 0.
             rootflux_p(:,i)= 0.
             rstfacsun_p(i) = 0.
@@ -823,6 +855,10 @@ IF (DEF_USE_PFT .or. patchclass(ipatch)==CROPLAND) THEN
                  sigf_p(i)       ,etrc_p(i)       ,t_grnd          ,qg              ,rss            ,&
                  t_soil          ,t_snow          ,q_soil          ,q_snow          ,dqgdT          ,&
                  emg             ,tleaf_p(i)      ,ldew_p(i)       ,ldew_rain_p(i)  ,ldew_snow_p(i) ,&
+#ifdef USE_ISOTOPE
+                 ldew_p_18O(i)   ,ldew_rain_p_18O(i),ldew_snow_p_18O(i),&
+                 ldew_p_H2(i)    ,ldew_rain_p_H2(i),ldew_snow_p_H2(i),&
+#endif
                  fwet_snow_p(i)  ,taux_p(i)       ,tauy_p(i)       ,&
                  fseng_p(i)      ,fseng_soil_p(i) ,fseng_snow_p(i) ,&
                  fevpg_p(i)      ,fevpg_soil_p(i) ,fevpg_snow_p(i) ,&
@@ -927,6 +963,10 @@ IF (DEF_USE_PC .and. patchclass(ipatch)/=CROPLAND) THEN
          sigf_p(ps:pe)     ,etrc_p(:)         ,t_grnd            ,qg,rss            ,dqgdT             ,&
          emg               ,t_soil            ,t_snow            ,q_soil            ,q_snow            ,&
          z0m_p(ps:pe)      ,tleaf_p(ps:pe)    ,ldew_p(ps:pe)     ,ldew_rain_p(ps:pe),ldew_snow_p(ps:pe),&
+#ifdef USE_ISOTOPE
+         ldew_p_18O(ps:pe)  ,ldew_rain_p_18O(ps:pe),ldew_snow_p_18O(ps:pe),&
+         ldew_p_H2(ps:pe)   ,ldew_rain_p_H2(ps:pe),ldew_snow_p_H2(ps:pe),&
+#endif
          fwet_snow_p(ps:pe),taux              ,tauy              ,fseng             ,fseng_soil        ,&
          fseng_snow        ,fevpg             ,fevpg_soil        ,fevpg_snow        ,cgrnd             ,&
          cgrndl            ,cgrnds            ,tref              ,qref              ,rst_p(ps:pe)      ,&
@@ -953,6 +993,14 @@ ENDIF
       ldew_snow     = sum( ldew_snow_p (ps:pe)*pftfrac(ps:pe) )
       fwet_snow     = sum( fwet_snow_p (ps:pe)*pftfrac(ps:pe) )
       ldew          = sum( ldew_p      (ps:pe)*pftfrac(ps:pe) )
+#ifdef USE_ISOTOPE
+      ldew_rain_18O = sum( ldew_rain_p_18O(ps:pe)*pftfrac(ps:pe) )
+      ldew_snow_18O = sum( ldew_snow_p_18O(ps:pe)*pftfrac(ps:pe) )
+      ldew_18O      = sum( ldew_p_18O(ps:pe)*pftfrac(ps:pe) )
+      ldew_rain_H2  = sum( ldew_rain_p_H2(ps:pe)*pftfrac(ps:pe) )
+      ldew_snow_H2  = sum( ldew_snow_p_H2(ps:pe)*pftfrac(ps:pe) )
+      ldew_H2       = sum( ldew_p_H2(ps:pe)*pftfrac(ps:pe) )
+#endif
       ! may have problem with rst, but the same for LC
       rst           = sum( rst_p       (ps:pe)*pftfrac(ps:pe) )
       assim         = sum( assim_p     (ps:pe)*pftfrac(ps:pe) )

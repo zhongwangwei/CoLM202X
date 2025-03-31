@@ -89,8 +89,17 @@ MODULE MOD_LeafInterception
 CONTAINS
 
    SUBROUTINE LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
-                                          prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                                          ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                                          prc_rain,prc_snow,prl_rain,prl_snow, &
+#ifdef USE_ISOTOPE
+                                          prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                                          prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                                          bifall,&
+                                          ldew,ldew_rain,ldew_snow, &
+#ifdef USE_ISOTOPE
+                                          ldew_O18,ldew_rain_O18,ldew_snow_O18,ldew_H2,ldew_rain_H2,ldew_snow_H2,&
+#endif
+                                          z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
 !DESCRIPTION
 !===========
    ! Calculation of  interception and drainage of precipitation
@@ -153,6 +162,16 @@ CONTAINS
    real(r8), intent(in) :: prc_snow     !convective snowfall [mm/s]
    real(r8), intent(in) :: prl_rain     !large-scale rainfall [mm/s]
    real(r8), intent(in) :: prl_snow     !large-scale snowfall [mm/s]
+#ifdef USE_ISOTOPE
+   real(r8), intent(in) :: prc_rain_O18     !convective rainfall [mm/s]
+   real(r8), intent(in) :: prc_snow_O18     !convective snowfall [mm/s]
+   real(r8), intent(in) :: prl_rain_O18     !large-scale rainfall [mm/s]
+   real(r8), intent(in) :: prl_snow_O18     !large-scale snowfall [mm/s]
+   real(r8), intent(in) :: prc_rain_H2     !convective rainfall [mm/s]
+   real(r8), intent(in) :: prc_snow_H2     !convective snowfall [mm/s]
+   real(r8), intent(in) :: prl_rain_H2     !large-scale rainfall [mm/s]
+   real(r8), intent(in) :: prl_snow_H2     !large-scale snowfall [mm/s]
+#endif
    real(r8), intent(in) :: bifall       !bulk density of newly fallen dry snow [kg/m3]
    real(r8), intent(in) :: sigf         !fraction of veg cover, excluding snow-covered veg [-]
    real(r8), intent(in) :: lai          !leaf area index [-]
@@ -163,6 +182,14 @@ CONTAINS
    real(r8), intent(inout) :: ldew      !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_snow !depth of water on foliage [mm]
+#ifdef USE_ISOTOPE
+   real(r8), intent(inout) :: ldew_O18 !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_rain_O18 !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow_O18 !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_H2 !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_rain_H2 !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow_H2 !depth of water on foliage [mm]
+#endif
    real(r8), intent(in)    :: z0m       !roughness length
    real(r8), intent(in)    :: hu        !forcing height of U
 
@@ -1749,8 +1776,19 @@ CONTAINS
    END SUBROUTINE LEAF_interception_JULES
 
    SUBROUTINE LEAF_interception_wrap(deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf, &
-                                                    prc_rain,prc_snow,prl_rain,prl_snow,bifall, &
-                                                       ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain, &
+                                                    prc_rain,prc_snow,prl_rain,prl_snow,&
+#ifdef USE_ISOTOPE
+prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &                                              
+#endif
+                                                    bifall, &
+                                                       ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+ldew_O18,ldew_rain_O18,ldew_snow_O18, &
+ldew_H2,ldew_rain_H2,ldew_snow_H2, &
+#endif
+                                                       
+                                                       z0m,hu,pg_rain, &
                                                             pg_snow,qintr,qintr_rain,qintr_snow )
 !DESCRIPTION
 !===========
@@ -1780,6 +1818,18 @@ CONTAINS
    real(r8), intent(in)    :: prc_snow   !convective snowfall [mm/s]
    real(r8), intent(in)    :: prl_rain   !large-scale rainfall [mm/s]
    real(r8), intent(in)    :: prl_snow   !large-scale snowfall [mm/s]
+
+#ifdef USE_ISOTOPE
+   real(r8), intent(in)    :: prc_rain_O18     !convective rainfall [mm/s]
+   real(r8), intent(in)    :: prc_snow_O18     !convective snowfall [mm/s]
+   real(r8), intent(in)    :: prl_rain_O18     !large-scale rainfall [mm/s]
+   real(r8), intent(in)    :: prl_snow_O18     !large-scale snowfall [mm/s]
+   real(r8), intent(in)    :: prc_rain_H2     !convective rainfall [mm/s]
+   real(r8), intent(in)    :: prc_snow_H2     !convective snowfall [mm/s]
+   real(r8), intent(in)    :: prl_rain_H2     !large-scale rainfall [mm/s]
+   real(r8), intent(in)    :: prl_snow_H2     !large-scale snowfall [mm/s]
+#endif
+
    real(r8), intent(in)    :: bifall     !bulk density of newly fallen dry snow [kg/m3]
    real(r8), intent(in)    :: sigf       !fraction of veg cover, excluding snow-covered veg [-]
    real(r8), intent(in)    :: lai        !leaf area index [-]
@@ -1790,6 +1840,14 @@ CONTAINS
    real(r8), intent(inout) :: ldew       !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain  !depth of liquid on foliage [mm]
    real(r8), intent(inout) :: ldew_snow  !depth of liquid on foliage [mm]
+#ifdef USE_ISOTOPE
+   real(r8), intent(inout) :: ldew_O18  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_H2  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_rain_O18  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow_O18  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_rain_H2  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow_H2  !depth of liquid on foliage [mm]
+#endif
    real(r8), intent(in)    :: z0m        !roughness length
    real(r8), intent(in)    :: hu         !forcing height of U
 
@@ -1802,9 +1860,18 @@ CONTAINS
 
       IF (DEF_Interception_scheme==1) THEN
          CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
-                                             prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                                             ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,&
-                                             pg_snow,qintr,qintr_rain,qintr_snow)
+                                             prc_rain,prc_snow,prl_rain,prl_snow, &
+#ifdef USE_ISOTOPE
+                                          prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                                          prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                                          bifall,&
+                                          ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+                                          ldew_O18,ldew_rain_O18,ldew_snow_O18,ldew_H2,ldew_rain_H2,ldew_snow_H2,&
+#endif
+                                          z0m,hu,pg_rain,&
+                                          pg_snow,qintr,qintr_rain,qintr_snow)
       ELSEIF (DEF_Interception_scheme==2) THEN
          CALL LEAF_interception_CLM4 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow,&
@@ -1849,8 +1916,20 @@ CONTAINS
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    SUBROUTINE LEAF_interception_pftwrap (ipatch,deltim,dewmx,forc_us,forc_vs,forc_t,&
-                               prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                               ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                               prc_rain,prc_snow,prl_rain,prl_snow, &
+#ifdef USE_ISOTOPE
+                               prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                               prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                               
+                               bifall,&
+                               ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+                               ldew_O18,ldew_rain_O18,ldew_snow_O18, &
+                               ldew_H2,ldew_rain_H2,ldew_snow_H2, &
+#endif
+                               
+                               z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
 
 ! -----------------------------------------------------------------
 ! !DESCRIPTION:
@@ -1880,15 +1959,34 @@ CONTAINS
    real(r8), intent(in)    :: forc_t     !air temperature
    real(r8), intent(in)    :: z0m        !roughness length
    real(r8), intent(in)    :: hu         !forcing height of U
-   real(r8), intent(in)    :: ldew_rain  !depth of water on foliage [mm]
-   real(r8), intent(in)    :: ldew_snow  !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew       !depth of water on foliage [mm]
+#ifdef USE_ISOTOPE
+   real(r8), intent(inout) :: ldew_O18       !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_H2  !depth of water on foliage [mm]
+#endif
+   real(r8), intent(inout)    :: ldew_rain  !depth of water on foliage [mm]
+   real(r8), intent(inout)    :: ldew_snow  !depth of water on foliage [mm]
+#ifdef USE_ISOTOPE
+   real(r8), intent(inout)    :: ldew_rain_O18  !depth of water on foliage [mm]
+   real(r8), intent(inout)    :: ldew_snow_O18  !depth of water on foliage [mm]
+   real(r8), intent(inout)    :: ldew_rain_H2  !depth of water on foliage [mm]
+   real(r8), intent(inout)    :: ldew_snow_H2  !depth of water on foliage [mm]
+#endif
    real(r8), intent(in)    :: prc_rain   !convective ranfall [mm/s]
    real(r8), intent(in)    :: prc_snow   !convective snowfall [mm/s]
    real(r8), intent(in)    :: prl_rain   !large-scale rainfall [mm/s]
    real(r8), intent(in)    :: prl_snow   !large-scale snowfall [mm/s]
+#ifdef USE_ISOTOPE
+   real(r8), intent(in)    :: prc_rain_O18     !convective rainfall [mm/s]
+   real(r8), intent(in)    :: prc_snow_O18     !convective snowfall [mm/s]
+   real(r8), intent(in)    :: prl_rain_O18     !large-scale rainfall [mm/s]
+   real(r8), intent(in)    :: prl_snow_O18     !large-scale snowfall [mm/s]
+   real(r8), intent(in)    :: prc_rain_H2     !convective rainfall [mm/s]
+   real(r8), intent(in)    :: prc_snow_H2     !convective snowfall [mm/s]
+   real(r8), intent(in)    :: prl_rain_H2     !large-scale rainfall [mm/s]
+#endif
    real(r8), intent(in)    :: bifall     ! bulk density of newly fallen dry snow [kg/m3]
 
-   real(r8), intent(inout) :: ldew       !depth of water on foliage [mm]
    real(r8), intent(out)   :: pg_rain    !rainfall onto ground including canopy runoff [kg/(m2 s)]
    real(r8), intent(out)   :: pg_snow    !snowfall onto ground including canopy runoff [kg/(m2 s)]
    real(r8), intent(out)   :: qintr      !interception [kg/(m2 s)]
@@ -1919,8 +2017,17 @@ CONTAINS
          DO i = ps, pe
             p = pftclass(i)
             CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil_p(p),sigf_p(i),lai_p(i),sai_p(i),forc_t,tleaf_p(i),&
-                                                prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                                                ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i))
+                                                prc_rain,prc_snow,prl_rain,prl_snow, &
+#ifdef USE_ISOTOPE
+                                                prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                                                prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                                                bifall,&
+                                                ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),& 
+#ifdef USE_ISOTOPE
+                                                ldew_p_O18(i),ldew_rain_p_O18(i),ldew_snow_p_O18(i),ldew_p_H2(i),ldew_rain_p_H2(i),ldew_snow_p_H2(i),&
+#endif
+                                                z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i))
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
          ENDDO

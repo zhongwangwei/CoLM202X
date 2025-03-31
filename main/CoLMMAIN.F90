@@ -44,6 +44,11 @@ SUBROUTINE CoLMMAIN ( &
            forc_rhoair,  &
            ! cbl forcing
            forc_hpbl,    &
+#ifdef USE_ISOTOPE
+           forc_q_O18,    forc_q_H2,    &
+           forc_prc_O18,  forc_prl_O18,  forc_prc_H2,  forc_prl_H2,  &
+           forc_rain_O18,  forc_snow_O18,  forc_rain_H2,  forc_snow_H2,  &
+#endif
            ! aerosol deposition
            forc_aerdep,  &
 
@@ -51,6 +56,9 @@ SUBROUTINE CoLMMAIN ( &
            z_sno,        dz_sno,       t_soisno,     wliq_soisno,  &
            wice_soisno,  smp,          hk,           t_grnd,       &
            tleaf,        ldew,         ldew_rain,    ldew_snow,    &
+#ifdef USE_ISOTOPE
+           ldew_O18,     ldew_rain_O18, ldew_snow_O18, ldew_H2,     ldew_rain_H2, ldew_snow_H2, &
+#endif
            fwet_snow,    sag,          scv,          snowdp,       &
            fveg,         fsno,         sigf,         green,        &
            lai,          sai,          alb,          ssun,         &
@@ -308,6 +316,10 @@ SUBROUTINE CoLMMAIN ( &
         forc_hgt_q  ,&! observational height of humidity [m]
         forc_rhoair ,&! density air [kg/m3]
         forc_hpbl   ,&! atmospheric boundary layer height [m]
+#ifdef USE_ISOTOPE
+        forc_q_O18,    forc_q_H2,    &
+        forc_prc_O18,  forc_prl_O18,  forc_prc_H2,  forc_prl_H2,  &
+#endif
         forc_aerdep(14)!atmospheric aerosol deposition data [kg/m/s]
 
 #if(defined CaMa_Flood)
@@ -322,6 +334,9 @@ SUBROUTINE CoLMMAIN ( &
         idate(3)      ! next time-step /year/julian day/second in a day/
 
    real(r8), intent(inout) :: oro       ! ocean(0)/seaice(2)/ flag
+
+   real(r8), intent(inout) :: forc_rain_O18,  forc_snow_O18,  forc_rain_H2,  forc_snow_H2
+
    real(r8), intent(inout) :: &
         z_sno      (maxsnl+1:0)       ,&! layer depth (m)
         dz_sno     (maxsnl+1:0)       ,&! layer thickness (m)
@@ -351,6 +366,11 @@ SUBROUTINE CoLMMAIN ( &
         ldew        ,&! depth of water on foliage [kg/m2/s]
         ldew_rain   ,&! depth of rain on foliage[kg/m2/s]
         ldew_snow   ,&! depth of snow on foliage[kg/m2/s]
+#ifdef USE_ISOTOPE
+        ldew_O18,    ldew_H2,    &
+        ldew_rain_O18,    ldew_rain_H2,    &
+        ldew_snow_O18,    ldew_snow_H2,    &
+#endif
         fwet_snow   ,&! vegetation canopy snow fractional cover [-]
         sag         ,&! non dimensional snow age [-]
         scv         ,&! snow mass (kg/m2)
@@ -465,7 +485,6 @@ SUBROUTINE CoLMMAIN ( &
 
         forc_rain   ,&! rain [mm/s]
         forc_snow   ,&! snow [mm/s]
-
         emis        ,&! averaged bulk surface emissivity
         z0m         ,&! effective roughness [m]
         zol         ,&! dimensionless height (z/L) used in Monin-Obukhov theory
@@ -520,13 +539,25 @@ SUBROUTINE CoLMMAIN ( &
         prc_snow    ,&! convective snowfall [kg/(m2 s)]
         prl_rain    ,&! large scale rainfall [kg/(m2 s)]
         prl_snow    ,&! large scale snowfall [kg/(m2 s)]
+#ifdef USE_ISOTOPE
+        prc_rain_O18,  prc_snow_O18,  prl_rain_O18,  prl_snow_O18,  &
+        prc_rain_H2,  prc_snow_H2,  prl_rain_H2,  prl_snow_H2,  &
+#endif
         t_precip    ,&! snowfall/rainfall temperature [kelvin]
         bifall      ,&! bulk density of newly fallen dry snow [kg/m3]
         pg_rain     ,&! rainfall onto ground including canopy runoff [kg/(m2 s)]
         pg_snow     ,&! snowfall onto ground including canopy runoff [kg/(m2 s)]
+#ifdef USE_ISOTOPE
+        pg_rain_O18,  pg_snow_O18,  &
+        pg_rain_H2,  pg_snow_H2,  &
+#endif
         qintr_rain  ,&! rainfall interception (mm h2o/s)
-        qintr_snow    ! snowfall interception (mm h2o/s)
+        qintr_snow  ,&  ! snowfall interception (mm h2o/s)
 
+#ifdef USE_ISOTOPE
+        qintr_rain_O18,  qintr_snow_O18,  &
+        qintr_rain_H2,  qintr_snow_H2
+#endif
    integer snl      ,&! number of snow layers
         imelt(maxsnl+1:nl_soil), &! flag for: melting=1, freezing=2, Nothing happened=0
         lb ,lbsn    ,&! lower bound of arrays
@@ -603,11 +634,27 @@ SUBROUTINE CoLMMAIN ( &
                      solvdln,solviln,solndln,solniln,srvdln,srviln,srndln,srniln)
 
       CALL rain_snow_temp (patchtype, &
-                           forc_t,forc_q,forc_psrf,forc_prc,forc_prl,forc_us,forc_vs,tcrit,&
-                           prc_rain,prc_snow,prl_rain,prl_snow,t_precip,bifall)
+                           forc_t,forc_q,forc_psrf,forc_prc,forc_prl, &
+#ifdef USE_ISOTOPE
+                           forc_q_O18,forc_q_H2, &
+                           forc_prc_O18,forc_prl_O18,forc_prc_H2,forc_prl_H2, &
+#endif
+                           forc_us,forc_vs,tcrit,&
+                           prc_rain,prc_snow,prl_rain,prl_snow, &
+#ifdef USE_ISOTOPE
+                           prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                           prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                           t_precip,bifall)
 
       forc_rain = prc_rain + prl_rain
       forc_snow = prc_snow + prl_snow
+#ifdef USE_ISOTOPE
+      forc_rain_O18 = prc_rain_O18 + prl_rain_O18
+      forc_snow_O18 = prc_snow_O18 + prl_snow_O18
+      forc_rain_H2 = prc_rain_H2 + prl_rain_H2
+      forc_snow_H2 = prc_snow_H2 + prl_snow_H2
+#endif
 
 !======================================================================
 
@@ -662,20 +709,50 @@ SUBROUTINE CoLMMAIN ( &
 
 #if(defined LULC_USGS || defined LULC_IGBP)
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t, tleaf,&
-                      prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                      ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                      prc_rain,prc_snow,prl_rain,prl_snow,&
+#ifdef USE_ISOTOPE
+                      prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                      prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                      bifall,&
+                      ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+                      ldew_O18,ldew_rain_O18,ldew_snow_O18, &
+                      ldew_H2,ldew_rain_H2,ldew_snow_H2, &
+#endif
+                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
             CALL LEAF_interception_pftwrap (ipatch,deltim,dewmx,forc_us,forc_vs,forc_t,&
-                      prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                      ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                      prc_rain,prc_snow,prl_rain,prl_snow,&
+#ifdef USE_ISOTOPE
+                      prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                      prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                      bifall,&
+                      ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+                      ldew_O18,ldew_rain_O18,ldew_snow_O18, &
+                      ldew_H2,ldew_rain_H2,ldew_snow_H2, &
+#endif
+                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
 #endif
 
          ELSE
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t, tleaf,&
-                      prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                      ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                      prc_rain,prc_snow,prl_rain,prl_snow,&
+#ifdef USE_ISOTOPE
+                      prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                      prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                      bifall,&
+                      ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+                      ldew_O18,ldew_rain_O18,ldew_snow_O18, &
+                      ldew_H2,ldew_rain_H2,ldew_snow_H2, &
+#endif
+                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
          ENDIF
 
          qdrip = pg_rain + pg_snow
@@ -737,6 +814,9 @@ SUBROUTINE CoLMMAIN ( &
               fsno              ,sigf              ,dz_soisno(lb:)    ,z_soisno(lb:)     ,&
               zi_soisno(lb-1:)  ,tleaf             ,t_soisno(lb:)     ,wice_soisno(lb:)  ,&
               wliq_soisno(lb:)  ,ldew              ,ldew_rain         ,ldew_snow         ,&
+#ifdef USE_ISOTOPE
+              ldew_O18,     ldew_rain_O18, ldew_snow_O18, ldew_H2,     ldew_rain_H2, ldew_snow_H2, &
+#endif
               fwet_snow         ,scv               ,snowdp            ,imelt(lb:)        ,&
               taux              ,tauy              ,fsena             ,fevpa             ,&
               lfevpa            ,fsenl             ,fevpl             ,etr               ,&

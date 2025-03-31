@@ -36,7 +36,11 @@ CONTAINS
               po2m       ,pco2m      ,z0h_g      ,obug       ,ustarg     ,zlnd       ,&
               zsno       ,fsno       ,sigf       ,etrc       ,tg         ,qg         ,&
               rss        ,t_soil     ,t_snow     ,q_soil     ,q_snow     ,dqgdT      ,&
-              emg        ,tl         ,ldew       ,ldew_rain  ,ldew_snow  ,fwet_snow  ,&
+              emg        ,tl         ,ldew       ,ldew_rain  ,ldew_snow  ,&
+#ifdef USE_ISOTOPE
+              ldew_O18   ,ldew_rain_O18,ldew_snow_O18,ldew_H2,ldew_rain_H2,ldew_snow_H2,&
+#endif
+              fwet_snow  ,&
               taux       ,tauy       ,fseng      ,fseng_soil ,fseng_snow ,fevpg      ,&
               fevpg_soil ,fevpg_snow ,cgrnd      ,cgrndl     ,cgrnds     ,tref       ,&
               qref       ,rst        ,assim      ,respc      ,fsenl      ,fevpl      ,&
@@ -228,6 +232,14 @@ CONTAINS
 
    real(r8), intent(inout) :: &
         tl,         &! leaf temperature [K]
+#ifdef USE_ISOTOPE
+        ldew_O18,   &! depth of water on foliage [mm]
+        ldew_rain_O18,  &! depth of rain on foliage [mm]
+        ldew_snow_O18,  &! depth of snow on foliage [mm]
+        ldew_H2,       &! depth of water on foliage [mm]
+        ldew_rain_H2,  &! depth of rain on foliage [mm]
+        ldew_snow_H2,  &! depth of snow on foliage [mm]
+#endif
         ldew,       &! depth of water on foliage [mm]
         ldew_rain,  &! depth of rain on foliage [mm]
         ldew_snow    ! depth of snow on foliage [mm]

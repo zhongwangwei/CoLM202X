@@ -173,7 +173,13 @@
          ! additional variables required by coupling with WRF model
            emis         ,z0m          ,zol          ,rib          ,&
            ustar        ,qstar        ,tstar        ,fm           ,&
-           fh           ,fq           ,hpbl                        )
+           fh           ,fq           ,hpbl,  &                       
+#ifdef USE_ISOTOPE
+           forc_q_O18,   forc_q_H2,   forc_prc_O18,  forc_prl_O18, forc_prc_H2,  forc_prl_H2,  &
+           forc_rain_O18,  forc_snow_O18,  forc_rain_H2,  forc_snow_H2, &
+           ldew_O18,ldew_rain_O18, ldew_snow_O18, ldew_H2,ldew_rain_H2, ldew_snow_H2 &
+#endif
+           )
 
    USE MOD_Precision
    USE MOD_Vars_Global
@@ -333,6 +339,14 @@
         forc_q                ,&! specific humidity at agcm reference height [kg/kg]
         forc_prc              ,&! convective precipitation [mm/s]
         forc_prl              ,&! large scale precipitation [mm/s]
+#ifdef USE_ISOTOPE
+        forc_q_O18           ,&! specific humidity of O18 at agcm reference height [kg/kg]
+        forc_q_H2           ,&! specific humidity of H2 at agcm reference height [kg/kg]
+        forc_prc_O18          ,&! convective precipitation [mm/s]
+        forc_prl_O18          ,&! large scale precipitation [mm/s]
+        forc_prc_H2          ,&! convective precipitation [mm/s]
+        forc_prl_H2          ,&! large scale precipitation [mm/s]
+#endif
         forc_psrf             ,&! atmosphere pressure at the surface [pa]
         forc_pbot             ,&! atmosphere pressure at the bottom of the atmos. model level [pa]
         forc_sols             ,&! atm vis direct beam solar rad onto srf [W/m2]
@@ -407,6 +421,14 @@
         ldew_rain             ,&! depth of rain on foliage[kg/m2/s]
         ldew_snow             ,&! depth of snow on foliage[kg/m2/s]
         fwet_snow             ,&! vegetation canopy snow fractional cover [-]
+#ifdef USE_ISOTOPE
+        ldew_O18             ,&! depth of water on foliage [kg/m2/s]
+        ldew_rain_O18             ,&! depth of rain on foliage[kg/m2/s]
+        ldew_snow_O18             ,&! depth of snow on foliage[kg/m2/s]
+        ldew_H2             ,&! depth of water on foliage [kg/m2/s]
+        ldew_rain_H2             ,&! depth of rain on foliage[kg/m2/s]
+        ldew_snow_H2             ,&! depth of snow on foliage[kg/m2/s]
+#endif
         sag                   ,&! non dimensional snow age [-]
         sag_roof              ,&! non dimensional snow age [-]
         sag_gimp              ,&! non dimensional snow age [-]
@@ -561,7 +583,12 @@
 
         forc_rain             ,&! rain [mm/s]
         forc_snow             ,&! snow [mm/s]
-
+#ifdef USE_ISOTOPE
+        forc_rain_O18        ,&! rain [mm/s]
+        forc_snow_O18        ,&! snow [mm/s]
+        forc_rain_H2         ,&! rain [mm/s]
+        forc_snow_H2         ,&! snow [mm/s]
+#endif
         emis                  ,&! averaged bulk surface emissivity
         z0m                   ,&! effective roughness [m]
         zol                   ,&! dimensionless height (z/L) used in Monin-Obukhov theory
@@ -650,6 +677,16 @@
         prc_snow              ,&! convective snowfall [kg/(m2 s)]
         prl_rain              ,&! large scale rainfall [kg/(m2 s)]
         prl_snow              ,&! large scale snowfall [kg/(m2 s)]
+#ifdef USE_ISOTOPE
+        prc_rain_O18         ,&! convective rainfall [kg/(m2 s)]
+        prc_snow_O18         ,&! convective snowfall [kg/(m2 s)]
+        prl_rain_O18         ,&! large scale rainfall [kg/(m2 s)]
+        prl_snow_O18         ,&! large scale snowfall [kg/(m2 s)]
+        prc_rain_H2         ,&! convective rainfall [kg/(m2 s)]
+        prc_snow_H2         ,&! convective snowfall [kg/(m2 s)]
+        prl_rain_H2         ,&! large scale rainfall [kg/(m2 s)]
+        prl_snow_H2         ,&! large scale snowfall [kg/(m2 s)]
+#endif
         t_precip              ,&! snowfall/rainfall temperature [kelvin]
         bifall                ,&! bulk density of newly fallen dry snow [kg/m3]
         pg_rain               ,&! rainfall onto ground including canopy runoff [kg/(m2 s)]
@@ -716,8 +753,19 @@
                            solvd,solvi,solnd,solni,srvd,srvi,srnd,srni,&
                            solvdln,solviln,solndln,solniln,srvdln,srviln,srndln,srniln)
 
-      CALL rain_snow_temp (patchtype,forc_t,forc_q,forc_psrf,forc_prc,forc_prl,forc_us,forc_vs,tcrit,&
-                           prc_rain,prc_snow,prl_rain,prl_snow,t_precip,bifall)
+      CALL rain_snow_temp (patchtype,forc_t,forc_q,forc_psrf,forc_prc,forc_prl,&
+#ifdef USE_ISOTOPE
+                           forc_q_O18,forc_q_H2, &
+                           forc_prc_O18,forc_prl_O18,forc_prc_H2,forc_prl_H2, &
+#endif    
+      forc_us,forc_vs,tcrit,&
+                           prc_rain,prc_snow,prl_rain,prl_snow,&
+#ifdef USE_ISOTOPE
+                           prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                           prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif                           
+                           
+                           t_precip,bifall)
 
       forc_rain = prc_rain + prl_rain
       forc_snow = prc_snow + prl_snow
@@ -863,8 +911,17 @@
 
       ! with vegetation canopy
       CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tref,tleaf,&
-                              prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
-                              ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pgper_rain,pgper_snow,&
+                              prc_rain,prc_snow,prl_rain,prl_snow,&
+#ifdef USE_ISOTOPE
+                              prc_rain_O18,prc_snow_O18,prl_rain_O18,prl_snow_O18, &
+                              prc_rain_H2,prc_snow_H2,prl_rain_H2,prl_snow_H2, &
+#endif
+                              bifall,&
+                              ldew,ldew_rain,ldew_snow,&
+#ifdef USE_ISOTOPE
+                              ldew_O18,ldew_rain_O18,ldew_snow_O18,ldew_H2,ldew_rain_H2,ldew_snow_H2,&
+#endif                              
+                              z0m,forc_hgt_u,pgper_rain,pgper_snow,&
                               qintr,qintr_rain,qintr_snow)
 
       ! for output, patch scale

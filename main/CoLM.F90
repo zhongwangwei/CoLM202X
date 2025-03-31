@@ -18,6 +18,9 @@ PROGRAM CoLM
    USE MOD_SPMD_Task
    USE MOD_Namelist
    USE MOD_Vars_Global
+#ifdef USE_ISOTOPE
+   USE MOD_Vars_Global_isotope
+#endif
    USE MOD_Const_LC
    USE MOD_Const_PFT
    USE MOD_Const_Physical
@@ -220,6 +223,9 @@ PROGRAM CoLM
       pdate(1) = p_year; pdate(2) = p_julian; pdate(3) = p_seconds
 
       CALL Init_GlobalVars
+#ifdef USE_ISOTOPE
+      CALL Init_GlobalVars_isotope
+#endif
       CALL Init_LC_Const
       CALL Init_PFT_Const
 

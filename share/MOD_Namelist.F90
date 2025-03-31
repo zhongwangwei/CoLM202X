@@ -501,8 +501,8 @@ MODULE MOD_Namelist
 #ifdef USE_ISOTOPE
       logical :: xy_iso_pp_O18                    = .true.
       logical :: xy_iso_pp_H2                     = .true.
-      logical :: xy_iso_vp_O18                    = .true.
-      logical :: xy_iso_vp_H2                     = .true.
+      logical :: xy_q_O18                    = .true.
+      logical :: xy_q_H2                     = .true.
 #endif
       logical :: taux                             = .true.
       logical :: tauy                             = .true.
@@ -1765,8 +1765,8 @@ CONTAINS
 #ifdef USE_ISOTOPE
       CALL sync_hist_vars_one (DEF_hist_vars%xy_iso_pp_O18    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%xy_iso_pp_H2     , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%xy_iso_vp_O18    , set_defaults)
-      CALL sync_hist_vars_one (DEF_hist_vars%xy_iso_vp_H2     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%xy_q_O18    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%xy_q_H2     , set_defaults)
 #endif
       CALL sync_hist_vars_one (DEF_hist_vars%taux        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%tauy        , set_defaults)
