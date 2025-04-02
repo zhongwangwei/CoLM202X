@@ -121,8 +121,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
              ! CBL height forcing
                forc_hpbl(i),                                                       &
 #ifdef USE_ISOTOPE
+               forc_q_O18(i),    forc_q_H2(i),    &
                forc_prc_O18(i),  forc_prl_O18(i), forc_prc_H2(i),  forc_prl_H2(i),  &
                forc_rain_O18(i),  forc_snow_O18(i),  forc_rain_H2(i),  forc_snow_H2(i), &
+    
 #endif
              ! Aerosol deposition
                forc_aerdep(:,i),                                                   &

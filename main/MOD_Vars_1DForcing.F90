@@ -125,12 +125,7 @@ CONTAINS
 #ifdef USE_ISOTOPE
             allocate (forc_iso_pp_O18(numpatch) ) ! atmospheric isotope precipitation data [kg/m/s]
             allocate (forc_iso_pp_H2(numpatch) ) ! atmospheric isotope precipitation data [kg/m/s]
-            allocate (forc_q_O18(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
-            allocate (forc_q_H2(numpatch) ) ! atmospheric isotope vapor data [kg/m/s]
-            allocate (forc_prc_O18(numpatch) ) ! convective precipitation [kg/m/s]
-            allocate (forc_prl_O18(numpatch) ) ! large scale precipitation [kg/m/s]
-            allocate (forc_prc_H2(numpatch) ) ! convective precipitation [kg/m/s]
-            allocate (forc_prl_H2(numpatch) ) ! large scale precipitation [kg/m/s]
+
 #endif
 
             IF (DEF_USE_Forcing_Downscaling) THEN
