@@ -85,7 +85,16 @@ MODULE MOD_LeafInterception
    real(r8) :: qflx_irrig_sprinkler
    real(r8) :: qflx_irrig_flood
    real(r8) :: qflx_irrig_paddy
-
+#ifdef USE_ISOTOPE
+   real(r8) :: qflx_irrig_drip_O18
+   real(r8) :: qflx_irrig_sprinkler_O18
+   real(r8) :: qflx_irrig_flood_O18
+   real(r8) :: qflx_irrig_paddy_O18
+   real(r8) :: qflx_irrig_drip_H2
+   real(r8) :: qflx_irrig_sprinkler_H2
+   real(r8) :: qflx_irrig_flood_H2
+   real(r8) :: qflx_irrig_paddy_H2
+#endif
 CONTAINS
 
    SUBROUTINE LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
@@ -99,7 +108,12 @@ CONTAINS
 #ifdef USE_ISOTOPE
                                           ldew_O18,ldew_rain_O18,ldew_snow_O18,ldew_H2,ldew_rain_H2,ldew_snow_H2,&
 #endif
-                                          z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                                          z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow &
+#ifdef USE_ISOTOPE
+                                          ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                                          ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif                
+                                          )
 !DESCRIPTION
 !===========
    ! Calculation of  interception and drainage of precipitation
@@ -198,8 +212,27 @@ CONTAINS
    real(r8), intent(out) :: qintr       !interception [kg/(m2 s)]
    real(r8), intent(out) :: qintr_rain  !rainfall interception (mm h2o/s)
    real(r8), intent(out) :: qintr_snow  !snowfall interception (mm h2o/s)
+#ifdef USE_ISOTOPE
+   real(r8), intent(out) :: pg_rain_O18  !rainfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out) :: pg_snow_O18  !snowfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out) :: qintr_O18  !interception [kg/(m2 s)]
+   real(r8), intent(out) :: qintr_rain_O18  !rainfall interception (mm h2o/s)
+   real(r8), intent(out) :: qintr_snow_O18  !snowfall interception (mm h2o/s)
+   real(r8), intent(out) :: pg_rain_H2  !rainfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out) :: pg_snow_H2  !snowfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out) :: qintr_H2  !interception [kg/(m2 s)]
+   real(r8), intent(out) :: qintr_rain_H2  !rainfall interception (mm h2o/s)
+   real(r8), intent(out) :: qintr_snow_H2  !snowfall interception (mm h2o/s)
+   !-------------------------local-variables---------------------------------------------
+   real(r8) :: ldew0, ldew0_O18, ldew0_H2
+   real(r8) :: total_ldew, total_ldew_O18, total_ldew_H2
+#endif
 
-!-----------------------------------------------------------------------
+#ifdef USE_ISOTOPE
+      ldew0 = ldew
+      ldew0_O18 = ldew_O18
+      ldew0_H2 = ldew_H2
+#endif
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
@@ -391,6 +424,47 @@ CONTAINS
          qintr_snow = 0.
 
       ENDIF
+#ifdef USE_ISOTOPE
+   ! Initialize total water variables before checking
+   total_ldew = (prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler)*deltim + ldew0
+   IF (total_ldew > 0.) THEN
+      total_ldew_O18 = (prc_rain_O18 + prc_snow_O18 + prl_rain_O18 + prl_snow_O18 + qflx_irrig_sprinkler_O18)*deltim + ldew0_O18
+      total_ldew_H2 = (prc_rain_H2 + prc_snow_H2 + prl_rain_H2 + prl_snow_H2 + qflx_irrig_sprinkler_H2)*deltim + ldew0_H2
+      ldew_O18 = ldew *total_ldew_O18/total_ldew
+      ldew_H2 = ldew *total_ldew_H2/total_ldew
+      ldew_rain_O18 =ldew_rain*ldew_O18/ldew
+      ldew_rain_H2 =ldew_rain*ldew_H2/ldew
+      ldew_snow_O18 =ldew_snow*ldew_O18/ldew
+      ldew_snow_H2 =ldew_snow*ldew_H2/ldew
+      pg_rain_O18 = pg_rain*ldew_O18/ldew
+      pg_rain_H2 = pg_rain*ldew_H2/ldew
+      pg_snow_O18 = pg_snow*ldew_O18/ldew
+      pg_snow_H2 = pg_snow*ldew_H2/ldew
+      qintr_O18 = qintr*ldew_O18/ldew
+      qintr_H2 = qintr*ldew_H2/ldew
+      qintr_rain_O18 = qintr_rain*ldew_O18/ldew
+      qintr_rain_H2 = qintr_rain*ldew_H2/ldew
+      qintr_snow_O18 = qintr_snow*ldew_O18/ldew
+      qintr_snow_H2 = qintr_snow*ldew_H2/ldew
+   ELSE
+      ldew_O18 = 0.
+      ldew_H2 = 0.
+      ldew_rain_O18 = 0.
+      ldew_rain_H2 = 0.
+      ldew_snow_O18 = 0.
+      ldew_snow_H2 = 0.
+      pg_rain_O18 = 0.
+      pg_snow_O18 = 0.
+      qintr_O18 = 0.
+      qintr_rain_O18 = 0.
+      qintr_snow_O18 = 0.
+      pg_rain_H2 = 0.
+      pg_snow_H2 = 0.
+      qintr_H2 = 0.
+      qintr_rain_H2 = 0.
+      qintr_snow_H2 = 0.  
+   ENDIF
+#endif
 
    END SUBROUTINE LEAF_interception_CoLM2014
 
@@ -1431,9 +1505,9 @@ CONTAINS
          !/* Calculate amount of snow intercepted on branches and stored in  intercepted snow. */
          satcap_rain= 0.035 * (ldew_snow) + MaxInt !
 
-         p0  = (prc_rain + prc_snow + prl_rain + prl_snow+ qflx_irrig_sprinkler)*deltim
+         p0  = (prc_rain + prc_snow + prl_rain + prl_snow+qflx_irrig_sprinkler)*deltim
          ppc = (prc_rain+prc_snow)*deltim
-         ppl = (prl_rain+prl_snow+ qflx_irrig_sprinkler)*deltim
+         ppl = (prl_rain+prl_snow+qflx_irrig_sprinkler)*deltim
          w = ldew+p0
 
          xsc_rain   = max(0., ldew_rain-satcap_rain)
@@ -1772,6 +1846,7 @@ CONTAINS
          qintr = 0.
          qintr_rain = 0.
          qintr_snow = 0.
+
       ENDIF
    END SUBROUTINE LEAF_interception_JULES
 
@@ -1789,7 +1864,12 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
 #endif
                                                        
                                                        z0m,hu,pg_rain, &
-                                                            pg_snow,qintr,qintr_rain,qintr_snow )
+                                                            pg_snow,qintr,qintr_rain,qintr_snow & 
+#ifdef USE_ISOTOPE
+                                                            ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                                                            ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif
+                                                            )
 !DESCRIPTION
 !===========
    !wrapper for calculation of canopy interception using USGS or IGBP land cover classification
@@ -1857,7 +1937,18 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
    real(r8), intent(out)   :: qintr      !interception [kg/(m2 s)]
    real(r8), intent(out)   :: qintr_rain !rainfall interception (mm h2o/s)
    real(r8), intent(out)   :: qintr_snow !snowfall interception (mm h2o/s)
-
+#ifdef USE_ISOTOPE
+   real(r8), intent(out)   :: pg_rain_O18  !rainfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: pg_snow_O18  !snowfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_O18  !interception [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_rain_O18  !rainfall interception (mm h2o/s)
+   real(r8), intent(out)   :: qintr_snow_O18  !snowfall interception (mm h2o/s)
+   real(r8), intent(out)   :: pg_rain_H2  !rainfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: pg_snow_H2  !snowfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_H2  !interception [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_rain_H2  !rainfall interception (mm h2o/s)
+   real(r8), intent(out)   :: qintr_snow_H2  !snowfall interception (mm h2o/s)
+#endif
       IF (DEF_Interception_scheme==1) THEN
          CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow, &
@@ -1871,7 +1962,13 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
                                           ldew_O18,ldew_rain_O18,ldew_snow_O18,ldew_H2,ldew_rain_H2,ldew_snow_H2,&
 #endif
                                           z0m,hu,pg_rain,&
-                                          pg_snow,qintr,qintr_rain,qintr_snow)
+                                          pg_snow,qintr,qintr_rain,qintr_snow &
+#ifdef USE_ISOTOPE
+                                          ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                                          ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif
+                                          
+                                          )
       ELSEIF (DEF_Interception_scheme==2) THEN
          CALL LEAF_interception_CLM4 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow,&
@@ -1929,7 +2026,12 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
                                ldew_H2,ldew_rain_H2,ldew_snow_H2, &
 #endif
                                
-                               z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                               z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow &
+#ifdef USE_ISOTOPE
+                               ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                               ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif
+                               )
 
 ! -----------------------------------------------------------------
 ! !DESCRIPTION:
@@ -1993,20 +2095,43 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
    real(r8), intent(out)   :: qintr_rain !rainfall interception (mm h2o/s)
    real(r8), intent(out)   :: qintr_snow !snowfall interception (mm h2o/s)
 
+#ifdef USE_ISOTOPE
+   real(r8), intent(out)   :: pg_rain_O18  !rainfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: pg_snow_O18  !snowfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_O18  !interception [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_rain_O18  !rainfall interception (mm h2o/s)
+   real(r8), intent(out)   :: qintr_snow_O18  !snowfall interception (mm h2o/s)
+   real(r8), intent(out)   :: pg_rain_H2  !rainfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: pg_snow_H2  !snowfall onto ground including canopy runoff [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_H2  !interception [kg/(m2 s)]
+   real(r8), intent(out)   :: qintr_rain_H2  !rainfall interception (mm h2o/s)
+   real(r8), intent(out)   :: qintr_snow_H2  !snowfall interception (mm h2o/s)
+#endif
+
    integer i, p, ps, pe
 #ifdef CROP
    integer  :: irrig_flag  ! 1 if sprinker, 2 if others
 #endif
-   real(r8) pg_rain_tmp, pg_snow_tmp
+   real(r8) pg_rain_tmp, pg_snow_tmp, pg_rain_O18_tmp, pg_snow_O18_tmp, pg_rain_H2_tmp, pg_snow_H2_tmp
 
       pg_rain_tmp = 0.
       pg_snow_tmp = 0.
-
+#ifdef USE_ISOTOPE
+      pg_rain_O18_tmp = 0.
+      pg_snow_O18_tmp = 0.
+      pg_rain_H2_tmp = 0.
+      pg_snow_H2_tmp = 0.
+#endif
       ps = patch_pft_s(ipatch)
       pe = patch_pft_e(ipatch)
 
       IF(.not. DEF_USE_IRRIGATION) qflx_irrig_sprinkler = 0._r8
-
+#ifdef USE_ISOTOPE
+      IF(.not. DEF_USE_IRRIGATION) THEN
+         qflx_irrig_sprinkler_O18 = 0._r8
+         qflx_irrig_sprinkler_H2 = 0._r8
+      ENDIF
+#endif
 #ifdef CROP
       IF(DEF_USE_IRRIGATION)THEN
          CALL CalIrrigationApplicationFluxes(ipatch,ps,pe,deltim,qflx_irrig_drip,qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy,irrig_flag=1)
@@ -2027,9 +2152,20 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
 #ifdef USE_ISOTOPE
                                                 ldew_p_O18(i),ldew_rain_p_O18(i),ldew_snow_p_O18(i),ldew_p_H2(i),ldew_rain_p_H2(i),ldew_snow_p_H2(i),&
 #endif
-                                                z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i))
+                                                z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i) &
+#ifdef USE_ISOTOPE
+                                                ,pg_rain_O18,pg_snow_O18,qintr_p_O18(i),qintr_rain_p_O18(i),qintr_snow_p_O18(i) &
+                                                ,pg_rain_H2,pg_snow_H2,qintr_p_H2(i),qintr_rain_p_H2(i),qintr_snow_p_H2(i) &
+#endif
+                                                )
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
+#ifdef USE_ISOTOPE
+            pg_rain_O18_tmp = pg_rain_O18_tmp + pg_rain_O18*pftfrac(i)
+            pg_snow_O18_tmp = pg_snow_O18_tmp + pg_snow_O18*pftfrac(i)
+            pg_rain_H2_tmp = pg_rain_H2_tmp + pg_rain_H2*pftfrac(i)
+            pg_snow_H2_tmp = pg_snow_H2_tmp + pg_snow_H2*pftfrac(i)
+#endif
          ENDDO
       ELSEIF (DEF_Interception_scheme==2) THEN
          DO i = ps, pe
@@ -2099,10 +2235,30 @@ ldew_H2,ldew_rain_H2,ldew_snow_H2, &
       pg_rain = pg_rain_tmp
       pg_snow = pg_snow_tmp
       ldew    = sum( ldew_p(ps:pe) * pftfrac(ps:pe))
+      ldew_rain = sum(ldew_rain_p(ps:pe) * pftfrac(ps:pe))
+      ldew_snow = sum(ldew_snow_p(ps:pe) * pftfrac(ps:pe))
       qintr   = sum(qintr_p(ps:pe) * pftfrac(ps:pe))
       qintr_rain = sum(qintr_rain_p(ps:pe) * pftfrac(ps:pe))
       qintr_snow = sum(qintr_snow_p(ps:pe) * pftfrac(ps:pe))
 
+#ifdef USE_ISOTOPE
+      pg_rain_O18 = pg_rain_O18_tmp
+      pg_snow_O18 = pg_snow_O18_tmp
+      pg_rain_H2 = pg_rain_H2_tmp
+      pg_snow_H2 = pg_snow_H2_tmp
+      ldew_O18 = sum(ldew_p_O18(ps:pe) * pftfrac(ps:pe))
+      ldew_H2 = sum(ldew_p_H2(ps:pe) * pftfrac(ps:pe))
+      ldew_rain_O18 = sum(ldew_rain_p_O18(ps:pe) * pftfrac(ps:pe))
+      ldew_rain_H2 = sum(ldew_rain_p_H2(ps:pe) * pftfrac(ps:pe))
+      ldew_snow_O18 = sum(ldew_snow_p_O18(ps:pe) * pftfrac(ps:pe))
+      ldew_snow_H2 = sum(ldew_snow_p_H2(ps:pe) * pftfrac(ps:pe))
+      qintr_O18 = sum(qintr_p_O18(ps:pe) * pftfrac(ps:pe))
+      qintr_rain_O18 = sum(qintr_rain_p_O18(ps:pe) * pftfrac(ps:pe))
+      qintr_snow_O18 = sum(qintr_snow_p_O18(ps:pe) * pftfrac(ps:pe))
+      qintr_H2 = sum(qintr_p_H2(ps:pe) * pftfrac(ps:pe))
+      qintr_rain_H2 = sum(qintr_rain_p_H2(ps:pe) * pftfrac(ps:pe))
+      qintr_snow_H2 = sum(qintr_snow_p_H2(ps:pe) * pftfrac(ps:pe))
+#endif
    END SUBROUTINE LEAF_interception_pftwrap
 #endif
 

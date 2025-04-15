@@ -59,10 +59,6 @@ CONTAINS
                        fsno          ,sigf          ,dz_soisno     ,z_soisno      ,&
                        zi_soisno     ,tleaf         ,t_soisno      ,wice_soisno   ,&
                        wliq_soisno   ,ldew          ,ldew_rain     ,ldew_snow     ,&
-#ifdef USE_ISOTOPE
-                       ldew_18O      ,ldew_rain_18O,    ldew_snow_18O             ,&
-                       ldew_H2       ,ldew_rain_H2 ,    ldew_snow_H2              ,&
-#endif
                        fwet_snow     ,scv           ,snowdp        ,imelt         ,&
                        taux          ,tauy          ,fsena         ,fevpa         ,&
                        lfevpa        ,fsenl         ,fevpl         ,etr           ,&
@@ -76,7 +72,22 @@ CONTAINS
                        zol           ,rib           ,ustar         ,qstar         ,&
                        tstar         ,fm            ,fh            ,fq            ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
-                       qintr_snow    ,snofrz        ,sabg_snow_lyr                 )
+                       qintr_snow    ,snofrz        ,sabg_snow_lyr                &
+#ifdef USE_ISOTOPE
+                        ,forc_q_O18    ,forc_q_H2     ,&
+                        ldew_O18      ,ldew_rain_O18,    ldew_snow_O18             ,&
+                        ldew_H2       ,ldew_rain_H2 ,    ldew_snow_H2 ,            &      !  ,&
+                        fevpa_O18,fevpa_H2,&
+                        fevpl_O18,fevpl_H2,&
+                        etr_O18,etr_H2, &
+                        fevpg_O18,fevpg_H2, &
+                        wliq_soisno_O18,wice_soisno_O18,wliq_soisno_H2,wice_soisno_H2 &
+#endif
+                       
+                       
+                       
+                       
+                       )
 
 !=======================================================================
 !  this is the main subroutine to execute the calculation
@@ -224,6 +235,10 @@ CONTAINS
        forc_vs,                  &! wind component in northward direction [m/s]
        forc_t,                   &! temperature at agcm reference height [kelvin]
        forc_q,                   &! specific humidity at agcm reference height [kg/kg]
+#ifdef USE_ISOTOPE
+       forc_q_O18,               &! specific humidity of O18 at agcm reference height [kg/kg]
+       forc_q_H2,                &! specific humidity of H2 at agcm reference height [kg/kg]
+#endif
        forc_rhoair,              &! density air [kg/m3]
        forc_psrf,                &! atmosphere pressure at the surface [pa]
        forc_pco2m,               &! CO2 concentration in atmos. (pascals)
@@ -279,7 +294,13 @@ CONTAINS
        t_soisno(lb:nl_soil),     &! soil temperature [K]
        wice_soisno(lb:nl_soil),  &! ice lens [kg/m2]
        wliq_soisno(lb:nl_soil)    ! liquid water [kg/m2]
-
+#ifdef USE_ISOTOPE
+   real(r8), intent(inout) :: &
+       wliq_soisno_O18(lb:nl_soil),  &! liquid water of O18 [kg/m2]
+       wliq_soisno_H2(lb:nl_soil),  &! liquid water of H2 [kg/m2]
+       wice_soisno_O18(lb:nl_soil),  &! ice lens of O18 [kg/m2]
+       wice_soisno_H2(lb:nl_soil)  ! ice lens of H2 [kg/m2]
+#endif
    real(r8), intent(in) :: &
        smp(1:nl_soil)         ,  &! soil matrix potential [mm]
        hk(1:nl_soil)              ! hydraulic conductivity [mm h2o/s]
@@ -289,9 +310,9 @@ CONTAINS
        ldew_rain,                &! depth of rain on foliage [kg/(m2 s)]
        ldew_snow,                &! depth of rain on foliage [kg/(m2 s)]
 #ifdef USE_ISOTOPE
-       ldew_18O,                 &! depth of water on foliage [kg/(m2 s)]
-       ldew_rain_18O,            &! depth of rain on foliage [kg/(m2 s)]
-       ldew_snow_18O,            &! depth of snow on foliage [kg/(m2 s)]
+       ldew_O18,                 &! depth of water on foliage [kg/(m2 s)]
+       ldew_rain_O18,            &! depth of rain on foliage [kg/(m2 s)]
+       ldew_snow_O18,            &! depth of snow on foliage [kg/(m2 s)]
        ldew_H2,                  &! depth of water on foliage [kg/(m2 s)]
        ldew_rain_H2,             &! depth of rain on foliage [kg/(m2 s)]
        ldew_snow_H2,             &! depth of snow on foliage [kg/(m2 s)]
@@ -326,12 +347,28 @@ CONTAINS
        tauy,                     &! wind stress: N-S [kg/m/s**2]
        fsena,                    &! sensible heat from canopy height to atmosphere [W/m2]
        fevpa,                    &! evapotranspiration from canopy height to atmosphere [mm/s]
+#ifdef USE_ISOTOPE
+       fevpa_O18,                &! evapotranspiration from canopy height to atmosphere [mm/s]
+       fevpa_H2,                 &! evapotranspiration from canopy height to atmosphere [mm/s]
+#endif
        lfevpa,                   &! latent heat flux from canopy height to atmosphere [W/m2]
        fsenl,                    &! sensible heat from leaves [W/m2]
        fevpl,                    &! evaporation+transpiration from leaves [mm/s]
+#ifdef USE_ISOTOPE
+       fevpl_O18,                &! evaporation+transpiration from leaves [mm/s]
+       fevpl_H2,                 &! evaporation+transpiration from leaves [mm/s]
+#endif
        etr,                      &! transpiration rate [mm/s]
+#ifdef USE_ISOTOPE
+       etr_O18,                  &! transpiration rate [mm/s]
+       etr_H2,                   &! transpiration rate [mm/s]
+#endif
        fseng,                    &! sensible heat flux from ground [W/m2]
        fevpg,                    &! evaporation heat flux from ground [mm/s]
+#ifdef USE_ISOTOPE
+       fevpg_O18,                &! evaporation heat flux from ground [mm/s]
+       fevpg_H2,                 &! evaporation heat flux from ground [mm/s]
+#endif
        olrg,                     &! outgoing long-wave radiation from ground+canopy
        fgrnd,                    &! ground heat flux [W/m2]
        rootr(1:nl_soil),         &! water uptake fraction from different layers, all layers add to 1.0
@@ -374,7 +411,10 @@ CONTAINS
 !-------------------------- Local Variables ----------------------------
 
    integer i,j
-
+#ifdef USE_ISOTOPE
+   real(r8) :: ldew0, ldew0_O18, ldew_rain0_O18, ldew_snow0_O18, ldew0_H2, ldew_rain0_H2, ldew_snow0_H2
+   real(r8) :: fevp_dew, fevp_dew0_O18, fevp_dew0_H2, fevp_dew_O18, fevp_dew_H2
+#endif
    real(r8) :: &
        fseng_soil,               &! sensible heat flux from soil fraction
        fseng_snow,               &! sensible heat flux from snow fraction
@@ -424,6 +464,12 @@ CONTAINS
        ulrad,                    &! upward longwave radiation above the canopy [W/m2]
        wice0(lb:nl_soil),        &! ice mass from previous time-step
        wliq0(lb:nl_soil),        &! liquid mass from previous time-step
+#ifdef USE_ISOTOPE
+       wliq0_O18(lb:nl_soil),    &! liquid mass of O18 from previous time-step
+       wliq0_H2(lb:nl_soil),    &! liquid mass of H2 from previous time-step
+       wice0_O18(lb:nl_soil),    &! ice mass of O18 from previous time-step
+       wice0_H2(lb:nl_soil),    &! ice mass of H2 from previous time-step
+#endif
        wx,                       &! patial volume of ice and water of surface layer
        xmf,                      &! total latent heat of phase change of ground water [W/m2]
        hprl,                     &! precipitation sensible heat from canopy [W/m2]
@@ -477,7 +523,15 @@ CONTAINS
 !=======================================================================
 ! [1] Initial set and propositional variables
 !=======================================================================
-
+#ifdef USE_ISOTOPE
+   ldew0          = ldew
+   ldew0_O18      = ldew_O18
+   ldew_rain0_O18 = ldew_rain_O18
+   ldew_snow0_O18 = ldew_snow_O18
+   ldew0_H2       = ldew_H2
+   ldew_rain0_H2  = ldew_rain_H2
+   ldew_snow0_H2  = ldew_snow_H2
+#endif
       ! emissivity
       emg = 0.96
       IF (scv>0. .or. patchtype==3) emg = 0.97
@@ -516,12 +570,23 @@ ELSE
              + (1.-fsno)*emg*stefnc*t_soil**4
 ENDIF
 
+#ifdef USE_ISOTOPE
+      fevpa_O18 = 0.;  fevpa_H2 = 0.
+      fevpl_O18 = 0.;  fevpl_H2 = 0.
+      etr_O18   = 0.;  etr_H2   = 0.
+      fevpg_O18 = 0.;  fevpg_H2 = 0.
+#endif
       ! temperature and water mass from previous time step
       t_soisno_bef(lb:) = t_soisno(lb:)
       t_grnd_bef = t_grnd
       wice0(lb:) = wice_soisno(lb:)
       wliq0(lb:) = wliq_soisno(lb:)
-
+#ifdef USE_ISOTOPE
+      wliq0_O18(lb:) = wliq_soisno_O18(lb:)
+      wliq0_H2(lb:) = wliq_soisno_H2(lb:)
+      wice0_O18(lb:) = wice_soisno_O18(lb:)
+      wice0_H2(lb:) = wice_soisno_H2(lb:)
+#endif
       ! latent heat, assumed that the sublimation occurred only as wliq_soisno=0
       htvp = hvap
       IF (wliq_soisno(lb)<=0. .and. wice_soisno(lb)>0.) htvp = hsub
@@ -684,7 +749,7 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
                  t_soil      ,t_snow      ,q_soil      ,q_snow      ,dqgdT       ,&
                  emg         ,tleaf       ,ldew        ,ldew_rain   ,ldew_snow   ,&
 #ifdef USE_ISOTOPE
-                 ldew_18O    ,ldew_rain_18O,ldew_snow_18O,&
+                 ldew_O18    ,ldew_rain_O18,ldew_snow_O18,&
                  ldew_H2     ,ldew_rain_H2 ,ldew_snow_H2 ,&
 #endif
                  fwet_snow   ,taux        ,tauy        ,&
@@ -718,9 +783,9 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
          fwet_snow     = 0.
          ldew          = 0.
 #ifdef USE_ISOTOPE
-         ldew_rain_18O = 0.
-         ldew_snow_18O = 0.
-         ldew_18O      = 0.
+         ldew_rain_O18 = 0.
+         ldew_snow_O18 = 0.
+         ldew_O18      = 0.
          ldew_rain_H2  = 0.
          ldew_snow_H2  = 0.
          ldew_H2       = 0.
@@ -819,9 +884,9 @@ ENDIF
             fwet_snow_p(i) = 0.
             ldew_p(i)      = 0.
 #ifdef USE_ISOTOPE
-            ldew_rain_p_18O(i) = 0.
-            ldew_snow_p_18O(i) = 0.
-            ldew_p_18O(i)      = 0.
+            ldew_rain_p_O18(i) = 0.
+            ldew_snow_p_O18(i) = 0.
+            ldew_p_O18(i)      = 0.
             ldew_rain_p_H2(i)  = 0.
             ldew_snow_p_H2(i)  = 0.
             ldew_p_H2(i)       = 0.
@@ -856,7 +921,7 @@ IF (DEF_USE_PFT .or. patchclass(ipatch)==CROPLAND) THEN
                  t_soil          ,t_snow          ,q_soil          ,q_snow          ,dqgdT          ,&
                  emg             ,tleaf_p(i)      ,ldew_p(i)       ,ldew_rain_p(i)  ,ldew_snow_p(i) ,&
 #ifdef USE_ISOTOPE
-                 ldew_p_18O(i)   ,ldew_rain_p_18O(i),ldew_snow_p_18O(i),&
+                 ldew_p_O18(i)   ,ldew_rain_p_O18(i),ldew_snow_p_O18(i),&
                  ldew_p_H2(i)    ,ldew_rain_p_H2(i),ldew_snow_p_H2(i),&
 #endif
                  fwet_snow_p(i)  ,taux_p(i)       ,tauy_p(i)       ,&
@@ -964,7 +1029,7 @@ IF (DEF_USE_PC .and. patchclass(ipatch)/=CROPLAND) THEN
          emg               ,t_soil            ,t_snow            ,q_soil            ,q_snow            ,&
          z0m_p(ps:pe)      ,tleaf_p(ps:pe)    ,ldew_p(ps:pe)     ,ldew_rain_p(ps:pe),ldew_snow_p(ps:pe),&
 #ifdef USE_ISOTOPE
-         ldew_p_18O(ps:pe)  ,ldew_rain_p_18O(ps:pe),ldew_snow_p_18O(ps:pe),&
+         ldew_p_O18(ps:pe)  ,ldew_rain_p_O18(ps:pe),ldew_snow_p_O18(ps:pe),&
          ldew_p_H2(ps:pe)   ,ldew_rain_p_H2(ps:pe),ldew_snow_p_H2(ps:pe),&
 #endif
          fwet_snow_p(ps:pe),taux              ,tauy              ,fseng             ,fseng_soil        ,&
@@ -994,9 +1059,9 @@ ENDIF
       fwet_snow     = sum( fwet_snow_p (ps:pe)*pftfrac(ps:pe) )
       ldew          = sum( ldew_p      (ps:pe)*pftfrac(ps:pe) )
 #ifdef USE_ISOTOPE
-      ldew_rain_18O = sum( ldew_rain_p_18O(ps:pe)*pftfrac(ps:pe) )
-      ldew_snow_18O = sum( ldew_snow_p_18O(ps:pe)*pftfrac(ps:pe) )
-      ldew_18O      = sum( ldew_p_18O(ps:pe)*pftfrac(ps:pe) )
+      ldew_rain_O18 = sum( ldew_rain_p_O18(ps:pe)*pftfrac(ps:pe) )
+      ldew_snow_O18 = sum( ldew_snow_p_O18(ps:pe)*pftfrac(ps:pe) )
+      ldew_O18      = sum( ldew_p_O18(ps:pe)*pftfrac(ps:pe) )
       ldew_rain_H2  = sum( ldew_rain_p_H2(ps:pe)*pftfrac(ps:pe) )
       ldew_snow_H2  = sum( ldew_snow_p_H2(ps:pe)*pftfrac(ps:pe) )
       ldew_H2       = sum( ldew_p_H2(ps:pe)*pftfrac(ps:pe) )
@@ -1311,6 +1376,66 @@ ENDIF
       DO j = lb, nl_soil
          errore = errore - (t_soisno(j)-t_soisno_bef(j))/fact(j)
       ENDDO
+
+#ifdef USE_ISOTOPE
+      !TODO: double check below
+      !TODO: this is assume no fractionation of water
+      !TODO: this is not correct, need revision
+      IF (ldew0 .gt. 0.) THEN
+         ldew_O18 = ldew*(ldew0_O18/ldew0)
+         ldew_rain_O18 = ldew_rain*(ldew0_O18/ldew0)
+         ldew_snow_O18 = ldew_snow*(ldew0_O18/ldew0)
+         ldew_H2 = ldew*(ldew0_H2/ldew0)
+         ldew_rain_H2 = ldew_rain*(ldew0_H2/ldew0)
+         ldew_snow_H2 = ldew_snow*(ldew0_H2/ldew0)
+      ELSE
+         ldew_O18      = 0.0
+         ldew_rain_O18 = 0.0
+         ldew_snow_O18 = 0.0
+         ldew_H2       = 0.0
+         ldew_rain_H2  = 0.0
+         ldew_snow_H2  = 0.0
+      ENDIF
+
+
+      !TODO: this is defitely not correct, need revision
+      !only for testing
+      IF (etr .gt. 0.) then
+         etr_O18 = etr*(wliq0_O18(1)/wliq0(1))
+         etr_H2 = etr*(wliq0_H2(1)/wliq0(1))
+         fevp_dew = fevpl-etr
+         fevp_dew_O18 = fevp_dew * (ldew0_O18/ldew0)
+         fevp_dew_H2 = fevp_dew * (ldew0_H2/ldew0)
+         fevpl_O18=fevp_dew_O18+etr_O18
+         fevpl_H2=fevp_dew_H2+etr_H2
+      endif
+
+      !TODO: this is defitely not correct, need revision
+      !only for testing
+      IF (fevpg .gt. 0.) then
+         fevpg_O18 = fevpg*(wliq0_O18(1)/wliq0(1))
+         fevpg_H2 = fevpg*(wliq0_H2(1)/wliq0(1))
+      endif   
+      
+      
+      !TODO: check if this is correct
+      fevpg_O18      = fevpg*(wliq_soisno_O18(1)/wliq_soisno(1))
+      fevpg_H2       = fevpg*(wliq_soisno_H2(1)/wliq_soisno(1))
+      !fevpg_soil_O18 = fevpg_soil*(wliq_soisno_O18(1)/wliq_soisno(1))
+      !fevpg_soil_H2  = fevpg_soil*(wliq_soisno_H2(1)/wliq_soisno(1))
+      !fevpg_snow_O18 = fevpg_snow*(wliq_soisno_O18(1)/wliq_soisno(1))
+      !fevpg_snow_H2  = fevpg_snow*(wliq_soisno_H2(1)/wliq_soisno(1))
+
+
+      DO j = lb, nl_soil
+         wliq_soisno_O18(j) = wliq_soisno(j)  * (wliq0_O18(j)/wliq0(j))
+         wliq_soisno_H2(j)  = wliq_soisno(j)  * (wliq0_H2(j)/wliq0(j))
+         wice_soisno_O18(j) = wice_soisno(j)  * (wice0_O18(j)/wice0(j))
+         wice_soisno_H2(j)  = wice_soisno(j)  * (wice0_H2(j)/wice0(j))
+      ENDDO
+
+#endif
+
 
 #if (defined CoLMDEBUG)
       IF (abs(errore) > .5) THEN

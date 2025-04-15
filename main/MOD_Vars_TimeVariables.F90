@@ -496,6 +496,12 @@ MODULE MOD_Vars_TimeVariables
    real(r8), allocatable :: t_soisno    (:,:) ! soil temperature [K]
    real(r8), allocatable :: wliq_soisno (:,:) ! liquid water in layers [kg/m2]
    real(r8), allocatable :: wice_soisno (:,:) ! ice lens in layers [kg/m2]
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: wliq_soisno_O18 (:,:) ! liquid water in layers [kg/m2]
+   real(r8), allocatable :: wice_soisno_O18 (:,:) ! ice lens in layers [kg/m2]
+   real(r8), allocatable :: wliq_soisno_H2 (:,:) ! liquid water in layers [kg/m2]
+   real(r8), allocatable :: wice_soisno_H2 (:,:) ! ice lens in layers [kg/m2]
+#endif
    real(r8), allocatable :: h2osoi      (:,:) ! volumetric soil water in layers [m3/m3]
    real(r8), allocatable :: smp         (:,:) ! soil matrix potential [mm]
    real(r8), allocatable :: hk          (:,:) ! hydraulic conductivity [mm h2o/s]
@@ -657,6 +663,12 @@ CONTAINS
             allocate (t_soisno   (maxsnl+1:nl_soil,numpatch)); t_soisno    (:,:) = spval
             allocate (wliq_soisno(maxsnl+1:nl_soil,numpatch)); wliq_soisno (:,:) = spval
             allocate (wice_soisno(maxsnl+1:nl_soil,numpatch)); wice_soisno (:,:) = spval
+#ifdef USE_ISOTOPE
+            allocate (wliq_soisno_O18(maxsnl+1:nl_soil,numpatch)); wliq_soisno_O18 (:,:) = spval
+            allocate (wice_soisno_O18(maxsnl+1:nl_soil,numpatch)); wice_soisno_O18 (:,:) = spval
+            allocate (wliq_soisno_H2(maxsnl+1:nl_soil,numpatch)); wliq_soisno_H2 (:,:) = spval
+            allocate (wice_soisno_H2(maxsnl+1:nl_soil,numpatch)); wice_soisno_H2 (:,:) = spval
+#endif
             allocate (smp               (1:nl_soil,numpatch)); smp         (:,:) = spval
             allocate (hk                (1:nl_soil,numpatch)); hk          (:,:) = spval
             allocate (h2osoi            (1:nl_soil,numpatch)); h2osoi      (:,:) = spval
@@ -827,6 +839,13 @@ CONTAINS
             deallocate (t_soisno               )
             deallocate (wliq_soisno            )
             deallocate (wice_soisno            )
+#ifdef USE_ISOTOPE
+            deallocate (wliq_soisno_O18       )
+            deallocate (wice_soisno_O18       )
+            deallocate (wliq_soisno_H2         )
+            deallocate (wice_soisno_H2         )
+
+#endif
             deallocate (smp                    )
             deallocate (hk                     )
             deallocate (h2osoi                 )
@@ -1080,6 +1099,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 't_soisno'   , 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, t_soisno   , compress) ! soil temperature [K]
       CALL ncio_write_vector (file_restart, 'wliq_soisno', 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, wliq_soisno, compress) ! liquid water in layers [kg/m2]
       CALL ncio_write_vector (file_restart, 'wice_soisno', 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, wice_soisno, compress) ! ice lens in layers [kg/m2]
+#ifdef USE_ISOTOPE
+      CALL ncio_write_vector (file_restart, 'wliq_soisno_O18', 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, wliq_soisno_O18, compress) ! liquid water in layers [kg/m2]
+      CALL ncio_write_vector (file_restart, 'wice_soisno_O18', 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, wice_soisno_O18, compress) ! ice lens in layers [kg/m2]
+      CALL ncio_write_vector (file_restart, 'wliq_soisno_H2', 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, wliq_soisno_H2, compress) ! liquid water in layers [kg/m2]
+      CALL ncio_write_vector (file_restart, 'wice_soisno_H2', 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, wice_soisno_H2, compress) ! ice lens in layers [kg/m2]
+#endif
       CALL ncio_write_vector (file_restart, 'smp',         'soil', nl_soil, 'patch', landpatch, smp, compress)                    ! soil matrix potential [mm]
       CALL ncio_write_vector (file_restart, 'hk',          'soil', nl_soil, 'patch', landpatch, hk, compress)                     ! hydraulic conductivity [mm h2o/s]
 IF(DEF_USE_PLANTHYDRAULICS)THEN
@@ -1271,6 +1296,12 @@ ENDIF
       CALL ncio_read_vector (file_restart, 't_soisno'   , nl_soil-maxsnl, landpatch, t_soisno   ) ! soil temperature [K]
       CALL ncio_read_vector (file_restart, 'wliq_soisno', nl_soil-maxsnl, landpatch, wliq_soisno) ! liquid water in layers [kg/m2]
       CALL ncio_read_vector (file_restart, 'wice_soisno', nl_soil-maxsnl, landpatch, wice_soisno) ! ice lens in layers [kg/m2]
+#ifdef USE_ISOTOPE
+      CALL ncio_read_vector (file_restart, 'wliq_soisno_O18', nl_soil-maxsnl, landpatch, wliq_soisno_O18) ! liquid water in layers [kg/m2]
+      CALL ncio_read_vector (file_restart, 'wice_soisno_O18', nl_soil-maxsnl, landpatch, wice_soisno_O18) ! ice lens in layers [kg/m2]
+      CALL ncio_read_vector (file_restart, 'wliq_soisno_H2', nl_soil-maxsnl, landpatch, wliq_soisno_H2) ! liquid water in layers [kg/m2]
+      CALL ncio_read_vector (file_restart, 'wice_soisno_H2', nl_soil-maxsnl, landpatch, wice_soisno_H2) ! ice lens in layers [kg/m2]
+#endif
       CALL ncio_read_vector (file_restart, 'smp',         nl_soil,        landpatch, smp        ) ! soil matrix potential [mm]
       CALL ncio_read_vector (file_restart, 'hk',          nl_soil,        landpatch, hk         ) ! hydraulic conductivity [mm h2o/s]
 IF(DEF_USE_PLANTHYDRAULICS)THEN
@@ -1491,6 +1522,12 @@ ENDIF
       CALL check_vector_data ('t_soisno    [K]    ', t_soisno   ) ! soil temperature [K]
       CALL check_vector_data ('wliq_soisno [kg/m2]', wliq_soisno) ! liquid water in layers [kg/m2]
       CALL check_vector_data ('wice_soisno [kg/m2]', wice_soisno) ! ice lens in layers [kg/m2]
+#ifdef USE_ISOTOPE
+      CALL check_vector_data ('wliq_soisno_O18 [kg/m2]', wliq_soisno_O18) ! liquid water in layers [kg/m2]
+      CALL check_vector_data ('wice_soisno_O18 [kg/m2]', wice_soisno_O18) ! ice lens in layers [kg/m2]
+      CALL check_vector_data ('wliq_soisno_H2 [kg/m2]', wliq_soisno_H2) ! liquid water in layers [kg/m2]
+      CALL check_vector_data ('wice_soisno_H2 [kg/m2]', wice_soisno_H2) ! ice lens in layers [kg/m2]
+#endif
       CALL check_vector_data ('smp         [mm]   ', smp        ) ! soil matrix potential [mm]
       CALL check_vector_data ('hk          [mm/s] ', hk         ) ! hydraulic conductivity [mm h2o/s]
 IF(DEF_USE_PLANTHYDRAULICS)THEN

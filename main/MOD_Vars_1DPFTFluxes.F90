@@ -36,7 +36,14 @@ MODULE MOD_Vars_1DPFTFluxes
    real(r8), allocatable :: qintr_snow_p(:) !snowfall interception (mm h2o/s)
    real(r8), allocatable :: assim_p  (:)    !canopy assimilation rate (mol m-2 s-1)
    real(r8), allocatable :: respc_p  (:)    !canopy respiration (mol m-2 s-1)
-
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: qintr_p_O18(:) !interception (mm h2o/s)
+   real(r8), allocatable :: qintr_rain_p_O18(:) !rainfall interception (mm h2o/s)
+   real(r8), allocatable :: qintr_snow_p_O18(:) !snowfall interception (mm h2o/s)
+   real(r8), allocatable :: qintr_p_H2(:) !interception (mm h2o/s)
+   real(r8), allocatable :: qintr_rain_p_H2(:) !rainfall interception (mm h2o/s)
+   real(r8), allocatable :: qintr_snow_p_H2(:) !snowfall interception (mm h2o/s)
+#endif
 ! PUBLIC MEMBER FUNCTIONS:
    PUBLIC :: allocate_1D_PFTFluxes
    PUBLIC :: deallocate_1D_PFTFluxes
@@ -79,7 +86,14 @@ CONTAINS
             allocate (qintr_snow_p (numpft)) ; qintr_snow_p (:) = spval !snowfall interception (mm h2o/s)
             allocate (assim_p      (numpft)) ; assim_p      (:) = spval !canopy assimilation rate (mol m-2 s-1)
             allocate (respc_p      (numpft)) ; respc_p      (:) = spval !canopy respiration (mol m-2 s-1)
-
+#ifdef USE_ISOTOPE
+            allocate (qintr_p_O18      (numpft)) ; qintr_p_O18      (:) = spval !interception (mm h2o/s)
+            allocate (qintr_rain_p_O18 (numpft)) ; qintr_rain_p_O18 (:) = spval !rainfall interception (mm h2o/s)
+            allocate (qintr_snow_p_O18 (numpft)) ; qintr_snow_p_O18 (:) = spval !snowfall interception (mm h2o/s)
+            allocate (qintr_p_H2      (numpft)) ; qintr_p_H2      (:) = spval !interception (mm h2o/s)
+            allocate (qintr_rain_p_H2 (numpft)) ; qintr_rain_p_H2 (:) = spval !rainfall interception (mm h2o/s)
+            allocate (qintr_snow_p_H2 (numpft)) ; qintr_snow_p_H2 (:) = spval !snowfall interception (mm h2o/s)
+#endif
          ENDIF
       ENDIF
 
@@ -115,7 +129,14 @@ CONTAINS
             deallocate (qintr_snow_p )
             deallocate (assim_p      )
             deallocate (respc_p      )
-
+#ifdef USE_ISOTOPE
+            deallocate (qintr_p_O18      )
+            deallocate (qintr_rain_p_O18 )
+            deallocate (qintr_snow_p_O18 )
+            deallocate (qintr_p_H2      )
+            deallocate (qintr_rain_p_H2 )
+            deallocate (qintr_snow_p_H2 )
+#endif
          ENDIF
       ENDIF
 
@@ -157,7 +178,14 @@ CONTAINS
             qintr_snow_p(:) = Values  !snowfall interception (mm h2o/s)
             assim_p     (:) = Values  !canopy assimilation rate (mol m-2 s-1)
             respc_p     (:) = Values  !canopy respiration (mol m-2 s-1)
-
+#ifdef USE_ISOTOPE
+            qintr_p_O18      (:) = Values  !interception (mm h2o/s)
+            qintr_rain_p_O18 (:) = Values  !rainfall interception (mm h2o/s)
+            qintr_snow_p_O18 (:) = Values  !snowfall interception (mm h2o/s)
+            qintr_p_H2      (:) = Values  !interception (mm h2o/s)
+            qintr_rain_p_H2 (:) = Values  !rainfall interception (mm h2o/s)
+            qintr_snow_p_H2 (:) = Values  !snowfall interception (mm h2o/s)
+#endif
          ENDIF
       ENDIF
 

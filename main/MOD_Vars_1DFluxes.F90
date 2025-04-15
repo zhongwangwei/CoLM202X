@@ -34,6 +34,16 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: etr    (:) !transpiration rate [mm/s]
    real(r8), allocatable :: fseng  (:) !sensible heat flux from ground [W/m2]
    real(r8), allocatable :: fevpg  (:) !evaporation heat flux from ground [mm/s]
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: fevpa_O18  (:) !evapotranspiration from canopy to atmosphere [mm/s]
+   real(r8), allocatable :: fevpa_H2  (:) !evapotranspiration from canopy to atmosphere [mm/s]
+   real(r8), allocatable :: fevpl_O18  (:) !evapotranspiration from leaves to atmosphere [mm/s]
+   real(r8), allocatable :: fevpl_H2  (:) !evapotranspiration from leaves to atmosphere [mm/s]
+   real(r8), allocatable :: etr_O18  (:) !transpiration rate [mm/s]
+   real(r8), allocatable :: etr_H2  (:) !transpiration rate [mm/s]
+   real(r8), allocatable :: fevpg_O18  (:) !evaporation heat flux from ground [mm/s]
+   real(r8), allocatable :: fevpg_H2  (:) !evaporation heat flux from ground [mm/s]
+#endif
    real(r8), allocatable :: fgrnd  (:) !ground heat flux [W/m2]
    real(r8), allocatable :: sabvsun(:) !solar absorbed by sunlit vegetation [W/m2]
    real(r8), allocatable :: sabvsha(:) !solar absorbed by shaded vegetation [W/m2]
@@ -65,8 +75,30 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: rsub   (:) !subsurface runoff (mm h2o/s)
    real(r8), allocatable :: rnof   (:) !total runoff (mm h2o/s)
    real(r8), allocatable :: qintr  (:) !interception (mm h2o/s)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: rsur_O18  (:) !surface runoff (mm h2o/s)
+   real(r8), allocatable :: rsur_se_O18  (:) !saturation excess surface runoff (mm h2o/s)
+   real(r8), allocatable :: rsur_ie_O18  (:) !infiltration excess surface runoff (mm h2o/s)
+   real(r8), allocatable :: rsub_O18  (:) !subsurface runoff (mm h2o/s)
+   real(r8), allocatable :: rnof_O18  (:) !total runoff (mm h2o/s)
+   real(r8), allocatable :: qintr_O18  (:) !interception (mm h2o/s)
+   real(r8), allocatable :: rsur_H2  (:) !surface runoff (mm h2o/s)
+   real(r8), allocatable :: rsur_se_H2  (:) !saturation excess surface runoff (mm h2o/s)
+   real(r8), allocatable :: rsur_ie_H2  (:) !infiltration excess surface runoff (mm h2o/s)
+   real(r8), allocatable :: rsub_H2  (:) !subsurface runoff (mm h2o/s)
+   real(r8), allocatable :: rnof_H2  (:) !total runoff (mm h2o/s)
+   real(r8), allocatable :: qintr_H2  (:) !interception (mm h2o/s)
+#endif
    real(r8), allocatable :: qinfl  (:) !infiltration (mm h2o/s)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: qinfl_O18  (:) !infiltration (mm h2o/s)
+   real(r8), allocatable :: qinfl_H2  (:) !infiltration (mm h2o/s)
+#endif
    real(r8), allocatable :: qdrip  (:) !throughfall (mm h2o/s)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: qdrip_O18  (:) !throughfall (mm h2o/s)
+   real(r8), allocatable :: qdrip_H2  (:) !throughfall (mm h2o/s)
+#endif
    real(r8), allocatable :: assim  (:) !canopy assimilation rate (mol m-2 s-1)
    real(r8), allocatable :: respc  (:) !canopy respiration (mol m-2 s-1)
 
@@ -113,6 +145,16 @@ CONTAINS
             allocate ( etr    (numpatch) )  ; etr    (:) = spval ! transpiration rate [mm/s]
             allocate ( fseng  (numpatch) )  ; fseng  (:) = spval ! sensible heat flux from ground [W/m2]
             allocate ( fevpg  (numpatch) )  ; fevpg  (:) = spval ! evaporation heat flux from ground [mm/s]
+#ifdef USE_ISOTOPE
+            allocate ( fevpa_O18  (numpatch) )  ; fevpa_O18  (:) = spval ! evapotranspiration from canopy to atmosphere [mm/s]
+            allocate ( fevpa_H2  (numpatch) )  ; fevpa_H2  (:) = spval ! evapotranspiration from canopy to atmosphere [mm/s]
+            allocate ( fevpl_O18  (numpatch) )  ; fevpl_O18  (:) = spval ! evapotranspiration from leaves to atmosphere [mm/s]
+            allocate ( fevpl_H2  (numpatch) )  ; fevpl_H2  (:) = spval ! evapotranspiration from leaves to atmosphere [mm/s]
+            allocate ( etr_O18  (numpatch) )  ; etr_O18  (:) = spval ! transpiration rate [mm/s]
+            allocate ( etr_H2  (numpatch) )  ; etr_H2  (:) = spval ! transpiration rate [mm/s]
+            allocate ( fevpg_O18  (numpatch) )  ; fevpg_O18  (:) = spval ! evaporation heat flux from ground [mm/s]
+            allocate ( fevpg_H2  (numpatch) )  ; fevpg_H2  (:) = spval ! evaporation heat flux from ground [mm/s]
+#endif
             allocate ( fgrnd  (numpatch) )  ; fgrnd  (:) = spval ! ground heat flux [W/m2]
             allocate ( sabvsun(numpatch) )  ; sabvsun(:) = spval ! solar absorbed by sunlit vegetation [W/m2]
             allocate ( sabvsha(numpatch) )  ; sabvsha(:) = spval ! solar absorbed by shaded vegetation [W/m2]
@@ -145,8 +187,35 @@ CONTAINS
             allocate ( rsub   (numpatch) )  ; rsub   (:) = spval ! subsurface runoff (mm h2o/s)
             allocate ( rnof   (numpatch) )  ; rnof   (:) = spval ! total runoff (mm h2o/s)
             allocate ( qintr  (numpatch) )  ; qintr  (:) = spval ! interception (mm h2o/s)
+            
+#ifdef USE_ISOTOPE
+            allocate ( rsur_O18  (numpatch) )  ; rsur_O18  (:) = spval ! surface runoff (mm h2o/s)
+            allocate ( rsur_se_O18  (numpatch) )  ; rsur_se_O18  (:) = spval ! saturation excess surface runoff (mm h2o/s)
+            allocate ( rsur_ie_O18  (numpatch) )  ; rsur_ie_O18  (:) = spval ! infiltration excess surface runoff (mm h2o/s)
+            allocate ( rsub_O18  (numpatch) )  ; rsub_O18  (:) = spval ! subsurface runoff (mm h2o/s)
+            allocate ( rnof_O18  (numpatch) )  ; rnof_O18  (:) = spval ! total runoff (mm h2o/s)
+            allocate ( qintr_O18  (numpatch) )  ; qintr_O18  (:) = spval ! interception (mm h2o/s)
+            allocate ( rsur_H2  (numpatch) )  ; rsur_H2  (:) = spval ! surface runoff (mm h2o/s)
+            allocate ( rsur_se_H2  (numpatch) )  ; rsur_se_H2  (:) = spval ! saturation excess surface runoff (mm h2o/s)
+            allocate ( rsur_ie_H2  (numpatch) )  ; rsur_ie_H2  (:) = spval ! infiltration excess surface runoff (mm h2o/s)
+            allocate ( rsub_H2  (numpatch) )  ; rsub_H2  (:) = spval ! subsurface runoff (mm h2o/s)
+            allocate ( rnof_H2  (numpatch) )  ; rnof_H2  (:) = spval ! total runoff (mm h2o/s)
+            allocate ( qintr_H2  (numpatch) )  ; qintr_H2  (:) = spval ! interception (mm h2o/s)
+#endif
+#ifdef USE_ISOTOPE
+            allocate ( qintr_O18  (numpatch) )  ; qintr_O18  (:) = spval ! interception (mm h2o/s)
+            allocate ( qintr_H2  (numpatch) )  ; qintr_H2  (:) = spval ! interception (mm h2o/s)
+#endif
             allocate ( qinfl  (numpatch) )  ; qinfl  (:) = spval ! infiltration (mm h2o/s)
+#ifdef USE_ISOTOPE
+            allocate ( qinfl_O18  (numpatch) )  ; qinfl_O18  (:) = spval ! infiltration (mm h2o/s)
+            allocate ( qinfl_H2  (numpatch) )  ; qinfl_H2  (:) = spval ! infiltration (mm h2o/s)
+#endif
             allocate ( qdrip  (numpatch) )  ; qdrip  (:) = spval ! throughfall (mm h2o/s)
+#ifdef USE_ISOTOPE
+            allocate ( qdrip_O18  (numpatch) )  ; qdrip_O18  (:) = spval ! throughfall (mm h2o/s)
+            allocate ( qdrip_H2  (numpatch) )  ; qdrip_H2  (:) = spval ! throughfall (mm h2o/s)
+#endif
             allocate ( assim  (numpatch) )  ; assim  (:) = spval ! canopy assimilation rate (mol m-2 s-1)
             allocate ( respc  (numpatch) )  ; respc  (:) = spval ! canopy respiration (mol m-2 s-1)
 
@@ -198,6 +267,16 @@ CONTAINS
             deallocate ( etr     )  ! transpiration rate [mm/s]
             deallocate ( fseng   )  ! sensible heat flux from ground [W/m2]
             deallocate ( fevpg   )  ! evaporation heat flux from ground [mm/s]
+#ifdef USE_ISOTOPE
+            deallocate ( fevpa_O18   )  ! evapotranspiration from canopy to atmosphere [mm/s]
+            deallocate ( fevpa_H2   )  ! evapotranspiration from canopy to atmosphere [mm/s]
+            deallocate ( fevpl_O18   )  ! evapotranspiration from leaves to atmosphere [mm/s]
+            deallocate ( fevpl_H2   )  ! evapotranspiration from leaves to atmosphere [mm/s]
+            deallocate ( etr_O18   )  ! transpiration rate [mm/s]
+            deallocate ( etr_H2   )  ! transpiration rate [mm/s]
+            deallocate ( fevpg_O18   )  ! evaporation heat flux from ground [mm/s]
+            deallocate ( fevpg_H2   )  ! evaporation heat flux from ground [mm/s]
+#endif
             deallocate ( fgrnd   )  ! ground heat flux [W/m2]
             deallocate ( sabvsun )  ! solar absorbed by sunlit vegetation [W/m2]
             deallocate ( sabvsha )  ! solar absorbed by shaded vegetation [W/m2]
@@ -229,8 +308,36 @@ CONTAINS
             deallocate ( rsub    )  ! subsurface runoff (mm h2o/s)
             deallocate ( rnof    )  ! total runoff (mm h2o/s)
             deallocate ( qintr   )  ! interception (mm h2o/s)
+#ifdef USE_ISOTOPE
+            deallocate ( rsur_O18   )  ! surface runoff (mm h2o/s)
+            deallocate ( rsur_se_O18   )  ! saturation excess surface runoff (mm h2o/s)
+            deallocate ( rsur_ie_O18   )  ! infiltration excess surface runoff (mm h2o/s)
+            deallocate ( rsub_O18   )  ! subsurface runoff (mm h2o/s)
+            deallocate ( rnof_O18   )  ! total runoff (mm h2o/s)
+            deallocate ( qintr_O18   )  ! interception (mm h2o/s)
+            deallocate ( rsur_H2   )  ! surface runoff (mm h2o/s)
+            deallocate ( rsur_se_H2   )  ! saturation excess surface runoff (mm h2o/s)
+            deallocate ( rsur_ie_H2   )  ! infiltration excess surface runoff (mm h2o/s)
+            deallocate ( rsub_H2   )  ! subsurface runoff (mm h2o/s)
+            deallocate ( rnof_H2   )  ! total runoff (mm h2o/s)
+            deallocate ( qintr_H2   )  ! interception (mm h2o/s)
+#endif
+
+            
+#ifdef USE_ISOTOPE
+            deallocate ( qintr_O18   )  ! interception (mm h2o/s)
+            deallocate ( qintr_H2   )  ! interception (mm h2o/s)
+#endif
             deallocate ( qinfl   )  ! infiltration (mm h2o/s)
+#ifdef USE_ISOTOPE
+            deallocate ( qinfl_O18   )  ! infiltration (mm h2o/s)
+            deallocate ( qinfl_H2   )  ! infiltration (mm h2o/s)
+#endif
             deallocate ( qdrip   )  ! throughfall (mm h2o/s)
+#ifdef USE_ISOTOPE
+            deallocate ( qdrip_O18   )  ! interception (mm h2o/s)
+            deallocate ( qdrip_H2   )  ! interception (mm h2o/s)
+#endif
             deallocate ( assim   )  ! canopy assimilation rate (mol m-2 s-1)
             deallocate ( respc   )  ! canopy respiration (mol m-2 s-1)
 

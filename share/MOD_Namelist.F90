@@ -198,6 +198,10 @@ MODULE MOD_Namelist
 
    logical :: DEF_USE_SoilInit  = .false.
    character(len=256) :: DEF_file_SoilInit = 'null'
+#ifdef USE_ISOTOPE
+   logical :: DEF_USE_SoilInit_Isotope = .false.
+   character(len=256) :: DEF_file_SoilInit_Isotope = 'null'
+#endif
 
    logical :: DEF_USE_SnowInit  = .false.
    character(len=256) :: DEF_file_SnowInit = 'null'
@@ -514,6 +518,16 @@ MODULE MOD_Namelist
       logical :: etr                              = .true.
       logical :: fseng                            = .true.
       logical :: fevpg                            = .true.
+#ifdef USE_ISOTOPE
+      logical :: fevpa_O18                        = .true.
+      logical :: fevpa_H2                         = .true.
+      logical :: fevpl_O18                        = .true.
+      logical :: fevpl_H2                         = .true.
+      logical :: etr_O18                          = .true.
+      logical :: etr_H2                           = .true.
+      logical :: fevpg_O18                        = .true.
+      logical :: fevpg_H2                         = .true.
+#endif
       logical :: fgrnd                            = .true.
       logical :: sabvsun                          = .true.
       logical :: sabvsha                          = .true.
@@ -527,11 +541,35 @@ MODULE MOD_Namelist
       logical :: rsur_ie                          = .true.
       logical :: rsub                             = .true.
       logical :: rnof                             = .true.
+#ifdef USE_ISOTOPE
+      logical :: rsur_O18                         = .true.
+      logical :: rsur_se_O18                      = .true.
+      logical :: rsur_ie_O18                      = .true.
+      logical :: rsub_O18                         = .true.
+      logical :: rnof_O18                         = .true.
+      logical :: rsur_H2                         = .true.
+      logical :: rsur_se_H2                      = .true.
+      logical :: rsur_ie_H2                      = .true.
+      logical :: rsub_H2                         = .true.
+      logical :: rnof_H2                         = .true.
+#endif
       logical :: xwsur                            = .true.
       logical :: xwsub                            = .true.
       logical :: qintr                            = .true.
+#ifdef USE_ISOTOPE
+      logical :: qintr_O18                        = .true.
+      logical :: qintr_H2                         = .true.
+#endif
       logical :: qinfl                            = .true.
+#ifdef USE_ISOTOPE
+      logical :: qinfl_O18                        = .true.
+      logical :: qinfl_H2                         = .true.
+#endif
       logical :: qdrip                            = .true.
+#ifdef USE_ISOTOPE
+      logical :: qdrip_O18                        = .true.
+      logical :: qdrip_H2                         = .true.
+#endif
       logical :: wat                              = .true.
       logical :: wat_inst                         = .true.
       logical :: wetwat                           = .true.
@@ -542,6 +580,10 @@ MODULE MOD_Namelist
       logical :: t_grnd                           = .true.
       logical :: tleaf                            = .true.
       logical :: ldew                             = .true.
+#ifdef USE_ISOTOPE
+      logical :: ldew_O18                         = .true.
+      logical :: ldew_H2                          = .true.
+#endif
       logical :: scv                              = .true.
       logical :: snowdp                           = .true.
       logical :: fsno                             = .true.
@@ -558,7 +600,10 @@ MODULE MOD_Namelist
       logical :: rss                              = .true.
       logical :: tref                             = .true.
       logical :: qref                             = .true.
-
+#ifdef USE_ISOTOPE
+      logical :: qref_O18                         = .true.
+      logical :: qref_H2                          = .true.
+#endif
       logical :: fsen_roof                        = .true.
       logical :: fsen_wsun                        = .true.
       logical :: fsen_wsha                        = .true.
@@ -809,7 +854,12 @@ MODULE MOD_Namelist
       logical :: t_soisno                         = .true.
       logical :: wliq_soisno                      = .true.
       logical :: wice_soisno                      = .true.
-
+#ifdef USE_ISOTOPE
+      logical :: wliq_soisno_O18                 = .true.
+      logical :: wice_soisno_O18                 = .true.
+      logical :: wliq_soisno_H2                  = .true.
+      logical :: wice_soisno_H2                  = .true.
+#endif
       logical :: h2osoi                           = .true.
       logical :: rstfacsun                        = .true.
       logical :: rstfacsha                        = .true.
@@ -1039,7 +1089,10 @@ CONTAINS
 
       DEF_USE_SoilInit,                       &
       DEF_file_SoilInit,                      &
-
+#ifdef USE_ISOTOPE
+      DEF_USE_SoilInit_Isotope,               &
+      DEF_file_SoilInit_Isotope,              &
+#endif
       DEF_USE_SnowInit,                       &
       DEF_file_SnowInit,                      &
 
@@ -1554,7 +1607,10 @@ CONTAINS
 
       CALL mpi_bcast (DEF_USE_SoilInit                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_SoilInit                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-
+#ifdef USE_ISOTOPE
+      CALL mpi_bcast (DEF_USE_SoilInit_Isotope              ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_SoilInit_Isotope             ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+#endif
       CALL mpi_bcast (DEF_USE_SnowInit                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_SnowInit                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1778,6 +1834,16 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%etr         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fseng       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fevpg       , set_defaults)
+#ifdef USE_ISOTOPE
+      CALL sync_hist_vars_one (DEF_hist_vars%fevpa_O18       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%fevpa_H2       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%fevpl_O18       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%fevpl_H2       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%etr_O18       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%etr_H2       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%fevpg_O18       , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%fevpg_H2       , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%fgrnd       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%sabvsun     , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%sabvsha     , set_defaults)
@@ -1791,11 +1857,31 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%rsur_ie     , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rsub        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rnof        , set_defaults)
+#ifdef USE_ISOTOPE
+      CALL sync_hist_vars_one (DEF_hist_vars%rsur_O18     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsur_se_O18     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsur_ie_O18     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsub_O18     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rnof_O18     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsur_H2     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsur_se_H2     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsur_ie_H2     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rsub_H2     , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%rnof_H2     , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%xwsur       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%xwsub       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qintr       , set_defaults)
+#ifdef USE_ISOTOPE
+      CALL sync_hist_vars_one (DEF_hist_vars%qintr_O18    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%qintr_H2     , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%qinfl       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qdrip       , set_defaults)
+#ifdef USE_ISOTOPE
+      CALL sync_hist_vars_one (DEF_hist_vars%qdrip_O18    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%qdrip_H2     , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%wat         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wat_inst    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wetwat      , set_defaults)
@@ -1806,6 +1892,10 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%t_grnd      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%tleaf       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%ldew        , set_defaults)
+#ifdef USE_ISOTOPE
+      CALL sync_hist_vars_one (DEF_hist_vars%ldew_O18    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%ldew_H2     , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%scv         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%snowdp      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%fsno        , set_defaults)
@@ -2066,6 +2156,12 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%t_soisno    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wliq_soisno , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wice_soisno , set_defaults)
+#ifdef USE_ISOTOPE
+      CALL sync_hist_vars_one (DEF_hist_vars%wliq_soisno_O18 , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wice_soisno_O18 , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wliq_soisno_H2 , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wice_soisno_H2 , set_defaults)
+#endif
 
       CALL sync_hist_vars_one (DEF_hist_vars%h2osoi      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsun   , set_defaults)

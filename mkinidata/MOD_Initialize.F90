@@ -124,6 +124,10 @@ CONTAINS
    type(block_data_real8_2d) :: snow_d_grid
    type(block_data_real8_3d) :: soil_t_grid
    type(block_data_real8_3d) :: soil_w_grid
+#ifdef USE_ISOTOPE
+   type(block_data_real8_3d) :: soil_w_O18_grid
+   type(block_data_real8_3d) :: soil_w_H2_grid
+#endif
    type(block_data_real8_2d) :: zwt_grid
 
    type(block_data_real8_3d) :: litr1c_grid
@@ -155,6 +159,10 @@ CONTAINS
    real(r8), allocatable :: snow_d(:)
    real(r8), allocatable :: soil_t(:,:)
    real(r8), allocatable :: soil_w(:,:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: soil_w_O18(:,:)
+   real(r8), allocatable :: soil_w_H2(:,:)
+#endif
    logical , allocatable :: validval(:)
 
    real(r8), allocatable :: litr1c_vr(:,:)
@@ -761,6 +769,10 @@ CONTAINS
                   gsoil, nl_soil_ini, month, soil_t_grid)
                ! soil layer wetness (-)
                CALL allocate_block_data  (gsoil, soil_w_grid, nl_soil_ini)
+#ifdef USE_ISOTOPE
+               CALL allocate_block_data  (gsoil, soil_w_O18_grid, nl_soil_ini)
+               CALL allocate_block_data  (gsoil, soil_w_H2_grid, nl_soil_ini)
+#endif
                CALL ncio_read_block_time (fsoildat, 'soilwat', &
                   gsoil, nl_soil_ini, month, soil_w_grid)
                ! water table depth (m)
@@ -772,6 +784,10 @@ CONTAINS
                IF (numpatch > 0) THEN
                   allocate (soil_t (nl_soil_ini,numpatch))
                   allocate (soil_w (nl_soil_ini,numpatch))
+#ifdef USE_ISOTOPE
+                  allocate (soil_w_O18 (nl_soil_ini,numpatch)) !per mil
+                  allocate (soil_w_H2 (nl_soil_ini,numpatch)) !per mil
+#endif
                   allocate (validval (numpatch))
                ENDIF
             ENDIF
@@ -781,6 +797,10 @@ CONTAINS
 
             CALL msoil2p%grid2pset (soil_t_grid, nl_soil_ini, soil_t)
             CALL msoil2p%grid2pset (soil_w_grid, nl_soil_ini, soil_w)
+#ifdef USE_ISOTOPE
+            CALL msoil2p%grid2pset (soil_w_O18_grid, nl_soil_ini, soil_w_O18)
+            CALL msoil2p%grid2pset (soil_w_H2_grid, nl_soil_ini, soil_w_H2)
+#endif
             CALL msoil2p%grid2pset (zwt_grid, zwt)
 
             IF (p_is_worker) THEN
@@ -793,6 +813,10 @@ CONTAINS
                      ENDIF
 
                      soil_w(:,i) = 1.
+#ifdef USE_ISOTOPE
+                     soil_w_O18(:,i) = -10 !per mil
+                     soil_w_H2(:,i) = -70 !per mil
+#endif
                      zwt(i) = 0.
 
                   ENDIF
@@ -813,6 +837,10 @@ CONTAINS
             allocate (soil_z (nl_soil))
             allocate (soil_t (nl_soil,numpatch))
             allocate (soil_w (nl_soil,numpatch))
+#ifdef USE_ISOTOPE
+            allocate (soil_w_O18 (nl_soil,numpatch))
+            allocate (soil_w_H2 (nl_soil,numpatch))
+#endif
          ENDIF
       ENDIF
 
@@ -1317,7 +1345,14 @@ CONTAINS
                ! for SOIL INIT of water, temperature, snow depth
                ,use_soilini, nl_soil_ini, soil_z, soil_t(1:,i), soil_w(1:,i), use_snowini, snow_d(i) &
                ! for SOIL Water INIT by using water table depth
-               ,use_wtd, zwtmm, zc_soimm, zi_soimm, vliq_r, nprms, prms)
+               ,use_wtd, zwtmm, zc_soimm, zi_soimm, vliq_r, nprms, prms &
+#ifdef USE_ISOTOPE
+               ,soil_w_O18(1:,i), soil_w_H2(1:,i), &
+               wliq_soisno_O18(maxsnl+1:nl_soil,i), wice_soisno_O18(maxsnl+1:nl_soil,i), &
+               wliq_soisno_H2(maxsnl+1:nl_soil,i), wice_soisno_H2(maxsnl+1:nl_soil,i), &
+               ldew_O18(i), ldew_H2(i), ldew_rain_O18(i), ldew_rain_H2(i), ldew_snow_O18(i), ldew_snow_H2(i) &
+#endif
+               )
                
 #ifdef EXTERNAL_LAKE
             IF(patchtype(i) == 4) THEN
@@ -1510,6 +1545,10 @@ CONTAINS
       IF (allocated(snow_d)) deallocate (snow_d)
       IF (allocated(soil_t)) deallocate (soil_t)
       IF (allocated(soil_w)) deallocate (soil_w)
+#ifdef USE_ISOTOPE
+      IF (allocated(soil_w_O18)) deallocate (soil_w_O18)
+      IF (allocated(soil_w_H2)) deallocate (soil_w_H2)
+#endif
 
    END SUBROUTINE initialize
 

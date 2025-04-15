@@ -188,7 +188,21 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
              ! additional variables required by coupling with WRF model
                emis(i),         z0m(i),          zol(i),          rib(i),          &
                ustar(i),        qstar(i),        tstar(i),                         &
-               fm(i),           fh(i),           fq(i)                             )
+               fm(i),           fh(i),           fq(i)                            &
+#ifdef USE_ISOTOPE
+               ,qintr_O18(i),   qintr_H2(i),   qdrip_O18(i),   qdrip_H2(i)        &
+               ,wliq_soisno_O18(maxsnl+1:nl_soil,i), wice_soisno_O18(maxsnl+1:nl_soil,i), &
+               wliq_soisno_H2(maxsnl+1:nl_soil,i), wice_soisno_H2(maxsnl+1:nl_soil,i), &
+               fevpa_O18(i),fevpa_H2(i),&
+               fevpl_O18(i),fevpl_H2(i),&
+               etr_O18(i),etr_H2(i),&
+               fevpg_O18(i),fevpg_H2(i), &
+               rsur_O18(i),rsur_se_O18(i),rsur_ie_O18(i),rnof_O18(i),qinfl_O18(i), &
+               rsur_H2(i),rsur_se_H2(i),rsur_ie_H2(i),rnof_H2(i),qinfl_H2(i) &
+#endif
+               
+               
+               )
 
             ENDDO
          ENDIF

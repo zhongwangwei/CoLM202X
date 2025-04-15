@@ -25,6 +25,10 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_forc_iso_pp_H2 (:)
    real(r8), allocatable :: a_forc_q_O18 (:)
    real(r8), allocatable :: a_forc_q_H2 (:)
+   real(r8), allocatable :: a_prc_O18 (:)
+   real(r8), allocatable :: a_prc_H2 (:)
+   real(r8), allocatable :: a_prl_O18 (:)
+   real(r8), allocatable :: a_prl_H2 (:)
 #endif
    real(r8), allocatable :: a_taux      (:)
    real(r8), allocatable :: a_tauy      (:)
@@ -36,6 +40,16 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_etr       (:)
    real(r8), allocatable :: a_fseng     (:)
    real(r8), allocatable :: a_fevpg     (:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_fevpa_O18     (:)
+   real(r8), allocatable :: a_fevpl_O18     (:)
+   real(r8), allocatable :: a_etr_O18     (:)
+   real(r8), allocatable :: a_fevpg_O18     (:)
+   real(r8), allocatable :: a_fevpa_H2     (:)
+   real(r8), allocatable :: a_fevpl_H2     (:)
+   real(r8), allocatable :: a_etr_H2     (:)
+   real(r8), allocatable :: a_fevpg_H2     (:)
+#endif
    real(r8), allocatable :: a_fgrnd     (:)
    real(r8), allocatable :: a_sabvsun   (:)
    real(r8), allocatable :: a_sabvsha   (:)
@@ -49,13 +63,37 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_rsur_ie   (:)
    real(r8), allocatable :: a_rsub      (:)
    real(r8), allocatable :: a_rnof      (:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_rsur_O18   (:)
+   real(r8), allocatable :: a_rsur_se_O18   (:)
+   real(r8), allocatable :: a_rsur_ie_O18   (:)
+   real(r8), allocatable :: a_rsub_O18   (:)
+   real(r8), allocatable :: a_rnof_O18   (:)
+   real(r8), allocatable :: a_rsur_H2   (:)
+   real(r8), allocatable :: a_rsur_se_H2   (:)
+   real(r8), allocatable :: a_rsur_ie_H2   (:)
+   real(r8), allocatable :: a_rsub_H2   (:)
+   real(r8), allocatable :: a_rnof_H2   (:)
+#endif
 #ifdef CatchLateralFlow
    real(r8), allocatable :: a_xwsur     (:)
    real(r8), allocatable :: a_xwsub     (:)
 #endif
    real(r8), allocatable :: a_qintr     (:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_qintr_O18     (:)
+   real(r8), allocatable :: a_qintr_H2     (:)
+#endif
    real(r8), allocatable :: a_qinfl     (:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_qinfl_O18     (:)
+   real(r8), allocatable :: a_qinfl_H2     (:)
+#endif
    real(r8), allocatable :: a_qdrip     (:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_qdrip_O18     (:)
+   real(r8), allocatable :: a_qdrip_H2     (:)
+#endif
    real(r8), allocatable :: a_rstfacsun (:)
    real(r8), allocatable :: a_rstfacsha (:)
    real(r8), allocatable :: a_gssun     (:)
@@ -327,6 +365,12 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_t_soisno    (:,:)
    real(r8), allocatable :: a_wliq_soisno (:,:)
    real(r8), allocatable :: a_wice_soisno (:,:)
+#ifdef USE_ISOTOPE
+   real(r8), allocatable :: a_wliq_soisno_O18 (:,:)
+   real(r8), allocatable :: a_wice_soisno_O18 (:,:)
+   real(r8), allocatable :: a_wliq_soisno_H2 (:,:)
+   real(r8), allocatable :: a_wice_soisno_H2 (:,:)
+#endif
    real(r8), allocatable :: a_h2osoi      (:,:)
    real(r8), allocatable :: a_rootr       (:,:)
    real(r8), allocatable :: a_BD_all      (:,:)
@@ -447,6 +491,10 @@ CONTAINS
             allocate (a_forc_iso_pp_H2 (numpatch))
             allocate (a_forc_q_O18 (numpatch))
             allocate (a_forc_q_H2 (numpatch))
+            allocate (a_prc_O18 (numpatch))
+            allocate (a_prc_H2 (numpatch))
+            allocate (a_prl_O18 (numpatch))
+            allocate (a_prl_H2 (numpatch))
 #endif
             allocate (a_taux      (numpatch))
             allocate (a_tauy      (numpatch))
@@ -471,13 +519,37 @@ CONTAINS
             allocate (a_rsur_ie   (numpatch))
             allocate (a_rsub      (numpatch))
             allocate (a_rnof      (numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_rsur_O18   (numpatch))
+            allocate (a_rsur_se_O18   (numpatch))
+            allocate (a_rsur_ie_O18   (numpatch))
+            allocate (a_rsub_O18   (numpatch))
+            allocate (a_rnof_O18   (numpatch))
+            allocate (a_rsur_H2   (numpatch))
+            allocate (a_rsur_se_H2   (numpatch))
+            allocate (a_rsur_ie_H2   (numpatch))
+            allocate (a_rsub_H2   (numpatch))
+            allocate (a_rnof_H2   (numpatch))
+#endif
 #ifdef CatchLateralFlow
             allocate (a_xwsur     (numpatch))
             allocate (a_xwsub     (numpatch))
 #endif
             allocate (a_qintr     (numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_qintr_O18     (numpatch))
+            allocate (a_qintr_H2     (numpatch))
+#endif
             allocate (a_qinfl     (numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_qinfl_O18     (numpatch))
+            allocate (a_qinfl_H2     (numpatch))
+#endif
             allocate (a_qdrip     (numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_qdrip_O18     (numpatch))
+            allocate (a_qdrip_H2     (numpatch))
+#endif
             allocate (a_rstfacsun (numpatch))
             allocate (a_rstfacsha (numpatch))
             allocate (a_gssun     (numpatch))
@@ -753,6 +825,12 @@ CONTAINS
             allocate (a_t_soisno    (maxsnl+1:nl_soil,numpatch))
             allocate (a_wliq_soisno (maxsnl+1:nl_soil,numpatch))
             allocate (a_wice_soisno (maxsnl+1:nl_soil,numpatch))
+#ifdef USE_ISOTOPE
+            allocate (a_wliq_soisno_O18 (maxsnl+1:nl_soil,numpatch))
+            allocate (a_wice_soisno_O18 (maxsnl+1:nl_soil,numpatch))
+            allocate (a_wliq_soisno_H2 (maxsnl+1:nl_soil,numpatch))
+            allocate (a_wice_soisno_H2 (maxsnl+1:nl_soil,numpatch))
+#endif
             allocate (a_h2osoi      (1:nl_soil,       numpatch))
             allocate (a_rootr       (1:nl_soil,       numpatch))
             allocate (a_BD_all      (1:nl_soil,       numpatch))
@@ -900,13 +978,37 @@ CONTAINS
             deallocate (a_rsur_ie   )
             deallocate (a_rsub      )
             deallocate (a_rnof      )
+#ifdef USE_ISOTOPE
+            deallocate (a_rsur_O18   )
+            deallocate (a_rsur_se_O18   )
+            deallocate (a_rsur_ie_O18   )
+            deallocate (a_rsub_O18   )
+            deallocate (a_rnof_O18   )
+            deallocate (a_rsur_H2   )
+            deallocate (a_rsur_se_H2   )
+            deallocate (a_rsur_ie_H2   )
+            deallocate (a_rsub_H2   )
+            deallocate (a_rnof_H2   )
+#endif
 #ifdef CatchLateralFlow
             deallocate (a_xwsur     )
             deallocate (a_xwsub     )
 #endif
             deallocate (a_qintr     )
+#ifdef USE_ISOTOPE
+            deallocate (a_qintr_O18     )
+            deallocate (a_qintr_H2     )
+#endif
             deallocate (a_qinfl     )
+#ifdef USE_ISOTOPE
+            deallocate (a_qinfl_O18     )
+            deallocate (a_qinfl_H2     )
+#endif
             deallocate (a_qdrip     )
+#ifdef USE_ISOTOPE
+            deallocate (a_qdrip_O18 )
+            deallocate (a_qdrip_H2  )
+#endif
             deallocate (a_rstfacsun )
             deallocate (a_rstfacsha )
             deallocate (a_gssun     )
@@ -1184,6 +1286,12 @@ CONTAINS
             deallocate (a_t_soisno    )
             deallocate (a_wliq_soisno )
             deallocate (a_wice_soisno )
+#ifdef USE_ISOTOPE
+            deallocate (a_wliq_soisno_O18 )
+            deallocate (a_wice_soisno_O18 )
+            deallocate (a_wliq_soisno_H2 )
+            deallocate (a_wice_soisno_H2 )
+#endif
             deallocate (a_h2osoi      )
             deallocate (a_rootr       )
             deallocate (a_BD_all      )
@@ -1331,12 +1439,30 @@ CONTAINS
             a_rsur_ie   (:) = spval
             a_rsub      (:) = spval
             a_rnof      (:) = spval
+#ifdef USE_ISOTOPE
+            a_rsur_O18   (:) = spval
+            a_rsur_se_O18   (:) = spval
+            a_rsur_ie_O18   (:) = spval
+            a_rsub_O18   (:) = spval
+            a_rnof_O18   (:) = spval
+            a_rsur_H2   (:) = spval
+            a_rsur_se_H2   (:) = spval
+            a_rsur_ie_H2   (:) = spval
+            a_rsub_H2   (:) = spval
+            a_rnof_H2   (:) = spval
+#endif
 #ifdef CatchLateralFlow
             a_xwsur     (:) = spval
             a_xwsub     (:) = spval
 #endif
             a_qintr     (:) = spval
             a_qinfl     (:) = spval
+#ifdef USE_ISOTOPE
+            a_qintr_O18     (:) = spval
+            a_qintr_H2     (:) = spval
+            a_qinfl_O18     (:) = spval
+            a_qinfl_H2     (:) = spval
+#endif
             a_qdrip     (:) = spval
             a_rstfacsun (:) = spval
             a_rstfacsha (:) = spval
@@ -1610,6 +1736,12 @@ CONTAINS
             a_t_soisno     (:,:) = spval
             a_wliq_soisno  (:,:) = spval
             a_wice_soisno  (:,:) = spval
+#ifdef USE_ISOTOPE
+            a_wliq_soisno_O18  (:,:)  = spval
+            a_wice_soisno_O18  (:,:)  = spval
+            a_wliq_soisno_H2   (:,:)  = spval
+            a_wice_soisno_H2   (:,:)  = spval
+#endif
             a_h2osoi       (:,:) = spval
             a_rootr        (:,:) = spval
             a_BD_all       (:,:) = spval
@@ -1837,14 +1969,35 @@ CONTAINS
 #endif
             CALL acc1d (rsub    , a_rsub   )
             CALL acc1d (rnof    , a_rnof   )
+#ifdef USE_ISOTOPE
+            CALL acc1d (rsur_O18    , a_rsur_O18   )
+            CALL acc1d (rsur_se_O18    , a_rsur_se_O18   )
+            CALL acc1d (rsur_ie_O18    , a_rsur_ie_O18   )
+            CALL acc1d (rsub_O18    , a_rsub_O18   )
+            CALL acc1d (rnof_O18    , a_rnof_O18   )
+            CALL acc1d (rsur_H2    , a_rsur_H2   )
+            CALL acc1d (rsur_se_H2    , a_rsur_se_H2   )
+            CALL acc1d (rsur_ie_H2    , a_rsur_ie_H2   )
+            CALL acc1d (rsub_H2    , a_rsub_H2   )
+            CALL acc1d (rnof_H2    , a_rnof_H2   )
+#endif
 #ifdef CatchLateralFlow
             CALL acc1d (xwsur   , a_xwsur  )
             CALL acc1d (xwsub   , a_xwsub  )
 #endif
             CALL acc1d (qintr   , a_qintr  )
             CALL acc1d (qinfl   , a_qinfl  )
+#ifdef USE_ISOTOPE
+            CALL acc1d (qintr_O18   , a_qintr_O18  )
+            CALL acc1d (qintr_H2   , a_qintr_H2  )
+            CALL acc1d (qinfl_O18   , a_qinfl_O18  )
+            CALL acc1d (qinfl_H2   , a_qinfl_H2  )
+#endif
             CALL acc1d (qdrip   , a_qdrip  )
-
+#ifdef USE_ISOTOPE
+            CALL acc1d (qdrip_O18   , a_qdrip_O18  )
+            CALL acc1d (qdrip_H2   , a_qdrip_H2  )
+#endif
             CALL acc1d (rstfacsun_out , a_rstfacsun )
             CALL acc1d (rstfacsha_out , a_rstfacsha )
 
@@ -2142,7 +2295,12 @@ CONTAINS
             CALL acc2d (t_soisno   , a_t_soisno      )
             CALL acc2d (wliq_soisno, a_wliq_soisno   )
             CALL acc2d (wice_soisno, a_wice_soisno   )
-
+#ifdef USE_ISOTOPE
+            CALL acc2d (wliq_soisno_O18, a_wliq_soisno_O18   )
+            CALL acc2d (wice_soisno_O18, a_wice_soisno_O18   )
+            CALL acc2d (wliq_soisno_H2, a_wliq_soisno_H2     )
+            CALL acc2d (wice_soisno_H2, a_wice_soisno_H2     )
+#endif
             CALL acc2d (h2osoi     , a_h2osoi        )
             CALL acc2d (rootr      , a_rootr         )
             CALL acc2d (BD_all     , a_BD_all        )

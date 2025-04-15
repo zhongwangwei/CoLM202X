@@ -358,10 +358,10 @@ CONTAINS
          CALL write_history_variable_2d ( DEF_hist_vars%xy_q_O18, &
             a_forc_q_O18, file_hist, 'f_xy_q_O18', itime_in_file, sumarea, filter, &
             'isotope vapor O18','kg/m/s')
-
          CALL write_history_variable_2d ( DEF_hist_vars%xy_q_H2, &
             a_forc_q_H2, file_hist, 'f_xy_q_H2', itime_in_file, sumarea, filter, &
             'isotope vapor H2','kg/m/s')
+
 #endif
          ! ------------------------------------------------------------------------------------------
          ! Mapping the fluxes and state variables at patch [numpatch] to grid
@@ -498,8 +498,69 @@ CONTAINS
          CALL write_history_variable_2d ( DEF_hist_vars%rnof, &
             a_rnof, file_hist, 'f_rnof', itime_in_file, sumarea, filter, &
             'total runoff','mm/s')
-#endif
 
+#ifdef USE_ISOTOPE
+         ! surface runoff [mm/s]
+         CALL write_history_variable_2d ( DEF_hist_vars%rsur_O18, &
+            a_rsur_O18, file_hist, 'f_rsur_O18', itime_in_file, sumarea, filter, &
+            'surface runoff O18','mm/s')
+
+         ! saturation excess surface runoff [mm/s]
+         CALL write_history_variable_2d ( DEF_hist_vars%rsur_se_O18, &
+            a_rsur_se_O18, file_hist, 'f_rsur_se_O18', itime_in_file, sumarea, filter, &
+            'saturation excess surface runoff O18','mm/s')
+
+         ! infiltration excess surface runoff [mm/s]
+         CALL write_history_variable_2d ( DEF_hist_vars%rsur_ie_O18, &
+            a_rsur_ie_O18, file_hist, 'f_rsur_ie_O18', itime_in_file, sumarea, filter, &
+            'infiltration excess surface runoff O18','mm/s')
+
+         ! subsurface runoff [mm/s]
+         CALL write_history_variable_2d ( DEF_hist_vars%rsub_O18, &
+            a_rsub_O18, file_hist, 'f_rsub_O18', itime_in_file, sumarea, filter, &
+            'subsurface runoff O18','mm/s')
+
+         ! total runoff [mm/s]
+         CALL write_history_variable_2d ( DEF_hist_vars%rnof_O18, &
+            a_rnof_O18, file_hist, 'f_rnof_O18', itime_in_file, sumarea, filter, &
+            'total runoff O18','mm/s')
+
+         ! infiltration rate [mm/s]
+         CALL write_history_variable_2d ( DEF_hist_vars%qinfl_O18, &
+            a_qinfl_O18, file_hist, 'f_qinfl_O18', itime_in_file, sumarea, filter, &
+            'infiltration rate O18','mm/s')
+
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%rsur_H2, &
+            a_rsur_H2, file_hist, 'f_rsur_H2', itime_in_file, sumarea, filter, &
+            'surface runoff H2','mm/s')  
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%rsur_se_H2, &
+            a_rsur_se_H2, file_hist, 'f_rsur_se_H2', itime_in_file, sumarea, filter, &
+            'saturation excess surface runoff H2','mm/s')  
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%rsur_ie_H2, &
+            a_rsur_ie_H2, file_hist, 'f_rsur_ie_H2', itime_in_file, sumarea, filter, &
+            'infiltration excess surface runoff H2','mm/s')  
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%rsub_H2, &
+            a_rsub_H2, file_hist, 'f_rsub_H2', itime_in_file, sumarea, filter, &
+            'subsurface runoff H2','mm/s')     
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%rnof_H2, &
+            a_rnof_H2, file_hist, 'f_rnof_H2', itime_in_file, sumarea, filter, &
+            'total runoff H2','mm/s')     
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%qinfl_H2, &
+            a_qinfl_H2, file_hist, 'f_qinfl_H2', itime_in_file, sumarea, filter, &
+            'infiltration rate H2','mm/s')     
+            
+            CALL write_history_variable_2d ( DEF_hist_vars%qintr_H2, &
+            a_qintr_H2, file_hist, 'f_qintr_H2', itime_in_file, sumarea, filter, &
+            'interception H2','mm/s')     
+            
+#endif
+#endif
 #ifdef DataAssimilation
          ! slope factors for runoff [-]
          IF (p_is_worker) THEN
@@ -537,6 +598,21 @@ CONTAINS
          CALL write_history_variable_2d ( DEF_hist_vars%qdrip, &
             a_qdrip, file_hist, 'f_qdrip', itime_in_file, sumarea, filter, &
             'total throughfall','mm/s')
+#ifdef USE_ISOTOPE
+         call write_history_variable_2d ( DEF_hist_vars%qintr_O18, &
+            a_qintr_O18, file_hist, 'f_qintr_O18', itime_in_file, sumarea, filter, &
+            'isotope interception O18','kg/m/s')
+         call write_history_variable_2d ( DEF_hist_vars%qintr_H2, &
+            a_qintr_H2, file_hist, 'f_qintr_H2', itime_in_file, sumarea, filter, &
+            'isotope interception H2','kg/m/s')
+         call write_history_variable_2d ( DEF_hist_vars%qdrip_O18, &
+            a_qdrip_O18, file_hist, 'f_qdrip_O18', itime_in_file, sumarea, filter, &
+            'isotope throughfall O18','kg/m/s')
+         call write_history_variable_2d ( DEF_hist_vars%qdrip_H2, &
+            a_qdrip_H2, file_hist, 'f_qdrip_H2', itime_in_file, sumarea, filter, &
+            'isotope throughfall H2','kg/m/s')
+
+#endif
 
          ! total water storage [mm]
          CALL write_history_variable_2d ( DEF_hist_vars%wat, &
@@ -581,7 +657,14 @@ CONTAINS
          CALL write_history_variable_2d ( DEF_hist_vars%ldew, &
             a_ldew, file_hist, 'f_ldew', itime_in_file, sumarea, filter, &
             'depth of water on foliage','mm')
-
+#ifdef USE_ISOTOPE
+         call write_history_variable_2d ( DEF_hist_vars%ldew_O18, &
+            a_ldew_O18, file_hist, 'f_ldew_O18', itime_in_file, sumarea, filter, &
+            'isotope dew O18','kg/m/s')
+         call write_history_variable_2d ( DEF_hist_vars%ldew_H2, &
+            a_ldew_H2, file_hist, 'f_ldew_H2', itime_in_file, sumarea, filter, &
+            'isotope dew H2','kg/m/s')
+#endif
          ! snow cover, water equivalent [mm]
          CALL write_history_variable_2d ( DEF_hist_vars%scv, &
             a_scv, file_hist, 'f_scv', itime_in_file, sumarea, filter, &
@@ -3628,7 +3711,24 @@ CONTAINS
          CALL write_history_variable_3d ( DEF_hist_vars%wice_soisno, &
             a_wice_soisno, file_hist, 'f_wice_soisno', itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
             sumarea, filter, 'ice lens in soil layers', 'kg/m2')
-
+#ifdef USE_ISOTOPE
+         ! liquid water in soil layers [kg/m2]
+         CALL write_history_variable_3d ( DEF_hist_vars%wliq_soisno_O18, &
+            a_wliq_soisno_O18, file_hist, 'f_wliq_soisno_O18', itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
+            sumarea, filter,'liquid water in soil layers','kg/m2')
+         ! ice lens in soil layers [kg/m2]
+         CALL write_history_variable_3d ( DEF_hist_vars%wice_soisno_O18, &
+            a_wice_soisno_O18, file_hist, 'f_wice_soisno_O18', itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
+            sumarea, filter, 'ice lens in soil layers', 'kg/m2')
+         ! liquid water in soil layers [kg/m2]
+         CALL write_history_variable_3d ( DEF_hist_vars%wliq_soisno_H2, &
+            a_wliq_soisno_H2, file_hist, 'f_wliq_soisno_H2', itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
+            sumarea, filter,'liquid water in soil layers','kg/m2')
+         ! ice lens in soil layers [kg/m2]
+         CALL write_history_variable_3d ( DEF_hist_vars%wice_soisno_H2, &
+            a_wice_soisno_H2, file_hist, 'f_wice_soisno_H2', itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
+            sumarea, filter, 'ice lens in soil layers', 'kg/m2')
+#endif
          ! --------------------------------------------------------------------
          ! additional diagnostic variables for output (vegetated land only <=2)
          ! [soil => 0; urban and built-up => 1; wetland => 2; land ice => 3;

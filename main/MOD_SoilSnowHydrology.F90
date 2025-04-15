@@ -502,7 +502,13 @@ ENDIF
 ! SNICAR model variables
               forc_aer                                                        ,&
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
-              mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                  )
+              mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                  &
+#ifdef USE_ISOTOPE
+               ,wliq_soisno_O18,wliq_soisno_H2,wice_soisno_O18,wice_soisno_H2  &
+               ,rsur_O18,rsur_se_O18,rsur_ie_O18,rnof_O18,qinfl_O18   &
+               ,rsur_H2,rsur_se_H2,rsur_ie_H2,rnof_H2,qinfl_H2  &
+#endif
+              )
 
 !===================================================================================
 !  this is the main SUBROUTINE to execute the calculation of soil water processes
@@ -595,7 +601,13 @@ ENDIF
    real(r8), intent(inout) :: &
         wice_soisno(lb:nl_soil) , &! ice lens (kg/m2)
         wliq_soisno(lb:nl_soil)    ! liquid water (kg/m2)
-
+#ifdef USE_ISOTOPE
+   real(r8), intent(inout) :: &
+        wliq_soisno_O18(lb:nl_soil) , &! liquid water (kg/m2)
+        wliq_soisno_H2(lb:nl_soil) , &! liquid water (kg/m2)
+        wice_soisno_O18(lb:nl_soil) , &! ice lens (kg/m2)
+        wice_soisno_H2(lb:nl_soil)    ! ice lens (kg/m2)
+#endif
    real(r8), intent(out) :: &
         smp(1:nl_soil)   , &! soil matrix potential [mm]
         hk (1:nl_soil)      ! hydraulic conductivity [mm h2o/m]
@@ -612,7 +624,19 @@ ENDIF
         rsur_ie          , &! infiltration excess surface runoff (mm h2o/s)
         rnof             , &! total runoff (mm h2o/s)
         qinfl               ! infiltration rate (mm h2o/s)
-
+#ifdef USE_ISOTOPE
+   real(r8), intent(out) :: &
+        rsur_O18         , &! surface runoff (mm h2o/s)
+        rsur_se_O18         , &! saturation excess surface runoff (mm h2o/s)
+        rsur_ie_O18         , &! infiltration excess surface runoff (mm h2o/s)
+        rnof_O18         , &! total runoff (mm h2o/s)
+        qinfl_O18         , &! infiltration rate (mm h2o/s)
+        rsur_H2         , &! surface runoff (mm h2o/s)
+        rsur_se_H2         , &! saturation excess surface runoff (mm h2o/s)
+        rsur_ie_H2         , &! infiltration excess surface runoff (mm h2o/s)
+        rnof_H2         , &! total runoff (mm h2o/s)
+        qinfl_H2          ! infiltration rate (mm h2o/s)
+#endif
 
 ! SNICAR model variables
 ! Aerosol Fluxes (Jan. 07, 2023)

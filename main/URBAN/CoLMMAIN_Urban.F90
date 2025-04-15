@@ -56,7 +56,7 @@
 !           version.
 !
 !-----------------------------------------------------------------------
-
+#ifdef URBAN_MODEL
    SUBROUTINE CoLMMAIN_Urban ( &
 
          ! model running information
@@ -1396,3 +1396,4 @@
 END SUBROUTINE CoLMMAIN_Urban
 ! ----------------------------------------------------------------------
 ! EOP
+#endif

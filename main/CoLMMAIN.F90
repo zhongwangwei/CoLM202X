@@ -109,7 +109,20 @@ SUBROUTINE CoLMMAIN ( &
          ! additional variables required by coupling with WRF model
            emis,         z0m,          zol,          rib,          &
            ustar,        qstar,        tstar,        fm,           &
-           fh,           fq                                        )
+           fh,           fq           &
+#ifdef USE_ISOTOPE
+           , &
+           qintr_O18,   qintr_H2,   qdrip_O18,   qdrip_H2        , &
+           wliq_soisno_O18, wice_soisno_O18, wliq_soisno_H2, wice_soisno_H2 , &
+           fevpa_O18,fevpa_H2,& 
+           fevpl_O18,fevpl_H2,&
+           etr_O18,etr_H2, &
+           fevpg_O18,fevpg_H2 &
+           ,rsur_O18,rsur_se_O18,rsur_ie_O18,rnof_O18,qinfl_O18   &
+           ,rsur_H2,rsur_se_H2,rsur_ie_H2,rnof_H2,qinfl_H2  &
+#endif
+           
+           )
 
 !=======================================================================
 !
@@ -344,6 +357,12 @@ SUBROUTINE CoLMMAIN ( &
         t_soisno   (maxsnl+1:nl_soil) ,&! soil + snow layer temperature [K]
         wliq_soisno(maxsnl+1:nl_soil) ,&! liquid water (kg/m2)
         wice_soisno(maxsnl+1:nl_soil) ,&! ice lens (kg/m2)
+#ifdef USE_ISOTOPE
+        wliq_soisno_O18(maxsnl+1:nl_soil) ,&! liquid water (kg/m2)
+        wice_soisno_O18(maxsnl+1:nl_soil) ,&! ice lens (kg/m2)
+        wliq_soisno_H2(maxsnl+1:nl_soil) ,&! liquid water (kg/m2)
+        wice_soisno_H2(maxsnl+1:nl_soil) ,&! ice lens (kg/m2)
+#endif
         hk(1:nl_soil)                 ,&! hydraulic conductivity [mm h2o/s]
         smp(1:nl_soil)                ,&! soil matrix potential [mm]
 
@@ -442,6 +461,12 @@ SUBROUTINE CoLMMAIN ( &
         etr         ,&! transpiration rate [mm/s]
         fseng       ,&! sensible heat flux from ground [W/m2]
         fevpg       ,&! evaporation heat flux from ground [mm/s]
+#ifdef USE_ISOTOPE
+        fevpa_O18,fevpa_H2,&
+        fevpl_O18,fevpl_H2,&
+        etr_O18,etr_H2, &
+        fevpg_O18,fevpg_H2, &
+#endif
         olrg        ,&! outgoing long-wave radiation from ground+canopy
         fgrnd       ,&! ground heat flux [W/m2]
         xerr        ,&! water balance error at current time-step [mm/s]
@@ -454,9 +479,25 @@ SUBROUTINE CoLMMAIN ( &
         rsur_se     ,&! saturation excess surface runoff (mm h2o/s)
         rsur_ie     ,&! infiltration excess surface runoff (mm h2o/s)
         rnof        ,&! total runoff (mm h2o/s)
+#ifdef USE_ISOTOPE
+        rsur_O18,rsur_se_O18,rsur_ie_O18,rnof_O18   ,&! surface runoff (mm h2o/s)
+        rsur_H2,rsur_se_H2,rsur_ie_H2,rnof_H2  ,&! surface runoff (mm h2o/s)
+#endif
         qintr       ,&! interception (mm h2o/s)
+#ifdef USE_ISOTOPE
+        qintr_O18   ,&! interception (mm h2o/s)
+        qintr_H2    ,&! interception (mm h2o/s)
+#endif
         qinfl       ,&! infiltration (mm h2o/s)
+#ifdef USE_ISOTOPE
+        qinfl_O18   ,&! infiltration (mm h2o/s)
+        qinfl_H2    ,&! infiltration (mm h2o/s)
+#endif
         qdrip       ,&! throughfall (mm h2o/s)
+#ifdef USE_ISOTOPE
+        qdrip_O18   ,&! throughfall (mm h2o/s)
+        qdrip_H2    ,&! throughfall (mm h2o/s)
+#endif
         qcharge     ,&! groundwater recharge [mm/s]
 
         rst         ,&! canopy stomatal resistance
@@ -705,7 +746,10 @@ SUBROUTINE CoLMMAIN ( &
 ! [2] Canopy interception and precipitation onto ground surface
 !----------------------------------------------------------------------
          qflx_irrig_sprinkler = 0._r8
-
+#ifdef USE_ISOTOPE
+         qflx_irrig_sprinkler_O18 = 0._r8
+         qflx_irrig_sprinkler_H2 = 0._r8
+#endif
          IF (patchtype == 0) THEN
 
 #if(defined LULC_USGS || defined LULC_IGBP)
@@ -721,7 +765,12 @@ SUBROUTINE CoLMMAIN ( &
                       ldew_O18,ldew_rain_O18,ldew_snow_O18, &
                       ldew_H2,ldew_rain_H2,ldew_snow_H2, &
 #endif
-                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow &
+#ifdef USE_ISOTOPE
+                      ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                      ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif
+                      )
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -737,7 +786,12 @@ SUBROUTINE CoLMMAIN ( &
                       ldew_O18,ldew_rain_O18,ldew_snow_O18, &
                       ldew_H2,ldew_rain_H2,ldew_snow_H2, &
 #endif
-                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow &
+#ifdef USE_ISOTOPE
+                      ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                      ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif
+                      )
 #endif
 
          ELSE
@@ -753,10 +807,19 @@ SUBROUTINE CoLMMAIN ( &
                       ldew_O18,ldew_rain_O18,ldew_snow_O18, &
                       ldew_H2,ldew_rain_H2,ldew_snow_H2, &
 #endif
-                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow)
+                      z0m,forc_hgt_u,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow &
+#ifdef USE_ISOTOPE
+                      ,pg_rain_O18,pg_snow_O18,qintr_O18,qintr_rain_O18,qintr_snow_O18 &
+                      ,pg_rain_H2,pg_snow_H2,qintr_H2,qintr_rain_H2,qintr_snow_H2 &
+#endif
+                      )
          ENDIF
 
          qdrip = pg_rain + pg_snow
+#ifdef USE_ISOTOPE
+         qdrip_O18 = pg_rain_O18 + pg_snow_O18
+         qdrip_H2  = pg_rain_H2 + pg_snow_H2
+#endif
 
 !----------------------------------------------------------------------
 ! [3] Initialize new snow nodes for snowfall / sleet
@@ -815,9 +878,6 @@ SUBROUTINE CoLMMAIN ( &
               fsno              ,sigf              ,dz_soisno(lb:)    ,z_soisno(lb:)     ,&
               zi_soisno(lb-1:)  ,tleaf             ,t_soisno(lb:)     ,wice_soisno(lb:)  ,&
               wliq_soisno(lb:)  ,ldew              ,ldew_rain         ,ldew_snow         ,&
-#ifdef USE_ISOTOPE
-              ldew_O18,     ldew_rain_O18, ldew_snow_O18, ldew_H2,     ldew_rain_H2, ldew_snow_H2, &
-#endif
               fwet_snow         ,scv               ,snowdp            ,imelt(lb:)        ,&
               taux              ,tauy              ,fsena             ,fevpa             ,&
               lfevpa            ,fsenl             ,fevpl             ,etr               ,&
@@ -831,7 +891,20 @@ SUBROUTINE CoLMMAIN ( &
               zol               ,rib               ,ustar             ,qstar             ,&
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
-              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   )
+              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                  &
+#ifdef USE_ISOTOPE
+              ,forc_q_O18       ,forc_q_H2         ,&
+              ldew_O18         ,ldew_rain_O18    ,ldew_snow_O18    ,&
+              ldew_H2          ,ldew_rain_H2     ,ldew_snow_H2     ,&
+              fevpa_O18,fevpa_H2,&
+              fevpl_O18,fevpl_H2,&
+              etr_O18,etr_H2, &
+              fevpg_O18,fevpg_H2, &
+              wliq_soisno_O18(lb:),wice_soisno_O18(lb:),wliq_soisno_H2(lb:),wice_soisno_H2(lb:) &
+
+#endif
+              
+              )
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
 
@@ -884,7 +957,14 @@ SUBROUTINE CoLMMAIN ( &
 ! SNICAR model variables
                  forc_aer          ,&
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
-                 mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)   )
+                 mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)   &
+#ifdef USE_ISOTOPE
+               ,wliq_soisno_O18(lb:),wliq_soisno_H2(lb:),wice_soisno_O18(lb:),wice_soisno_H2(lb:)  &
+               ,rsur_O18,rsur_se_O18,rsur_ie_O18,rnof_O18,qinfl_O18   &
+               ,rsur_H2,rsur_se_H2,rsur_ie_H2,rnof_H2,qinfl_H2  &
+#endif
+                 
+                 )
 
          ENDIF
 

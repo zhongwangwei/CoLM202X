@@ -59,7 +59,13 @@ CONTAINS
 !------------------------------------------------------------
 #endif
                      ,use_soilini, nl_soil_ini, soil_z,   soil_t,   soil_w, use_snowini, snow_d &
-                     ,use_wtd,     zwtmm,       zc_soimm, zi_soimm, vliq_r, nprms, prms)
+                     ,use_wtd,     zwtmm,       zc_soimm, zi_soimm, vliq_r, nprms, prms &
+#ifdef USE_ISOTOPE
+                     ,soil_w_O18, soil_w_H2, &
+                     wliq_soisno_O18, wice_soisno_O18, wliq_soisno_H2, wice_soisno_H2, &
+                     ldew_O18, ldew_H2, ldew_rain_O18, ldew_rain_H2, ldew_snow_O18, ldew_snow_H2 &
+#endif
+                     )
 
 !=======================================================================
 ! Created by Yongjiu Dai, 09/15/1999
@@ -121,7 +127,10 @@ CONTAINS
          soil_z(nl_soil_ini),    &! soil layer depth for initial (m)
          soil_t(nl_soil_ini),    &! soil temperature from initial file (K)
          soil_w(nl_soil_ini)      ! soil wetness from initial file (-)
-
+#ifdef USE_ISOTOPE
+   real(r8), intent(in) :: soil_w_O18(nl_soil_ini) ! soil isotope O18 from initial file (-)
+   real(r8), intent(in) :: soil_w_H2(nl_soil_ini) ! soil isotope H2 from initial file (-)
+#endif
    logical,  intent(in) :: use_snowini
    real(r8), intent(in) :: snow_d ! snow depth (m)
 
@@ -141,6 +150,12 @@ CONTAINS
          t_soisno (maxsnl+1:nl_soil),   &! soil temperature [K]
          wliq_soisno(maxsnl+1:nl_soil), &! liquid water in layers [kg/m2]
          wice_soisno(maxsnl+1:nl_soil), &! ice lens in layers [kg/m2]
+#ifdef USE_ISOTOPE
+         wliq_soisno_O18(maxsnl+1:nl_soil), &! liquid water in layers [kg/m2]
+         wice_soisno_O18(maxsnl+1:nl_soil), &! ice lens in layers [kg/m2]
+         wliq_soisno_H2(maxsnl+1:nl_soil), &! liquid water in layers [kg/m2]
+         wice_soisno_H2(maxsnl+1:nl_soil), &! ice lens in layers [kg/m2]
+#endif
          smp        (1:nl_soil)       , &! soil matrix potential
          hk         (1:nl_soil)       , &! soil hydraulic conductance
 !Plant Hydraulic parameters
@@ -156,6 +171,15 @@ CONTAINS
 !#endif
          fwet_snow,              &! vegetation snow fractional cover [-]
          ldew,                   &! depth of water on foliage [mm]
+
+#ifdef USE_ISOTOPE
+         ldew_O18,               &! depth of water on foliage [mm]
+         ldew_H2,                &! depth of water on foliage [mm]
+         ldew_rain_O18,          &! depth of water on foliage [mm]
+         ldew_rain_H2,           &! depth of water on foliage [mm]
+         ldew_snow_O18,          &! depth of water on foliage [mm]
+         ldew_snow_H2,           &! depth of water on foliage [mm]
+#endif
          sag,                    &! non dimensional snow age [-]
          scv,                    &! snow cover, water equivalent [mm]
          snowdp,                 &! snow depth [meter]
@@ -361,9 +385,21 @@ CONTAINS
                   IF(t_soisno(j).ge.tfrz)THEN
                      wliq_soisno(j) = wet(j)*dz_soisno(j)*denh2o
                      wice_soisno(j) = 0.
+#ifdef USE_ISOTOPE
+                     wliq_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wliq_soisno(j)
+                     wice_soisno_O18(j) = 0.
+                     wliq_soisno_H2(j) =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wliq_soisno(j)
+                     wice_soisno_H2(j) = 0.
+#endif
                   ELSE
                      wliq_soisno(j) = 0.
                      wice_soisno(j) = wet(j)*dz_soisno(j)*denice
+#ifdef USE_ISOTOPE
+                     wliq_soisno_O18(j) = 0.
+                     wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                     wliq_soisno_H2(j)  = 0.
+                     wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                   ENDIF
                ENDDO
 
@@ -383,9 +419,21 @@ CONTAINS
                   IF(t_soisno(j).ge.tfrz)THEN
                      wliq_soisno(j) = porsl(j)*dz_soisno(j)*denh2o
                      wice_soisno(j) = 0.
+#ifdef USE_ISOTOPE
+                     wliq_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wliq_soisno(j)
+                     wice_soisno_O18(j) = 0.
+                     wliq_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wliq_soisno(j)
+                     wice_soisno_H2(j)  = 0.
+#endif
                   ELSE
                      wliq_soisno(j) = 0.
                      wice_soisno(j) = porsl(j)*dz_soisno(j)*denice
+#ifdef USE_ISOTOPE
+                     wliq_soisno_O18(j) = 0.
+                     wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                     wliq_soisno_H2(j)  = 0.
+                     wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                   ENDIF
                ENDDO
 
@@ -397,6 +445,12 @@ CONTAINS
                DO j = 1, nl_soil
                   wliq_soisno(j) = 0.
                   wice_soisno(j) = dz_soisno(j)*denice
+#ifdef USE_ISOTOPE
+                  wliq_soisno_O18(j) = 0.
+                  wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                  wliq_soisno_H2(j)  = 0.
+                  wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                ENDDO
 
                wa = 0.
@@ -416,10 +470,22 @@ CONTAINS
                   t_soisno(j) = 253.
                   wliq_soisno(j) = 0.
                   wice_soisno(j) = dz_soisno(j)*denice
+#ifdef USE_ISOTOPE
+                  wliq_soisno_O18(j) =  0.
+                  wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                  wliq_soisno_H2(j)  =  0.
+                  wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                ELSE
                   t_soisno(j) = 283.
                   wliq_soisno(j) = dz_soisno(j)*porsl(j)*denh2o
                   wice_soisno(j) = 0.
+#ifdef USE_ISOTOPE
+                  wliq_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wliq_soisno(j)
+                  wice_soisno_O18(j) =  0.
+                  wliq_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wliq_soisno(j)
+                  wice_soisno_H2(j)  =  0.
+#endif
                ENDIF
             ENDDO
 
@@ -443,10 +509,22 @@ CONTAINS
                   t_soisno(j) = 253.
                   wliq_soisno(j) = 0.
                   wice_soisno(j) = dz_soisno(j)*denice
+#ifdef USE_ISOTOPE
+                  wliq_soisno_O18(j) = 0.
+                  wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                  wliq_soisno_H2(j)  = 0.
+                  wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                ELSE
                   t_soisno(j) = 283.
                   wliq_soisno(j) = dz_soisno(j)*porsl(j)*denh2o
                   wice_soisno(j) = 0.
+#ifdef USE_ISOTOPE
+                  wliq_soisno_O18(j) = 0.
+                  wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                  wliq_soisno_H2(j)  = 0.
+                  wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                ENDIF
             ENDDO
 
@@ -512,6 +590,12 @@ CONTAINS
                   t_soisno(j) = min(tfrz-1., t_soisno(1))
                   wliq_soisno(j) = 0.
                   wice_soisno(j) = dz_soisno(j)*rhosno_ini         !m * kg m-3 = kg m-2
+#ifdef USE_ISOTOPE
+                  wliq_soisno_O18(j) = 0.
+                  wice_soisno_O18(j) =  (soil_w_O18(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+                  wliq_soisno_H2(j)  = 0.
+                  wice_soisno_H2(j)  =  (soil_w_H2(j)/1000.0_r8 + 1.0)*wice_soisno(j)
+#endif
                ENDDO
             ENDIF
 
@@ -519,6 +603,12 @@ CONTAINS
                t_soisno   (maxsnl+1:snl) = -999.
                wice_soisno(maxsnl+1:snl) = 0.
                wliq_soisno(maxsnl+1:snl) = 0.
+#ifdef USE_ISOTOPE
+               wliq_soisno_O18(maxsnl+1:snl) = 0.
+               wice_soisno_O18(maxsnl+1:snl) = 0.
+               wliq_soisno_H2(maxsnl+1:snl)  = 0.
+               wice_soisno_H2(maxsnl+1:snl)  = 0.
+#endif
                z_soisno   (maxsnl+1:snl) = 0.
                dz_soisno  (maxsnl+1:snl) = 0.
             ENDIF
@@ -535,6 +625,12 @@ CONTAINS
             t_soisno   (maxsnl+1:0) = -999.
             wice_soisno(maxsnl+1:0) = 0.
             wliq_soisno(maxsnl+1:0) = 0.
+#ifdef USE_ISOTOPE
+            wliq_soisno_O18(maxsnl+1:0) = 0.
+            wice_soisno_O18(maxsnl+1:0) = 0.
+            wliq_soisno_H2(maxsnl+1:0)  = 0.
+            wice_soisno_H2(maxsnl+1:0)  = 0.
+#endif
             z_soisno   (maxsnl+1:0) = 0.
             dz_soisno  (maxsnl+1:0) = 0.
 
@@ -560,6 +656,14 @@ CONTAINS
          ldew_snow  = 0.
          fwet_snow  = 0.
          ldew  = 0.
+#ifdef USE_ISOTOPE
+         ldew_rain_O18  = 0.
+         ldew_snow_O18  = 0.
+         ldew_rain_H2  = 0.
+         ldew_snow_H2  = 0.
+         ldew_O18  = 0.
+         ldew_H2  = 0.
+#endif
          tleaf = t_soisno(1)
          IF(DEF_USE_PLANTHYDRAULICS)THEN
             vegwp(1:nvegwcs) = -2.5e4
@@ -575,6 +679,14 @@ CONTAINS
             ldew_snow_p(ps:pe) = 0.
             fwet_snow_p(ps:pe) = 0.
             ldew_p(ps:pe) = 0.
+#ifdef USE_ISOTOPE
+            ldew_rain_p_O18(ps:pe) = 0.
+            ldew_snow_p_O18(ps:pe) = 0.
+            ldew_rain_p_H2(ps:pe) = 0.
+            ldew_snow_p_H2(ps:pe) = 0.
+            ldew_p_O18(ps:pe) = 0.
+            ldew_p_H2(ps:pe) = 0.
+#endif
             tleaf_p(ps:pe)= t_soisno(1)
             tref_p(ps:pe) = t_soisno(1)
             qref_p(ps:pe) = 0.3
@@ -1143,6 +1255,12 @@ CONTAINS
          t_soisno(:) = 300.
          wice_soisno(:) = 0.
          wliq_soisno(:) = 1000.
+#ifdef USE_ISOTOPE
+         wliq_soisno_O18(:) = 0.
+         wliq_soisno_H2(:) = 0.
+         wice_soisno_O18(:) = 0.
+         wice_soisno_H2(:) = 0.
+#endif
          z_soisno (maxsnl+1:0) = 0.
          dz_soisno(maxsnl+1:0) = 0.
          sigf   = 0.
@@ -1150,6 +1268,14 @@ CONTAINS
          ldew_rain  = 0.
          ldew_snow  = 0.
          ldew   = 0.
+#ifdef USE_ISOTOPE
+         ldew_rain_O18  = 0.
+         ldew_snow_O18  = 0.
+         ldew_rain_H2  = 0.
+         ldew_snow_H2  = 0.
+         ldew_O18  = 0.
+         ldew_H2  = 0.
+#endif
          scv    = 0.
          sag    = 0.
          snowdp = 0.

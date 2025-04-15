@@ -10,3 +10,6 @@ __pycache__
 lib
 *.a
 *.x
+run/log.txt
+run/US_Grid_10km_IGBP_VG_CaMa-o.out
+run/US_Grid_10km_IGBP_VG_CaMa-e.out
