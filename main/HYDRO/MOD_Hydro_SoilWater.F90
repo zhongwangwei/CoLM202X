@@ -20,6 +20,14 @@ MODULE MOD_Hydro_SoilWater
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS
    USE MOD_UserDefFun, only: findloc_ud
 
+   USE MOD_Tracer_Namelist_Defs, only: DEF_Tracers, DEF_Tracer_Number
+   USE MOD_Tracer_State, only: tracer_soil_concentration
+   USE MOD_Tracer_Forcing, only: get_current_tracer_forcing_value
+   USE MOD_Vars_Soil, only: nl_soil ! Ensure it's available (already used by CoLM)
+   USE MOD_SPMD_Task, only: numpatch ! For DEF_Tracer_Number > 0 .AND. numpatch > 0 check
+
+
+
    IMPLICIT NONE
 
    ! public subroutines and functions
@@ -115,6 +123,16 @@ CONTAINS
    integer  :: izwt, ilev
    real(r8) :: psi_zwt, smp_up, vliq_up, vliq(1:nlev), psi, vl
 
+   ! Tracer Variables
+   integer  :: i_tracer, k_layer ! p_idx is now patch_idx_arg
+   real(r8) :: water_flux_mm, tracer_mass_moved
+   real(r8) :: source_tracer_conc_mass_per_vol_water
+   real(r8) :: source_water_vol_mm ! target_water_vol_mm (unused)
+   real(r8) :: soil_layer_thickness_mm
+   real(r8) :: small_water_threshold_mm
+
+      small_water_threshold_mm = 1.0e-6_r8 ! Minimum water in a layer to consider it a source
+
       ! water table location
       izwt = findloc_ud(zwtmm >= sp_zi, back=.true.)
 
@@ -159,7 +177,8 @@ CONTAINS
    END SUBROUTINE get_water_equilibrium_state
 
    ! --- soil water movement ---
-   SUBROUTINE soil_water_vertical_movement (                      &
+   SUBROUTINE soil_water_vertical_movement (                           &
+         patch_idx_arg,                                                &
          nlev,       dt,    sp_zc,  sp_zi,    is_permeable,  porsl,    &
          vl_r,       psi_s, hksat,  nprm,     prms,          porsl_wa, &
          qgtop,      etr,   rootr,  rootflux, rsubst,        qinfl,    &
@@ -174,7 +193,7 @@ CONTAINS
    USE MOD_Const_Physical, only: tfrz
 
    IMPLICIT NONE
-
+   integer, intent(in) :: patch_idx_arg ! patch index
    integer,  intent(in) :: nlev    ! number of levels
    real(r8), intent(in) :: dt      ! time step (second)
 
@@ -437,6 +456,84 @@ CONTAINS
          write(*,*) 'vliq  (1-10): ', ss_vliq
          write(*,*) 'porsl (1-10): ', porsl
       ENDIF
+
+
+    ! ------- Tracer Advection Logic Start --------
+      IF (allocated(tracer_soil_concentration) .AND. DEF_Tracer_Number > 0 .AND. numpatch > 0) THEN
+
+ 
+         DO i_tracer = 1, DEF_Tracer_Number
+             ! A. Tracer advection with inter-layer fluxes (ss_q)
+             ! ss_q(k) is flux from layer k to k+1 (mm/s) (positive downward)
+             DO k_layer = 1, nlev - 1 
+                 soil_layer_thickness_mm = sp_dz(k_layer) ! sp_dz was calculated at the start of the routine
+ 
+                 water_flux_mm = ss_q(k_layer) * dt ! flux from k_layer to k_layer+1
+ 
+                 IF (abs(water_flux_mm) < small_water_threshold_mm * 1e-3_r8 ) CYCLE ! Negligible flux
+ 
+                 IF (water_flux_mm > 0.0_r8) THEN ! Downward flux: source is k_layer, target is k_layer+1
+                     source_water_vol_mm = ss_vliq(k_layer) * soil_layer_thickness_mm
+                     IF (source_water_vol_mm > small_water_threshold_mm) THEN
+                         source_tracer_conc_mass_per_vol_water = tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) / ss_vliq(k_layer)
+                         tracer_mass_moved = water_flux_mm * source_tracer_conc_mass_per_vol_water 
+                         
+                         tracer_mass_moved = MIN(tracer_mass_moved, tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) * soil_layer_thickness_mm)
+                         tracer_mass_moved = MAX(tracer_mass_moved, 0.0_r8)
+ 
+                         tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) = tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) - tracer_mass_moved / soil_layer_thickness_mm
+                         tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer+1) = tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer+1) + tracer_mass_moved / sp_dz(k_layer+1)
+                     ENDIF
+                 ELSE ! Upward flux: water_flux_mm < 0.0. Source is k_layer+1, target is k_layer
+                     real(r8) :: next_layer_thickness_mm
+                     next_layer_thickness_mm = sp_dz(k_layer+1)
+                     source_water_vol_mm = ss_vliq(k_layer+1) * next_layer_thickness_mm
+                     IF (source_water_vol_mm > small_water_threshold_mm) THEN
+                         source_tracer_conc_mass_per_vol_water = tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer+1) / ss_vliq(k_layer+1)
+                         tracer_mass_moved = (-water_flux_mm) * source_tracer_conc_mass_per_vol_water ! flux is negative, take absolute for mass moved
+                         
+                         tracer_mass_moved = MIN(tracer_mass_moved, tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer+1) * next_layer_thickness_mm)
+                         tracer_mass_moved = MAX(tracer_mass_moved, 0.0_r8)
+ 
+                         tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer+1) = tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer+1) - tracer_mass_moved / next_layer_thickness_mm
+                         tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) = tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) + tracer_mass_moved / soil_layer_thickness_mm
+                     ENDIF
+                 ENDIF
+             END DO
+ 
+             ! B. Tracer input with infiltration into the top layer (qinfl)
+             IF (qinfl > 0.0_r8 .AND. nlev > 0) THEN
+                 water_flux_mm = qinfl * dt
+                 soil_layer_thickness_mm = sp_dz(1) 
+                 
+                 real(r8) :: tracer_conc_in_precip = 0.0_r8 
+                 integer :: forcing_var_idx_for_precip = 1 ! Assuming 1st var in nl_tracer_forcing is precip conc.
+                 
+                 IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer)%name)) == 'O18') THEN 
+                     tracer_conc_in_precip = get_current_tracer_forcing_value(DEF_Tracers(i_tracer)%name, forcing_var_idx_for_precip, patch_idx_arg)
+                 ELSE IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer)%name)) == 'H2') THEN
+                     tracer_conc_in_precip = get_current_tracer_forcing_value(DEF_Tracers(i_tracer)%name, forcing_var_idx_for_precip, patch_idx_arg)
+                 ELSE IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer)%name)) == 'sand' .OR. &
+                          TRIM(ADJUSTL(DEF_Tracers(i_tracer)%name)) == 'clay' .OR. &
+                          TRIM(ADJUSTL(DEF_Tracers(i_tracer)%name)) == 'silt') THEN
+                     tracer_conc_in_precip = 0.0_r8 ! Default to zero if no specific rain forcing for sediment
+                 ENDIF
+                 
+                 tracer_mass_moved = water_flux_mm * tracer_conc_in_precip 
+                 
+                 tracer_soil_concentration(i_tracer, patch_idx_arg, 1) = tracer_soil_concentration(i_tracer, patch_idx_arg, 1) + tracer_mass_moved / soil_layer_thickness_mm
+             ENDIF
+             
+             ! Ensure concentrations are not negative after advection
+             DO k_layer = 1, nlev
+                 tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer) = MAX(0.0_r8, tracer_soil_concentration(i_tracer, patch_idx_arg, k_layer))
+             END DO
+ 
+         END DO ! End tracer loop
+     END IF ! End check for allocated tracers
+     ! ------- Tracer Advection Logic End --------
+
+
 
       DO ilev = 1, nlev
          IF (ilev < izwt) THEN

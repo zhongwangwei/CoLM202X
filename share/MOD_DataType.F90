@@ -706,4 +706,23 @@ CONTAINS
 
    END SUBROUTINE block_data_division
 
+   !! currently was not used
+!------- Tracer information type -------
+type :: tracer_info_type
+character(len=64) :: name         ! Name of the tracer (e.g., 'O18', 'sand')
+character(len=16) :: type         ! Type: 'dissolved' or 'suspended'
+! Add other relevant metadata if needed in the future
+END type tracer_info_type
+
+!------- Array to hold all configured tracers -------
+! Moved to a module where it can be allocated after Tracer_Number is read
+! type(tracer_info_type), allocatable :: DEF_Tracers(:)
+
+!------- Placeholder for tracer concentrations in soil -------
+! This will likely be a 3D array: (tracer_index, patch_index, soil_layer_index)
+! For now, just a conceptual note. Actual definition will depend on how
+! it's integrated with existing block data structures or if new ones are made.
+! Example: type(block_data_real8_3d) :: tracer_concentration_soil
+
+
 END MODULE MOD_DataType

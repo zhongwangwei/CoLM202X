@@ -114,6 +114,9 @@ CONTAINS
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_1DFluxes, only: nsensor
    USE MOD_Vars_TimeVariables, only: wa, wat, wetwat, wdsrf
+   USE MOD_Tracer_Namelist_Defs, only: DEF_Tracers, DEF_Tracer_Number ! To get tracer names and count
+   USE MOD_Tracer_State, only: tracer_soil_concentration             ! To get the actual tracer data
+   USE MOD_Vars_Soil, only: nl_soil                                   ! For number of soil layers
    USE MOD_Block
    USE MOD_DataType
    USE MOD_LandPatch
@@ -4000,6 +4003,99 @@ CONTAINS
 #ifdef CatchLateralFlow
          CALL hist_basin_out (file_hist, idate)
 #endif
+
+
+!-----------------------------------------------------------------------
+! Write Tracer Variables
+!-----------------------------------------------------------------------
+IF (allocated(DEF_Tracers) .AND. allocated(tracer_soil_concentration) .AND. DEF_Tracer_Number > 0) THEN
+   integer :: i_tracer_hist
+   character(len=128) :: tracer_var_name_hist
+   character(len=256) :: tracer_long_name_hist
+   character(len=64)  :: tracer_units_hist
+   real(r8), allocatable :: tracer_data_for_hist(:,:) ! (numpatch, nl_soil)
+
+   IF (p_is_worker .AND. numpatch > 0 .AND. nl_soil > 0) THEN
+        ALLOCATE(tracer_data_for_hist(numpatch, nl_soil))
+   ENDIF
+#ifdef USEMPI
+   ! No specific MPI barrier needed here as it's part of the general hist_out flow
+#endif
+
+   DO i_tracer_hist = 1, DEF_Tracer_Number
+       ! Prepare data slice for the current tracer
+       IF (p_is_worker .AND. numpatch > 0 .AND. nl_soil > 0 .AND. allocated(tracer_data_for_hist)) THEN
+           tracer_data_for_hist(:,:) = tracer_soil_concentration(i_tracer_hist, :, :)
+       ENDIF
+
+       ! Use IF or SELECT CASE for specific tracer metadata and history flags
+       IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer_hist)%name)) == 'O18') THEN
+           IF (DEF_hist_vars%tracer_O18_soil_concentration) THEN
+               tracer_var_name_hist = 'tracer_O18_soil_conc'
+               tracer_long_name_hist = 'O18 Concentration in Soil Layers'
+               tracer_units_hist = 'permil_VSMOW' ! Placeholder, actual units depend on storage
+               CALL write_history_variable_3d ( DEF_hist_vars%tracer_O18_soil_concentration, &
+                  tracer_data_for_hist, file_hist, tracer_var_name_hist, itime_in_file, &
+                  'soil_layer', 1, nl_soil, sumarea, filter, &
+                  tracer_long_name_hist, tracer_units_hist)
+           ENDIF
+       ELSE IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer_hist)%name)) == 'H2') THEN
+           IF (DEF_hist_vars%tracer_H2_soil_concentration) THEN
+               tracer_var_name_hist = 'tracer_H2_soil_conc'
+               tracer_long_name_hist = 'H2 Concentration in Soil Layers'
+               tracer_units_hist = 'permil_VSMOW' ! Placeholder
+               CALL write_history_variable_3d ( DEF_hist_vars%tracer_H2_soil_concentration, &
+                  tracer_data_for_hist, file_hist, tracer_var_name_hist, itime_in_file, &
+                  'soil_layer', 1, nl_soil, sumarea, filter, &
+                  tracer_long_name_hist, tracer_units_hist)
+           ENDIF
+       ELSE IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer_hist)%name)) == 'sand') THEN
+           IF (DEF_hist_vars%tracer_sand_soil_concentration) THEN
+               tracer_var_name_hist = 'tracer_sand_soil_conc'
+               tracer_long_name_hist = 'Sand Concentration in Soil Layers'
+               tracer_units_hist = 'kg/m3_bulk_soil' ! Example: mass of sand per bulk soil volume
+               CALL write_history_variable_3d ( DEF_hist_vars%tracer_sand_soil_concentration, &
+                  tracer_data_for_hist, file_hist, tracer_var_name_hist, itime_in_file, &
+                  'soil_layer', 1, nl_soil, sumarea, filter, &
+                  tracer_long_name_hist, tracer_units_hist)
+           ENDIF
+       ELSE IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer_hist)%name)) == 'clay') THEN
+           IF (DEF_hist_vars%tracer_clay_soil_concentration) THEN
+               tracer_var_name_hist = 'tracer_clay_soil_conc'
+               tracer_long_name_hist = 'Clay Concentration in Soil Layers'
+               tracer_units_hist = 'kg/m3_bulk_soil'
+               CALL write_history_variable_3d ( DEF_hist_vars%tracer_clay_soil_concentration, &
+                  tracer_data_for_hist, file_hist, tracer_var_name_hist, itime_in_file, &
+                  'soil_layer', 1, nl_soil, sumarea, filter, &
+                  tracer_long_name_hist, tracer_units_hist)
+           ENDIF
+       ELSE IF (TRIM(ADJUSTL(DEF_Tracers(i_tracer_hist)%name)) == 'silt') THEN
+           IF (DEF_hist_vars%tracer_silt_soil_concentration) THEN
+               tracer_var_name_hist = 'tracer_silt_soil_conc'
+               tracer_long_name_hist = 'Silt Concentration in Soil Layers'
+               tracer_units_hist = 'kg/m3_bulk_soil'
+               CALL write_history_variable_3d ( DEF_hist_vars%tracer_silt_soil_concentration, &
+                  tracer_data_for_hist, file_hist, tracer_var_name_hist, itime_in_file, &
+                  'soil_layer', 1, nl_soil, sumarea, filter, &
+                  tracer_long_name_hist, tracer_units_hist)
+           ENDIF
+       END IF
+       ! Add more ELSE IF blocks for other tracers as needed, or develop a more generic naming/metadata scheme.
+   END DO
+
+   IF (p_is_worker .AND. allocated(tracer_data_for_hist)) THEN
+        DEALLOCATE(tracer_data_for_hist)
+   ENDIF
+END IF
+!-----------------------------------------------------------------------
+
+
+
+
+
+
+
+
 
          IF (allocated(filter)) deallocate (filter)
 #ifdef URBAN_MODEL
