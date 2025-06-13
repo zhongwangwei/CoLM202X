@@ -11,6 +11,7 @@ SAVE
 PUBLIC :: DEF_Tracers, nl_tracer_forcing_type, DEF_Tracer_Forcings_NL
 PUBLIC :: allocate_tracer_defs, initialize_tracer_forcing_nl_defaults, parse_tracer_names
 PUBLIC :: MAX_TRACER_FORCING_VARS
+PUBLIC :: initialize_tracer_namelists, broadcast_tracer_namelists
 
 ! Max number of variables per tracer forcing (e.g., value for precip, value for humidity)
 integer, parameter :: MAX_TRACER_FORCING_VARS = 10
@@ -191,5 +192,96 @@ SUBROUTINE parse_tracer_names(tracer_name_str, tracer_type_str, num_tracers_expe
   ENDIF
 
 END SUBROUTINE parse_tracer_names
+
+SUBROUTINE initialize_tracer_namelists()
+  USE MOD_Namelist, only: DEF_Tracer_forcing_namelist
+  IMPLICIT NONE
+  
+  integer :: i
+  character(len=256) :: tracer_nml_group_name
+  type(nl_tracer_forcing_type) :: temp_tracer_forcing_nl
+  integer :: ierr_tracer_nl_open, ierr_tracer_nl_read
+  integer :: unit_number
+
+  IF (.NOT. allocated(DEF_Tracer_Forcings_NL) .OR. .NOT. allocated(DEF_Tracers)) RETURN
+
+  DO i = 1, SIZE(DEF_Tracer_Forcings_NL)
+      CALL initialize_tracer_forcing_nl_defaults(DEF_Tracer_Forcings_NL(i))
+      IF (i <= SIZE(DEF_Tracers)) THEN
+         DEF_Tracer_Forcings_NL(i)%tracer_name = DEF_Tracers(i)%name
+      ENDIF
+
+      ! Dynamically create the namelist group name
+      tracer_nml_group_name = 'nl_colm_tracer_forcing_' // TRIM(ADJUSTL(DEF_Tracers(i)%name))
+
+      ! Initialize temporary variable with current defaults
+      temp_tracer_forcing_nl = DEF_Tracer_Forcings_NL(i)
+
+      ! Get a free unit number
+      unit_number = 11 + i
+
+      ! Open the tracer-specific namelist file
+      OPEN(unit_number, FILE=trim(DEF_Tracer_forcing_namelist), STATUS='OLD', FORM='FORMATTED', IOSTAT=ierr_tracer_nl_open)
+
+      IF (ierr_tracer_nl_open == 0) THEN
+          READ(unit_number, NML=tracer_nml_group_name, IOSTAT=ierr_tracer_nl_read) temp_tracer_forcing_nl
+          IF (ierr_tracer_nl_read == 0) THEN
+              DEF_Tracer_Forcings_NL(i) = temp_tracer_forcing_nl
+          ELSE
+              WRITE(*,*) 'Warning: Problem reading tracer namelist for ', TRIM(DEF_Tracers(i)%name), ' (group ', TRIM(tracer_nml_group_name), ') from ', trim(DEF_Tracer_forcing_namelist)
+          ENDIF
+          CLOSE(unit_number)
+      ELSE
+          WRITE(*,*) 'Warning: Could not open tracer forcing namelist file: ', trim(DEF_Tracer_forcing_namelist), ' for tracer ', TRIM(DEF_Tracers(i)%name)
+          WRITE(*,*) 'IOSTAT error code: ', ierr_tracer_nl_open
+      ENDIF
+  END DO
+
+END SUBROUTINE initialize_tracer_namelists
+
+SUBROUTINE broadcast_tracer_namelists()
+#ifdef USEMPI
+  USE MOD_SPMD_Task, only: p_is_master, p_comm_glb, p_err, p_address_master, MPI_CHARACTER, MPI_INTEGER
+  USE MOD_Namelist, only: DEF_Tracer_Number
+#endif
+  IMPLICIT NONE
+  
+#ifdef USEMPI
+  integer :: num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi
+  integer :: i_mpi, k_mpi
+
+  IF (.NOT. (allocated(DEF_Tracers) .AND. allocated(DEF_Tracer_Forcings_NL))) RETURN
+
+  num_tracers_alloc_mpi = DEF_Tracer_Number
+  num_forced_tracers_alloc_mpi = DEF_Tracer_Number ! Simplified
+  IF (.NOT. p_is_master) THEN
+      CALL allocate_tracer_defs(num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi)
+  ENDIF
+
+  IF (allocated(DEF_Tracers)) THEN
+      DO i_mpi = 1, DEF_Tracer_Number
+          CALL mpi_bcast(DEF_Tracers(i_mpi)%name, 64, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+          CALL mpi_bcast(DEF_Tracers(i_mpi)%type, 16, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+      END DO
+  ENDIF
+  
+  IF (allocated(DEF_Tracer_Forcings_NL)) THEN
+      DO i_mpi = 1, DEF_Tracer_Number ! Should be actual num_forced_tracers
+          IF (i_mpi > SIZE(DEF_Tracer_Forcings_NL)) EXIT 
+          CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%tracer_name, 64, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+          CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%NVAR,    1, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
+          CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%dtime,   MAX_TRACER_FORCING_VARS, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
+          CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%offset,  MAX_TRACER_FORCING_VARS, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
+          DO k_mpi = 1, MAX_TRACER_FORCING_VARS
+              CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%fprefix(k_mpi), 256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+              CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%vname(k_mpi),   256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+              CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%timelog(k_mpi), 256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+              CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%tintalgo(k_mpi),256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+          END DO
+      END DO
+  ENDIF
+#endif
+
+END SUBROUTINE broadcast_tracer_namelists
 
 END MODULE MOD_Tracer_Namelist_Defs

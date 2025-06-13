@@ -12,7 +12,7 @@ MODULE MOD_Namelist
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
-   USE MOD_Tracer_Namelist_Defs, only: nl_tracer_forcing_type, DEF_Tracers, DEF_Tracer_Forcings_NL, allocate_tracer_defs, initialize_tracer_forcing_nl_defaults, parse_tracer_names, MAX_TRACER_FORCING_VARS
+   USE MOD_Tracer_Namelist_Defs, only: nl_tracer_forcing_type, DEF_Tracers, DEF_Tracer_Forcings_NL, allocate_tracer_defs, initialize_tracer_forcing_nl_defaults, parse_tracer_names, initialize_tracer_namelists, broadcast_tracer_namelists
    IMPLICIT NONE
    SAVE
 
@@ -1110,46 +1110,8 @@ CONTAINS
                 CALL parse_tracer_names(DEF_Tracer_name, DEF_Tracer_Type, DEF_Tracer_Number, DEF_Tracers) ! Updated call
             ENDIF
 
-            IF (allocated(DEF_Tracer_Forcings_NL)) THEN
-                DO i = 1, DEF_Tracer_Number
-                    CALL initialize_tracer_forcing_nl_defaults(DEF_Tracer_Forcings_NL(i))
-                    IF (i <= SIZE(DEF_Tracers)) THEN
-                       DEF_Tracer_Forcings_NL(i)%tracer_name = DEF_Tracers(i)%name
-                    ENDIF
-
-                    character(len=256) :: tracer_nml_group_name
-                    type(nl_tracer_forcing_type) :: temp_tracer_forcing_nl
-                    integer :: ierr_tracer_nl_open, ierr_tracer_nl_read
-                    integer :: unit_number ! Define a unit number for the file
-
-                    ! Dynamically create the namelist group name
-                    tracer_nml_group_name = 'nl_colm_tracer_forcing_' // TRIM(ADJUSTL(DEF_Tracers(i)%name))
-
-                    ! Initialize temporary variable with current defaults
-                    temp_tracer_forcing_nl = DEF_Tracer_Forcings_NL(i)
-
-                    ! Get a free unit number (example, needs a proper function in real code)
-                    ! For now, let's use a fixed one, assuming it's free.
-                    ! A more robust solution would be to use NEWUNIT intrinsic or a custom utility.
-                    unit_number = 11 + i ! Ensure different unit numbers for different tracers if files are kept open, though here we open/close each time.
-
-                    ! Open the tracer-specific namelist file
-                    OPEN(unit_number, FILE=trim(DEF_Tracer_forcing_namelist), STATUS='OLD', FORM='FORMATTED', IOSTAT=ierr_tracer_nl_open)
-
-                    IF (ierr_tracer_nl_open == 0) THEN
-                        READ(unit_number, NML=tracer_nml_group_name, IOSTAT=ierr_tracer_nl_read) temp_tracer_forcing_nl
-                        IF (ierr_tracer_nl_read == 0) THEN
-                            DEF_Tracer_Forcings_NL(i) = temp_tracer_forcing_nl
-                        ELSE
-                            WRITE(*,*) 'Warning: Problem reading tracer namelist for ', TRIM(DEF_Tracers(i)%name), ' (group ', TRIM(tracer_nml_group_name), ') from ', trim(DEF_Tracer_forcing_namelist)
-                        ENDIF
-                        CLOSE(unit_number)
-                    ELSE
-                        WRITE(*,*) 'Warning: Could not open tracer forcing namelist file: ', trim(DEF_Tracer_forcing_namelist), ' for tracer ', TRIM(DEF_Tracers(i)%name)
-                        WRITE(*,*) 'IOSTAT error code: ', ierr_tracer_nl_open
-                    ENDIF
-                END DO
-            ENDIF
+            ! Initialize tracer forcing namelists
+            CALL initialize_tracer_namelists()
         END IF
 
 
@@ -1696,37 +1658,9 @@ CONTAINS
       CALL mpi_bcast (DEF_Tracer_forcing_namelist,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Tracer_dir_forcing ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
-      integer :: num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi
-      integer :: i_mpi, k_mpi ! Moved declaration here
       IF (DEF_USE_Tracer .AND. DEF_Tracer_Number > 0) THEN
-          num_tracers_alloc_mpi = DEF_Tracer_Number
-          num_forced_tracers_alloc_mpi = DEF_Tracer_Number ! Simplified
-          IF (.NOT. p_is_master) THEN
-              CALL allocate_tracer_defs(num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi)
-          ENDIF
-
-          IF (allocated(DEF_Tracers)) THEN
-              DO i_mpi = 1, DEF_Tracer_Number
-                  CALL mpi_bcast(DEF_Tracers(i_mpi)%name, 64, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-                  CALL mpi_bcast(DEF_Tracers(i_mpi)%type, 16, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-              END DO
-          ENDIF
-          
-          IF (allocated(DEF_Tracer_Forcings_NL)) THEN
-              DO i_mpi = 1, DEF_Tracer_Number ! Should be actual num_forced_tracers
-                  IF (i_mpi > SIZE(DEF_Tracer_Forcings_NL)) EXIT 
-                  CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%tracer_name, 64, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-                  CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%NVAR,    1, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
-                  CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%dtime,   MAX_TRACER_FORCING_VARS, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
-                  CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%offset,  MAX_TRACER_FORCING_VARS, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
-                  DO k_mpi = 1, MAX_TRACER_FORCING_VARS
-                      CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%fprefix(k_mpi), 256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-                      CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%vname(k_mpi),   256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-                      CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%timelog(k_mpi), 256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-                      CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%tintalgo(k_mpi),256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
-                  END DO
-              END DO
-          ENDIF
+          ! Broadcast tracer namelist data
+          CALL broadcast_tracer_namelists()
       END IF
 
 
