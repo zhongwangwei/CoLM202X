@@ -3,10 +3,11 @@
 MODULE MOD_Tracer_Soil_Erosion
 
 USE MOD_Precision, only: r8
-USE MOD_Tracer_State, only: tracer_soil_concentration
-USE MOD_Tracer_Namelist_Defs, only: DEF_Tracers, DEF_Tracer_Number, tracer_info_type
-USE MOD_SPMD_Task, only: p_is_master, numpatch 
-USE MOD_Vars_Soil, only: nl_soil 
+USE MOD_Tracer_Namelist_Defs, only: DEF_Tracers, tracer_info_type
+USE MOD_Namelist, only: DEF_Tracer_Number
+USE MOD_SPMD_Task, only: p_is_master
+USE MOD_LandPatch, only:  numpatch 
+USE MOD_Vars_Global, only: nl_soil 
 
 IMPLICIT NONE
 SAVE
@@ -68,7 +69,8 @@ SUBROUTINE Calculate_Soil_Erosion_Tracers( &
   real(r8) :: sand_frac, silt_frac, clay_frac ! Mass fractions of available sediment
   real(r8) :: available_sand_kg_m2, available_silt_kg_m2, available_clay_kg_m2
   real(r8) :: eroded_sand_kg_m2, eroded_silt_kg_m2, eroded_clay_kg_m2
-  
+  real(r8) :: total_available_soil_texture_kg_m2
+
   eroded_sand_flux_kg_m2_s = 0.0_r8
   eroded_silt_flux_kg_m2_s = 0.0_r8
   eroded_clay_flux_kg_m2_s = 0.0_r8
@@ -117,7 +119,6 @@ SUBROUTINE Calculate_Soil_Erosion_Tracers( &
       available_silt_kg_m2 = tracer_soil_concentration(silt_idx, patch_idx, 1) * top_soil_active_depth_m
       available_clay_kg_m2 = tracer_soil_concentration(clay_idx, patch_idx, 1) * top_soil_active_depth_m
       
-      real(r8) :: total_available_soil_texture_kg_m2
       total_available_soil_texture_kg_m2 = available_sand_kg_m2 + available_silt_kg_m2 + available_clay_kg_m2
 
       IF (total_available_soil_texture_kg_m2 > 1.0e-9_r8) THEN

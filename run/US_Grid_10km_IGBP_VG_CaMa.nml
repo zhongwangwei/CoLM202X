@@ -1,0 +1,86 @@
+&nl_colm
+
+! Author: Zhongwang Wei 
+! Description : include soil state init from data.
+
+   DEF_CASE_NAME = 'isotope-new11'
+
+   DEF_domain%edges = 30.0
+   DEF_domain%edgen = 40.0
+   DEF_domain%edgew = -100.0
+   DEF_domain%edgee = -80.0
+
+   !DEF_domain%edges = 60.0
+   !DEF_domain%edgen = 90.0
+   !DEF_domain%edgew = -180.0
+   !DEF_domain%edgee = 180.0
+
+   DEF_simulation_time%greenwich    = .TRUE.
+   DEF_simulation_time%start_year   = 2019
+   DEF_simulation_time%start_month  = 2
+   DEF_simulation_time%start_day    = 1
+   DEF_simulation_time%start_sec    = 0
+   DEF_simulation_time%end_year     = 2020
+   DEF_simulation_time%end_month    = 2
+   DEF_simulation_time%end_day      = 31
+   DEF_simulation_time%end_sec      = 86400
+   DEF_simulation_time%spinup_year  = 0
+   DEF_simulation_time%spinup_month = 1
+   DEF_simulation_time%spinup_day   = 365
+   DEF_simulation_time%spinup_sec   = 86400
+   DEF_simulation_time%spinup_repeat = 0
+
+   DEF_simulation_time%timestep     = 1800.
+
+   DEF_dir_rawdata = '/share/home/dq013/zhwei/colm/data/CoLMrawdata/'
+   DEF_dir_runtime = '/share/home/dq013/zhwei/colm/data/CoLMruntime/'
+   DEF_dir_output  = '/share/home/dq013/zhwei/colm/cases/'
+
+   ! ----- land units and land sets -----
+   ! for GRIDBASED
+   DEF_GRIDBASED_lon_res = 0.25
+   DEF_GRIDBASED_lat_res = 0.25
+
+   ! soil state init
+   DEF_USE_SoilInit  = .false.
+   DEF_file_SoilInit = '/share/home/dq013/zhwei/colm/data/soilstate/soilstate_isotope.nc' 
+
+   ! LAI setting
+   DEF_LAI_MONTHLY = .true.
+   DEF_LAI_CHANGE_YEARLY = .false.
+
+   DEF_USE_PLANTHYDRAULICS = .true.
+
+   DEF_RSS_SCHEME=0
+   DEF_Runoff_SCHEME=3
+  
+   ! ----- forcing -----
+   ! Options :
+   ! PRINCETON | GSWP3   | QIAN  | CRUNCEPV4 | CRUNCEPV7 | ERA5LAND | ERA5  | MSWX
+   ! WFDE5     | CRUJRA  | WFDEI | JRA55     | GDAS      | CMFD     | POINT | JRA3Q
+   DEF_forcing_namelist = '/share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250613/run/forcing/IsoGSM.nml'
+   
+   ! ----- history -----
+  ! DEF_hist_grid_as_forcing = .true.
+   DEF_hist_lon_res = 0.25
+   DEF_hist_lat_res = 0.25       
+   DEF_WRST_FREQ = 'YEARLY' ! write restart file frequency: HOURLY/DAILY/MONTHLY/YEARLY
+   DEF_HIST_FREQ = 'DAILY' ! write history file frequency: HOURLY/DAILY/MONTHLY/YEARLY
+   DEF_HIST_groupby = 'DAY' ! history in one file: DAY/MONTH/YEAR
+   DEF_HIST_mode = 'one' ! history in one or block
+   DEF_REST_CompressLevel = 1
+   DEF_HIST_CompressLevel = 1
+
+   DEF_HIST_WriteBack = .false.
+
+   DEF_hist_vars_out_default = .true.
+   
+   ! ---- Tracer ------
+   DEF_USE_Tracer =.true.
+   DEF_Tracer_Number    = 2
+   DEF_Tracer_name      ='O18, H2' 
+   DEF_Tracer_Type      ='Dissolved,Dissolved'
+   DEF_Tracer_Init      =.false.
+   DEF_Tracer_Init_file = '/share/home/dq013/zhwei/colm/data/soilstate/soilstate_isotope.nc' 
+   DEF_Tracer_forcing_namelist='/share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250613/run/forcing/IsoGSM-isotope.nml'
+/

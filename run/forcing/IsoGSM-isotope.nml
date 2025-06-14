@@ -1,0 +1,23 @@
+&nl_colm_tracer_forcing
+   nl_tracer_name = 'O18'
+   nl_tracer_dir='/share/home/dq013/zhwei/colm/data/CoLM_Forcing/IsoGSM/'
+   nl_NVAR = 2 
+   nl_dtime = 21600, 21600
+   nl_offset = 10800, 10800
+   nl_fprefix = 'IsoGSM_prate', 'IsoGSM_Q'
+   nl_vname = 'prate1sfc', 'spfh12m'
+   nl_timelog = 'forward', 'instant'
+   nl_tintalgo = 'nearest', 'linear'
+/
+
+&nl_colm_tracer_forcing
+   nl_tracer_name = 'H2'
+   nl_tracer_dir  = '/share/home/dq013/zhwei/colm/data/CoLM_Forcing/IsoGSM/'
+   nl_NVAR = 2 
+   nl_dtime = 21600, 21600
+   nl_offset = 10800, 10800
+   nl_fprefix = 'IsoGSM_prate', 'IsoGSM_Q'
+   nl_vname = 'prate2sfc', 'spfh22m'
+   nl_timelog = 'forward', 'instant'
+   nl_tintalgo = 'nearest', 'linear'
+/

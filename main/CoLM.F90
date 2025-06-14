@@ -32,7 +32,7 @@ PROGRAM CoLM
    USE MOD_CheckEquilibrium
    USE MOD_TimeManager
    USE MOD_RangeCheck
-   USE MOD_Tracer_Driver, ONLY: Tracer_Initialize_Master, Tracer_Advance_Timestep, Tracer_Finalize
+  ! USE MOD_Tracer_Driver, ONLY: Tracer_Initialize_Master, Tracer_Advance_Timestep, Tracer_Finalize
 
    USE MOD_Block
    USE MOD_Pixel
@@ -317,7 +317,7 @@ PROGRAM CoLM
       ! 'landpatch' should be loaded and available here from MOD_LandPatch
       ! 'deltim' is also available
       ! IF (p_is_master) WRITE(*,*) "Main CoLM: Initializing Tracer System..."
-      CALL Tracer_Initialize_Master(deltim, landpatch) 
+     !CALL Tracer_Initialize_Master(deltim, landpatch) 
 
       CALL allocate_1D_Fluxes ()
 
@@ -395,7 +395,7 @@ PROGRAM CoLM
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing)
          ! Advance Tracer Timestep (includes reading tracer forcing)
-         CALL Tracer_Advance_Timestep(itstamp, deltim)
+         !CALL Tracer_Advance_Timestep(itstamp, deltim)
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -605,8 +605,8 @@ PROGRAM CoLM
       CALL CheckEqb_final()
 
       ! Finalize Tracer Modules
-      IF (p_is_master) WRITE(*,*) "Main CoLM: Finalizing Tracer System..."
-      CALL Tracer_Finalize()
+    !  IF (p_is_master) WRITE(*,*) "Main CoLM: Finalizing Tracer System..."
+     ! CALL Tracer_Finalize()
       
 #ifdef SinglePoint
       CALL single_srfdata_final ()

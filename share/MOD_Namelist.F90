@@ -12,7 +12,7 @@ MODULE MOD_Namelist
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
-   USE MOD_Tracer_Namelist_Defs, only: nl_tracer_forcing_type, DEF_Tracers, DEF_Tracer_Forcings_NL, allocate_tracer_defs, initialize_tracer_forcing_nl_defaults, parse_tracer_names, initialize_tracer_namelists, broadcast_tracer_namelists
+   USE MOD_Tracer_Namelist_Defs, only: nl_tracer_forcing_type, DEF_Tracers, DEF_Tracer_Forcings_NL, allocate_tracer_defs, initialize_tracer_forcing_nl_defaults, parse_tracer_names, initialize_tracer_namelists, broadcast_tracer_namelists, debug_tracer_forcing_configurations
    IMPLICIT NONE
    SAVE
 
@@ -360,12 +360,11 @@ MODULE MOD_Namelist
    ! ---- Tracer ------
    logical  :: DEF_USE_Tracer                         = .false.
    integer  :: DEF_Tracer_Number                      = 0
-   character(len=256) :: DEF_Tracer_name              = '' ! Comma-separated list: 'O18,H2,sand,clay,silt'
+   character(len=64) :: DEF_Tracer_name              = '' ! Comma-separated list: 'O18,H2,sand,clay,silt'
    logical  :: DEF_Tracer_Init                        = .false.
    character(len=256) :: DEF_Tracer_Init_file         = 'null'
    character(len=256) :: DEF_Tracer_Type              = '' ! Comma-separated list: 'Dissolved,Dissolved,suspended,...'
    character(len=256) :: DEF_Tracer_forcing_namelist  = 'null'
-   character(len=256) :: DEF_Tracer_dir_forcing       = 'path/to/tracer_forcing/data'
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 12: forcing -----
@@ -913,6 +912,7 @@ CONTAINS
    logical :: fexists
    integer :: ivar
    integer :: ierr
+   integer :: i  ! Loop variable for tracer debug output
 
    namelist /nl_colm/                         &
       DEF_CASE_NAME,                          &
@@ -1067,7 +1067,7 @@ CONTAINS
       DEF_Tracer_Init_file,                   &      !add by zhongwang wei @ sysu 2025/06/13
       DEF_Tracer_Type,                        &      !add by zhongwang wei @ sysu 2025/06/13
       DEF_Tracer_forcing_namelist,            &      !add by zhongwang wei @ sysu 2025/06/13
-      DEF_Tracer_dir_forcing,                 &      !add by zhongwang wei @ sysu 2025/06/13
+      !DEF_Tracer_dir_forcing,                 &      !add by zhongwang wei @ sysu 2025/06/13
 
       DEF_HISTORY_IN_VECTOR,                  &
       DEF_HIST_lon_res,                       &
@@ -1088,7 +1088,6 @@ CONTAINS
 
       ! ----- open the namelist file -----
       IF (p_is_master) THEN
-
          open(10, status='OLD', file=nlfile, form="FORMATTED")
          read(10, nml=nl_colm, iostat=ierr)
          IF (ierr /= 0) THEN
@@ -1111,7 +1110,10 @@ CONTAINS
             ENDIF
 
             ! Initialize tracer forcing namelists
-            CALL initialize_tracer_namelists()
+            CALL initialize_tracer_namelists(DEF_Tracer_forcing_namelist,DEF_Tracer_Number)
+            
+            ! Debug output for tracer forcing configurations
+            CALL debug_tracer_forcing_configurations()
         END IF
 
 
@@ -1648,20 +1650,14 @@ CONTAINS
          CALL mpi_bcast (DEF_forcing%tintalgo(ivar)          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       ENDDO
 
-
       CALL mpi_bcast (DEF_USE_Tracer      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Tracer_Number   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_Tracer_name     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Tracer_name     ,64 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Tracer_Init     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Tracer_Init_file,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Tracer_Type     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err) ! Broadcast DEF_Tracer_Type
       CALL mpi_bcast (DEF_Tracer_forcing_namelist,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_Tracer_dir_forcing ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
-      IF (DEF_USE_Tracer .AND. DEF_Tracer_Number > 0) THEN
-          ! Broadcast tracer namelist data
-          CALL broadcast_tracer_namelists()
-      END IF
 
 
       CALL mpi_bcast (DEF_forcing%CBL_fprefix                ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -1669,6 +1665,29 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%CBL_tintalgo               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset                 ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
+      ! Broadcast tracer namelist data - moved inside USEMPI block to fix broadcast order
+      IF (DEF_USE_Tracer .AND. DEF_Tracer_Number > 0) THEN
+         ! Add barrier to ensure all processes are synchronized before tracer broadcast
+         CALL mpi_barrier(p_comm_glb, p_err)
+         IF (p_err /= 0) THEN
+            WRITE(*,*) 'MPI barrier error before tracer broadcast, error code:', p_err
+         ENDIF
+         
+         CALL broadcast_tracer_namelists(DEF_Tracer_Number)
+         
+         ! Check for broadcast errors
+         IF (p_err /= 0) THEN
+            WRITE(*,*) 'Error in broadcast_tracer_namelists, error code:', p_err
+            CALL CoLM_Stop('Failed to broadcast tracer namelist data')
+         ENDIF
+         
+         ! Final barrier to ensure all processes completed tracer broadcast
+         CALL mpi_barrier(p_comm_glb, p_err)
+         IF (p_err /= 0) THEN
+            WRITE(*,*) 'MPI barrier error after tracer broadcast, error code:', p_err
+         ENDIF
+      END IF
 
 #endif
 

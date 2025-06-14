@@ -3,7 +3,6 @@
 MODULE MOD_Tracer_Namelist_Defs
 
 USE MOD_Precision, only: r8
-USE MOD_DataType, only: tracer_info_type
 
 IMPLICIT NONE
 SAVE
@@ -15,14 +14,21 @@ PUBLIC :: initialize_tracer_namelists, broadcast_tracer_namelists
 
 ! Max number of variables per tracer forcing (e.g., value for precip, value for humidity)
 integer, parameter :: MAX_TRACER_FORCING_VARS = 10
+!------- Tracer information type -------
+type :: tracer_info_type
+    character(len=64) :: name         ! Name of the tracer (e.g., 'O18', 'sand')
+    character(len=16) :: type         ! Type: 'dissolved' or 'suspended'
+!    Add other relevant metadata if needed in the future
+END type tracer_info_type
 
 ! Array to hold all configured tracers' metadata
 type(tracer_info_type), allocatable :: DEF_Tracers(:)
 
 ! Derived type for a single tracer's forcing namelist configuration
 type :: nl_tracer_forcing_type
-  character(len=64)  :: tracer_name        = 'null'
-  integer            :: NVAR               = 0
+  character(len=64)  :: tracer_name                       = 'null'
+  character(len=256) :: tracer_dir                        = 'null'
+  integer            :: NVAR                              = 0
   integer            :: dtime(MAX_TRACER_FORCING_VARS)    = 0
   integer            :: offset(MAX_TRACER_FORCING_VARS)   = 0
   character(len=256) :: fprefix(MAX_TRACER_FORCING_VARS)  = 'null'
@@ -32,11 +38,27 @@ type :: nl_tracer_forcing_type
 END type nl_tracer_forcing_type
 
 ! Array to hold the forcing namelist configurations for tracers that need them
-type(nl_tracer_forcing_type), allocatable :: DEF_Tracer_Forcings_NL(:)
-
-CONTAINS
+  type(nl_tracer_forcing_type), allocatable :: DEF_Tracer_Forcings_NL(:)
+  
+  ! Module-level variables for reading tracer forcing namelist
+  character(len=64)  :: nl_tracer_name        = 'null'
+  character(len=256) :: nl_tracer_dir         = 'null'
+  integer            :: nl_NVAR               = 0
+  integer            :: nl_dtime(MAX_TRACER_FORCING_VARS)    = 0
+  integer            :: nl_offset(MAX_TRACER_FORCING_VARS)   = 0
+  character(len=256) :: nl_fprefix(MAX_TRACER_FORCING_VARS)  = 'null'
+  character(len=256) :: nl_vname(MAX_TRACER_FORCING_VARS)    = 'null'
+  character(len=256) :: nl_timelog(MAX_TRACER_FORCING_VARS)  = 'instant'
+  character(len=256) :: nl_tintalgo(MAX_TRACER_FORCING_VARS) = 'linear'
+  
+  ! Namelist declaration for reading tracer forcing configuration
+  namelist /nl_colm_tracer_forcing/ nl_tracer_name, nl_tracer_dir, nl_NVAR, nl_dtime, nl_offset, &
+                                     nl_fprefix, nl_vname, nl_timelog, nl_tintalgo
+  
+  CONTAINS
 
 SUBROUTINE allocate_tracer_defs(num_tracers, num_forced_tracers)
+ ! num_tracers is the total number of tracers, num_forced_tracers is the number of tracers that need forcing
   integer, intent(in) :: num_tracers
   integer, intent(in) :: num_forced_tracers
 
@@ -59,6 +81,7 @@ SUBROUTINE initialize_tracer_forcing_nl_defaults(tracer_forcing_nl_item)
   type(nl_tracer_forcing_type), intent(out) :: tracer_forcing_nl_item
   
   tracer_forcing_nl_item%tracer_name = 'null'
+  tracer_forcing_nl_item%tracer_dir = 'null'
   tracer_forcing_nl_item%NVAR = 0 
   tracer_forcing_nl_item%dtime(:) = 0
   tracer_forcing_nl_item%offset(:) = 0
@@ -69,6 +92,8 @@ SUBROUTINE initialize_tracer_forcing_nl_defaults(tracer_forcing_nl_item)
 END SUBROUTINE initialize_tracer_forcing_nl_defaults
 
 SUBROUTINE parse_tracer_names(tracer_name_str, tracer_type_str, num_tracers_expected, tracers_array_out)
+  ! num_tracers_expected is the number of tracers expected to be parsed
+  ! tracers_array_out is the array to hold the parsed tracer names and types
   character(len=*), intent(in) :: tracer_name_str
   character(len=*), intent(in) :: tracer_type_str ! New argument
   integer, intent(in) :: num_tracers_expected
@@ -193,82 +218,174 @@ SUBROUTINE parse_tracer_names(tracer_name_str, tracer_type_str, num_tracers_expe
 
 END SUBROUTINE parse_tracer_names
 
-SUBROUTINE initialize_tracer_namelists()
-  USE MOD_Namelist, only: DEF_Tracer_forcing_namelist
+SUBROUTINE initialize_tracer_namelists(tracer_forcing_namelist,num_tracers)
   IMPLICIT NONE
   
+  character(len=256), intent(in) :: tracer_forcing_namelist
+  integer, intent(in) :: num_tracers
   integer :: i
-  character(len=256) :: tracer_nml_group_name
-  type(nl_tracer_forcing_type) :: temp_tracer_forcing_nl
   integer :: ierr_tracer_nl_open, ierr_tracer_nl_read
   integer :: unit_number
 
   IF (.NOT. allocated(DEF_Tracer_Forcings_NL) .OR. .NOT. allocated(DEF_Tracers)) RETURN
 
+  ! Initialize all tracers with defaults first
   DO i = 1, SIZE(DEF_Tracer_Forcings_NL)
       CALL initialize_tracer_forcing_nl_defaults(DEF_Tracer_Forcings_NL(i))
       IF (i <= SIZE(DEF_Tracers)) THEN
          DEF_Tracer_Forcings_NL(i)%tracer_name = DEF_Tracers(i)%name
       ENDIF
-
-      ! Dynamically create the namelist group name
-      tracer_nml_group_name = 'nl_colm_tracer_forcing_' // TRIM(ADJUSTL(DEF_Tracers(i)%name))
-
-      ! Initialize temporary variable with current defaults
-      temp_tracer_forcing_nl = DEF_Tracer_Forcings_NL(i)
-
-      ! Get a free unit number
-      unit_number = 11 + i
-
-      ! Open the tracer-specific namelist file
-      OPEN(unit_number, FILE=trim(DEF_Tracer_forcing_namelist), STATUS='OLD', FORM='FORMATTED', IOSTAT=ierr_tracer_nl_open)
-
-      IF (ierr_tracer_nl_open == 0) THEN
-          READ(unit_number, NML=tracer_nml_group_name, IOSTAT=ierr_tracer_nl_read) temp_tracer_forcing_nl
-          IF (ierr_tracer_nl_read == 0) THEN
-              DEF_Tracer_Forcings_NL(i) = temp_tracer_forcing_nl
-          ELSE
-              WRITE(*,*) 'Warning: Problem reading tracer namelist for ', TRIM(DEF_Tracers(i)%name), ' (group ', TRIM(tracer_nml_group_name), ') from ', trim(DEF_Tracer_forcing_namelist)
-          ENDIF
-          CLOSE(unit_number)
-      ELSE
-          WRITE(*,*) 'Warning: Could not open tracer forcing namelist file: ', trim(DEF_Tracer_forcing_namelist), ' for tracer ', TRIM(DEF_Tracers(i)%name)
-          WRITE(*,*) 'IOSTAT error code: ', ierr_tracer_nl_open
-      ENDIF
   END DO
+
+  WRITE(*,*) 'Reading tracer forcing configurations from: ', trim(tracer_forcing_namelist)
+  
+  ! Get a free unit number
+  unit_number = 20
+
+  ! Open the tracer forcing namelist file
+  OPEN(unit_number, FILE=trim(tracer_forcing_namelist), STATUS='OLD', FORM='FORMATTED', IOSTAT=ierr_tracer_nl_open)
+   
+  IF (ierr_tracer_nl_open == 0) THEN
+      ! Read tracer forcing configurations for each tracer
+      DO i = 1, SIZE(DEF_Tracer_Forcings_NL)
+          IF (i > SIZE(DEF_Tracers)) EXIT
+          
+          ! Initialize module-level variables with current defaults for this tracer
+          nl_tracer_name = DEF_Tracer_Forcings_NL(i)%tracer_name
+          nl_tracer_dir = DEF_Tracer_Forcings_NL(i)%tracer_dir
+          nl_NVAR = DEF_Tracer_Forcings_NL(i)%NVAR
+          nl_dtime = DEF_Tracer_Forcings_NL(i)%dtime
+          nl_offset = DEF_Tracer_Forcings_NL(i)%offset
+          nl_fprefix = DEF_Tracer_Forcings_NL(i)%fprefix
+          nl_vname = DEF_Tracer_Forcings_NL(i)%vname
+          nl_timelog = DEF_Tracer_Forcings_NL(i)%timelog
+          nl_tintalgo = DEF_Tracer_Forcings_NL(i)%tintalgo
+          
+          ! Rewind to start of file for each tracer
+          REWIND(unit_number)
+          
+          ! Try to read a namelist that matches this tracer
+          ! The namelist file should contain sections like:
+          ! &nl_colm_tracer_forcing
+          !   nl_tracer_name = 'O18'
+          !   nl_NVAR = 2
+          !   ...
+          ! /
+          DO WHILE (.TRUE.)
+              READ(unit_number, NML=nl_colm_tracer_forcing, IOSTAT=ierr_tracer_nl_read)
+              
+              IF (ierr_tracer_nl_read /= 0) THEN
+                  ! End of file or no more namelists found
+                  EXIT
+              ENDIF
+              
+              ! Check if this namelist is for the current tracer
+              IF (TRIM(ADJUSTL(nl_tracer_name)) == TRIM(ADJUSTL(DEF_Tracers(i)%name)) .OR. &
+                  TRIM(ADJUSTL(nl_tracer_name)) == 'null') THEN
+                  
+                  ! Copy the read values back to the derived type for this tracer
+                  DEF_Tracer_Forcings_NL(i)%tracer_name = DEF_Tracers(i)%name  ! Use actual tracer name
+                  DEF_Tracer_Forcings_NL(i)%tracer_dir = nl_tracer_dir
+                  DEF_Tracer_Forcings_NL(i)%NVAR = nl_NVAR
+                  DEF_Tracer_Forcings_NL(i)%dtime = nl_dtime
+                  DEF_Tracer_Forcings_NL(i)%offset = nl_offset
+                  DEF_Tracer_Forcings_NL(i)%fprefix = nl_fprefix
+                  DEF_Tracer_Forcings_NL(i)%vname = nl_vname
+                  DEF_Tracer_Forcings_NL(i)%timelog = nl_timelog
+                  DEF_Tracer_Forcings_NL(i)%tintalgo = nl_tintalgo
+                  
+                  WRITE(*,*) 'Successfully read tracer forcing config for tracer ', i, ' (', &
+                             TRIM(DEF_Tracers(i)%name), ') with ', nl_NVAR, ' variables'
+                  WRITE(*,*) '  Directory: ', TRIM(nl_tracer_dir)
+                  EXIT  ! Found configuration for this tracer, move to next
+              ENDIF
+          END DO
+          
+          ! If no specific configuration was found, use defaults
+          IF (ierr_tracer_nl_read /= 0) THEN
+              WRITE(*,*) 'No specific forcing config found for tracer ', i, ' (', &
+                         TRIM(DEF_Tracers(i)%name), '), using defaults'
+          ENDIF
+      END DO
+      
+      CLOSE(unit_number)
+  ELSE
+      WRITE(*,*) 'Warning: Could not open tracer forcing namelist file: ', trim(tracer_forcing_namelist)
+      WRITE(*,*) 'IOSTAT error code: ', ierr_tracer_nl_open
+      WRITE(*,*) 'Using default forcing configurations for all tracers'
+  ENDIF
 
 END SUBROUTINE initialize_tracer_namelists
 
-SUBROUTINE broadcast_tracer_namelists()
+SUBROUTINE broadcast_tracer_namelists(num_tracers)
 #ifdef USEMPI
   USE MOD_SPMD_Task, only: p_is_master, p_comm_glb, p_err, p_address_master, MPI_CHARACTER, MPI_INTEGER
-  USE MOD_Namelist, only: DEF_Tracer_Number
 #endif
   IMPLICIT NONE
+  
+  integer, intent(in) :: num_tracers
   
 #ifdef USEMPI
   integer :: num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi
   integer :: i_mpi, k_mpi
+  integer :: master_allocated_status, worker_allocated_status
 
-  IF (.NOT. (allocated(DEF_Tracers) .AND. allocated(DEF_Tracer_Forcings_NL))) RETURN
-
-  num_tracers_alloc_mpi = DEF_Tracer_Number
-  num_forced_tracers_alloc_mpi = DEF_Tracer_Number ! Simplified
-  IF (.NOT. p_is_master) THEN
-      CALL allocate_tracer_defs(num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi)
+  ! Add barrier to ensure all processes reach this point together
+  CALL mpi_barrier(p_comm_glb, p_err)
+  
+  ! First, broadcast whether arrays are allocated on master
+  IF (p_is_master) THEN
+      IF (allocated(DEF_Tracers) .AND. allocated(DEF_Tracer_Forcings_NL)) THEN
+          master_allocated_status = 1
+      ELSE
+          master_allocated_status = 0
+      ENDIF
+  ENDIF
+  
+  CALL mpi_bcast(master_allocated_status, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+  
+  ! Early return if master arrays are not allocated
+  IF (master_allocated_status == 0) THEN
+      IF (p_is_master) WRITE(*,*) 'broadcast_tracer_namelists: Master arrays not allocated, skipping broadcast'
+      RETURN
   ENDIF
 
+  ! Ensure all worker processes allocate their arrays consistently
+  num_tracers_alloc_mpi = num_tracers
+  num_forced_tracers_alloc_mpi = num_tracers ! Simplified
+  
+  IF (.NOT. p_is_master) THEN
+      ! Deallocate any existing arrays first to prevent memory issues
+      IF (allocated(DEF_Tracers)) deallocate(DEF_Tracers)
+      IF (allocated(DEF_Tracer_Forcings_NL)) deallocate(DEF_Tracer_Forcings_NL)
+      
+      ! Allocate arrays with proper sizes
+      CALL allocate_tracer_defs(num_tracers_alloc_mpi, num_forced_tracers_alloc_mpi)
+      
+      ! Verify allocation was successful
+      IF (.NOT. (allocated(DEF_Tracers) .AND. allocated(DEF_Tracer_Forcings_NL))) THEN
+          WRITE(*,*) 'broadcast_tracer_namelists: Worker allocation failed'
+          RETURN
+      ENDIF
+  ENDIF
+
+  ! Add another barrier to ensure all allocations are complete
+  CALL mpi_barrier(p_comm_glb, p_err)
+
+  ! Broadcast basic tracer information
   IF (allocated(DEF_Tracers)) THEN
-      DO i_mpi = 1, DEF_Tracer_Number
+      DO i_mpi = 1, num_tracers
+          IF (i_mpi > SIZE(DEF_Tracers)) EXIT
           CALL mpi_bcast(DEF_Tracers(i_mpi)%name, 64, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
           CALL mpi_bcast(DEF_Tracers(i_mpi)%type, 16, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
       END DO
   ENDIF
   
+  ! Broadcast forcing configurations with bounds checking
   IF (allocated(DEF_Tracer_Forcings_NL)) THEN
-      DO i_mpi = 1, DEF_Tracer_Number ! Should be actual num_forced_tracers
-          IF (i_mpi > SIZE(DEF_Tracer_Forcings_NL)) EXIT 
+      DO i_mpi = 1, min(num_tracers, SIZE(DEF_Tracer_Forcings_NL))
           CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%tracer_name, 64, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
+          CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%tracer_dir, 256, MPI_CHARACTER, p_address_master, p_comm_glb, p_err)
           CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%NVAR,    1, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
           CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%dtime,   MAX_TRACER_FORCING_VARS, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
           CALL mpi_bcast(DEF_Tracer_Forcings_NL(i_mpi)%offset,  MAX_TRACER_FORCING_VARS, MPI_INTEGER,   p_address_master, p_comm_glb, p_err)
@@ -280,8 +397,66 @@ SUBROUTINE broadcast_tracer_namelists()
           END DO
       END DO
   ENDIF
+  
+  ! Final barrier to ensure all broadcasts are complete
+  CALL mpi_barrier(p_comm_glb, p_err)
 #endif
 
 END SUBROUTINE broadcast_tracer_namelists
+
+SUBROUTINE debug_tracer_forcing_configurations()
+  IMPLICIT NONE
+  
+  integer :: i, j
+  
+  IF (.NOT. allocated(DEF_Tracers) .OR. .NOT. allocated(DEF_Tracer_Forcings_NL)) THEN
+      WRITE(*,*) '========== Tracer Debug Information =========='
+      WRITE(*,*) 'Warning: Tracer arrays not allocated'
+      WRITE(*,*) '=============================================='
+      RETURN
+  ENDIF
+  
+  WRITE(*,*) '========== Tracer Debug Information =========='
+  WRITE(*,*) 'Number of tracers configured: ', SIZE(DEF_Tracers)
+  WRITE(*,*) 'Number of forced tracers: ', SIZE(DEF_Tracer_Forcings_NL)
+  WRITE(*,*) ''
+  
+  ! Display basic tracer information
+  WRITE(*,*) '--- Basic Tracer Information ---'
+  DO i = 1, SIZE(DEF_Tracers)
+      WRITE(*,*) 'Tracer ', i, ':'
+      WRITE(*,*) '  Name: ', TRIM(DEF_Tracers(i)%name)
+      WRITE(*,*) '  Type: ', TRIM(DEF_Tracers(i)%type)
+  END DO
+  WRITE(*,*) ''
+  
+  ! Display detailed forcing configurations
+  WRITE(*,*) '--- Tracer Forcing Configurations ---'
+  DO i = 1, SIZE(DEF_Tracer_Forcings_NL)
+      WRITE(*,*) 'Forcing Config ', i, ':'
+      WRITE(*,*) '  Tracer Name: ', TRIM(DEF_Tracer_Forcings_NL(i)%tracer_name)
+      WRITE(*,*) '  Directory: ', TRIM(DEF_Tracer_Forcings_NL(i)%tracer_dir)
+      WRITE(*,*) '  Number of Variables (NVAR): ', DEF_Tracer_Forcings_NL(i)%NVAR
+      
+      IF (DEF_Tracer_Forcings_NL(i)%NVAR > 0) THEN
+          WRITE(*,*) '  Time intervals (dtime): ', (DEF_Tracer_Forcings_NL(i)%dtime(j), j=1, DEF_Tracer_Forcings_NL(i)%NVAR)
+          WRITE(*,*) '  Offsets: ', (DEF_Tracer_Forcings_NL(i)%offset(j), j=1, DEF_Tracer_Forcings_NL(i)%NVAR)
+          
+          DO j = 1, DEF_Tracer_Forcings_NL(i)%NVAR
+              WRITE(*,*) '    Variable ', j, ':'
+              WRITE(*,*) '      File prefix: ', TRIM(DEF_Tracer_Forcings_NL(i)%fprefix(j))
+              WRITE(*,*) '      Variable name: ', TRIM(DEF_Tracer_Forcings_NL(i)%vname(j))
+              WRITE(*,*) '      Time log: ', TRIM(DEF_Tracer_Forcings_NL(i)%timelog(j))
+              WRITE(*,*) '      Time interpolation: ', TRIM(DEF_Tracer_Forcings_NL(i)%tintalgo(j))
+          END DO
+      ELSE
+          WRITE(*,*) '  No forcing variables configured for this tracer'
+      ENDIF
+      WRITE(*,*) ''
+  END DO
+  
+  WRITE(*,*) '=============================================='
+  
+END SUBROUTINE debug_tracer_forcing_configurations
 
 END MODULE MOD_Tracer_Namelist_Defs

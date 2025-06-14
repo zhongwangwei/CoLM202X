@@ -115,7 +115,6 @@ PROGRAM MKSRFDATA
    CALL getarg(1, nlfile)
 
    CALL read_namelist (nlfile)
-
    CALL initimetype (DEF_simulation_time%greenwich)
 
 #ifdef SinglePoint

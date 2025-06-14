@@ -27,6 +27,7 @@ mkdir_build :
 OBJS_SHARED =    \
 				  MOD_Precision.o              \
 				  MOD_SPMD_Task.o              \
+				  MOD_Tracer_Namelist_Defs.o   \
 				  MOD_Namelist.o               \
 				  MOD_Vars_Global.o            \
 				  MOD_Const_Physical.o         \
@@ -40,7 +41,6 @@ OBJS_SHARED =    \
 				  MOD_Grid.o                   \
 				  MOD_Pixel.o                  \
 				  MOD_DataType.o               \
-		  		  MOD_Tracer_Namelist_Defs.o   \
 				  MOD_NetCDFPoint.o            \
 				  MOD_NetCDFBlock.o            \
 				  MOD_CatchmentDataReadin.o    \
@@ -323,13 +323,6 @@ OBJS_MAIN = \
 				MOD_Lulcc_TransferTrace.o                 \
 				MOD_Lulcc_MassEnergyConserve.o            \
 				MOD_Lulcc_Driver.o                        \
-				MOD_Tracer_State.o                        \
-				MOD_Tracer_Sediment_Util.o                \
-				MOD_Tracer_Initialize.o                   \
-				MOD_Tracer_Forcing.o                      \
-				MOD_Tracer_Soil_Erosion.o                 \
-				MOD_Tracer_Overland_Flow_Seds.o           \
-				MOD_Tracer_Driver.o                       \
 				CoLMDRIVER.o                              \
 				CoLMMAIN.o                                \
 				CoLM.o
