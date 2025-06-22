@@ -204,6 +204,7 @@ OBJECTS_CAMA=\
 				  cmf_ctrl_damout_mod.o   \
 				  cmf_ctrl_levee_mod.o    \
 				  cmf_ctrl_forcing_mod.o  \
+				  cmf_ctrl_tracer_forcing_mod.o \
 				  cmf_ctrl_boundary_mod.o \
 				  cmf_ctrl_output_mod.o   \
 				  cmf_ctrl_restart_mod.o  \
@@ -261,8 +262,10 @@ OBJS_MAIN = \
 				MOD_BGC_driver.o                          \
 				MOD_Vars_2DForcing.o                      \
 				MOD_UserSpecifiedForcing.o                \
+				MOD_UserSpecifiedTracerForcing.o          \
 				MOD_ForcingDownscaling.o                  \
 				MOD_Forcing.o                             \
+				MOD_Tracer_Forcing.o                      \
 				MOD_DA_GRACE.o                            \
 				MOD_DataAssimilation.o                    \
 				MOD_AssimStomataConductance.o             \

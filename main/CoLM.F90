@@ -33,7 +33,7 @@ PROGRAM CoLM
    USE MOD_TimeManager
    USE MOD_RangeCheck
   ! USE MOD_Tracer_Driver, ONLY: Tracer_Initialize_Master, Tracer_Advance_Timestep, Tracer_Finalize
-
+   USE MOD_Tracer_Forcing, ONLY: tracer_forcing_init,read_tracer_forcing
    USE MOD_Block
    USE MOD_Pixel
    USE MOD_Mesh
@@ -309,15 +309,14 @@ PROGRAM CoLM
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
       CALL allocate_2D_Forcing (gforc)
 
+      IF (p_is_master) WRITE(*,*) "Main CoLM: Initializing Tracer System..."
+      call tracer_forcing_init(deltim,ststamp,lc_year,etstamp)
+
       ! Initialize history data module
       CALL hist_init (dir_hist)
 
 
-      ! Initialize Tracer Modules
-      ! 'landpatch' should be loaded and available here from MOD_LandPatch
-      ! 'deltim' is also available
-      ! IF (p_is_master) WRITE(*,*) "Main CoLM: Initializing Tracer System..."
-     !CALL Tracer_Initialize_Master(deltim, landpatch) 
+      IF (p_is_master) WRITE(*,*) "Main CoLM: Initializing Tracer System..."
 
       CALL allocate_1D_Fluxes ()
 
@@ -396,7 +395,8 @@ PROGRAM CoLM
          CALL read_forcing (jdate, dir_forcing)
          ! Advance Tracer Timestep (includes reading tracer forcing)
          !CALL Tracer_Advance_Timestep(itstamp, deltim)
-
+         CALL read_tracer_forcing(jdate)
+         
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
          ENDIF

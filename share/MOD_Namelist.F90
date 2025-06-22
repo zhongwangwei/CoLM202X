@@ -360,7 +360,7 @@ MODULE MOD_Namelist
    ! ---- Tracer ------
    logical  :: DEF_USE_Tracer                         = .false.
    integer  :: DEF_Tracer_Number                      = 0
-   character(len=64) :: DEF_Tracer_name              = '' ! Comma-separated list: 'O18,H2,sand,clay,silt'
+   character(len=64) :: DEF_Tracer_name               = '' ! Comma-separated list: 'O18,H2,sand,clay,silt'
    logical  :: DEF_Tracer_Init                        = .false.
    character(len=256) :: DEF_Tracer_Init_file         = 'null'
    character(len=256) :: DEF_Tracer_Type              = '' ! Comma-separated list: 'Dissolved,Dissolved,suspended,...'

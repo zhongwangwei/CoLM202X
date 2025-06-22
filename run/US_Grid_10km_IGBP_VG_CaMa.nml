@@ -32,9 +32,9 @@
 
    DEF_simulation_time%timestep     = 1800.
 
-   DEF_dir_rawdata = '/share/home/dq013/zhwei/colm/data/CoLMrawdata/'
-   DEF_dir_runtime = '/share/home/dq013/zhwei/colm/data/CoLMruntime/'
-   DEF_dir_output  = '/share/home/dq013/zhwei/colm/cases/'
+   DEF_dir_rawdata = '/shr03/CoLMrawdata/'
+   DEF_dir_runtime = '/shr03/CoLMruntime/'
+   DEF_dir_output  = './cases/'
 
    ! ----- land units and land sets -----
    ! for GRIDBASED
@@ -43,7 +43,7 @@
 
    ! soil state init
    DEF_USE_SoilInit  = .false.
-   DEF_file_SoilInit = '/share/home/dq013/zhwei/colm/data/soilstate/soilstate_isotope.nc' 
+   DEF_file_SoilInit = './isogsmdata/soilstate_isotope.nc' 
 
    ! LAI setting
    DEF_LAI_MONTHLY = .true.
@@ -58,7 +58,7 @@
    ! Options :
    ! PRINCETON | GSWP3   | QIAN  | CRUNCEPV4 | CRUNCEPV7 | ERA5LAND | ERA5  | MSWX
    ! WFDE5     | CRUJRA  | WFDEI | JRA55     | GDAS      | CMFD     | POINT | JRA3Q
-   DEF_forcing_namelist = '/share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250613/run/forcing/IsoGSM.nml'
+   DEF_forcing_namelist = './forcing/IsoGSM.nml'
    
    ! ----- history -----
   ! DEF_hist_grid_as_forcing = .true.
@@ -81,6 +81,6 @@
    DEF_Tracer_name      ='O18, H2' 
    DEF_Tracer_Type      ='Dissolved,Dissolved'
    DEF_Tracer_Init      =.false.
-   DEF_Tracer_Init_file = '/share/home/dq013/zhwei/colm/data/soilstate/soilstate_isotope.nc' 
-   DEF_Tracer_forcing_namelist='/share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250613/run/forcing/IsoGSM-isotope.nml'
+   DEF_Tracer_Init_file = './isogsmdata/soilstate_isotope.nc' 
+   DEF_Tracer_forcing_namelist='./forcing/IsoGSM-isotope.nml'
 /

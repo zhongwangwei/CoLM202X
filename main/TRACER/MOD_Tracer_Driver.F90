@@ -52,7 +52,7 @@ SUBROUTINE Tracer_Initialize_Master(model_timestep_sec, landpatch_data_for_forci
      IF (p_is_master) WRITE(*,*) "Tracer_Initialize_Master: Tracer forcing system initialized."
 
      ! 3. Initialize tracer concentrations (from file or defaults)
-     CALL tracer_initialize_concentrations()
+     ! CALL tracer_initialize_concentrations()
      IF (p_is_master) WRITE(*,*) "Tracer_Initialize_Master: Tracer concentrations initialized."
 
      IF (p_is_master) WRITE(*,*) "Tracer_Initialize_Master: Tracer system initialization complete."

@@ -1,0 +1,179 @@
+ Reading tracer forcing configurations from: ./forcing/IsoGSM-isotope.nml
+ Successfully read tracer forcing config for tracer            1  (O18) with            2  variables
+   Directory: /share/home/dq013/zhwei/colm/data/CoLM_Forcing/IsoGSM/
+ Successfully read tracer forcing config for tracer            2  (H2) with            2  variables
+   Directory: /share/home/dq013/zhwei/colm/data/CoLM_Forcing/IsoGSM/
+ ========== Tracer Debug Information ==========
+ Number of tracers configured:            2
+ Number of forced tracers:            2
+ 
+ --- Basic Tracer Information ---
+ Tracer            1 :
+   Name: O18
+   Type: Dissolved
+ Tracer            2 :
+   Name: H2
+   Type: Dissolved
+ 
+ --- Tracer Forcing Configurations ---
+ Forcing Config            1 :
+   Tracer Name: O18
+   Dataset Name: isogsm
+   Tracer Type: Dissolved
+   Start Year:         1980
+   Start Month:            1
+   End Year:         2024
+   End Month:           12
+   Leap Year:  T
+   Data 2D:  T
+   Hight Dim:  F
+   Dim 2D:  F
+   Lat Name: lat
+   Lon Name: lon
+   Group By: year
+   Directory: /share/home/dq013/zhwei/colm/data/CoLM_Forcing/IsoGSM/
+   Number of Variables (NVAR):            2
+   Has Missing Value:  T
+   Missing Value Name: missing_value
+   Time intervals (dtime):        21600       21600
+   Offsets:        10800       10800
+     Variable            1 :
+       File prefix: IsoGSM_prate
+       Variable name: prate1sfc
+       Time log: forward
+       Time interpolation: nearest
+     Variable            2 :
+       File prefix: IsoGSM_Q
+       Variable name: spfh12m
+       Time log: instant
+       Time interpolation: linear
+ 
+ Forcing Config            2 :
+   Tracer Name: H2
+   Dataset Name: isogsm
+   Tracer Type: Dissolved
+   Start Year:         1980
+   Start Month:            1
+   End Year:         2024
+   End Month:           12
+   Leap Year:  T
+   Data 2D:  T
+   Hight Dim:  F
+   Dim 2D:  F
+   Lat Name: lat
+   Lon Name: lon
+   Group By: year
+   Directory: /share/home/dq013/zhwei/colm/data/CoLM_Forcing/IsoGSM/
+   Number of Variables (NVAR):            2
+   Has Missing Value:  T
+   Missing Value Name: missing_value
+   Time intervals (dtime):        21600       21600
+   Offsets:        10800       10800
+     Variable            1 :
+       File prefix: IsoGSM_prate
+       Variable name: prate2sfc
+       Time log: forward
+       Time interpolation: nearest
+     Variable            2 :
+       File prefix: IsoGSM_Q
+       Variable name: spfh22m
+       Time log: instant
+       Time interpolation: linear
+ 
+ ==============================================
+                   *****                  
+ Note: DEF_USE_VariablySaturatedFlow is automaticlly set to .true.  
+ when using vanGenuchten_Mualem_SOIL_MODEL. 
+                   *****                  
+ Note: Soil resistance is automaticlly turned off for VG soil + USGS|IGBP scheme.
+                   *****                  
+ Warning: Nitrification-Denitrification is on when BGC is off.
+ DEF_USE_NITRIF is set to false automatically when BGC is turned off.
+                   *****                  
+ Warning: Fertilization is on when CROP is off.
+ DEF_USE_FERT is set to false automatically when CROP is turned off.
+                   *****                  
+ Warning: Soy nitrogen fixation is on when CROP is off.
+ DEF_USE_CNSOYFIXN is set to false automatically when CROP is turned off.
+                   *****                  
+ Warning: DEF_Aerosol_Readin is not needed for DEF_USE_SNICAR off. 
+ DEF_Aerosol_Readin is set to false automatically.
+ History namelist file: null does not exist.
+[mgt01:3100755:0:3100755] Caught signal 8 (Floating point exception: floating-point invalid operation)
+==== backtrace (tid:3100755) ====
+ 0 0x0000000000012b20 .annobin_sigaction.c()  sigaction.c:0
+ 1 0x000000000038a028 H5T__init_native_float_types()  ???:0
+ 2 0x00000000002ee158 H5T_init()  ???:0
+ 3 0x00000000003ad6d8 H5VL_init_phase2()  ???:0
+ 4 0x000000000006536b H5_init_library()  ???:0
+ 5 0x000000000011d735 H5Eset_auto2()  ???:0
+ 6 0x00000000000c243c nc4_hdf5_initialize()  ???:0
+ 7 0x00000000000cc301 NC_HDF5_initialize()  ???:0
+ 8 0x0000000000029488 nc_initialize()  ???:0
+ 9 0x000000000002e546 NC_open()  ???:0
+10 0x000000000002e227 nc_open()  ???:0
+11 0x000000000001106b nf_open_()  /share/home/dq089/soft/netcdf-fortran-4.6.1/fortran/nf_control.F90:189
+12 0x000000000006d186 __netcdf_MOD_nf90_open()  /share/home/dq089/soft/netcdf-fortran-4.6.1/fortran/netcdf4_file.F90:64
+13 0x000000000045f1b2 __mod_netcdfserial_MOD_ncio_read_serial_real8_0d()  /share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250620/share/MOD_NetCDFSerial.F90:411
+14 0x000000000045946f __mod_netcdfserial_MOD_ncio_read_bcast_serial_real8_0d()  /share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250620/share/MOD_NetCDFSerial.F90:848
+15 0x000000000047d461 __mod_pixel_MOD_pixel_load_from_file()  /share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250620/share/MOD_Pixel.F90:390
+16 0x00000000009a0bac MAIN__()  /share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250620/main/CoLM.F90:234
+17 0x00000000009a1bb5 main()  /share/home/dq013/zhwei/colm/script/Colm202X_Tracer_20250620/main/CoLM.F90:17
+18 0x00000000000237b3 __libc_start_main()  ???:0
+19 0x000000000040529e _start()  ???:0
+=================================
+
+Program received signal SIGFPE: Floating-point exception - erroneous arithmetic operation.
+
+Backtrace for this error:
+#0  0x154479b71171 in ???
+#1  0x154479b70313 in ???
+#2  0x15447a1e5b1f in ???
+#3  0x15447822b028 in ???
+#4  0x15447818f157 in ???
+#5  0x15447824e6d7 in ???
+#6  0x154477f0636a in ???
+#7  0x154477fbe734 in ???
+#8  0x154478c5843b in ???
+#9  0x154478c62300 in ???
+#10  0x154478bbf487 in ???
+#11  0x154478bc4545 in ???
+#12  0x154478bc4226 in ???
+#13  0x15447cc0106a in nf_open_
+	at /share/home/dq089/soft/netcdf-fortran-4.6.1/fortran/nf_control.F90:189
+#14  0x15447cc5d185 in __netcdf_MOD_nf90_open
+	at /share/home/dq089/soft/netcdf-fortran-4.6.1/fortran/netcdf4_file.F90:64
+#15  0x45f1b1 in __mod_netcdfserial_MOD_ncio_read_serial_real8_0d
+	at share/MOD_NetCDFSerial.F90:411
+#16  0x45946e in __mod_netcdfserial_MOD_ncio_read_bcast_serial_real8_0d
+	at share/MOD_NetCDFSerial.F90:848
+#17  0x47d460 in __mod_pixel_MOD_pixel_load_from_file
+	at share/MOD_Pixel.F90:390
+#18  0x9a0bab in colm
+	at main/CoLM.F90:234
+#19  0x9a1bb4 in main
+	at main/CoLM.F90:17
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 0 PID 3100752 RUNNING AT mgt01
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 1 PID 3100753 RUNNING AT mgt01
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 2 PID 3100754 RUNNING AT mgt01
+=   KILLED BY SIGNAL: 9 (Killed)
+===================================================================================
+
+===================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   RANK 3 PID 3100755 RUNNING AT mgt01
+=   KILLED BY SIGNAL: 8 (Floating point exception)
+===================================================================================

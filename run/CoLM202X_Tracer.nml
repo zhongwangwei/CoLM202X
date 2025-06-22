@@ -59,7 +59,7 @@
    ! Options :
    ! PRINCETON | GSWP3   | QIAN  | CRUNCEPV4 | CRUNCEPV7 | ERA5LAND | ERA5  | MSWX
    ! WFDE5     | CRUJRA  | WFDEI | JRA55     | GDAS      | CMFD     | POINT | JRA3Q
-   DEF_forcing_namelist = '/share/home/dq013/zhwei/colm/script/CoLM202Xiso/run/forcing/IsoGSM.nml'
+   DEF_forcing_namelist = './forcing/IsoGSM-isotope.nml'
 
    ! ----- history -----
    ! DEF_hist_grid_as_forcing = .true.

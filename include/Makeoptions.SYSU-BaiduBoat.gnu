@@ -16,7 +16,7 @@ FOPTS = -fdefault-real-8 -ffree-form -C -g -u -xcheck=stkovf \
         -ffree-line-length-0
 
 INCLUDE_DIR = -I../include -I../share -I../mksrfdata -I../mkinidata -I../main -I$(NETCDF_INC)
-LDFLAGS = -L/share/home/dq013/miniconda3-3.12/lib -L${NETCDF_LIB} -lnetcdff -L/share/home/dq013/miniconda3-3.12/lib -llapack  -L/share/home/dq013/miniconda3-3.12/lib  -L/share/home/dq089/soft/lib -lblas.gnu 
+LDFLAGS = -L${NETCDF_LIB} -lnetcdff -L/share/home/dq013/miniconda3-3.12/lib -llapack  -L/share/home/dq089/soft/lib -lblas.gnu 
 
 #============================================================
 # CaMa-Flood Mkinclude (for Linux, gfortran)

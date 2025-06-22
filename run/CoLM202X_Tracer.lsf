@@ -18,7 +18,7 @@ echo "start: ${SYEAR}" `date`  >> log.txt
 
 #mpirun  -np 240  ./mksrfdata.x US_Grid_10km_IGBP_VG_CaMa.nml	
 #mpirun  -np 240 ./mkinidata.x US_Grid_10km_IGBP_VG_CaMa.nml
-mpirun  -np 240 ./colm.x US_Grid_10km_IGBP_VG_CaMa.nml
+mpirun  -np 240 run/colm.x US_Grid_10km_IGBP_VG_CaMa.nml
 #mpirun    -np 1 ./colm.x US_Grid_10km_IGBP_VG_CaMa.nml : -np 671 ./colm.x US_Grid_10km_IGBP_VG_CaMa.nml
 #mpirun  -np 288 ./colm.x Global_IGBP_ERA5.nml
 #mpirun -np 1 ./colm.x Global_Grid_30km_IGBP_VG.nml : -np 431 ./colm.x Global_Grid_30km_IGBP_VG.nml
