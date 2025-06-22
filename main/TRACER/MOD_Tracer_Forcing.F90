@@ -850,6 +850,17 @@ CONTAINS
 
             filename = trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)//trim(tracerfilename(year, month, day, tracer_idx, ivar))
             
+            IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Debug on I/O ranks
+                WRITE(*,*) "    DEBUG IO: Attempting to read LB for tracer_idx=", tracer_idx, " var_idx=", ivar
+                WRITE(*,*) "      Tracer Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
+                WRITE(*,*) "      Directory:   ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)
+                WRITE(*,*) "      File Func Input (y,m,d,ti): ", year, month, day, time_i
+                WRITE(*,*) "      Generated Filename: ", TRIM(filename)
+                WRITE(*,*) "      Namelist Var Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar))
+                WRITE(*,*) "      Time Index (from setstamp): ", time_i
+                WRITE(*,*) "      Dataset type: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+            ENDIF
+            
             ! Debug: Show file being read
             IF (p_is_master) THEN
                WRITE(*,*) "    Reading LB data from file: ", trim(filename)
@@ -891,22 +902,21 @@ CONTAINS
             CALL block_data_copy (tracerdata, forcn_LB(ivar))
             
             ! Debug: Check values after reading LB data
-            IF (p_is_master) THEN
-               IF (allocated(forcn_LB(ivar)%blk)) THEN
-                  ! Check first block for sample values
-                  IF (SIZE(forcn_LB(ivar)%blk) > 0) THEN
-                     DO ib = 1, MIN(1, SIZE(forcn_LB(ivar)%blk, 1))
-                        DO jb = 1, MIN(1, SIZE(forcn_LB(ivar)%blk, 2))
-                           IF (allocated(forcn_LB(ivar)%blk(ib,jb)%val)) THEN
-                              WRITE(*,*) "    LB data sample values:", &
-                                        forcn_LB(ivar)%blk(ib,jb)%val(1:MIN(3,SIZE(forcn_LB(ivar)%blk(ib,jb)%val,1)), &
-                                                                     1:MIN(3,SIZE(forcn_LB(ivar)%blk(ib,jb)%val,2)))
+            IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Only on I/O ranks
+               IF (allocated(tracerdata%blk)) THEN
+                  IF (SIZE(tracerdata%blk) > 0) THEN
+                     DO ib = 1, MIN(1, SIZE(tracerdata%blk, 1))
+                        DO jb = 1, MIN(1, SIZE(tracerdata%blk, 2))
+                           IF (allocated(tracerdata%blk(ib,jb)%val)) THEN
+                              WRITE(*,*) "    DEBUG IO: After ncio_read (LB) for tracer ", tracer_idx, " var ", ivar, " (", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)), ")"
+                              WRITE(*,*) "      tracerdata sample: ", tracerdata%blk(ib,jb)%val(1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,1)),1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,2)))
+                              WRITE(*,*) "      tracerdata min/max: ", MINVAL(tracerdata%blk(ib,jb)%val), MAXVAL(tracerdata%blk(ib,jb)%val)
                            ENDIF
                         ENDDO
                      ENDDO
                   ENDIF
                ELSE
-                  WRITE(*,*) "    forcn_LB(", ivar, ")%blk not allocated"
+                  WRITE(*,*) "    DEBUG IO: tracerdata%blk not allocated after ncio_read (LB) for tracer ", tracer_idx, " var ", ivar
                ENDIF
             ENDIF
 
@@ -919,6 +929,17 @@ CONTAINS
             IF (year <= DEF_Tracer_Forcings_NL(tracer_idx)%endyr) THEN
                ! read forcing data
                filename = trim(dir_forcing)//trim(tracerfilename(year, month, day,tracer_idx, ivar))
+
+               IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Debug on I/O ranks
+                  WRITE(*,*) "    DEBUG IO: Attempting to read UB for tracer_idx=", tracer_idx, " var_idx=", ivar
+                  WRITE(*,*) "      Tracer Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
+                  WRITE(*,*) "      Directory:   ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)
+                  WRITE(*,*) "      File Func Input (y,m,d,ti): ", year, month, day, time_i
+                  WRITE(*,*) "      Generated Filename: ", TRIM(filename)
+                  WRITE(*,*) "      Namelist Var Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar))
+                  WRITE(*,*) "      Time Index (from setstamp): ", time_i
+                  WRITE(*,*) "      Dataset type: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+               ENDIF
                
                ! Debug: Show UB file being read
                IF (p_is_master) THEN
@@ -961,22 +982,21 @@ CONTAINS
                CALL block_data_copy (tracerdata, forcn_UB(ivar))
                
                ! Debug: Check values after reading UB data
-               IF (p_is_master) THEN
-                  IF (allocated(forcn_UB(ivar)%blk)) THEN
-                     ! Check first block for sample values
-                     IF (SIZE(forcn_UB(ivar)%blk) > 0) THEN
-                        DO ib = 1, MIN(1, SIZE(forcn_UB(ivar)%blk, 1))
-                           DO jb = 1, MIN(1, SIZE(forcn_UB(ivar)%blk, 2))
-                              IF (allocated(forcn_UB(ivar)%blk(ib,jb)%val)) THEN
-                                 WRITE(*,*) "    UB data sample values:", &
-                                           forcn_UB(ivar)%blk(ib,jb)%val(1:MIN(3,SIZE(forcn_UB(ivar)%blk(ib,jb)%val,1)), &
-                                                                        1:MIN(3,SIZE(forcn_UB(ivar)%blk(ib,jb)%val,2)))
+               IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Only on I/O ranks
+                  IF (allocated(tracerdata%blk)) THEN
+                     IF (SIZE(tracerdata%blk) > 0) THEN
+                        DO ib = 1, MIN(1, SIZE(tracerdata%blk, 1))
+                           DO jb = 1, MIN(1, SIZE(tracerdata%blk, 2))
+                              IF (allocated(tracerdata%blk(ib,jb)%val)) THEN
+                                 WRITE(*,*) "    DEBUG IO: After ncio_read (UB) for tracer ", tracer_idx, " var ", ivar, " (", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)), ")"
+                                 WRITE(*,*) "      tracerdata sample: ", tracerdata%blk(ib,jb)%val(1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,1)),1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,2)))
+                                 WRITE(*,*) "      tracerdata min/max: ", MINVAL(tracerdata%blk(ib,jb)%val), MAXVAL(tracerdata%blk(ib,jb)%val)
                               ENDIF
                            ENDDO
                         ENDDO
                      ENDIF
                   ELSE
-                     WRITE(*,*) "    forcn_UB(", ivar, ")%blk not allocated"
+                     WRITE(*,*) "    DEBUG IO: tracerdata%blk not allocated after ncio_read (UB) for tracer ", tracer_idx, " var ", ivar
                   ENDIF
                ENDIF
             ELSE
@@ -985,8 +1005,8 @@ CONTAINS
             ENDIF
 
             
-            !TODO: ivar -> coszen
-            IF (ivar == 7) THEN  ! calculate time average coszen, for shortwave radiation
+            IF (TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(ivar)) == 'coszen') THEN
+               IF (p_is_master) WRITE(*,*) "    Calculating avgcos for tracer ", tracer_idx, " var ", ivar
                CALL calavgcos(idate, tracer_idx, ivar)
             ENDIF
          ENDIF
@@ -1663,6 +1683,7 @@ CONTAINS
       character(len=256)  :: metfilename
       character(len=256)  :: yearstr
       character(len=256)  :: monthstr
+      character(len=256)  :: dataset_name_lower
    
          IF (p_is_master) THEN
             WRITE(*,*) "      === DEBUG: tracerfilename called ==="
@@ -1671,13 +1692,17 @@ CONTAINS
    
          write(yearstr, '(I4.4)') year
          write(monthstr, '(I2.2)') month
+         
+         dataset_name_lower = TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+         CALL to_lower(dataset_name_lower)
    
          IF (p_is_master) THEN
             WRITE(*,*) "        Formatted strings: yearstr='", TRIM(yearstr), "' monthstr='", TRIM(monthstr), "'"
-            WRITE(*,*) "        Dataset name: '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name), "'"
+            WRITE(*,*) "        Dataset name (original): '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name), "'"
+            WRITE(*,*) "        Dataset name (lower): '", dataset_name_lower, "'"
          ENDIF
    
-         select CASE (trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name))
+         select CASE (dataset_name_lower)
          
          CASE ('isogsm')
             !DESCRIPTION
