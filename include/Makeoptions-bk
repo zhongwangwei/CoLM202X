@@ -4,9 +4,9 @@
 
   FF = mpif90 -fopenmp
    
-  NETCDF_LIB = /opt/netcdf-c-4.9.2-fortran-4.6.0-gnu/lib
-  NETCDF_INC = /opt/netcdf-c-4.9.2-fortran-4.6.0-gnu/include
-   
+  NETCDF_LIB = /usr/lib/x86_64-linux-gnu
+  NETCDF_INC = /usr/include
+
   MOD_CMD = -J
 
 # determine the gfortran version
@@ -24,7 +24,10 @@
            -ffree-line-length-0
   endif
 
+  INCLUDE_DIR = -I../include -I../share -I../mksrfdata -I../mkinidata -I../main -I$(NETCDF_INC)
   LDFLAGS = -L$(NETCDF_LIB) -lnetcdff -lnetcdf -llapack -lblas 
+
+
 
 #============================================================
 # CaMa-Flood Mkinclude (for Linux, gfortran)

@@ -1,0 +1,56 @@
+&nl_colm_tracer_forcing
+   nl_tracer_name = 'O18'
+   nl_dataset_name = 'isogsm'
+   nl_tracer_dir='/tera11/zhwei/zhwei/projects/Colm202X_Tracer_20250620/run/isogsmdata/IsoGSM/'
+   nl_NVAR = 2 
+
+
+   nl_startyr  = 1980
+   nl_startmo  =  1
+   nl_endyr    =  2024
+   nl_endmo    = 12
+   nl_dtime = 21600, 21600
+   nl_offset = 10800, 10800
+
+   nl_leapyear          = .true.   ! leapyear calendar
+   nl_data2d            = .true.   ! data in 2 dimension (lon, lat)
+   nl_hightdim          = .false.  ! have "z" dimension
+   nl_dim2d             = .false.   ! lat/lon value in 2 dimension (lon, lat)
+
+   nl_latname           = 'lat'
+   nl_lonname           = 'lon'
+   nl_groupby           = 'year'  ! file grouped by year/month 
+   nl_fprefix           = 'IsoGSM_prate', 'IsoGSM_Q'
+   nl_vname             = 'prate1sfc', 'spfh12m'
+   nl_timelog           = 'forward', 'instant'
+   nl_tintalgo          = 'nearest', 'linear'
+
+/
+
+&nl_colm_tracer_forcing
+   nl_tracer_name = 'H2'
+   nl_dataset_name = 'isogsm'
+   nl_tracer_dir  = '/tera11/zhwei/zhwei/projects/Colm202X_Tracer_20250620/run/isogsmdata/IsoGSM/'
+   nl_NVAR = 2 
+
+
+   nl_startyr  = 1980
+   nl_startmo  =  1
+   nl_endyr    =  2024
+   nl_endmo    = 12
+   nl_dtime = 21600, 21600
+   nl_offset = 10800, 10800
+
+   nl_leapyear          = .true.   ! leapyear calendar
+   nl_data2d            = .true.   ! data in 2 dimension (lon, lat)
+   nl_hightdim          = .false.  ! have "z" dimension
+   nl_dim2d             = .false.   ! lat/lon value in 2 dimension (lon, lat)
+
+   nl_latname           = 'lat'
+   nl_lonname           = 'lon'
+   nl_groupby           = 'year'  ! file grouped by year/month 
+   nl_fprefix = 'IsoGSM_prate', 'IsoGSM_Q'
+   nl_vname = 'prate2sfc', 'spfh22m'
+   nl_timelog = 'forward', 'instant'
+   nl_tintalgo = 'nearest', 'linear'
+/

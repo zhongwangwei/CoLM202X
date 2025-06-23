@@ -12,6 +12,7 @@ MODULE MOD_Namelist
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
+   USE MOD_Tracer_Namelist_Defs, only: nl_tracer_forcing_type, DEF_Tracers, DEF_Tracer_Forcings_NL, allocate_tracer_defs, initialize_tracer_forcing_nl_defaults, parse_tracer_names, initialize_tracer_namelists, broadcast_tracer_namelists, debug_tracer_forcing_configurations
    IMPLICIT NONE
    SAVE
 
@@ -355,6 +356,15 @@ MODULE MOD_Namelist
 
    !
    logical            :: DEF_CheckEquilibrium    = .false.
+
+   ! ---- Tracer ------
+   logical  :: DEF_USE_Tracer                         = .false.
+   integer  :: DEF_Tracer_Number                      = 0
+   character(len=64) :: DEF_Tracer_name               = '' ! Comma-separated list: 'O18,H2,sand,clay,silt'
+   logical  :: DEF_Tracer_Init                        = .false.
+   character(len=256) :: DEF_Tracer_Init_file         = 'null'
+   character(len=256) :: DEF_Tracer_Type              = '' ! Comma-separated list: 'Dissolved,Dissolved,suspended,...'
+   character(len=256) :: DEF_Tracer_forcing_namelist  = 'null'
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 12: forcing -----
@@ -874,6 +884,17 @@ MODULE MOD_Namelist
 
       logical :: sensors                          = .true.
 
+
+! ---- Tracer history variables ----
+      logical :: tracer_O18_soil_concentration    = .false. ! Example for O18
+      logical :: tracer_H2_soil_concentration     = .false. ! Example for H2
+      logical :: tracer_sand_soil_concentration   = .false. ! Example for sand
+      logical :: tracer_clay_soil_concentration   = .false. ! Example for clay
+      logical :: tracer_silt_soil_concentration   = .false. ! Example for silt
+      ! Add more generic ones if MAX_TRACERS is defined and used
+      ! logical, dimension(MAX_TRACERS_POSSIBLE) :: tracer_concentration_soil = .false.
+
+
    END type history_var_type
 
    type (history_var_type) :: DEF_hist_vars
@@ -891,6 +912,7 @@ CONTAINS
    logical :: fexists
    integer :: ivar
    integer :: ierr
+   integer :: i  ! Loop variable for tracer debug output
 
    namelist /nl_colm/                         &
       DEF_CASE_NAME,                          &
@@ -1038,6 +1060,15 @@ CONTAINS
       DEF_DS_precipitation_adjust_scheme,     &
       DEF_DS_longwave_adjust_scheme,          &
 
+      DEF_USE_Tracer,                         &      !add by zhongwang wei @ sysu 2025/06/13
+      DEF_Tracer_Number,                      &      !add by zhongwang wei @ sysu 2025/06/13
+      DEF_Tracer_name,                        &      !add by zhongwang wei @ sysu 2025/06/13
+      DEF_Tracer_Init,                        &      !add by zhongwang wei @ sysu 2025/06/13
+      DEF_Tracer_Init_file,                   &      !add by zhongwang wei @ sysu 2025/06/13
+      DEF_Tracer_Type,                        &      !add by zhongwang wei @ sysu 2025/06/13
+      DEF_Tracer_forcing_namelist,            &      !add by zhongwang wei @ sysu 2025/06/13
+      !DEF_Tracer_dir_forcing,                 &      !add by zhongwang wei @ sysu 2025/06/13
+
       DEF_HISTORY_IN_VECTOR,                  &
       DEF_HIST_lon_res,                       &
       DEF_HIST_lat_res,                       &
@@ -1057,7 +1088,6 @@ CONTAINS
 
       ! ----- open the namelist file -----
       IF (p_is_master) THEN
-
          open(10, status='OLD', file=nlfile, form="FORMATTED")
          read(10, nml=nl_colm, iostat=ierr)
          IF (ierr /= 0) THEN
@@ -1071,6 +1101,22 @@ CONTAINS
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(DEF_forcing_namelist))
          ENDIF
          close(10)
+
+
+         IF (DEF_USE_Tracer .AND. DEF_Tracer_Number > 0) THEN
+            CALL allocate_tracer_defs(DEF_Tracer_Number, DEF_Tracer_Number) ! num_forced_tracers = DEF_Tracer_Number for now
+            IF (allocated(DEF_Tracers)) THEN
+                CALL parse_tracer_names(DEF_Tracer_name, DEF_Tracer_Type, DEF_Tracer_Number, DEF_Tracers) ! Updated call
+            ENDIF
+
+            ! Initialize tracer forcing namelists
+            CALL initialize_tracer_namelists(DEF_Tracer_forcing_namelist,DEF_Tracer_Number)
+            
+            ! Debug output for tracer forcing configurations
+            CALL debug_tracer_forcing_configurations()
+        END IF
+
+
 #ifdef SinglePoint
          DEF_forcing%has_missing_value = .false.
 #endif
@@ -1603,11 +1649,46 @@ CONTAINS
          CALL mpi_bcast (DEF_forcing%timelog(ivar)           ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
          CALL mpi_bcast (DEF_forcing%tintalgo(ivar)          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       ENDDO
+
+      CALL mpi_bcast (DEF_USE_Tracer      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Tracer_Number   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Tracer_name     ,64 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Tracer_Init     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Tracer_Init_file,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_Tracer_Type     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err) ! Broadcast DEF_Tracer_Type
+      CALL mpi_bcast (DEF_Tracer_forcing_namelist,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+
+
+
       CALL mpi_bcast (DEF_forcing%CBL_fprefix                ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_vname                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_tintalgo               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset                 ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+
+      ! Broadcast tracer namelist data - moved inside USEMPI block to fix broadcast order
+      IF (DEF_USE_Tracer .AND. DEF_Tracer_Number > 0) THEN
+         ! Add barrier to ensure all processes are synchronized before tracer broadcast
+         CALL mpi_barrier(p_comm_glb, p_err)
+         IF (p_err /= 0) THEN
+            WRITE(*,*) 'MPI barrier error before tracer broadcast, error code:', p_err
+         ENDIF
+         
+         CALL broadcast_tracer_namelists(DEF_Tracer_Number)
+         
+         ! Check for broadcast errors
+         IF (p_err /= 0) THEN
+            WRITE(*,*) 'Error in broadcast_tracer_namelists, error code:', p_err
+            CALL CoLM_Stop('Failed to broadcast tracer namelist data')
+         ENDIF
+         
+         ! Final barrier to ensure all processes completed tracer broadcast
+         CALL mpi_barrier(p_comm_glb, p_err)
+         IF (p_err /= 0) THEN
+            WRITE(*,*) 'MPI barrier error after tracer broadcast, error code:', p_err
+         ENDIF
+      END IF
+
 #endif
 
       CALL sync_hist_vars (set_defaults = .true.)
@@ -2089,6 +2170,13 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%veloc_hru   , set_defaults)
 
       CALL sync_hist_vars_one (DEF_hist_vars%sensors     , set_defaults)
+
+      CALL sync_hist_vars_one (DEF_hist_vars%tracer_O18_soil_concentration , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%tracer_H2_soil_concentration  , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%tracer_sand_soil_concentration, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%tracer_clay_soil_concentration, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%tracer_silt_soil_concentration, set_defaults)
+
 
    END SUBROUTINE sync_hist_vars
 
