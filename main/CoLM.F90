@@ -32,8 +32,8 @@ PROGRAM CoLM
    USE MOD_CheckEquilibrium
    USE MOD_TimeManager
    USE MOD_RangeCheck
-  ! USE MOD_Tracer_Driver, ONLY: Tracer_Initialize_Master, Tracer_Advance_Timestep, Tracer_Finalize
    USE MOD_Tracer_Forcing, ONLY: tracer_forcing_init,read_tracer_forcing
+   USE MOD_Tracer_Hist,    ONLY: tracer_hist_init, tracer_hist_out, tracer_hist_final
    USE MOD_Block
    USE MOD_Pixel
    USE MOD_Mesh
@@ -315,6 +315,9 @@ PROGRAM CoLM
       ! Initialize history data module
       CALL hist_init (dir_hist)
 
+      ! Initialize tracer history data module
+      CALL tracer_hist_init(dir_hist)
+
 
       IF (p_is_master) WRITE(*,*) "Main CoLM: Initializing Tracer System..."
 
@@ -394,9 +397,8 @@ PROGRAM CoLM
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing)
          ! Advance Tracer Timestep (includes reading tracer forcing)
-         !CALL Tracer_Advance_Timestep(itstamp, deltim)
          CALL read_tracer_forcing(jdate)
-         
+
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
          ENDIF
@@ -425,7 +427,6 @@ PROGRAM CoLM
          itstamp = itstamp + int(deltim)
          jdate = idate
          CALL adj2begin(jdate)
-
          CALL julian2monthday (jdate(1), jdate(2), month, mday)
 
 #ifdef BGC
@@ -458,7 +459,6 @@ PROGRAM CoLM
             CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
          ENDIF
 
-
 #if (defined CatchLateralFlow)
          CALL lateral_flow (deltim)
 #endif
@@ -470,13 +470,13 @@ PROGRAM CoLM
 #ifdef DataAssimilation
          CALL do_DataAssimilation (idate, deltim)
 #endif
-
          ! Write out the model histroy file
          ! ----------------------------------------------------------------------
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
+         ! Write out tracer history file
+         CALL tracer_hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
 
          CALL CheckEquilibrium (idate, deltim, itstamp, dir_hist, casename)
-
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
 #ifdef LULCC
@@ -487,6 +487,9 @@ PROGRAM CoLM
 
             CALL forcing_final ()
             CALL hist_final    ()
+            CALL tracer_hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
+            CALL tracer_hist_final ()
+            CALL CheckEqb_final()
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, idate, greenwich)
@@ -496,6 +499,7 @@ PROGRAM CoLM
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
+            CALL tracer_hist_init (dir_hist)
             CALL allocate_1D_Fluxes
          ENDIF
 #endif
@@ -602,6 +606,8 @@ PROGRAM CoLM
 
       CALL forcing_final ()
       CALL hist_final    ()
+      CALL tracer_hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
+      CALL tracer_hist_final ()
       CALL CheckEqb_final()
 
       ! Finalize Tracer Modules
@@ -638,9 +644,9 @@ PROGRAM CoLM
 #ifdef USEMPI
       ENDIF
 
-      IF (DEF_HIST_WriteBack) THEN
-         CALL hist_writeback_exit ()
-      ENDIF
+   !   IF (DEF_HIST_WriteBack) THEN
+   !      CALL hist_writeback_exit ()
+   !   ENDIF
 
       CALL spmd_exit
 #endif

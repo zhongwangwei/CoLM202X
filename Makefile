@@ -262,7 +262,6 @@ OBJS_MAIN = \
 				MOD_BGC_driver.o                          \
 				MOD_Vars_2DForcing.o                      \
 				MOD_UserSpecifiedForcing.o                \
-				MOD_UserSpecifiedTracerForcing.o          \
 				MOD_ForcingDownscaling.o                  \
 				MOD_Forcing.o                             \
 				MOD_Tracer_Forcing.o                      \
@@ -296,12 +295,14 @@ OBJS_MAIN = \
 				MOD_NewSnow.o                             \
 				MOD_Thermal.o                             \
 				MOD_Vars_1DAccFluxes.o                    \
+				MOD_Tracer_Vars_1DAccFluxes.o             \
 				MOD_CaMa_Vars.o                           \
 				MOD_HistWriteBack.o                       \
 				MOD_HistGridded.o                         \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
 				MOD_Hist.o                                \
+				MOD_Tracer_Hist.o                         \
 				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_CaMa_colmCaMa.o                       \

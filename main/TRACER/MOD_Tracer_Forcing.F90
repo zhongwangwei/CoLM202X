@@ -2,13 +2,7 @@
 
 MODULE MOD_Tracer_Forcing
 
-!-----------------------------------------------------------------------
-! !DESCRIPTION:
-!  read in the atmospheric forcing using user defined interpolation method or
-!  downscaling forcing
-!
 
-!-----------------------------------------------------------------------
 
    USE MOD_Precision
    USE MOD_Namelist
@@ -24,34 +18,14 @@ MODULE MOD_Tracer_Forcing
 
    IMPLICIT NONE
 
-   type (grid_type), PUBLIC :: gforc
+   !type (grid_type), PUBLIC :: gforc
 
-   type (spatial_mapping_type) :: mg2p_forc   ! area weighted mapping from forcing to model unit
+   !type (spatial_mapping_type) :: mg2p_forc   ! area weighted mapping from forcing to model unit
 
    type(grid_type), allocatable :: gforc_tracers(:,:) ! Grid for each tracer forcing variable [num_forced_tracers, max_nvar]
    type(spatial_mapping_type), allocatable :: mg2p_forc_tracers(:,:) ! Mapping for each [num_forced_tracers, max_nvar]
 
    logical, allocatable :: forcmask_pch (:)
-
-
-   type(pointer_real8_1d), allocatable :: forc_prc_grid_O18   (:)
-   type(pointer_real8_1d), allocatable :: forc_prl_grid_O18   (:)
-   type(pointer_real8_1d), allocatable :: forc_prc_part_O18   (:)
-   type(pointer_real8_1d), allocatable :: forc_prl_part_O18   (:)
-   type(pointer_real8_1d), allocatable :: forc_q_part_O18     (:)
-   type(pointer_real8_1d), allocatable :: forc_q_grid_O18     (:)
-
-   type(pointer_real8_1d), allocatable :: forc_prc_grid_H2    (:)
-   type(pointer_real8_1d), allocatable :: forc_prl_grid_H2    (:)
-   type(pointer_real8_1d), allocatable :: forc_prc_part_H2    (:)
-   type(pointer_real8_1d), allocatable :: forc_prl_part_H2    (:)
-   type(pointer_real8_1d), allocatable :: forc_q_part_H2      (:)
-   type(pointer_real8_1d), allocatable :: forc_q_grid_H2      (:)
-
-
-
-   logical, allocatable :: glacierss (:)
-
    ! local variables
    integer  :: deltim_int                ! model time step length
    ! real(r8) :: deltim_real             ! model time step length
@@ -69,16 +43,13 @@ MODULE MOD_Tracer_Forcing
    type(timestamp), allocatable :: tstamp_LB(:,:)  ! time stamp of low boundary data
    type(timestamp), allocatable :: tstamp_UB(:,:)  ! time stamp of up boundary data
 
-   type(block_data_real8_2d) :: traceravgcos   ! time-average of cos(zenith)
-   type(block_data_real8_2d) :: tracerdata  ! forcing data
-#ifdef URBAN_MODEL
-   type(block_data_real8_2d) :: rainf
-   type(block_data_real8_2d) :: snowf
-#endif
+   type(block_data_real8_2d),allocatable :: traceravgcos(:,:)   ! time-average of cos(zenith)
+   type(block_data_real8_2d),allocatable :: tracerdata(:,:)  ! forcing data
 
-   type(block_data_real8_2d), allocatable :: forcn    (:)  ! forcing data
-   type(block_data_real8_2d), allocatable :: forcn_LB (:)  ! forcing data at lower boundary
-   type(block_data_real8_2d), allocatable :: forcn_UB (:)  ! forcing data at upper boundary
+
+   type(block_data_real8_2d), allocatable :: forcn_tracer(:,:)  ! forcing data
+   type(block_data_real8_2d), allocatable :: forcn_LB_tracer(:,:)  ! forcing data at lower boundary
+   type(block_data_real8_2d), allocatable :: forcn_UB_tracer(:,:)  ! forcing data at upper boundary
    
    ! Tracer patch data - stores tracer forcing data on patches
    ! Structure: [tracer_idx][var_idx] -> patch data array
@@ -92,7 +63,6 @@ MODULE MOD_Tracer_Forcing
 
 CONTAINS
 
-!-----------------------------------------------------------------------
    SUBROUTINE tracer_forcing_init (deltatime, ststamp, lc_year, etstamp, lulcc_call)
 
    USE MOD_SPMD_Task
@@ -132,7 +102,21 @@ CONTAINS
    integer :: num_tracers_with_forcing
    
    ! Check allocation status of tracer arrays
+   IF (p_is_master) THEN
+      WRITE(*,*) "=== TRACER_FORCING_INIT START ==="
+      WRITE(*,*) "  deltatime: ", deltatime
+      WRITE(*,*) "  ststamp: ", ststamp%year, ststamp%day, ststamp%sec
+      WRITE(*,*) "  lc_year: ", lc_year
+      IF (present(etstamp)) WRITE(*,*) "  etstamp: ", etstamp%year, etstamp%day, etstamp%sec
+      IF (present(lulcc_call)) WRITE(*,*) "  lulcc_call: ", lulcc_call
+   ENDIF
+   
    num_tracers_with_forcing = SIZE(DEF_Tracer_Forcings_NL, 1)
+   
+   IF (p_is_master) THEN
+      WRITE(*,*) "  num_tracers_with_forcing: ", num_tracers_with_forcing
+      WRITE(*,*) "  DEF_Tracer_Forcings_NL allocated: ", allocated(DEF_Tracer_Forcings_NL)
+   ENDIF
 
 
 
@@ -146,6 +130,18 @@ CONTAINS
          max_nvar = DEF_Tracer_Forcings_NL(k)%NVAR
       ENDIF
    ENDDO
+   
+   ! Check if any tracer has variables defined
+   IF (max_nvar == 0) THEN
+      IF (p_is_master) THEN
+         WRITE(*,*) "  WARNING: No tracer variables defined (max_nvar = 0)"
+         DO k = 1, num_tracers_with_forcing
+            WRITE(*,*) "    Tracer ", k, ": ", trim(DEF_Tracer_Forcings_NL(k)%tracer_name), &
+                       " NVAR = ", DEF_Tracer_Forcings_NL(k)%NVAR
+         ENDDO
+      ENDIF
+      RETURN  ! Exit early if no variables are defined
+   ENDIF
 
    ! Initialize gforc_tracers and mg2p_forc_tracers
    allocate(gforc_tracers(num_tracers_with_forcing, max_nvar))
@@ -154,17 +150,23 @@ CONTAINS
 
    IF (allocated(tstamp_LB)) deallocate(tstamp_LB)
    IF (allocated(tstamp_UB)) deallocate(tstamp_UB)
+
    allocate (tstamp_LB(num_tracers_with_forcing, max_nvar))
    allocate (tstamp_UB(num_tracers_with_forcing, max_nvar))
+
+
    tstamp_LB(:,:) = timestamp(-1, -1, -1)
    tstamp_UB(:,:) = timestamp(-1, -1, -1)
 
    ! Initialize global tracer patch data array (only once)
-   IF (p_is_worker) THEN
-      IF (numpatch > 0) THEN
-         allocate (tracer_patch_data(num_tracers_with_forcing, max_nvar, numpatch))
-         tracer_patch_data(:,:,:) = 0.0_r8
-      ENDIF
+   ! It needs to be allocated on all processes to be passed as an argument.
+   IF (allocated(tracer_patch_data)) deallocate(tracer_patch_data)
+   IF (numpatch > 0) THEN
+      allocate (tracer_patch_data(num_tracers_with_forcing, max_nvar, numpatch))
+      tracer_patch_data(:,:,:) = 0.0_r8
+   ELSE
+      ! Allocate a zero-sized array for processes with no patches (e.g. master)
+      allocate (tracer_patch_data(num_tracers_with_forcing, max_nvar, 0))
    ENDIF
 
    ! Allocate forcmask_pch once (moved outside loop)
@@ -179,15 +181,19 @@ CONTAINS
    idate = (/ststamp%year, ststamp%day, ststamp%sec/)
    CALL adj2begin (idate)
 
-         ! Allocate block data arrays once (moved outside loop)
-      ! If no dedicated I/O processes exist, master process handles I/O
-      IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN
-         IF (allocated(forcn)) deallocate(forcn)
-         IF (allocated(forcn_LB)) deallocate(forcn_LB)
-         IF (allocated(forcn_UB)) deallocate(forcn_UB)
-         allocate (forcn    (max_nvar))
-         allocate (forcn_LB (max_nvar)) 
-         allocate (forcn_UB (max_nvar))
+      IF (p_is_io) THEN
+         IF (allocated(forcn_tracer)) deallocate(forcn_tracer)
+         IF (allocated(forcn_LB_tracer)) deallocate(forcn_LB_tracer)
+         IF (allocated(forcn_UB_tracer)) deallocate(forcn_UB_tracer)
+         IF (allocated(tracerdata)) deallocate(tracerdata)
+         IF (allocated(traceravgcos)) deallocate(traceravgcos)
+         
+         allocate (forcn_tracer(num_tracers_with_forcing, max_nvar))
+         allocate (forcn_LB_tracer(num_tracers_with_forcing, max_nvar)) 
+         allocate (forcn_UB_tracer(num_tracers_with_forcing, max_nvar))
+         allocate (tracerdata(num_tracers_with_forcing, max_nvar))
+         allocate (traceravgcos(num_tracers_with_forcing, max_nvar))
+
       ENDIF
 
    DO i = 1, num_tracers_with_forcing
@@ -199,26 +205,21 @@ CONTAINS
          CALL tracer_read_latlon (DEF_Tracer_Forcings_NL(i)%tracer_dir, idate, i, j)
       ENDDO
 
-               ! Allocate block data for this tracer
-         ! If no dedicated I/O processes exist, master process handles I/O
-         IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN
-            DO ivar = 1, DEF_Tracer_Forcings_NL(i)%NVAR
-               CALL allocate_block_data (gforc_tracers(i,ivar), forcn   (ivar))
-               CALL allocate_block_data (gforc_tracers(i,ivar), forcn_LB(ivar))
-               CALL allocate_block_data (gforc_tracers(i,ivar), forcn_UB(ivar))
-            ENDDO
-
+      ! Allocate block data for this tracer on I/O processes
+      IF (p_is_io) THEN
+         DO ivar = 1, DEF_Tracer_Forcings_NL(i)%NVAR
+            CALL allocate_block_data (gforc_tracers(i,ivar), forcn_tracer(i,ivar))
+            CALL allocate_block_data (gforc_tracers(i,ivar), forcn_LB_tracer(i,ivar))
+            CALL allocate_block_data (gforc_tracers(i,ivar), forcn_UB_tracer(i,ivar))
             ! Allocate memory for forcing data (using first grid for this tracer)
-            CALL allocate_block_data (gforc_tracers(i,1), tracerdata)  ! forcing data
-            CALL allocate_block_data (gforc_tracers(i,1), traceravgcos )  ! time-average of cos(zenith)
-#if (defined URBAN_MODEL && defined SinglePoint)
-            CALL allocate_block_data (gforc_tracers(i,1), rainf)
-            CALL allocate_block_data (gforc_tracers(i,1), snowf)
-#endif
-         ENDIF
+            CALL allocate_block_data (gforc_tracers(i,ivar), tracerdata(i,ivar))  ! forcing data
+            CALL allocate_block_data (gforc_tracers(i,ivar), traceravgcos(i,ivar))  ! time-average of cos(zenith)
+         ENDDO
+      ENDIF 
 
       ! Process missing value information if needed
-      IF (DEF_Tracer_Forcings_NL(i)%has_missing_value) THEN
+      ! Temporarily disabled for debugging
+      IF (.FALSE.) THEN
          IF (p_is_master) WRITE(*,*) "    Processing missing value information for tracer ", i
 
          tstamp = idate
@@ -232,7 +233,25 @@ CONTAINS
 #ifdef USEMPI
          CALL mpi_bcast (missing_value, 1, MPI_REAL8, p_address_master, p_comm_glb, p_err)
 #endif
-         CALL ncio_read_block_time (filename, DEF_Tracer_Forcings_NL(i)%vname(1), gforc_tracers(i,1), time_i, tracerdata)
+         ! Check that arrays are properly allocated before use
+         IF (.NOT. allocated(tracerdata) .OR. .NOT. allocated(gforc_tracers)) THEN
+            IF (p_is_master) WRITE(*,*) "ERROR: Arrays not allocated for missing value processing"
+            CALL CoLM_stop()
+         ENDIF
+         
+         ! Check array bounds
+         IF (i > SIZE(tracerdata, 1) .OR. SIZE(tracerdata, 2) < DEF_Tracer_Forcings_NL(i)%NVAR) THEN
+            IF (p_is_master) THEN
+               WRITE(*,*) "ERROR: Array bounds mismatch in missing value processing"
+               WRITE(*,*) "  Tracer index: ", i, " max: ", SIZE(tracerdata, 1)
+               WRITE(*,*) "  Variable count: ", DEF_Tracer_Forcings_NL(i)%NVAR, " max: ", SIZE(tracerdata, 2)
+            ENDIF
+            CALL CoLM_stop()
+         ENDIF
+         
+         DO ivar = 1, DEF_Tracer_Forcings_NL(i)%NVAR
+            CALL ncio_read_block_time (filename, DEF_Tracer_Forcings_NL(i)%vname(ivar), gforc_tracers(i,ivar), time_i, tracerdata(i,ivar))
+         ENDDO
       ENDIF
 
       ! Initialize spatial mapping for each tracer variable
@@ -254,8 +273,11 @@ CONTAINS
       ENDDO
 
       ! Set missing value for spatial mapping if needed
-      IF (DEF_Tracer_Forcings_NL(i)%has_missing_value) THEN
-         CALL mg2p_forc_tracers(i,1)%set_missing_value (tracerdata, missing_value, forcmask_pch)
+      ! Temporarily disabled for debugging
+      IF (.FALSE.) THEN
+         DO ivar = 1, DEF_Tracer_Forcings_NL(i)%NVAR
+            CALL mg2p_forc_tracers(i,ivar)%set_missing_value (tracerdata(i,ivar), missing_value, forcmask_pch)
+         ENDDO
       ENDIF
 
       ! Handle POINT dataset specific setup
@@ -265,6 +287,9 @@ CONTAINS
 
       IF (p_is_master) WRITE(*,*) "    --- Completed processing tracer ", i, " ---"
    ENDDO
+
+
+
    END SUBROUTINE tracer_forcing_init
 
 
@@ -276,7 +301,6 @@ CONTAINS
    IMPLICIT NONE
 
       IF (allocated(forcmask_pch)) deallocate(forcmask_pch)
-      IF (allocated(glacierss   )) deallocate(glacierss   )
       IF (allocated(forctime    )) deallocate(forctime    )
       IF (allocated(iforctime   )) deallocate(iforctime   )
       IF (allocated(forc_disk   )) deallocate(forc_disk   )
@@ -285,9 +309,15 @@ CONTAINS
       IF (allocated(tracer_patch_data)) deallocate(tracer_patch_data)
       IF (allocated(gforc_tracers)) deallocate(gforc_tracers)
       IF (allocated(mg2p_forc_tracers)) deallocate(mg2p_forc_tracers)
-      IF (allocated(forcn)) deallocate(forcn)
-      IF (allocated(forcn_LB)) deallocate(forcn_LB)
-      IF (allocated(forcn_UB)) deallocate(forcn_UB)
+      
+      ! These arrays are only allocated on I/O processes
+      IF (p_is_io) THEN
+         IF (allocated(tracerdata)) deallocate(tracerdata)
+         IF (allocated(traceravgcos)) deallocate(traceravgcos)
+         IF (allocated(forcn_tracer)) deallocate(forcn_tracer)
+         IF (allocated(forcn_LB_tracer)) deallocate(forcn_LB_tracer)
+         IF (allocated(forcn_UB_tracer)) deallocate(forcn_UB_tracer)
+      ENDIF
 
       ! IF (DEF_USE_Forcing_Downscaling) THEN
       !    IF (p_is_worker) THEN
@@ -381,7 +411,8 @@ CONTAINS
 
    IMPLICIT NONE
 
-   integer, intent(in) :: idate(3)
+      integer, intent(in) :: idate(3)
+
 
 
    ! local variables:
@@ -406,11 +437,11 @@ CONTAINS
    real(r8), dimension(12, numpatch) :: spaceship !NOTE: 12 is the dimension size of spaceship
    integer target_server, ierr
 
-   ! Local variables for range checking
-   real(r8), allocatable :: temp_tracer_data(:)
-   character(len=64) :: var_name
-   character(len=8) :: tracer_str, var_str
+   ! Local variables
    integer :: num_tracers_with_forcing
+   real(r8), allocatable :: temp_tracer_data(:)
+   character(len=50) :: tracer_label
+   type(block_data_real8_2d) :: dummy_block_data  ! Declare dummy for grid2pset calls
    
    ! Initialize num_tracers_with_forcing properly
    IF (allocated(DEF_Tracer_Forcings_NL)) THEN
@@ -424,133 +455,79 @@ CONTAINS
       RETURN
    ENDIF
    
-   IF (p_is_master) THEN
-      WRITE(*,*) "=== READ_TRACER_FORCING START ==="
-      WRITE(*,*) "  Processing date: ", idate(1), idate(2), idate(3)
-      WRITE(*,*) "  Number of tracers with forcing: ", num_tracers_with_forcing
+   ! Check if DEF_Tracer_Forcings_NL is properly allocated
+   IF (.NOT. allocated(DEF_Tracer_Forcings_NL)) THEN
+      IF (p_is_master) WRITE(*,*) "ERROR: DEF_Tracer_Forcings_NL not allocated"
+      RETURN
    ENDIF
    
-   ! Debug: Show process information
-   IF (p_is_worker .AND. p_iam_glb <= 3) THEN  ! Only first few workers
-      WRITE(*,*) "  WORKER ", p_iam_glb, ": Starting tracer forcing processing with ", numpatch, " patches"
+   ! Verify max_nvar is consistent with current configuration
+   ! (max_nvar should have been set in tracer_forcing_init)
+   IF (max_nvar <= 0) THEN
+      IF (p_is_master) THEN
+         WRITE(*,*) "ERROR: max_nvar not properly initialized (max_nvar = ", max_nvar, ")"
+         WRITE(*,*) "Tracer forcing configuration:"
+         DO tracer_idx = 1, num_tracers_with_forcing
+            WRITE(*,*) "  Tracer ", tracer_idx, ": ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name), &
+                       " NVAR = ", DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
+         ENDDO
+      ENDIF
+      RETURN
    ENDIF
 
-   ! Check if tracer_patch_data is properly allocated
-   IF (p_is_worker .AND. numpatch > 0) THEN
-      IF (.NOT. allocated(tracer_patch_data)) THEN
-         IF (p_is_master) WRITE(*,*) "ERROR: tracer_patch_data not allocated!"
-         CALL CoLM_stop()
-      ENDIF
-      
-      ! Verify the dimensions
-      IF (SIZE(tracer_patch_data, 1) < num_tracers_with_forcing .OR. &
-          SIZE(tracer_patch_data, 3) /= numpatch) THEN
-         IF (p_is_master) THEN
-            WRITE(*,*) "ERROR: tracer_patch_data dimension mismatch!"
-            WRITE(*,*) "  Expected: ", num_tracers_with_forcing, " x ", max_nvar, " x ", numpatch
-            WRITE(*,*) "  Actual: ", SIZE(tracer_patch_data, 1), " x ", SIZE(tracer_patch_data, 2), " x ", SIZE(tracer_patch_data, 3)
-         ENDIF
-         CALL CoLM_stop()
-      ENDIF
-   ENDIF
+
    ! Loop over each tracer
    DO tracer_idx = 1, num_tracers_with_forcing
-      
-      ! Debug: Show process type and tracer info (visible from all processes)
-      IF (p_is_master) THEN
-         WRITE(*,*) "=== PROCESSING TRACER ", tracer_idx, " ==="
-         WRITE(*,*) "  Tracer name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
-         WRITE(*,*) "  Dataset: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
-         WRITE(*,*) "  Directory: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)
-         WRITE(*,*) "  Number of variables: ", DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
-         WRITE(*,*) "  p_is_io: ", p_is_io
-         WRITE(*,*) "  p_is_worker: ", p_is_worker
-         WRITE(*,*) "  p_is_master: ", p_is_master
-      ENDIF
-      
+
       !------------------------------------------------------------
       ! READ in THE TRACER FORCING
       ! read lower and upper boundary forcing data for this tracer
-      ! If no dedicated I/O processes exist, master process handles I/O
-      IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN
-         IF (p_is_master) WRITE(*,*) "  >>> I/O process reading tracer forcing data"
+      IF (p_is_io) THEN
          CALL metreadLBUB_tracer(idate, TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir), tracer_idx)
-         
-         ! Debug: Show timestamps after reading
-         IF (p_is_master) THEN
-            WRITE(*,*) "  After metreadLBUB_tracer for tracer ", tracer_idx, ":"
-            DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
-               IF (tracer_idx <= SIZE(tstamp_LB, 1) .AND. var_idx <= SIZE(tstamp_LB, 2) .AND. &
-                   tracer_idx <= SIZE(tstamp_UB, 1) .AND. var_idx <= SIZE(tstamp_UB, 2)) THEN
-                  WRITE(*,*) "    Variable ", var_idx, " LB: ", tstamp_LB(tracer_idx,var_idx)%year, tstamp_LB(tracer_idx,var_idx)%day, tstamp_LB(tracer_idx,var_idx)%sec
-                  WRITE(*,*) "    Variable ", var_idx, " UB: ", tstamp_UB(tracer_idx,var_idx)%year, tstamp_UB(tracer_idx,var_idx)%day, tstamp_UB(tracer_idx,var_idx)%sec
-               ENDIF
-            ENDDO
-         ENDIF
-   
          ! set model time stamp
          id(:) = idate(:)
          mtstamp = id
-         
-         ! Debug: Show model timestamp
-         IF (p_is_master) THEN
-            WRITE(*,*) "  Model timestamp: ", mtstamp%year, mtstamp%day, mtstamp%sec
-         ENDIF
          
          ! loop for variables of this tracer
          DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
             IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) == 'NULL') CYCLE     ! no data, CYCLE
             IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(var_idx)) == 'NULL') CYCLE
-
-            ! Debug information for each variable
-            IF (p_is_master) THEN
-               WRITE(*,*) "  Processing tracer ", tracer_idx, " variable ", var_idx, ":"
-               WRITE(*,*) "    Variable name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx))
-               WRITE(*,*) "    Interpolation: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(var_idx))
-               WRITE(*,*) "    Time log: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%timelog(var_idx))
-            ENDIF
-
-            ! Check array bounds before accessing
-            IF (tracer_idx > SIZE(tstamp_LB, 1) .OR. var_idx > SIZE(tstamp_LB, 2) .OR. &
-                tracer_idx > SIZE(tstamp_UB, 1) .OR. var_idx > SIZE(tstamp_UB, 2) .OR. &
-                var_idx > SIZE(forcn_LB) .OR. var_idx > SIZE(forcn_UB) .OR. &
-                var_idx > SIZE(forcn)) THEN
-               IF (p_is_master) THEN
-                  WRITE(*,*) "ERROR: Array index out of bounds in read_tracer_forcing"
-                  WRITE(*,*) "  tracer_idx = ", tracer_idx, " var_idx = ", var_idx, " but array sizes are:"
-                  WRITE(*,*) "  tstamp_LB size = ", SIZE(tstamp_LB, 1), "x", SIZE(tstamp_LB, 2)
-                  WRITE(*,*) "  tstamp_UB size = ", SIZE(tstamp_UB, 1), "x", SIZE(tstamp_UB, 2)
-                  WRITE(*,*) "  forcn_LB size = ", SIZE(forcn_LB)
-                  WRITE(*,*) "  forcn_UB size = ", SIZE(forcn_UB)
-                  WRITE(*,*) "  forcn size = ", SIZE(forcn)
-               ENDIF
-               CYCLE
-            ENDIF
-
             ! to make sure the forcing data calculated is in the range of time
-            ! interval [LB, UB]
+            ! interval [LB, UB]. If not, read new data.
+            
+            ! First check if time boundaries are properly initialized
+            IF (tstamp_LB(tracer_idx,var_idx)%year == -1 .or. tstamp_UB(tracer_idx,var_idx)%year == -1) THEN
+               write(6, *) "WARNING: Tracer time boundaries not initialized, re-reading..."
+               CALL metreadLBUB_tracer(idate, TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir), tracer_idx)
+            ENDIF
+            
             IF ( (mtstamp < tstamp_LB(tracer_idx,var_idx)) .or. (tstamp_UB(tracer_idx,var_idx) < mtstamp) ) THEN
-               IF (p_is_master) THEN
-                  WRITE(*,*) "=== TRACER FORCING DEBUG: OUT OF RANGE ERROR ==="
-                  WRITE(*,*) "  Tracer index: ", tracer_idx
-                  WRITE(*,*) "  Variable index: ", var_idx
-                  WRITE(*,*) "  Tracer name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
-                  WRITE(*,*) "  Variable name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx))
-                  WRITE(*,*) "  Model timestamp: ", mtstamp%year, mtstamp%day, mtstamp%sec
-                  WRITE(*,*) "  Lower boundary timestamp: ", tstamp_LB(tracer_idx,var_idx)%year, tstamp_LB(tracer_idx,var_idx)%day, tstamp_LB(tracer_idx,var_idx)%sec
-                  WRITE(*,*) "  Upper boundary timestamp: ", tstamp_UB(tracer_idx,var_idx)%year, tstamp_UB(tracer_idx,var_idx)%day, tstamp_UB(tracer_idx,var_idx)%sec
-                  WRITE(*,*) "  Condition check:"
-                  WRITE(*,*) "    mtstamp < tstamp_LB: ", (mtstamp < tstamp_LB(tracer_idx,var_idx))
-                  WRITE(*,*) "    tstamp_UB < mtstamp: ", (tstamp_UB(tracer_idx,var_idx) < mtstamp)
-                  WRITE(*,*) "  Tracer forcing configuration:"
-                  WRITE(*,*) "    Dataset: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
-                  WRITE(*,*) "    Directory: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)
-                  WRITE(*,*) "    Start year/month: ", DEF_Tracer_Forcings_NL(tracer_idx)%startyr, DEF_Tracer_Forcings_NL(tracer_idx)%startmo
-                  WRITE(*,*) "    End year/month: ", DEF_Tracer_Forcings_NL(tracer_idx)%endyr, DEF_Tracer_Forcings_NL(tracer_idx)%endmo
-                  WRITE(*,*) "    Group by: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby)
-                  WRITE(*,*) "================================================"
+               write(6, *) "========== TRACER FORCING TIME RANGE ERROR =========="
+               write(6, *) "Current time stamp: ", mtstamp%year, mtstamp%day, mtstamp%sec
+               write(6, *) "Tracer index: ", tracer_idx, " Variable index: ", var_idx
+               write(6, *) "Lower bound: ", tstamp_LB(tracer_idx,var_idx)%year, tstamp_LB(tracer_idx,var_idx)%day, tstamp_LB(tracer_idx,var_idx)%sec
+               write(6, *) "Upper bound: ", tstamp_UB(tracer_idx,var_idx)%year, tstamp_UB(tracer_idx,var_idx)%day, tstamp_UB(tracer_idx,var_idx)%sec
+               write(6, *) "Variable name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx))
+               write(6, *) "Tracer name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
+               write(6, *) "Trying to reinitialize time boundaries..."
+               
+               ! Try to reinitialize boundaries
+               tstamp_LB(tracer_idx,var_idx) = timestamp(-1, -1, -1)
+               tstamp_UB(tracer_idx,var_idx) = timestamp(-1, -1, -1)
+               
+               ! Call the boundary reading function again
+               CALL metreadLBUB_tracer(idate, TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir), tracer_idx)
+               
+               ! Check again
+               IF ( (mtstamp < tstamp_LB(tracer_idx,var_idx)) .or. (tstamp_UB(tracer_idx,var_idx) < mtstamp) ) THEN
+                  write(6, *) "After reinitializing boundaries:"
+                  write(6, *) "Lower bound: ", tstamp_LB(tracer_idx,var_idx)%year, tstamp_LB(tracer_idx,var_idx)%day, tstamp_LB(tracer_idx,var_idx)%sec
+                  write(6, *) "Upper bound: ", tstamp_UB(tracer_idx,var_idx)%year, tstamp_UB(tracer_idx,var_idx)%day, tstamp_UB(tracer_idx,var_idx)%sec
+                  write(6, *) "the tracer forcing data required is still out of range! STOP!"
+                  CALL CoLM_stop()
+               ELSE
+                  write(6, *) "Successfully fixed time range boundaries!"
                ENDIF
-               write(6, *) "the data required is out of range! STOP!"; CALL CoLM_stop()
             ENDIF
 
             ! calculate distance to lower/upper boundary
@@ -561,185 +538,107 @@ CONTAINS
             IF (DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(var_idx) == 'linear') THEN
                IF ( (dtLB+dtUB) > 0 ) THEN
                   CALL block_data_linear_interp ( &
-                     forcn_LB(var_idx), real(dtUB,r8)/real(dtLB+dtUB,r8), &
-                     forcn_UB(var_idx), real(dtLB,r8)/real(dtLB+dtUB,r8), &
-                     forcn(var_idx))
+                     forcn_LB_tracer(tracer_idx,var_idx), real(dtUB,r8)/real(dtLB+dtUB,r8), &
+                     forcn_UB_tracer(tracer_idx,var_idx), real(dtLB,r8)/real(dtLB+dtUB,r8), &
+                     forcn_tracer(tracer_idx,var_idx))
                ELSE
-                  CALL block_data_copy (forcn_LB(var_idx), forcn(var_idx))
+                  CALL block_data_copy (forcn_LB_tracer(tracer_idx,var_idx), forcn_tracer(tracer_idx,var_idx))
                ENDIF
             ENDIF
 
             ! nearest method, for precipitation
             IF (DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(var_idx) == 'nearest') THEN
                IF (dtLB <= dtUB) THEN
-                  CALL block_data_copy (forcn_LB(var_idx), forcn(var_idx))
+                  CALL block_data_copy (forcn_LB_tracer(tracer_idx,var_idx), forcn_tracer(tracer_idx,var_idx))
                ELSE
-                  CALL block_data_copy (forcn_UB(var_idx), forcn(var_idx))
+                  CALL block_data_copy (forcn_UB_tracer(tracer_idx,var_idx), forcn_tracer(tracer_idx,var_idx))
                ENDIF
             ENDIF
 
             ! uniform method
             IF (DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(var_idx) == 'uniform') THEN
                IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%timelog(var_idx)) == 'forward') THEN
-                  CALL block_data_copy (forcn_LB(var_idx), forcn(var_idx))
+                  CALL block_data_copy (forcn_LB_tracer(tracer_idx,var_idx), forcn_tracer(tracer_idx,var_idx))
                ELSE
-                  CALL block_data_copy (forcn_UB(var_idx), forcn(var_idx))
+                  CALL block_data_copy (forcn_UB_tracer(tracer_idx,var_idx), forcn_tracer(tracer_idx,var_idx))
                ENDIF
             ENDIF
 
             ! coszen method, for SW radiation
             IF (DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(var_idx) == 'coszen') THEN
-               ! Check if gforc_tracers is properly allocated and accessible
-               IF (tracer_idx <= SIZE(gforc_tracers, 1) .AND. var_idx <= SIZE(gforc_tracers, 2)) THEN
-                  DO iblkme = 1, gblock%nblkme
-                     ib = gblock%xblkme(iblkme)
-                     jb = gblock%yblkme(iblkme)
+               DO iblkme = 1, gblock%nblkme
+                  ib = gblock%xblkme(iblkme)
+                  jb = gblock%yblkme(iblkme)
 
-                     DO j = 1, gforc_tracers(tracer_idx,var_idx)%ycnt(jb)
-                        DO i = 1, gforc_tracers(tracer_idx,var_idx)%xcnt(ib)
+                  DO j = 1, gforc_tracers(tracer_idx,var_idx)%ycnt(jb)
+                     DO i = 1, gforc_tracers(tracer_idx,var_idx)%xcnt(ib)
 
-                           ilat = gforc_tracers(tracer_idx,var_idx)%ydsp(jb) + j
-                           ilon = gforc_tracers(tracer_idx,var_idx)%xdsp(ib) + i
-                           IF (ilon > gforc_tracers(tracer_idx,var_idx)%nlon) ilon = ilon - gforc_tracers(tracer_idx,var_idx)%nlon
+                        ilat = gforc_tracers(tracer_idx,var_idx)%ydsp(jb) + j
+                        ilon = gforc_tracers(tracer_idx,var_idx)%xdsp(ib) + i
+                        IF (ilon > gforc_tracers(tracer_idx,var_idx)%nlon) ilon = ilon - gforc_tracers(tracer_idx,var_idx)%nlon
 
-                           calday = calendarday(mtstamp)
-                           cosz = orb_coszen(calday, gforc_tracers(tracer_idx,var_idx)%rlon(ilon), gforc_tracers(tracer_idx,var_idx)%rlat(ilat))
-                           cosz = max(0.001, cosz)
-                           ! 10/24/2024, yuan: deal with time log with backward or forward
-                           IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%timelog(var_idx)) == 'forward') THEN
-                              forcn(var_idx)%blk(ib,jb)%val(i,j) = &
-                                 cosz / traceravgcos%blk(ib,jb)%val(i,j) * forcn_LB(var_idx)%blk(ib,jb)%val(i,j)
-                           ELSE
-                              forcn(var_idx)%blk(ib,jb)%val(i,j) = &
-                                 cosz / traceravgcos%blk(ib,jb)%val(i,j) * forcn_UB(var_idx)%blk(ib,jb)%val(i,j)
-                           ENDIF
+                        calday = calendarday(mtstamp)
+                        cosz = orb_coszen(calday, gforc_tracers(tracer_idx,var_idx)%rlon(ilon), gforc_tracers(tracer_idx,var_idx)%rlat(ilat))
+                        cosz = max(0.001, cosz)
+                        ! 10/24/2024, yuan: deal with time log with backward or forward
+                        IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%timelog(var_idx)) == 'forward') THEN
+                           forcn_tracer(tracer_idx,var_idx)%blk(ib,jb)%val(i,j) = &
+                              cosz / traceravgcos(tracer_idx,var_idx)%blk(ib,jb)%val(i,j) * forcn_LB_tracer(tracer_idx,var_idx)%blk(ib,jb)%val(i,j)
+                        ELSE
+                           forcn_tracer(tracer_idx,var_idx)%blk(ib,jb)%val(i,j) = &
+                              cosz / traceravgcos(tracer_idx,var_idx)%blk(ib,jb)%val(i,j) * forcn_UB_tracer(tracer_idx,var_idx)%blk(ib,jb)%val(i,j)
+                        ENDIF
 
-                        ENDDO
                      ENDDO
                   ENDDO
-               ELSE
-                  IF (p_is_master) THEN
-                     WRITE(*,*) "ERROR: gforc_tracers array bounds exceeded in coszen interpolation"
-                     WRITE(*,*) "  tracer_idx = ", tracer_idx, " var_idx = ", var_idx
-                     WRITE(*,*) "  gforc_tracers dimensions = ", SIZE(gforc_tracers, 1), "x", SIZE(gforc_tracers, 2)
-                  ENDIF
-               ENDIF
+               ENDDO
             ENDIF
 
          ENDDO
 
-         ! Debug: Check interpolated forcing data values
-         IF (p_is_master) THEN
-            WRITE(*,*) "  After interpolation for tracer ", tracer_idx, ":"
-            DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
-               IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) /= 'NULL' .AND. var_idx <= SIZE(forcn)) THEN
-                  IF (allocated(forcn(var_idx)%blk)) THEN
-                     ! Check first block for sample values
-                     IF (SIZE(forcn(var_idx)%blk) > 0) THEN
-                        DO ib = 1, MIN(2, SIZE(forcn(var_idx)%blk, 1))
-                           DO jb = 1, MIN(2, SIZE(forcn(var_idx)%blk, 2))
-                              IF (allocated(forcn(var_idx)%blk(ib,jb)%val)) THEN
-                                 WRITE(*,*) "    Variable ", var_idx, " (", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)), ") block(", ib, ",", jb, ") sample values:", &
-                                           forcn(var_idx)%blk(ib,jb)%val(1:MIN(3,SIZE(forcn(var_idx)%blk(ib,jb)%val,1)), &
-                                                                        1:MIN(3,SIZE(forcn(var_idx)%blk(ib,jb)%val,2)))
-                              ENDIF
-                           ENDDO
-                        ENDDO
-                     ENDIF
-                  ELSE
-                     WRITE(*,*) "    Variable ", var_idx, " (", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)), ") forcn%blk not allocated"
-                  ENDIF
-               ENDIF
-            ENDDO
-         ENDIF
-
-                  ! preprocess for forcing data
-         CALL tracerpreprocess (gforc_tracers(tracer_idx,1), forcn)
-
       ENDIF
+
+#ifdef USEMPI
+      ! Ensure all processes complete I/O before proceeding to mapping
+      CALL mpi_barrier (p_comm_glb, p_err)
+#endif
 
       ! Map tracer forcing data to patches using the appropriate spatial mapping
-      ! (This must be done on I/O processes since they have the forcn arrays)
-      ! If no dedicated I/O processes exist, master process handles I/O
-      IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN
-         IF (p_is_master) WRITE(*,*) "  >>> I/O process mapping tracer forcing data to patches"
-         DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
-            ! Check array bounds before accessing mg2p_forc_tracers
-            IF (tracer_idx <= SIZE(mg2p_forc_tracers, 1) .AND. var_idx <= SIZE(mg2p_forc_tracers, 2)) THEN
-               ! Skip NULL variables
-               IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) == 'NULL') CYCLE
-               
-               ! Debug: Check conditions for mapping
-               IF (p_is_master .AND. var_idx == 1) THEN
-                  WRITE(*,*) "    Debug mapping conditions for tracer ", tracer_idx, ":"
-                  WRITE(*,*) "      forcn allocated: ", allocated(forcn)
-                  IF (allocated(forcn)) WRITE(*,*) "      forcn size: ", SIZE(forcn)
-                  WRITE(*,*) "      var_idx: ", var_idx
-                  WRITE(*,*) "      p_is_worker: ", p_is_worker
-                  WRITE(*,*) "      numpatch: ", numpatch
-                  IF (allocated(forcn) .AND. var_idx <= SIZE(forcn)) THEN
-                     WRITE(*,*) "      forcn(", var_idx, ")%blk allocated: ", allocated(forcn(var_idx)%blk)
-                  ENDIF
-               ENDIF
-               
-               ! Only perform mapping if we have valid data and proper array dimensions
-               IF (allocated(forcn) .AND. var_idx <= SIZE(forcn) .AND. &
-                   allocated(forcn(var_idx)%blk) .AND. &
-                   tracer_idx <= SIZE(tracer_patch_data, 1) .AND. &
-                   var_idx <= SIZE(tracer_patch_data, 2)) THEN
-                  
-                  ! Debug: Report mapping attempt
-                  IF (p_is_master) THEN
-                     WRITE(*,*) "    Calling grid2pset for tracer ", tracer_idx, " variable ", var_idx, " (", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)), ")"
-                  ENDIF
-                  
-                  ! Call spatial mapping function - this handles MPI communication automatically
-                  CALL mg2p_forc_tracers(tracer_idx,var_idx)%grid2pset (forcn(var_idx), tracer_patch_data(tracer_idx,var_idx,:))
-                  
-                  ! Debug: Report successful mapping on worker processes
-                  IF (p_is_worker .AND. p_iam_glb <= 3 .AND. numpatch > 0) THEN  ! Only first few workers to avoid spam
-                     WRITE(*,*) "    WORKER ", p_iam_glb, ": Successfully mapped tracer ", tracer_idx, " variable ", var_idx, " - first 3 values: ", &
-                                tracer_patch_data(tracer_idx,var_idx,1:min(3,numpatch))
-                     WRITE(*,*) "    WORKER ", p_iam_glb, ": Min/Max values: ", &
-                                MINVAL(tracer_patch_data(tracer_idx,var_idx,:)), "/", MAXVAL(tracer_patch_data(tracer_idx,var_idx,:))
-                  ENDIF
-               ELSE
-                  IF (p_is_master) THEN
-                     WRITE(*,*) "    Skipping mapping for tracer ", tracer_idx, " variable ", var_idx, " - invalid conditions"
-                     WRITE(*,*) "      allocated(forcn): ", allocated(forcn)
-                     IF (allocated(forcn)) WRITE(*,*) "      SIZE(forcn): ", SIZE(forcn)
-                     WRITE(*,*) "      var_idx: ", var_idx
-                     IF (allocated(forcn) .AND. var_idx <= SIZE(forcn)) THEN
-                        WRITE(*,*) "      forcn(", var_idx, ")%blk allocated: ", allocated(forcn(var_idx)%blk)
-                     ENDIF
-                     WRITE(*,*) "      tracer_patch_data dimensions: ", SIZE(tracer_patch_data, 1), "x", SIZE(tracer_patch_data, 2), "x", SIZE(tracer_patch_data, 3)
-                  ENDIF
-               ENDIF
+      ! This must be called on ALL processes. Internally, grid2pset handles
+      ! sending from I/O processes and receiving on worker processes.
+      DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
+         ! Check array bounds before accessing mg2p_forc_tracers
+         IF (tracer_idx <= SIZE(mg2p_forc_tracers, 1) .AND. var_idx <= SIZE(mg2p_forc_tracers, 2)) THEN
+            ! Skip NULL variables
+            IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) == 'NULL') CYCLE
+            
+#ifdef USEMPI
+            ! Ensure all processes are synchronized before spatial mapping
+            CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+            ! Call spatial mapping function - this handles MPI communication automatically
+            ! Note: Only I/O processes have forcn_tracer data, but all processes must call grid2pset
+            IF (p_is_io .AND. allocated(forcn_tracer)) THEN
+               ! I/O processes send the data
+               CALL mg2p_forc_tracers(tracer_idx,var_idx)%grid2pset (forcn_tracer(tracer_idx,var_idx), tracer_patch_data(tracer_idx,var_idx,:))
             ELSE
-               IF (p_is_master) THEN
-                  WRITE(*,*) "ERROR: mg2p_forc_tracers array bounds exceeded"
-                  WRITE(*,*) "  tracer_idx = ", tracer_idx, " var_idx = ", var_idx
-                  WRITE(*,*) "  mg2p_forc_tracers dimensions = ", SIZE(mg2p_forc_tracers, 1), "x", SIZE(mg2p_forc_tracers, 2)
-               ENDIF
+               ! Non-I/O processes receive the data (using dummy source)
+               CALL mg2p_forc_tracers(tracer_idx,var_idx)%grid2pset (dummy_block_data, tracer_patch_data(tracer_idx,var_idx,:))
             ENDIF
-         ENDDO
-      ELSE
-         IF (p_is_master) WRITE(*,*) "  >>> NOT an I/O process, skipping file operations for tracer ", tracer_idx
-      ENDIF
+            
+#ifdef USEMPI
+            ! Ensure all processes complete mapping before proceeding
+            CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+         ENDIF
+      ENDDO
 
-   ENDDO
+   ENDDO  ! End tracer loop
 
    IF (p_is_master) THEN
       WRITE(*,*) "=== READ_TRACER_FORCING COMPLETED SUCCESSFULLY ==="
    ENDIF
    
-   ! Debug: Show worker completion status
-   IF (p_is_worker .AND. p_iam_glb <= 3) THEN  ! Only first few workers
-      WRITE(*,*) "  WORKER ", p_iam_glb, ": Completed tracer forcing processing for ", numpatch, " patches"
-      IF (numpatch > 0 .AND. allocated(tracer_patch_data)) THEN
-         WRITE(*,*) "    Sample tracer data for patch 1: tracer 1 var 1 = ", tracer_patch_data(1,1,1)
-      ENDIF
-   ENDIF
 
 #ifdef RangeCheck
 #ifdef USEMPI
@@ -747,38 +646,49 @@ CONTAINS
 #endif
       IF (p_is_master) write(*,'(/, A25)') 'Checking tracer forcing ...'
 
-      ! Check tracer forcing data for each tracer and variable (only on worker processes with patches)
-      IF (p_is_worker .AND. numpatch > 0) THEN
+      ! Check tracer patch data on worker processes, and receive messages on master
+      IF (p_is_worker) THEN
+          IF (allocated(tracer_patch_data) .AND. numpatch > 0) THEN
+             DO tracer_idx = 1, num_tracers_with_forcing
+                DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
+                   IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) /= 'NULL') THEN
+                      ! Allocate temporary array for range checking
+                      IF (allocated(temp_tracer_data)) deallocate(temp_tracer_data)
+                      allocate(temp_tracer_data(numpatch))
+                      temp_tracer_data(:) = tracer_patch_data(tracer_idx,var_idx,:)
+                      
+                      ! Create a fixed-length descriptive label for the tracer variable.
+                      tracer_label = repeat(' ', 25) ! Initialize with spaces
+                      write(tracer_label, '(A,1X,A,1X,A)') 'Tracer', &
+                         trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name), &
+                         trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx))
+                      
+                      CALL check_vector_data(tracer_label, temp_tracer_data)
+                      
+                      deallocate(temp_tracer_data)
+                   ENDIF
+                ENDDO
+             ENDDO
+          ENDIF
+      ELSE IF (p_is_master) THEN
+         ! Master process must call check_vector_data to receive MPI messages
+         ! Allocate dummy array for master
+         IF (.NOT. allocated(temp_tracer_data)) THEN
+            allocate(temp_tracer_data(1))  ! Master only needs a dummy array
+            temp_tracer_data(1) = 0.0_r8
+         ENDIF
+         
          DO tracer_idx = 1, num_tracers_with_forcing
-            IF (allocated(DEF_Tracer_Forcings_NL) .AND. tracer_idx <= SIZE(DEF_Tracer_Forcings_NL, 1)) THEN
-               DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
-                  IF (var_idx <= max_nvar .AND. allocated(tracer_patch_data) .AND. &
-                      var_idx <= SIZE(DEF_Tracer_Forcings_NL(tracer_idx)%vname) .AND. &
-                      trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) /= 'NULL') THEN
-                  ! Create a temporary array for the current tracer variable
-                  IF (allocated(temp_tracer_data)) deallocate(temp_tracer_data)
-                  allocate(temp_tracer_data(numpatch))
-                  temp_tracer_data(:) = tracer_patch_data(tracer_idx, var_idx, :)
-                  
-                  ! Generate variable name for checking - use meaningful names when available
-                  IF (var_idx <= SIZE(DEF_Tracer_Forcings_NL(tracer_idx)%vname) .AND. &
-                      trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) /= 'NULL') THEN
-                     var_name = 'Tracer ' // trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name) // &
-                                ' ' // trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx))
-                  ELSE
-                     write(tracer_str, '(I0)') tracer_idx
-                     write(var_str, '(I0)') var_idx
-                     var_name = 'Tracer_' // trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name) // '_var_' // trim(var_str)
-                  ENDIF
-                  
-                  ! Check the tracer forcing data
-                  CALL check_vector_data (trim(var_name), temp_tracer_data)
-                  
-                  deallocate(temp_tracer_data)
-                                 ENDIF
-               ENDDO
-            ENDIF
+            DO var_idx = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
+               IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_idx)) /= 'NULL') THEN
+                  ! Master calls with dummy data; it only performs MPI_Recv
+                  CALL check_vector_data('dummy', temp_tracer_data)
+               ENDIF
+            ENDDO
          ENDDO
+         
+         ! Clean up dummy array
+         IF (allocated(temp_tracer_data)) deallocate(temp_tracer_data)
       ENDIF
 
 #ifdef USEMPI
@@ -788,16 +698,7 @@ CONTAINS
 
    END SUBROUTINE read_tracer_forcing
 
-!-----------------------------------------------------------------------
-! !DESCRIPTION:
-!  read lower and upper boundary forcing data for a specific tracer, a major interface of this
-!  MODULE
-!
-! !REVISIONS:
-!  04/2014, Hua Yuan: initial code
-!  2024: Modified for multiple tracers
-!
-!-----------------------------------------------------------------------
+
    SUBROUTINE metreadLBUB_tracer (idate, dir_forcing, tracer_idx)
 
    USE MOD_Namelist
@@ -820,6 +721,8 @@ CONTAINS
    character(len=256) :: dataset_name_lower
 
 
+      ! Arrays should already be allocated in tracer_forcing_init on I/O processes
+
       mtstamp = idate
 
       DO ivar = 1, DEF_Tracer_Forcings_NL(tracer_idx)%NVAR
@@ -833,7 +736,8 @@ CONTAINS
          ! Check array bounds before accessing
          IF (tracer_idx > SIZE(tstamp_LB, 1) .OR. ivar > SIZE(tstamp_LB, 2) .OR. &
              tracer_idx > SIZE(tstamp_UB, 1) .OR. ivar > SIZE(tstamp_UB, 2) .OR. &
-             ivar > SIZE(forcn_LB) .OR. ivar > SIZE(forcn_UB)) THEN
+             tracer_idx > SIZE(forcn_LB_tracer, 1) .OR. ivar > SIZE(forcn_LB_tracer, 2) .OR. &
+             tracer_idx > SIZE(forcn_UB_tracer, 1) .OR. ivar > SIZE(forcn_UB_tracer, 2)) THEN
             CYCLE
          ENDIF
 
@@ -846,39 +750,30 @@ CONTAINS
 
          ! set lower boundary time stamp and get data
          IF (tstamp_LB(tracer_idx,ivar)%year == -1) THEN
+            IF (p_is_master) THEN
+               write(6, *) "=== SETTING LB TIMESTAMP ==="
+               write(6, *) "Tracer:", tracer_idx, "Variable:", ivar
+               write(6, *) "Current mtstamp:", mtstamp%year, mtstamp%day, mtstamp%sec
+            ENDIF
             CALL setstampLB_tracer(mtstamp, ivar, tracer_idx, year, month, day, time_i)
+            IF (p_is_master) THEN
+               write(6, *) "After setting LB:"
+               write(6, *) "LB timestamp:", tstamp_LB(tracer_idx,ivar)%year, tstamp_LB(tracer_idx,ivar)%day, tstamp_LB(tracer_idx,ivar)%sec
+               write(6, *) "File year/month/day/time_i:", year, month, day, time_i
+            ENDIF
 
             filename = trim(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)//trim(tracerfilename(year, month, day, tracer_idx, ivar))
-            
-            IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Debug on I/O ranks
-                WRITE(*,*) "    DEBUG IO: Attempting to read LB for tracer_idx=", tracer_idx, " var_idx=", ivar
-                WRITE(*,*) "      Tracer Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
-                WRITE(*,*) "      Directory:   ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)
-                WRITE(*,*) "      File Func Input (y,m,d,ti): ", year, month, day, time_i
-                WRITE(*,*) "      Generated Filename: ", TRIM(filename)
-                WRITE(*,*) "      Namelist Var Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar))
-                WRITE(*,*) "      Time Index (from setstamp): ", time_i
-                WRITE(*,*) "      Dataset type: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
-            ENDIF
-            
-            ! Debug: Show file being read
-            IF (p_is_master) THEN
-               WRITE(*,*) "    Reading LB data from file: ", trim(filename)
-               WRITE(*,*) "    Variable: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)), " time_i: ", time_i
-            ENDIF
-  
-            
             ! Convert dataset name to lowercase for case-insensitive comparison
-            dataset_name_lower = trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+            dataset_name_lower = adjustl(trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name))
             CALL to_lower(dataset_name_lower)
      
             
             IF (trim(dataset_name_lower) == 'point') THEN
                IF (forcing_read_ahead) THEN
-                  tracerdata%blk(gblock%xblkme(1),gblock%yblkme(1))%val = forc_disk(time_i,ivar)
+                  tracerdata(tracer_idx,ivar)%blk(gblock%xblkme(1),gblock%yblkme(1))%val = forc_disk(time_i,ivar)
                ELSE
 #ifndef URBAN_MODEL
-                  CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata)
+                  CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata(tracer_idx,ivar))
 #else
                   IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)) == 'Rainf') THEN
                      CALL ncio_read_site_time (filename, 'Rainf', time_i, rainf)
@@ -888,77 +783,77 @@ CONTAINS
                         ib = gblock%xblkme(iblkme)
                         jb = gblock%yblkme(iblkme)
 
-                        tracerdata%blk(ib,jb)%val(1,1) = rainf%blk(ib,jb)%val(1,1) + snowf%blk(ib,jb)%val(1,1)
+                        tracerdata(tracer_idx,ivar)%blk(ib,jb)%val(1,1) = rainf%blk(ib,jb)%val(1,1) + snowf%blk(ib,jb)%val(1,1)
                      ENDDO
                   ELSE
-                     CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata)
+                     CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata(tracer_idx,ivar))
                   ENDIF
 #endif
                ENDIF
             ELSE
-               CALL ncio_read_block_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), gforc_tracers(tracer_idx,ivar), time_i, tracerdata)
-            ENDIF
 
-            CALL block_data_copy (tracerdata, forcn_LB(ivar))
-            
-            ! Debug: Check values after reading LB data
-            IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Only on I/O ranks
-               IF (allocated(tracerdata%blk)) THEN
-                  IF (SIZE(tracerdata%blk) > 0) THEN
-                     DO ib = 1, MIN(1, SIZE(tracerdata%blk, 1))
-                        DO jb = 1, MIN(1, SIZE(tracerdata%blk, 2))
-                           IF (allocated(tracerdata%blk(ib,jb)%val)) THEN
-                              WRITE(*,*) "    DEBUG IO: After ncio_read (LB) for tracer ", tracer_idx, " var ", ivar, " (", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)), ")"
-                              WRITE(*,*) "      tracerdata sample: ", tracerdata%blk(ib,jb)%val(1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,1)),1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,2)))
-                              WRITE(*,*) "      tracerdata min/max: ", MINVAL(tracerdata%blk(ib,jb)%val), MAXVAL(tracerdata%blk(ib,jb)%val)
-                           ENDIF
-                        ENDDO
+               ! Clear any previous allocation to ensure fresh read
+               IF (allocated(tracerdata(tracer_idx,ivar)%blk)) THEN
+                  DO ib = 1, SIZE(tracerdata(tracer_idx,ivar)%blk, 1)
+                     DO jb = 1, SIZE(tracerdata(tracer_idx,ivar)%blk, 2)
+                        IF (allocated(tracerdata(tracer_idx,ivar)%blk(ib,jb)%val)) THEN
+                           deallocate(tracerdata(tracer_idx,ivar)%blk(ib,jb)%val)
+                        ENDIF
                      ENDDO
-                  ENDIF
-               ELSE
-                  WRITE(*,*) "    DEBUG IO: tracerdata%blk not allocated after ncio_read (LB) for tracer ", tracer_idx, " var ", ivar
+                  ENDDO
+                  deallocate(tracerdata(tracer_idx,ivar)%blk)
+               ENDIF
+               
+               ! Reallocate block data structure
+               CALL allocate_block_data (gforc_tracers(tracer_idx,ivar), tracerdata(tracer_idx,ivar))
+               
+               ! Perform the NetCDF read with explicit error checking
+               CALL ncio_read_block_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), gforc_tracers(tracer_idx,ivar), time_i, tracerdata(tracer_idx,ivar))
+               
+               ! Explicit error checking after NetCDF read
+               IF (.NOT. allocated(tracerdata(tracer_idx,ivar)%blk)) THEN
+                  ! Re-allocate and fill with zeros as fallback
+                  CALL allocate_block_data (gforc_tracers(tracer_idx,ivar), tracerdata(tracer_idx,ivar))
+                  CALL flush_block_data (tracerdata(tracer_idx,ivar), 0.0_r8)
                ENDIF
             ENDIF
 
+            CALL block_data_copy (tracerdata(tracer_idx,ivar), forcn_LB_tracer(tracer_idx,ivar))
+            
          ENDIF
 
          ! set upper boundary time stamp and get data
          IF (tstamp_UB(tracer_idx,ivar)%year == -1) THEN
+            IF (p_is_master) THEN
+               write(6, *) "=== SETTING UB TIMESTAMP ==="
+               write(6, *) "Tracer:", tracer_idx, "Variable:", ivar
+            ENDIF
             CALL setstampUB_tracer(ivar, tracer_idx, year, month, day, time_i)
+            IF (p_is_master) THEN
+               write(6, *) "After setting UB:"
+               write(6, *) "UB timestamp:", tstamp_UB(tracer_idx,ivar)%year, tstamp_UB(tracer_idx,ivar)%day, tstamp_UB(tracer_idx,ivar)%sec
+               write(6, *) "File year/month/day/time_i:", year, month, day, time_i
+            ENDIF
 
             IF (year <= DEF_Tracer_Forcings_NL(tracer_idx)%endyr) THEN
                ! read forcing data
                filename = trim(dir_forcing)//trim(tracerfilename(year, month, day,tracer_idx, ivar))
 
-               IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Debug on I/O ranks
-                  WRITE(*,*) "    DEBUG IO: Attempting to read UB for tracer_idx=", tracer_idx, " var_idx=", ivar
-                  WRITE(*,*) "      Tracer Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_name)
-                  WRITE(*,*) "      Directory:   ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tracer_dir)
-                  WRITE(*,*) "      File Func Input (y,m,d,ti): ", year, month, day, time_i
-                  WRITE(*,*) "      Generated Filename: ", TRIM(filename)
-                  WRITE(*,*) "      Namelist Var Name: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar))
-                  WRITE(*,*) "      Time Index (from setstamp): ", time_i
-                  WRITE(*,*) "      Dataset type: ", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
-               ENDIF
-               
-               ! Debug: Show UB file being read
-               IF (p_is_master) THEN
-                  WRITE(*,*) "    Reading UB data from file: ", trim(filename)
-               ENDIF
+
                
    
                ! Convert dataset name to lowercase for case-insensitive comparison
-               dataset_name_lower = trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+               dataset_name_lower = adjustl(trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name))
                CALL to_lower(dataset_name_lower)
                
                IF (trim(dataset_name_lower) == 'point') THEN
 
                   IF (forcing_read_ahead) THEN
-                     tracerdata%blk(gblock%xblkme(1),gblock%yblkme(1))%val = forc_disk(time_i,ivar)
+                     tracerdata(tracer_idx,ivar)%blk(gblock%xblkme(1),gblock%yblkme(1))%val = forc_disk(time_i,ivar)
                   ELSE
 #ifndef URBAN_MODEL
-                     IF (p_is_master) WRITE(*,*) "    Calling ncio_read_site_time for UB variable: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar))
-                     CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata)
+                     ! IF (p_is_master) WRITE(*,*) "    Calling ncio_read_site_time for UB variable: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar))
+                     CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata(tracer_idx,ivar))
 #else
                      IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)) == 'Rainf') THEN
                         CALL ncio_read_site_time (filename, 'Rainf', time_i, rainf)
@@ -968,37 +863,44 @@ CONTAINS
                            ib = gblock%xblkme(iblkme)
                            jb = gblock%yblkme(iblkme)
 
-                           tracerdata%blk(ib,jb)%val(1,1) = rainf%blk(ib,jb)%val(1,1) + snowf%blk(ib,jb)%val(1,1)
+                           tracerdata(tracer_idx,ivar)%blk(ib,jb)%val(1,1) = rainf%blk(ib,jb)%val(1,1) + snowf%blk(ib,jb)%val(1,1)
                         ENDDO
                      ELSE
-                        CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata)
+                        CALL ncio_read_site_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), time_i, tracerdata(tracer_idx,ivar))
                      ENDIF
 #endif
                   ENDIF
                ELSE
-                  CALL ncio_read_block_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), gforc_tracers(tracer_idx,ivar), time_i, tracerdata)
-               ENDIF
 
-               CALL block_data_copy (tracerdata, forcn_UB(ivar))
-               
-               ! Debug: Check values after reading UB data
-               IF (p_is_io .OR. (p_is_master .AND. p_np_io == 0)) THEN ! Only on I/O ranks
-                  IF (allocated(tracerdata%blk)) THEN
-                     IF (SIZE(tracerdata%blk) > 0) THEN
-                        DO ib = 1, MIN(1, SIZE(tracerdata%blk, 1))
-                           DO jb = 1, MIN(1, SIZE(tracerdata%blk, 2))
-                              IF (allocated(tracerdata%blk(ib,jb)%val)) THEN
-                                 WRITE(*,*) "    DEBUG IO: After ncio_read (UB) for tracer ", tracer_idx, " var ", ivar, " (", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar)), ")"
-                                 WRITE(*,*) "      tracerdata sample: ", tracerdata%blk(ib,jb)%val(1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,1)),1:MIN(3,SIZE(tracerdata%blk(ib,jb)%val,2)))
-                                 WRITE(*,*) "      tracerdata min/max: ", MINVAL(tracerdata%blk(ib,jb)%val), MAXVAL(tracerdata%blk(ib,jb)%val)
-                              ENDIF
-                           ENDDO
+                  
+                  ! Clear any previous allocation to ensure fresh read
+                  IF (allocated(tracerdata(tracer_idx,ivar)%blk)) THEN
+                     DO ib = 1, SIZE(tracerdata(tracer_idx,ivar)%blk, 1)
+                        DO jb = 1, SIZE(tracerdata(tracer_idx,ivar)%blk, 2)
+                           IF (allocated(tracerdata(tracer_idx,ivar)%blk(ib,jb)%val)) THEN
+                              deallocate(tracerdata(tracer_idx,ivar)%blk(ib,jb)%val)
+                           ENDIF
                         ENDDO
-                     ENDIF
-                  ELSE
-                     WRITE(*,*) "    DEBUG IO: tracerdata%blk not allocated after ncio_read (UB) for tracer ", tracer_idx, " var ", ivar
+                     ENDDO
+                     deallocate(tracerdata(tracer_idx,ivar)%blk)
+                  ENDIF
+                  
+                  ! Reallocate block data structure
+                  CALL allocate_block_data (gforc_tracers(tracer_idx,ivar), tracerdata(tracer_idx,ivar))
+                  
+                  ! Perform the UB NetCDF read with explicit error checking
+                  CALL ncio_read_block_time (filename, DEF_Tracer_Forcings_NL(tracer_idx)%vname(ivar), gforc_tracers(tracer_idx,ivar), time_i, tracerdata(tracer_idx,ivar))
+                  
+                  ! Explicit error checking after UB NetCDF read
+                  IF (.NOT. allocated(tracerdata(tracer_idx,ivar)%blk)) THEN
+                     ! Re-allocate and fill with zeros as fallback
+                     CALL allocate_block_data (gforc_tracers(tracer_idx,ivar), tracerdata(tracer_idx,ivar))
+                     CALL flush_block_data (tracerdata(tracer_idx,ivar), 0.0_r8)
                   ENDIF
                ENDIF
+
+               CALL block_data_copy (tracerdata(tracer_idx,ivar), forcn_UB_tracer(tracer_idx,ivar))
+               
             ELSE
                write(*,*) year, DEF_Tracer_Forcings_NL(tracer_idx)%endyr
                print *, 'NOTE: reaching the END of forcing data, always reuse the last time step data!'
@@ -1006,7 +908,7 @@ CONTAINS
 
             
             IF (TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%tintalgo(ivar)) == 'coszen') THEN
-               IF (p_is_master) WRITE(*,*) "    Calculating avgcos for tracer ", tracer_idx, " var ", ivar
+               ! IF (p_is_master) WRITE(*,*) "    Calculating avgcos for tracer ", tracer_idx, " var ", ivar
                CALL calavgcos(idate, tracer_idx, ivar)
             ENDIF
          ENDIF
@@ -1043,41 +945,39 @@ CONTAINS
       IF (trim(dataset_name_lower) == 'point' .or. trim(dataset_name_lower) == 'cpl7' ) THEN
          CALL gforc_tracers(ivar,jvar)%define_by_ndims (360, 180)
       ELSE
-
+         ! Follow the exact same grid initialization logic as main forcing system
          mtstamp = idate
-
          CALL setstampLB_tracer(mtstamp, 1, ivar, year, month, day, time_i)
          filename = trim(DEF_Tracer_Forcings_NL(ivar)%tracer_dir)//trim(tracerfilename(year, month, day, ivar, 1))
-         tstamp_LB(ivar,1) = timestamp(-1, -1, -1)  ! Fixed: use 2D array indexing
+         tstamp_LB(ivar,1) = timestamp(-1, -1, -1)
 
-         IF (DEF_Tracer_Forcings_NL(ivar)%dim2d) THEN
-            CALL ncio_read_bcast_serial (filename, DEF_Tracer_Forcings_NL(ivar)%latname, latxy)
-            CALL ncio_read_bcast_serial (filename, DEF_Tracer_Forcings_NL(ivar)%lonname, lonxy)
-
+         ! Read actual grid from NetCDF file (same as main forcing system)
+         if (DEF_Tracer_Forcings_NL(ivar)%dim2d) then
+            CALL ncio_read_serial (filename, (DEF_Tracer_Forcings_NL(ivar)%latname), latxy)
+            CALL ncio_read_serial (filename, (DEF_Tracer_Forcings_NL(ivar)%lonname), lonxy)
             allocate (lat_in (size(latxy,2)))
             allocate (lon_in (size(lonxy,1)))
             lat_in = latxy(1,:)
             lon_in = lonxy(:,1)
-
             deallocate (latxy)
             deallocate (lonxy)
          ELSE
-            CALL ncio_read_bcast_serial (filename, DEF_Tracer_Forcings_NL(ivar)%latname, lat_in)
-            CALL ncio_read_bcast_serial (filename, DEF_Tracer_Forcings_NL(ivar)%lonname, lon_in)
+            CALL ncio_read_serial (filename, (DEF_Tracer_Forcings_NL(ivar)%latname), lat_in)
+            CALL ncio_read_serial (filename, (DEF_Tracer_Forcings_NL(ivar)%lonname), lon_in)
          ENDIF
 
          IF (.not. DEF_Tracer_Forcings_NL(ivar)%regional) THEN
             CALL gforc_tracers(ivar,jvar)%define_by_center (lat_in, lon_in)
          ELSE
             CALL gforc_tracers(ivar,jvar)%define_by_center (lat_in, lon_in, &
-               south = DEF_Tracer_Forcings_NL(ivar)%regbnd(1), north = DEF_Tracer_Forcings_NL(ivar)%regbnd(2), &
-               west  = DEF_Tracer_Forcings_NL(ivar)%regbnd(3), east  = DEF_Tracer_Forcings_NL(ivar)%regbnd(4))
+               south = DEF_forcing%regbnd(1), north = DEF_forcing%regbnd(2), &
+               west  = DEF_forcing%regbnd(3), east  = DEF_forcing%regbnd(4))
          ENDIF
 
-         deallocate (lat_in)
-         deallocate (lon_in)
-      ENDIF
+         IF (allocated(lat_in)) deallocate(lat_in)
+         IF (allocated(lon_in)) deallocate(lon_in)
 
+      ENDIF
       CALL gforc_tracers(ivar,jvar)%set_rlon ()
       CALL gforc_tracers(ivar,jvar)%set_rlat ()
 
@@ -1116,18 +1016,7 @@ CONTAINS
    integer :: months(0:12)
    character(len=256) :: dataset_name_lower
 
-   ! Debug information at entry
-   IF (p_is_master) THEN
-      WRITE(*,*) "    === SETSTAMPLB_TRACER DEBUG: ENTRY ==="
-      WRITE(*,*) "      Input mtstamp: ", mtstamp%year, mtstamp%day, mtstamp%sec
-      WRITE(*,*) "      Variable index: ", var_i
-      WRITE(*,*) "      Tracer index: ", tracer_idx
-      WRITE(*,*) "      Variable name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_i))
-      WRITE(*,*) "      Dataset name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
-      WRITE(*,*) "      Group by: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby)
-      WRITE(*,*) "      Dtime: ", DEF_Tracer_Forcings_NL(tracer_idx)%dtime
-      WRITE(*,*) "      ==================================="
-   ENDIF
+
 
       year = mtstamp%year
       day  = mtstamp%day
@@ -1138,7 +1027,6 @@ CONTAINS
       CALL to_lower(dataset_name_lower)
 
       IF (trim(dataset_name_lower) == 'point') THEN
-         IF (p_is_master) WRITE(*,*) "      Processing POINT dataset"
 
          ! For POINT data, we need to handle this differently
          ! Since forctime is not initialized, we'll use a simplified approach
@@ -1147,11 +1035,7 @@ CONTAINS
          tstamp_LB(tracer_idx,var_i)%sec  = sec
          time_i = 1
 
-         IF (p_is_master) THEN
-            WRITE(*,*) "      POINT dataset - simplified approach:"
-            WRITE(*,*) "        tstamp_LB: ", tstamp_LB(tracer_idx,var_i)%year, tstamp_LB(tracer_idx,var_i)%day, tstamp_LB(tracer_idx,var_i)%sec
-            WRITE(*,*) "        time_i: ", time_i
-         ENDIF
+
 
          RETURN
       ENDIF
@@ -1159,11 +1043,9 @@ CONTAINS
       tstamp_LB(tracer_idx,var_i)%year = year
       tstamp_LB(tracer_idx,var_i)%day  = day
 
-      IF (p_is_master) WRITE(*,*) "      Initial tstamp_LB set to: ", tstamp_LB(tracer_idx,var_i)%year, tstamp_LB(tracer_idx,var_i)%day
 
       ! in the case of one year one file
       IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'year' ) THEN
-         IF (p_is_master) WRITE(*,*) "      Group by YEAR - using year-based file grouping"
 
          ! calculate the initial second
          sec    = 86400*(day-1) + sec
@@ -1217,11 +1099,14 @@ CONTAINS
          ! get record time index
          sec = 86400*(day-1) + sec
          time_i = floor( (sec-DEF_Tracer_Forcings_NL(tracer_idx)%offset(var_i)) *1. / DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i) ) + 1
+         ! Ensure month and mday are initialized for year grouping
+         IF (trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'year') THEN
+             CALL julian2monthday(year, day, month, mday)
+         ENDIF
       ENDIF
 
       ! in the case of one month one file
       IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'month' ) THEN
-         IF (p_is_master) WRITE(*,*) "      Group by MONTH - using month-based file grouping"
 
          IF ( isleapyear(year) ) THEN
             months = (/0,31,60,91,121,152,182,213,244,274,305,335,366/)
@@ -1231,6 +1116,7 @@ CONTAINS
 
          ! calculate initial month and day values
          CALL julian2monthday(year, day, month, mday)
+
 
          ! calculate initial second value
          sec    = 86400*(mday-1) + sec
@@ -1288,19 +1174,21 @@ CONTAINS
          ! get record time index
          sec = 86400*(mday-1) + sec
          time_i = floor( (sec-DEF_Tracer_Forcings_NL(tracer_idx)%offset(var_i)) *1. / DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i) ) + 1
+  
       ENDIF
 
       ! in the case of one day one file
       IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'day' ) THEN
-         IF (p_is_master) WRITE(*,*) "      Group by DAY - using day-based file grouping"
 
          ! calculate initial month and day values
          CALL julian2monthday(year, day, month, mday)
+
 
          ! calculate initial second value
          time_i = floor( (sec-DEF_Tracer_Forcings_NL(tracer_idx)%offset(var_i)) *1. / DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i) ) + 1
          sec    = (time_i-1)*DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i) + DEF_Tracer_Forcings_NL(tracer_idx)%offset(var_i)
          tstamp_LB(tracer_idx,var_i)%sec  = sec
+
 
          ! set time stamp (ststamp_LB)
          IF (sec < 0) THEN
@@ -1340,13 +1228,6 @@ CONTAINS
          write(6, *) "got the wrong time record of forcing! STOP!"; CALL CoLM_stop()
       ENDIF
 
-      IF (p_is_master) THEN
-         WRITE(*,*) "      Final tstamp_LB: ", tstamp_LB(tracer_idx,var_i)%year, tstamp_LB(tracer_idx,var_i)%day, tstamp_LB(tracer_idx,var_i)%sec
-         WRITE(*,*) "      Final time_i: ", time_i
-         WRITE(*,*) "      Output values: year=", year, " month=", month, " mday=", mday
-         WRITE(*,*) "    === SETSTAMPLB_TRACER DEBUG: EXIT ==="
-      ENDIF
-
       RETURN
 
    END SUBROUTINE setstampLB_tracer
@@ -1374,57 +1255,27 @@ CONTAINS
    integer :: months(0:12)
    character(len=256) :: dataset_name_lower
 
-   ! Debug information at entry
-   IF (p_is_master) THEN
-      WRITE(*,*) "    === SETSTAMPUB_TRACER DEBUG: ENTRY ==="
-      WRITE(*,*) "      Variable index: ", var_i
-      WRITE(*,*) "      Tracer index: ", tracer_idx
-      WRITE(*,*) "      Variable name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%vname(var_i))
-      WRITE(*,*) "      Dataset name: ", trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
-      WRITE(*,*) "      Current tstamp_LB: ", tstamp_LB(tracer_idx,var_i)%year, tstamp_LB(tracer_idx,var_i)%day, tstamp_LB(tracer_idx,var_i)%sec
-      WRITE(*,*) "      Current tstamp_UB: ", tstamp_UB(tracer_idx,var_i)%year, tstamp_UB(tracer_idx,var_i)%day, tstamp_UB(tracer_idx,var_i)%sec
-      WRITE(*,*) "      Dtime: ", DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i)
-      WRITE(*,*) "      ==================================="
-   ENDIF
 
       ! Convert dataset name to lowercase for case-insensitive comparison
-      dataset_name_lower = trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+      dataset_name_lower = adjustl(trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name))
       CALL to_lower(dataset_name_lower)
 
-      IF (trim(dataset_name_lower) == 'point') THEN
-         IF (p_is_master) WRITE(*,*) "      Processing POINT dataset for UB"
-         
+      IF (trim(dataset_name_lower) == 'point') THEN         
          IF ( tstamp_UB(tracer_idx,var_i)%year == -1 ) THEN
-            ! For POINT data, we need to handle this differently
-            ! Since forctime is not initialized, we'll use a simplified approach
             tstamp_UB(tracer_idx,var_i) = tstamp_LB(tracer_idx,var_i) + DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i)
-            IF (p_is_master) WRITE(*,*) "      Setting initial tstamp_UB for POINT data"
          ELSE
-            ! For POINT data, we need to handle this differently
-            ! For now, just increment the time
             tstamp_UB(tracer_idx,var_i) = tstamp_UB(tracer_idx,var_i) + DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i)
-            IF (p_is_master) WRITE(*,*) "      Incrementing existing tstamp_UB for POINT data"
          ENDIF
 
          time_i = 1  ! Default time index for POINT data
          year = tstamp_UB(tracer_idx,var_i)%year
-         
-         IF (p_is_master) THEN
-            WRITE(*,*) "      POINT dataset UB result:"
-            WRITE(*,*) "        tstamp_UB: ", tstamp_UB(tracer_idx,var_i)%year, tstamp_UB(tracer_idx,var_i)%day, tstamp_UB(tracer_idx,var_i)%sec
-            WRITE(*,*) "        time_i: ", time_i
-            WRITE(*,*) "        year: ", year
-         ENDIF
-         
          RETURN
       ENDIF
 
       ! calculate the time stamp
       IF ( tstamp_UB(tracer_idx,var_i)%year == -1 ) THEN
-         IF (p_is_master) WRITE(*,*) "      Setting initial tstamp_UB"
          tstamp_UB(tracer_idx,var_i) = tstamp_LB(tracer_idx,var_i) + DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i)
       ELSE
-         IF (p_is_master) WRITE(*,*) "      Updating existing tstamp_UB"
          tstamp_LB(tracer_idx,var_i) = tstamp_UB(tracer_idx,var_i)
          tstamp_UB(tracer_idx,var_i) = tstamp_UB(tracer_idx,var_i) + DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i)
       ENDIF
@@ -1434,14 +1285,8 @@ CONTAINS
       day  = tstamp_UB(tracer_idx,var_i)%day
       sec  = tstamp_UB(tracer_idx,var_i)%sec
 
-      IF (p_is_master) THEN
-         WRITE(*,*) "      Calculated from tstamp_UB:"
-         WRITE(*,*) "        year: ", year, " day: ", day, " sec: ", sec
-      ENDIF
-
+ 
       IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'year' ) THEN
-         IF (p_is_master) WRITE(*,*) "      Group by YEAR - processing year-based grouping"
-
          ! adjust year value
          IF ( sec==86400 .and. DEF_Tracer_Forcings_NL(tracer_idx)%offset(var_i).eq.0 ) THEN
             sec = 0
@@ -1466,7 +1311,6 @@ CONTAINS
       ENDIF
 
       IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'month' ) THEN
-         IF (p_is_master) WRITE(*,*) "      Group by MONTH - processing month-based grouping"
 
          IF ( isleapyear(year) ) THEN
             months = (/0,31,60,91,121,152,182,213,244,274,305,335,366/)
@@ -1506,9 +1350,7 @@ CONTAINS
          time_i = floor( (sec-DEF_Tracer_Forcings_NL(tracer_idx)%offset(var_i)) *1. / DEF_Tracer_Forcings_NL(tracer_idx)%dtime(var_i) ) + 1
       ENDIF
 
-      IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'day' ) THEN
-         IF (p_is_master) WRITE(*,*) "      Group by DAY - processing day-based grouping"
-         
+      IF ( trim(DEF_Tracer_Forcings_NL(tracer_idx)%groupby) == 'day' ) THEN         
          IF ( isleapyear(year) ) THEN
             months = (/0,31,60,91,121,152,182,213,244,274,305,335,366/)
          ELSE
@@ -1552,13 +1394,6 @@ CONTAINS
          write(6, *) "got the wrong time record of forcing! STOP!"; CALL CoLM_stop()
       ENDIF
 
-      IF (p_is_master) THEN
-         WRITE(*,*) "      Final results:"
-         WRITE(*,*) "        tstamp_UB: ", tstamp_UB(tracer_idx,var_i)%year, tstamp_UB(tracer_idx,var_i)%day, tstamp_UB(tracer_idx,var_i)%sec
-         WRITE(*,*) "        time_i: ", time_i
-         WRITE(*,*) "        year: ", year, " month: ", month, " mday: ", mday
-         WRITE(*,*) "    === SETSTAMPUB_TRACER DEBUG: EXIT ==="
-      ENDIF
 
       RETURN
 
@@ -1593,7 +1428,7 @@ CONTAINS
       ENDDO
 
       tstamp = idate !tstamp_LB(tracer_idx,var_idx)
-      CALL flush_block_data (traceravgcos, 0._r8)
+      CALL flush_block_data (traceravgcos(tracer_idx,var_idx), 0._r8)
 
       DO WHILE (tstamp < tstamp_UB(tracer_idx,var_idx))
 
@@ -1610,7 +1445,7 @@ CONTAINS
                   calday = calendarday(tstamp)
                   cosz = orb_coszen(calday, gforc_tracers(tracer_idx,var_idx)%rlon(ilon), gforc_tracers(tracer_idx,var_idx)%rlat(ilat))
                   cosz = max(0.001, cosz)
-                  traceravgcos%blk(ib,jb)%val(i,j) = traceravgcos%blk(ib,jb)%val(i,j) &
+                  traceravgcos(tracer_idx,var_idx)%blk(ib,jb)%val(i,j) = traceravgcos(tracer_idx,var_idx)%blk(ib,jb)%val(i,j) &
                      + cosz / real(ntime,r8) !  * deltim_real /real(tstamp_UB(tracer_idx,var_idx)-tstamp_LB(tracer_idx,var_idx))
 
                ENDDO
@@ -1634,13 +1469,19 @@ CONTAINS
    SUBROUTINE to_lower(str)
       IMPLICIT NONE
       CHARACTER(len=*), INTENT(INOUT) :: str
-      INTEGER :: i
+      INTEGER :: i, str_len
       
-      DO i = 1, LEN_TRIM(str)
+      str_len = LEN_TRIM(str)
+      DO i = 1, str_len
          IF (str(i:i) >= 'A' .AND. str(i:i) <= 'Z') THEN
             str(i:i) = CHAR(ICHAR(str(i:i)) + 32)
          ENDIF
       ENDDO
+      
+      ! Clear any remaining characters to avoid buffer issues
+      IF (str_len < LEN(str)) THEN
+         str(str_len+1:) = ' '
+      ENDIF
    END SUBROUTINE to_lower
 
 !-----------------------------------------------------------------------
@@ -1663,6 +1504,16 @@ CONTAINS
       IF (tracer_idx >= 1 .AND. tracer_idx <= SIZE(tracer_patch_data, 1) .AND. &
           var_idx >= 1 .AND. var_idx <= SIZE(tracer_patch_data, 2)) THEN
          data_ptr => tracer_patch_data(tracer_idx, var_idx, :)
+      ELSE
+         IF (p_is_master) THEN
+            WRITE(*,*) "ERROR: get_tracer_forcing_data - Index out of bounds"
+            WRITE(*,*) "  tracer_idx: ", tracer_idx, " max: ", SIZE(tracer_patch_data, 1)
+            WRITE(*,*) "  var_idx: ", var_idx, " max: ", SIZE(tracer_patch_data, 2)
+         ENDIF
+      ENDIF
+   ELSE
+      IF (p_is_master) THEN
+         WRITE(*,*) "ERROR: get_tracer_forcing_data - tracer_patch_data not allocated"
       ENDIF
    ENDIF
    
@@ -1685,22 +1536,22 @@ CONTAINS
       character(len=256)  :: monthstr
       character(len=256)  :: dataset_name_lower
    
-         IF (p_is_master) THEN
-            WRITE(*,*) "      === DEBUG: tracerfilename called ==="
-            WRITE(*,*) "        Input: year=", year, " month=", month, " day=", day, " var_i=", var_i
-         ENDIF
+         ! IF (p_is_master) THEN
+         !    WRITE(*,*) "      === DEBUG: tracerfilename called ==="
+         !    WRITE(*,*) "        Input: year=", year, " month=", month, " day=", day, " var_i=", var_i
+         ! ENDIF
    
          write(yearstr, '(I4.4)') year
          write(monthstr, '(I2.2)') month
          
-         dataset_name_lower = TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name)
+         dataset_name_lower = adjustl(trim(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name))
          CALL to_lower(dataset_name_lower)
    
-         IF (p_is_master) THEN
-            WRITE(*,*) "        Formatted strings: yearstr='", TRIM(yearstr), "' monthstr='", TRIM(monthstr), "'"
-            WRITE(*,*) "        Dataset name (original): '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name), "'"
-            WRITE(*,*) "        Dataset name (lower): '", dataset_name_lower, "'"
-         ENDIF
+         ! IF (p_is_master) THEN
+         !    WRITE(*,*) "        Formatted strings: yearstr='", TRIM(yearstr), "' monthstr='", TRIM(monthstr), "'"
+         !    WRITE(*,*) "        Dataset name (original): '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name), "'"
+         !    WRITE(*,*) "        Dataset name (lower): '", dataset_name_lower, "'"
+         ! ENDIF
    
          select CASE (dataset_name_lower)
          
@@ -1724,33 +1575,33 @@ CONTAINS
             !----------------
                !---2025.03.23   Zhongwang Wei @ SYSU: add the isotope forcing data
       
+               ! Check if var_i is within bounds for fprefix array
+
+
+               ! Construct filename based on the specific prefix for the variable, year, and .nc suffix
                metfilename = '/'//trim(DEF_Tracer_Forcings_NL(tracer_idx)%fprefix(var_i))//'_'//trim(yearstr)//'.nc'
-               IF (p_is_master) THEN
-                  WRITE(*,*) "        CASE IsoGSM selected"
-                  WRITE(*,*) "        fprefix_tracer_forcing(", var_i, ") = '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%fprefix(var_i)), "'"
-                  WRITE(*,*) "        Generated filename: '", TRIM(metfilename), "'"
-               ENDIF
+
    
          
          CASE ('POINT')
             metfilename = '/'//trim(DEF_Tracer_Forcings_NL(tracer_idx)%fprefix(1))
-            IF (p_is_master) THEN
-               WRITE(*,*) "        CASE POINT selected"
-               WRITE(*,*) "        fprefix_tracer_forcing(1) = '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%fprefix(1)), "'"
-               WRITE(*,*) "        Generated filename: '", TRIM(metfilename), "'"
-            ENDIF
+            ! IF (p_is_master) THEN
+            !    WRITE(*,*) "        CASE POINT selected"
+            !    WRITE(*,*) "        fprefix_tracer_forcing(1) = '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%fprefix(1)), "'"
+            !    WRITE(*,*) "        Generated filename: '", TRIM(metfilename), "'"
+            ! ENDIF
             
          CASE DEFAULT
-            IF (p_is_master) THEN
-               WRITE(*,*) "        WARNING: Unknown dataset name '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name), "'"
-               WRITE(*,*) "        Using default POINT format"
-            ENDIF
+            ! IF (p_is_master) THEN
+            !    WRITE(*,*) "        WARNING: Unknown dataset name '", TRIM(DEF_Tracer_Forcings_NL(tracer_idx)%dataset_name), "'"
+            !    WRITE(*,*) "        Using default POINT format"
+            ! ENDIF
             metfilename = '/'//trim(DEF_Tracer_Forcings_NL(tracer_idx)%fprefix(1))
          END select
          
-         IF (p_is_master) THEN
-            WRITE(*,*) "      === DEBUG: tracerfilename returning '", TRIM(metfilename), "' ==="
-         ENDIF
+         ! IF (p_is_master) THEN
+         !    WRITE(*,*) "      === DEBUG: tracerfilename returning '", TRIM(metfilename), "' ==="
+         ! ENDIF
          
          ! IF (DEF_USE_CBL_HEIGHT) THEN
          !    select CASE (var_i)
@@ -1762,62 +1613,6 @@ CONTAINS
       END FUNCTION tracerfilename
 
 
-      SUBROUTINE tracerpreprocess(grid, forcn)
 
-         USE MOD_Const_Physical
-         USE MOD_Namelist
-         USE MOD_SPMD_Task
-         USE MOD_Block
-         USE MOD_Grid
-         USE MOD_DataType
-         USE MOD_Qsadv
-         IMPLICIT NONE
-         type(grid_type), intent(in) :: grid
-         type(block_data_real8_2d), intent(inout) :: forcn(:)
-      
-         integer  :: iblkme, ib, jb, i, j
-         real(r8) :: es, esdT, qsat_tmp, dqsat_tmpdT, e, ea
-      
-            !----------------------------------------------------------------------------
-            ! use polynomials to calculate saturation vapor pressure and derivative with
-            ! respect to temperature: over water when t > 0 c and over ice when t <= 0 c
-            ! required to convert relative humidity to specific humidity
-            !----------------------------------------------------------------------------
-            IF (trim(DEF_Tracer_Forcings_NL(1)%dataset_name) == 'POINT') THEN
-#ifdef SinglePoint
-               CALL qsadv(forcn(1)%blk(gblock%xblkme(1),gblock%yblkme(1))%val(1,1), &
-                          forcn(3)%blk(gblock%xblkme(1),gblock%yblkme(1))%val(1,1), &
-                          es,esdT,qsat_tmp,dqsat_tmpdT)
-               IF (qsat_tmp < forcn(2)%blk(gblock%xblkme(1),gblock%yblkme(1))%val(1,1)) THEN
-                  forcn(2)%blk(gblock%xblkme(1),gblock%yblkme(1))%val(1,1) = qsat_tmp
-               ENDIF
-#endif
-            ELSE
-               DO iblkme = 1, gblock%nblkme
-                  ib = gblock%xblkme(iblkme)
-                  jb = gblock%yblkme(iblkme)
-      
-                  DO j = 1, grid%ycnt(jb)
-                     DO i = 1, grid%xcnt(ib)
-      
-                        select CASE (trim(DEF_Tracer_Forcings_NL(1)%dataset_name))
-      
-      
-                        CASE ('IsoGSM') ! IsoGSM forcing
-                         !  CALL qsadv (forcn(1)%blk(ib,jb)%val(i,j), forcn(3)%blk(ib,jb)%val(i,j), &
-                         !     es,esdT,qsat_tmp,dqsat_tmpdT)
-                         !    IF (qsat_tmp < forcn(2)%blk(ib,jb)%val(i,j)) THEN
-                         !       forcn(2)%blk(ib,jb)%val(i,j) = qsat_tmp
-                         !    ENDIF
-                           print *, 'IsoGSM forcing is not implemented yet'
-      
-                        END select
-      
-                     ENDDO
-                  ENDDO
-               ENDDO
-            ENDIF
-      
-         END SUBROUTINE tracerpreprocess
 
 END MODULE MOD_Tracer_Forcing
