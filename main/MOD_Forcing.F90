@@ -99,6 +99,11 @@ MODULE MOD_Forcing
 
    PUBLIC :: forcing_init
    PUBLIC :: read_forcing
+   PUBLIC :: forcing_final
+   PUBLIC :: forcing_reset
+   PUBLIC :: setstampLB
+   PUBLIC :: setstampUB
+
 
 CONTAINS
 

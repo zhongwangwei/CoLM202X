@@ -101,7 +101,9 @@ SUBROUTINE CoLMMAIN ( &
          ! additional variables required by coupling with WRF model
            emis,         z0m,          zol,          rib,          &
            ustar,        qstar,        tstar,        fm,           &
-           fh,           fq                                        )
+           fh,           fq,           &
+         ! Tracer forcing
+           num_tracers_3d,max_vars_3d,tracer_forc                  )
 
 !=======================================================================
 !
@@ -181,6 +183,8 @@ SUBROUTINE CoLMMAIN ( &
    IMPLICIT NONE
 
 !-------------------------- Dummy Arguments ----------------------------
+   integer, intent(in) :: num_tracers_3d,max_vars_3d
+   real(r8), intent(in) :: tracer_forc(num_tracers_3d,max_vars_3d,1) ! tracer forcing data
    real(r8),intent(in) :: deltim  !seconds in a time step [second]
    logical, intent(in) :: doalb   !true if time for surface albedo calculation
    logical, intent(in) :: dolai   !true if time for leaf area index calculation
@@ -551,7 +555,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: a, aa, gwat
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
-
+   integer i
 #if (defined CaMa_Flood)
    !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
    real(r8) :: kk
@@ -598,6 +602,9 @@ SUBROUTINE CoLMMAIN ( &
 !  [1] Solar absorbed by vegetation and ground
 !      and precipitation information (rain/snow fall and precip temperature
 !======================================================================
+      do i=1,num_tracers_3d
+         print*, 'tracer_forc', i, tracer_forc(i,:,1)
+      enddo
 
       CALL netsolar (ipatch,idate,deltim,patchlonr,patchtype,&
                      forc_sols,forc_soll,forc_solsd,forc_solld,&

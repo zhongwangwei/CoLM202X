@@ -47,7 +47,7 @@ type :: nl_tracer_forcing_type
   character(len=256) :: lonname                           = 'null'
   character(len=256) :: groupby                           = 'null'
   integer            :: NVAR                              = 0
-  logical            :: has_missing_value                 = .true.
+  logical            :: has_missing_value                 = .false.
   character(len=256) :: missing_value_name                = 'missing_value'
 
   logical            :: regional                          = .false.
@@ -143,7 +143,7 @@ SUBROUTINE initialize_tracer_forcing_nl_defaults(tracer_forcing_nl_item)
   tracer_forcing_nl_item%lonname = 'null'
   tracer_forcing_nl_item%groupby = 'null'
   tracer_forcing_nl_item%NVAR = 0 
-  tracer_forcing_nl_item%has_missing_value = .true.
+  tracer_forcing_nl_item%has_missing_value = .false.
   tracer_forcing_nl_item%missing_value_name = 'missing_value'
   tracer_forcing_nl_item%dtime(:) = 0
   tracer_forcing_nl_item%offset(:) = 0

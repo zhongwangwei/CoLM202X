@@ -25,12 +25,14 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_LandUrban, only: patch2urban
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
+   USE MOD_Tracer_Vars_3DForcing, only: tracer_forc,num_tracers_3d,max_vars_3d
    USE omp_lib
 #ifdef CaMa_Flood
    ! get flood variables: inundation depth[mm], inundation fraction [0-1],
    ! inundation evaporation [mm/s], inundation re-infiltration[mm/s]
    USE MOD_CaMa_Vars, only: flddepth_cama,fldfrc_cama,fevpg_fld,finfg_fld
 #endif
+
 
    IMPLICIT NONE
 
@@ -178,7 +180,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
              ! additional variables required by coupling with WRF model
                emis(i),         z0m(i),          zol(i),          rib(i),          &
                ustar(i),        qstar(i),        tstar(i),                         &
-               fm(i),           fh(i),           fq(i)                             )
+               fm(i),           fh(i),           fq(i),                             &
+             ! Tracer forcing
+               num_tracers_3d,max_vars_3d,tracer_forc(:,:,i)                         )
 
             ENDDO
          ENDIF
