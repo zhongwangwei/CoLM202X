@@ -819,6 +819,10 @@ CONTAINS
                   CASE ('ERA5')
 
                      IF (forcn(4)%blk(ib,jb)%val(i,j) < 0.0)   forcn(4)%blk(ib,jb)%val(i,j) = 0.0
+                     IF (abs(forcn(5)%blk(ib,jb)%val(i,j)) > 40.0) &
+                        forcn(5)%blk(ib,jb)%val(i,j) = 40.0*sign(1.0,forcn(5)%blk(ib,jb)%val(i,j))
+                     IF (abs(forcn(6)%blk(ib,jb)%val(i,j)) > 40.0) &
+                        forcn(6)%blk(ib,jb)%val(i,j) = 40.0*sign(1.0,forcn(6)%blk(ib,jb)%val(i,j))
                      CALL qsadv (forcn(1)%blk(ib,jb)%val(i,j), forcn(3)%blk(ib,jb)%val(i,j), &
                         es,esdT,qsat_tmp,dqsat_tmpdT)
                      IF (qsat_tmp < forcn(2)%blk(ib,jb)%val(i,j)) THEN
