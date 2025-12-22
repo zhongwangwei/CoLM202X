@@ -36,6 +36,9 @@ MODULE MOD_Vars_1DForcing
    real(r8), allocatable :: forc_hgt_q (:)   ! observational height of humidity [m]
    real(r8), allocatable :: forc_rhoair(:)   ! air density [kg/m3]
    real(r8), allocatable :: forc_ozone (:)   ! air density [kg/m3]
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: forc_solarin(:) ! incident solar radiation [W/m2]
+#endif
 
    real(r8), allocatable :: forc_topo  (:)   ! topography [m]
 
@@ -78,6 +81,9 @@ CONTAINS
             allocate (forc_snow   (numpatch) ) ! snow [mm/s]
             allocate (forc_psrf   (numpatch) ) ! atmospheric pressure at the surface [pa]
             allocate (forc_pbot   (numpatch) ) ! atm bottom level pressure (or reference height) (pa)
+#ifdef HYPERSPECTRAL
+            allocate (forc_solarin(numpatch) ) ! solar rad onto srf [W/m2]
+#endif
             allocate (forc_sols   (numpatch) ) ! atm vis direct beam solar rad onto srf [W/m2]
             allocate (forc_soll   (numpatch) ) ! atm nir direct beam solar rad onto srf [W/m2]
             allocate (forc_solsd  (numpatch) ) ! atm vis diffuse solar rad onto srf [W/m2]
@@ -128,6 +134,9 @@ CONTAINS
             deallocate ( forc_snow   ) ! snow [mm/s]
             deallocate ( forc_psrf   ) ! atmospheric pressure at the surface [pa]
             deallocate ( forc_pbot   ) ! atm bottom level pressure (or reference height) (pa)
+#ifdef HYPERSPECTRAL
+            deallocate ( forc_solarin) ! solar rad onto srf [W/m2]
+#endif
             deallocate ( forc_sols   ) ! atm vis direct beam solar rad onto srf [W/m2]
             deallocate ( forc_soll   ) ! atm nir direct beam solar rad onto srf [W/m2]
             deallocate ( forc_solsd  ) ! atm vis diffuse solar rad onto srf [W/m2]

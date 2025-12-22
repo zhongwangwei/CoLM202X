@@ -294,9 +294,20 @@ MODULE MOD_Namelist
    logical :: DEF_USE_OZONEDATA   = .false.
 
    ! ----- SNICAR model related -----
-   logical :: DEF_USE_SNICAR                  = .false.
+   logical :: DEF_USE_SNICAR                  = .true.
    character(len=256) :: DEF_file_snowoptics  = 'null'
    character(len=256) :: DEF_file_snowaging   = 'null'
+
+   ! ----- Hyperspectral related -----
+   logical :: DEF_HighResSoil                      = .true.
+   logical :: DEF_HighResVeg                       = .true.
+   logical :: DEF_PROSPECT                         = .false.
+
+   CHARACTER(LEN=256) :: DEF_HighResUrban_albedo   = 'null'
+   ! logical :: DEF_Satellite_Params                 = .false.
+   ! character(len=256) :: DEF_file_soiloptics       = 'null'
+   ! character(len=256) :: DEF_file_satellite_params = 'null'
+   ! character(len=256) :: DEF_sla_varname           = 'null'
 
    ! .true. read aerosol deposition data from file or .false. set in the code
    logical :: DEF_Aerosol_Readin              = .true.
@@ -536,6 +547,9 @@ MODULE MOD_Namelist
       logical :: laisha                           = .true.
       logical :: sai                              = .true.
       logical :: alb                              = .true.
+      logical :: alb_hires                        = .true.
+      logical :: reflectance_out                  = .true.
+      logical :: transmittance_out                = .true.
       logical :: emis                             = .true.
       logical :: z0m                              = .true.
       logical :: trad                             = .true.
@@ -945,6 +959,11 @@ MODULE MOD_Namelist
       logical :: srndln                           = .true.
       logical :: srniln                           = .true.
 
+      logical :: sol_dir_ln_hires                 = .true.
+      logical :: sol_dif_ln_hires                 = .true.
+      logical :: sr_dir_ln_hires                  = .true.
+      logical :: sr_dif_ln_hires                  = .true.
+
       logical :: xsubs_bsn                        = .true.
       logical :: xsubs_hru                        = .true.
       logical :: riv_height                       = .true.
@@ -1107,6 +1126,15 @@ CONTAINS
 
       DEF_USE_SoilInit,                       &
       DEF_file_SoilInit,                      &
+
+      DEF_HighResSoil,                        &
+      DEF_HighResVeg,                         &
+      DEF_PROSPECT,                           &
+      DEF_HighResUrban_albedo,                &
+      ! DEF_Satellite_Params,                   &
+      ! DEF_file_soiloptics,                    &
+      ! DEF_file_satellite_params,              &
+      ! DEF_sla_varname,                        &
 
       DEF_USE_SnowInit,                       &
       DEF_file_SnowInit,                      &
@@ -1676,6 +1704,11 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_SoilInit                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_SoilInit                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
+      CALL mpi_bcast (DEF_HighResSoil                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_HighResVeg                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_PROSPECT                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_HighResUrban_albedo                ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+
       CALL mpi_bcast (DEF_USE_SnowInit                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_SnowInit                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1924,6 +1957,11 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%laisha      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%sai         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%alb         , set_defaults)
+#ifdef HYPERSPECTRAL
+      CALL sync_hist_vars_one (DEF_hist_vars%alb_hires   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%reflectance_out   , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%transmittance_out , set_defaults)
+#endif
       CALL sync_hist_vars_one (DEF_hist_vars%emis        , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%z0m         , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%trad        , set_defaults)
@@ -2327,6 +2365,12 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%srviln      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%srndln      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%srniln      , set_defaults)
+#ifdef HYPERSPECTRAL
+      CALL sync_hist_vars_one (DEF_hist_vars%sol_dir_ln_hires, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sol_dif_ln_hires, set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sr_dir_ln_hires , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sr_dif_ln_hires , set_defaults)
+#endif
 
       CALL sync_hist_vars_one (DEF_hist_vars%xsubs_bsn   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%xsubs_hru   , set_defaults)
