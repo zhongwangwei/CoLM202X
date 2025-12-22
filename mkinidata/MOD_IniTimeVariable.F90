@@ -27,9 +27,18 @@ CONTAINS
                      ,snowdp,fveg,fsno,sigf,green,lai,sai,lai_old,coszen&
                      ,snw_rds,mss_bcpho,mss_bcphi,mss_ocpho,mss_ocphi&
                      ,mss_dst1,mss_dst2,mss_dst3,mss_dst4&
-                     ,alb,ssun,ssha,ssoi,ssno,ssno_lyr,thermk,extkb,extkd&
+                     ,alb,ssun,ssha,ssoi,ssno,ssno_lyr&
+#ifdef HYPERSPECTRAL
+                     ,alb_hires&
+#endif
+                     ,thermk,extkb,extkd&
                      ,trad,tref,qref,rst,emis,zol,rib&
                      ,ustar,qstar,tstar,fm,fh,fq&
+#ifdef HYPERSPECTRAL
+                     ,clr_frac, cld_frac &
+                     ,reflectance, transmittance, soil_alb, kw, nw&
+                     ,reflectance_out, transmittance_out&
+#endif
 #if (defined BGC)
                      ,use_cnini, totlitc, totsomc, totcwdc, decomp_cpools, decomp_cpools_vr, ctrunc_veg, ctrunc_soil, ctrunc_vr &
                      ,totlitn, totsomn, totcwdn, decomp_npools, decomp_npools_vr, ntrunc_veg, ntrunc_soil, ntrunc_vr &
@@ -79,7 +88,11 @@ CONTAINS
    USE MOD_Vars_PFTimeVariables
 #endif
    USE MOD_Vars_Global
+#ifdef HYPERSPECTRAL
+   USE MOD_Albedo_HiRes
+#else
    USE MOD_Albedo
+#endif
    USE MOD_Namelist
    USE MOD_Hydro_SoilWater
    USE MOD_SnowFraction
@@ -108,7 +121,14 @@ CONTAINS
          porsl(1:nl_soil),       &! porosity of soil
          psi0 (1:nl_soil),       &! saturated soil suction (mm) (NEGATIVE)
          hksati(1:nl_soil)        ! hydraulic conductivity at saturation [mm h2o/s]
-
+#ifdef HYPERSPECTRAL
+   real(r8), intent(in) ::       &!
+         clr_frac       ( 211, 89, 5 ) ,&
+         cld_frac       ( 211,     5 ) ,&
+         reflectance    ( 0:15, 211, 2 )     ,&
+         transmittance  ( 0:15, 211, 2 )     ,&
+         soil_alb       ( 211 ), kw(211), nw(211)
+#endif
    real(r8), intent(inout) ::    &
          z0m                      ! aerodynamic roughness length [m]
 
@@ -170,6 +190,11 @@ CONTAINS
          ssha(2,2),              &! shaded canopy absorption for solar radiation
          ssoi(2,2),              &! ground soil absorption [-]
          ssno(2,2),              &! ground snow absorption [-]
+#ifdef HYPERSPECTRAL
+         alb_hires (211,2),      &! averaged albedo [-]
+         reflectance_out  (211, 0:15) ,&
+         transmittance_out(211, 0:15) ,&
+#endif
          thermk,                 &! canopy gap fraction for tir radiation
          extkb,                  &! (k, g(mu)/mu) direct solar extinction coefficient
          extkd,                  &! diffuse and scattered diffuse PAR extinction coefficient
@@ -1154,6 +1179,20 @@ CONTAINS
          pg_snow = 0.
          snofrz (:) = 0.
          ssw = min(1.,1.e-3*wliq_soisno(1)/dz_soisno(1))
+#ifdef HYPERSPECTRAL
+         CALL albland_HiRes (ipatch,patchtype,1800.,soil_s_v_alb,soil_d_v_alb,soil_s_n_alb,soil_d_n_alb,&
+            chil,rho,tau,fveg,green,lai,sai,fwet_snow,max(0.001,coszen),&
+            wt,fsno,scv,scv,sag,ssw,pg_snow,273.15,t_grnd,t_soisno(:1),dz_soisno(:1),&
+            snl,wliq_soisno,wice_soisno,snw_rds,snofrz,&
+            mss_bcpho,mss_bcphi,mss_ocpho,mss_ocphi,&
+            mss_dst1,mss_dst2,mss_dst3,mss_dst4,&
+            alb,ssun,ssha,ssoi,ssno,ssno_lyr,thermk,extkb,extkd, &
+            alb_hires, &
+            clr_frac(1:, 89, 1), cld_frac(1:, 1),     &
+            reflectance, transmittance,               &
+            soil_alb, kw, nw, 0.8,                    &
+            reflectance_out, transmittance_out, 1 )
+#else
          CALL albland (ipatch,patchtype,1800.,soil_s_v_alb,soil_d_v_alb,soil_s_n_alb,soil_d_n_alb,&
             chil,rho,tau,fveg,green,lai,sai,fwet_snow,max(0.001,coszen),&
             wt,fsno,scv,scv,sag,ssw,pg_snow,273.15,t_grnd,t_soisno(:1),dz_soisno(:1),&
@@ -1161,6 +1200,7 @@ CONTAINS
             mss_bcpho,mss_bcphi,mss_ocpho,mss_ocphi,&
             mss_dst1,mss_dst2,mss_dst3,mss_dst4,&
             alb,ssun,ssha,ssoi,ssno,ssno_lyr,thermk,extkb,extkd)
+#endif
       ELSE                 !ocean grid
          t_soisno(:) = 300.
          wice_soisno(:) = 0.

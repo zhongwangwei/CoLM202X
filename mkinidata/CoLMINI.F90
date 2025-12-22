@@ -50,7 +50,11 @@ PROGRAM CoLMINI
 #endif
    USE MOD_Initialize
    ! SNICAR
+#ifdef HYPERSPECTRAL
+   USE MOD_SnowSnicar_HiRes, only: SnowAge_init, SnowOptics_init
+#else
    USE MOD_SnowSnicar, only: SnowAge_init, SnowOptics_init
+#endif
    IMPLICIT NONE
 
 !-------------------------- Local Variables ----------------------------

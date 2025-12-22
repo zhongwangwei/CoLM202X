@@ -169,7 +169,11 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_Vars_PFTimeVariables
 #endif
    USE MOD_RainSnowTemp
+#ifdef HYPERSPECTRAL
+   USE MOD_NetSolar_Hyper
+#else
    USE MOD_NetSolar
+#endif
    USE MOD_OrbCoszen
    USE MOD_NewSnow
    USE MOD_Thermal
@@ -669,17 +673,16 @@ SUBROUTINE CoLMMAIN ( &
 !  [1] Solar absorbed by vegetation and ground
 !      and precipitation information (rain/snow fall and precip temperature
 !======================================================================
-!TODO: new subroutine: netsolar_hires!!
 #ifdef HYPERSPECTRAL
       CALL get_loc_params(forc_solarin, idate, coszen, patchlatr, patchlonr, clr_frac, cld_frac, dir_frac, dif_frac)
 
-      CALL netsolar_hires (ipatch,idate,deltim,patchlonr,patchtype,&
+      CALL netsolar_hyper (ipatch,idate,deltim,patchlonr,patchtype,&
                      forc_sols,forc_soll,forc_solsd,forc_solld,&
                      alb,ssun,ssha,lai,sai,rho,tau,ssoi,ssno,ssno_lyr,fsno,&
                      parsun,parsha,sabvsun,sabvsha,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                      sr,solvd,solvi,solnd,solni,srvd,srvi,srnd,srni,&
                      solvdln,solviln,solndln,solniln,srvdln,srviln,srndln,srniln,&
-                     ! variables for hyperspectral scheme
+                     ! new variables for hyperspectral scheme
                      dir_frac, dif_frac, alb_hires    ,&
                      sol_dir_ln_hires,sol_dif_ln_hires,&
                      sr_dir_ln_hires ,sr_dif_ln_hires  )
@@ -1589,6 +1592,26 @@ SUBROUTINE CoLMMAIN ( &
          ! we supposed CALL it every time-step, because
          ! other vegetation related parameters are needed to create
          IF (doalb) THEN
+#ifdef HYPERSPECTRAL
+            CALL albland_HiRes (ipatch, patchtype,deltim,&
+                 soil_s_v_alb,soil_d_v_alb,soil_s_n_alb,soil_d_n_alb,&
+                 chil,rho,tau,fveg,green,lai,sai,fwet_snow,coszen,&
+                 wt,fsno,scv,scvold,sag,ssw,pg_snow,forc_t,t_grnd,t_soisno_,dz_soisno_,&
+                 snl,wliq_soisno,wice_soisno,snw_rds,snofrz,&
+                 mss_bcpho,mss_bcphi,mss_ocpho,mss_ocphi,&
+                 mss_dst1,mss_dst2,mss_dst3,mss_dst4,&
+                 alb,ssun,ssha,ssoi,ssno,ssno_lyr,thermk,extkb,extkd,&
+
+                 ! new parameters for hyperspectral scheme
+                 alb_hires                         ,&
+                 dir_frac    , dif_frac            ,&
+                 reflectance , transmittance       ,&
+                 soil_alb, kw, nw, porsl(1)        ,&
+                 reflectance_out, transmittance_out,&
+                 idate(2), patchlatr, patchlonr    ,&
+                 urban_albedo, mean_albedo, lat_north, lat_south, lat_west, lat_east )
+
+#else
             CALL albland (ipatch,patchtype,deltim,&
                  soil_s_v_alb,soil_d_v_alb,soil_s_n_alb,soil_d_n_alb,&
                  chil,rho,tau,fveg,green,lai,sai,fwet_snow,coszen,&
@@ -1597,6 +1620,7 @@ SUBROUTINE CoLMMAIN ( &
                  mss_bcpho,mss_bcphi,mss_ocpho,mss_ocphi,&
                  mss_dst1,mss_dst2,mss_dst3,mss_dst4,&
                  alb,ssun,ssha,ssoi,ssno,ssno_lyr,thermk,extkb,extkd)
+#endif
          ENDIF
 
       ELSE                   !OCEAN
