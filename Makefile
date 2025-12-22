@@ -313,6 +313,7 @@ OBJS_MAIN = \
 				MOD_GroundTemperature.o                   \
 				MOD_LeafInterception.o                    \
 				MOD_NetSolar.o                            \
+				MOD_NetSolar_Hyper.o                      \
 				MOD_WetBulb.o                             \
 				MOD_RainSnowTemp.o                        \
 				MOD_SoilSurfaceResistance.o               \
