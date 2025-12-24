@@ -676,6 +676,105 @@ CONTAINS
    END SUBROUTINE calc_sediment_advection
 
    !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_sediment_exchange(dt, rivsto, rivwth, rivlen)
+   ! Calculate suspension-deposition exchange
+   !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: dt
+   real(r8), intent(in) :: rivsto(:)
+   real(r8), intent(in) :: rivwth(:)
+   real(r8), intent(in) :: rivlen(:)
+
+   real(r8) :: Es(nsed), D(nsed), Zd(nsed)
+   real(r8) :: sedsto(nsed), dTmp(nsed)
+   real(r8) :: layer_sum, area, dTmp1
+   integer  :: i, ised
+   real(r8), parameter :: IGNORE_DPH = 0.05_r8
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      DO i = 1, numucat
+         IF (rivsto(i) < rivwth(i) * rivlen(i) * IGNORE_DPH) THEN
+            netflw(:,i) = 0._r8
+            CYCLE
+         ENDIF
+
+         layer_sum = sum(layer(:,i))
+         area = rivwth(i) * rivlen(i)
+
+         ! Calculate entrainment (suspension)
+         IF (layer_sum == 0._r8 .or. all(susvel(:,i) == 0._r8)) THEN
+            Es(:) = 0._r8
+         ELSE
+            Es(:) = susvel(:,i) * (1._r8 - lambda) * area * layer(:,i) / layer_sum
+            Es(:) = max(Es(:), 0._r8)
+         ENDIF
+
+         ! Calculate deposition
+         IF (shearvel(i) == 0._r8 .or. all(setvel(:) == 0._r8)) THEN
+            D(:) = 0._r8
+         ELSE
+            DO ised = 1, nsed
+               Zd(ised) = 6._r8 * setvel(ised) / vonKar / shearvel(i)
+               D(ised) = setvel(ised) * area * sedcon(ised,i) * &
+                  Zd(ised) / (1._r8 - exp(-Zd(ised)))
+            ENDDO
+            D(:) = max(D(:), 0._r8)
+         ENDIF
+
+         netflw(:,i) = Es(:) - D(:)
+
+         ! Apply exchange with mass conservation
+         sedsto(:) = sedcon(:,i) * rivsto(i)
+
+         DO ised = 1, nsed
+            IF (netflw(ised,i) == 0._r8) THEN
+               CYCLE
+            ELSEIF (netflw(ised,i) > 0._r8) THEN
+               ! Suspension: transfer from layer to water
+               dTmp1 = netflw(ised,i) * dt / (1._r8 - lambda)
+               IF (dTmp1 < layer(ised,i)) THEN
+                  layer(ised,i) = layer(ised,i) - dTmp1
+               ELSE
+                  netflw(ised,i) = layer(ised,i) * (1._r8 - lambda) / dt
+                  layer(ised,i) = 0._r8
+               ENDIF
+               sedsto(ised) = sedsto(ised) + netflw(ised,i) * dt
+            ELSE
+               ! Deposition: transfer from water to layer
+               IF (abs(netflw(ised,i)) * dt < sedsto(ised)) THEN
+                  sedsto(ised) = max(sedsto(ised) - abs(netflw(ised,i)) * dt, 0._r8)
+               ELSE
+                  netflw(ised,i) = -sedsto(ised) / dt
+                  sedsto(ised) = 0._r8
+               ENDIF
+               layer(ised,i) = layer(ised,i) + abs(netflw(ised,i)) * dt / (1._r8 - lambda)
+            ENDIF
+         ENDDO
+
+         ! Add erosion input
+         sedsto(:) = sedsto(:) + sedinp(:,i) * dt
+
+         ! Limit concentration to 1%
+         IF (sum(sedsto(:)) > rivsto(i) * 0.01_r8) THEN
+            dTmp(:) = (sum(sedsto(:)) - rivsto(i) * 0.01_r8) * sedsto(:) / sum(sedsto(:))
+            netflw(:,i) = netflw(:,i) - dTmp(:) / dt
+            sedsto(:) = sedsto(:) - dTmp(:)
+            layer(:,i) = layer(:,i) + dTmp(:) / (1._r8 - lambda)
+         ENDIF
+
+         ! Update concentration
+         IF (rivsto(i) > 0._r8) THEN
+            sedcon(:,i) = sedsto(:) / rivsto(i)
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE calc_sediment_exchange
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
