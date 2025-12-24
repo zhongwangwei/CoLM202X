@@ -509,6 +509,35 @@ CONTAINS
    END SUBROUTINE calc_critical_shear_egiazoroff
 
    !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_suspend_velocity(csvel, svel, susvel_out)
+   ! Calculate suspension velocity using Uchida & Fukuoka (2019) Eq.44
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+   real(r8), intent(in)  :: csvel(nsed)  ! Critical shear velocity [m/s]
+   real(r8), intent(in)  :: svel         ! Shear velocity [m/s]
+   real(r8), intent(out) :: susvel_out(nsed)
+
+   real(r8) :: alpha, a, cB, sTmp
+   integer  :: ised
+
+      alpha = vonKar / 6._r8
+      a = 0.08_r8
+      cB = 1._r8 - lambda
+
+      susvel_out(:) = 0._r8
+
+      DO ised = 1, nsed
+         IF (csvel(ised) > svel) CYCLE
+         IF (svel <= 0._r8) CYCLE
+
+         sTmp = setvel(ised) / alpha / svel
+         susvel_out(ised) = max(setvel(ised) * cB / (1._r8 + sTmp) * &
+            (1._r8 - a*sTmp) / (1._r8 + (1._r8-a)*sTmp), 0._r8)
+      ENDDO
+
+   END SUBROUTINE calc_suspend_velocity
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
