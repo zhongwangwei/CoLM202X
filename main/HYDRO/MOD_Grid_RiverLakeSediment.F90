@@ -278,24 +278,60 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE read_sediment_static_data(parafile)
    ! Read sediment static data from NetCDF file
-   ! TO BE IMPLEMENTED IN TASK 2.4
    !-------------------------------------------------------------------------------------
-   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, readin_riverlake_parameter
    IMPLICIT NONE
    character(len=*), intent(in) :: parafile
-      ! Placeholder stub
+
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
             allocate(sed_frc  (nsed, numucat))
             allocate(sed_slope(nlfp_sed, numucat))
-            sed_frc(:,:)   = 1._r8 / real(nsed, r8)  ! Equal fractions
-            sed_slope(:,:) = 0.01_r8  ! Default 1% slope
          ENDIF
       ENDIF
+
+      ! Read sediment fraction
+      CALL readin_riverlake_parameter(parafile, 'sed_frc', rdata2d=sed_frc)
+
+      ! Read sediment slope
+      CALL readin_riverlake_parameter(parafile, 'sed_slope', rdata2d=sed_slope)
+
+      ! Normalize sed_frc (ensure sum = 1)
+      CALL normalize_sed_frc()
+
       IF (p_is_io) THEN
-         WRITE(*,*) 'WARNING: read_sediment_static_data is a placeholder stub'
+         WRITE(*,*) 'Sediment static data read successfully.'
       ENDIF
+
    END SUBROUTINE read_sediment_static_data
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE normalize_sed_frc()
+   ! Normalize sediment fractions to ensure they sum to 1.0 for each unit catchment
+   !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+   integer :: i
+   real(r8) :: frc_sum
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      DO i = 1, numucat
+         frc_sum = sum(sed_frc(:,i))
+         IF (frc_sum > 0._r8) THEN
+            sed_frc(:,i) = sed_frc(:,i) / frc_sum
+         ELSE
+            ! If all fractions are zero or negative, set equal fractions
+            sed_frc(:,i) = 1._r8 / real(nsed, r8)
+         ENDIF
+      ENDDO
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'Sediment fractions normalized.'
+      ENDIF
+
+   END SUBROUTINE normalize_sed_frc
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE allocate_sediment_vars()
