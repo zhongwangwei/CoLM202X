@@ -423,6 +423,25 @@ CONTAINS
    END SUBROUTINE initialize_sediment_state
 
    !-------------------------------------------------------------------------------------
+   FUNCTION calc_shear_velocity(rivvel, rivdph, rivman) RESULT(svel)
+   ! Calculate shear velocity using Manning's equation
+   !-------------------------------------------------------------------------------------
+   USE MOD_Const_Physical, only: grav
+   IMPLICIT NONE
+   real(r8), intent(in) :: rivvel   ! River velocity [m/s]
+   real(r8), intent(in) :: rivdph   ! River depth [m]
+   real(r8), intent(in) :: rivman   ! Manning coefficient
+   real(r8) :: svel
+
+      IF (rivdph > 0._r8) THEN
+         svel = sqrt(grav * rivman**2 * rivvel**2 * rivdph**(-1._r8/3._r8))
+      ELSE
+         svel = 0._r8
+      ENDIF
+
+   END FUNCTION calc_shear_velocity
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
