@@ -321,6 +321,22 @@ MODULE MOD_Namelist
    integer :: DEF_Reservoir_Method = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
 
+   ! ----- sediment module -----
+   logical :: DEF_USE_SEDIMENT = .false.
+   real(r8) :: DEF_SED_LAMBDA = 0.4
+   real(r8) :: DEF_SED_LYRDPH = 0.00005
+   real(r8) :: DEF_SED_DENSITY = 2.65
+   real(r8) :: DEF_SED_WATER_DENSITY = 1.0
+   real(r8) :: DEF_SED_VISKIN = 1.0e-6
+   real(r8) :: DEF_SED_VONKAR = 0.4
+   integer :: DEF_SED_TOTLYRNUM = 5
+   real(r8) :: DEF_SED_DT_MAX = 3600.
+   character(len=256) :: DEF_SED_DIAMETER = "0.0002,0.002,0.02"
+   real(r8) :: DEF_SED_PYLD = 0.01
+   real(r8) :: DEF_SED_PYLDC = 2.0
+   real(r8) :: DEF_SED_PYLDPC = 2.0
+   real(r8) :: DEF_SED_DSYLUNIT = 1.0e-6
+
    ! ----- others -----
    character(len=5)   :: DEF_precip_phase_discrimination_scheme = 'II'
 
@@ -1103,6 +1119,21 @@ CONTAINS
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
 
+      DEF_USE_SEDIMENT,                       &
+      DEF_SED_LAMBDA,                         &
+      DEF_SED_LYRDPH,                         &
+      DEF_SED_DENSITY,                        &
+      DEF_SED_WATER_DENSITY,                  &
+      DEF_SED_VISKIN,                         &
+      DEF_SED_VONKAR,                         &
+      DEF_SED_TOTLYRNUM,                      &
+      DEF_SED_DT_MAX,                         &
+      DEF_SED_DIAMETER,                       &
+      DEF_SED_PYLD,                           &
+      DEF_SED_PYLDC,                          &
+      DEF_SED_PYLDPC,                         &
+      DEF_SED_DSYLUNIT,                       &
+
       DEF_precip_phase_discrimination_scheme, &
 
       DEF_USE_SoilInit,                       &
@@ -1713,6 +1744,21 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+
+      CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_DENSITY                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_WATER_DENSITY                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_VISKIN                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_VONKAR                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_TOTLYRNUM                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_DT_MAX                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_DIAMETER                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_PYLD                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_PYLDC                          ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_PYLDPC                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SED_DSYLUNIT                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_HISTORY_IN_VECTOR                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
