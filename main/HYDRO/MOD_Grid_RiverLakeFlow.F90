@@ -177,8 +177,8 @@ CONTAINS
             CALL worker_push_data (push_inpm2ucat, prcp_gd, prcp_uc, &
                fillvalue = 0., mode = 'sum')
 
-            ! Pass precipitation to sediment module [mm/s]
-            CALL sediment_forcing_put(prcp_uc)
+            ! Pass precipitation to sediment module [mm/s], accumulated over time
+            CALL sediment_forcing_put(prcp_uc, deltime)
 
             IF (allocated(prcp_pch)) deallocate(prcp_pch)
             IF (allocated(prcp_gd))  deallocate(prcp_gd)

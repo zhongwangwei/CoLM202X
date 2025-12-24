@@ -297,18 +297,20 @@ CONTAINS
    END SUBROUTINE sediment_diag_accumulate
 
    !-------------------------------------------------------------------------------------
-   SUBROUTINE sediment_forcing_put(precip)
-   ! Store precipitation for sediment yield calculation
+   SUBROUTINE sediment_forcing_put(precip, dt)
+   ! Accumulate precipitation for sediment yield calculation
    !-------------------------------------------------------------------------------------
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
    real(r8), intent(in) :: precip(:)
+   real(r8), intent(in) :: dt        ! Time step [s]
 
       IF (.not. DEF_USE_SEDIMENT) RETURN
       IF (.not. p_is_worker) RETURN
       IF (numucat <= 0) RETURN
 
-      sed_precip(:) = precip(:)
+      ! Accumulate precipitation weighted by time step
+      sed_precip(:) = sed_precip(:) + precip(:) * dt
 
    END SUBROUTINE sediment_forcing_put
 
@@ -993,7 +995,7 @@ CONTAINS
    real(r8), intent(in) :: fldfrc(:)   ! Flooded fraction
    real(r8), intent(in) :: grarea(:)   ! Grid area [m2]
 
-   real(r8) :: precip_mm
+   real(r8) :: precip_mm, precip_rate
    integer  :: i, ilyr
 
       IF (.not. p_is_worker) RETURN
@@ -1002,8 +1004,15 @@ CONTAINS
       sedinp(:,:) = 0._r8
 
       DO i = 1, numucat
-         ! Convert precip from mm/s or kg/m2/s to mm/day for threshold
-         precip_mm = sed_precip(i) * 86400._r8
+         ! Calculate average precipitation rate from accumulated value
+         IF (sed_acc_time > 0._r8) THEN
+            precip_rate = sed_precip(i) / sed_acc_time   ! [mm/s]
+         ELSE
+            precip_rate = 0._r8
+         ENDIF
+
+         ! Convert precip from mm/s to mm/day for threshold
+         precip_mm = precip_rate * 86400._r8
 
          IF (precip_mm <= 10._r8) CYCLE
 
@@ -1012,7 +1021,7 @@ CONTAINS
             IF (fldfrc(i) * nlfp_sed > real(ilyr, r8)) CYCLE  ! No erosion if submerged
 
             sedinp(:,i) = sedinp(:,i) + &
-               pyld * (sed_precip(i) * 3600._r8)**pyldpc * sed_slope(ilyr,i)**pyldc / 3600._r8 &
+               pyld * (precip_rate * 3600._r8)**pyldpc * sed_slope(ilyr,i)**pyldc / 3600._r8 &
                * grarea(i) * min(real(ilyr, r8)/real(nlfp_sed, r8) - fldfrc(i), 1._r8/real(nlfp_sed, r8)) &
                * dsylunit * sed_frc(:,i)
          ENDDO
