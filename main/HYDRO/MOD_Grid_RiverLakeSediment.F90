@@ -198,6 +198,7 @@ CONTAINS
    IMPLICIT NONE
    character(len=256) :: str
    integer :: i, j, k, n
+   integer :: iostat
 
       allocate(sDiam(nsed))
       str = trim(adjustl(DEF_SED_DIAMETER))
@@ -213,7 +214,14 @@ CONTAINS
                k = i - 1
             ENDIF
             IF (n <= nsed) THEN
-               read(str(j:k), *) sDiam(n)
+               read(str(j:k), *, iostat=iostat) sDiam(n)
+               IF (iostat /= 0) THEN
+                  IF (p_is_io) THEN
+                     WRITE(*,*) 'ERROR: Failed to parse grain diameter at position', n
+                     WRITE(*,*) '  String fragment: "', str(j:k), '"'
+                  ENDIF
+                  STOP
+               ENDIF
             ENDIF
             j = i + 1
          ENDIF
@@ -221,10 +229,22 @@ CONTAINS
 
       IF (n /= nsed) THEN
          IF (p_is_io) THEN
-            WRITE(*,*) 'WARNING: Number of diameters does not match nsed'
+            WRITE(*,*) 'ERROR: Number of diameters does not match nsed'
             WRITE(*,*) '  Parsed:', n, ' Expected:', nsed
          ENDIF
+         STOP
       ENDIF
+
+      ! Validate that all parsed diameter values are positive
+      DO i = 1, nsed
+         IF (sDiam(i) <= 0._r8) THEN
+            IF (p_is_io) THEN
+               WRITE(*,*) 'ERROR: Grain diameter must be positive'
+               WRITE(*,*) '  Class:', i, ' Value:', sDiam(i)
+            ENDIF
+            STOP
+         ENDIF
+      ENDDO
 
       IF (p_is_io) THEN
          WRITE(*,*) 'Grain diameters (m):', sDiam
