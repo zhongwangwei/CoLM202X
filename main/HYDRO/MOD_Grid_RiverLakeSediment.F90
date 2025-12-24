@@ -47,20 +47,20 @@ MODULE MOD_Grid_RiverLakeSediment
    !-------------------------------------------------------------------------------------
    ! State Variables
    !-------------------------------------------------------------------------------------
-   real(r8), allocatable :: sedcon  (:,:)      ! Suspended sediment concentration [numucat, nsed]
-   real(r8), allocatable :: layer   (:,:)      ! Active layer storage [numucat, nsed]
-   real(r8), allocatable :: seddep  (:,:,:)    ! Deposition layer storage [numucat, totlyrnum, nsed]
+   real(r8), allocatable :: sedcon  (:,:)      ! Suspended sediment concentration [nsed, numucat]
+   real(r8), allocatable :: layer   (:,:)      ! Active layer storage [nsed, numucat]
+   real(r8), allocatable :: seddep  (:,:,:)    ! Deposition layer storage [nsed, totlyrnum, numucat]
 
    !-------------------------------------------------------------------------------------
    ! Diagnostic Variables
    !-------------------------------------------------------------------------------------
-   real(r8), allocatable :: sedout  (:,:)      ! Suspended sediment outflow [numucat, nsed]
-   real(r8), allocatable :: bedout  (:,:)      ! Bedload outflow [numucat, nsed]
-   real(r8), allocatable :: sedinp  (:,:)      ! Erosion input [numucat, nsed]
-   real(r8), allocatable :: netflw  (:,:)      ! Net exchange flux [numucat, nsed]
+   real(r8), allocatable :: sedout  (:,:)      ! Suspended sediment outflow [nsed, numucat]
+   real(r8), allocatable :: bedout  (:,:)      ! Bedload outflow [nsed, numucat]
+   real(r8), allocatable :: sedinp  (:,:)      ! Erosion input [nsed, numucat]
+   real(r8), allocatable :: netflw  (:,:)      ! Net exchange flux [nsed, numucat]
    real(r8), allocatable :: shearvel(:)        ! Shear velocity [numucat]
-   real(r8), allocatable :: critshearvel(:,:)  ! Critical shear velocity [numucat, nsed]
-   real(r8), allocatable :: susvel  (:,:)      ! Suspension velocity [numucat, nsed]
+   real(r8), allocatable :: critshearvel(:,:)  ! Critical shear velocity [nsed, numucat]
+   real(r8), allocatable :: susvel  (:,:)      ! Suspension velocity [nsed, numucat]
 
    !-------------------------------------------------------------------------------------
    ! Accumulated Variables for Sediment Time-stepping

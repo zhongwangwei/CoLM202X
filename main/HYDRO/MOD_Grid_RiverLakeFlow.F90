@@ -17,7 +17,8 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_Reservoir
    USE MOD_Grid_RiverLakeHist
 #ifdef GridRiverLakeSediment
-   USE MOD_Grid_RiverLakeSediment, only: grid_sediment_calc, sediment_diag_accumulate
+   USE MOD_Grid_RiverLakeSediment, only: grid_sediment_init, grid_sediment_calc, &
+      sediment_diag_accumulate, sediment_forcing_put
 #endif
    IMPLICIT NONE
 
@@ -61,6 +62,11 @@ CONTAINS
          ENDIF
       ENDIF
 
+#ifdef GridRiverLakeSediment
+      ! Initialize sediment transport module
+      CALL grid_sediment_init()
+#endif
+
    END SUBROUTINE grid_riverlake_flow_init
 
    ! ---------
@@ -70,9 +76,12 @@ CONTAINS
    USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT
    USE MOD_Vars_1DFluxes,  only: rnof
    USE MOD_Mesh,           only: numelm
-   USE MOD_LandPatch,      only: elm_patch
+   USE MOD_LandPatch,      only: elm_patch, numpatch
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
+#ifdef GridRiverLakeSediment
+   USE MOD_Vars_1DForcing, only: forc_prc, forc_prl
+#endif
    IMPLICIT NONE
 
    integer,  intent(in) :: year
@@ -84,6 +93,12 @@ CONTAINS
 
    real(r8), allocatable :: rnof_gd(:)
    real(r8), allocatable :: rnof_uc(:)
+
+#ifdef GridRiverLakeSediment
+   real(r8), allocatable :: prcp_gd(:)
+   real(r8), allocatable :: prcp_uc(:)
+   real(r8), allocatable :: prcp_pch(:)
+#endif
 
    logical,  allocatable :: is_built_resv(:)
 
@@ -139,6 +154,37 @@ CONTAINS
 
          IF (allocated(rnof_gd)) deallocate(rnof_gd)
          IF (allocated(rnof_uc)) deallocate(rnof_uc)
+
+#ifdef GridRiverLakeSediment
+         ! Aggregate precipitation to unit catchments for sediment yield
+         IF (DEF_USE_SEDIMENT) THEN
+            IF (numpatch > 0) THEN
+               allocate (prcp_pch (numpatch))
+               prcp_pch = forc_prc + forc_prl   ! Total precipitation [mm/s]
+            ENDIF
+            IF (numinpm > 0) allocate (prcp_gd (numinpm))
+            IF (numucat > 0) allocate (prcp_uc (numucat))
+
+            CALL worker_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_gd, &
+               fillvalue = 0., filter = filter_rnof)
+
+            IF (numinpm > 0) THEN
+               WHERE (push_ucat2inpm%sum_area > 0)
+                  prcp_gd = prcp_gd / push_ucat2inpm%sum_area
+               END WHERE
+            ENDIF
+
+            CALL worker_push_data (push_inpm2ucat, prcp_gd, prcp_uc, &
+               fillvalue = 0., mode = 'sum')
+
+            ! Pass precipitation to sediment module [mm/s]
+            CALL sediment_forcing_put(prcp_uc)
+
+            IF (allocated(prcp_pch)) deallocate(prcp_pch)
+            IF (allocated(prcp_gd))  deallocate(prcp_gd)
+            IF (allocated(prcp_uc))  deallocate(prcp_uc)
+         ENDIF
+#endif
 
       ENDIF
 
