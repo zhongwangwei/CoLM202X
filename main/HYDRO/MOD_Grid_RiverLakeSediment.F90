@@ -336,11 +336,10 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE allocate_sediment_vars()
    ! Allocate sediment state and diagnostic variables
-   ! TO BE IMPLEMENTED IN TASK 2.5
    !-------------------------------------------------------------------------------------
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
-      ! Placeholder stub
+
       IF (.not. p_is_worker) RETURN
       IF (numucat <= 0) RETURN
 
@@ -395,20 +394,16 @@ CONTAINS
       a_layer      = 0._r8
       a_shearvel   = 0._r8
 
-      IF (p_is_io) THEN
-         WRITE(*,*) 'WARNING: allocate_sediment_vars is a placeholder stub'
-      ENDIF
    END SUBROUTINE allocate_sediment_vars
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE initialize_sediment_state()
    ! Initialize sediment state from sed_frc
-   ! TO BE IMPLEMENTED IN TASK 2.5
    !-------------------------------------------------------------------------------------
    USE MOD_Grid_RiverLakeNetwork, only: numucat, topo_rivwth, topo_rivlen
    IMPLICIT NONE
    integer :: i, ilyr
-      ! Placeholder stub
+
       IF (.not. p_is_worker) RETURN
       IF (numucat <= 0) RETURN
 
@@ -425,9 +420,6 @@ CONTAINS
             * topo_rivwth(i) * topo_rivlen(i) * sed_frc(:,i)
       ENDDO
 
-      IF (p_is_io) THEN
-         WRITE(*,*) 'WARNING: initialize_sediment_state is a placeholder stub'
-      ENDIF
    END SUBROUTINE initialize_sediment_state
 
    !-------------------------------------------------------------------------------------
