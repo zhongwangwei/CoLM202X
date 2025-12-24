@@ -194,15 +194,42 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE parse_grain_diameters()
    ! Parse grain diameters from comma-separated string
-   ! TO BE IMPLEMENTED IN TASK 2.2
    !-------------------------------------------------------------------------------------
    IMPLICIT NONE
-      ! Placeholder stub
+   character(len=256) :: str
+   integer :: i, j, k, n
+
       allocate(sDiam(nsed))
-      sDiam(:) = 0.001_r8  ! Default 1mm
-      IF (p_is_io) THEN
-         WRITE(*,*) 'WARNING: parse_grain_diameters is a placeholder stub'
+      str = trim(adjustl(DEF_SED_DIAMETER))
+
+      n = 0
+      j = 1
+      DO i = 1, len_trim(str)
+         IF (str(i:i) == ',' .or. i == len_trim(str)) THEN
+            n = n + 1
+            IF (i == len_trim(str)) THEN
+               k = i
+            ELSE
+               k = i - 1
+            ENDIF
+            IF (n <= nsed) THEN
+               read(str(j:k), *) sDiam(n)
+            ENDIF
+            j = i + 1
+         ENDIF
+      ENDDO
+
+      IF (n /= nsed) THEN
+         IF (p_is_io) THEN
+            WRITE(*,*) 'WARNING: Number of diameters does not match nsed'
+            WRITE(*,*) '  Parsed:', n, ' Expected:', nsed
+         ENDIF
       ENDIF
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'Grain diameters (m):', sDiam
+      ENDIF
+
    END SUBROUTINE parse_grain_diameters
 
    !-------------------------------------------------------------------------------------
