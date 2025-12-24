@@ -96,9 +96,69 @@ CONTAINS
    SUBROUTINE grid_sediment_init()
    ! Initialize sediment module
    !-------------------------------------------------------------------------------------
+   USE MOD_NetCDFSerial
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, &
+      ucat_data_address, topo_rivwth, topo_rivlen
    IMPLICIT NONE
-      ! Placeholder - to be implemented
-      WRITE(*,*) 'MOD_Grid_RiverLakeSediment: grid_sediment_init called'
+
+   character(len=256) :: parafile
+   integer :: i
+
+      IF (.not. DEF_USE_SEDIMENT) RETURN
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'Initializing sediment module...'
+      ENDIF
+
+      ! Set parameters from namelist
+      lambda    = DEF_SED_LAMBDA
+      lyrdph    = DEF_SED_LYRDPH
+      psedD     = DEF_SED_DENSITY
+      pwatD     = DEF_SED_WATER_DENSITY
+      visKin    = DEF_SED_VISKIN
+      vonKar    = DEF_SED_VONKAR
+      totlyrnum = DEF_SED_TOTLYRNUM
+      pyld      = DEF_SED_PYLD
+      pyldc     = DEF_SED_PYLDC
+      pyldpc    = DEF_SED_PYLDPC
+      dsylunit  = DEF_SED_DSYLUNIT
+
+      parafile = DEF_UnitCatchment_file
+
+      ! Read dimensions from NetCDF file
+      IF (p_is_master) THEN
+         CALL ncio_inquire_length(parafile, 'sed_n', nsed)
+         CALL ncio_inquire_length(parafile, 'slope_layers', nlfp_sed)
+      ENDIF
+
+#ifdef USEMPI
+      CALL mpi_bcast(nsed, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast(nlfp_sed, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'Sediment module: nsed=', nsed, ' nlfp_sed=', nlfp_sed
+      ENDIF
+
+      ! Parse grain diameters from string
+      CALL parse_grain_diameters()
+
+      ! Calculate settling velocities
+      CALL calc_settling_velocities()
+
+      ! Read static data
+      CALL read_sediment_static_data(parafile)
+
+      ! Allocate and initialize state variables
+      CALL allocate_sediment_vars()
+
+      ! Initialize state from sed_frc
+      CALL initialize_sediment_state()
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'Sediment module initialized successfully.'
+      ENDIF
+
    END SUBROUTINE grid_sediment_init
 
    !-------------------------------------------------------------------------------------
@@ -130,6 +190,153 @@ CONTAINS
    real(r8), intent(in) :: precip(:)
       ! Placeholder - to be implemented
    END SUBROUTINE sediment_forcing_put
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE parse_grain_diameters()
+   ! Parse grain diameters from comma-separated string
+   ! TO BE IMPLEMENTED IN TASK 2.2
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+      ! Placeholder stub
+      allocate(sDiam(nsed))
+      sDiam(:) = 0.001_r8  ! Default 1mm
+      IF (p_is_io) THEN
+         WRITE(*,*) 'WARNING: parse_grain_diameters is a placeholder stub'
+      ENDIF
+   END SUBROUTINE parse_grain_diameters
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_settling_velocities()
+   ! Calculate settling velocity using Stokes-Rubey formula
+   ! TO BE IMPLEMENTED IN TASK 2.3
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+      ! Placeholder stub
+      allocate(setvel(nsed))
+      setvel(:) = 0.001_r8  ! Default settling velocity
+      IF (p_is_io) THEN
+         WRITE(*,*) 'WARNING: calc_settling_velocities is a placeholder stub'
+      ENDIF
+   END SUBROUTINE calc_settling_velocities
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE read_sediment_static_data(parafile)
+   ! Read sediment static data from NetCDF file
+   ! TO BE IMPLEMENTED IN TASK 2.4
+   !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+   character(len=*), intent(in) :: parafile
+      ! Placeholder stub
+      IF (p_is_worker) THEN
+         IF (numucat > 0) THEN
+            allocate(sed_frc  (nsed, numucat))
+            allocate(sed_slope(nlfp_sed, numucat))
+            sed_frc(:,:)   = 1._r8 / real(nsed, r8)  ! Equal fractions
+            sed_slope(:,:) = 0.01_r8  ! Default 1% slope
+         ENDIF
+      ENDIF
+      IF (p_is_io) THEN
+         WRITE(*,*) 'WARNING: read_sediment_static_data is a placeholder stub'
+      ENDIF
+   END SUBROUTINE read_sediment_static_data
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE allocate_sediment_vars()
+   ! Allocate sediment state and diagnostic variables
+   ! TO BE IMPLEMENTED IN TASK 2.5
+   !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+      ! Placeholder stub
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      ! State variables
+      allocate(sedcon(nsed, numucat))
+      allocate(layer (nsed, numucat))
+      allocate(seddep(nsed, totlyrnum, numucat))
+
+      ! Diagnostic variables
+      allocate(sedout      (nsed, numucat))
+      allocate(bedout      (nsed, numucat))
+      allocate(sedinp      (nsed, numucat))
+      allocate(netflw      (nsed, numucat))
+      allocate(shearvel    (numucat))
+      allocate(critshearvel(nsed, numucat))
+      allocate(susvel      (nsed, numucat))
+
+      ! Accumulation variables
+      allocate(sed_acc_veloc(numucat))
+      allocate(sed_acc_wdsrf(numucat))
+      allocate(sed_precip   (numucat))
+
+      ! History output variables
+      allocate(a_sedcon  (nsed, numucat))
+      allocate(a_sedout  (nsed, numucat))
+      allocate(a_bedout  (nsed, numucat))
+      allocate(a_sedinp  (nsed, numucat))
+      allocate(a_netflw  (nsed, numucat))
+      allocate(a_layer   (nsed, numucat))
+      allocate(a_shearvel(numucat))
+
+      ! Initialize to zero
+      sedcon       = 0._r8
+      layer        = 0._r8
+      seddep       = 0._r8
+      sedout       = 0._r8
+      bedout       = 0._r8
+      sedinp       = 0._r8
+      netflw       = 0._r8
+      shearvel     = 0._r8
+      critshearvel = 0._r8
+      susvel       = 0._r8
+      sed_acc_veloc = 0._r8
+      sed_acc_wdsrf = 0._r8
+      sed_acc_time  = 0._r8
+      sed_precip    = 0._r8
+      a_sedcon     = 0._r8
+      a_sedout     = 0._r8
+      a_bedout     = 0._r8
+      a_sedinp     = 0._r8
+      a_netflw     = 0._r8
+      a_layer      = 0._r8
+      a_shearvel   = 0._r8
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'WARNING: allocate_sediment_vars is a placeholder stub'
+      ENDIF
+   END SUBROUTINE allocate_sediment_vars
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE initialize_sediment_state()
+   ! Initialize sediment state from sed_frc
+   ! TO BE IMPLEMENTED IN TASK 2.5
+   !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, topo_rivwth, topo_rivlen
+   IMPLICIT NONE
+   integer :: i, ilyr
+      ! Placeholder stub
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      ! Initialize active layer based on sed_frc
+      DO i = 1, numucat
+         layer(:,i) = lyrdph * topo_rivwth(i) * topo_rivlen(i) * sed_frc(:,i)
+
+         ! Initialize deposition layers
+         DO ilyr = 1, totlyrnum - 1
+            seddep(:,ilyr,i) = layer(:,i)
+         ENDDO
+         ! Bottom layer gets extra depth
+         seddep(:,totlyrnum,i) = max(10._r8 - lyrdph*totlyrnum, 0._r8) &
+            * topo_rivwth(i) * topo_rivlen(i) * sed_frc(:,i)
+      ENDDO
+
+      IF (p_is_io) THEN
+         WRITE(*,*) 'WARNING: initialize_sediment_state is a placeholder stub'
+      ENDIF
+   END SUBROUTINE initialize_sediment_state
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
