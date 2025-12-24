@@ -112,7 +112,7 @@ CONTAINS
 
 
    SUBROUTINE hist_out (idate, deltim, itstamp, etstamp, ptstamp, &
-         dir_hist, site)
+         dir_hist, casename)
 
 !=======================================================================
 !  Original version: Yongjiu Dai, September 15, 1999, 03/2014
@@ -157,7 +157,7 @@ CONTAINS
    type(timestamp), intent(in) :: ptstamp
 
    character(len=*), intent(in) :: dir_hist
-   character(len=*), intent(in) :: site
+   character(len=*), intent(in) :: casename
 
    ! Local variables
    logical :: lwrite
@@ -271,12 +271,12 @@ CONTAINS
 #if (defined CaMa_Flood)
          ! add variables to write cama-flood output.
          ! file name of cama-flood output
-         file_hist_cama = trim(dir_hist) // '/' // trim(site) //'_hist_cama_'//trim(cdate)//'.nc'
+         file_hist_cama = trim(dir_hist) // '/' // trim(casename) //'_hist_cama_'//trim(cdate)//'.nc'
          ! write CaMa-Flood output
          CALL hist_write_cama_time (file_hist_cama, 'time', idate, itime_in_file_cama)
 #endif
 
-         file_hist = trim(dir_hist) // '/' // trim(site) //'_hist_'//trim(cdate)//'.nc'
+         file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
 
@@ -4380,6 +4380,13 @@ ENDIF
          CALL write_history_variable_3d ( DEF_hist_vars%h2osoi, &
             a_h2osoi, file_hist, 'f_h2osoi', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
             'volumetric water in soil layers','m3/m3')
+
+         IF (DEF_USE_VariablySaturatedFlow) THEN
+            ! water flux between water layers [mm h2o/s]
+            CALL write_history_variable_3d ( DEF_hist_vars%qlayer, &
+               a_qlayer, file_hist, 'f_qlayer', itime_in_file, 'soilinterface', 0, nl_soil+1, &
+               sumarea, filter, 'water flux between soil layers','mm/s')
+         ENDIF
 
          ! fraction of root water uptake from each soil layer, all layers add to 1,
          ! when PHS is not defined water exchange between soil layers and root.

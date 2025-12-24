@@ -1172,12 +1172,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
 
 IF (DEF_USE_IRRIGATION) THEN
-      CALL Ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_irrig             ' , 'patch',landpatch,sum_irrig             , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_deficit_irrig     ' , 'patch',landpatch,sum_deficit_irrig     , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_irrig_count       ' , 'patch',landpatch,sum_irrig_count       , compress)
-      CALL Ncio_write_vector (file_restart, 'n_irrig_steps_left    ' , 'patch',landpatch,n_irrig_steps_left    , compress)
-      CALL Ncio_write_vector (file_restart, 'waterstorage          ' , 'patch',landpatch,waterstorage          , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
+      CALL ncio_write_vector (file_restart, 'sum_irrig             ' , 'patch',landpatch,sum_irrig             , compress)
+      CALL ncio_write_vector (file_restart, 'sum_deficit_irrig     ' , 'patch',landpatch,sum_deficit_irrig     , compress)
+      CALL ncio_write_vector (file_restart, 'sum_irrig_count       ' , 'patch',landpatch,sum_irrig_count       , compress)
+      CALL ncio_write_vector (file_restart, 'n_irrig_steps_left    ' , 'patch',landpatch,n_irrig_steps_left    , compress)
+      CALL ncio_write_vector (file_restart, 'waterstorage          ' , 'patch',landpatch,waterstorage          , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_corn     ' , 'patch',landpatch,irrig_method_corn     , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_swheat   ' , 'patch',landpatch,irrig_method_swheat   , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_wwheat   ' , 'patch',landpatch,irrig_method_wwheat   , compress)
@@ -1186,9 +1186,9 @@ IF (DEF_USE_IRRIGATION) THEN
       CALL ncio_write_vector (file_restart, 'irrig_method_rice1    ' , 'patch',landpatch,irrig_method_rice1    , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_rice2    ' , 'patch',landpatch,irrig_method_rice2    , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_sugarcane' , 'patch',landpatch,irrig_method_sugarcane, compress)
-      CALL Ncio_write_vector (file_restart, 'irrig_gw_alloc        ' , 'patch',landpatch,irrig_gw_alloc        , compress)
-      CALL Ncio_write_vector (file_restart, 'irrig_sw_alloc        ' , 'patch',landpatch,irrig_sw_alloc        , compress)
-      CALL Ncio_write_vector (file_restart, 'zwt_stand             ' , 'patch',landpatch,zwt_stand             , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_gw_alloc        ' , 'patch',landpatch,irrig_gw_alloc        , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_sw_alloc        ' , 'patch',landpatch,irrig_sw_alloc        , compress)
+      CALL ncio_write_vector (file_restart, 'zwt_stand             ' , 'patch',landpatch,zwt_stand             , compress)
 ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)

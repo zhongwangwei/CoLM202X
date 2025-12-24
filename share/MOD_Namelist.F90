@@ -447,8 +447,14 @@ MODULE MOD_Namelist
    integer            :: DEF_DA_RTM_diel   = 0
    integer            :: DEF_DA_RTM_rough  = 0
 
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+! ----- Part 14: parameter optimization -----
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+   logical :: DEF_Optimize_Baseflow = .false.
+
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-! ----- Part 14: history and restart -----
+! ----- Part 15: history and restart -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
    logical  :: DEF_HISTORY_IN_VECTOR            = .false.
@@ -846,6 +852,7 @@ MODULE MOD_Namelist
       logical :: wice_soisno                      = .true.
 
       logical :: h2osoi                           = .true.
+      logical :: qlayer                           = .true.
       logical :: rstfacsun                        = .true.
       logical :: rstfacsha                        = .true.
       logical :: gssun                            = .true.
@@ -1137,6 +1144,8 @@ CONTAINS
       DEF_DA_SM_SYNOP,                        &
       DEF_DA_RTM_diel,                        &
       DEF_DA_RTM_rough,                       &
+
+      DEF_Optimize_Baseflow,                  &
 
       DEF_forcing_namelist,                   &
 
@@ -1707,6 +1716,8 @@ CONTAINS
       CALL mpi_bcast (DEF_DA_RTM_diel                        ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_DA_RTM_rough                       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
 
+      CALL mpi_bcast (DEF_Optimize_Baseflow                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+
       CALL mpi_bcast (DEF_Aerosol_Readin                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Aerosol_Clim                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
@@ -2260,6 +2271,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%wice_soisno , set_defaults)
 
       CALL sync_hist_vars_one (DEF_hist_vars%h2osoi      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%qlayer      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsun   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsha   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%gssun       , set_defaults)

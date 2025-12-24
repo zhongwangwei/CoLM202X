@@ -386,6 +386,7 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_wliq_soisno (:,:)
    real(r8), allocatable :: a_wice_soisno (:,:)
    real(r8), allocatable :: a_h2osoi      (:,:)
+   real(r8), allocatable :: a_qlayer      (:,:)
    real(r8), allocatable :: a_rootr       (:,:)
    real(r8), allocatable :: a_BD_all      (:,:)
    real(r8), allocatable :: a_wfc         (:,:)
@@ -863,6 +864,7 @@ CONTAINS
             allocate (a_wliq_soisno (maxsnl+1:nl_soil,numpatch))
             allocate (a_wice_soisno (maxsnl+1:nl_soil,numpatch))
             allocate (a_h2osoi      (1:nl_soil,       numpatch))
+            allocate (a_qlayer      (0:nl_soil,       numpatch))
             allocate (a_rootr       (1:nl_soil,       numpatch))
             allocate (a_BD_all      (1:nl_soil,       numpatch))
             allocate (a_wfc         (1:nl_soil,       numpatch))
@@ -1348,6 +1350,7 @@ CONTAINS
             deallocate (a_wliq_soisno )
             deallocate (a_wice_soisno )
             deallocate (a_h2osoi      )
+            deallocate (a_qlayer      )
             deallocate (a_rootr       )
             deallocate (a_BD_all      )
             deallocate (a_wfc         )
@@ -1828,6 +1831,7 @@ CONTAINS
             a_wliq_soisno  (:,:) = spval
             a_wice_soisno  (:,:) = spval
             a_h2osoi       (:,:) = spval
+            a_qlayer       (:,:) = spval
             a_rootr        (:,:) = spval
             a_BD_all       (:,:) = spval
             a_wfc          (:,:) = spval
@@ -2441,6 +2445,7 @@ CONTAINS
             CALL acc2d (wice_soisno, a_wice_soisno   )
 
             CALL acc2d (h2osoi     , a_h2osoi        )
+            CALL acc2d (qlayer     , a_qlayer        )
             CALL acc2d (rootr      , a_rootr         )
             CALL acc2d (BD_all     , a_BD_all        )
             CALL acc2d (wfc        , a_wfc           )

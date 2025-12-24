@@ -378,7 +378,7 @@ CONTAINS
                dt_this = dt_all(irivsys(i))
 
                ! constraint 1: CFL condition (only for rivers)
-               IF (lake_id(i) == 0) THEN
+               IF ((lake_id(i) == 0) .and. (riverdown(i) /= -1)) THEN
                   IF ((veloc_riv(i) /= 0.) .or. (wdsrf_bsn(i) > 0.)) THEN
                      dt_this = min(dt_this, riverlen(i)/(abs(veloc_riv(i))+sqrt(grav*wdsrf_bsn(i)))*0.8)
                   ENDIF
