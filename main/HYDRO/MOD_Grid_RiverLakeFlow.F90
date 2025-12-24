@@ -16,6 +16,9 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_Reservoir
    USE MOD_Grid_RiverLakeHist
+#ifdef GridRiverLakeSediment
+   USE MOD_Grid_RiverLakeSediment, only: grid_sediment_calc, sediment_diag_accumulate
+#endif
    IMPLICIT NONE
 
    real(r8), parameter :: RIVERMIN  = 1.e-5_r8
@@ -64,7 +67,7 @@ CONTAINS
    SUBROUTINE grid_riverlake_flow (year, deltime)
 
    USE MOD_Utils
-   USE MOD_Namelist,       only: DEF_Reservoir_Method
+   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT
    USE MOD_Vars_1DFluxes,  only: rnof
    USE MOD_Mesh,           only: numelm
    USE MOD_LandPatch,      only: elm_patch
@@ -566,6 +569,18 @@ CONTAINS
 
             dt_res = dt_res - dt_all
 
+#ifdef GridRiverLakeSediment
+            ! Accumulate water variables for sediment calculation
+            IF (DEF_USE_SEDIMENT) THEN
+               DO i = 1, numucat
+                  IF (ucatfilter(i)) THEN
+                     CALL sediment_diag_accumulate(dt_all(irivsys(i)), &
+                        veloc_riv(i:i), wdsrf_ucat(i:i))
+                  ENDIF
+               ENDDO
+            ENDIF
+#endif
+
          ENDDO
 
 #ifdef CoLMDEBUG
@@ -603,6 +618,12 @@ CONTAINS
          write(*,'(A,ES8.1,A)') 'Total discharge :     ', totaldis,  ' m^3'
          write(*,'(A,ES8.1,A)') 'Total water change :  ', totalvol_aft-totalvol_bef,  ' m^3'
          write(*,'(A,ES8.1,A)') 'Total water balance : ', totalvol_aft-totalvol_bef-totalrnof+totaldis,  ' m^3'
+      ENDIF
+#endif
+
+#ifdef GridRiverLakeSediment
+      IF (DEF_USE_SEDIMENT) THEN
+         CALL grid_sediment_calc(acctime_rnof_max)
       ENDIF
 #endif
 
