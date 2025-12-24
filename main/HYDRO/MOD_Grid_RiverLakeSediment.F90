@@ -864,6 +864,42 @@ CONTAINS
    END SUBROUTINE calc_layer_redistribution
 
    !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_sediment_yield(fldfrc, grarea)
+   ! Calculate sediment yield from precipitation
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: fldfrc(:)   ! Flooded fraction
+   real(r8), intent(in) :: grarea(:)   ! Grid area [m2]
+
+   real(r8) :: precip_mm
+   integer  :: i, ilyr
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      sedinp(:,:) = 0._r8
+
+      DO i = 1, numucat
+         ! Convert precip from mm/s or kg/m2/s to mm/day for threshold
+         precip_mm = sed_precip(i) * 86400._r8
+
+         IF (precip_mm <= 10._r8) CYCLE
+
+         ! Calculate erosion for each floodplain layer
+         DO ilyr = 1, nlfp_sed
+            IF (fldfrc(i) * nlfp_sed > real(ilyr, r8)) CYCLE  ! No erosion if submerged
+
+            sedinp(:,i) = sedinp(:,i) + &
+               pyld * (sed_precip(i) * 3600._r8)**pyldpc * sed_slope(ilyr,i)**pyldc / 3600._r8 &
+               * grarea(i) * min(real(ilyr, r8)/real(nlfp_sed, r8) - fldfrc(i), 1._r8/real(nlfp_sed, r8)) &
+               * dsylunit * sed_frc(:,i)
+         ENDDO
+      ENDDO
+
+   END SUBROUTINE calc_sediment_yield
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
