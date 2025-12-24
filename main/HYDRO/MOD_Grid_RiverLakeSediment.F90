@@ -255,15 +255,24 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE calc_settling_velocities()
    ! Calculate settling velocity using Stokes-Rubey formula
-   ! TO BE IMPLEMENTED IN TASK 2.3
    !-------------------------------------------------------------------------------------
+   USE MOD_Const_Physical, only: grav
    IMPLICIT NONE
-      ! Placeholder stub
+   real(r8) :: sTmp
+   integer :: i
+
       allocate(setvel(nsed))
-      setvel(:) = 0.001_r8  ! Default settling velocity
+
+      DO i = 1, nsed
+         sTmp = 6.0_r8 * visKin / sDiam(i)
+         setvel(i) = sqrt(2.0_r8/3.0_r8 * (psedD-pwatD)/pwatD * grav * sDiam(i) &
+                    + sTmp*sTmp) - sTmp
+      ENDDO
+
       IF (p_is_io) THEN
-         WRITE(*,*) 'WARNING: calc_settling_velocities is a placeholder stub'
+         WRITE(*,*) 'Settling velocities (m/s):', setvel
       ENDIF
+
    END SUBROUTINE calc_settling_velocities
 
    !-------------------------------------------------------------------------------------
