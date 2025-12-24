@@ -775,6 +775,95 @@ CONTAINS
    END SUBROUTINE calc_sediment_exchange
 
    !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_layer_redistribution(rivwth, rivlen)
+   ! Redistribute sediment into vertical bed layers
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: rivwth(:)
+   real(r8), intent(in) :: rivlen(:)
+
+   real(r8) :: lyrvol, diff
+   real(r8) :: layerP(nsed), seddepP(totlyrnum+1, nsed), tmp(nsed)
+   integer  :: i, ilyr, jlyr, slyr
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      DO i = 1, numucat
+         lyrvol = lyrdph * rivwth(i) * rivlen(i)
+
+         ! Ensure non-negative values
+         layer(:,i) = max(layer(:,i), 0._r8)
+         seddep(:,:,i) = max(seddep(:,:,i), 0._r8)
+
+         ! If total bed storage less than layer volume
+         IF (sum(layer(:,i)) + sum(seddep(:,:,i)) <= lyrvol) THEN
+            layer(:,i) = layer(:,i) + sum(seddep(:,:,i), dim=2)
+            seddep(:,:,i) = 0._r8
+            CYCLE
+         ENDIF
+
+         ! Distribute into top exchange layer
+         layerP(:) = layer(:,i)
+         IF (sum(layerP(:)) >= lyrvol) THEN
+            layer(:,i) = layerP(:) * min(lyrvol / sum(layerP(:)), 1._r8)
+            layerP(:) = max(layerP(:) - layer(:,i), 0._r8)
+            slyr = 0
+         ELSEIF (sum(seddep(:,:,i)) > 0._r8) THEN
+            layerP(:) = 0._r8
+            DO ilyr = 1, totlyrnum
+               diff = lyrvol - sum(layer(:,i))
+               IF (diff <= 0._r8) EXIT
+               IF (sum(seddep(:,ilyr,i)) <= diff) THEN
+                  layer(:,i) = layer(:,i) + seddep(:,ilyr,i)
+                  seddep(:,ilyr,i) = 0._r8
+                  slyr = ilyr + 1
+               ELSE
+                  tmp(:) = diff * seddep(:,ilyr,i) / sum(seddep(:,ilyr,i))
+                  layer(:,i) = layer(:,i) + tmp(:)
+                  seddep(:,ilyr,i) = max(seddep(:,ilyr,i) - tmp(:), 0._r8)
+                  slyr = ilyr
+                  EXIT
+               ENDIF
+            ENDDO
+         ELSE
+            seddep(:,:,i) = 0._r8
+            CYCLE
+         ENDIF
+
+         IF (sum(seddep(:,:,i)) == 0._r8) CYCLE
+
+         ! Distribute remaining bedload into vertical deposition layers
+         seddepP(1,:) = layerP(:)
+         seddepP(2:,:) = seddep(:,:,i)
+         seddep(:,:,i) = 0._r8
+
+         DO ilyr = 1, totlyrnum - 1
+            IF (sum(seddep(:,ilyr,i)) == lyrvol) CYCLE
+            DO jlyr = slyr + 1, totlyrnum + 1
+               diff = lyrvol - sum(seddep(:,ilyr,i))
+               IF (diff <= 0._r8) EXIT
+               IF (sum(seddepP(jlyr,:)) <= diff) THEN
+                  seddep(:,ilyr,i) = seddep(:,ilyr,i) + seddepP(jlyr,:)
+                  seddepP(jlyr,:) = 0._r8
+               ELSE
+                  tmp(:) = diff * seddepP(jlyr,:) / sum(seddepP(jlyr,:))
+                  seddep(:,ilyr,i) = seddep(:,ilyr,i) + tmp(:)
+                  seddepP(jlyr,:) = max(seddepP(jlyr,:) - tmp(:), 0._r8)
+                  EXIT
+               ENDIF
+            ENDDO
+         ENDDO
+
+         IF (sum(seddepP) > 0._r8) THEN
+            seddep(:,totlyrnum,i) = sum(seddepP, dim=1)
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE calc_layer_redistribution
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
