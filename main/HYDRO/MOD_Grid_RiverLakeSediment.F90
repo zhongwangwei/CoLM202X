@@ -538,6 +538,144 @@ CONTAINS
    END SUBROUTINE calc_suspend_velocity
 
    !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_sediment_advection(dt, rivout, rivsto)
+   ! Calculate suspended sediment and bedload advection
+   !-------------------------------------------------------------------------------------
+   USE MOD_Const_Physical, only: grav
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_next, topo_rivwth, push_next2ucat
+   USE MOD_WorkerPushData
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: dt           ! Time step [s]
+   real(r8), intent(in) :: rivout(:)    ! River outflow [m3/s]
+   real(r8), intent(in) :: rivsto(:)    ! River storage [m3]
+
+   real(r8), allocatable :: sedsto(:,:)       ! Sediment storage [nsed, numucat]
+   real(r8), allocatable :: bOut(:,:), sOut(:,:)
+   real(r8), allocatable :: brate(:,:), srate(:,:)
+   real(r8), allocatable :: sedcon_next(:,:)
+
+   integer  :: i, ised, i0, i1
+   real(r8) :: plusVel, minusVel
+   real(r8) :: layer_sum
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      allocate(sedsto(nsed, numucat))
+      allocate(bOut  (nsed, numucat))
+      allocate(sOut  (nsed, numucat))
+      allocate(brate (nsed, numucat))
+      allocate(srate (nsed, numucat))
+      allocate(sedcon_next(nsed, numucat))
+
+      ! Calculate sediment storage from concentration
+      DO i = 1, numucat
+         sedsto(:,i) = sedcon(:,i) * max(rivsto(i), 0._r8)
+      ENDDO
+
+      ! Get downstream sediment concentration
+      DO ised = 1, nsed
+         CALL worker_push_data(push_next2ucat, sedcon(ised,:), sedcon_next(ised,:), &
+            fillvalue = 0._r8)
+      ENDDO
+
+      bOut(:,:) = 0._r8
+      sOut(:,:) = 0._r8
+
+      ! Calculate outflows
+      DO i = 1, numucat
+         IF (rivout(i) >= 0._r8) THEN
+            i0 = i
+            i1 = ucat_next(i)
+         ELSE
+            i0 = ucat_next(i)
+            i1 = i
+         ENDIF
+
+         IF (rivout(i) == 0._r8) THEN
+            sedout(:,i) = 0._r8
+            bedout(:,i) = 0._r8
+            CYCLE
+         ENDIF
+
+         ! Suspended sediment outflow
+         IF (i0 < 0) THEN
+            sedout(:,i) = sedcon(:,i1) * rivout(i)
+         ELSE
+            sedout(:,i) = sedcon(:,i0) * rivout(i)
+            sOut(:,i0) = sOut(:,i0) + abs(sedout(:,i)) * dt
+         ENDIF
+
+         ! Bedload outflow
+         layer_sum = sum(layer(:,i))
+         IF (all(critshearvel(:,i) >= shearvel(i)) .or. layer_sum == 0._r8 .or. i0 < 0) THEN
+            bedout(:,i) = 0._r8
+         ELSE
+            DO ised = 1, nsed
+               IF (critshearvel(ised,i) >= shearvel(i) .or. layer(ised,i) == 0._r8) THEN
+                  bedout(ised,i) = 0._r8
+                  CYCLE
+               ENDIF
+               plusVel = shearvel(i) + critshearvel(ised,i)
+               minusVel = shearvel(i) - critshearvel(ised,i)
+               bedout(ised,i) = 17._r8 * topo_rivwth(i) * plusVel * minusVel * minusVel &
+                  / ((psedD-pwatD)/pwatD) / grav * layer(ised,i) / layer_sum
+               IF (i0 > 0) bOut(ised,i0) = bOut(ised,i0) + bedout(ised,i) * dt
+            ENDDO
+         ENDIF
+      ENDDO
+
+      ! Adjust outflow if larger than available storage
+      brate(:,:) = 1._r8
+      srate(:,:) = 1._r8
+
+      DO i = 1, numucat
+         DO ised = 1, nsed
+            IF (sOut(ised,i) > 1.e-8_r8) THEN
+               srate(ised,i) = min(sedsto(ised,i) / sOut(ised,i), 1._r8)
+            ENDIF
+            IF (bOut(ised,i) > 1.e-8_r8) THEN
+               brate(ised,i) = min(layer(ised,i) / bOut(ised,i), 1._r8)
+            ENDIF
+         ENDDO
+      ENDDO
+
+      ! Apply adjusted outflows and update storage
+      DO i = 1, numucat
+         IF (rivout(i) >= 0._r8) THEN
+            i0 = i
+            i1 = ucat_next(i)
+         ELSE
+            i0 = ucat_next(i)
+            i1 = i
+         ENDIF
+
+         IF (i0 > 0) THEN
+            sedout(:,i) = sedout(:,i) * srate(:,i0)
+            sedsto(:,i0) = max(sedsto(:,i0) - abs(sedout(:,i)) * dt, 0._r8)
+            bedout(:,i) = bedout(:,i) * brate(:,i0)
+            layer(:,i0) = max(layer(:,i0) - abs(bedout(:,i)) * dt, 0._r8)
+         ENDIF
+
+         IF (i1 > 0) THEN
+            sedsto(:,i1) = max(sedsto(:,i1) + abs(sedout(:,i)) * dt, 0._r8)
+            layer(:,i1) = max(layer(:,i1) + abs(bedout(:,i)) * dt, 0._r8)
+         ENDIF
+      ENDDO
+
+      ! Update concentration from storage
+      DO i = 1, numucat
+         IF (rivsto(i) > 0._r8) THEN
+            sedcon(:,i) = sedsto(:,i) / rivsto(i)
+         ENDIF
+      ENDDO
+
+      deallocate(sedsto, bOut, sOut, brate, srate, sedcon_next)
+
+   END SUBROUTINE calc_sediment_advection
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
