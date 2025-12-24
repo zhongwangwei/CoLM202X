@@ -165,30 +165,151 @@ CONTAINS
    SUBROUTINE grid_sediment_calc(deltime)
    ! Main sediment calculation routine
    !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, topo_rivwth, topo_rivlen, &
+      topo_rivman, topo_area
+   USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_ucat, veloc_riv
+   USE MOD_Grid_RiverLakeHist, only: a_floodarea
    IMPLICIT NONE
+
    real(r8), intent(in) :: deltime
-      ! Placeholder - to be implemented
-      WRITE(*,*) 'MOD_Grid_RiverLakeSediment: grid_sediment_calc called, dt=', deltime
+
+   real(r8) :: sed_time_remaining, dt_sed
+   real(r8) :: avg_veloc, avg_wdsrf
+   real(r8), allocatable :: rivsto(:), rivout(:), fldfrc(:)
+   integer  :: i, ised
+
+      IF (.not. DEF_USE_SEDIMENT) RETURN
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      allocate(rivsto(numucat))
+      allocate(rivout(numucat))
+      allocate(fldfrc(numucat))
+
+      sed_time_remaining = deltime
+
+      DO WHILE (sed_time_remaining > 0._r8)
+
+         dt_sed = min(sed_time_remaining, DEF_SED_DT_MAX)
+
+         ! Calculate average water flow variables
+         IF (sed_acc_time > 0._r8) THEN
+            DO i = 1, numucat
+               avg_veloc = sed_acc_veloc(i) / sed_acc_time
+               avg_wdsrf = sed_acc_wdsrf(i) / sed_acc_time
+
+               ! Calculate shear velocity
+               shearvel(i) = calc_shear_velocity(avg_veloc, avg_wdsrf, topo_rivman(i))
+
+               ! Calculate critical shear velocity (Egiazoroff)
+               CALL calc_critical_shear_egiazoroff(i, shearvel(i), critshearvel(:,i))
+
+               ! Calculate suspension velocity
+               CALL calc_suspend_velocity(critshearvel(:,i), shearvel(i), susvel(:,i))
+
+               ! Estimate river storage and outflow
+               rivsto(i) = avg_wdsrf * topo_rivwth(i) * topo_rivlen(i)
+               rivout(i) = avg_veloc * avg_wdsrf * topo_rivwth(i)
+
+               ! Estimate flooded fraction
+               IF (a_floodarea(i) > 0._r8 .and. topo_area(i) > 0._r8) THEN
+                  fldfrc(i) = a_floodarea(i) / topo_area(i) / sed_acc_time
+               ELSE
+                  fldfrc(i) = 0._r8
+               ENDIF
+            ENDDO
+         ENDIF
+
+         ! Calculate sediment yield from precipitation
+         CALL calc_sediment_yield(fldfrc, topo_area)
+
+         ! Calculate advection
+         CALL calc_sediment_advection(dt_sed, rivout, rivsto)
+
+         ! Calculate suspension-deposition exchange
+         CALL calc_sediment_exchange(dt_sed, rivsto, topo_rivwth, topo_rivlen)
+
+         ! Redistribute bed layers
+         CALL calc_layer_redistribution(topo_rivwth, topo_rivlen)
+
+         ! Accumulate for output
+         CALL accumulate_sediment_output(dt_sed)
+
+         sed_time_remaining = sed_time_remaining - dt_sed
+      ENDDO
+
+      ! Reset accumulation variables
+      sed_acc_time = 0._r8
+      sed_acc_veloc(:) = 0._r8
+      sed_acc_wdsrf(:) = 0._r8
+      sed_precip(:) = 0._r8
+
+      deallocate(rivsto, rivout, fldfrc)
+
    END SUBROUTINE grid_sediment_calc
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE accumulate_sediment_output(dt)
+   ! Accumulate sediment variables for history output
+   !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+   real(r8), intent(in) :: dt
+   integer :: i
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      DO i = 1, numucat
+         a_sedcon(:,i) = a_sedcon(:,i) + sedcon(:,i) * dt
+         a_sedout(:,i) = a_sedout(:,i) + sedout(:,i) * dt
+         a_bedout(:,i) = a_bedout(:,i) + bedout(:,i) * dt
+         a_sedinp(:,i) = a_sedinp(:,i) + sedinp(:,i) * dt
+         a_netflw(:,i) = a_netflw(:,i) + netflw(:,i) * dt
+         a_layer(:,i)  = a_layer(:,i)  + layer(:,i)  * dt
+         a_shearvel(i) = a_shearvel(i) + shearvel(i) * dt
+      ENDDO
+
+   END SUBROUTINE accumulate_sediment_output
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE sediment_diag_accumulate(dt, veloc, wdsrf)
    ! Accumulate water flow variables for sediment calculation
    !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
    real(r8), intent(in) :: dt
    real(r8), intent(in) :: veloc(:)
    real(r8), intent(in) :: wdsrf(:)
-      ! Placeholder - to be implemented
+   integer :: i
+
+      IF (.not. DEF_USE_SEDIMENT) RETURN
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      sed_acc_time = sed_acc_time + dt
+
+      DO i = 1, numucat
+         sed_acc_veloc(i) = sed_acc_veloc(i) + veloc(i) * dt
+         sed_acc_wdsrf(i) = sed_acc_wdsrf(i) + wdsrf(i) * dt
+      ENDDO
+
    END SUBROUTINE sediment_diag_accumulate
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE sediment_forcing_put(precip)
    ! Store precipitation for sediment yield calculation
    !-------------------------------------------------------------------------------------
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
    real(r8), intent(in) :: precip(:)
-      ! Placeholder - to be implemented
+
+      IF (.not. DEF_USE_SEDIMENT) RETURN
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      sed_precip(:) = precip(:)
+
    END SUBROUTINE sediment_forcing_put
 
    !-------------------------------------------------------------------------------------
