@@ -39,8 +39,8 @@ MODULE MOD_Grid_RiverLakeSediment
    !-------------------------------------------------------------------------------------
    ! Static Data (read from DEF_UnitCatchment_file)
    !-------------------------------------------------------------------------------------
-   real(r8), allocatable :: sed_frc   (:,:)    ! Sediment fraction [numucat, nsed]
-   real(r8), allocatable :: sed_slope (:,:)    ! Floodplain slope [numucat, nlfp]
+   real(r8), allocatable :: sed_frc   (:,:)    ! Sediment fraction [nsed, numucat]
+   real(r8), allocatable :: sed_slope (:,:)    ! Floodplain slope [nlfp_sed, numucat]
    real(r8), allocatable :: sDiam     (:)      ! Grain diameter [nsed]
    real(r8), allocatable :: setvel    (:)      ! Settling velocity [nsed]
 
