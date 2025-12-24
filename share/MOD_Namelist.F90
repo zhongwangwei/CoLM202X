@@ -974,6 +974,15 @@ MODULE MOD_Namelist
       logical :: qresv_in                         = .true.
       logical :: qresv_out                        = .true.
 
+      logical :: sedcon                           = .true.
+      logical :: sedout                           = .true.
+      logical :: bedout                           = .true.
+      logical :: sedinp                           = .true.
+      logical :: netflw                           = .true.
+      logical :: sedlayer                         = .true.
+      logical :: shearvel                         = .false.
+      logical :: critshear                        = .false.
+
       logical :: sensors                          = .true.
 
    END type history_var_type
@@ -2386,6 +2395,15 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%volresv     , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qresv_in    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qresv_out   , set_defaults)
+
+      CALL sync_hist_vars_one (DEF_hist_vars%sedcon      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sedout      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%bedout      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sedinp      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%netflw      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%sedlayer    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%shearvel    , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%critshear   , set_defaults)
 
       CALL sync_hist_vars_one (DEF_hist_vars%sensors     , set_defaults)
 
