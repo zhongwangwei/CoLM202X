@@ -442,6 +442,73 @@ CONTAINS
    END FUNCTION calc_shear_velocity
 
    !-------------------------------------------------------------------------------------
+   FUNCTION calc_critical_shear_velocity(diam) RESULT(csvel)
+   ! Calculate critical shear velocity using Shields curve
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+   real(r8), intent(in) :: diam    ! Grain diameter [m]
+   real(r8) :: csvel               ! [(cm/s)^2]
+   real(r8) :: cA, cB
+
+      cB = 1._r8
+      IF (diam >= 0.00303_r8) THEN
+         cA = 80.9_r8
+      ELSEIF (diam >= 0.00118_r8) THEN
+         cA = 134.6_r8
+         cB = 31._r8 / 32._r8
+      ELSEIF (diam >= 0.000565_r8) THEN
+         cA = 55._r8
+      ELSEIF (diam >= 0.000065_r8) THEN
+         cA = 8.41_r8
+         cB = 11._r8 / 32._r8
+      ELSE
+         cA = 226._r8
+      ENDIF
+
+      csvel = cA * (diam * 100._r8) ** cB
+
+   END FUNCTION calc_critical_shear_velocity
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE calc_critical_shear_egiazoroff(i, svel, csvel_out)
+   ! Calculate critical shear velocity using Egiazoroff equation for mixed-size sediment
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+   integer,  intent(in)  :: i           ! Unit catchment index
+   real(r8), intent(in)  :: svel        ! Shear velocity [m/s]
+   real(r8), intent(out) :: csvel_out(nsed)
+
+   real(r8) :: dMean, csVel0
+   integer  :: ised
+   real(r8) :: layer_sum
+
+      layer_sum = sum(layer(:,i))
+
+      IF (layer_sum <= 0._r8) THEN
+         csvel_out(:) = 1.e20_r8
+         RETURN
+      ENDIF
+
+      ! Calculate mean diameter
+      dMean = 0._r8
+      DO ised = 1, nsed
+         dMean = dMean + sDiam(ised) * layer(ised,i) / layer_sum
+      ENDDO
+
+      csVel0 = calc_critical_shear_velocity(dMean)
+
+      DO ised = 1, nsed
+         IF (sDiam(ised) / dMean >= 0.4_r8) THEN
+            csvel_out(ised) = sqrt(csVel0 * sDiam(ised) / dMean) * &
+               (log10(19._r8) / log10(19._r8 * sDiam(ised) / dMean)) * 0.01_r8
+         ELSE
+            csvel_out(ised) = sqrt(0.85_r8 * csVel0) * 0.01_r8
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE calc_critical_shear_egiazoroff
+
+   !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_final()
    ! Cleanup sediment module
    !-------------------------------------------------------------------------------------
