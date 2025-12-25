@@ -33,6 +33,15 @@ CONTAINS
    END SUBROUTINE ParameterOptimization
 
    ! -----
+   SUBROUTINE ParaOpt_EndOfSpinup ()
+
+   IMPLICIT NONE
+
+      CALL Opt_Baseflow_EndOfSpinup ()
+
+   END SUBROUTINE ParaOpt_EndOfSpinup
+
+   ! -----
    SUBROUTINE ParaOpt_final ()
 
    IMPLICIT NONE

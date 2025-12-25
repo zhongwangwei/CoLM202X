@@ -641,7 +641,7 @@ ENDIF
         rsur_ie          , &! infiltration excess surface runoff (mm h2o/s)
         rnof             , &! total runoff (mm h2o/s)
         qinfl            , &! infiltration rate (mm h2o/s)
-        qlayer(0:nl_soil)   ! water flux at between soil layer [mm h2o/s]
+        qlayer(0:nl_soil)   ! water flux between soil layer [mm h2o/s]
 
 
 

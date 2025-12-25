@@ -170,6 +170,22 @@ CONTAINS
    END SUBROUTINE BaseFlow_Optimize
 
    ! -----
+   SUBROUTINE Opt_Baseflow_EndOfSpinup ()
+
+   USE MOD_LandPatch, only: numpatch
+   IMPLICIT NONE
+
+      IF (DEF_Optimize_Baseflow) THEN
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               mask_bf_opt(:) = .true.
+            ENDIF
+         ENDIF
+      ENDIF
+
+   END SUBROUTINE Opt_Baseflow_EndOfSpinup
+
+   ! -----
    SUBROUTINE Opt_Baseflow_final ()
 
    IMPLICIT NONE

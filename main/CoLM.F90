@@ -481,7 +481,9 @@ PROGRAM CoLM
 #endif
 
 #if (defined GridRiverLakeFlow)
-         CALL grid_riverlake_flow (idate(1), deltim)
+         IF ((.not. DEF_Optimize_Baseflow) .or. end_of_spinup) THEN
+            CALL grid_riverlake_flow (idate(1), deltim)
+         ENDIF
 #endif
 
 #if (defined CaMa_Flood)
@@ -632,9 +634,10 @@ PROGRAM CoLM
          IF (ptstamp <= itstamp) THEN
             IF (.not. end_of_spinup) THEN
                CALL CheckEquilibrium_EndOfSpinup ()
-               IF (DEF_Optimize_Baseflow) mask_bf_opt(:) = .true.
-               end_of_spinup = .true.
+               CALL ParaOpt_EndOfSpinup          ()
             ENDIF
+
+            end_of_spinup = .true.
 
             IF (p_is_master) write(*,'(/,A)') trim(spinup_warning)
          ENDIF
