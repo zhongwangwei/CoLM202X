@@ -1307,6 +1307,7 @@ ENDIF
             CALL flux_frac_init              ( )
             CALL leaf_property_init          ( rho_p, tau_p )
             CALL get_water_optical_properties( )
+            CALL readin_urban_albedo         ( )
 #endif
             CALL iniTimeVar(i, patchtype(i)&
                ,porsl(1:,i),psi0(1:,i),hksati(1:,i)&
@@ -1325,7 +1326,7 @@ ENDIF
                ,alb(1:,1:,i),ssun(1:,1:,i),ssha(1:,1:,i)&
                ,ssoi(1:,1:,i),ssno(1:,1:,i),ssno_lyr(1:,1:,:,i)&
 #ifdef HYPERSPECTRAL
-               ,alb_hires(1:,1:,i),&
+               ,alb_hires(1:,1:,i)&
 #endif
                ,thermk(i),extkb(i),extkd(i)&
                ,trad(i),tref(i),qref(i),rst(i),emis(i),zol(i),rib(i)&
@@ -1335,6 +1336,8 @@ ENDIF
                ,clr_frac, cld_frac &
                ,reflectance(0:,1:,1:), transmittance(0:,1:,1:), soil_alb(1:,i), kw(1:), nw(1:)&
                ,reflectance_out(:,:,i), transmittance_out(:,:,i)&
+               ,patchlatr(i), patchlonr(i)&
+               ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
 #endif
 #ifdef BGC
                ,use_cnini, totlitc(i), totsomc(i), totcwdc(i), decomp_cpools(:,i), decomp_cpools_vr(:,:,i) &

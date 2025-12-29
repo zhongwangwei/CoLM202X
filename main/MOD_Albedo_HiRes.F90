@@ -49,7 +49,7 @@ CONTAINS
                       doy, patchlatr, patchlonr         ,& 
                       ! new parameters for urban
                       urban_albedo, mean_albedo         ,&
-                      lat_north, lat_south, lat_west, lat_east)
+                      lat_north, lat_south, lon_west, lon_east)
 
 !=======================================================================
 ! Calculates fragmented albedos (direct and diffuse) in
@@ -99,7 +99,7 @@ CONTAINS
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
    USE MOD_Vars_PFTimeInvariants
    USE MOD_Vars_PFTimeVariables
-   ! USE MOD_HighRes_Parameters
+   USE MOD_HighRes_Parameters, only: rad2deg
 #endif
    USE MOD_Aerosol, only: AerosolMasses
    USE MOD_SnowSnicar_HiRes, only: SnowAge_grain
@@ -205,7 +205,7 @@ CONTAINS
       urban_albedo(:,:,:),    &! (cluster_id, season,wavelength)
       mean_albedo(:, :),      &! (season, wavelength)
       lat_north(:), lat_south(:),&
-      lat_west (:), lat_east(:)
+      lon_west (:), lon_east(:)
 
 
 !-------------------------- Local variables ----------------------------
@@ -299,6 +299,7 @@ CONTAINS
    real(r8) :: lat, lon
    INTEGER :: num_urban_lat, num_urban_lon
    INTEGER :: i_cluster
+   INTEGER :: season_index
 ! ----------------------------------------------------------------------
 ! 1. Initial set
 ! ----------------------------------------------------------------------
@@ -481,7 +482,6 @@ END IF
 
          ! 根据季节选择albedo
          ! 季节指数: 1=冬季, 2=春季, 3=夏季, 4=秋季
-         INTEGER :: season_index
          IF (doy >= 355 .or. doy < 80) THEN
             season_index = 1  ! 冬季
          ELSE IF (doy >= 80 .and. doy < 172) THEN

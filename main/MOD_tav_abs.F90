@@ -45,22 +45,22 @@ sa  = sin(theta*rd)
 if (theta.eq.90.) then
 	b1=0.
 else
-	b1  = dsqrt((sa**2-np/2)*(sa**2-np/2)+k)
+	b1  = sqrt((sa**2-np/2._r8)*(sa**2-np/2._r8)+k)
 endif
 
-b2  = sa**2-np/2
+b2  = sa**2-np/2._r8
 b   = b1-b2
 b3  = b**3
 a3  = a**3
-ts  = (k**2./(6*b3)+k/b-b/2)-(k**2./(6*a3)+k/a-a/2)
+ts  = (k**2./(6._r8*b3)+k/b-b/2._r8)-(k**2./(6._r8*a3)+k/a-a/2._r8)
 
-tp1 = -2*n2*(b-a)/(np**2)
-tp2 = -2*n2*np*dlog(b/a)/(nm**2)
-tp3 = n2*(1./b-1./a)/2
-tp4 = 16*n2**2.*(n2**2+1)*dlog((2*np*b-nm**2)/(2*np*a-nm**2))/(np**3.*nm**2)
-tp5 = 16*n2**3.*(1./(2*np*b-nm**2)-1./(2*np*a-nm**2))/(np**3)
+tp1 = -2._r8*n2*(b-a)/(np**2)
+tp2 = -2._r8*n2*np*log(b/a)/(nm**2)
+tp3 = n2*(1._r8/b-1._r8/a)/2._r8
+tp4 = 16._r8*n2**2._r8*(n2**2._r8+1._r8)*log((2._r8*np*b-nm**2)/(2._r8*np*a-nm**2))/(np**3._r8*nm**2)
+tp5 = 16._r8*n2**3._r8*(1._r8/(2._r8*np*b-nm**2)-1._r8/(2._r8*np*a-nm**2))/(np**3._r8)
 tp  = tp1+tp2+tp3+tp4+tp5
-tav = (ts+tp)/(2*sa**2)
+tav = (ts+tp)/(2._r8*sa**2)
 
 return
 end

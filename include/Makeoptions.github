@@ -4,8 +4,8 @@
 
   FF = mpif90 -fopenmp
    
-  NETCDF_LIB = /usr/lib/x86_64-linux-gnu
-  NETCDF_INC = /usr/include
+  NETCDF_LIB = /ddn_lustre/weiliren/apps/netcdf-gnu/lib
+  NETCDF_INC = /ddn_lustre/weiliren/apps/netcdf-gnu/include
 
   MOD_CMD = -J
 

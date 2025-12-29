@@ -27,6 +27,4 @@ MODULE MOD_Const_Physical
    real(r8), parameter :: vonkar = 0.4       ! von Karman constant [-]
    real(r8), parameter :: stefnc = 5.67e-8   ! Stefan-Boltzmann constant  [W/m2/K4]
 
-   real(r8), parameter :: rad2deg = 180.0/3.14159265358979323846 ! radians to degrees
-
 END MODULE MOD_Const_Physical
