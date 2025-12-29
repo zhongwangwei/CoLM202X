@@ -460,7 +460,7 @@ SUBROUTINE readin_urban_albedo()
                   trace=trim(file_path)//' cannot get varid' )
 
     ! 获取变量维度信息
-    CALL nccheck( nf90_inquire_variable(ncid, varid, ndims=ndims, dimids=dimids) , &
+    CALL nccheck( nf90_inquire_variable(ncid, albedo_varid, ndims=ndims, dimids=dimids) , &
                   trace=trim(file_path)//' cannot get var dims' )
 
     ! 获取各维度长度
@@ -473,8 +473,8 @@ SUBROUTINE readin_urban_albedo()
         allocate( urban_albedo(dimlen(1), dimlen(2), dimlen(3)) )   ! (cluster_id, season, wavelength)
     end if
 
-    if (.not. allocated(urban_albedo)) then
-        allocate( mean_urban_albedo(dimlen(2), dimlen(3)) )   ! (cluster_id, season, wavelength)
+    if (.not. allocated(mean_albedo)) then
+        allocate( mean_albedo(dimlen(2), dimlen(3)) )   ! (season, wavelength)
     end if
 
     if (.not. allocated(lat_north)) then
