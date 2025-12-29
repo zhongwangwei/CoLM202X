@@ -333,6 +333,18 @@ SUBROUTINE CoLMMAIN ( &
 
    integer , intent(in) :: &
         c3c4          ! 1 for C3, 2 for C4
+
+#ifdef HYPERSPECTRAL
+   ! Urban hyperspectral albedo
+   REAL(r8), ALLOCATABLE :: urban_albedo( :, :, : )    ! (cluster_id, season wavelength)
+   REAL(r8), ALLOCATABLE :: mean_albedo ( :, : )       ! (season, wavelength)
+   REAL(r8), ALLOCATABLE :: lat_north   ( :    )       ! (cluster_id)
+   REAL(r8), ALLOCATABLE :: lat_south   ( :    )       ! (cluster_id)
+   REAL(r8), ALLOCATABLE :: lon_east    ( :    )       ! (cluster_id)
+   REAL(r8), ALLOCATABLE :: lon_west    ( :    )       ! (cluster_id)
+
+#endif
+
 ! Forcing
 !-----------------------------------------------------------------------
    real(r8), intent(in) :: &
@@ -1609,7 +1621,7 @@ SUBROUTINE CoLMMAIN ( &
                  soil_alb, kw, nw, porsl(1)        ,&
                  reflectance_out, transmittance_out,&
                  idate(2), patchlatr, patchlonr    ,&
-                 urban_albedo, mean_albedo, lat_north, lat_south, lat_west, lat_east )
+                 urban_albedo, mean_albedo, lat_north, lat_south, lon_west, lon_east )
 
 #else
             CALL albland (ipatch,patchtype,deltim,&

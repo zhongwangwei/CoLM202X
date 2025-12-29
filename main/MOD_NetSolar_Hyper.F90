@@ -350,7 +350,7 @@ CONTAINS
          sr_dif_ln_hires  = spval
       ENDIF
 
-   END SUBROUTINE netsolar
+   END SUBROUTINE netsolar_hyper
 
 END MODULE MOD_NetSolar_Hyper
 ! ---------- EOP ------------

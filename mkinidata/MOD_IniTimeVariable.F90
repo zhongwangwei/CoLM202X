@@ -38,6 +38,8 @@ CONTAINS
                      ,clr_frac, cld_frac &
                      ,reflectance, transmittance, soil_alb, kw, nw&
                      ,reflectance_out, transmittance_out&
+                     ,patchlatr, patchlonr&
+                     ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
 #endif
 #if (defined BGC)
                      ,use_cnini, totlitc, totsomc, totcwdc, decomp_cpools, decomp_cpools_vr, ctrunc_veg, ctrunc_soil, ctrunc_vr &
@@ -128,6 +130,17 @@ CONTAINS
          reflectance    ( 0:15, 211, 2 )     ,&
          transmittance  ( 0:15, 211, 2 )     ,&
          soil_alb       ( 211 ), kw(211), nw(211)
+   
+   real(r8), intent(in) ::       &!
+         patchlatr,              &! patch latitude
+         patchlonr                ! patch longitude
+   ! Urban hyperspectral albedo
+   REAL(r8), ALLOCATABLE :: urban_albedo( :, :, : )    ! (cluster_id, season wavelength)
+   REAL(r8), ALLOCATABLE :: mean_albedo ( :, : )       ! (season, wavelength)
+   REAL(r8), ALLOCATABLE :: lat_north   ( :    )       ! (cluster_id)
+   REAL(r8), ALLOCATABLE :: lat_south   ( :    )       ! (cluster_id)
+   REAL(r8), ALLOCATABLE :: lon_east    ( :    )       ! (cluster_id)
+   REAL(r8), ALLOCATABLE :: lon_west    ( :    )       ! (cluster_id)
 #endif
    real(r8), intent(inout) ::    &
          z0m                      ! aerodynamic roughness length [m]
@@ -1191,7 +1204,10 @@ CONTAINS
             clr_frac(1:, 89, 1), cld_frac(1:, 1),     &
             reflectance, transmittance,               &
             soil_alb, kw, nw, 0.8,                    &
-            reflectance_out, transmittance_out, 1 )
+            reflectance_out, transmittance_out,       &
+            1, patchlatr, patchlonr,           &
+            urban_albedo, mean_albedo, lat_north, lat_south, lon_west, lon_east )
+
 #else
          CALL albland (ipatch,patchtype,1800.,soil_s_v_alb,soil_d_v_alb,soil_s_n_alb,soil_d_n_alb,&
             chil,rho,tau,fveg,green,lai,sai,fwet_snow,max(0.001,coszen),&
