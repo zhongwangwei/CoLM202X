@@ -655,7 +655,9 @@ CONTAINS
 
             DO ised = 1, nsed
                WHERE (acctime_ucat > 0.)
-                  a_sedcon_avg(ised,:) = a_sedcon(ised,:) / acctime_ucat
+                  ! Convert sedcon from volumetric [m³/m³] to mass [kg/m³]
+                  ! sedcon × psedD [g/cm³] × 1000 [kg/m³ per g/cm³]
+                  a_sedcon_avg(ised,:) = a_sedcon(ised,:) / acctime_ucat * DEF_SED_DENSITY * 1000._r8
                   a_sedout_avg(ised,:) = a_sedout(ised,:) / acctime_ucat
                   a_bedout_avg(ised,:) = a_bedout(ised,:) / acctime_ucat
                   a_sedinp_avg(ised,:) = a_sedinp(ised,:) / acctime_ucat

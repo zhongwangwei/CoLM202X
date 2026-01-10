@@ -18,7 +18,7 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeHist
 #ifdef GridRiverLakeSediment
    USE MOD_Grid_RiverLakeSediment, only: grid_sediment_init, grid_sediment_calc, &
-      sediment_diag_accumulate, sediment_forcing_put
+      sediment_diag_accumulate, sediment_diag_accumulate_time, sediment_forcing_put
 #endif
    IMPLICIT NONE
 
@@ -620,10 +620,12 @@ CONTAINS
             IF (DEF_USE_SEDIMENT) THEN
                DO i = 1, numucat
                   IF (ucatfilter(i)) THEN
-                     CALL sediment_diag_accumulate(dt_all(irivsys(i)), &
-                        veloc_riv(i:i), wdsrf_ucat(i:i))
+                     CALL sediment_diag_accumulate(dt_all(irivsys(i)), i, &
+                        veloc_riv(i), wdsrf_ucat(i))
                   ENDIF
                ENDDO
+               ! Accumulate time once per sub-timestep (use max dt across all river systems)
+               CALL sediment_diag_accumulate_time(maxval(dt_all))
             ENDIF
 #endif
 

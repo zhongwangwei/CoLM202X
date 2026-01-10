@@ -88,6 +88,7 @@ MODULE MOD_Grid_RiverLakeSediment
    PUBLIC :: grid_sediment_calc
    PUBLIC :: grid_sediment_final
    PUBLIC :: sediment_diag_accumulate
+   PUBLIC :: sediment_diag_accumulate_time
    PUBLIC :: sediment_forcing_put
 
 CONTAINS
@@ -218,6 +219,11 @@ CONTAINS
                   fldfrc(i) = 0._r8
                ENDIF
             ENDDO
+         ELSE
+            ! No accumulation yet - initialize to zero
+            rivsto(:) = 0._r8
+            rivout(:) = 0._r8
+            fldfrc(:) = 0._r8
          ENDIF
 
          ! Calculate sediment yield from precipitation
@@ -273,28 +279,40 @@ CONTAINS
    END SUBROUTINE accumulate_sediment_output
 
    !-------------------------------------------------------------------------------------
-   SUBROUTINE sediment_diag_accumulate(dt, veloc, wdsrf)
-   ! Accumulate water flow variables for sediment calculation
+   SUBROUTINE sediment_diag_accumulate(dt, i, veloc, wdsrf)
+   ! Accumulate water flow variables for a single unit catchment
    !-------------------------------------------------------------------------------------
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
-   real(r8), intent(in) :: dt
-   real(r8), intent(in) :: veloc(:)
-   real(r8), intent(in) :: wdsrf(:)
-   integer :: i
+   real(r8), intent(in) :: dt      ! Time step [s]
+   integer,  intent(in) :: i       ! Unit catchment index
+   real(r8), intent(in) :: veloc   ! River velocity for this catchment [m/s]
+   real(r8), intent(in) :: wdsrf   ! Water depth for this catchment [m]
 
       IF (.not. DEF_USE_SEDIMENT) RETURN
       IF (.not. p_is_worker) RETURN
       IF (numucat <= 0) RETURN
+      IF (i < 1 .or. i > numucat) RETURN
+
+      ! Accumulate for single unit catchment
+      sed_acc_veloc(i) = sed_acc_veloc(i) + veloc * dt
+      sed_acc_wdsrf(i) = sed_acc_wdsrf(i) + wdsrf * dt
+
+   END SUBROUTINE sediment_diag_accumulate
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE sediment_diag_accumulate_time(dt)
+   ! Accumulate time for sediment calculation (call once per timestep)
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+   real(r8), intent(in) :: dt      ! Time step [s]
+
+      IF (.not. DEF_USE_SEDIMENT) RETURN
+      IF (.not. p_is_worker) RETURN
 
       sed_acc_time = sed_acc_time + dt
 
-      DO i = 1, numucat
-         sed_acc_veloc(i) = sed_acc_veloc(i) + veloc(i) * dt
-         sed_acc_wdsrf(i) = sed_acc_wdsrf(i) + wdsrf(i) * dt
-      ENDDO
-
-   END SUBROUTINE sediment_diag_accumulate
+   END SUBROUTINE sediment_diag_accumulate_time
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE sediment_forcing_put(precip, dt)
@@ -676,7 +694,6 @@ CONTAINS
    real(r8), allocatable :: sedsto(:,:)       ! Sediment storage [nsed, numucat]
    real(r8), allocatable :: bOut(:,:), sOut(:,:)
    real(r8), allocatable :: brate(:,:), srate(:,:)
-   real(r8), allocatable :: sedcon_next(:,:)
 
    integer  :: i, ised, i0, i1
    real(r8) :: plusVel, minusVel
@@ -690,17 +707,10 @@ CONTAINS
       allocate(sOut  (nsed, numucat))
       allocate(brate (nsed, numucat))
       allocate(srate (nsed, numucat))
-      allocate(sedcon_next(nsed, numucat))
 
       ! Calculate sediment storage from concentration
       DO i = 1, numucat
          sedsto(:,i) = sedcon(:,i) * max(rivsto(i), 0._r8)
-      ENDDO
-
-      ! Get downstream sediment concentration
-      DO ised = 1, nsed
-         CALL worker_push_data(push_next2ucat, sedcon(ised,:), sedcon_next(ised,:), &
-            fillvalue = 0._r8)
       ENDDO
 
       bOut(:,:) = 0._r8
@@ -724,28 +734,35 @@ CONTAINS
 
          ! Suspended sediment outflow
          IF (i0 < 0) THEN
-            sedout(:,i) = sedcon(:,i1) * rivout(i)
+            ! Boundary inflow: assume zero sediment concentration
+            ! (clean water from outside model domain)
+            sedout(:,i) = 0._r8
          ELSE
             sedout(:,i) = sedcon(:,i0) * rivout(i)
             sOut(:,i0) = sOut(:,i0) + abs(sedout(:,i)) * dt
          ENDIF
 
          ! Bedload outflow
-         layer_sum = sum(layer(:,i))
-         IF (all(critshearvel(:,i) >= shearvel(i)) .or. layer_sum == 0._r8 .or. i0 < 0) THEN
+         ! Use source cell (i0) properties for bedload calculation
+         IF (i0 < 0) THEN
             bedout(:,i) = 0._r8
          ELSE
-            DO ised = 1, nsed
-               IF (critshearvel(ised,i) >= shearvel(i) .or. layer(ised,i) == 0._r8) THEN
-                  bedout(ised,i) = 0._r8
-                  CYCLE
-               ENDIF
-               plusVel = shearvel(i) + critshearvel(ised,i)
-               minusVel = shearvel(i) - critshearvel(ised,i)
-               bedout(ised,i) = 17._r8 * topo_rivwth(i) * plusVel * minusVel * minusVel &
-                  / ((psedD-pwatD)/pwatD) / grav * layer(ised,i) / layer_sum
-               IF (i0 > 0) bOut(ised,i0) = bOut(ised,i0) + bedout(ised,i) * dt
-            ENDDO
+            layer_sum = sum(layer(:,i0))
+            IF (all(critshearvel(:,i0) >= shearvel(i0)) .or. layer_sum == 0._r8) THEN
+               bedout(:,i) = 0._r8
+            ELSE
+               DO ised = 1, nsed
+                  IF (critshearvel(ised,i0) >= shearvel(i0) .or. layer(ised,i0) == 0._r8) THEN
+                     bedout(ised,i) = 0._r8
+                     CYCLE
+                  ENDIF
+                  plusVel = shearvel(i0) + critshearvel(ised,i0)
+                  minusVel = shearvel(i0) - critshearvel(ised,i0)
+                  bedout(ised,i) = 17._r8 * topo_rivwth(i0) * plusVel * minusVel * minusVel &
+                     / ((psedD-pwatD)/pwatD) / grav * layer(ised,i0) / layer_sum
+                  bOut(ised,i0) = bOut(ised,i0) + bedout(ised,i) * dt
+               ENDDO
+            ENDIF
          ENDIF
       ENDDO
 
@@ -794,7 +811,7 @@ CONTAINS
          ENDIF
       ENDDO
 
-      deallocate(sedsto, bOut, sOut, brate, srate, sedcon_next)
+      deallocate(sedsto, bOut, sOut, brate, srate)
 
    END SUBROUTINE calc_sediment_advection
 
