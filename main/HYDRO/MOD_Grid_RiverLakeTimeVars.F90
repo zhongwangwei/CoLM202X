@@ -11,6 +11,9 @@ MODULE MOD_Grid_RiverLakeTimeVars
 !-------------------------------------------------------------------------------------
 
    USE MOD_Precision
+#ifdef GridRiverLakeSediment
+   USE MOD_Grid_RiverLakeSediment, only: nsed, totlyrnum, sedcon, layer, seddep
+#endif
    IMPLICIT NONE
 
    ! -- state variables --
@@ -27,6 +30,19 @@ MODULE MOD_Grid_RiverLakeTimeVars
    PUBLIC :: write_GridRiverLakeTimeVars
 
 CONTAINS
+
+#ifdef GridRiverLakeSediment
+   !-------------------------------------------------------------------------------------
+   FUNCTION int2char(i) RESULT(str)
+   ! Convert integer to character string
+   !-------------------------------------------------------------------------------------
+   IMPLICIT NONE
+   integer, intent(in) :: i
+   character(len=10) :: str
+      write(str, '(I10)') i
+      str = adjustl(str)
+   END FUNCTION int2char
+#endif
 
    SUBROUTINE allocate_GridRiverLakeTimeVars
 
@@ -58,6 +74,10 @@ CONTAINS
 
    character(len=*), intent(in) :: file_restart
 
+#ifdef GridRiverLakeSediment
+   integer :: ised, ilyr
+#endif
+
       CALL vector_read_and_scatter (file_restart, wdsrf_ucat, numucat, 'wdsrf_ucat', ucat_data_address)
       CALL vector_read_and_scatter (file_restart, veloc_riv,  numucat, 'veloc_riv',  ucat_data_address)
 
@@ -66,6 +86,30 @@ CONTAINS
             CALL vector_read_and_scatter (file_restart, volresv, numresv, 'volresv', resv_data_address)
          ENDIF
       ENDIF
+
+#ifdef GridRiverLakeSediment
+      IF (DEF_USE_SEDIMENT) THEN
+         ! Read sediment concentration for each size class
+         DO ised = 1, nsed
+            CALL vector_read_and_scatter (file_restart, sedcon(ised,:), numucat, &
+               'sedcon_' // trim(int2char(ised)), ucat_data_address)
+         ENDDO
+
+         ! Read active layer storage for each size class
+         DO ised = 1, nsed
+            CALL vector_read_and_scatter (file_restart, layer(ised,:), numucat, &
+               'layer_' // trim(int2char(ised)), ucat_data_address)
+         ENDDO
+
+         ! Read deposition layer storage for each size class and layer
+         DO ised = 1, nsed
+            DO ilyr = 1, totlyrnum
+               CALL vector_read_and_scatter (file_restart, seddep(ised,ilyr,:), numucat, &
+                  'seddep_' // trim(int2char(ised)) // '_' // trim(int2char(ilyr)), ucat_data_address)
+            ENDDO
+         ENDDO
+      ENDIF
+#endif
 
    END SUBROUTINE READ_GridRiverLakeTimeVars
 
@@ -82,10 +126,19 @@ CONTAINS
 
    character(len=*), intent(in) :: file_restart
 
+#ifdef GridRiverLakeSediment
+   integer :: ised, ilyr
+#endif
 
       IF (p_is_master) THEN
          CALL ncio_create_file (trim(file_restart))
          CALL ncio_define_dimension(file_restart, 'ucatch', totalnumucat)
+#ifdef GridRiverLakeSediment
+         IF (DEF_USE_SEDIMENT) THEN
+            CALL ncio_define_dimension(file_restart, 'nsed', nsed)
+            CALL ncio_define_dimension(file_restart, 'totlyrnum', totlyrnum)
+         ENDIF
+#endif
       ENDIF
 
       CALL vector_gather_and_write (&
@@ -103,6 +156,33 @@ CONTAINS
                volresv, numresv, totalnumresv, resv_data_address, file_restart, 'volresv', 'reservoir')
          ENDIF
       ENDIF
+
+#ifdef GridRiverLakeSediment
+      IF (DEF_USE_SEDIMENT) THEN
+         ! Write sediment concentration for each size class
+         DO ised = 1, nsed
+            CALL vector_gather_and_write (&
+               sedcon(ised,:), numucat, totalnumucat, ucat_data_address, file_restart, &
+               'sedcon_' // trim(int2char(ised)), 'ucatch')
+         ENDDO
+
+         ! Write active layer storage for each size class
+         DO ised = 1, nsed
+            CALL vector_gather_and_write (&
+               layer(ised,:), numucat, totalnumucat, ucat_data_address, file_restart, &
+               'layer_' // trim(int2char(ised)), 'ucatch')
+         ENDDO
+
+         ! Write deposition layer storage for each size class and layer
+         DO ised = 1, nsed
+            DO ilyr = 1, totlyrnum
+               CALL vector_gather_and_write (&
+                  seddep(ised,ilyr,:), numucat, totalnumucat, ucat_data_address, file_restart, &
+                  'seddep_' // trim(int2char(ised)) // '_' // trim(int2char(ilyr)), 'ucatch')
+            ENDDO
+         ENDDO
+      ENDIF
+#endif
 
    END SUBROUTINE WRITE_GridRiverLakeTimeVars
 
