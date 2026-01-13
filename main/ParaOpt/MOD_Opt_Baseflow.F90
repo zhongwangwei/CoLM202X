@@ -82,7 +82,7 @@ CONTAINS
    END SUBROUTINE Opt_Baseflow_init
 
    ! -----
-   SUBROUTINE BaseFlow_Optimize (idate, deltim, end_of_spinup)
+   SUBROUTINE BaseFlow_Optimize (idate, deltim, is_spinup)
 
    USE MOD_TimeManager
    USE MOD_NetCDFVector
@@ -92,7 +92,7 @@ CONTAINS
 
    integer,  intent(in) :: idate(3)
    real(r8), intent(in) :: deltim
-   logical,  intent(in) :: end_of_spinup
+   logical,  intent(in) :: is_spinup
 
    ! Local Variables
    logical :: do_opt_baseflow
@@ -102,7 +102,7 @@ CONTAINS
 
       IF (.not. DEF_Optimize_Baseflow) RETURN
 
-      do_opt_baseflow = (.not. end_of_spinup) .and. isendofyear (idate, deltim)
+      do_opt_baseflow = (is_spinup) .and. isendofyear (idate, deltim)
 
       IF (do_opt_baseflow) THEN
 

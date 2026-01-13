@@ -140,7 +140,7 @@ PROGRAM CoLM
    integer :: lc_year, lai_year
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
-   logical :: end_of_spinup
+   logical :: is_spinup
 
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
 
@@ -295,7 +295,7 @@ PROGRAM CoLM
 
       i_spinupcycle = 1
       n_spinupcycle = max(n_spinupcycle,1)
-      end_of_spinup = .false.
+      is_spinup = .true.
 
       ! ----------------------------------------------------------------------
       ! Read in the model time invariant constant data
@@ -414,7 +414,7 @@ PROGRAM CoLM
 
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
-         CALL read_forcing (jdate, dir_forcing)
+         CALL read_forcing (jdate, dir_forcing, is_spinup)
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -481,7 +481,7 @@ PROGRAM CoLM
 #endif
 
 #if (defined GridRiverLakeFlow)
-         IF ((.not. DEF_Optimize_Baseflow) .or. end_of_spinup) THEN
+         IF (.not. is_spinup) THEN
             CALL grid_riverlake_flow (idate(1), deltim)
          ENDIF
 #endif
@@ -504,7 +504,7 @@ PROGRAM CoLM
          ! ----------------------------------------------------------------------
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
 
-         CALL CheckEquilibrium (idate, deltim, i_spinupcycle, end_of_spinup, dir_hist, casename)
+         CALL CheckEquilibrium (idate, deltim, i_spinupcycle, is_spinup, dir_hist, casename)
 
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
@@ -608,7 +608,7 @@ PROGRAM CoLM
          ENDIF
 #endif
 
-         CALL ParameterOptimization (idate, deltim, end_of_spinup)
+         CALL ParameterOptimization (idate, deltim, is_spinup)
 
          IF (p_is_master) THEN
             CALL system_clock (end_time, count_rate = c_per_sec)
@@ -632,14 +632,18 @@ PROGRAM CoLM
          ENDIF
 
          IF (ptstamp <= itstamp) THEN
-            IF (.not. end_of_spinup) THEN
+            IF (is_spinup) THEN
                CALL CheckEquilibrium_EndOfSpinup ()
                CALL ParaOpt_EndOfSpinup          ()
             ENDIF
 
-            end_of_spinup = .true.
+            is_spinup = .true.
 
-            IF (p_is_master) write(*,'(/,A)') trim(spinup_warning)
+            IF (p_is_master) THEN
+               IF (len_trim(spinup_warning) > 0) THEN
+                  write(*,'(/,A)') trim(spinup_warning)
+               ENDIF
+            ENDIF
          ENDIF
 
          istep = istep + 1

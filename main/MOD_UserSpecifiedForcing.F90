@@ -150,7 +150,7 @@ CONTAINS
    END SUBROUTINE init_user_specified_forcing
 
    ! ----------------
-   FUNCTION metfilename(year, month, day, var_i)
+   FUNCTION metfilename(year, month, day, var_i, is_spinup)
 
    USE MOD_Namelist
    IMPLICIT NONE
@@ -159,12 +159,21 @@ CONTAINS
    integer, intent(in) :: month
    integer, intent(in) :: day
    integer, intent(in) :: var_i
+
+   logical, intent(in), optional :: is_spinup
+
    character(len=256)  :: metfilename
    character(len=256)  :: yearstr
    character(len=256)  :: monthstr
 
       write(yearstr, '(I4.4)') year
       write(monthstr, '(I2.2)') month
+
+      IF (present(is_spinup)) THEN
+         IF (DEF_USE_ClimForcing_for_Spinup .and. is_spinup) THEN
+            yearstr = 'clim'
+         ENDIF
+      ENDIF
 
       select CASE (trim(DEF_forcing%dataset))
       CASE ('PRINCETON') ! Princeton forcing data

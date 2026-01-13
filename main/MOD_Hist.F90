@@ -816,9 +816,15 @@ ENDIF
          ENDIF
 
          ! wetland water storage [mm]
-         CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
-            a_wetwat, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
-            'wetland water storage','mm')
+         IF (DEF_USE_Dynamic_Wetland) THEN
+            CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
+               a_wdsrf, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
+               'wetland water storage','mm')
+         ELSE
+            CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
+               a_wetwat, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
+               'wetland water storage','mm')
+         ENDIF
 
          ! instantaneous wetland water storage [mm]
          IF (p_is_worker) THEN

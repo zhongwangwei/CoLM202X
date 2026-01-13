@@ -16,6 +16,7 @@ MODULE MOD_CheckEquilibrium
    USE netcdf
    USE MOD_NetCDFSerial
    USE MOD_SpatialMapping
+   USE MOD_Forcing,     only: forcmask_pch
    USE MOD_Vars_Global, only: spval
 
    integer, parameter :: windowsize = 10
@@ -26,12 +27,15 @@ MODULE MOD_CheckEquilibrium
    integer :: timestrlen
    character(len=24) :: timeform
 
-   real(r8), allocatable :: tws_last (:)
-   real(r8), allocatable :: tws_this (:)
-   real(r8), allocatable :: prcp_acc (:)
+   real(r8), allocatable :: tws_last  (:)
+   real(r8), allocatable :: tws_this  (:)
 
-   real(r8), allocatable :: tws_prev (:,:)
-   real(r8), allocatable :: prcp_prev(:,:)
+   real(r8), allocatable :: prcp_year (:)
+   real(r8), allocatable :: et_year   (:)
+   real(r8), allocatable :: rnof_year (:)
+
+   real(r8), allocatable :: tws_preyear (:,:)
+   real(r8), allocatable :: prcp_preyear(:,:)
 
    real(r8) :: num_totalck
    real(r8) :: ave_pct_dtws
@@ -74,10 +78,13 @@ CONTAINS
 
             allocate (tws_last (numpatch));   tws_last(:) = spval;
             allocate (tws_this (numpatch));   tws_this(:) = spval;
-            allocate (prcp_acc (numpatch));   prcp_acc(:) = spval;
 
-            allocate (tws_prev  (0:windowsize,numpatch));   tws_prev (:,:) = spval;
-            allocate (prcp_prev (windowsize,  numpatch));   prcp_prev(:,:) = spval;
+            allocate (prcp_year (numpatch));   prcp_year(:) = spval;
+            allocate (et_year   (numpatch));   et_year  (:) = spval;
+            allocate (rnof_year (numpatch));   rnof_year(:) = spval;
+
+            allocate (tws_preyear  (0:windowsize,numpatch));   tws_preyear (:,:) = spval;
+            allocate (prcp_preyear (windowsize,  numpatch));   prcp_preyear(:,:) = spval;
 
          ENDIF
       ENDIF
@@ -137,30 +144,35 @@ CONTAINS
 
       IF (allocated(tws_last)) deallocate(tws_last)
       IF (allocated(tws_this)) deallocate(tws_this)
-      IF (allocated(prcp_acc)) deallocate(prcp_acc)
 
-      IF (allocated(tws_prev )) deallocate(tws_prev )
-      IF (allocated(prcp_prev)) deallocate(prcp_prev)
+      IF (allocated(prcp_year)) deallocate(prcp_year)
+      IF (allocated(et_year  )) deallocate(et_year  )
+      IF (allocated(rnof_year)) deallocate(rnof_year)
+
+      IF (allocated(tws_preyear )) deallocate(tws_preyear )
+      IF (allocated(prcp_preyear)) deallocate(prcp_preyear)
 
    END SUBROUTINE CheckEqb_final
 
    !-----------------------------------------------------------------------
-   SUBROUTINE CheckEquilibrium (idate, deltim, i_spinupcycle, end_of_spinup, dir_out, casename)
+   SUBROUTINE CheckEquilibrium (idate, deltim, i_spinupcycle, is_spinup, dir_out, casename)
 
    USE MOD_Precision
    USE MOD_TimeManager
    USE MOD_DataType
-   USE MOD_LandPatch,          only: numpatch
-   USE MOD_Vars_Global,        only: nl_soil
-   USE MOD_Vars_1DForcing,     only: forc_prc, forc_prl
-   USE MOD_Vars_TimeVariables, only: wdsrf, ldew, scv, wetwat, wliq_soisno, wice_soisno, wa
+   USE MOD_LandPatch,           only: numpatch
+   USE MOD_Vars_Global,         only: nl_soil
+   USE MOD_Vars_1DForcing,      only: forc_prc, forc_prl
+   USE MOD_Vars_1DFluxes,       only: fevpa, rnof
+   USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
+   USE MOD_Vars_TimeVariables,  only: wdsrf, ldew, scv, wetwat, wliq_soisno, wice_soisno, wa, zwt
 
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3)
    real(r8), intent(in) :: deltim
    integer,  intent(in) :: i_spinupcycle
-   logical,  intent(in) :: end_of_spinup
+   logical,  intent(in) :: is_spinup
 
    character(len=*), intent(in) :: dir_out
    character(len=*), intent(in) :: casename
@@ -171,8 +183,9 @@ CONTAINS
    character(len=256) :: filename, timestr
    integer :: ncid, time_id, str_id, varid
 
-   real(r8), allocatable     :: pct_dtws (:)
-   logical,  allocatable     :: filter   (:)
+   real(r8), allocatable     :: dtws   (:)
+   logical,  allocatable     :: filter (:)
+   real(r8), allocatable     :: vecone (:)
    type(block_data_real8_2d) :: sumarea
 
 
@@ -180,8 +193,10 @@ CONTAINS
 
       IF (p_is_worker) THEN
          IF (numpatch > 0) THEN
-            CALL add_spv (forc_prc, prcp_acc, deltim)
-            CALL add_spv (forc_prl, prcp_acc, deltim)
+            CALL add_spv (forc_prc, prcp_year, deltim)
+            CALL add_spv (forc_prl, prcp_year, deltim)
+            CALL add_spv (fevpa,    et_year,   deltim)
+            CALL add_spv (rnof,     rnof_year, deltim)
          ENDIF
       ENDIF
 
@@ -210,14 +225,25 @@ CONTAINS
             IF ((p_is_worker) .and. (numpatch > 0)) THEN
 
                allocate (filter (numpatch))
-               filter(:) = (tws_last /= spval) .and. (tws_this /= spval) .and. (prcp_acc > 0.)
+               filter = patchmask
+               IF (DEF_forcing%has_missing_value) THEN
+                  filter = filter .and. forcmask_pch
+               ENDIF
+#ifdef CatchLateralFlow
+               filter = filter .and. (patchtype <= 4)
+#else
+               filter = filter .and. (patchtype <= 2)
+#endif
 
-               allocate (pct_dtws (numpatch))
+               allocate (dtws (numpatch))
                WHERE (filter)
-                  pct_dtws = (tws_this - tws_last) / prcp_acc
+                  dtws = tws_this - tws_last
                ELSEWHERE
-                  pct_dtws = spval
+                  dtws = spval
                END WHERE
+
+               allocate (vecone (numpatch))
+               vecone(:) = 1.
 
             ENDIF
 
@@ -259,7 +285,7 @@ CONTAINS
                ENDIF
 
 
-               IF (.not. end_of_spinup) THEN
+               IF (is_spinup) THEN
                   write(timestr,timeform) i_spinupcycle, idate(1)
                ELSE
                   write(timestr,'(I4.4)') idate(1)
@@ -278,48 +304,93 @@ CONTAINS
 
             CALL map_check%get_sumarea (sumarea, filter)
 
-            CALL map_and_write_check_var ( &
-               pct_dtws, filename, 'relative_tws_change', nyearcheck, sumarea, filter, &
-               'The ratio of changes in terrestrial water storage to total precipitation', '-')
+            IF (nyearcheck == 1) THEN
+               CALL map_and_write_check_var ( &
+                  vecone, filename, 'landarea', -1, sumarea, filter, &
+                  'area of land excluding water bodies and glaciers in grid', 'km^2', &
+                  amount_in_grid = .true.)
+            ENDIF
 
             CALL map_and_write_check_var ( &
-               prcp_acc, filename, 'total_precipitation', nyearcheck, sumarea, filter, &
+               dtws, filename, 'tws_change', nyearcheck, sumarea, filter, &
+               'Change in terrestrial water storage', 'mm')
+            CALL map_and_write_check_var ( &
+               prcp_year, filename, 'total_precipitation', nyearcheck, sumarea, filter, &
                'total precipitation in a year', 'mm')
+            CALL map_and_write_check_var ( &
+               et_year, filename, 'total_evapotranspiration', nyearcheck, sumarea, filter, &
+               'total evapotranspiration in a year', 'mm')
+            CALL map_and_write_check_var ( &
+               rnof_year, filename, 'total_runoff', nyearcheck, sumarea, filter, &
+               'total runoff in a year', 'mm')
+            CALL map_and_write_check_var ( &
+               zwt, filename, 'zwt', nyearcheck, sumarea, filter, &
+               'depth to water table', 'm')
 #else
-            CALL ncio_write_serial_time (filename, 'relative_tws_change', &
-                                         nyearcheck, pct_dtws, 'patch', 'iyear')
+            CALL ncio_write_serial_time (filename, 'tws_change', &
+                                         nyearcheck, dtws, 'patch', 'iyear')
             IF (nyearcheck == 1) THEN
-               CALL ncio_put_attr (filename, 'relative_tws_change', 'long_name', &
-                  'The ratio of changes in terrestrial water storage to total precipitation')
-               CALL ncio_put_attr (filename, 'relative_tws_change', 'units', '-')
-               CALL ncio_put_attr (filename, 'relative_tws_change', 'missing_value', spval)
+               CALL ncio_put_attr (filename, 'tws_change', 'long_name', &
+                  'Change in terrestrial water storage')
+               CALL ncio_put_attr (filename, 'tws_change', 'units', 'mm')
+               CALL ncio_put_attr (filename, 'tws_change', 'missing_value', spval)
             ENDIF
 
             CALL ncio_write_serial_time (filename, 'total_precipitation', &
-                                         nyearcheck, prcp_acc, 'patch', 'iyear')
+                                         nyearcheck, prcp_year, 'patch', 'iyear')
             IF (nyearcheck == 1) THEN
                CALL ncio_put_attr (filename, 'total_precipitation', 'long_name', &
                   'total precipitation in a year')
                CALL ncio_put_attr (filename, 'total_precipitation', 'units', 'mm')
                CALL ncio_put_attr (filename, 'total_precipitation', 'missing_value', spval)
             ENDIF
+
+            CALL ncio_write_serial_time (filename, 'total_evapotranspiration', &
+                                         nyearcheck, et_year, 'patch', 'iyear')
+            IF (nyearcheck == 1) THEN
+               CALL ncio_put_attr (filename, 'total_evapotranspiration', 'long_name', &
+                  'total evapotranspiration in a year')
+               CALL ncio_put_attr (filename, 'total_evapotranspiration', 'units', 'mm')
+               CALL ncio_put_attr (filename, 'total_evapotranspiration', 'missing_value', spval)
+            ENDIF
+
+            CALL ncio_write_serial_time (filename, 'total_runoff', &
+                                         nyearcheck, rnof_year, 'patch', 'iyear')
+            IF (nyearcheck == 1) THEN
+               CALL ncio_put_attr (filename, 'total_runoff', 'long_name', &
+                  'total runoff in a year')
+               CALL ncio_put_attr (filename, 'total_runoff', 'units', 'mm')
+               CALL ncio_put_attr (filename, 'total_runoff', 'missing_value', spval)
+            ENDIF
+
+            CALL ncio_write_serial_time (filename, 'zwt', &
+                                         nyearcheck, zwt, 'patch', 'iyear')
+            IF (nyearcheck == 1) THEN
+               CALL ncio_put_attr (filename, 'zwt', 'long_name', 'depth to water table')
+               CALL ncio_put_attr (filename, 'zwt', 'units', 'm')
+               CALL ncio_put_attr (filename, 'zwt', 'missing_value', spval)
+            ENDIF
 #endif
          ENDIF
 
          IF ((p_is_worker) .and. (numpatch > 0)) THEN
-            tws_prev (0:windowsize-1,:) = tws_prev (1:windowsize,:)
-            tws_prev (windowsize,:) = tws_this
-            IF (nyearcheck == 1) tws_prev (windowsize-1,:) = tws_last
+            tws_preyear (0:windowsize-1,:) = tws_preyear (1:windowsize,:)
+            tws_preyear (windowsize,:) = tws_this
+            IF (nyearcheck == 1) tws_preyear (windowsize-1,:) = tws_last
 
-            prcp_prev(1:windowsize-1,:) = prcp_prev(2:windowsize,:)
-            prcp_prev(windowsize,:) = prcp_acc
+            prcp_preyear(1:windowsize-1,:) = prcp_preyear(2:windowsize,:)
+            prcp_preyear(windowsize,:) = prcp_year
 
-            prcp_acc(:) = spval
+            prcp_year(:) = spval
+            et_year  (:) = spval
+            rnof_year(:) = spval
+
             tws_last = tws_this
          ENDIF
 
-         IF (allocated(pct_dtws)) deallocate(pct_dtws)
-         IF (allocated(filter  )) deallocate(filter  )
+         IF (allocated(dtws  )) deallocate(dtws  )
+         IF (allocated(filter)) deallocate(filter)
+         IF (allocated(vecone)) deallocate(vecone)
 
       ENDIF
 
@@ -330,6 +401,7 @@ CONTAINS
 
    USE MOD_Precision
    USE MOD_LandPatch
+   USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
 
    IMPLICIT NONE
 
@@ -351,16 +423,25 @@ CONTAINS
 
             actualsize = min(windowsize,nyearcheck)
 
-            prcp = prcp_prev(windowsize,:)
+            prcp = prcp_preyear(windowsize,:)
             DO i = 1, actualsize-1
-               CALL add_spv (prcp_prev(windowsize-i,:), prcp)
+               CALL add_spv (prcp_preyear(windowsize-i,:), prcp)
             ENDDO
 
-            filter(:) = (tws_prev(windowsize,:) /= spval) &
-               .and. (tws_prev(windowsize-actualsize,:) /= spval) .and. (prcp > 0.)
+            filter = patchmask
+            IF (DEF_forcing%has_missing_value) THEN
+               filter = filter .and. forcmask_pch
+            ENDIF
+#ifdef CatchLateralFlow
+            filter = filter .and. (patchtype <= 4)
+#else
+            filter = filter .and. (patchtype <= 2)
+#endif
+
+            filter = filter .and. (prcp > 1.)
 
             WHERE (filter)
-               pct_dtws = (tws_prev(windowsize,:) - tws_prev(windowsize-actualsize,:)) / prcp
+               pct_dtws = (tws_preyear(windowsize,:) - tws_preyear(windowsize-actualsize,:)) / prcp
             ELSEWHERE
                pct_dtws = spval
             END WHERE
@@ -417,7 +498,7 @@ CONTAINS
 #ifndef SinglePoint
    SUBROUTINE map_and_write_check_var ( &
          vector, filename, varname, itime_in_file, sumarea, filter, &
-         longname, units)
+         longname, units, amount_in_grid)
 
    USE MOD_Block
    IMPLICIT NONE
@@ -430,6 +511,8 @@ CONTAINS
    character(len=*), intent(in) :: longname
    character(len=*), intent(in) :: units
 
+   logical, intent(in), optional :: amount_in_grid
+
    type(block_data_real8_2d), intent(in) :: sumarea
    logical, intent(in) :: filter(:)
 
@@ -439,32 +522,38 @@ CONTAINS
    integer :: iblkme, iblk, jblk, idata, ixseg, iyseg
    integer :: rmesg(3), smesg(3), isrc
    real(r8), allocatable :: rbuf(:,:), sbuf(:,:), vdata(:,:)
+   logical :: amount
 
       IF (p_is_io) CALL allocate_block_data (gridcheck, data_xy_2d)
       CALL map_check%pset2grid (vector, data_xy_2d, spv = spval, msk = filter)
 
-      IF (p_is_io) THEN
-         DO iblkme = 1, gblock%nblkme
-            xblk = gblock%xblkme(iblkme)
-            yblk = gblock%yblkme(iblkme)
+      amount = .false.
+      IF (present(amount_in_grid)) amount = amount_in_grid
 
-            DO yloc = 1, gridcheck%ycnt(yblk)
-               DO xloc = 1, gridcheck%xcnt(xblk)
+      IF (.not. amount) THEN
+         IF (p_is_io) THEN
+            DO iblkme = 1, gblock%nblkme
+               xblk = gblock%xblkme(iblkme)
+               yblk = gblock%yblkme(iblkme)
 
-                  IF (sumarea%blk(xblk,yblk)%val(xloc,yloc) > 0.00001) THEN
-                     IF (data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) /= spval) THEN
-                        data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) &
-                           = data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) &
-                           / sumarea%blk(xblk,yblk)%val(xloc,yloc)
+               DO yloc = 1, gridcheck%ycnt(yblk)
+                  DO xloc = 1, gridcheck%xcnt(xblk)
+
+                     IF (sumarea%blk(xblk,yblk)%val(xloc,yloc) > 0.00001) THEN
+                        IF (data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) /= spval) THEN
+                           data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) &
+                              = data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) &
+                              / sumarea%blk(xblk,yblk)%val(xloc,yloc)
+                        ENDIF
+                     ELSE
+                        data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = spval
                      ENDIF
-                  ELSE
-                     data_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = spval
-                  ENDIF
 
+                  ENDDO
                ENDDO
-            ENDDO
 
-         ENDDO
+            ENDDO
+         ENDIF
       ENDIF
 
       check_data_id = mod(check_data_id,100) + 1
@@ -520,10 +609,14 @@ CONTAINS
          ENDDO
 #endif
 
-         CALL ncio_write_serial_time (filename, varname, itime_in_file, vdata, &
-            'lon', 'lat', 'iyear', compress = 1)
+         IF (itime_in_file >= 1) THEN
+            CALL ncio_write_serial_time (filename, varname, itime_in_file, vdata, &
+               'lon', 'lat', 'iyear', compress = 1)
+         ELSE
+            CALL ncio_write_serial (filename, varname, vdata, 'lon', 'lat', compress = 1)
+         ENDIF
 
-         IF (itime_in_file == 1) THEN
+         IF (itime_in_file <= 1) THEN
             CALL ncio_put_attr (filename, varname, 'long_name', longname)
             CALL ncio_put_attr (filename, varname, 'units', units)
             CALL ncio_put_attr (filename, varname, 'missing_value', spval)

@@ -20,15 +20,15 @@ CONTAINS
    END SUBROUTINE ParaOpt_init
 
    ! -----
-   SUBROUTINE ParameterOptimization (idate, deltim, end_of_spinup)
+   SUBROUTINE ParameterOptimization (idate, deltim, is_spinup)
 
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3)
    real(r8), intent(in) :: deltim
-   logical,  intent(in) :: end_of_spinup
+   logical,  intent(in) :: is_spinup
 
-      CALL BaseFlow_Optimize (idate, deltim, end_of_spinup)
+      CALL BaseFlow_Optimize (idate, deltim, is_spinup)
 
    END SUBROUTINE ParameterOptimization
 

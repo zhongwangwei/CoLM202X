@@ -4,10 +4,11 @@ MODULE MOD_SoilSnowHydrology
 
 !-----------------------------------------------------------------------
    USE MOD_Precision
-   USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_SNICAR,     &
-                           DEF_URBAN_RUN,           DEF_USE_IRRIGATION, &
-                           DEF_SPLIT_SOILSNOW,      DEF_Runoff_SCHEME,  &
-                           DEF_DA_TWS_GRACE,        DEF_Optimize_Baseflow
+   USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_SNICAR,        &
+                           DEF_URBAN_RUN,           DEF_USE_IRRIGATION,    &
+                           DEF_SPLIT_SOILSNOW,      DEF_Runoff_SCHEME,     &
+                           DEF_DA_TWS_GRACE,        DEF_Optimize_Baseflow, &
+                           DEF_USE_Dynamic_Wetland
 #if (defined CaMa_Flood)
    USE YOS_CMF_INPUT,      only: LWINFILT
 #endif
@@ -779,7 +780,8 @@ ENDIF
 ! [2] surface runoff and infiltration
 !=======================================================================
 
-IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
+IF((patchtype<=1) .or. is_dry_lake &
+   .or. (DEF_USE_Dynamic_Wetland .and. (patchtype==2)))THEN   ! soil ground only
 
       ! For water balance check, the sum of water in soil column before the calculation
       w_sum = sum(wliq_soisno(1:nl_soil)) + sum(wice_soisno(1:nl_soil)) + wa + wdsrf
@@ -817,7 +819,7 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
       rsur_se = 0.
 
 #ifndef CatchLateralFlow
-      IF (.not. is_dry_lake) THEN
+      IF (patchtype <= 1) THEN
 
          IF (DEF_Runoff_SCHEME  == 0) THEN
 
@@ -874,28 +876,27 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
             rsubst = rsubst * fslp_k(ipatch)
          ENDIF
 #endif
-      ENDIF
+
 #ifdef CROP
-      IF(patchtype.eq.0 .AND. DEF_USE_IRRIGATION)THEN
-         ps = patch_pft_s(ipatch)
-         pe = patch_pft_e(ipatch)
-         DO m = ps, pe
-            IF(irrig_method_p(m).eq.irrig_method_paddy)THEN
-               rsur = 0
-            ENDIF
-         ENDDO
-      ENDIF
+         IF(patchtype.eq.0 .AND. DEF_USE_IRRIGATION)THEN
+            ps = patch_pft_s(ipatch)
+            pe = patch_pft_e(ipatch)
+            DO m = ps, pe
+               IF(irrig_method_p(m).eq.irrig_method_paddy)THEN
+                  rsur = 0
+               ENDIF
+            ENDDO
+         ENDIF
 #endif
+      ENDIF
+#else
+      ! for catchment based lateral flow,
+      ! "rsur" is calculated in HYDRO/MOD_Catch_HillslopeFlow.F90
+      ! "rsub" is calculated in HYDRO/MOD_Catch_SubsurfaceFlow.F90
+#endif
+
       ! infiltration into surface soil layer
       qgtop = gwat - rsur
-#else
-      ! for lateral flow,
-      ! "rsur" is calculated in HYDRO/MOD_Catch_HillslopeFlow.F90
-      ! and is removed from surface water there.
-      qgtop = gwat
-      ! "rsub" is calculated and removed from soil water in HYDRO/MOD_Catch_SubsurfaceFlow.F90
-      rsubst = 0
-#endif
 
 #if (defined CaMa_Flood)
       IF (LWINFILT) THEN
@@ -1086,7 +1087,8 @@ ENDIF
          ! total runoff (mm/s)
          rnof = rsubst + rsur
       ELSE
-         IF (.not. is_dry_lake) THEN
+#endif
+         IF (patchtype <= 1) THEN
             IF (wdsrf > pondmx) THEN
                rsur = rsur + (wdsrf - pondmx) / deltim
                rsur_ie = rsur_ie + (wdsrf - pondmx) / deltim
@@ -1100,27 +1102,19 @@ ENDIF
 
             ! total runoff (mm/s)
             rnof = rsubst + rsur
-         ELSE
+         ELSEIF (patchtype == 2) THEN
+            IF (wdsrf > wetwatmax) THEN
+               rsur_ie = (wdsrf - wetwatmax) / deltim
+               wdsrf = wetwatmax
+            ENDIF
+
+            rsur = rsur_ie
+            ! total runoff (mm/s)
+            rnof = rsur
+         ELSE ! for dry lake
             rnof = 0.
          ENDIF
-      ENDIF
-#else
-      IF (.not. is_dry_lake) THEN
-         IF (wdsrf > pondmx) THEN
-            rsur = rsur + (wdsrf - pondmx) / deltim
-            rsur_ie = rsur_ie + (wdsrf - pondmx) / deltim
-            wdsrf = pondmx
-         ENDIF
-
-         IF (zwt <= 0.) THEN
-            rsur_ie = 0.
-            rsur_se = rsur
-         ENDIF
-
-         ! total runoff (mm/s)
-         rnof = rsubst + rsur
-      ELSE
-         rnof = 0.
+#ifdef CROP
       ENDIF
 #endif
 #endif

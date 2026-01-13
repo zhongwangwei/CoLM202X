@@ -317,8 +317,9 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_ElementNeighbour_file = 'null'
    character(len=256) :: DEF_UnitCatchment_file    = 'null'
    character(len=256) :: DEF_ReservoirPara_file    = 'null'
-   logical :: DEF_USE_EstimatedRiverDepth = .true.
-   integer :: DEF_Reservoir_Method = 0
+
+   logical  :: DEF_USE_EstimatedRiverDepth  = .true.
+   integer  :: DEF_Reservoir_Method         = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
 
    ! ----- others -----
@@ -347,6 +348,8 @@ MODULE MOD_Namelist
    logical :: DEF_USE_FIRE              = .false. ! Fire MODULE
 
    logical :: DEF_USE_Dynamic_Lake      = .false. ! Dynamic Lake model
+
+   logical :: DEF_USE_Dynamic_Wetland   = .false. ! Dynamic wetland model
 
    logical :: DEF_CheckEquilibrium      = .false.
 
@@ -431,6 +434,8 @@ MODULE MOD_Namelist
    character(len=256):: DEF_DS_HiresTopographyDataDir      = 'null'
    character(len=5)  :: DEF_DS_precipitation_adjust_scheme = 'I'
    character(len=5)  :: DEF_DS_longwave_adjust_scheme      = 'II'
+
+   logical           :: DEF_USE_ClimForcing_for_Spinup     = .false.
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 13: data assimilation -----
@@ -1094,6 +1099,8 @@ CONTAINS
       DEF_USE_FIRE,                           & !add by Xingjie Lu @ sysu 2023/06/27
 
       DEF_USE_Dynamic_Lake,                   & !add by Shupeng Zhang @ sysu 2024/09/12
+      DEF_USE_Dynamic_Wetland,                & !add by Shupeng Zhang @ sysu 2026/01/09
+
       DEF_CheckEquilibrium,                   & !add by Shupeng Zhang @ sysu 2024/11/26
       DEF_Output_2mWMO,                       &
 
@@ -1156,6 +1163,7 @@ CONTAINS
       DEF_DS_HiresTopographyDataDir,          &
       DEF_DS_precipitation_adjust_scheme,     &
       DEF_DS_longwave_adjust_scheme,          &
+      DEF_USE_ClimForcing_for_Spinup,         &
 
       DEF_HISTORY_IN_VECTOR,                  &
       DEF_HIST_lon_res,                       &
@@ -1671,6 +1679,8 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_FIRE                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_Dynamic_Lake                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_Dynamic_Wetland                ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+
       CALL mpi_bcast (DEF_CheckEquilibrium                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_LANDONLY                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1746,6 +1756,7 @@ CONTAINS
       CALL mpi_bcast (DEF_DS_HiresTopographyDataDir          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_DS_precipitation_adjust_scheme     ,5   ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_DS_longwave_adjust_scheme          ,5   ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_ClimForcing_for_Spinup         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_forcing%dataset                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%solarin_all_band           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)

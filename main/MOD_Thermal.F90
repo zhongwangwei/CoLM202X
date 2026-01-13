@@ -536,7 +536,8 @@ ENDIF
       qred = 1.
       hr   = 1.
 
-      IF ((patchtype<=1) .or. is_dry_lake) THEN            !soil ground
+      IF ((patchtype<=1) .or. is_dry_lake &
+         .or. (DEF_USE_Dynamic_Wetland .and. (patchtype==2))) THEN  !soil ground
          wx   = (wliq_soisno(1)/denh2o + wice_soisno(1)/denice)/dz_soisno(1)
          IF (porsl(1) < 1.e-6) THEN     !bed rock
             fac  = 0.001
