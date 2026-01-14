@@ -295,7 +295,7 @@ PROGRAM CoLM
 
       i_spinupcycle = 1
       n_spinupcycle = max(n_spinupcycle,1)
-      is_spinup = .true.
+      is_spinup = (ststamp < ptstamp)
 
       ! ----------------------------------------------------------------------
       ! Read in the model time invariant constant data
@@ -326,7 +326,7 @@ PROGRAM CoLM
       CALL hist_init (dir_hist)
       CALL allocate_1D_Fluxes ()
 
-      CALL CheckEqb_init (n_spinupcycle)
+      CALL CheckEqb_init (n_spinupcycle, lc_year)
 
 #if (defined CaMa_Flood)
 #ifdef USEMPI
@@ -637,10 +637,10 @@ PROGRAM CoLM
                CALL ParaOpt_EndOfSpinup          ()
             ENDIF
 
-            is_spinup = .true.
+            is_spinup = .false.
 
             IF (p_is_master) THEN
-               IF (len_trim(spinup_warning) > 0) THEN
+               IF (DEF_CheckEquilibrium .and. (len_trim(spinup_warning) > 0)) THEN
                   write(*,'(/,A)') trim(spinup_warning)
                ENDIF
             ENDIF

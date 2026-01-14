@@ -530,6 +530,7 @@ MODULE MOD_Namelist
       logical :: wat_inst                         = .true.
       logical :: wetwat                           = .true.
       logical :: wetwat_inst                      = .true.
+      logical :: wetzwt                           = .true.
       logical :: assim                            = .true.
       logical :: respc                            = .true.
       logical :: qcharge                          = .true.
@@ -1198,9 +1199,10 @@ CONTAINS
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(DEF_forcing_namelist))
          ENDIF
          close(10)
-#ifdef SinglePoint
-         DEF_forcing%has_missing_value = .false.
-#endif
+
+         IF (trim(DEF_forcing%dataset) == 'POINT') THEN
+            DEF_forcing%has_missing_value = .false.
+         ENDIF
 
          DEF_dir_landdata = trim(DEF_dir_output) // '/' // trim(adjustl(DEF_CASE_NAME)) // '/landdata'
          DEF_dir_restart  = trim(DEF_dir_output) // '/' // trim(adjustl(DEF_CASE_NAME)) // '/restart'
@@ -1929,6 +1931,7 @@ CONTAINS
       CALL sync_hist_vars_one (DEF_hist_vars%wat_inst    , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wetwat      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%wetwat_inst , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%wetzwt      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%assim       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%respc       , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qcharge     , set_defaults)

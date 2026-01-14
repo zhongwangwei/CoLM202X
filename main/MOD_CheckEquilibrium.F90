@@ -57,7 +57,7 @@ MODULE MOD_CheckEquilibrium
 CONTAINS
 
    !-----------------------------------------------------------------------
-   SUBROUTINE CheckEqb_init (n_spinupcycle)
+   SUBROUTINE CheckEqb_init (n_spinupcycle, lc_year)
 
    USE MOD_Vars_Global,        only: nl_soil
    USE MOD_Forcing,            only: gforc
@@ -66,9 +66,11 @@ CONTAINS
    IMPLICIT NONE
 
    integer, intent(in) :: n_spinupcycle
+   integer, intent(in) :: lc_year
 
    ! Local Variable
    integer :: ilev
+   character(len=256) :: filename, cyear
 
 
       IF (.not. DEF_CheckEquilibrium) RETURN
@@ -110,7 +112,13 @@ CONTAINS
 
 #ifndef SinglePoint
       ! grid
+#ifdef GRIDBASED
+      write(cyear,'(i4.4)') lc_year
+      filename = trim(DEF_dir_landdata) // '/mesh/' //trim(cyear) // '/mesh.nc'
+      CALL gridcheck%define_from_file (filename)
+#else
       CALL gridcheck%define_by_copy (gforc)
+#endif
       ! grid info for output
       CALL gcheck_concat%set (gridcheck)
       ! mapping from patch to grid

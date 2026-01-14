@@ -835,6 +835,10 @@ ENDIF
             vecacc, file_hist, 'f_wetwat_inst', itime_in_file, sumarea, filter, &
             'instantaneous wetland water storage','mm')
 
+         CALL write_history_variable_2d ( DEF_hist_vars%wetzwt, &
+            a_zwt, file_hist, 'f_wetzwt', itime_in_file, sumarea, filter, &
+            'the depth to water table in wetland','m')
+
          ! ------------------------------------------------------------------
          ! Mapping the urban variables at patch [numurban] to grid
          ! ------------------------------------------------------------------
