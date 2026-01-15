@@ -39,10 +39,10 @@ MODULE MOD_Vars_PFTimeVariables
    real(r8), allocatable :: sai_p        (:) !stem area index
    real(r8), allocatable :: ssun_p   (:,:,:) !sunlit canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssha_p   (:,:,:) !shaded canopy absorption for solar radiation (0-1)
-#ifdef HYPERSPECTRAL
+
    real(r8), allocatable :: ssun_hires_p (:,:,:) !sunlit canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssha_hires_p (:,:,:) !shaded canopy absorption for solar radiation (0-1)
-#endif
+
    real(r8), allocatable :: thermk_p     (:) !canopy gap fraction for tir radiation
    real(r8), allocatable :: fshade_p     (:) !canopy shade fraction for tir radiation
    real(r8), allocatable :: extkb_p      (:) !(k, g(mu)/mu) direct solar extinction coefficient
@@ -114,10 +114,10 @@ CONTAINS
             allocate (sai_p        (numpft)) ; sai_p        (:) = spval !stem area index
             allocate (ssun_p   (2,2,numpft)) ; ssun_p   (:,:,:) = spval !sunlit canopy absorption for solar radiation (0-1)
             allocate (ssha_p   (2,2,numpft)) ; ssha_p   (:,:,:) = spval !shaded canopy absorption for solar radiation (0-1)
-#ifdef HYPERSPECTRAL
+
             allocate (ssun_hires_p (211,2,numpft)) ; ssun_hires_p   (:,:,:) = spval !sunlit canopy absorption for solar radiation (0-1)
             allocate (ssha_hires_p (211,2,numpft)) ; ssha_hires_p   (:,:,:) = spval !shaded canopy absorption for solar radiation (0-1)
-#endif
+
             allocate (thermk_p     (numpft)) ; thermk_p     (:) = spval !canopy gap fraction for tir radiation
             allocate (fshade_p     (numpft)) ; fshade_p     (:) = spval !canopy shade fraction for tir radiation
             allocate (extkb_p      (numpft)) ; extkb_p      (:) = spval !(k, g(mu)/mu) direct solar extinction coefficient
@@ -177,10 +177,10 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'sai_p    ',  landpft, sai_p       )
       CALL ncio_read_vector (file_restart, 'ssun_p   ',  2,2, landpft, ssun_p )
       CALL ncio_read_vector (file_restart, 'ssha_p   ',  2,2, landpft, ssha_p )
-#ifdef HYPERSPECTRAL
+
       CALL ncio_read_vector (file_restart, 'ssun_hires_p   ',  211,2, landpft, ssun_hires_p )
       CALL ncio_read_vector (file_restart, 'ssha_hires_p   ',  211,2, landpft, ssha_hires_p )
-#endif
+
       CALL ncio_read_vector (file_restart, 'thermk_p ',  landpft, thermk_p    )
       CALL ncio_read_vector (file_restart, 'fshade_p ',  landpft, fshade_p    )
       CALL ncio_read_vector (file_restart, 'extkb_p  ',  landpft, extkb_p     )
@@ -229,9 +229,9 @@ ENDIF
       CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
       CALL ncio_define_dimension_vector (file_restart, landpft, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpft, 'rtyp', 2)
-#ifdef HYPERSPECTRAL
+
       CALL ncio_define_dimension_vector (file_restart, landpft, 'wavelength', 211)
-#endif
+
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_define_dimension_vector (file_restart, landpft, 'vegnodes', nvegwcs)
 ENDIF
@@ -250,10 +250,10 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'sai_p    ', 'pft', landpft, sai_p    , compress)
       CALL ncio_write_vector (file_restart, 'ssun_p   ', 'band', 2, 'rtyp', 2, 'pft', landpft, ssun_p, compress)
       CALL ncio_write_vector (file_restart, 'ssha_p   ', 'band', 2, 'rtyp', 2, 'pft', landpft, ssha_p, compress)
-#ifdef HYPERSPECTRAL
+
       CALL ncio_write_vector (file_restart, 'ssun_hires_p', 'wavelength', 211, 'rtyp', 2, 'pft', landpft, ssun_hires_p, compress)
       CALL ncio_write_vector (file_restart, 'ssha_hires_p', 'wavelength', 211, 'rtyp', 2, 'pft', landpft, ssha_hires_p, compress)
-#endif
+
       CALL ncio_write_vector (file_restart, 'thermk_p ', 'pft', landpft, thermk_p , compress)
       CALL ncio_write_vector (file_restart, 'fshade_p ', 'pft', landpft, fshade_p , compress)
       CALL ncio_write_vector (file_restart, 'extkb_p  ', 'pft', landpft, extkb_p  , compress)
@@ -306,10 +306,10 @@ ENDIF
             deallocate (sai_p          )  ! stem area index
             deallocate (ssun_p         )  ! sunlit canopy absorption for solar radiation (0-1)
             deallocate (ssha_p         )  ! shaded canopy absorption for solar radiation (0-1)
-#ifdef HYPERSPECTRAL
+
             deallocate (ssun_hires_p   )  ! sunlit canopy absorption for solar radiation (0-1)
             deallocate (ssha_hires_p   )  ! shaded canopy absorption for solar radiation (0-1)
-#endif
+
             deallocate (thermk_p       )  ! canopy gap fraction for tir radiation
             deallocate (fshade_p       )  ! canopy gap fraction for tir radiation
             deallocate (extkb_p        )  ! (k, g(mu)/mu) direct solar extinction coefficient
