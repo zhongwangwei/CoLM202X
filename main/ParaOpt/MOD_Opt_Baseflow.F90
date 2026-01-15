@@ -108,15 +108,6 @@ CONTAINS
 
          iter_bf_opt = iter_bf_opt + 1
 
-         ! IF (p_is_worker) THEN
-         !    DO ipatch = 1, numpatch
-         !       IF (mask_bf_opt(ipatch)) THEN
-         !          write(*,'(A,5Es10.2)') 'check scale_baseflow:', zwt(ipatch), ref_zwt(ipatch), &
-         !             scale_bf_left(ipatch), scale_baseflow(ipatch), scale_bf_right(ipatch)
-         !       ENDIF
-         !    ENDDO
-         ! ENDIF
-
          file_restart = trim(DEF_dir_restart) // '/ParaOpt/' // trim(DEF_CASE_NAME) //'_baseflow.nc'
          CALL ncio_create_file_vector (file_restart, landpatch)
          CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')

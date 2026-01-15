@@ -635,10 +635,11 @@ PROGRAM CoLM
             IF (is_spinup) THEN
                CALL CheckEquilibrium_EndOfSpinup ()
                CALL ParaOpt_EndOfSpinup          ()
+               is_spinup = .false.
             ENDIF
+         ENDIF
 
-            is_spinup = .false.
-
+         IF (.not. is_spinup) THEN
             IF (p_is_master) THEN
                IF (DEF_CheckEquilibrium .and. (len_trim(spinup_warning) > 0)) THEN
                   write(*,'(/,A)') trim(spinup_warning)

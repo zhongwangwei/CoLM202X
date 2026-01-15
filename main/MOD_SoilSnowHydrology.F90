@@ -1102,13 +1102,13 @@ ENDIF
 
             ! total runoff (mm/s)
             rnof = rsubst + rsur
-         ELSEIF (patchtype == 2) THEN
+         ELSEIF (patchtype == 2) THEN ! for wetland
             IF (wdsrf > wetwatmax) THEN
-               rsur_ie = (wdsrf - wetwatmax) / deltim
+               rsur_se = (wdsrf - wetwatmax) / deltim
                wdsrf = wetwatmax
             ENDIF
 
-            rsur = rsur_ie
+            rsur = rsur_se
             ! total runoff (mm/s)
             rnof = rsur
          ELSE ! for dry lake
