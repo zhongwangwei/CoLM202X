@@ -1566,7 +1566,7 @@ CONTAINS
             a_alb   (:,:,:) = spval
 
 #ifdef HYPERSPECTRAL
-            a_hires_alb (:,:,:) = spval
+            a_alb_hires (:,:,:) = spval
 #endif
 
             a_emis      (:) = spval

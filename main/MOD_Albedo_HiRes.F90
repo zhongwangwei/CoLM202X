@@ -95,11 +95,11 @@ CONTAINS
    USE MOD_Const_Physical, only: tfrz
    USE MOD_Namelist, only: DEF_USE_SNICAR, DEF_HighResSoil
    USE MOD_Vars_TimeInvariants, only: patchclass
+   USE MOD_HighRes_Parameters, only: rad2deg
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
    USE MOD_Vars_PFTimeInvariants
    USE MOD_Vars_PFTimeVariables
-   USE MOD_HighRes_Parameters, only: rad2deg
 #endif
    USE MOD_Aerosol, only: AerosolMasses
    USE MOD_SnowSnicar_HiRes, only: SnowAge_grain
@@ -467,8 +467,8 @@ END IF
       ELSE IF(patchtype == 1) THEN       !urban
 
          ! select constant albedo for urban       
-         lat = patchlatr * rad2deg(patchlatr)
-         lon = patchlonr * rad2deg(patchlonr)
+         lat = rad2deg(patchlatr)
+         lon = rad2deg(patchlonr)
 
          ! 根据lat、lon边界选择cluster_id
          i_cluster = 0
