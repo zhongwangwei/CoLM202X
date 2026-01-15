@@ -1,16 +1,16 @@
 ! 1. Spatial structure:
 !    Select one of the following options.
-#undef GRIDBASED
+#define GRIDBASED
 #undef CATCHMENT
 #undef UNSTRUCTURED
-#define SinglePoint
+#undef SinglePoint
 
 ! 2. Land subgrid type classification:
 !    Select one of the following options.
 #undef LULC_USGS
 #undef LULC_IGBP
-#undef LULC_IGBP_PFT
-#define LULC_IGBP_PC
+#define LULC_IGBP_PFT
+#undef LULC_IGBP_PC
 
 ! 2.1 3D Urban model (put it temporarily here):
 #undef URBAN_MODEL
