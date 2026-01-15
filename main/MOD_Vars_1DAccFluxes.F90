@@ -93,8 +93,9 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_laisun    (:)
    real(r8), allocatable :: a_laisha    (:)
    real(r8), allocatable :: a_sai       (:)
-#ifdef HYPERSPECTRAL
    real(r8), allocatable :: a_alb       (:,:,:)
+
+#ifdef HYPERSPECTRAL
    real(r8), allocatable :: a_alb_hires (:,:,:)
    real(r8), allocatable :: a_reflectance_out   (:,:,:)
    real(r8), allocatable :: a_transmittance_out (:,:,:)
@@ -1563,6 +1564,10 @@ CONTAINS
             a_sai       (:) = spval
 
             a_alb   (:,:,:) = spval
+
+#ifdef HYPERSPECTRAL
+            a_hires_alb (:,:,:) = spval
+#endif
 
             a_emis      (:) = spval
             a_z0m       (:) = spval
