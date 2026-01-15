@@ -9,8 +9,8 @@
 !    Select one of the following options.
 #undef LULC_USGS
 #undef LULC_IGBP
-#undef LULC_IGBP_PFT
-#define LULC_IGBP_PC
+#define LULC_IGBP_PFT
+#undef LULC_IGBP_PC
 
 ! 2.1 3D Urban model (put it temporarily here):
 #undef URBAN_MODEL
