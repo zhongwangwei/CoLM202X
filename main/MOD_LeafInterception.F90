@@ -1520,7 +1520,7 @@ CONTAINS
    real(r8), intent(out) :: qintr_snow  !snowfall interception (mm h2o/s)
 
    real(r8) :: Imax1,Lr,Snow,Rain,DeltaSnowInt,Wind,BlownSnow,sigf_safe
-   real(r8) :: MaxInt,Overload,IntRainFract,IntSnowFract,ldew_smelt
+   real(r8) :: MaxInt,Overload,IntRainFract,IntSnowFract,ldew_smelt,MaxWaterInt
 
       IF (lai+sai > 1e-6 .and. sigf > 1.e-6) THEN
          lsai   = lai + sai
