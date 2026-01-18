@@ -305,9 +305,11 @@ CONTAINS
                ! reservoir operation.
                IF (DEF_Reservoir_Method > 0) THEN
                   IF (lake_type(i) == 2) THEN
-                     hflux_fc(i) = 0.
-                     mflux_fc(i) = 0.
-                     zgrad_dn(i) = 0.
+                     IF (year >= dam_build_year(bsn2resv(i))) THEN
+                        hflux_fc(i) = 0.
+                        mflux_fc(i) = 0.
+                        zgrad_dn(i) = 0.
+                     ENDIF
                   ENDIF
                ENDIF
 
@@ -332,37 +334,36 @@ CONTAINS
             IF (DEF_Reservoir_Method > 0) THEN
 
                DO i = 1, numbasin
-                  IF (.not. bsnfilter(i)) CYCLE
-                  IF (lake_type(i) == 2) THEN
-                     IF (year >= dam_build_year(bsn2resv(i))) THEN
 
-                        irsv = bsn2resv(i)
-                        qresv_in(irsv) = - sum_hflux_riv(i)
-                        volresv (irsv) = lakeinfo(i)%volume( wdsrf_bsn(i) )
+                  hflux_resv(i) = 0.
+                  mflux_resv(i) = 0.
 
-                        IF (volresv(irsv) > 1.e-4 * volresv_total(irsv)) THEN
-                           CALL reservoir_operation (DEF_Reservoir_Method, &
-                              irsv, qresv_in(irsv), volresv(irsv), qresv_out(irsv))
-                        ELSE
-                           qresv_out (irsv) = 0.
+                  IF (bsnfilter(i)) THEN
+                     IF ((lake_type(i) == 2) .and. (riverdown(i) /= -1)) THEN
+                        IF (year >= dam_build_year(bsn2resv(i))) THEN
+
+                           irsv = bsn2resv(i)
+                           qresv_in(irsv) = - sum_hflux_riv(i)
+                           volresv (irsv) = lakeinfo(i)%volume( wdsrf_bsn(i) )
+
+                           IF (volresv(irsv) > 1.e-4 * volresv_total(irsv)) THEN
+                              CALL reservoir_operation (DEF_Reservoir_Method, &
+                                 irsv, qresv_in(irsv), volresv(irsv), qresv_out(irsv))
+                           ELSE
+                              qresv_out (irsv) = 0.
+                           ENDIF
+
+                           hflux_fc(i) = qresv_out(irsv)
+                           mflux_fc(i) = qresv_out(irsv) * sqrt(2*grav*wdsrf_bsn(i))
+
+                           sum_hflux_riv(i) = sum_hflux_riv(i) + hflux_fc(i)
+                           sum_mflux_riv(i) = sum_mflux_riv(i) + mflux_fc(i)
+
+                           hflux_resv(i) = - hflux_fc(i)
+                           mflux_resv(i) = - mflux_fc(i)
+
                         ENDIF
-
-                        hflux_fc(i) = qresv_out(irsv)
-                        mflux_fc(i) = qresv_out(irsv) * sqrt(2*grav*wdsrf_bsn(i))
-
-                        sum_hflux_riv(i) = sum_hflux_riv(i) + hflux_fc(i)
-                        sum_mflux_riv(i) = sum_mflux_riv(i) + mflux_fc(i)
-
-                        hflux_resv(i) = - hflux_fc(i)
-                        mflux_resv(i) = - mflux_fc(i)
-
-                     ELSE
-                        hflux_resv(i) = 0.
-                        mflux_resv(i) = 0.
                      ENDIF
-                  ELSE
-                     hflux_resv(i) = 0.
-                     mflux_resv(i) = 0.
                   ENDIF
                ENDDO
 
@@ -570,7 +571,9 @@ CONTAINS
 
          IF (numbasin > 0) wdsrf_bsn_prev(:) = wdsrf_bsn(:)
 
+#ifdef USEMPI
          CALL mpi_allreduce (MPI_IN_PLACE, ntimestep_riverlake, 1, MPI_INTEGER, MPI_MAX, p_comm_worker, p_err)
+#endif
 
          IF (allocated(wdsrf_bsn_ds )) deallocate(wdsrf_bsn_ds )
          IF (allocated(veloc_riv_ds )) deallocate(veloc_riv_ds )

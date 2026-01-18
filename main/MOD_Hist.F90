@@ -616,7 +616,7 @@ CONTAINS
 #ifdef DataAssimilation
          IF (DEF_DA_TWS_GRACE) THEN
             ! slope factors for runoff [-]
-            IF (p_is_worker) THEN
+            IF (p_is_worker .and. (numpatch > 0)) THEN
                vecacc = fslp_k_mon(month, :)
                WHERE (vecacc /= spval) vecacc = vecacc*nac
             ENDIF
@@ -664,7 +664,7 @@ CONTAINS
             'total water storage','mm')
 
          ! instantaneous total water storage [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .and. (numpatch > 0)) THEN
             vecacc = wat
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -817,8 +817,11 @@ ENDIF
 
          ! wetland water storage [mm]
          IF (DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_worker .and. (numpatch > 0)) THEN
+               vecacc = a_wdsrf
+            ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
-               a_wdsrf, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
+               vecacc, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
                'wetland water storage','mm')
          ELSE
             CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
@@ -827,7 +830,7 @@ ENDIF
          ENDIF
 
          ! instantaneous wetland water storage [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .and. (numpatch > 0)) THEN
             vecacc = wetwat
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -835,8 +838,11 @@ ENDIF
             vecacc, file_hist, 'f_wetwat_inst', itime_in_file, sumarea, filter, &
             'instantaneous wetland water storage','mm')
 
+         IF (p_is_worker .and. (numpatch > 0)) THEN
+            vecacc = a_zwt
+         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%wetzwt, &
-            a_zwt, file_hist, 'f_wetzwt', itime_in_file, sumarea, filter, &
+            vecacc, file_hist, 'f_wetzwt', itime_in_file, sumarea, filter, &
             'the depth to water table in wetland','m')
 
          ! ------------------------------------------------------------------

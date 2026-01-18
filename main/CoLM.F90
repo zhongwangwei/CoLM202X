@@ -622,24 +622,22 @@ PROGRAM CoLM
             ENDIF
          ENDIF
 
-         IF ((i_spinupcycle < n_spinupcycle) .and. (ptstamp <= itstamp)) THEN
-            i_spinupcycle = i_spinupcycle + 1
-            idate   = sdate
-            jdate   = sdate
-            itstamp = ststamp
-            CALL adj2begin(jdate)
-            CALL forcing_reset ()
-         ENDIF
-
-         IF (ptstamp <= itstamp) THEN
-            IF (is_spinup) THEN
-               CALL CheckEquilibrium_EndOfSpinup ()
-               CALL ParaOpt_EndOfSpinup          ()
-               is_spinup = .false.
+         IF (is_spinup) THEN
+            IF (ptstamp <= itstamp) THEN
+               IF (i_spinupcycle < n_spinupcycle) THEN
+                  i_spinupcycle = i_spinupcycle + 1
+                  idate   = sdate
+                  jdate   = sdate
+                  itstamp = ststamp
+                  CALL adj2begin(jdate)
+                  CALL forcing_reset ()
+               ELSE
+                  CALL CheckEquilibrium_EndOfSpinup ()
+                  CALL ParaOpt_EndOfSpinup          ()
+                  is_spinup = .false.
+               ENDIF
             ENDIF
-         ENDIF
-
-         IF (.not. is_spinup) THEN
+         ELSE
             IF (p_is_master) THEN
                IF (DEF_CheckEquilibrium .and. (len_trim(spinup_warning) > 0)) THEN
                   write(*,'(/,A)') trim(spinup_warning)
