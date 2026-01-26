@@ -26,6 +26,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
    USE omp_lib
+#ifdef HYPERSPECTRAL
+  USE MOD_HighRes_Parameters
+#endif
 #ifdef CaMa_Flood
    ! get flood variables: inundation depth[mm], inundation fraction [0-1],
    ! inundation evaporation [mm/s], inundation re-infiltration[mm/s]
@@ -115,6 +118,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                hhti(m),         trda(m),         trdm(m),         trop(m),         &
                g1(m),           g0(m),           gradm(m),        binter(m),       &
                extkn(m),        chil(m),         rho(1:,1:,m),    tau(1:,1:,m),    &
+#ifdef HYPERSPECTRAL
+               ! variables for high spectral resolution
+               ! note that rho & tau are depend on wavelength
+               clr_frac,        cld_frac,                                          &
+               reflectance(0:,1:,1:),            transmittance(0:,1:,1:),          &
+               soil_alb(1:,i),    kw(1:),          nw(1:),                           &
+#endif
 
              ! ATMOSPHERIC FORCING
                forc_pco2m(i),   forc_po2m(i),    forc_us(i),      forc_vs(i),      &
@@ -123,6 +133,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                forc_sols(i),    forc_soll(i),    forc_solsd(i),   forc_solld(i),   &
                forc_frl(i),     forc_hgt_u(i),   forc_hgt_t(i),   forc_hgt_q(i),   &
                forc_rhoair(i),                                                     &
+#ifdef HYPERSPECTRAL
+             ! solar forcing
+               forc_solarin(i),                                                    &
+#endif
              ! CBL height forcing
                forc_hpbl(i),                                                       &
              ! Aerosol deposition
@@ -139,6 +153,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                ssun(1:,1:,i),   ssha(1:,1:,i),   ssoi(:,:,i),     ssno(:,:,i),     &
                thermk(i),       extkb(i),        extkd(i),        vegwp(1:,i),     &
                gs0sun(i),       gs0sha(i),       &
+#ifdef HYPERSPECTRAL
+               ! high-res variables
+               alb_hires(1:,1:,i),               &
+               sol_dir_ln_hires(1:,i), sol_dif_ln_hires(1:,i) ,&
+               sr_dir_ln_hires(1:,i) , sr_dif_ln_hires (1:,i) ,&
+               reflectance_out(:,:,i), transmittance_out(:,:,i),&
+#endif
              ! Ozone Stress Variables
                lai_old(i),      o3uptakesun(i),  o3uptakesha(i),  forc_ozone(i),   &
              ! End ozone stress variables

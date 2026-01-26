@@ -92,12 +92,20 @@ PROGRAM CoLM
    USE MOD_Hydro_SoilWater
 #endif
 
+#ifdef HYPERSPECTRAL
    ! SNICAR model
+   USE MOD_SnowSnicar_HiRes, only: SnowAge_init, SnowOptics_init
+#else
    USE MOD_SnowSnicar, only: SnowAge_init, SnowOptics_init
+#endif
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
+#endif
+
+#ifdef HYPERSPECTRAL
+   USE MOD_HighRes_Parameters
 #endif
 
 #ifdef USEMPI
@@ -311,7 +319,16 @@ PROGRAM CoLM
          CALL SnowAge_init( DEF_file_snowaging )     ! SNICAR aging   parameters
       ENDIF
 
+#ifdef HYPERSPECTRAL
       ! ----------------------------------------------------------------------
+      ! Read in FSDS fraction, leaf properties and surface albedo (single point)
+      CALL flux_frac_init( )
+      CALL leaf_property_init( rho_p, tau_p )
+      CALL get_water_optical_properties( )
+      CALL readin_urban_albedo( )
+#endif
+
+   !-----------------------
       doalb = .true.
       dolai = .true.
       dosst = .false.

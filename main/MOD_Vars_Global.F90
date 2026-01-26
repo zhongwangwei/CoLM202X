@@ -57,7 +57,7 @@ MODULE MOD_Vars_Global
    integer, parameter :: nl_roof   = 10
    integer, parameter :: nl_wall   = 10
    integer, parameter :: nvegwcs   = 4  ! number of vegetation water potential nodes
-
+   integer, parameter :: nwl       = 211  ! number of hyperspectral wavelengths
    ! used for downscaling
    integer, parameter :: num_slope_type       = 4
    integer, parameter :: num_aspect_type      = 9
