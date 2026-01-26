@@ -2,16 +2,17 @@
 # mpif90 - ifort 
 # 
 
- FF = mpif90
+ FF = /opt/intel_2019/compilers_and_libraries_2019.4.243/linux/mpi/intel64/bin/mpiifort
 
- NETCDF_LIB = /opt/netcdf-c-4.9.2-fortran-4.6.0-intel/lib
- NETCDF_INC = /opt/netcdf-c-4.9.2-fortran-4.6.0-intel/include
+ NETCDF_LIB = /ddn_lustre/weiliren/apps/netcdf-2019/lib
+ NETCDF_INC = /ddn_lustre/weiliren/apps/netcdf-2019/include
+ MATH_LIB = /opt/intel_2019/compilers_and_libraries_2019.4.243/linux/mkl/lib/intel64_lin  #MKL LIB_PATH
 
  MOD_CMD = -module 
 
- FOPTS = -qopenmp -O2 -traceback -r8 -free -check uninit -check bounds
+ FOPTS = -f90=ifort -qopenmp -O2 -g -traceback -r8 -free -check uninit -check bounds
 
- LDFLAGS = -L${NETCDF_LIB} -lnetcdff -llapack -lblas
+ LDFLAGS = -L${NETCDF_LIB} -lnetcdff -L${MATH_LIB} -llapack -lblas
 
 #============================================================
 # CaMa-Flood Mkinclude (for Linux, Intel fortran)
