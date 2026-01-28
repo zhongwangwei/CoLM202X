@@ -25,7 +25,6 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_LandUrban, only: patch2urban
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
-   USE MOD_Opt_Baseflow, only: mask_bf_opt
    USE omp_lib
 #ifdef CaMa_Flood
    ! get flood variables: inundation depth[mm], inundation fraction [0-1],
@@ -68,10 +67,6 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             IF (.not. patchmask(i) .and. (landpatch%ipxstt(i)>0) ) CYCLE
          ELSE
             IF (.not. patchmask(i)) CYCLE
-         ENDIF
-
-         IF (DEF_Optimize_Baseflow) THEN
-            IF (.not. mask_bf_opt(i)) CYCLE
          ENDIF
 
          m = patchclass(i)
@@ -171,7 +166,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                trad(i),         tref(i),         qref(i),         t2m_wmo(i),      &
                frcsat(i),       rsur(i),         rsur_se(i),      rsur_ie(i),      &
                rnof(i),         qintr(i),        qinfl(i),        qlayer(0:,i),    &
-               qdrip(i),        rst(i),          assim(i),        &
+               lake_deficit(i), qdrip(i),        rst(i),          assim(i),        &
                respc(i),        sabvsun(i),      sabvsha(i),      sabg(i),         &
                sr(i),           solvd(i),        solvi(i),        solnd(i),        &
                solni(i),        srvd(i),         srvi(i),         srnd(i),         &

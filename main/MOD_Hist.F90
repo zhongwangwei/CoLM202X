@@ -4489,6 +4489,13 @@ ENDIF
             CALL mp2g_hist%get_sumarea (sumarea, filter)
          ENDIF
 
+         IF (HistForm == 'Gridded') THEN
+            IF (trim(file_hist) /= trim(file_last)) THEN
+               CALL hist_write_var_real8_2d (file_hist, 'area_lake', ghist, -1, sumarea, &
+                  compress = 1, longname = 'area of lake', units = 'km2')
+            ENDIF
+         ENDIF
+
          ! lake layer depth [m]
          CALL write_history_variable_3d ( DEF_hist_vars%dz_lake .and. DEF_USE_Dynamic_Lake, &
             a_dz_lake, file_hist, 'f_dz_lake', itime_in_file, 'lake', 1, nl_lake, sumarea, filter, &
@@ -4503,6 +4510,13 @@ ENDIF
          CALL write_history_variable_3d ( DEF_hist_vars%lake_icefrac, &
             a_lake_icefrac, file_hist, 'f_lake_icefrac', itime_in_file, 'lake', 1, nl_lake, &
             sumarea, filter, 'lake ice fraction cover','0-1')
+
+         ! lake water deficit due to evaporation [mm]
+         IF (.not. DEF_USE_Dynamic_Lake) THEN
+            CALL write_history_variable_2d ( DEF_hist_vars%lake_deficit, &
+               a_lake_deficit, file_hist, 'f_lake_deficit', itime_in_file, sumarea, filter, &
+               'lake water deficit due to evaporation','mm')
+         ENDIF
 
 #ifdef EXTERNAL_LAKE
          CALL LakeVarsSaveHist (nl_lake, file_hist, HistForm, itime_in_file, sumarea, filter)

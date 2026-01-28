@@ -859,6 +859,7 @@ MODULE MOD_Namelist
 
       logical :: h2osoi                           = .true.
       logical :: qlayer                           = .true.
+      logical :: lake_deficit                     = .true.
       logical :: rstfacsun                        = .true.
       logical :: rstfacsha                        = .true.
       logical :: gssun                            = .true.
@@ -2286,6 +2287,7 @@ CONTAINS
 
       CALL sync_hist_vars_one (DEF_hist_vars%h2osoi      , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%qlayer      , set_defaults)
+      CALL sync_hist_vars_one (DEF_hist_vars%lake_deficit, set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsun   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%rstfacsha   , set_defaults)
       CALL sync_hist_vars_one (DEF_hist_vars%gssun       , set_defaults)

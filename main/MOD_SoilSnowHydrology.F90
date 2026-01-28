@@ -543,7 +543,7 @@ ENDIF
    USE MOD_Const_Physical,      only: denice, denh2o, tfrz
    USE MOD_Vars_TimeInvariants, only: vic_b_infilt, vic_Dsmax, vic_Ds, vic_Ws, vic_c
    USE MOD_Vars_1DFluxes,       only: fevpg
-   USE MOD_Opt_Baseflow
+   USE MOD_Opt_Baseflow,        only: scale_baseflow
 #ifdef DataAssimilation
    USE MOD_DA_TWS, only: fslp_k
 #endif

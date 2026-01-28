@@ -15,7 +15,7 @@ CONTAINS
    IMPLICIT NONE
    integer :: ref_date_in(3), ref_lc_year_in
 
-      CALL Opt_Baseflow_init (ref_date_in, ref_lc_year_in)
+      CALL Opt_Baseflow_init ()
 
    END SUBROUTINE ParaOpt_init
 
@@ -37,7 +37,7 @@ CONTAINS
 
    IMPLICIT NONE
 
-      CALL Opt_Baseflow_EndOfSpinup ()
+      ! CALL Opt_Baseflow_EndOfSpinup ()
 
    END SUBROUTINE ParaOpt_EndOfSpinup
 

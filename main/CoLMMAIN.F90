@@ -85,7 +85,7 @@ SUBROUTINE CoLMMAIN ( &
            trad,         tref,         qref,         t2m_wmo,      &
            frcsat,       rsur,         rsur_se,      rsur_ie,      &
            rnof,         qintr,        qinfl,        qlayer,       &
-           qdrip,        rst,          assim,        &
+           lake_deficit, qdrip,        rst,          assim,        &
            respc,        sabvsun,      sabvsha,      sabg,         &
            sr,           solvd,        solvi,        solnd,        &
            solni,        srvd,         srvi,         srnd,         &
@@ -418,7 +418,8 @@ SUBROUTINE CoLMMAIN ( &
         rootflux(nl_soil),&! water exchange between soil and root in different layers
                            ! Positive: soil->root[?]
         h2osoi(nl_soil)  ,&! volumetric soil water in layers [m3/m3]
-        qlayer(0:nl_soil)  ! water flux at between soil layer [mm h2o/s]
+        qlayer(0:nl_soil),&! water flux at between soil layer [mm h2o/s]
+        lake_deficit       ! lake deficit due to evaporation (mm h2o)
 
    real(r8), intent(out) :: &
         assimsun_out,&
@@ -1309,6 +1310,7 @@ SUBROUTINE CoLMMAIN ( &
             rnof = rsur
             rsur_se = rsur
             rsur_ie = 0.
+            lake_deficit = - min(0., pg_rain + pg_snow - aa - a) * deltim
          ELSE
 
             wdsrf = sum(dz_lake) * 1.e3
@@ -1331,6 +1333,8 @@ SUBROUTINE CoLMMAIN ( &
          endwb  = scv + sum(wice_soisno(1:)+wliq_soisno(1:)) + wa
          IF (DEF_USE_Dynamic_Lake) THEN
             endwb  = endwb  + wdsrf
+         ELSE
+            endwb  = endwb  - lake_deficit
          ENDIF
 
          errorw = (endwb-totwb) - (forc_prc+forc_prl-fevpa) * deltim
@@ -1339,11 +1343,9 @@ SUBROUTINE CoLMMAIN ( &
 #endif
 
 #if (defined CoLMDEBUG)
-         IF (DEF_USE_Dynamic_Lake) THEN
-            IF (abs(errorw) > 1.e-3) THEN
-               write(*,*) 'Warning: water balance violation in CoLMMAIN (lake) ', errorw
-               CALL CoLM_stop ()
-            ENDIF
+         IF (abs(errorw) > 1.e-3) THEN
+            write(*,*) 'Warning: water balance violation in CoLMMAIN (lake) ', errorw
+            CALL CoLM_stop ()
          ENDIF
 #endif
 
