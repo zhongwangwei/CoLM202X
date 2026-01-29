@@ -858,10 +858,10 @@ IF((patchtype<=1) .or. is_dry_lake &
                nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
                BVIC, gwat, deltim, rsur, rsubst, frcsat)
 
-            CALL SubsurfaceRunoff_SimpleVIC ( &
-               nl_soil,           z_soisno(1:nl_soil), dz_soisno(1:nl_soil), wice_soisno(1:nl_soil), &
-               porsl(1:nl_soil),  psi0(1:nl_soil),     hksati(1:nl_soil),    theta_r(1:nl_soil),     &
-               nprms,             prms(:,1:nl_soil),   zwt,                  rsubst)
+            ! CALL SubsurfaceRunoff_SimpleVIC ( &
+            !    nl_soil,           z_soisno(1:nl_soil), dz_soisno(1:nl_soil), wice_soisno(1:nl_soil), &
+            !    porsl(1:nl_soil),  psi0(1:nl_soil),     hksati(1:nl_soil),    theta_r(1:nl_soil),     &
+            !    nprms,             prms(:,1:nl_soil),   zwt,                  rsubst)
 
             rsur_se = rsur
             rsur_ie = 0.
