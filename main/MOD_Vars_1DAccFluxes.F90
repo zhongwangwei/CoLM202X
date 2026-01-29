@@ -93,9 +93,13 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_laisun    (:)
    real(r8), allocatable :: a_laisha    (:)
    real(r8), allocatable :: a_sai       (:)
+   real(r8), allocatable :: a_alb       (:,:,:)
 
-   real(r8), allocatable :: a_alb   (:,:,:)
-
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: a_alb_hires (:,:,:)
+   real(r8), allocatable :: a_reflectance_out   (:,:,:)
+   real(r8), allocatable :: a_transmittance_out (:,:,:)
+#endif
    real(r8), allocatable :: a_emis      (:)
    real(r8), allocatable :: a_z0m       (:)
    real(r8), allocatable :: a_trad      (:)
@@ -466,7 +470,12 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_srviln  (:)
    real(r8), allocatable :: a_srndln  (:)
    real(r8), allocatable :: a_srniln  (:)
-
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: a_sol_dir_ln_hires(:,:)
+   real(r8), allocatable :: a_sol_dif_ln_hires(:,:)
+   real(r8), allocatable :: a_sr_dir_ln_hires (:,:)
+   real(r8), allocatable :: a_sr_dif_ln_hires (:,:)
+#endif
    real(r8), allocatable :: a_sensors (:,:)
 
    PUBLIC :: allocate_acc_fluxes
@@ -571,8 +580,12 @@ CONTAINS
             allocate (a_laisha    (numpatch))
             allocate (a_sai       (numpatch))
 
-            allocate (a_alb   (2,2,numpatch))
-
+            allocate (a_alb       (2  ,2,numpatch))
+#ifdef HYPERSPECTRAL
+            allocate (a_alb_hires (211,2,numpatch))
+            allocate (a_reflectance_out  (211,16,numpatch))
+            allocate (a_transmittance_out(211,16,numpatch))
+#endif
             allocate (a_emis      (numpatch))
             allocate (a_z0m       (numpatch))
             allocate (a_trad      (numpatch))
@@ -946,7 +959,12 @@ CONTAINS
             allocate (a_srviln    (numpatch))
             allocate (a_srndln    (numpatch))
             allocate (a_srniln    (numpatch))
-
+#ifdef HYPERSPECTRAL
+            allocate (a_sol_dir_ln_hires(211, numpatch))
+            allocate (a_sol_dif_ln_hires(211, numpatch))
+            allocate (a_sr_dir_ln_hires (211, numpatch))
+            allocate (a_sr_dif_ln_hires (211, numpatch))
+#endif
             allocate (a_sensors (nsensor,numpatch))
 
             allocate (nac_ln      (numpatch))
@@ -1055,7 +1073,12 @@ CONTAINS
             deallocate (a_laisha    )
             deallocate (a_sai       )
 
-            deallocate (a_alb       )
+            deallocate (a_alb  )
+#ifdef HYPERSPECTRAL
+            deallocate (a_alb_hires  )
+            deallocate (a_reflectance_out  )
+            deallocate (a_transmittance_out)
+#endif
 
             deallocate (a_emis      )
             deallocate (a_z0m       )
@@ -1431,7 +1454,12 @@ CONTAINS
             deallocate (a_srviln    )
             deallocate (a_srndln    )
             deallocate (a_srniln    )
-
+#ifdef HYPERSPECTRAL
+            deallocate (a_sol_dir_ln_hires)
+            deallocate (a_sol_dif_ln_hires)
+            deallocate (a_sr_dir_ln_hires )
+            deallocate (a_sr_dif_ln_hires )
+#endif
             deallocate (a_sensors   )
 
             deallocate (nac_ln      )
@@ -1542,6 +1570,10 @@ CONTAINS
             a_sai       (:) = spval
 
             a_alb   (:,:,:) = spval
+
+#ifdef HYPERSPECTRAL
+            a_alb_hires (:,:,:) = spval
+#endif
 
             a_emis      (:) = spval
             a_z0m       (:) = spval
@@ -1915,7 +1947,12 @@ CONTAINS
             a_srviln   (:) = spval
             a_srndln   (:) = spval
             a_srniln   (:) = spval
-
+#ifdef HYPERSPECTRAL
+            a_sol_dir_ln_hires(:,:) = spval
+            a_sol_dif_ln_hires(:,:) = spval
+            a_sr_dir_ln_hires (:,:) = spval
+            a_sr_dif_ln_hires (:,:) = spval
+#endif
             a_sensors(:,:) = spval
 
             nac_ln     (:) = 0
@@ -2119,6 +2156,9 @@ CONTAINS
 
             ! only acc for daytime for albedo
             CALL acc3d (alb           , a_alb, filter_dt )
+#ifdef HYPERSPECTRAL
+            CALL acc3d (alb_hires     , a_alb_hires, filter_dt )
+#endif
 
             CALL acc1d (emis          , a_emis           )
             CALL acc1d (z0m           , a_z0m            )
@@ -2823,6 +2863,12 @@ CONTAINS
             CALL acc1d (srniln  , a_srniln  )
 
             CALL acc2d (sensors , a_sensors )
+#ifdef HYPERSPECTRAL
+            CALL acc2d (sol_dir_ln_hires, a_sol_dir_ln_hires)
+            CALL acc2d (sol_dif_ln_hires, a_sol_dif_ln_hires)
+            CALL acc2d (sr_dir_ln_hires , a_sr_dir_ln_hires )
+            CALL acc2d (sr_dif_ln_hires , a_sr_dif_ln_hires )
+#endif
 
          ENDIF
       ENDIF
