@@ -65,7 +65,6 @@ CONTAINS
 
    USE MOD_TimeManager
    USE MOD_NetCDFVector
-   USE MOD_RangeCheck
    USE MOD_Vars_TimeVariables,  only: zwt
    USE MOD_Vars_TimeInvariants, only: patchtype
    USE MOD_Vars_1DForcing,      only: forc_prc, forc_prl
@@ -107,8 +106,6 @@ CONTAINS
          ENDIF
       ENDIF
 
-      CALL check_vector_data ('rsub_year', rsub_year)
-
       do_opt_baseflow = (is_spinup) .and. isendofyear (idate, deltim)
 
       IF (do_opt_baseflow) THEN
@@ -135,9 +132,6 @@ CONTAINS
                IF (patchtype(ipatch) <= 1) THEN
 
                   recharge = prcp_year(ipatch)-et_year(ipatch)-rsur_year(ipatch)
-
-                  write(*,*) 'Check ', zwt(ipatch), ref_zwt(ipatch), recharge, rsub_year(ipatch), &
-                     prcp_year(ipatch), et_year(ipatch), rsur_year(ipatch)
 
                   IF ((recharge > 0) .and. (rsub_year(ipatch) > 0)) THEN
 

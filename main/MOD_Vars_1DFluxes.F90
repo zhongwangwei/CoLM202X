@@ -77,7 +77,7 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: qcharge(:) !groundwater recharge [mm/s]
 
    real(r8), allocatable :: qlayer     (:,:) !water flux at between soil layer [mm h2o/s]
-   real(r8), allocatable :: lake_deficit (:) !lake deficit due to evaporation (mm h2o)
+   real(r8), allocatable :: lake_deficit (:) !lake deficit due to evaporation (mm h2o/s)
 
    real(r8), allocatable :: oroflag(:) !/ocean(0)/seaice(2) flag
 
@@ -161,7 +161,7 @@ CONTAINS
             allocate ( qcharge(numpatch) )  ; qcharge(:) = spval ! groundwater recharge [mm/s]
 
             allocate ( qlayer (0:nl_soil,numpatch) ); qlayer(:,:) = spval ! water flux between soil layer [mm h2o/s]
-            allocate ( lake_deficit (numpatch) ); lake_deficit(:) = spval ! lake deficit due to evaporation (mm h2o)
+            allocate ( lake_deficit (numpatch) ); lake_deficit(:) = spval ! lake deficit due to evaporation (mm h2o/s)
 
             allocate ( oroflag(numpatch) )  ; oroflag(:) = 1.0   ! /ocean(0)/seaice(2) flag
 
@@ -252,7 +252,7 @@ CONTAINS
 
             deallocate ( qcharge )  ! groundwater recharge [mm/s]
             deallocate ( qlayer  )  ! water flux between soil layer [mm h2o/s]
-            deallocate ( lake_deficit )  ! lake deficit due to evaporation (mm h2o)
+            deallocate ( lake_deficit )  ! lake deficit due to evaporation (mm h2o/s)
 
             deallocate ( oroflag )  !
 

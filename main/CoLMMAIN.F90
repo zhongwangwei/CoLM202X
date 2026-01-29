@@ -419,7 +419,7 @@ SUBROUTINE CoLMMAIN ( &
                            ! Positive: soil->root[?]
         h2osoi(nl_soil)  ,&! volumetric soil water in layers [m3/m3]
         qlayer(0:nl_soil),&! water flux at between soil layer [mm h2o/s]
-        lake_deficit       ! lake deficit due to evaporation (mm h2o)
+        lake_deficit       ! lake deficit due to evaporation (mm h2o/s)
 
    real(r8), intent(out) :: &
         assimsun_out,&
@@ -1310,7 +1310,7 @@ SUBROUTINE CoLMMAIN ( &
             rnof = rsur
             rsur_se = rsur
             rsur_ie = 0.
-            lake_deficit = - min(0., pg_rain + pg_snow - aa - a) * deltim
+            lake_deficit = - min(0., pg_rain + pg_snow - aa - a)
          ELSE
 
             wdsrf = sum(dz_lake) * 1.e3
@@ -1334,7 +1334,7 @@ SUBROUTINE CoLMMAIN ( &
          IF (DEF_USE_Dynamic_Lake) THEN
             endwb  = endwb  + wdsrf
          ELSE
-            endwb  = endwb  - lake_deficit
+            endwb  = endwb  - lake_deficit * deltim
          ENDIF
 
          errorw = (endwb-totwb) - (forc_prc+forc_prl-fevpa) * deltim

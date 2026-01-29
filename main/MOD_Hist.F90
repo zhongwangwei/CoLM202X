@@ -4511,11 +4511,11 @@ ENDIF
             a_lake_icefrac, file_hist, 'f_lake_icefrac', itime_in_file, 'lake', 1, nl_lake, &
             sumarea, filter, 'lake ice fraction cover','0-1')
 
-         ! lake water deficit due to evaporation [mm]
+         ! lake water deficit due to evaporation [mm/s]
          IF (.not. DEF_USE_Dynamic_Lake) THEN
             CALL write_history_variable_2d ( DEF_hist_vars%lake_deficit, &
                a_lake_deficit, file_hist, 'f_lake_deficit', itime_in_file, sumarea, filter, &
-               'lake water deficit due to evaporation','mm')
+               'lake water deficit due to evaporation','mm/s')
          ENDIF
 
 #ifdef EXTERNAL_LAKE
