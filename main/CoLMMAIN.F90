@@ -470,13 +470,13 @@ SUBROUTINE CoLMMAIN ( &
         rootr(nl_soil)   ,&! water uptake fraction from different layers, all layers add to 1.0
         rootflux(nl_soil),&! water exchange between soil and root in different layers
                            ! Positive: soil->root[?]
-        h2osoi(nl_soil)  ,&! volumetric soil water in layers [m3/m3]
-        qlayer(0:nl_soil),&! water flux at between soil layer [mm h2o/s]
-        lake_deficit       ! lake deficit due to evaporation (mm h2o/s)
 #ifdef HYPERSPECTRAL
         reflectance_out  (211, 0:15)  ,&! high resolution reflectance
         transmittance_out(211, 0:15)  ,&! high resolution transmittance
 #endif
+        h2osoi(nl_soil)  ,&! volumetric soil water in layers [m3/m3]
+        qlayer(0:nl_soil),&! water flux at between soil layer [mm h2o/s]
+        lake_deficit       ! lake deficit due to evaporation (mm h2o/s)
 
    real(r8), intent(out) :: &
         assimsun_out,&
