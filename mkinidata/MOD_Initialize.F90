@@ -85,6 +85,9 @@ CONTAINS
    USE MOD_LakeDepthReadin
    USE MOD_PercentagesPFTReadin
    USE MOD_SoilParametersReadin
+#ifdef HYPERSPECTRAL
+   USE MOD_HighRes_Parameters
+#endif
    USE MOD_SoilTextureReadin
    USE MOD_VicParaReadin
 #ifdef SinglePoint
@@ -1300,7 +1303,12 @@ ENDIF
             prms(4,1:nl_soil) = sc_vgm   (1:nl_soil,i)
             prms(5,1:nl_soil) = fc_vgm   (1:nl_soil,i)
 #endif
-
+#ifdef HYPERSPECTRAL
+            CALL flux_frac_init              ( )
+            CALL leaf_property_init          ( rho_p, tau_p )
+            CALL get_water_optical_properties( )
+            CALL readin_urban_albedo         ( )
+#endif
             CALL iniTimeVar(i, patchtype(i)&
                ,porsl(1:,i),psi0(1:,i),hksati(1:,i)&
                ,soil_s_v_alb(i),soil_d_v_alb(i),soil_s_n_alb(i),soil_d_n_alb(i)&
@@ -1317,9 +1325,20 @@ ENDIF
                ,mss_dst1(:,i),mss_dst2(:,i),mss_dst3(:,i),mss_dst4(:,i)&
                ,alb(1:,1:,i),ssun(1:,1:,i),ssha(1:,1:,i)&
                ,ssoi(1:,1:,i),ssno(1:,1:,i),ssno_lyr(1:,1:,:,i)&
+#ifdef HYPERSPECTRAL
+               ,alb_hires(1:,1:,i)&
+#endif
                ,thermk(i),extkb(i),extkd(i)&
                ,trad(i),tref(i),qref(i),rst(i),emis(i),zol(i),rib(i)&
                ,ustar(i),qstar(i),tstar(i),fm(i),fh(i),fq(i)&
+#ifdef HYPERSPECTRAL
+               ! New added: hyperspectral scheme
+               ,clr_frac, cld_frac &
+               ,reflectance(0:,1:,1:), transmittance(0:,1:,1:), soil_alb(1:,i), kw(1:), nw(1:)&
+               ,reflectance_out(:,:,i), transmittance_out(:,:,i)&
+               ,patchlatr(i), patchlonr(i)&
+               ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
+#endif
 #ifdef BGC
                ,use_cnini, totlitc(i), totsomc(i), totcwdc(i), decomp_cpools(:,i), decomp_cpools_vr(:,:,i) &
                ,ctrunc_veg(i), ctrunc_soil(i), ctrunc_vr(:,i) &

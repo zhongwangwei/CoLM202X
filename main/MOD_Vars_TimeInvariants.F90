@@ -195,7 +195,9 @@ MODULE MOD_Vars_TimeInvariants
    real(r8), allocatable :: soil_d_v_alb   (:)  !albedo of visible of the dry soil
    real(r8), allocatable :: soil_s_n_alb   (:)  !albedo of near infrared of the saturated soil
    real(r8), allocatable :: soil_d_n_alb   (:)  !albedo of near infrared of the dry soil
-
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: soil_alb     (:,:) ! hyper spectral soil albedo. (numpatch, nwl)
+#endif
    real(r8), allocatable :: vf_quartz    (:,:)  !volumetric fraction of quartz within mineral soil
    real(r8), allocatable :: vf_gravels   (:,:)  !volumetric fraction of gravels
    real(r8), allocatable :: vf_om        (:,:)  !volumetric fraction of organic matter
@@ -330,6 +332,9 @@ CONTAINS
             allocate (soil_d_v_alb         (numpatch))
             allocate (soil_s_n_alb         (numpatch))
             allocate (soil_d_n_alb         (numpatch))
+#ifdef HYPERSPECTRAL
+            allocate (soil_alb        (nwl, numpatch))
+#endif
 
             allocate (vf_quartz    (nl_soil,numpatch))
             allocate (vf_gravels   (nl_soil,numpatch))
@@ -472,6 +477,9 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'soil_d_v_alb', landpatch, soil_d_v_alb)        ! albedo of visible of the dry soil
       CALL ncio_read_vector (file_restart, 'soil_s_n_alb', landpatch, soil_s_n_alb)        ! albedo of near infrared of the saturated soil
       CALL ncio_read_vector (file_restart, 'soil_d_n_alb', landpatch, soil_d_n_alb)        ! albedo of near infrared of the dry soil
+#ifdef HYPERSPECTRAL
+      CALL ncio_read_vector (file_restart, 'soil_alb'    , nwl, landpatch, soil_alb ) ! hyper spectral soil albedo. (numpatch, nwl)
+#endif
 
       CALL ncio_read_vector (file_restart, 'vf_quartz ',   nl_soil, landpatch, vf_quartz ) ! volumetric fraction of quartz within mineral soil
       CALL ncio_read_vector (file_restart, 'vf_gravels',   nl_soil, landpatch, vf_gravels) ! volumetric fraction of gravels
@@ -665,6 +673,7 @@ CONTAINS
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'zen',      num_zenith)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'zen_p',    num_zenith_parameter)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'type_a',    num_aspect_type)
+      CALL ncio_define_dimension_vector (file_restart, landpatch, 'wavelength', nwl)
 
       CALL ncio_write_vector (file_restart, 'patchclass', 'patch', landpatch, patchclass)                            !
       CALL ncio_write_vector (file_restart, 'patchtype' , 'patch', landpatch, patchtype )                            !
@@ -680,6 +689,9 @@ CONTAINS
       CALL ncio_write_vector (file_restart, 'soil_d_v_alb', 'patch', landpatch, soil_d_v_alb, compress)              ! albedo of visible of the dry soil
       CALL ncio_write_vector (file_restart, 'soil_s_n_alb', 'patch', landpatch, soil_s_n_alb, compress)              ! albedo of near infrared of the saturated soil
       CALL ncio_write_vector (file_restart, 'soil_d_n_alb', 'patch', landpatch, soil_d_n_alb, compress)              ! albedo of near infrared of the dry soil
+#ifdef HYPERSPECTRAL
+      CALL ncio_write_vector (file_restart, 'soil_alb'   , 'wavelength', nwl, 'patch', landpatch, soil_alb, compress) ! hyper spectral soil albedo. (numpatch, nwl)
+#endif
 
       CALL ncio_write_vector (file_restart, 'vf_quartz ', 'soil', nl_soil, 'patch', landpatch, vf_quartz , compress) ! volumetric fraction of quartz within mineral soil
       CALL ncio_write_vector (file_restart, 'vf_gravels', 'soil', nl_soil, 'patch', landpatch, vf_gravels, compress) ! volumetric fraction of gravels
@@ -846,6 +858,9 @@ CONTAINS
             deallocate (soil_d_v_alb   )
             deallocate (soil_s_n_alb   )
             deallocate (soil_d_n_alb   )
+#ifdef HYPERSPECTRAL
+            deallocate (soil_alb       )
+#endif
 
             deallocate (vf_quartz      )
             deallocate (vf_gravels     )
@@ -971,6 +986,9 @@ CONTAINS
       CALL check_vector_data ('soil_d_v_alb [-]     ', soil_d_v_alb) ! albedo of visible of the dry soil
       CALL check_vector_data ('soil_s_n_alb [-]     ', soil_s_n_alb) ! albedo of near infrared of the saturated soil
       CALL check_vector_data ('soil_d_n_alb [-]     ', soil_d_n_alb) ! albedo of near infrared of the dry soil
+#ifdef HYPERSPECTRAL
+      CALL check_vector_data ('soil_alb     [-]     ', soil_alb    ) ! hyper spectral soil albedo.
+#endif
       CALL check_vector_data ('vf_quartz    [m3/m3] ', vf_quartz   ) ! volumetric fraction of quartz within mineral soil
       CALL check_vector_data ('vf_gravels   [m3/m3] ', vf_gravels  ) ! volumetric fraction of gravels
       CALL check_vector_data ('vf_sand      [m3/m3] ', vf_sand     ) ! volumetric fraction of sand

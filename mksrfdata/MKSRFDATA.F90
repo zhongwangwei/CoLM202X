@@ -461,6 +461,9 @@ IF (.not. (skip_rest)) THEN
       CALL Aggregation_SoilParameters  (grid_soil, dir_rawdata, dir_landdata, lc_year)
 
       CALL Aggregation_SoilBrightness  (grid_500m, dir_rawdata, dir_landdata, lc_year)
+#ifdef HYPERSPECTRAL
+      CALL Aggregation_SoilHyperAlbedo   (grid_500m, dir_rawdata, dir_landdata, lc_year)
+#endif
 
       IF (DEF_USE_BEDROCK) THEN
          CALL Aggregation_DBedrock     (grid_500m, dir_rawdata, dir_landdata, lc_year)

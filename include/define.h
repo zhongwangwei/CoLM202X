@@ -96,3 +96,6 @@
 
 ! 11. External lake models.
 #undef EXTERNAL_LAKE
+
+! 12. Hyperspectral scheme.
+#define HYPERSPECTRAL

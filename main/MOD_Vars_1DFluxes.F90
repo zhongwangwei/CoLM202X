@@ -58,6 +58,12 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: srviln (:) !reflected diffuse beam vis solar radiation at local noon (W/m2)
    real(r8), allocatable :: srndln (:) !reflected direct beam nir solar radiation at local noon (W/m2)
    real(r8), allocatable :: srniln (:) !reflected diffuse beam nir solar radiation at local noon (W/m2)
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: sol_dir_ln_hires(:,:) !incident direct beam vis solar radiation at local noon (W/m2)
+   real(r8), allocatable :: sol_dif_ln_hires(:,:) !incident diffuse beam vis solar radiation at local noon (W/m2)
+   real(r8), allocatable :: sr_dir_ln_hires (:,:) !reflected direct beam nir solar radiation at local noon (W/m2)
+   real(r8), allocatable :: sr_dif_ln_hires (:,:) !reflected diffuse beam nir solar radiation at local noon (W/m2)
+#endif
    real(r8), allocatable :: olrg   (:) !outgoing long-wave radiation from ground+canopy [W/m2]
    real(r8), allocatable :: rnet   (:) !net radiation by surface [W/m2]
    real(r8), allocatable :: xerr   (:) !the error of water balance [mm/s]
@@ -141,6 +147,12 @@ CONTAINS
             allocate ( srviln (numpatch) )  ; srviln (:) = spval ! reflected diffuse beam vis solar radiation at local noon(W/m2)
             allocate ( srndln (numpatch) )  ; srndln (:) = spval ! reflected direct beam nir solar radiation at local noon(W/m2)
             allocate ( srniln (numpatch) )  ; srniln (:) = spval ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#ifdef HYPERSPECTRAL
+            allocate ( sol_dir_ln_hires(211,numpatch) )  ; sol_dir_ln_hires(:,:) = spval ! incident direct beam vis solar radiation at local noon(W/m2)
+            allocate ( sol_dif_ln_hires(211,numpatch) )  ; sol_dif_ln_hires(:,:) = spval ! incident diffuse beam vis solar radiation at local noon(W/m2)
+            allocate ( sr_dir_ln_hires (211,numpatch) )  ; sr_dir_ln_hires (:,:) = spval ! reflected direct beam nir solar radiation at local noon(W/m2)
+            allocate ( sr_dif_ln_hires (211,numpatch) )  ; sr_dif_ln_hires (:,:) = spval ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#endif
             allocate ( olrg   (numpatch) )  ; olrg   (:) = spval ! outgoing long-wave radiation from ground+canopy [W/m2]
             allocate ( rnet   (numpatch) )  ; rnet   (:) = spval ! net radiation by surface [W/m2]
             allocate ( xerr   (numpatch) )  ; xerr   (:) = spval ! the error of water balance [mm/s]
@@ -234,6 +246,12 @@ CONTAINS
             deallocate ( srviln  )  ! reflected diffuse beam vis solar radiation at local noon(W/m2)
             deallocate ( srndln  )  ! reflected direct beam nir solar radiation at local noon(W/m2)
             deallocate ( srniln  )  ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#ifdef HYPERSPECTRAL
+            deallocate ( sol_dir_ln_hires )  ! incident direct beam vis solar radiation at local noon(W/m2)
+            deallocate ( sol_dif_ln_hires )  ! incident diffuse beam vis solar radiation at local noon(W/m2)
+            deallocate ( sr_dir_ln_hires  )  ! reflected direct beam nir solar radiation at local noon(W/m2)
+            deallocate ( sr_dif_ln_hires  )  ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#endif
             deallocate ( olrg    )  ! outgoing long-wave radiation from ground+canopy [W/m2]
             deallocate ( rnet    )  ! net radiation by surface [W/m2]
             deallocate ( xerr    )  ! the error of water balance [mm/s]
