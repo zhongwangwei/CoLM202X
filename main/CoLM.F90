@@ -632,16 +632,15 @@ PROGRAM CoLM
                   CALL adj2begin(jdate)
                   CALL forcing_reset ()
                ELSE
-                  CALL CheckEquilibrium_EndOfSpinup ()
-                  CALL ParaOpt_EndOfSpinup          ()
+                  CALL ParaOpt_EndOfSpinup ()
                   is_spinup = .false.
                ENDIF
             ENDIF
-         ELSE
-            IF (p_is_master) THEN
-               IF (DEF_CheckEquilibrium .and. (len_trim(spinup_warning) > 0)) THEN
-                  write(*,'(/,A)') trim(spinup_warning)
-               ENDIF
+         ENDIF
+
+         IF (p_is_master) THEN
+            IF (DEF_CheckEquilibrium .and. (len_trim(mesg_equilibrium) > 0)) THEN
+               write(*,'(/,A)') trim(mesg_equilibrium)
             ENDIF
          ENDIF
 

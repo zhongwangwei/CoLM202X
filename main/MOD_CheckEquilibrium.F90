@@ -19,8 +19,6 @@ MODULE MOD_CheckEquilibrium
    USE MOD_Forcing,     only: forcmask_pch
    USE MOD_Vars_Global, only: spval
 
-   integer, parameter :: windowsize = 10
-
    ! ----- Variables -----
    integer :: nyearcheck
 
@@ -34,12 +32,9 @@ MODULE MOD_CheckEquilibrium
    real(r8), allocatable :: et_year   (:)
    real(r8), allocatable :: rnof_year (:)
 
-   real(r8), allocatable :: tws_preyear (:,:)
-   real(r8), allocatable :: prcp_preyear(:,:)
+   real(r8), allocatable :: patcharea (:)  ! m^2
 
-   real(r8) :: num_totalck
-   real(r8) :: ave_pct_dtws
-   character(len=256) :: spinup_warning
+   character(len=256) :: mesg_equilibrium
 
 #ifndef SinglePoint
    type(grid_type)            :: gridcheck
@@ -51,7 +46,6 @@ MODULE MOD_CheckEquilibrium
 
    PUBLIC :: CheckEqb_init
    PUBLIC :: CheckEquilibrium
-   PUBLIC :: CheckEquilibrium_EndOfSpinup
    PUBLIC :: CheckEqb_final
 
 CONTAINS
@@ -59,18 +53,23 @@ CONTAINS
    !-----------------------------------------------------------------------
    SUBROUTINE CheckEqb_init (n_spinupcycle, lc_year)
 
+   USE MOD_Utils
    USE MOD_Vars_Global,        only: nl_soil
    USE MOD_Forcing,            only: gforc
    USE MOD_LandPatch,          only: numpatch, landpatch
-   USE MOD_Vars_TimeVariables, only: wdsrf, ldew, scv, wetwat, wliq_soisno, wice_soisno, wa
+   USE MOD_Pixel,              only: pixel
+   USE MOD_Mesh,               only: mesh
+   USE MOD_Vars_TimeVariables, only: wdsrf, ldew, scv, wetwat, &
+                                     wliq_soisno, wice_soisno, wa
    IMPLICIT NONE
 
    integer, intent(in) :: n_spinupcycle
    integer, intent(in) :: lc_year
 
    ! Local Variable
-   integer :: ilev
+   integer :: ilev, ip, ie, ipxl
    character(len=256) :: filename, cyear
+   real(r8) :: totaldtws, totalprcp, pct_dtws_prcp
 
 
       IF (.not. DEF_CheckEquilibrium) RETURN
@@ -78,15 +77,11 @@ CONTAINS
       IF (p_is_worker) THEN
          IF (numpatch > 0) THEN
 
-            allocate (tws_last (numpatch));   tws_last(:) = spval;
-            allocate (tws_this (numpatch));   tws_this(:) = spval;
-
+            allocate (tws_last  (numpatch));   tws_last (:) = spval;
+            allocate (tws_this  (numpatch));   tws_this (:) = spval;
             allocate (prcp_year (numpatch));   prcp_year(:) = spval;
             allocate (et_year   (numpatch));   et_year  (:) = spval;
             allocate (rnof_year (numpatch));   rnof_year(:) = spval;
-
-            allocate (tws_preyear  (0:windowsize,numpatch));   tws_preyear (:,:) = spval;
-            allocate (prcp_preyear (windowsize,  numpatch));   prcp_preyear(:,:) = spval;
 
          ENDIF
       ENDIF
@@ -108,7 +103,7 @@ CONTAINS
          timeform = "('spinup',I1.1,'-',I4.4)"
       ENDIF
 
-      spinup_warning = ''
+      mesg_equilibrium = ''
 
 #ifndef SinglePoint
       ! grid
@@ -139,6 +134,26 @@ CONTAINS
          CALL add_spv (wa, tws_last)                      ! 7. water in aquifer
       ENDIF
 
+      IF (p_is_worker) THEN
+
+         IF (numpatch > 0) THEN
+            allocate (patcharea (numpatch))
+            patcharea(:) = 0.
+            DO ip = 1, numpatch
+               ie = landpatch%ielm(ip)
+               DO ipxl = landpatch%ipxstt(ip), landpatch%ipxend(ip)
+                  patcharea(ip) = patcharea(ip) + 1.0e6 * areaquad ( &
+                     pixel%lat_s(mesh(ie)%ilat(ipxl)), pixel%lat_n(mesh(ie)%ilat(ipxl)), &
+                     pixel%lon_w(mesh(ie)%ilon(ipxl)), pixel%lon_e(mesh(ie)%ilon(ipxl)) )
+               ENDDO
+               IF (landpatch%has_shared) THEN
+                  patcharea(ip) = patcharea(ip) * landpatch%pctshared(ip)
+               ENDIF
+            ENDDO
+         ENDIF
+
+      ENDIF
+
       nyearcheck = 0
 
    END SUBROUTINE CheckEqb_init
@@ -150,20 +165,18 @@ CONTAINS
 
       IF (.not. DEF_CheckEquilibrium) RETURN
 
-      IF (allocated(tws_last)) deallocate(tws_last)
-      IF (allocated(tws_this)) deallocate(tws_this)
-
+      IF (allocated(tws_last )) deallocate(tws_last )
+      IF (allocated(tws_this )) deallocate(tws_this )
       IF (allocated(prcp_year)) deallocate(prcp_year)
       IF (allocated(et_year  )) deallocate(et_year  )
       IF (allocated(rnof_year)) deallocate(rnof_year)
-
-      IF (allocated(tws_preyear )) deallocate(tws_preyear )
-      IF (allocated(prcp_preyear)) deallocate(prcp_preyear)
+      IF (allocated(patcharea)) deallocate(patcharea)
 
    END SUBROUTINE CheckEqb_final
 
    !-----------------------------------------------------------------------
-   SUBROUTINE CheckEquilibrium (idate, deltim, i_spinupcycle, is_spinup, dir_out, casename)
+   SUBROUTINE CheckEquilibrium ( &
+         idate, deltim, i_spinupcycle, is_spinup, dir_out, casename)
 
    USE MOD_Precision
    USE MOD_TimeManager
@@ -173,7 +186,8 @@ CONTAINS
    USE MOD_Vars_1DForcing,      only: forc_prc, forc_prl
    USE MOD_Vars_1DFluxes,       only: fevpa, rnof
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
-   USE MOD_Vars_TimeVariables,  only: wdsrf, ldew, scv, wetwat, wliq_soisno, wice_soisno, wa, zwt
+   USE MOD_Vars_TimeVariables,  only: wdsrf, ldew, scv, wetwat, wliq_soisno, &
+                                      wice_soisno, wa, zwt
 
    IMPLICIT NONE
 
@@ -186,10 +200,11 @@ CONTAINS
    character(len=*), intent(in) :: casename
 
    ! Local variables
-   logical :: docheck
-   integer :: ilev
+   logical  :: docheck
+   integer  :: ilev
    character(len=256) :: filename, timestr
-   integer :: ncid, time_id, str_id, varid
+   integer  :: ncid, time_id, str_id, varid
+   real(r8) :: totaldtws, totalprcp, pct_dtws_prcp
 
    real(r8), allocatable     :: dtws   (:)
    logical,  allocatable     :: filter (:)
@@ -230,32 +245,75 @@ CONTAINS
 
          IF (nyearcheck >= 1) THEN
 
-            IF ((p_is_worker) .and. (numpatch > 0)) THEN
+            IF (p_is_worker) THEN
 
-               allocate (filter (numpatch))
-               filter = patchmask
-               IF (DEF_forcing%has_missing_value) THEN
-                  filter = filter .and. forcmask_pch
-               ENDIF
+               totaldtws = 0.
+               totalprcp = 0.
+
+               IF (numpatch > 0) THEN
+
+                  allocate (filter (numpatch))
+                  filter = patchmask
+                  IF (DEF_forcing%has_missing_value) THEN
+                     filter = filter .and. forcmask_pch
+                  ENDIF
 #ifdef CatchLateralFlow
-               filter = filter .and. (patchtype <= 4)
+                  filter = filter .and. (patchtype <= 4)
 #else
-               filter = filter .and. (patchtype <= 2)
+                  filter = filter .and. (patchtype <= 2)
 #endif
 
-               allocate (dtws (numpatch))
-               WHERE (filter)
-                  dtws = tws_this - tws_last
-               ELSEWHERE
-                  dtws = spval
-               END WHERE
+                  allocate (dtws (numpatch))
+                  WHERE (filter)
+                     dtws = tws_this - tws_last
+                  ELSEWHERE
+                     dtws = spval
+                  END WHERE
 
-               allocate (vecone (numpatch))
-               vecone(:) = 1.
+                  IF (any(filter)) THEN
+                     totaldtws = sum(dtws*patcharea, mask=filter)
+                     totalprcp = sum(prcp_year*patcharea, mask=filter)
+                  ENDIF
 
+                  allocate (vecone (numpatch))
+                  vecone(:) = 1.
+
+               ENDIF
+
+#ifdef USEMPI
+               CALL mpi_allreduce (MPI_IN_PLACE, totaldtws, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+               CALL mpi_allreduce (MPI_IN_PLACE, totalprcp, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+
+               IF (totalprcp > 0.) THEN
+                  pct_dtws_prcp = totaldtws/totalprcp
+               ELSE
+                  pct_dtws_prcp = spval
+               ENDIF
+
+               IF (p_iam_worker == p_root) THEN
+                  CALL mpi_send (pct_dtws_prcp, 1, MPI_REAL8, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+               ENDIF
+#endif
             ENDIF
 
             IF (p_is_master) THEN
+
+               IF (is_spinup) THEN
+                  write(timestr,timeform) i_spinupcycle, idate(1)
+               ELSE
+                  write(timestr,'(I4.4)') idate(1)
+               ENDIF
+
+#ifdef USEMPI
+               CALL mpi_recv (pct_dtws_prcp, 1, MPI_REAL8, p_address_worker(p_root), &
+                  mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+#endif
+               IF (pct_dtws_prcp /= spval) THEN
+                  write(mesg_equilibrium,'(A,F0.2,3A)') 'Total delTWS/precipitation is ', &
+                     pct_dtws_prcp*100., '% in ', trim(timestr), '. Check history for detail.'
+               ELSE
+                  write(mesg_equilibrium,'(3A)') 'Precipitation is 0 ', trim(timestr), '.'
+               ENDIF
 
                filename = trim(dir_out) // '/' // trim(casename) //'_check_equilibrium.nc'
 
@@ -290,13 +348,6 @@ CONTAINS
                   CALL ncio_define_dimension(filename, 'patch', numpatch)
 #endif
 
-               ENDIF
-
-
-               IF (is_spinup) THEN
-                  write(timestr,timeform) i_spinupcycle, idate(1)
-               ELSE
-                  write(timestr,'(I4.4)') idate(1)
                ENDIF
 
                CALL nccheck( nf90_open(trim(filename), NF90_WRITE, ncid) )
@@ -382,17 +433,9 @@ CONTAINS
          ENDIF
 
          IF ((p_is_worker) .and. (numpatch > 0)) THEN
-            tws_preyear (0:windowsize-1,:) = tws_preyear (1:windowsize,:)
-            tws_preyear (windowsize,:) = tws_this
-            IF (nyearcheck == 1) tws_preyear (windowsize-1,:) = tws_last
-
-            prcp_preyear(1:windowsize-1,:) = prcp_preyear(2:windowsize,:)
-            prcp_preyear(windowsize,:) = prcp_year
-
             prcp_year(:) = spval
             et_year  (:) = spval
             rnof_year(:) = spval
-
             tws_last = tws_this
          ENDIF
 
@@ -403,104 +446,6 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE CheckEquilibrium
-
-   !-----------------------------------------------------------------------
-   SUBROUTINE CheckEquilibrium_EndOfSpinup ()
-
-   USE MOD_Precision
-   USE MOD_LandPatch
-   USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
-
-   IMPLICIT NONE
-
-   ! Local variables
-   real(r8), allocatable :: prcp  (:), pct_dtws(:)
-   logical,  allocatable :: filter(:)
-
-   integer  :: actualsize, i
-   real(r8) :: sum_pct_dtws
-
-      IF (.not. DEF_CheckEquilibrium) RETURN
-
-      IF (p_is_worker) THEN
-         IF (numpatch > 0) THEN
-
-            allocate (prcp     (numpatch))
-            allocate (pct_dtws (numpatch))
-            allocate (filter   (numpatch))
-
-            actualsize = min(windowsize,nyearcheck)
-
-            prcp = prcp_preyear(windowsize,:)
-            DO i = 1, actualsize-1
-               CALL add_spv (prcp_preyear(windowsize-i,:), prcp)
-            ENDDO
-
-            filter = patchmask
-            IF (DEF_forcing%has_missing_value) THEN
-               filter = filter .and. forcmask_pch
-            ENDIF
-#ifdef CatchLateralFlow
-            filter = filter .and. (patchtype <= 4)
-#else
-            filter = filter .and. (patchtype <= 2)
-#endif
-
-            filter = filter .and. (prcp > 1.)
-
-            WHERE (filter)
-               pct_dtws = (tws_preyear(windowsize,:) - tws_preyear(windowsize-actualsize,:)) / prcp
-            ELSEWHERE
-               pct_dtws = spval
-            END WHERE
-
-            num_totalck = count(filter)
-
-            IF (any(filter)) THEN
-               sum_pct_dtws = sum(abs(pct_dtws), mask = filter)
-            ELSE
-               sum_pct_dtws = 0.
-            ENDIF
-
-            deallocate (prcp    )
-            deallocate (pct_dtws)
-            deallocate (filter  )
-
-         ELSE
-            num_totalck  = 0.
-            sum_pct_dtws = 0.
-         ENDIF
-
-#ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, num_totalck,  1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
-         CALL mpi_allreduce (MPI_IN_PLACE, sum_pct_dtws, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
-         IF (p_iam_worker == p_root) THEN
-            CALL mpi_send (num_totalck,  1, MPI_REAL8, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
-            CALL mpi_send (sum_pct_dtws, 1, MPI_REAL8, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
-         ENDIF
-#endif
-      ENDIF
-
-      IF (p_is_master) THEN
-#ifdef USEMPI
-         CALL mpi_recv (num_totalck,  1, MPI_REAL8, p_address_worker(p_root), &
-            mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-         CALL mpi_recv (sum_pct_dtws, 1, MPI_REAL8, p_address_worker(p_root), &
-            mpi_tag_mesg, p_comm_glb, p_stat, p_err)
-#endif
-
-         IF (num_totalck > 0.) THEN
-            ave_pct_dtws = sum_pct_dtws / num_totalck
-         ELSE
-            ave_pct_dtws = 0.
-         ENDIF
-
-         write(spinup_warning,'(A,F0.2,A)') 'Average delTWS/precipitation is ', ave_pct_dtws*100., &
-            '% at the end of spinup. Check history for detail.'
-
-      ENDIF
-
-   END SUBROUTINE CheckEquilibrium_EndOfSpinup
 
    !-----------------------------------------------------------------------
 #ifndef SinglePoint
