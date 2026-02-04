@@ -185,9 +185,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                lfevpa(i),       fsenl(i),        fevpl(i),        etr(i),          &
                fseng(i),        fevpg(i),        olrg(i),         fgrnd(i),        &
                trad(i),         tref(i),         qref(i),         t2m_wmo(i),      &
-               frcsat(i),       rsur(i),         &
-               rsur_se(i),      rsur_ie(i),      rnof(i),         qintr(i),        &
-               qinfl(i),        qdrip(i),        rst(i),          assim(i),        &
+               frcsat(i),       rsur(i),         rsur_se(i),      rsur_ie(i),      &
+               rnof(i),         qintr(i),        qinfl(i),        qlayer(0:,i),    &
+               lake_deficit(i), qdrip(i),        rst(i),          assim(i),        &
                respc(i),        sabvsun(i),      sabvsha(i),      sabg(i),         &
                sr(i),           solvd(i),        solvi(i),        solnd(i),        &
                solni(i),        srvd(i),         srvi(i),         srnd(i),         &

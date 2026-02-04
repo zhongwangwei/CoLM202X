@@ -99,9 +99,9 @@ SUBROUTINE CoLMMAIN ( &
            lfevpa,       fsenl,        fevpl,        etr,          &
            fseng,        fevpg,        olrg,         fgrnd,        &
            trad,         tref,         qref,         t2m_wmo,      &
-           frcsat,       rsur,         &
-           rsur_se,      rsur_ie,      rnof,         qintr,        &
-           qinfl,        qdrip,        rst,          assim,        &
+           frcsat,       rsur,         rsur_se,      rsur_ie,      &
+           rnof,         qintr,        qinfl,        qlayer,       &
+           lake_deficit, qdrip,        rst,          assim,        &
            respc,        sabvsun,      sabvsha,      sabg,         &
            sr,           solvd,        solvi,        solnd,        &
            solni,        srvd,         srvi,         srnd,         &
@@ -474,7 +474,9 @@ SUBROUTINE CoLMMAIN ( &
         reflectance_out  (211, 0:15)  ,&! high resolution reflectance
         transmittance_out(211, 0:15)  ,&! high resolution transmittance
 #endif
-        h2osoi(nl_soil)    ! volumetric soil water in layers [m3/m3]
+        h2osoi(nl_soil)  ,&! volumetric soil water in layers [m3/m3]
+        qlayer(0:nl_soil),&! water flux at between soil layer [mm h2o/s]
+        lake_deficit       ! lake deficit due to evaporation (mm h2o/s)
 
    real(r8), intent(out) :: &
         assimsun_out,&
@@ -628,7 +630,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) dz_soisno_   (maxsnl+1:1)  !layer thickness (m)
    real(r8) sabg_snow_lyr(maxsnl+1:1)  !snow layer absorption [W/m-2]
    !----------------------------------------------------------------------
-   !  For irrigation 
+   !  For irrigation
    !----------------------------------------------------------------------
    real(r8) :: qflx_irrig_drip         ! drip irrigation rate [mm/s]
    real(r8) :: qflx_irrig_sprinkler    ! sprinkler irrigation rate [mm/s]
@@ -747,7 +749,7 @@ SUBROUTINE CoLMMAIN ( &
          ENDDO
 
          totwb = ldew + scv + sum(wice_soisno(1:)+wliq_soisno(1:)) + wa
-#ifdef CROP      
+#ifdef CROP
          if(DEF_USE_IRRIGATION) totwb = totwb + waterstorage(ipatch)
 #endif
          totwb = totwb + wdsrf
@@ -763,7 +765,7 @@ SUBROUTINE CoLMMAIN ( &
          ENDIF
 
 !----------------------------------------------------------------------
-! [2] Irrigation 
+! [2] Irrigation
 !----------------------------------------------------------------------
          qflx_irrig_drip = 0._r8
          qflx_irrig_sprinkler = 0._r8
@@ -772,7 +774,7 @@ SUBROUTINE CoLMMAIN ( &
 #ifdef CROP
          IF (DEF_USE_IRRIGATION) THEN
             IF (patchtype == 0) THEN
-               CALL CalIrrigationApplicationFluxes(ipatch,deltim,qflx_irrig_drip,qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy)   
+               CALL CalIrrigationApplicationFluxes(ipatch,deltim,qflx_irrig_drip,qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy)
             ENDIF
          ENDIF
 #endif
@@ -921,10 +923,9 @@ SUBROUTINE CoLMMAIN ( &
                  qfros             ,qseva_soil        ,qsdew_soil        ,qsubl_soil        ,&
                  qfros_soil        ,qseva_snow        ,qsdew_snow        ,qsubl_snow        ,&
                  qfros_snow        ,fsno              ,frcsat            ,rsur              ,&
-                 rsur_se           ,&
-                 rsur_ie           ,rnof              ,qinfl             ,ssi               ,&
-                 pondmx            ,wimp              ,zwt               ,wdsrf             ,&
-                 wa                ,wetwat            ,&
+                 rsur_se           ,rsur_ie           ,rnof              ,qinfl             ,&
+                 qlayer            ,ssi               ,pondmx            ,wimp              ,&
+                 zwt               ,wdsrf             ,wa                ,wetwat            ,&
 #if (defined CaMa_Flood)
                  !add variables for flood depth [mm], flood fraction [0-1]
                  !and re-infiltration [mm/s] calculation.
@@ -1393,6 +1394,7 @@ SUBROUTINE CoLMMAIN ( &
             rnof = rsur
             rsur_se = rsur
             rsur_ie = 0.
+            lake_deficit = - min(0., pg_rain + pg_snow - aa - a)
          ELSE
 
             wdsrf = sum(dz_lake) * 1.e3
@@ -1415,6 +1417,8 @@ SUBROUTINE CoLMMAIN ( &
          endwb  = scv + sum(wice_soisno(1:)+wliq_soisno(1:)) + wa
          IF (DEF_USE_Dynamic_Lake) THEN
             endwb  = endwb  + wdsrf
+         ELSE
+            endwb  = endwb  - lake_deficit * deltim
          ENDIF
 
          errorw = (endwb-totwb) - (forc_prc+forc_prl-fevpa) * deltim
@@ -1423,11 +1427,9 @@ SUBROUTINE CoLMMAIN ( &
 #endif
 
 #if (defined CoLMDEBUG)
-         IF (DEF_USE_Dynamic_Lake) THEN
-            IF (abs(errorw) > 1.e-3) THEN
-               write(*,*) 'Warning: water balance violation in CoLMMAIN (lake) ', errorw
-               CALL CoLM_stop ()
-            ENDIF
+         IF (abs(errorw) > 1.e-3) THEN
+            write(*,*) 'Warning: water balance violation in CoLMMAIN (lake) ', errorw
+            CALL CoLM_stop ()
          ENDIF
 #endif
 
@@ -1672,6 +1674,7 @@ SUBROUTINE CoLMMAIN ( &
          zerr          = 0.
 
          qinfl         = 0.
+         qlayer        = 0.
          qdrip         = forc_rain + forc_snow
          qintr         = 0.
          frcsat        = 1.

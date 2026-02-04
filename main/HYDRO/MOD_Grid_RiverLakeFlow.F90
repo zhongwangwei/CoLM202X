@@ -399,7 +399,7 @@ CONTAINS
 
                DO i = 1, numucat
 
-                  IF (.not. ucatfilter(i)) CYCLE
+                  IF ((.not. ucatfilter(i)) .or. (ucat_next(i) == -10)) CYCLE
 
                   hflux_resv(i) = 0.
                   mflux_resv(i) = 0.

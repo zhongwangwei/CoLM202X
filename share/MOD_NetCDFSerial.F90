@@ -108,7 +108,7 @@ MODULE MOD_NetCDFSerial
       MODULE procedure ncio_write_serial_real8_4d
       MODULE procedure ncio_write_serial_real8_5d
    END INTERFACE ncio_write_serial
-   
+
    PUBLIC :: ncio_write_serial
    PUBLIC :: ncio_write_time
    PUBLIC :: ncio_write_lastdim
@@ -2347,6 +2347,7 @@ CONTAINS
 
    ! Local Variables
    integer :: soillayers(1:nl_soil)
+   integer :: soilinterfaces(0:nl_soil)
    integer :: soilsnowlayers(-maxsnl+nl_soil)
    integer :: lakelayers(1:nl_lake)
    integer :: vegnodes(1:nvegwcs)
@@ -2357,6 +2358,11 @@ CONTAINS
       CALL ncio_define_dimension (filename, 'soil', nl_soil)
       CALL ncio_write_serial (filename, 'soil', soillayers, 'soil')
       CALL ncio_put_attr_str (filename, 'soil', 'long_name', 'soil layers')
+
+      soilinterfaces = (/(i, i = 0,nl_soil)/)
+      CALL ncio_define_dimension (filename, 'soilinterface', nl_soil+1)
+      CALL ncio_write_serial (filename, 'soilinterface', soilinterfaces, 'soilinterface')
+      CALL ncio_put_attr_str (filename, 'soilinterface', 'long_name', 'soil layer interfaces')
 
       soilsnowlayers = (/(i, i = maxsnl+1,nl_soil)/)
       CALL ncio_define_dimension (filename, 'soilsnow', -maxsnl+nl_soil)

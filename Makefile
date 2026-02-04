@@ -6,7 +6,7 @@ HEADER = include/define.h
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
 	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
-	: extends/CaMa/src : postprocess : .bld
+	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
 .PHONY: all
@@ -291,6 +291,8 @@ OBJS_MAIN = \
 				MOD_DA_SM.o                               \
 				MOD_DA_Ensemble.o                         \
 				MOD_DA_Main.o                             \
+				MOD_Opt_Baseflow.o                        \
+				MOD_ParameterOptimization.o               \
 				MOD_AssimStomataConductance.o             \
 				MOD_PlantHydraulic.o                      \
 				MOD_FrictionVelocity.o                    \

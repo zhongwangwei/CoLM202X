@@ -12,6 +12,7 @@ MODULE MOD_Runoff
    PUBLIC :: SubsurfaceRunoff_TOPMOD
    PUBLIC :: Runoff_XinAnJiang
    PUBLIC :: Runoff_SimpleVIC
+   PUBLIC :: SubsurfaceRunoff_SimpleVIC
 
 
 !-----------------------------------------------------------------------
@@ -358,6 +359,82 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE Runoff_SimpleVIC
+
+   ! -------------------------------------------------------------------------
+   SUBROUTINE SubsurfaceRunoff_SimpleVIC ( &
+      nl_soil, z_soisno, dz_soisno, wice_soisno, porsl, psi0, hksati, theta_r, &
+      nprms, prms, zwt, rsubst)
+
+   USE MOD_Precision
+   USE MOD_Const_Physical,      only: denice, denh2o
+   USE MOD_Vars_TimeInvariants, only: smpmax
+   USE MOD_Hydro_SoilFunction,  only: soil_vliq_from_psi
+   IMPLICIT NONE
+
+   integer,  intent(in) :: nl_soil ! number of soil layers
+
+   real(r8), intent(in) ::    &
+      z_soisno   (1:nl_soil), &  ! layer depth (m)
+      dz_soisno  (1:nl_soil), &  ! layer thickness (m)
+      wice_soisno(1:nl_soil), &  ! ice lens (kg/m2)
+      porsl      (1:nl_soil), &  ! saturated volumetric soil water content(porosity)
+      psi0       (1:nl_soil), &  ! saturated soil suction (mm) (NEGATIVE)
+      hksati     (1:nl_soil), &  ! hydraulic conductivity at saturation (mm h2o/s)
+      theta_r    (1:nl_soil)     ! residual moisture content [-]
+
+   integer,  intent(in) :: nprms
+   real(r8), intent(in) :: prms(nprms, 1:nl_soil)
+
+   real(r8), intent(in) :: zwt ! [m]
+
+   real(r8), intent(out) :: rsubst ! subsurface runoff (mm h2o/s)
+
+   ! Local Variables
+   real(r8), parameter :: Ds = 0.061 ! a fraction of Dsmax
+   real(r8), parameter :: Ws = 0.646 ! a fraction of the potential water storage as Wmb-Wwb
+   real(r8) :: Dsmax ! maximum subsurface flow
+   real(r8) :: Wwb   ! (layer 8+9, from 0.83m to 2.30m) water storage at wilting point
+   real(r8) :: Wmb   ! (layer 8+9, from 0.83m to 2.30m) maximum water storage
+   real(r8) :: Wlb   ! (layer 8+9, from 0.83m to 2.30m) liquid water storage
+   real(r8) :: Wab   ! (layer 8+9, from 0.83m to 2.30m) relative water storage
+
+   real(r8) :: vol_ice, icefrac, eff_porosity, imped, hk
+   real(r8), parameter :: e_ice=6.0  ! soil ice impedance factor
+   integer  :: ilev
+
+      Wwb   = 0.
+      Wmb   = 0.
+      Wlb   = 0.
+      Dsmax = 0.
+      DO ilev = 8, 9
+         vol_ice = max(min(porsl(ilev), wice_soisno(ilev)/(dz_soisno(ilev)*denice)), 0.)
+         eff_porosity = porsl(ilev) - vol_ice
+
+         Wwb = Wwb + dz_soisno(ilev) * denh2o * &
+            soil_vliq_from_psi (smpmax, eff_porosity, theta_r(ilev), psi0(ilev), nprms, prms(:,ilev))
+
+         Wmb = Wmb + eff_porosity*dz_soisno(ilev)*denh2o
+
+         Wlb = Wlb + dz_soisno(ilev) * denh2o * &
+            soil_vliq_from_psi ( psi0(ilev)-max((zwt-z_soisno(ilev))*1.e3, 0.), &
+            eff_porosity, theta_r(ilev), psi0(ilev), nprms, prms(:,ilev))
+
+         icefrac = vol_ice/porsl(ilev)
+         imped = 10.**(-e_ice*icefrac)
+         hk    = imped * hksati(ilev)
+         Dsmax = max(Dsmax, hk)
+      ENDDO
+
+      Wab = (Wlb-Wwb) / (Wmb-Wwb)
+      Wab = min(max(Wab, 0.), 1.)
+
+      IF (Wab <= Ws) THEN
+         rsubst = Dsmax * Ds * (Wab/Ws)
+      ELSE
+         rsubst = Dsmax * Ds * (Wab/Ws) + Dsmax * (1-Ds/Ws) * ((Wab-Ws)/(1-Ws))**2
+      ENDIF
+
+   END SUBROUTINE SubsurfaceRunoff_SimpleVIC
 
 END MODULE MOD_Runoff
 ! ---------- EOP ------------

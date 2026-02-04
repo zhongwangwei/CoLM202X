@@ -159,12 +159,12 @@ CONTAINS
    END SUBROUTINE get_water_equilibrium_state
 
    ! --- soil water movement ---
-   SUBROUTINE soil_water_vertical_movement (                      &
-         nlev,       dt,    sp_zc,  sp_zi,    is_permeable,  porsl,    &
-         vl_r,       psi_s, hksat,  nprm,     prms,          porsl_wa, &
-         qgtop,      etr,   rootr,  rootflux, rsubst,        qinfl,    &
-         ss_dp,      zwt,   wa,     ss_vliq,  smp,           hk,       &
-         tolerance,  wblc)
+   SUBROUTINE soil_water_vertical_movement (                                &
+         nlev,       dt,         sp_zc,  sp_zi,    is_permeable,  porsl,    &
+         vl_r,       psi_s,      hksat,  nprm,     prms,          porsl_wa, &
+         qgtop,      etr,        rootr,  rootflux, rsubst,        qinfl,    &
+         ss_dp,      zwt,        wa,     ss_vliq,  smp,           hk,       &
+         qlayer,     tolerance,  wblc)
 
    !=======================================================================
    ! this is the main subroutine to execute the calculation of
@@ -211,7 +211,9 @@ CONTAINS
    real(r8), intent(out) :: smp(1:nlev) ! soil matrix potential (mm)
    real(r8), intent(out) :: hk (1:nlev) ! hydraulic conductivity (mm/s)
 
-   real(r8), intent(in) :: tolerance
+   real(r8), intent(out) :: qlayer(0:nlev) ! water flux at interface of soil layers (mm/s)
+
+   real(r8), intent(in)  :: tolerance
 
    real(r8), intent(out) :: wblc
 
@@ -224,7 +226,6 @@ CONTAINS
    real(r8) :: sp_dz  (1:nlev)
    real(r8) :: etroot (1:nlev)
    real(r8) :: ss_wt  (1:nlev)
-   real(r8) :: ss_q   (0:nlev)
 
    integer  :: ubc_typ_sub
    real(r8) :: ubc_val_sub
@@ -334,7 +335,7 @@ CONTAINS
 
          DO WHILE (.not. is_permeable(ub))
 
-            ss_q(ub-1:ub) = 0._r8
+            qlayer(ub-1:ub) = 0._r8
 
             IF (ub > 1) THEN
                ub = ub - 1
@@ -373,7 +374,7 @@ CONTAINS
             porsl(lb:ub), vl_r(lb:ub), psi_s(lb:ub), hksat(lb:ub), nprm, prms(:,lb:ub), &
             porsl_wa, &
             ubc_typ_sub, ubc_val_sub, lbc_typ_sub, lbc_val_sub, &
-            ss_dp, wa, ss_vliq(lb:ub), ss_wt(lb:ub), ss_q(lb-1:ub), &
+            ss_dp, wa, ss_vliq(lb:ub), ss_wt(lb:ub), qlayer(lb-1:ub), &
             tol_q, tol_z, tol_v, tol_p)
 
          ub = lb - 1

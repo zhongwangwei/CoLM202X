@@ -72,6 +72,9 @@ CONTAINS
                      pixel%lat_s(mesh(ie)%ilat(ipxl)), pixel%lat_n(mesh(ie)%ilat(ipxl)), &
                      pixel%lon_w(mesh(ie)%ilon(ipxl)), pixel%lon_e(mesh(ie)%ilon(ipxl)) )
                ENDDO
+               IF (landpatch%has_shared) THEN
+                  patcharea(ip) = patcharea(ip) * landpatch%pctshared(ip)
+               ENDIF
             ENDDO
          ENDIF
 

@@ -189,13 +189,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-#ifdef USEMPI
-         ! divide unit catchments into groups and assign to workers
-
-         allocate (wt_uc (totalnumucat));  wt_uc(:) = 1.
-
          ! sort unit catchment from upstream to downstream, recorded by "uc_up2down"
-
          allocate (uc_up2down (totalnumucat))
 
          ithis = 0
@@ -224,6 +218,14 @@ CONTAINS
                ENDDO
             ENDIF
          ENDDO
+
+      ENDIF
+
+#ifdef USEMPI
+      ! divide unit catchments into groups and assign to workers
+      IF (p_is_master) THEN
+
+         allocate (wt_uc (totalnumucat));  wt_uc(:) = 1.
 
          allocate (rivermouth (totalnumucat))
          numrivmth = 0
@@ -421,10 +423,10 @@ CONTAINS
 
       CALL mpi_barrier (p_comm_glb, p_err)
 #else
-      numucat = totalnumcat
+      numucat = totalnumucat
 
       allocate(ucat_ucid (totalnumucat))
-      ucat_ucid = (/(i, i = 1, totalnumcat)/)
+      ucat_ucid = (/(i, i = 1, totalnumucat)/)
 
       allocate (numucat_wrk (0:0))
       numucat_wrk(0) = numucat
