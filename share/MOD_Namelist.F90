@@ -294,7 +294,7 @@ MODULE MOD_Namelist
    logical :: DEF_USE_OZONEDATA   = .false.
 
    ! ----- SNICAR model related -----
-   logical :: DEF_USE_SNICAR                  = .true.
+   logical :: DEF_USE_SNICAR                  = .false.
    character(len=256) :: DEF_file_snowoptics  = 'null'
    character(len=256) :: DEF_file_snowaging   = 'null'
 
