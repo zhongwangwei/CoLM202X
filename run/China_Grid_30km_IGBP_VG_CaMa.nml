@@ -63,6 +63,11 @@
    DEF_HIST_FREQ = 'DAILY' ! write history file frequency: HOURLY/DAILY/MONTHLY/YEARLY
    DEF_HIST_groupby = 'DAY' ! history in one file: DAY/MONTH/YEAR
    DEF_HIST_mode = 'one' ! history in one or block
+
+   ! Sediment module configuration
+   DEF_USE_SEDIMENT = .true.
+   DEF_UnitCatchment_file = '/Users/zhongwangwei/Desktop/Github/pycama/output/Global15min2/Initialization/grid_routing_data.nc'
+
    DEF_REST_CompressLevel = 1
    DEF_HIST_CompressLevel = 1
 
