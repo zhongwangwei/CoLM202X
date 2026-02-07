@@ -92,12 +92,22 @@ PROGRAM CoLM
    USE MOD_Hydro_SoilWater
 #endif
 
+#ifdef HYPERSPECTRAL
    ! SNICAR model
+   USE MOD_SnowSnicar_HiRes, only: SnowAge_init, SnowOptics_init
+#else
    USE MOD_SnowSnicar, only: SnowAge_init, SnowOptics_init
+#endif
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
+
+   USE MOD_ParameterOptimization
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
+#endif
+
+#ifdef HYPERSPECTRAL
+   USE MOD_HighRes_Parameters
 #endif
 
 #ifdef USEMPI
@@ -137,7 +147,8 @@ PROGRAM CoLM
    integer :: p_year, p_month, p_day, p_seconds, p_julian
    integer :: lc_year, lai_year
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
-   integer :: spinup_repeat, istep
+   integer :: n_spinupcycle, i_spinupcycle, istep
+   logical :: is_spinup
 
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
 
@@ -215,7 +226,7 @@ PROGRAM CoLM
       p_day     = DEF_simulation_time%spinup_day
       p_seconds = DEF_simulation_time%spinup_sec
 
-      spinup_repeat = DEF_simulation_time%spinup_repeat
+      n_spinupcycle = DEF_simulation_time%spinup_repeat
 
       CALL initimetype(greenwich)
       CALL monthday2julian(s_year,s_month,s_day,s_julian)
@@ -290,11 +301,9 @@ PROGRAM CoLM
       jdate = sdate
       CALL adj2begin(jdate)
 
-      IF (ptstamp <= ststamp) THEN
-         spinup_repeat = 0
-      ELSE
-         spinup_repeat = max(1, spinup_repeat)
-      ENDIF
+      i_spinupcycle = 1
+      n_spinupcycle = max(n_spinupcycle,1)
+      is_spinup = (ststamp < ptstamp)
 
       ! ----------------------------------------------------------------------
       ! Read in the model time invariant constant data
@@ -311,7 +320,16 @@ PROGRAM CoLM
          CALL SnowAge_init( DEF_file_snowaging )     ! SNICAR aging   parameters
       ENDIF
 
+#ifdef HYPERSPECTRAL
       ! ----------------------------------------------------------------------
+      ! Read in FSDS fraction, leaf properties and surface albedo (single point)
+      CALL flux_frac_init( )
+      CALL leaf_property_init( rho_p, tau_p )
+      CALL get_water_optical_properties( )
+      CALL readin_urban_albedo( )
+#endif
+
+   !-----------------------
       doalb = .true.
       dolai = .true.
       dosst = .false.
@@ -325,11 +343,11 @@ PROGRAM CoLM
       CALL hist_init (dir_hist)
       CALL allocate_1D_Fluxes ()
 
-      CALL CheckEqb_init ()
+      CALL CheckEqb_init (n_spinupcycle, lc_year)
 
 #if (defined CaMa_Flood)
 #ifdef USEMPI
-            CALL mpi_barrier (p_comm_glb, p_err)
+      CALL mpi_barrier (p_comm_glb, p_err)
 #endif
       CALL colm_CaMa_init !initialize CaMa-Flood
 #ifdef USEMPI
@@ -378,6 +396,8 @@ PROGRAM CoLM
       CALL grid_riverlake_flow_init ()
 #endif
 
+      CALL ParaOpt_init (jdate, lc_year)
+
 #ifdef DataAssimilation
       ! initialize data assimilation
       CALL init_DA ()
@@ -399,7 +419,8 @@ PROGRAM CoLM
 
          IF (p_is_master) THEN
             IF (itstamp < ptstamp) THEN
-               write(*, 99) istep, jdate(1), month_p, mday_p, jdate(3), spinup_repeat
+               write(*, 99) istep, jdate(1), month_p, mday_p, jdate(3), &
+                  i_spinupcycle, n_spinupcycle
             ELSE
                write(*,100) istep, jdate(1), month_p, mday_p, jdate(3)
             ENDIF
@@ -410,7 +431,7 @@ PROGRAM CoLM
 
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
-         CALL read_forcing (jdate, dir_forcing)
+         CALL read_forcing (jdate, dir_forcing, is_spinup)
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -477,7 +498,9 @@ PROGRAM CoLM
 #endif
 
 #if (defined GridRiverLakeFlow)
-         CALL grid_riverlake_flow (idate(1), deltim)
+         IF (.not. is_spinup) THEN
+            CALL grid_riverlake_flow (idate(1), deltim)
+         ENDIF
 #endif
 
 #if (defined CaMa_Flood)
@@ -498,7 +521,7 @@ PROGRAM CoLM
          ! ----------------------------------------------------------------------
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
 
-         CALL CheckEquilibrium (idate, deltim, itstamp, dir_hist, casename)
+         CALL CheckEquilibrium (idate, deltim, i_spinupcycle, is_spinup, dir_hist, casename)
 
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
@@ -602,6 +625,8 @@ PROGRAM CoLM
          ENDIF
 #endif
 
+         CALL ParameterOptimization (idate, deltim, is_spinup)
+
          IF (p_is_master) THEN
             CALL system_clock (end_time, count_rate = c_per_sec)
             time_used = (end_time - start_time) / c_per_sec
@@ -614,13 +639,26 @@ PROGRAM CoLM
             ENDIF
          ENDIF
 
-         IF ((spinup_repeat > 1) .and. (ptstamp <= itstamp)) THEN
-            spinup_repeat = spinup_repeat - 1
-            idate   = sdate
-            jdate   = sdate
-            itstamp = ststamp
-            CALL adj2begin(jdate)
-            CALL forcing_reset ()
+         IF (is_spinup) THEN
+            IF (ptstamp <= itstamp) THEN
+               IF (i_spinupcycle < n_spinupcycle) THEN
+                  i_spinupcycle = i_spinupcycle + 1
+                  idate   = sdate
+                  jdate   = sdate
+                  itstamp = ststamp
+                  CALL adj2begin(jdate)
+                  CALL forcing_reset ()
+               ELSE
+                  CALL ParaOpt_EndOfSpinup ()
+                  is_spinup = .false.
+               ENDIF
+            ENDIF
+         ENDIF
+
+         IF (p_is_master) THEN
+            IF (DEF_CheckEquilibrium .and. (len_trim(mesg_equilibrium) > 0)) THEN
+               write(*,'(/,A)') trim(mesg_equilibrium)
+            ENDIF
          ENDIF
 
          istep = istep + 1
@@ -636,6 +674,7 @@ PROGRAM CoLM
 #if (defined CatchLateralFlow)
       CALL lateral_flow_final ()
 #endif
+      CALL ParaOpt_final ()
 #ifdef DataAssimilation
       CALL end_DA()
 #endif
@@ -665,7 +704,7 @@ PROGRAM CoLM
       ENDIF
 
       99  format(/, 'TIMESTEP = ', I0, ' | DATE = ', I4.4, '-', I2.2, '-', I2.2, '-', I5.5, &
-          ' Spinup (', I0, ' repeat left)')
+          ' Spinup (cycle ', I0, ' of ', I0, ')')
       100 format(/, 'TIMESTEP = ', I0, ' | DATE = ', I4.4, '-', I2.2, '-', I2.2, '-', I5.5)
       101 format(/, 'Time elapsed : ', I4, ' hours', I3, ' minutes', I3, ' seconds.')
       102 format(/, 'Time elapsed : ', I3, ' minutes', I3, ' seconds.')

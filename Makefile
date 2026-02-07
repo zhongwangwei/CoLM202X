@@ -6,7 +6,7 @@ HEADER = include/define.h
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
 	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
-	: extends/CaMa/src : postprocess : .bld
+	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
 .PHONY: all
@@ -76,6 +76,7 @@ OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 OBJS_MKSRFDATA = \
 				  Aggregation_PercentagesPFT.o      \
 				  Aggregation_LAI.o                 \
+				  Aggregation_SoilHyperAlbedo.o     \
 				  Aggregation_SoilBrightness.o      \
 				  Aggregation_LakeDepth.o           \
 				  Aggregation_ForestHeight.o        \
@@ -108,6 +109,9 @@ mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MKSRFDATA}
 
 OBJS_BASIC =    \
 				 MOD_Vector_ReadWrite.o         \
+				 MOD_dataSpec_PDB.o             \
+				 MOD_tav_abs.o                  \
+				 MOD_prospect_DB.o              \
 				 MOD_Catch_BasinNetwork.o       \
 				 MOD_Catch_Vars_TimeVariables.o \
 				 MOD_Catch_Vars_1DFluxes.o      \
@@ -141,10 +145,13 @@ OBJS_BASIC =    \
 				 MOD_FireData.o                 \
 				 MOD_OrbCoszen.o                \
 				 MOD_OrbCosazi.o                \
+				 MOD_HighRes_Parameters.o		\
 				 MOD_3DCanopyRadiation.o        \
 				 MOD_Aerosol.o                  \
 				 MOD_SnowSnicar.o               \
 				 MOD_Albedo.o                   \
+				 MOD_SnowSnicar_HiRes.o			\
+				 MOD_Albedo_HiRes.o				\
 				 MOD_SnowFraction.o             \
 				 MOD_Urban_LAIReadin.o          \
 				 MOD_Urban_Shortwave.o          \
@@ -284,6 +291,8 @@ OBJS_MAIN = \
 				MOD_DA_SM.o                               \
 				MOD_DA_Ensemble.o                         \
 				MOD_DA_Main.o                             \
+				MOD_Opt_Baseflow.o                        \
+				MOD_ParameterOptimization.o               \
 				MOD_AssimStomataConductance.o             \
 				MOD_PlantHydraulic.o                      \
 				MOD_FrictionVelocity.o                    \
@@ -306,6 +315,7 @@ OBJS_MAIN = \
 				MOD_GroundTemperature.o                   \
 				MOD_LeafInterception.o                    \
 				MOD_NetSolar.o                            \
+				MOD_NetSolar_Hyper.o                      \
 				MOD_WetBulb.o                             \
 				MOD_RainSnowTemp.o                        \
 				MOD_SoilSurfaceResistance.o               \

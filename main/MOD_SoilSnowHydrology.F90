@@ -4,10 +4,11 @@ MODULE MOD_SoilSnowHydrology
 
 !-----------------------------------------------------------------------
    USE MOD_Precision
-   USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_SNICAR,     &
-                           DEF_URBAN_RUN,           DEF_USE_IRRIGATION, &
-                           DEF_SPLIT_SOILSNOW,      DEF_Runoff_SCHEME,  &
-                           DEF_DA_TWS_GRACE
+   USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_SNICAR,        &
+                           DEF_URBAN_RUN,           DEF_USE_IRRIGATION,    &
+                           DEF_SPLIT_SOILSNOW,      DEF_Runoff_SCHEME,     &
+                           DEF_DA_TWS_GRACE,        DEF_Optimize_Baseflow, &
+                           DEF_USE_Dynamic_Wetland
 #if (defined CaMa_Flood)
    USE YOS_CMF_INPUT,      only: LWINFILT
 #endif
@@ -176,7 +177,7 @@ CONTAINS
 ! Aerosol Fluxes (Jan. 07, 2023)
 ! END SNICAR model variables
 
-!  irrigation variable 
+!  irrigation variable
    real(r8), intent(in) :: &
         qflx_irrig_drip  , &! irrigation flux from drip irrigation [mm/s]
         qflx_irrig_flood , &! irrigation flux from flood irrigation [mm/s]
@@ -510,9 +511,8 @@ ENDIF
               qsubl       ,qfros       ,qseva_soil  ,qsdew_soil  ,qsubl_soil  ,&
               qfros_soil  ,qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow  ,&
               fsno        ,frcsat      ,rsur        ,rsur_se     ,rsur_ie     ,&
-              rnof        ,&
-              qinfl       ,ssi         ,pondmx      ,wimp        ,zwt         ,&
-              wdsrf       ,wa          ,wetwat      ,&
+              rnof        ,qinfl       ,qlayer      ,ssi         ,pondmx      ,&
+              wimp        ,zwt         ,wdsrf       ,wa          ,wetwat      ,&
 #if (defined CaMa_Flood)
               flddepth    ,fldfrc      ,qinfl_fld                             ,&
 #endif
@@ -520,8 +520,8 @@ ENDIF
               forc_aer                                                        ,&
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
-!  irrigation variable 
-              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy               )  
+!  irrigation variable
+              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy            )
 
 !===================================================================================
 !  this is the main SUBROUTINE to execute the calculation of soil water processes
@@ -543,6 +543,7 @@ ENDIF
    USE MOD_Const_Physical,      only: denice, denh2o, tfrz
    USE MOD_Vars_TimeInvariants, only: vic_b_infilt, vic_Dsmax, vic_Ds, vic_Ws, vic_c
    USE MOD_Vars_1DFluxes,       only: fevpg
+   USE MOD_Opt_Baseflow,        only: scale_baseflow
 #ifdef DataAssimilation
    USE MOD_DA_TWS, only: fslp_k
 #endif
@@ -626,7 +627,7 @@ ENDIF
 
    real(r8), intent(out) :: &
         smp(1:nl_soil)   , &! soil matrix potential [mm]
-        hk (1:nl_soil)      ! hydraulic conductivity [mm h2o/m]
+        hk (1:nl_soil)      ! hydraulic conductivity [mm h2o/s]
 
    real(r8), intent(inout) :: &
         zwt              , &! the depth from ground (soil) surface to water table [m]
@@ -640,7 +641,9 @@ ENDIF
         rsur_se          , &! saturation excess surface runoff (mm h2o/s)
         rsur_ie          , &! infiltration excess surface runoff (mm h2o/s)
         rnof             , &! total runoff (mm h2o/s)
-        qinfl               ! infiltration rate (mm h2o/s)
+        qinfl            , &! infiltration rate (mm h2o/s)
+        qlayer(0:nl_soil)   ! water flux between soil layer [mm h2o/s]
+
 
 
 ! SNICAR model variables
@@ -659,7 +662,7 @@ ENDIF
 ! Aerosol Fluxes (Jan. 07, 2023)
 ! END SNICAR model variables
 
-!  irrigation variable 
+!  irrigation variable
    real(r8), intent(in) :: &
         qflx_irrig_drip  , &! irrigation flux from drip irrigation [mm/s]
         qflx_irrig_flood , &! irrigation flux from flood irrigation [mm/s]
@@ -708,6 +711,18 @@ ENDIF
    real(r8), parameter :: e_ice=6.0      !soil ice impedance factor
 
    integer :: ps, pe, m
+
+
+#ifdef Campbell_SOIL_MODEL
+      prms(1,:) = bsw(1:nl_soil)
+#endif
+#ifdef vanGenuchten_Mualem_SOIL_MODEL
+      prms(1,1:nl_soil) = alpha_vgm(1:nl_soil)
+      prms(2,1:nl_soil) = n_vgm    (1:nl_soil)
+      prms(3,1:nl_soil) = L_vgm    (1:nl_soil)
+      prms(4,1:nl_soil) = sc_vgm   (1:nl_soil)
+      prms(5,1:nl_soil) = fc_vgm   (1:nl_soil)
+#endif
 
 !=======================================================================
 ! [1] update the liquid water within snow layer and the water onto soil
@@ -765,7 +780,8 @@ ENDIF
 ! [2] surface runoff and infiltration
 !=======================================================================
 
-IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
+IF((patchtype<=1) .or. is_dry_lake &
+   .or. (DEF_USE_Dynamic_Wetland .and. (patchtype==2)))THEN   ! soil ground only
 
       ! For water balance check, the sum of water in soil column before the calculation
       w_sum = sum(wliq_soisno(1:nl_soil)) + sum(wice_soisno(1:nl_soil)) + wa + wdsrf
@@ -803,7 +819,7 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
       rsur_se = 0.
 
 #ifndef CatchLateralFlow
-      IF (.not. is_dry_lake) THEN
+      IF (patchtype <= 1) THEN
 
          IF (DEF_Runoff_SCHEME  == 0) THEN
 
@@ -836,16 +852,23 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
             rsur_ie = 0.
 
          ELSEIF (DEF_Runoff_SCHEME  == 3) THEN
-            ! 3: runoff scheme from XinAnJiang model with lateral flow
+            ! 3: runoff scheme from simplified VIC model
 
             CALL Runoff_SimpleVIC (&
                nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
                BVIC, gwat, deltim, rsur, rsubst, frcsat)
 
+            ! CALL SubsurfaceRunoff_SimpleVIC ( &
+            !    nl_soil,           z_soisno(1:nl_soil), dz_soisno(1:nl_soil), wice_soisno(1:nl_soil), &
+            !    porsl(1:nl_soil),  psi0(1:nl_soil),     hksati(1:nl_soil),    theta_r(1:nl_soil),     &
+            !    nprms,             prms(:,1:nl_soil),   zwt,                  rsubst)
+
             rsur_se = rsur
             rsur_ie = 0.
 
          ENDIF
+
+         rsubst = rsubst * scale_baseflow(ipatch)
 
 #ifdef DataAssimilation
          IF (DEF_DA_TWS_GRACE) THEN
@@ -853,28 +876,27 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
             rsubst = rsubst * fslp_k(ipatch)
          ENDIF
 #endif
-      ENDIF
+
 #ifdef CROP
-      IF(patchtype.eq.0 .AND. DEF_USE_IRRIGATION)THEN
-         ps = patch_pft_s(ipatch)
-         pe = patch_pft_e(ipatch)
-         DO m = ps, pe
-            IF(irrig_method_p(m).eq.irrig_method_paddy)THEN
-               rsur = 0
-            ENDIF
-         ENDDO
-      ENDIF
+         IF(patchtype.eq.0 .AND. DEF_USE_IRRIGATION)THEN
+            ps = patch_pft_s(ipatch)
+            pe = patch_pft_e(ipatch)
+            DO m = ps, pe
+               IF(irrig_method_p(m).eq.irrig_method_paddy)THEN
+                  rsur = 0
+               ENDIF
+            ENDDO
+         ENDIF
 #endif
+      ENDIF
+#else
+      ! for catchment based lateral flow,
+      ! "rsur" is calculated in HYDRO/MOD_Catch_HillslopeFlow.F90
+      ! "rsub" is calculated in HYDRO/MOD_Catch_SubsurfaceFlow.F90
+#endif
+
       ! infiltration into surface soil layer
       qgtop = gwat - rsur
-#else
-      ! for lateral flow,
-      ! "rsur" is calculated in HYDRO/MOD_Catch_HillslopeFlow.F90
-      ! and is removed from surface water there.
-      qgtop = gwat
-      ! "rsub" is calculated and removed from soil water in HYDRO/MOD_Catch_SubsurfaceFlow.F90
-      rsubst = 0
-#endif
 
 #if (defined CaMa_Flood)
       IF (LWINFILT) THEN
@@ -929,17 +951,6 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
       zwtmm = zwt * 1000.0
       sp_zc(1:nl_soil) = z_soisno (1:nl_soil) * 1000.0   ! from meter to mm
       sp_zi(0:nl_soil) = zi_soisno(0:nl_soil) * 1000.0   ! from meter to mm
-
-#ifdef Campbell_SOIL_MODEL
-      prms(1,:) = bsw(1:nl_soil)
-#endif
-#ifdef vanGenuchten_Mualem_SOIL_MODEL
-      prms(1,1:nl_soil) = alpha_vgm(1:nl_soil)
-      prms(2,1:nl_soil) = n_vgm    (1:nl_soil)
-      prms(3,1:nl_soil) = L_vgm    (1:nl_soil)
-      prms(4,1:nl_soil) = sc_vgm   (1:nl_soil)
-      prms(5,1:nl_soil) = fc_vgm   (1:nl_soil)
-#endif
 
       ! check consistency between water table location and liquid water content
       IF (wa < 0.) THEN
@@ -998,11 +1009,13 @@ IF((patchtype<=1) .or. is_dry_lake)THEN   ! soil ground only
       ENDIF
 
       CALL soil_water_vertical_movement ( &
-         nl_soil, deltim, sp_zc(1:nl_soil), sp_zi(0:nl_soil), is_permeable(1:nl_soil),    &
-         eff_porosity(1:nl_soil), theta_r(1:nl_soil), psi0(1:nl_soil), hksati(1:nl_soil), &
-         nprms, prms(:,1:nl_soil), porsl(nl_soil),     &
-         qgtop, etr, rootr(1:nl_soil), rootflux(1:nl_soil), rsubst, qinfl, &
-         wdsrf, zwtmm, wa, vol_liq(1:nl_soil), smp(1:nl_soil), hk(1:nl_soil), 1.e-3, wblc)
+         nl_soil,                 deltim,                   sp_zc(1:nl_soil),    sp_zi(0:nl_soil), &
+         is_permeable(1:nl_soil), eff_porosity(1:nl_soil),  theta_r(1:nl_soil),  psi0(1:nl_soil),  &
+         hksati(1:nl_soil),       nprms, prms(:,1:nl_soil), porsl(nl_soil),      qgtop,            &
+         etr,                     rootr(1:nl_soil),         rootflux(1:nl_soil), rsubst,           &
+         qinfl,                   wdsrf,                    zwtmm,               wa,               &
+         vol_liq(1:nl_soil),      smp(1:nl_soil),           hk(1:nl_soil),       qlayer(0:nl_soil),&
+         1.e-3,                   wblc)
 
       ! update the mass of liquid water
       DO j = nl_soil, 1, -1
@@ -1073,8 +1086,9 @@ ENDIF
          ENDIF
          ! total runoff (mm/s)
          rnof = rsubst + rsur
-      ELSE  
-         IF (.not. is_dry_lake) THEN
+      ELSE
+#endif
+         IF (patchtype <= 1) THEN
             IF (wdsrf > pondmx) THEN
                rsur = rsur + (wdsrf - pondmx) / deltim
                rsur_ie = rsur_ie + (wdsrf - pondmx) / deltim
@@ -1088,27 +1102,19 @@ ENDIF
 
             ! total runoff (mm/s)
             rnof = rsubst + rsur
-         ELSE
+         ELSEIF (patchtype == 2) THEN ! for wetland
+            IF (wdsrf > wetwatmax) THEN
+               rsur_se = (wdsrf - wetwatmax) / deltim
+               wdsrf = wetwatmax
+            ENDIF
+
+            rsur = rsur_se
+            ! total runoff (mm/s)
+            rnof = rsur
+         ELSE ! for dry lake
             rnof = 0.
          ENDIF
-      ENDIF
-#else
-      IF (.not. is_dry_lake) THEN
-         IF (wdsrf > pondmx) THEN
-            rsur = rsur + (wdsrf - pondmx) / deltim
-            rsur_ie = rsur_ie + (wdsrf - pondmx) / deltim
-            wdsrf = pondmx
-         ENDIF
-
-         IF (zwt <= 0.) THEN
-            rsur_ie = 0.
-            rsur_se = rsur
-         ENDIF
-
-         ! total runoff (mm/s)
-         rnof = rsubst + rsur
-      ELSE
-         rnof = 0.
+#ifdef CROP
       ENDIF
 #endif
 #endif

@@ -39,6 +39,10 @@ MODULE MOD_Vars_PFTimeVariables
    real(r8), allocatable :: sai_p        (:) !stem area index
    real(r8), allocatable :: ssun_p   (:,:,:) !sunlit canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssha_p   (:,:,:) !shaded canopy absorption for solar radiation (0-1)
+
+   real(r8), allocatable :: ssun_hires_p (:,:,:) !sunlit canopy absorption for solar radiation (0-1)
+   real(r8), allocatable :: ssha_hires_p (:,:,:) !shaded canopy absorption for solar radiation (0-1)
+
    real(r8), allocatable :: thermk_p     (:) !canopy gap fraction for tir radiation
    real(r8), allocatable :: fshade_p     (:) !canopy shade fraction for tir radiation
    real(r8), allocatable :: extkb_p      (:) !(k, g(mu)/mu) direct solar extinction coefficient
@@ -110,6 +114,10 @@ CONTAINS
             allocate (sai_p        (numpft)) ; sai_p        (:) = spval !stem area index
             allocate (ssun_p   (2,2,numpft)) ; ssun_p   (:,:,:) = spval !sunlit canopy absorption for solar radiation (0-1)
             allocate (ssha_p   (2,2,numpft)) ; ssha_p   (:,:,:) = spval !shaded canopy absorption for solar radiation (0-1)
+
+            allocate (ssun_hires_p (211,2,numpft)) ; ssun_hires_p   (:,:,:) = spval !sunlit canopy absorption for solar radiation (0-1)
+            allocate (ssha_hires_p (211,2,numpft)) ; ssha_hires_p   (:,:,:) = spval !shaded canopy absorption for solar radiation (0-1)
+
             allocate (thermk_p     (numpft)) ; thermk_p     (:) = spval !canopy gap fraction for tir radiation
             allocate (fshade_p     (numpft)) ; fshade_p     (:) = spval !canopy shade fraction for tir radiation
             allocate (extkb_p      (numpft)) ; extkb_p      (:) = spval !(k, g(mu)/mu) direct solar extinction coefficient
@@ -169,6 +177,10 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'sai_p    ',  landpft, sai_p       )
       CALL ncio_read_vector (file_restart, 'ssun_p   ',  2,2, landpft, ssun_p )
       CALL ncio_read_vector (file_restart, 'ssha_p   ',  2,2, landpft, ssha_p )
+
+      CALL ncio_read_vector (file_restart, 'ssun_hires_p   ',  211,2, landpft, ssun_hires_p )
+      CALL ncio_read_vector (file_restart, 'ssha_hires_p   ',  211,2, landpft, ssha_hires_p )
+
       CALL ncio_read_vector (file_restart, 'thermk_p ',  landpft, thermk_p    )
       CALL ncio_read_vector (file_restart, 'fshade_p ',  landpft, fshade_p    )
       CALL ncio_read_vector (file_restart, 'extkb_p  ',  landpft, extkb_p     )
@@ -217,6 +229,9 @@ ENDIF
       CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
       CALL ncio_define_dimension_vector (file_restart, landpft, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpft, 'rtyp', 2)
+
+      CALL ncio_define_dimension_vector (file_restart, landpft, 'wavelength', 211)
+
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_define_dimension_vector (file_restart, landpft, 'vegnodes', nvegwcs)
 ENDIF
@@ -235,6 +250,10 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'sai_p    ', 'pft', landpft, sai_p    , compress)
       CALL ncio_write_vector (file_restart, 'ssun_p   ', 'band', 2, 'rtyp', 2, 'pft', landpft, ssun_p, compress)
       CALL ncio_write_vector (file_restart, 'ssha_p   ', 'band', 2, 'rtyp', 2, 'pft', landpft, ssha_p, compress)
+
+      CALL ncio_write_vector (file_restart, 'ssun_hires_p', 'wavelength', 211, 'rtyp', 2, 'pft', landpft, ssun_hires_p, compress)
+      CALL ncio_write_vector (file_restart, 'ssha_hires_p', 'wavelength', 211, 'rtyp', 2, 'pft', landpft, ssha_hires_p, compress)
+
       CALL ncio_write_vector (file_restart, 'thermk_p ', 'pft', landpft, thermk_p , compress)
       CALL ncio_write_vector (file_restart, 'fshade_p ', 'pft', landpft, fshade_p , compress)
       CALL ncio_write_vector (file_restart, 'extkb_p  ', 'pft', landpft, extkb_p  , compress)
@@ -287,6 +306,10 @@ ENDIF
             deallocate (sai_p          )  ! stem area index
             deallocate (ssun_p         )  ! sunlit canopy absorption for solar radiation (0-1)
             deallocate (ssha_p         )  ! shaded canopy absorption for solar radiation (0-1)
+
+            deallocate (ssun_hires_p   )  ! sunlit canopy absorption for solar radiation (0-1)
+            deallocate (ssha_hires_p   )  ! shaded canopy absorption for solar radiation (0-1)
+
             deallocate (thermk_p       )  ! canopy gap fraction for tir radiation
             deallocate (fshade_p       )  ! canopy gap fraction for tir radiation
             deallocate (extkb_p        )  ! (k, g(mu)/mu) direct solar extinction coefficient
@@ -489,6 +512,12 @@ MODULE MOD_Vars_TimeVariables
    real(r8), allocatable :: ssha      (:,:,:) ! shaded canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssoi      (:,:,:) ! soil absorption for solar radiation (0-1)
    real(r8), allocatable :: ssno      (:,:,:) ! snow absorption for solar radiation (0-1)
+#ifdef HYPERSPECTRAL
+   ! new variables for hyperspectral scheme
+   real(r8), allocatable :: alb_hires (:,:,:) ! averaged albedo [-]
+   real(r8), allocatable :: reflectance_out   (:,:,:) ! averaged albedo [-]
+   real(r8), allocatable :: transmittance_out (:,:,:) ! averaged albedo [-]
+#endif
    real(r8), allocatable :: thermk        (:) ! canopy gap fraction for tir radiation
    real(r8), allocatable :: extkb         (:) ! (k, g(mu)/mu) direct solar extinction coefficient
    real(r8), allocatable :: extkd         (:) ! diffuse and scattered diffuse PAR extinction coefficient
@@ -676,6 +705,12 @@ CONTAINS
             allocate (ssha                    (2,2,numpatch)); ssha      (:,:,:) = spval
             allocate (ssoi                    (2,2,numpatch)); ssoi      (:,:,:) = spval
             allocate (ssno                    (2,2,numpatch)); ssno      (:,:,:) = spval
+#ifdef HYPERSPECTRAL
+            ! high resolution parameters
+            allocate (alb_hires             (211,2,numpatch)); alb_hires        (:,:,:) = spval
+            allocate (reflectance_out       (211,0:15,numpatch)); reflectance_out  (:,:,:) = spval
+            allocate (transmittance_out     (211,0:15,numpatch)); transmittance_out(:,:,:) = spval
+#endif
             allocate (thermk                      (numpatch)); thermk        (:) = spval
             allocate (extkb                       (numpatch)); extkb         (:) = spval
             allocate (extkd                       (numpatch)); extkd         (:) = spval
@@ -1087,7 +1122,10 @@ ENDIF
 
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'rtyp', 2)
-
+#ifdef HYPERSPECTRAL
+      CALL ncio_define_dimension_vector (file_restart, landpatch, 'wavelength', 211)
+      CALL ncio_define_dimension_vector (file_restart, landpatch, 'PFT', 16)
+#endif
       ! Time-varying state variables which required by restart run
       CALL ncio_write_vector (file_restart, 'z_sno   '   , 'snow', -maxsnl, 'patch', landpatch, z_sno , compress)                 ! node depth [m]
       CALL ncio_write_vector (file_restart, 'dz_sno  '   , 'snow', -maxsnl, 'patch', landpatch, dz_sno, compress)                 ! interface depth [m]
@@ -1129,6 +1167,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'ssha    '   , 'band', 2, 'rtyp', 2, 'patch', landpatch, ssha, compress)    ! shaded canopy absorption for solar radiation (0-1)
       CALL ncio_write_vector (file_restart, 'ssoi    '   , 'band', 2, 'rtyp', 2, 'patch', landpatch, ssoi, compress)    ! shaded canopy absorption for solar radiation (0-1)
       CALL ncio_write_vector (file_restart, 'ssno    '   , 'band', 2, 'rtyp', 2, 'patch', landpatch, ssno, compress)    ! shaded canopy absorption for solar radiation (0-1)
+#ifdef HYPERSPECTRAL
+      CALL ncio_write_vector (file_restart, 'alb_hires'   , 'wavelength', 211, 'rtyp', 2, 'patch', landpatch, alb_hires , compress)    ! averaged albedo [-]
+      CALL ncio_write_vector (file_restart, 'reflectance_out'  , 'wavelength', 211, 'PFT', 16, 'patch', landpatch, reflectance_out  , compress)    ! averaged albedo [-]
+      CALL ncio_write_vector (file_restart, 'transmittance_out', 'wavelength', 211, 'PFT', 16, 'patch', landpatch, transmittance_out, compress)    ! averaged albedo [-]
+#endif
+
       CALL ncio_write_vector (file_restart, 'thermk  '   , 'patch', landpatch, thermk    , compress)                    ! canopy gap fraction for tir radiation
       CALL ncio_write_vector (file_restart, 'extkb   '   , 'patch', landpatch, extkb     , compress)                    ! (k, g(mu)/mu) direct solar extinction coefficient
       CALL ncio_write_vector (file_restart, 'extkd   '   , 'patch', landpatch, extkd     , compress)                    ! diffuse and scattered diffuse PAR extinction coefficient
@@ -1172,12 +1216,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
 
 IF (DEF_USE_IRRIGATION) THEN
-      CALL Ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_irrig             ' , 'patch',landpatch,sum_irrig             , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_deficit_irrig     ' , 'patch',landpatch,sum_deficit_irrig     , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_irrig_count       ' , 'patch',landpatch,sum_irrig_count       , compress)
-      CALL Ncio_write_vector (file_restart, 'n_irrig_steps_left    ' , 'patch',landpatch,n_irrig_steps_left    , compress)
-      CALL Ncio_write_vector (file_restart, 'waterstorage          ' , 'patch',landpatch,waterstorage          , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
+      CALL ncio_write_vector (file_restart, 'sum_irrig             ' , 'patch',landpatch,sum_irrig             , compress)
+      CALL ncio_write_vector (file_restart, 'sum_deficit_irrig     ' , 'patch',landpatch,sum_deficit_irrig     , compress)
+      CALL ncio_write_vector (file_restart, 'sum_irrig_count       ' , 'patch',landpatch,sum_irrig_count       , compress)
+      CALL ncio_write_vector (file_restart, 'n_irrig_steps_left    ' , 'patch',landpatch,n_irrig_steps_left    , compress)
+      CALL ncio_write_vector (file_restart, 'waterstorage          ' , 'patch',landpatch,waterstorage          , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_corn     ' , 'patch',landpatch,irrig_method_corn     , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_swheat   ' , 'patch',landpatch,irrig_method_swheat   , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_wwheat   ' , 'patch',landpatch,irrig_method_wwheat   , compress)
@@ -1186,9 +1230,9 @@ IF (DEF_USE_IRRIGATION) THEN
       CALL ncio_write_vector (file_restart, 'irrig_method_rice1    ' , 'patch',landpatch,irrig_method_rice1    , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_rice2    ' , 'patch',landpatch,irrig_method_rice2    , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_sugarcane' , 'patch',landpatch,irrig_method_sugarcane, compress)
-      CALL Ncio_write_vector (file_restart, 'irrig_gw_alloc        ' , 'patch',landpatch,irrig_gw_alloc        , compress)
-      CALL Ncio_write_vector (file_restart, 'irrig_sw_alloc        ' , 'patch',landpatch,irrig_sw_alloc        , compress)
-      CALL Ncio_write_vector (file_restart, 'zwt_stand             ' , 'patch',landpatch,zwt_stand             , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_gw_alloc        ' , 'patch',landpatch,irrig_gw_alloc        , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_sw_alloc        ' , 'patch',landpatch,irrig_sw_alloc        , compress)
+      CALL ncio_write_vector (file_restart, 'zwt_stand             ' , 'patch',landpatch,zwt_stand             , compress)
 ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -1317,6 +1361,12 @@ ENDIF
       CALL ncio_read_vector (file_restart, 'ssha    '   , 2, 2, landpatch, ssha ) ! shaded canopy absorption for solar radiation (0-1)
       CALL ncio_read_vector (file_restart, 'ssoi    '   , 2, 2, landpatch, ssoi ) ! soil absorption for solar radiation (0-1)
       CALL ncio_read_vector (file_restart, 'ssno    '   , 2, 2, landpatch, ssno ) ! snow absorption for solar radiation (0-1)
+#ifdef HYPERSPECTRAL
+      CALL ncio_read_vector (file_restart, 'alb_hires ' , 211, 2, landpatch, alb_hires  ) ! averaged albedo [-]
+      CALL ncio_read_vector (file_restart, 'reflectance_out'  , 211, 16, landpatch, reflectance_out  ) ! averaged albedo [-]
+      CALL ncio_read_vector (file_restart, 'transmittance_out', 211, 16, landpatch, transmittance_out) ! averaged albedo [-]
+#endif
+
       CALL ncio_read_vector (file_restart, 'thermk  '   , landpatch, thermk     ) ! canopy gap fraction for tir radiation
       CALL ncio_read_vector (file_restart, 'extkb   '   , landpatch, extkb      ) ! (k, g(mu)/mu) direct solar extinction coefficient
       CALL ncio_read_vector (file_restart, 'extkd   '   , landpatch, extkd      ) ! diffuse and scattered diffuse PAR extinction coefficient

@@ -803,7 +803,7 @@ CONTAINS
       IF (allocated (meshtmp)) THEN
          DO ie = 1, size(meshtmp)
             IF (allocated(meshtmp(ie)%ilon))  deallocate (meshtmp(ie)%ilon)
-            IF (allocated(meshtmp(ie)%ilon))  deallocate (meshtmp(ie)%ilat)
+            IF (allocated(meshtmp(ie)%ilat))  deallocate (meshtmp(ie)%ilat)
          ENDDO
 
          deallocate (meshtmp )
