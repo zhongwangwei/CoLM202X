@@ -45,6 +45,10 @@ MODULE MOD_LeafInterception
    ! Used across all schemes for numerical stability
    real(r8), parameter ::  PRECIP_THRESHOLD = 1.0e-8_r8
 
+   ! Tolerance for interception water balance checks [mm]
+   ! Used by check_interception_balance subroutine under CoLMDEBUG
+   real(r8), parameter ::  INTERCEPTION_BALANCE_TOL = 1.0e-6_r8
+
    !----------------------- Dummy argument --------------------------------
    real(r8) :: satcap                     ! maximum allowed water on canopy [mm]
    real(r8) :: satcap_rain                ! maximum allowed rain on canopy [mm]
@@ -340,6 +344,10 @@ CONTAINS
             write(6,*) ldew, ldew_rain, ldew_snow
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('CoLM2014', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
@@ -533,6 +541,10 @@ CONTAINS
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('CoLM202x', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
@@ -706,6 +718,10 @@ CONTAINS
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('CLM4', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
@@ -820,6 +836,12 @@ CONTAINS
          lsai   = lai + sai
          vegt   = lsai
          p0  = (prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler)*deltim
+
+         ! Ensure ldew is consistent with components at entry
+         ! CLM5 operates on ldew_rain/ldew_snow and sets ldew = ldew_rain + ldew_snow at exit
+         ! At entry from initialization or restart, ldew may be inconsistent
+         ldew = ldew_rain + ldew_snow
+
          w = ldew+p0  ! For mass balance check
 
          ! Canopy capacity - CLM5 official values
@@ -917,6 +939,10 @@ CONTAINS
             write(6,*) 'satcap_rain:', satcap_rain, 'satcap_snow:', satcap_snow
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('CLM5', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
@@ -1048,6 +1074,11 @@ CONTAINS
             PrecipAreaFrac = 1.0
          ENDIF
 
+         ! Ensure ldew is consistent with components at entry
+         ! NoahMP modifies ldew in-place; if ldew != ldew_rain + ldew_snow
+         ! at entry (e.g., from initialization or restart), mass balance drifts
+         ldew = ldew_rain + ldew_snow
+
          w   = ldew+p0
 
          ! Initialize excess water variables
@@ -1086,7 +1117,8 @@ CONTAINS
             ENDIF
             !tleaf      = fvegc*tfrz+ (1.0-fwet)*tleaf
          ENDIF
-         ldew          = ldew - (xsc_rain + xsc_snow)
+         ! Resync ldew with components after phase change (CoLM2014 pattern)
+         ldew = ldew_rain + ldew_snow
 
          IF (p0 > 1.e-8) THEN
 
@@ -1131,16 +1163,18 @@ CONTAINS
          thru_rain = tti_rain + tex_rain
          thru_snow = tti_snow + tex_snow
          pinf = p0 - (thru_rain + thru_snow)
-         ldew = ldew + pinf
+
+         ! Update rain/snow components following CoLM2014 pattern (lines 322-324)
+         ldew_rain = ldew_rain + (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim - thru_rain
+         ldew_snow = ldew_snow + (prc_snow+prl_snow)*deltim - thru_snow
+         ldew = ldew_rain + ldew_snow
 
          pg_rain = (xsc_rain + thru_rain) / deltim
          pg_snow = (xsc_snow + thru_snow) / deltim
          qintr   = pinf / deltim
 
-
          qintr_rain = prc_rain + prl_rain + qflx_irrig_sprinkler - thru_rain / deltim
          qintr_snow = prc_snow + prl_snow - thru_snow / deltim
-
 
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
@@ -1149,27 +1183,21 @@ CONTAINS
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim  !, satcap
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('NoahMP', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
          ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! Yuan's fix: Release canopy water based on temperature
-         ! Note: Noah-MP doesn't separate rain/snow storage, so temperature-based
-         ! release is appropriate (no phase conservation issue for unified storage)
-         IF (ldew > 0.) THEN
-            IF (tleaf > tfrz) THEN
-               pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
-               pg_snow = prc_snow + prl_snow
-            ELSE
-               pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-               pg_snow = prc_snow + prl_snow + ldew/deltim
-            ENDIF
-         ELSE
-            pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-            pg_snow = prc_snow + prl_snow
-         ENDIF
+         ! Release canopy water separately by phase to preserve phase conservation
+         pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew_rain/deltim
+         pg_snow = prc_snow + prl_snow + ldew_snow/deltim
 
-         ldew  = 0.
+         ldew      = 0.
+         ldew_rain = 0.
+         ldew_snow = 0.
          qintr = 0.
          qintr_rain = 0.
          qintr_snow = 0.
@@ -1260,6 +1288,10 @@ CONTAINS
          satcap_rain = dewmx_MATSIRO*vegt
          satcap_snow = dewmx_MATSIRO*vegt
 
+         ! Ensure ldew is consistent with components at entry
+         ! MATSIRO modifies ldew in-place; inconsistency at entry propagates to output
+         ldew = ldew_rain + ldew_snow
+
          w = ldew+p0
 
          xsc_rain = max(0., ldew_rain-satcap_rain)
@@ -1289,7 +1321,8 @@ CONTAINS
             ENDIF
             !tleaf      = fvegc*tfrz+ (1.0-fwet)*tleaf
          ENDIF
-         ldew          = ldew - (xsc_rain + xsc_snow)
+         ! Resync ldew with components after phase change (CoLM2014 pattern)
+         ldew = ldew_rain + ldew_snow
 
          IF (p0 > 1.e-8) THEN
             ! Interception efficiency - MATSIRO formulation
@@ -1401,10 +1434,11 @@ CONTAINS
          thru_rain = tti_rain + tex_rain
          thru_snow = tti_snow + tex_snow
          pinf = p0 - (thru_rain + thru_snow)
-         ldew = ldew + pinf
-         ! Bug fix: ldew_rain/ldew_snow already updated via weighted average in line 1244, removing duplicate calculation
-         ! ldew_rain= ldew_rain+(prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim- thru_rain
-         ! ldew_snow= ldew_snow+(prc_snow+prl_snow)*deltim- thru_snow
+
+         ! Resync ldew with components following CoLM2014 pattern (line 324)
+         ! In the precip case, ldew_rain/ldew_snow were updated via weighted average
+         ! In the no-precip case, they remain at post-phase-change values (tiny p0 < 1e-8 ignored)
+         ldew = ldew_rain + ldew_snow
 
          pg_rain = (xsc_rain + thru_rain) / deltim
          pg_snow = (xsc_snow + thru_snow) / deltim
@@ -1419,6 +1453,10 @@ CONTAINS
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim !, satcap
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('MATSIRO', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
@@ -1526,6 +1564,11 @@ CONTAINS
          lsai   = lai + sai
          vegt   = lsai
 
+         ! Ensure ldew is consistent with components at entry (grid-scale)
+         ! VIC sets ldew = ldew_rain + ldew_snow at exit; inconsistency at entry
+         ! from initialization or restart causes mass balance check to fail
+         ldew = ldew_rain + ldew_snow
+
          ! VIC vegetation fraction handling (snow_intercept.c line 132-133)
          ! Convert grid-scale storage to per-vegetation values
          ! Physical meaning: Storage variables represent water on vegetated fraction only
@@ -1608,7 +1651,8 @@ CONTAINS
             !tleaf      = fvegc*tfrz+ (1.0-fwet)*tleaf
          ENDIF
 
-         ldew          = ldew -(xsc_rain+xsc_snow)
+         ! Note: ldew will be resynced as ldew = ldew_rain + ldew_snow at output (line ~1806)
+         ! No in-place ldew update needed here (CoLM2014 pattern: resync at end)
 
          IF (p0 > 1.e-8) THEN
             ! VIC physical interception algorithm (snow_intercept.c lines 165-176, 224-236)
@@ -1737,37 +1781,35 @@ CONTAINS
          ENDIF
 
 
-         thru_rain = tti_rain + tex_rain
-         thru_snow = tti_snow + tex_snow
-
-         ! Bug fix: ldew_rain/ldew_snow already updated in lines 1456-1463, removing duplicate calculation
-         ! ldew_rain= ldew_rain+(prc_rain+prl_rain+ qflx_irrig_sprinkler)*deltim- thru_rain
-         ! ldew_snow= ldew_snow+(prc_snow+prl_snow)*deltim- thru_snow
+         ! tex_rain/tex_snow are per-vegetation quantities, must scale by sigf_safe
+         ! to convert to grid-scale before adding to grid-scale tti_rain/tti_snow
+         thru_rain = tti_rain + tex_rain * sigf_safe
+         thru_snow = tti_snow + tex_snow * sigf_safe
 
          ! VIC safety check: When snow completely melts, liquid water capacity
          ! reverts from (0.035*ldew_snow + MaxInt) to just (MaxInt)
          ! Must drain excess water that can no longer be held
          ! Reference: VIC snow_intercept.c lines 522-526
          IF (ldew_snow < 1.e-6 .and. ldew_rain > MaxInt) THEN
-            tex_rain = tex_rain + (ldew_rain - MaxInt)
+            thru_rain = thru_rain + (ldew_rain - MaxInt) * sigf_safe
             ldew_rain = MaxInt
          ENDIF
 
          ! VIC vegetation fraction handling (snow_intercept.c line 515-520)
          ! Convert per-vegetation storage back to grid-scale values
-         ! Physical meaning: Grid-scale storage = per-vegetation storage × vegetation fraction
+         ! Use sigf_safe consistently with the division at entry (line 1534-1535)
          IF (sigf > 1.e-6) THEN
-            ldew_rain = ldew_rain * sigf
-            ldew_snow = ldew_snow * sigf
+            ldew_rain = ldew_rain * sigf_safe
+            ldew_snow = ldew_snow * sigf_safe
          ENDIF
 
          ! Update total canopy water storage (grid-scale)
          ldew = ldew_rain + ldew_snow
          pinf = p0 - (thru_rain + thru_snow)
 
-
-         pg_rain = (xsc_rain + thru_rain) / deltim
-         pg_snow = (xsc_snow + thru_snow) / deltim
+         ! xsc_rain/xsc_snow are per-vegetation, scale to grid-scale
+         pg_rain = (xsc_rain * sigf_safe + thru_rain) / deltim
+         pg_snow = (xsc_snow * sigf_safe + thru_snow) / deltim
          qintr   = pinf / deltim
 
          qintr_rain = prc_rain + prl_rain + qflx_irrig_sprinkler - thru_rain / deltim
@@ -1779,6 +1821,10 @@ CONTAINS
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim !, satcap
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('VIC', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
@@ -1948,6 +1994,12 @@ CONTAINS
             area = 1.0
          ENDIF
 
+         ! Ensure ldew is consistent with components at entry
+         ! JULES sets ldew = ldew_rain + ldew_snow at exit; inconsistency at entry
+         ! from initialization or restart causes immediate mass balance abort
+         ! This is why JULES "经常一开始就无法运行" (often can't run from the start)
+         ldew = ldew_rain + ldew_snow
+
          w = ldew + p0  ! For mass balance check
 
          !======================================================================
@@ -1972,6 +2024,24 @@ CONTAINS
                ldew_rain = ldew_rain - ldew_frzc
             ENDIF
             melt_rate = 0.0
+         ENDIF
+
+         !======================================================================
+         ! Drain excess water after phase change
+         ! When snow melts to rain, ldew_rain can greatly exceed can_cpy_rain
+         ! (e.g., can_cpy_snow=4.4*lsai melts into rain capacity of 0.1*lsai)
+         ! When rain freezes to snow, ldew_snow can exceed can_cpy_snow
+         ! Excess must be drained to prevent unrealistic canopy water accumulation
+         !======================================================================
+         xsc_rain = 0.0
+         xsc_snow = 0.0
+         IF (ldew_rain > can_cpy_rain) THEN
+            xsc_rain = ldew_rain - can_cpy_rain
+            ldew_rain = can_cpy_rain
+         ENDIF
+         IF (ldew_snow > can_cpy_snow) THEN
+            xsc_snow = ldew_snow - can_cpy_snow
+            ldew_snow = can_cpy_snow
          ENDIF
 
          !======================================================================
@@ -2008,6 +2078,17 @@ CONTAINS
          ! Prevent negative precipitation rates from numerical errors
          r_snow = MAX(0.0, prc_snow + prl_snow)
 
+         ! Snow unloading - JULES canopysnow_mod.F90 lines 133-134
+         ! Bug fix: Unloading must occur regardless of snowfall.
+         ! Melt-driven and background unloading (wind, sublimation) are continuous
+         ! processes that happen even during dry periods.
+         ! Previously this code was inside IF (r_snow > smallp), which meant
+         ! canopy snow could only decrease when it was actively snowing.
+         unload_snow = snowunloadfact * melt_rate * deltim +                            &
+                      unload_backgrnd * ldew_snow * deltim
+         unload_snow = MAX( MIN( unload_snow, ldew_snow ), 0.0 )
+         ldew_snow = ldew_snow - unload_snow
+
          IF (r_snow > smallp) THEN
             ! Snow interception - JULES lines 131-132
             ! intercept = k * (capacity - current) * (1 - exp(-snowfall/capacity))
@@ -2015,30 +2096,22 @@ CONTAINS
                              (1.0 - EXP(-r_snow*deltim / can_cpy_snow))
             intercept_snow = MAX(0.0, intercept_snow)
 
-            ! Snow unloading - JULES lines 133-134
-            ! unload = k_melt * melt_rate * dt + k_backgrnd * snow_can * dt
-            unload_snow = snowunloadfact * melt_rate * deltim +                         &
-                         unload_backgrnd * ldew_snow * deltim
+            ! Update canopy snow with interception
+            ldew_snow = ldew_snow + intercept_snow
 
-            ! Limit unload to available snow - JULES line 143
-            unload_snow = MAX( MIN( unload_snow, ldew_snow ), 0.0 )
-
-            ! Update canopy snow - JULES line 144
-            ldew_snow = ldew_snow + intercept_snow - unload_snow
-
-            ! Snowfall to ground - JULES line 145
+            ! Snowfall to ground = snowfall - intercepted + unloaded
             tfall_snow = r_snow - intercept_snow/deltim + unload_snow/deltim
          ELSE
             intercept_snow = 0.0
-            unload_snow = 0.0
-            tfall_snow = r_snow
+            ! No snowfall, but unloaded snow still reaches ground
+            tfall_snow = r_snow + unload_snow/deltim
          ENDIF
 
          !======================================================================
          ! Output fluxes
          !======================================================================
-         pg_rain = tfall_rain
-         pg_snow = tfall_snow
+         pg_rain = tfall_rain + xsc_rain / deltim
+         pg_snow = tfall_snow + xsc_snow / deltim
 
          qintr_rain = r_rain - tfall_rain
          qintr_snow = r_snow - tfall_snow
@@ -2055,6 +2128,10 @@ CONTAINS
             write(6,*) 'ldew=', ldew, ' pg*dt=', (pg_rain+pg_snow)*deltim
             CALL abort
          ENDIF
+
+         CALL check_interception_balance('JULES', &
+              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+              qintr, qintr_rain, qintr_snow)
 #endif
       ELSE
          ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
@@ -2333,5 +2410,47 @@ CONTAINS
 
    END SUBROUTINE LEAF_interception_pftwrap
 #endif
+
+   SUBROUTINE check_interception_balance(scheme_name, &
+         ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
+         qintr, qintr_rain, qintr_snow)
+
+   ! Validates interception water balance consistency.
+   ! Called from CoLMDEBUG blocks after each scheme completes.
+
+      character(len=*), intent(in) :: scheme_name
+      real(r8), intent(in) :: ldew, ldew_rain, ldew_snow
+      real(r8), intent(in) :: pg_rain, pg_snow
+      real(r8), intent(in) :: qintr, qintr_rain, qintr_snow
+
+      ! Check A: component consistency (ldew == ldew_rain + ldew_snow)
+      IF (abs(ldew - (ldew_rain + ldew_snow)) > INTERCEPTION_BALANCE_TOL) THEN
+         write(6,*) 'Component consistency error in ', scheme_name, ':'
+         write(6,*) 'ldew=', ldew, ' ldew_rain+ldew_snow=', ldew_rain+ldew_snow
+         write(6,*) 'diff=', ldew - (ldew_rain + ldew_snow)
+         CALL abort
+      ENDIF
+
+      ! Check B: non-negativity
+      IF (ldew < -INTERCEPTION_BALANCE_TOL .or. &
+          ldew_rain < -INTERCEPTION_BALANCE_TOL .or. &
+          ldew_snow < -INTERCEPTION_BALANCE_TOL .or. &
+          pg_rain < -INTERCEPTION_BALANCE_TOL .or. &
+          pg_snow < -INTERCEPTION_BALANCE_TOL) THEN
+         write(6,*) 'Negative value error in ', scheme_name, ':'
+         write(6,*) 'ldew=', ldew, ' ldew_rain=', ldew_rain, ' ldew_snow=', ldew_snow
+         write(6,*) 'pg_rain=', pg_rain, ' pg_snow=', pg_snow
+         CALL abort
+      ENDIF
+
+      ! Check C: flux consistency (qintr == qintr_rain + qintr_snow)
+      IF (abs(qintr - (qintr_rain + qintr_snow)) > INTERCEPTION_BALANCE_TOL) THEN
+         write(6,*) 'Flux consistency error in ', scheme_name, ':'
+         write(6,*) 'qintr=', qintr, ' qintr_rain+qintr_snow=', qintr_rain+qintr_snow
+         write(6,*) 'diff=', qintr - (qintr_rain + qintr_snow)
+         CALL abort
+      ENDIF
+
+   END SUBROUTINE check_interception_balance
 
 END MODULE MOD_LeafInterception
