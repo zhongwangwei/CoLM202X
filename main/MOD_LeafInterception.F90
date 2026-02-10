@@ -344,35 +344,23 @@ CONTAINS
             write(6,*) ldew, ldew_rain, ldew_snow
             CALL abort
          ENDIF
-
-         CALL check_interception_balance('CoLM2014', &
-              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
-              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
-         ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! 2026-01-16 improvement: Maintain phase conservation for rain/snow separated schemes
-         ! Yuan's original fix released water based on temperature, which violates phase conservation
-         ! for schemes that separate rain and snow storage (ldew_rain vs ldew_snow)
-         !
-         ! Yuan's original code (2023-07-15):
-         ! IF (ldew > 0.) THEN
-         !    IF (tleaf > tfrz) THEN
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
-         !       pg_snow = prc_snow + prl_snow
-         !    ELSE
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !       pg_snow = prc_snow + prl_snow + ldew/deltim
-         !    ENDIF
-         ! ELSE
-         !    pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !    pg_snow = prc_snow + prl_snow
-         ! ENDIF
-         !
-         ! Improved version: Release liquid and solid water separately to preserve phase states
-         pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew_rain/deltim
-         pg_snow = prc_snow + prl_snow + ldew_snow/deltim
+         ! 07/15/2023, yuan: #bug found for ldew value reset.
+         !NOTE: this bug should exist in other interception schemes @Zhongwang.
+         IF (ldew > 0.) THEN
+            IF (tleaf > tfrz) THEN
+               pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
+               pg_snow = prc_snow + prl_snow
+            ELSE
+               pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
+               pg_snow = prc_snow + prl_snow + ldew/deltim
+            ENDIF
+         ELSE
+            pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
+            pg_snow = prc_snow + prl_snow
+         ENDIF
 
          ldew       = 0.
          ldew_rain  = 0.
@@ -640,57 +628,54 @@ CONTAINS
    real(r8), intent(out) :: qintr       !interception [kg/(m2 s)]
    real(r8), intent(out) :: qintr_rain  !rainfall interception (mm h2o/s)
    real(r8), intent(out) :: qintr_snow  !snowfall interception (mm h2o/s)
-   real(r8) :: xrun,qflx_prec_intr
+
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
          satcap = dewmx*vegt
 
          p0  = (prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler)*deltim
-         w = ldew + p0  ! For mass balance check
+         ppc = (prc_rain+prc_snow)*deltim
+         ppl = (prl_rain+prl_snow+qflx_irrig_sprinkler)*deltim
+
+         w = ldew+p0
+
+         IF (tleaf > tfrz) THEN
+            xsc_rain = max(0., ldew-satcap)
+            xsc_snow = 0.
+         ELSE
+            xsc_rain = 0.
+            xsc_snow = max(0., ldew-satcap)
+         ENDIF
+
+         ldew = ldew - (xsc_rain + xsc_snow)
 
          IF (p0 > 1.e-8) THEN
-            ! Interception efficiency - CLM4.5 official formula
-            ! Verified against CLM4.5 source: Hydrology1Mod.F90 line 297
-            exrain = 0.5
+            exrain =0.5
+            ! coefficient of interception
+            ! set fraction of potential interception to max 0.25 (Lawrence et al. 2007)
             alpha_rain = 0.25
-            fpi = alpha_rain * (1.-exp(-exrain*lsai))
+            fpi = alpha_rain * ( 1.-exp(-exrain*lsai) )
+            tti_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * ( 1.-fpi )
+            tti_snow = (prc_snow+prl_snow)*deltim * ( 1.-fpi )
 
-            ! Direct throughfall (precipitation not intercepted)
-            ! CLM4.5 line 300-301
-            tti_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * (1.-fpi)
-            tti_snow = (prc_snow+prl_snow)*deltim * (1.-fpi)
+            ! assume no fall down of the intercepted snowfall in a time step
+            ! drainage
+            tex_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * fpi + max(0., ldew - satcap)
+            tex_rain = max(tex_rain, 0. )
+            ! Ensure physical constraint: tex_rain + tti_rain <= total rain input
+            tex_rain = min( tex_rain, (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim - tti_rain )
+            tex_snow = 0.
 
-            ! Intercepted precipitation [mm]
-            ! CLM4.5 line 304
-            qflx_prec_intr = p0 * fpi
-
-            ! Water storage of intercepted precipitation
-            ! CLM4.5 line 307: h2ocan(p) = max(0._r8, h2ocan(p) + dtime*qflx_prec_intr(p))
-            ldew = max(0., ldew + qflx_prec_intr)
-
-            ! Simple bucket overflow drainage (CLM4.5 official method)
-            ! CLM4.5 lines 313-320: Pure bucket overflow, no spatial heterogeneity
-            ! Physical interpretation: When canopy storage exceeds capacity,
-            ! excess water immediately drains to ground
-            !
-            ! Reference: Lawrence et al. (2007) "The Partitioning of Evapotranspiration..."
-            ! CLM4.5 Technical Note (Oleson et al. 2013)
-            xrun = max(0., (ldew - satcap)/deltim)
-
-            ! Test on maximum dew on leaf
-            ! Note if xrun > 0 then ldew must be at least satcap
-            IF (xrun > 0.) THEN
-               tex_rain = xrun * deltim
-               tex_snow = 0.
-               ldew = satcap
-            ELSE
-               tex_rain = 0.
-               tex_snow = 0.
+#if (defined CoLMDEBUG)
+            IF (tex_rain+tex_snow+tti_rain+tti_snow-p0 > 1.e-10) THEN
+               write(6,*) 'tex_ + tti_ > p0 in interception code : '
             ENDIF
+#endif
+
 
          ELSE
-            ! No precipitation - no interception or drainage
+            ! all intercepted by canopy leaves for very small precipitation
             tti_rain = 0.
             tti_snow = 0.
             tex_rain = 0.
@@ -698,17 +683,19 @@ CONTAINS
          ENDIF
 
          !----------------------------------------------------------------------
-         !   Total water reaching ground and interception
+         !   total throughfall (thru) and store augmentation
          !----------------------------------------------------------------------
          thru_rain = tti_rain + tex_rain
          thru_snow = tti_snow + tex_snow
+         pinf = p0 - (thru_rain + thru_snow)
+         ldew = ldew + pinf
 
-         pg_rain = thru_rain / deltim
-         pg_snow = thru_snow / deltim
-         qintr   = (p0 - thru_rain - thru_snow) / deltim
+         pg_rain = (xsc_rain + thru_rain) / deltim
+         pg_snow = (xsc_snow + thru_snow) / deltim
+         qintr   = pinf / deltim
 
-         qintr_rain = (prc_rain + prl_rain + qflx_irrig_sprinkler) - thru_rain / deltim
-         qintr_snow = (prc_snow + prl_snow) - thru_snow / deltim
+         qintr_rain = prc_rain + prl_rain + qflx_irrig_sprinkler - thru_rain / deltim
+         qintr_snow = prc_snow + prl_snow - thru_snow / deltim
 
 
 #if (defined CoLMDEBUG)
@@ -718,17 +705,10 @@ CONTAINS
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
             CALL abort
          ENDIF
-
-         CALL check_interception_balance('CLM4', &
-              ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
-              qintr, qintr_rain, qintr_snow)
 #endif
 
       ELSE
-         ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! Yuan's fix: Release canopy water based on temperature
-         ! Note: CLM4.5 doesn't separate rain/snow storage, so temperature-based
-         ! release is appropriate (no phase conservation issue for unified storage)
+       ! 07/15/2023, yuan: #bug found for ldew value reset.
          IF (ldew > 0.) THEN
             IF (tleaf > tfrz) THEN
                pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
@@ -1964,7 +1944,7 @@ CONTAINS
 
          ! Background unloading rate (wind, sublimation etc.)
          ! Note: In official JULES this is PFT-specific
-         unload_backgrnd = 0.001  ! s^-1
+         unload_backgrnd = 2.31e-6  ! s^-1, JULES official value (unload_rate_cnst)
 
          ! Canopy capacity for snow (kg/m2) - JULES snowloadlai parameter
          can_cpy_snow = 4.4 * lsai
@@ -2058,7 +2038,7 @@ CONTAINS
 
             ! Canopy saturation ratio - JULES lines 134-136
             can_ratio = ldew_rain / can_cpy_rain
-            can_ratio = MIN(can_ratio, 1.0)
+            can_ratio = MAX(0.0, MIN(can_ratio, 1.0))
 
             ! Rutter throughfall formula - JULES line 137
             ! tfall = r * ((1 - can_ratio) * exp(-area*capacity/(r*dt)) + can_ratio)
@@ -2070,6 +2050,13 @@ CONTAINS
          ! Update canopy water content - JULES line 142
          intercept_rain = (r_rain - tfall_rain) * deltim
          ldew_rain = ldew_rain + intercept_rain
+
+         ! Post-Rutter drainage: heavy rain can push ldew_rain above capacity
+         ! in discrete timestep (Rutter model is exact only in continuous limit)
+         IF (ldew_rain > can_cpy_rain) THEN
+            tfall_rain = tfall_rain + (ldew_rain - can_cpy_rain) / deltim
+            ldew_rain = can_cpy_rain
+         ENDIF
 
          !======================================================================
          ! SNOW INTERCEPTION: Exponential Saturation Model with Unloading
@@ -2101,6 +2088,12 @@ CONTAINS
 
             ! Snowfall to ground = snowfall - intercepted + unloaded
             tfall_snow = r_snow - intercept_snow/deltim + unload_snow/deltim
+
+            ! Post-interception drainage: ensure snow doesn't exceed capacity
+            IF (ldew_snow > can_cpy_snow) THEN
+               tfall_snow = tfall_snow + (ldew_snow - can_cpy_snow) / deltim
+               ldew_snow = can_cpy_snow
+            ENDIF
          ELSE
             intercept_snow = 0.0
             ! No snowfall, but unloaded snow still reaches ground
