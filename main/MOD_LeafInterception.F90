@@ -1977,13 +1977,11 @@ CONTAINS
          ! JULES physics operates on the vegetated area only.
          ! Convert grid-averaged storage to per-vegetation values.
          ! (Matching VIC pattern: divide before physics, multiply after)
-         IF (sigf > 1.e-6) THEN
-            sigf_safe = max(sigf, 0.01_r8)
-            ldew_rain = ldew_rain / sigf_safe
-            ldew_snow = ldew_snow / sigf_safe
-         ELSE
-            sigf_safe = 1.0_r8
-         ENDIF
+         ! Note: outer guard guarantees sigf > 1e-6; floor at 0.01 prevents
+         ! extreme amplification when sigf is very small but positive.
+         sigf_safe = max(sigf, 0.01_r8)
+         ldew_rain = ldew_rain / sigf_safe
+         ldew_snow = ldew_snow / sigf_safe
 
          !======================================================================
          ! Phase change (melting/freezing) - Do BEFORE interception
@@ -2002,6 +2000,7 @@ CONTAINS
                     (tleaf - tfrz) * melt_factor * ldew_snow / deltim)
                melt_rate = MAX(melt_rate, 0.0_r8)
                ldew_snow = ldew_snow - melt_rate * deltim
+               ldew_snow = MAX(ldew_snow, 0.0_r8)  ! prevent -eps from FP rounding
                ldew_rain = ldew_rain + melt_rate * deltim
             ELSE
                melt_rate = 0.0_r8
@@ -2014,6 +2013,7 @@ CONTAINS
                ldew_frzc = MAX(ldew_frzc, 0.0_r8)
                ldew_snow = ldew_snow + ldew_frzc
                ldew_rain = ldew_rain - ldew_frzc
+               ldew_rain = MAX(ldew_rain, 0.0_r8)  ! prevent -eps from FP rounding
             ENDIF
             melt_rate = 0.0_r8
          ENDIF
