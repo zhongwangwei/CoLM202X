@@ -1849,6 +1849,7 @@ CONTAINS
 
    !REVISION HISTORY
    !----------------
+      ! 2026.02.11  Zhongwang Wei @ SYSU - Added wind-dependent snow unloading (JULES fidelity D3)
       ! 2026.02.11  Zhongwang Wei @ SYSU - Added sigf scaling, input clamping, mass balance fix
       ! 2026.01.16  Zhongwang Wei @ SYSU - Converted to official JULES Rutter model
       ! 2023.02.21  Zhongwang Wei @ SYSU
@@ -1858,10 +1859,10 @@ CONTAINS
    IMPLICIT NONE
 
    real(r8), intent(in)    :: deltim     !seconds in a time step [second]
-   real(r8), intent(in)    :: dewmx      !maximum dew [mm]
-   real(r8), intent(in)    :: forc_us    !wind speed
-   real(r8), intent(in)    :: forc_vs    !wind speed
-   real(r8), intent(in)    :: chil       !leaf angle distribution factor
+   real(r8), intent(in)    :: dewmx      !maximum dew [mm] (unused in JULES; retained for interface compatibility)
+   real(r8), intent(in)    :: forc_us    !wind speed [m/s]
+   real(r8), intent(in)    :: forc_vs    !wind speed [m/s]
+   real(r8), intent(in)    :: chil       !leaf angle distribution factor (unused in JULES)
    real(r8), intent(in)    :: prc_rain   !convective rainfall [mm/s]
    real(r8), intent(in)    :: prc_snow   !convective snowfall [mm/s]
    real(r8), intent(in)    :: prl_rain   !large-scale rainfall [mm/s]
@@ -1871,24 +1872,27 @@ CONTAINS
    real(r8), intent(in)    :: lai        !leaf area index [-]
    real(r8), intent(in)    :: sai        !stem area index [-]
    real(r8), intent(in)    :: tair       !air temperature [K]
-   real(r8), intent(inout) :: tleaf      !sunlit canopy leaf temperature [K]
+   real(r8), intent(inout) :: tleaf      !sunlit canopy leaf temperature [K] (read-only in JULES)
 
    real(r8), intent(inout) :: ldew       !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain  !depth of liquid on foliage [mm]
    real(r8), intent(inout) :: ldew_snow  !depth of solid on foliage [mm]
-   real(r8), intent(in)    :: z0m        !roughness length
-   real(r8), intent(in)    :: hu         !forcing height of U
+   real(r8), intent(in)    :: z0m        !roughness length (unused in JULES)
+   real(r8), intent(in)    :: hu         !forcing height of U (unused in JULES)
 
    real(r8), intent(out)   :: pg_rain    !rainfall onto ground including canopy runoff [kg/(m2 s)]
    real(r8), intent(out)   :: pg_snow    !snowfall onto ground including canopy runoff [kg/(m2 s)]
    real(r8), intent(out)   :: qintr      !interception [kg/(m2 s)]
-   real(r8), intent(out)   :: qintr_rain !rainfall interception (mm h2o/s)
-   real(r8), intent(out)   :: qintr_snow !snowfall interception (mm h2o/s)
+   real(r8), intent(out)   :: qintr_rain !rainfall interception (mm h2o/s) [NOTE: can be negative during canopy release]
+   real(r8), intent(out)   :: qintr_snow !snowfall interception (mm h2o/s) [NOTE: can be negative during canopy release]
 
    ! Local variables
    real(r8)                :: snowinterceptfact    ! Snow interception efficiency (0.7)
-   real(r8)                :: snowunloadfact       ! Snow unloading factor due to melt
-   real(r8)                :: unload_backgrnd      ! Background unloading rate (wind, sublimation)
+   real(r8)                :: snowunloadfact       ! Snow unloading factor due to melt (0.4)
+   real(r8)                :: unload_rate_cnst     ! Constant background unloading rate [s⁻¹]
+   real(r8)                :: unload_rate_u        ! Wind-dependent unloading rate [s⁻¹/(m/s)]
+   real(r8)                :: unload_backgrnd      ! Total background unloading rate [s⁻¹]
+   real(r8)                :: Wind                 ! Wind speed [m/s]
    real(r8)                :: area                 ! Precipitation area fraction
    real(r8)                :: can_cpy_rain         ! Canopy capacity for rain [mm]
    real(r8)                :: can_cpy_snow         ! Canopy capacity for snow [mm]
@@ -1902,6 +1906,8 @@ CONTAINS
    real(r8)                :: intercept_snow       ! Snow interception in timestep [mm]
    real(r8)                :: unload_snow          ! Snow unloading in timestep [mm]
    real(r8)                :: melt_rate            ! Canopy snow melt rate [mm/s]
+   real(r8)                :: melt_factor          ! Dimensionless melt energy ratio: CICE/(DENICE*HFUS)
+   real(r8)                :: frz_factor           ! Dimensionless freeze energy ratio: CWAT/(DENH2O*HFUS)
    real(r8)                :: smallp               ! Small positive number
    real(r8)                :: lsai_l               ! total LAI+SAI (local)
    real(r8)                :: p0_l, ppc_l, ppl_l   ! precipitation sums (local)
@@ -1911,7 +1917,7 @@ CONTAINS
    real(r8)                :: sigf_safe            ! safe vegetation fraction (>= 0.01)
    real(r8)                :: thru_rain, thru_snow ! grid-scale throughfall [mm]
 
-      IF (lai+sai > 1e-6) THEN
+      IF (lai+sai > 1e-6 .AND. sigf > 1.e-6) THEN
          lsai_l = lai + sai
 
          !======================================================================
@@ -1922,12 +1928,20 @@ CONTAINS
          r_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          r_snow = MAX(0.0_r8, prc_snow + prl_snow)
 
+         ! Clamp canopy state: negative values from restart or upstream bugs
+         ! would be amplified by sigf division and cause mass balance abort
+         ldew_rain = MAX(0.0_r8, ldew_rain)
+         ldew_snow = MAX(0.0_r8, ldew_snow)
+
          !======================================================================
          ! JULES Parameters - Official values from JULES source code
          !======================================================================
          snowinterceptfact = 0.7       ! Snow interception efficiency (jules_snow_mod.F90)
          snowunloadfact    = 0.4       ! Snow unloading factor (canopysnow_mod.F90)
-         unload_backgrnd   = 2.31e-6   ! Background unloading rate [s^-1] (unload_rate_cnst)
+         unload_rate_cnst  = 2.31e-6   ! Constant background unloading rate [s⁻¹]
+         unload_rate_u     = 5.56e-7   ! Wind-dependent unloading rate [s⁻¹/(m/s)]
+         Wind = SQRT(forc_us**2 + forc_vs**2)
+         unload_backgrnd   = unload_rate_cnst + unload_rate_u * Wind
          can_cpy_snow      = 4.4 * lsai_l  ! Snow capacity [mm] (snowloadlai parameter)
          can_cpy_rain      = 0.1 * lsai_l  ! Rain capacity [mm] (JULES PFT parameter)
          smallp = EPSILON(1.0_r8)      ! Machine epsilon for numerical stability
@@ -1974,27 +1988,34 @@ CONTAINS
          !======================================================================
          ! Phase change (melting/freezing) - Do BEFORE interception
          !======================================================================
+         ! Pre-compute dimensionless energy ratios to avoid large intermediate
+         ! products (e.g. CICE*ldew_snow ~1e8) that can trap under -ffpe-trap.
+         ! melt_factor = CICE / (DENICE * HFUS) ≈ 0.00684 [K⁻¹]
+         ! frz_factor  = CWAT / (DENH2O * HFUS) ≈ 0.01256 [K⁻¹]
+         melt_factor = CICE / (DENICE * HFUS)
+         frz_factor  = CWAT / (DENH2O * HFUS)
+
          IF (tleaf > tfrz) THEN
             ! Canopy snow melting
             IF (ldew_snow > 1.e-8) THEN
                melt_rate = MIN(ldew_snow/deltim, &
-                    (tleaf - tfrz) * CICE * ldew_snow / DENICE / (HFUS * deltim))
-               melt_rate = MAX(melt_rate, 0.0)
+                    (tleaf - tfrz) * melt_factor * ldew_snow / deltim)
+               melt_rate = MAX(melt_rate, 0.0_r8)
                ldew_snow = ldew_snow - melt_rate * deltim
                ldew_rain = ldew_rain + melt_rate * deltim
             ELSE
-               melt_rate = 0.0
+               melt_rate = 0.0_r8
             ENDIF
          ELSE
             ! Canopy rain freezing
             IF (ldew_rain > 1.e-8) THEN
                ldew_frzc = MIN(ldew_rain, &
-                    (tfrz - tleaf) * CWAT * ldew_rain / DENH2O / HFUS)
-               ldew_frzc = MAX(ldew_frzc, 0.0)
+                    (tfrz - tleaf) * frz_factor * ldew_rain)
+               ldew_frzc = MAX(ldew_frzc, 0.0_r8)
                ldew_snow = ldew_snow + ldew_frzc
                ldew_rain = ldew_rain - ldew_frzc
             ENDIF
-            melt_rate = 0.0
+            melt_rate = 0.0_r8
          ENDIF
 
          !======================================================================
@@ -2054,7 +2075,7 @@ CONTAINS
          IF (r_snow > smallp) THEN
             ! Snow interception (JULES lines 131-132)
             intercept_snow = snowinterceptfact * (can_cpy_snow - ldew_snow) * &
-                             (1.0 - EXP(-r_snow * deltim / can_cpy_snow))
+                             (1.0 - EXP(MAX(-50.0_r8, -r_snow * deltim / can_cpy_snow)))
             intercept_snow = MAX(0.0, intercept_snow)
 
             ! Update canopy snow
@@ -2103,6 +2124,10 @@ CONTAINS
          qintr = (p0_l - thru_rain - thru_snow) / deltim
 
          ! Phase-separated interception rates
+         ! NOTE: These can be NEGATIVE when pre-existing canopy storage drains
+         ! (e.g., excess from phase change or prior timestep). Negative values
+         ! represent net canopy release, not a mass balance error.
+         ! Algebraic identity: qintr_rain + qintr_snow == qintr (exact).
          qintr_rain = r_rain - pg_rain
          qintr_snow = r_snow - pg_snow
 
@@ -2122,8 +2147,9 @@ CONTAINS
 #endif
       ELSE
          ! No vegetation: all precipitation passes through, release any stored water
-         pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew_rain/deltim
-         pg_snow = prc_snow + prl_snow + ldew_snow/deltim
+         ! Clamp raw precipitation to prevent negative pg (matching vegetated branch)
+         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
+         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
 
          ldew       = 0.
          ldew_rain  = 0.
