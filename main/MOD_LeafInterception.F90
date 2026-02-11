@@ -989,6 +989,7 @@ CONTAINS
 
 !REVISION HISTORY
 !----------------
+   ! 2026.02.11  Zhongwang Wei @ SYSU - Added input clamping, comment fixes
    ! 2023.02.21  Zhongwang Wei @ SYSU
    ! 2021.12.08  Zhongwang Wei @ SYSU
 !=======================================================================
@@ -1013,7 +1014,7 @@ CONTAINS
 
    real(r8), intent(inout) :: ldew       !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain  !depth of liquid on foliage [mm]
-   real(r8), intent(inout) :: ldew_snow  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow  !depth of solid (frozen) on foliage [mm]
    real(r8), intent(in)    :: z0m        !roughness length
    real(r8), intent(in)    :: hu         !forcing height of U
 
@@ -1040,9 +1041,11 @@ CONTAINS
          satcap_snow = fvegc * 6.6*(0.27+46./BDFALL) * lsai
          satcap_snow = max(0.0,satcap_snow)
 
-         p0  = (prc_rain + prc_snow + prl_rain + prl_snow+qflx_irrig_sprinkler)*deltim
-         ppc = (prc_rain+prc_snow)*deltim
-         ppl = (prl_rain+prl_snow+qflx_irrig_sprinkler)*deltim
+         ! Input clamping: prevent negative precipitation (numerical noise)
+         ! from causing mass balance failures
+         p0  = MAX(0.0_r8, prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler) * deltim
+         ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ppl = MAX(0.0_r8, p0 - ppc)
 
          ! Estimate PrecipAreaFrac based on precipitation type - Noah-MP line 47
          ! Convective precipitation typically covers ~10% of gridcell
@@ -1215,6 +1218,7 @@ CONTAINS
 
 !REVISION HISTORY
 !----------------
+   ! 2026.02.11  Zhongwang Wei @ SYSU - Added input clamping, comment fixes
    ! 2023.02.21  Zhongwang Wei @ SYSU
    ! 2021.12.08  Zhongwang Wei @ SYSU
 !=======================================================================
@@ -1239,7 +1243,7 @@ CONTAINS
 
    real(r8), intent(inout) :: ldew      !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain !depth of liquid on foliage [mm]
-   real(r8), intent(inout) :: ldew_snow !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow !depth of solid (frozen) on foliage [mm]
    real(r8), intent(in)    :: z0m       !roughness length
    real(r8), intent(in)    :: hu        !forcing height of  U
 
@@ -1261,9 +1265,11 @@ CONTAINS
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
-         p0  = (prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler)*deltim
-         ppc = (prc_rain+prc_snow)*deltim
-         ppl = (prl_rain+prl_snow + qflx_irrig_sprinkler)*deltim
+         ! Input clamping: prevent negative precipitation (numerical noise)
+         ! from causing mass balance failures
+         p0  = MAX(0.0_r8, prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler) * deltim
+         ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ppl = MAX(0.0_r8, p0 - ppc)
 
          satcap_rain = dewmx_MATSIRO*vegt
          satcap_snow = dewmx_MATSIRO*vegt
@@ -1440,26 +1446,7 @@ CONTAINS
 #endif
 
       ELSE
-         ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! 2026-01-16 improvement: Maintain phase conservation for rain/snow separated schemes
-         ! Yuan's original fix released water based on temperature, which violates phase conservation
-         ! for schemes that separate rain and snow storage (ldew_rain vs ldew_snow)
-         !
-         ! Yuan's original code (2023-07-15):
-         ! IF (ldew > 0.) THEN
-         !    IF (tleaf > tfrz) THEN
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
-         !       pg_snow = prc_snow + prl_snow
-         !    ELSE
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !       pg_snow = prc_snow + prl_snow + ldew/deltim
-         !    ENDIF
-         ! ELSE
-         !    pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !    pg_snow = prc_snow + prl_snow
-         ! ENDIF
-         !
-         ! Improved version: Release liquid and solid water separately to preserve phase states
+         ! No vegetation: all precipitation passes through, release any stored water
          pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew_rain/deltim
          pg_snow = prc_snow + prl_snow + ldew_snow/deltim
 
@@ -1501,6 +1488,7 @@ CONTAINS
 
 !REVISION HISTORY
 !----------------
+   ! 2026.02.11  Zhongwang Wei @ SYSU - Added input clamping, comment fixes
    ! 2023.02.21  Zhongwang Wei @ SYSU
    ! 2021.12.08  Zhongwang Wei @ SYSU
 !=======================================================================
@@ -1526,7 +1514,7 @@ CONTAINS
 
    real(r8), intent(inout) :: ldew      !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain !depth of liquid on foliage [mm]
-   real(r8), intent(inout) :: ldew_snow !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow !depth of solid (frozen) on foliage [mm]
    real(r8), intent(in) :: z0m          !roughness length
    real(r8), intent(in) :: hu           !forcing height of U
 
@@ -1598,9 +1586,11 @@ CONTAINS
          ! When snow melts completely (ldew_snow→0), capacity reverts to just MaxInt
          satcap_rain = 0.035 * ldew_snow + MaxInt  ! in mm
 
-         p0  = (prc_rain + prc_snow + prl_rain + prl_snow+ qflx_irrig_sprinkler)*deltim
-         ppc = (prc_rain+prc_snow)*deltim
-         ppl = (prl_rain+prl_snow+ qflx_irrig_sprinkler)*deltim
+         ! Input clamping: prevent negative precipitation (numerical noise)
+         ! from causing mass balance failures
+         p0  = MAX(0.0_r8, prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler) * deltim
+         ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ppl = MAX(0.0_r8, p0 - ppc)
          w = ldew+p0
 
          xsc_rain   = max(0., ldew_rain-satcap_rain)
@@ -1808,26 +1798,7 @@ CONTAINS
 #endif
 
       ELSE
-         ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! 2026-01-16 improvement: Maintain phase conservation for rain/snow separated schemes
-         ! Yuan's original fix released water based on temperature, which violates phase conservation
-         ! for schemes that separate rain and snow storage (ldew_rain vs ldew_snow)
-         !
-         ! Yuan's original code (2023-07-15):
-         ! IF (ldew > 0.) THEN
-         !    IF (tleaf > tfrz) THEN
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
-         !       pg_snow = prc_snow + prl_snow
-         !    ELSE
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !       pg_snow = prc_snow + prl_snow + ldew/deltim
-         !    ENDIF
-         ! ELSE
-         !    pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !    pg_snow = prc_snow + prl_snow
-         ! ENDIF
-         !
-         ! Improved version: Release liquid and solid water separately to preserve phase states
+         ! No vegetation: all precipitation passes through, release any stored water
          pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew_rain/deltim
          pg_snow = prc_snow + prl_snow + ldew_snow/deltim
 
@@ -1848,7 +1819,11 @@ CONTAINS
       ! Official JULES canopy interception scheme
       ! Rain: Rutter (1971) penetration model (sieve_jls_mod.F90)
       ! Snow: Exponential saturation model with unloading (canopysnow_mod.F90)
-      ! This implementation matches official JULES physics
+      !
+      ! 2026-02 Fixes:
+      ! - Added vegetation fraction (sigf) scaling: interception occurs on vegetated area only.
+      ! - Added non-negative clamping for precipitation inputs to ensure mass balance.
+      ! - Fixed mass balance check: ldew resync before sigf division (VIC pattern).
 
    !Original Author:
    !-------------------
@@ -1874,6 +1849,7 @@ CONTAINS
 
    !REVISION HISTORY
    !----------------
+      ! 2026.02.11  Zhongwang Wei @ SYSU - Added sigf scaling, input clamping, mass balance fix
       ! 2026.01.16  Zhongwang Wei @ SYSU - Converted to official JULES Rutter model
       ! 2023.02.21  Zhongwang Wei @ SYSU
       ! 2021.12.08  Zhongwang Wei @ SYSU
@@ -1899,7 +1875,7 @@ CONTAINS
 
    real(r8), intent(inout) :: ldew       !depth of water on foliage [mm]
    real(r8), intent(inout) :: ldew_rain  !depth of liquid on foliage [mm]
-   real(r8), intent(inout) :: ldew_snow  !depth of liquid on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow  !depth of solid on foliage [mm]
    real(r8), intent(in)    :: z0m        !roughness length
    real(r8), intent(in)    :: hu         !forcing height of U
 
@@ -1916,8 +1892,8 @@ CONTAINS
    real(r8)                :: area                 ! Precipitation area fraction
    real(r8)                :: can_cpy_rain         ! Canopy capacity for rain [mm]
    real(r8)                :: can_cpy_snow         ! Canopy capacity for snow [mm]
-   real(r8)                :: r_rain               ! Rain rate [mm/s]
-   real(r8)                :: r_snow               ! Snow rate [mm/s]
+   real(r8)                :: r_rain               ! Rain rate [mm/s] (clamped, non-negative)
+   real(r8)                :: r_snow               ! Snow rate [mm/s] (clamped, non-negative)
    real(r8)                :: can_ratio            ! Canopy saturation ratio (can_wcnt/can_cpy)
    real(r8)                :: aexp                 ! Exponential term in Rutter model
    real(r8)                :: tfall_rain           ! Rain throughfall [mm/s]
@@ -1927,60 +1903,73 @@ CONTAINS
    real(r8)                :: unload_snow          ! Snow unloading in timestep [mm]
    real(r8)                :: melt_rate            ! Canopy snow melt rate [mm/s]
    real(r8)                :: smallp               ! Small positive number
-   real(r8)                :: smallestp            ! Smallest positive number
+   real(r8)                :: lsai_l               ! total LAI+SAI (local)
+   real(r8)                :: p0_l, ppc_l, ppl_l   ! precipitation sums (local)
+   real(r8)                :: w_l                   ! mass balance check variable (local)
+   real(r8)                :: ldew_frzc            ! freezing water amount
+   real(r8)                :: xsc_rain, xsc_snow   ! excess water drained after phase change
+   real(r8)                :: sigf_safe            ! safe vegetation fraction (>= 0.01)
+   real(r8)                :: thru_rain, thru_snow ! grid-scale throughfall [mm]
 
       IF (lai+sai > 1e-6) THEN
-         lsai   = lai + sai
+         lsai_l = lai + sai
+
+         !======================================================================
+         ! Input Clamping (Mass Balance Safety)
+         !======================================================================
+         ! Negative precipitation inputs (numerical noise) cause mass balance failures.
+         ! Clamp all inputs to 0.0 before any calculations.
+         r_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
+         r_snow = MAX(0.0_r8, prc_snow + prl_snow)
 
          !======================================================================
          ! JULES Parameters - Official values from JULES source code
          !======================================================================
-         ! Snow interception efficiency (jules_snow_mod.F90)
-         snowinterceptfact = 0.7
-
-         ! Snow unloading factor (canopysnow_mod.F90)
-         ! Note: Typical value, should be PFT-specific in full JULES
-         snowunloadfact = 0.4
-
-         ! Background unloading rate (wind, sublimation etc.)
-         ! Note: In official JULES this is PFT-specific
-         unload_backgrnd = 2.31e-6  ! s^-1, JULES official value (unload_rate_cnst)
-
-         ! Canopy capacity for snow (kg/m2) - JULES snowloadlai parameter
-         can_cpy_snow = 4.4 * lsai
-
-         ! Canopy capacity for rain (kg/m2) - from JULES PFT parameters
-         ! Note: In official JULES this comes from can_model and infiltration_enhancement
-         can_cpy_rain = 0.1 * lsai
-
-         ! Small number for numerical stability
-         ! Use machine precision constants for better portability
-         ! (more rigorous than module-level PRECIP_THRESHOLD)
-         smallestp = TINY(1.0_r8)     ! Smallest representable positive number
-         smallp = EPSILON(prc_rain)   ! Machine epsilon for precipitation type
+         snowinterceptfact = 0.7       ! Snow interception efficiency (jules_snow_mod.F90)
+         snowunloadfact    = 0.4       ! Snow unloading factor (canopysnow_mod.F90)
+         unload_backgrnd   = 2.31e-6   ! Background unloading rate [s^-1] (unload_rate_cnst)
+         can_cpy_snow      = 4.4 * lsai_l  ! Snow capacity [mm] (snowloadlai parameter)
+         can_cpy_rain      = 0.1 * lsai_l  ! Rain capacity [mm] (JULES PFT parameter)
+         smallp = EPSILON(1.0_r8)      ! Machine epsilon for numerical stability
 
          !======================================================================
-         ! Estimate precipitation area fraction (like Noah-MP PrecipAreaFrac)
+         ! Precipitation totals and mass balance reference (GRID-SCALE)
          !======================================================================
-         p0 = (prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler) * deltim
-         ppc = (prc_rain + prc_snow) * deltim
-         ppl = (prl_rain + prl_snow + qflx_irrig_sprinkler) * deltim
+         ! Use clamped rates for consistency
+         p0_l  = (r_rain + r_snow) * deltim
+         ppc_l = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ppl_l = p0_l - ppc_l
+         ! Clamp ppl_l to avoid negative from clamping differences
+         ppl_l = MAX(0.0_r8, ppl_l)
 
-         IF (p0 > 1.e-8) THEN
+         IF (p0_l > 1.e-8) THEN
             ! Convective precip ~10% of grid, stratiform ~100% of grid
-            area = (0.1*ppc + 1.0*ppl) / p0
+            area = (0.1*ppc_l + 1.0*ppl_l) / p0_l
             area = max(0.1, min(1.0, area))
          ELSE
             area = 1.0
          ENDIF
 
-         ! Ensure ldew is consistent with components at entry
-         ! JULES sets ldew = ldew_rain + ldew_snow at exit; inconsistency at entry
-         ! from initialization or restart causes immediate mass balance abort
-         ! This is why JULES "经常一开始就无法运行" (often can't run from the start)
+         ! Ensure ldew is consistent with components at entry (GRID-SCALE)
+         ! Must be done BEFORE sigf division to keep w_l in grid-scale units
          ldew = ldew_rain + ldew_snow
 
-         w = ldew + p0  ! For mass balance check
+         ! Mass balance reference: grid-scale storage + grid-scale precipitation
+         w_l = ldew + p0_l
+
+         !======================================================================
+         ! Vegetation Fraction Scaling (sigf)
+         !======================================================================
+         ! JULES physics operates on the vegetated area only.
+         ! Convert grid-averaged storage to per-vegetation values.
+         ! (Matching VIC pattern: divide before physics, multiply after)
+         IF (sigf > 1.e-6) THEN
+            sigf_safe = max(sigf, 0.01_r8)
+            ldew_rain = ldew_rain / sigf_safe
+            ldew_snow = ldew_snow / sigf_safe
+         ELSE
+            sigf_safe = 1.0_r8
+         ENDIF
 
          !======================================================================
          ! Phase change (melting/freezing) - Do BEFORE interception
@@ -1988,17 +1977,19 @@ CONTAINS
          IF (tleaf > tfrz) THEN
             ! Canopy snow melting
             IF (ldew_snow > 1.e-8) THEN
-               melt_rate = MIN(ldew_snow/deltim, (tleaf-tfrz)*CICE*ldew_snow/DENICE/(HFUS*deltim))
+               melt_rate = MIN(ldew_snow/deltim, &
+                    (tleaf - tfrz) * CICE * ldew_snow / DENICE / (HFUS * deltim))
                melt_rate = MAX(melt_rate, 0.0)
-               ldew_snow = ldew_snow - melt_rate*deltim
-               ldew_rain = ldew_rain + melt_rate*deltim
+               ldew_snow = ldew_snow - melt_rate * deltim
+               ldew_rain = ldew_rain + melt_rate * deltim
             ELSE
                melt_rate = 0.0
             ENDIF
          ELSE
             ! Canopy rain freezing
             IF (ldew_rain > 1.e-8) THEN
-               ldew_frzc = MIN(ldew_rain, (tfrz-tleaf)*CWAT*ldew_rain/DENH2O/(HFUS))
+               ldew_frzc = MIN(ldew_rain, &
+                    (tfrz - tleaf) * CWAT * ldew_rain / DENH2O / HFUS)
                ldew_frzc = MAX(ldew_frzc, 0.0)
                ldew_snow = ldew_snow + ldew_frzc
                ldew_rain = ldew_rain - ldew_frzc
@@ -2009,18 +2000,16 @@ CONTAINS
          !======================================================================
          ! Drain excess water after phase change
          ! When snow melts to rain, ldew_rain can greatly exceed can_cpy_rain
-         ! (e.g., can_cpy_snow=4.4*lsai melts into rain capacity of 0.1*lsai)
          ! When rain freezes to snow, ldew_snow can exceed can_cpy_snow
-         ! Excess must be drained to prevent unrealistic canopy water accumulation
          !======================================================================
          xsc_rain = 0.0
          xsc_snow = 0.0
          IF (ldew_rain > can_cpy_rain) THEN
-            xsc_rain = ldew_rain - can_cpy_rain
+            xsc_rain  = ldew_rain - can_cpy_rain
             ldew_rain = can_cpy_rain
          ENDIF
          IF (ldew_snow > can_cpy_snow) THEN
-            xsc_snow = ldew_snow - can_cpy_snow
+            xsc_snow  = ldew_snow - can_cpy_snow
             ldew_snow = can_cpy_snow
          ENDIF
 
@@ -2028,96 +2017,101 @@ CONTAINS
          ! RAIN INTERCEPTION: Rutter (1971) Penetration Model
          ! From JULES sieve_jls_mod.F90 lines 125-142
          !======================================================================
-         ! Prevent negative precipitation rates from numerical errors
-         r_rain = MAX(0.0, prc_rain + prl_rain + qflx_irrig_sprinkler)
-
          IF (can_cpy_rain > 0.0 .AND. r_rain > smallp) THEN
-            ! Calculate exponential term - JULES lines 126-132
-            aexp = exp(max(-50.0, -area * can_cpy_rain / (r_rain * deltim)))
+            ! Exponential term (JULES lines 126-132)
+            aexp = exp(max(-50.0_r8, -area * can_cpy_rain / (r_rain * deltim)))
 
-
-            ! Canopy saturation ratio - JULES lines 134-136
+            ! Canopy saturation ratio (JULES lines 134-136)
             can_ratio = ldew_rain / can_cpy_rain
             can_ratio = MAX(0.0, MIN(can_ratio, 1.0))
 
-            ! Rutter throughfall formula - JULES line 137
-            ! tfall = r * ((1 - can_ratio) * exp(-area*capacity/(r*dt)) + can_ratio)
+            ! Rutter throughfall formula (JULES line 137)
             tfall_rain = r_rain * ((1.0 - can_ratio) * aexp + can_ratio)
          ELSE
             tfall_rain = r_rain
          ENDIF
 
-         ! Update canopy water content - JULES line 142
+         ! Update canopy water content (JULES line 142)
          intercept_rain = (r_rain - tfall_rain) * deltim
          ldew_rain = ldew_rain + intercept_rain
 
-         ! Post-Rutter drainage: heavy rain can push ldew_rain above capacity
-         ! in discrete timestep (Rutter model is exact only in continuous limit)
+         ! Post-Rutter drainage: discrete timestep can overshoot capacity
          IF (ldew_rain > can_cpy_rain) THEN
             tfall_rain = tfall_rain + (ldew_rain - can_cpy_rain) / deltim
-            ldew_rain = can_cpy_rain
+            ldew_rain  = can_cpy_rain
          ENDIF
 
          !======================================================================
          ! SNOW INTERCEPTION: Exponential Saturation Model with Unloading
          ! From JULES canopysnow_mod.F90 lines 131-145
          !======================================================================
-         ! Prevent negative precipitation rates from numerical errors
-         r_snow = MAX(0.0, prc_snow + prl_snow)
-
-         ! Snow unloading - JULES canopysnow_mod.F90 lines 133-134
-         ! Bug fix: Unloading must occur regardless of snowfall.
-         ! Melt-driven and background unloading (wind, sublimation) are continuous
-         ! processes that happen even during dry periods.
-         ! Previously this code was inside IF (r_snow > smallp), which meant
-         ! canopy snow could only decrease when it was actively snowing.
-         unload_snow = snowunloadfact * melt_rate * deltim +                            &
-                      unload_backgrnd * ldew_snow * deltim
-         unload_snow = MAX( MIN( unload_snow, ldew_snow ), 0.0 )
-         ldew_snow = ldew_snow - unload_snow
+         ! Snow unloading occurs regardless of snowfall (continuous process)
+         unload_snow = snowunloadfact * melt_rate * deltim &
+                     + unload_backgrnd * ldew_snow * deltim
+         unload_snow = MAX(MIN(unload_snow, ldew_snow), 0.0)
+         ldew_snow   = ldew_snow - unload_snow
 
          IF (r_snow > smallp) THEN
-            ! Snow interception - JULES lines 131-132
-            ! intercept = k * (capacity - current) * (1 - exp(-snowfall/capacity))
-            intercept_snow = snowinterceptfact * (can_cpy_snow - ldew_snow) *           &
-                             (1.0 - EXP(-r_snow*deltim / can_cpy_snow))
+            ! Snow interception (JULES lines 131-132)
+            intercept_snow = snowinterceptfact * (can_cpy_snow - ldew_snow) * &
+                             (1.0 - EXP(-r_snow * deltim / can_cpy_snow))
             intercept_snow = MAX(0.0, intercept_snow)
 
-            ! Update canopy snow with interception
+            ! Update canopy snow
             ldew_snow = ldew_snow + intercept_snow
 
             ! Snowfall to ground = snowfall - intercepted + unloaded
-            tfall_snow = r_snow - intercept_snow/deltim + unload_snow/deltim
+            tfall_snow = r_snow - intercept_snow / deltim + unload_snow / deltim
 
-            ! Post-interception drainage: ensure snow doesn't exceed capacity
+            ! Post-interception drainage
             IF (ldew_snow > can_cpy_snow) THEN
                tfall_snow = tfall_snow + (ldew_snow - can_cpy_snow) / deltim
-               ldew_snow = can_cpy_snow
+               ldew_snow  = can_cpy_snow
             ENDIF
          ELSE
             intercept_snow = 0.0
             ! No snowfall, but unloaded snow still reaches ground
-            tfall_snow = r_snow + unload_snow/deltim
+            tfall_snow = r_snow + unload_snow / deltim
          ENDIF
 
          !======================================================================
-         ! Output fluxes
+         ! Output fluxes: Per-vegetation → Grid-scale (VIC pattern)
          !======================================================================
-         pg_rain = tfall_rain + xsc_rain / deltim
-         pg_snow = tfall_snow + xsc_snow / deltim
+         ! tfall_rain/tfall_snow are per-vegetation throughfall rates [mm/s]
+         ! xsc_rain/xsc_snow are per-vegetation excess [mm]
+         ! Combine: vegetated area throughfall + bare ground direct precipitation
 
-         qintr_rain = r_rain - tfall_rain
-         qintr_snow = r_snow - tfall_snow
-         qintr = qintr_rain + qintr_snow
+         ! Grid-scale throughfall [mm] (for mass balance check)
+         ! IMPORTANT: Use sigf_safe consistently (not sigf) to ensure exact mass balance
+         ! When sigf < 0.01, sigf_safe = 0.01 != sigf, mixing them creates a residual
+         thru_rain = (tfall_rain * deltim + xsc_rain) * sigf_safe + r_rain * deltim * (1.0 - sigf_safe)
+         thru_snow = (tfall_snow * deltim + xsc_snow) * sigf_safe + r_snow * deltim * (1.0 - sigf_safe)
 
-         ! Update total canopy water
+         ! Convert throughfall to rate [mm/s]
+         pg_rain = thru_rain / deltim
+         pg_snow = thru_snow / deltim
+
+         ! Rescale state variables back to grid-averaged
+         ldew_rain = ldew_rain * sigf_safe
+         ldew_snow = ldew_snow * sigf_safe
+
+         ! Update total canopy water (grid-scale)
          ldew = ldew_rain + ldew_snow
 
+         ! Interception = total input - total output - storage change
+         ! Using the VIC approach: qintr = (p0 - thru) / deltim
+         qintr = (p0_l - thru_rain - thru_snow) / deltim
+
+         ! Phase-separated interception rates
+         qintr_rain = r_rain - pg_rain
+         qintr_snow = r_snow - pg_snow
+
 #if (defined CoLMDEBUG)
-         ! Mass balance check
-         w = w - ldew - (pg_rain + pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
-            write(6,*) 'JULES interception mass balance error: ', w
+         ! Mass balance check: w_l (grid-scale old storage + precip) should equal
+         ! new grid-scale storage + grid-scale ground flux
+         w_l = w_l - ldew - (pg_rain + pg_snow) * deltim
+         IF (abs(w_l) > 1.e-6) THEN
+            write(6,*) 'JULES interception mass balance error: ', w_l
             write(6,*) 'ldew=', ldew, ' pg*dt=', (pg_rain+pg_snow)*deltim
             CALL abort
          ENDIF
@@ -2127,26 +2121,7 @@ CONTAINS
               qintr, qintr_rain, qintr_snow)
 #endif
       ELSE
-         ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! 2026-01-16 improvement: Maintain phase conservation for rain/snow separated schemes
-         ! Yuan's original fix released water based on temperature, which violates phase conservation
-         ! for schemes that separate rain and snow storage (ldew_rain vs ldew_snow)
-         !
-         ! Yuan's original code (2023-07-15):
-         ! IF (ldew > 0.) THEN
-         !    IF (tleaf > tfrz) THEN
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew/deltim
-         !       pg_snow = prc_snow + prl_snow
-         !    ELSE
-         !       pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !       pg_snow = prc_snow + prl_snow + ldew/deltim
-         !    ENDIF
-         ! ELSE
-         !    pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler
-         !    pg_snow = prc_snow + prl_snow
-         ! ENDIF
-         !
-         ! Improved version: Release liquid and solid water separately to preserve phase states
+         ! No vegetation: all precipitation passes through, release any stored water
          pg_rain = prc_rain + prl_rain + qflx_irrig_sprinkler + ldew_rain/deltim
          pg_snow = prc_snow + prl_snow + ldew_snow/deltim
 
