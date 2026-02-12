@@ -1907,6 +1907,26 @@ ENDIF
                   ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
                   ldew (i)     = ldew_snow(i)
                ENDIF
+            ELSEIF (DEF_Interception_scheme .eq. 7) THEN !JULES
+               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
+                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
+                  ldew_snow(i) = ldew_snow(i)
+                  ldew(i)=ldew_rain(i)+ldew_snow(i)
+               ELSE
+                  ldew_rain(i) = 0.0
+                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
+                  ldew (i)     = ldew_snow(i)
+               ENDIF
+            ELSEIF (DEF_Interception_scheme .eq. 8) THEN !CoLM202x
+               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
+                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
+                  ldew_snow(i) = ldew_snow(i)
+                  ldew(i)=ldew_rain(i)+ldew_snow(i)
+               ELSE
+                  ldew_rain(i) = 0.0
+                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
+                  ldew (i)     = ldew_snow(i)
+               ENDIF
             ELSE
                CALL abort
             ENDIF
