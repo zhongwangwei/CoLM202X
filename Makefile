@@ -118,6 +118,7 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeNetwork.o    \
 				 MOD_Grid_Reservoir.o           \
 				 MOD_Grid_RiverLakeTimeVars.o   \
+				 MOD_Grid_RiverLakeSediment.o   \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
 				 MOD_BGC_Vars_PFTimeVariables.o \
