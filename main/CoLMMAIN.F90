@@ -100,6 +100,7 @@ SUBROUTINE CoLMMAIN ( &
            fseng,        fevpg,        olrg,         fgrnd,        &
            trad,         tref,         qref,         t2m_wmo,      &
            frcsat,       rsur,         rsur_se,      rsur_ie,      &
+           rsub,                                                   &
            rnof,         qintr,        qinfl,        qlayer,       &
            lake_deficit, qdrip,        rst,          assim,        &
            respc,        sabvsun,      sabvsha,      sabg,         &
@@ -509,6 +510,7 @@ SUBROUTINE CoLMMAIN ( &
         rsur        ,&! surface runoff (mm h2o/s)
         rsur_se     ,&! saturation excess surface runoff (mm h2o/s)
         rsur_ie     ,&! infiltration excess surface runoff (mm h2o/s)
+        rsub        ,&! subsurface runoff (mm h2o/s)
         rnof        ,&! total runoff (mm h2o/s)
         qintr       ,&! interception (mm h2o/s)
         qinfl       ,&! infiltration (mm h2o/s)
@@ -890,7 +892,8 @@ SUBROUTINE CoLMMAIN ( &
                  qsdew             ,qsubl             ,qfros             ,qseva_soil        ,&
                  qsdew_soil        ,qsubl_soil        ,qfros_soil        ,qseva_snow        ,&
                  qsdew_snow        ,qsubl_snow        ,qfros_snow        ,fsno              ,&
-                 rsur              ,rnof              ,qinfl             ,pondmx            ,&
+                 rsur              ,rsub              ,rnof              ,qinfl             ,&
+                 pondmx            ,&
                  ssi               ,wimp              ,smpmin            ,zwt               ,&
                  wdsrf             ,wa                ,qcharge           ,&
 
@@ -923,7 +926,8 @@ SUBROUTINE CoLMMAIN ( &
                  qfros             ,qseva_soil        ,qsdew_soil        ,qsubl_soil        ,&
                  qfros_soil        ,qseva_snow        ,qsdew_snow        ,qsubl_snow        ,&
                  qfros_snow        ,fsno              ,frcsat            ,rsur              ,&
-                 rsur_se           ,rsur_ie           ,rnof              ,qinfl             ,&
+                 rsur_se           ,rsur_ie           ,rsub              ,rnof              ,&
+                 qinfl                                                                      ,&
                  qlayer            ,ssi               ,pondmx            ,wimp              ,&
                  zwt               ,wdsrf             ,wa                ,wetwat            ,&
 #if (defined CaMa_Flood)
@@ -1183,6 +1187,7 @@ SUBROUTINE CoLMMAIN ( &
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
             rsur = max(0.0,gwat)
+            rsub = 0.
             rnof = rsur
          ELSE
             a = wdsrf + wliq_soisno(1) + gwat * deltim
@@ -1200,6 +1205,7 @@ SUBROUTINE CoLMMAIN ( &
             ELSE
                rsur = 0.
             ENDIF
+            rsub = 0.
             rnof = rsur
             rsur_se = rsur
             rsur_ie = 0.
@@ -1391,6 +1397,7 @@ SUBROUTINE CoLMMAIN ( &
             a = (sum(wliq_soisno(1:))+sum(wice_soisno(1:))+scv-w_old-scvold)/deltim
             aa = qseva+qsubl-qsdew-qfros
             rsur = max(0., pg_rain + pg_snow - aa - a)
+            rsub = 0.
             rnof = rsur
             rsur_se = rsur
             rsur_ie = 0.
@@ -1408,6 +1415,7 @@ SUBROUTINE CoLMMAIN ( &
             ELSE
                rsur = 0.
             ENDIF
+            rsub = 0.
             rnof = rsur
             rsur_se = rsur
             rsur_ie = 0.
@@ -1478,6 +1486,7 @@ SUBROUTINE CoLMMAIN ( &
                     rsur    = 0.0
                     rsur_se = 0.0
                     rsur_ie = 0.0
+                    rsub    = 0.0
                     rnof    = 0.0
                     xerr    = 0.0
 

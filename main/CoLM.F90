@@ -513,6 +513,8 @@ PROGRAM CoLM
 #endif
 #endif
 
+         CALL CheckEquilibrium (idate, deltim, i_spinupcycle, is_spinup, dir_hist, casename)
+
 #ifdef DataAssimilation
          CALL run_DA (idate, deltim, dolai, doalb, dosst, oroflag)
 #endif
@@ -520,8 +522,6 @@ PROGRAM CoLM
          ! Write out the model histroy file
          ! ----------------------------------------------------------------------
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
-
-         CALL CheckEquilibrium (idate, deltim, i_spinupcycle, is_spinup, dir_hist, casename)
 
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
@@ -649,7 +649,6 @@ PROGRAM CoLM
                   CALL adj2begin(jdate)
                   CALL forcing_reset ()
                ELSE
-                  CALL ParaOpt_EndOfSpinup ()
                   is_spinup = .false.
                ENDIF
             ENDIF
