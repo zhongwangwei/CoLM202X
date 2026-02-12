@@ -892,8 +892,7 @@ SUBROUTINE CoLMMAIN ( &
                  qsdew             ,qsubl             ,qfros             ,qseva_soil        ,&
                  qsdew_soil        ,qsubl_soil        ,qfros_soil        ,qseva_snow        ,&
                  qsdew_snow        ,qsubl_snow        ,qfros_snow        ,fsno              ,&
-                 rsur              ,rsub              ,rnof              ,qinfl             ,&
-                 pondmx            ,&
+                 rsur              ,rnof              ,qinfl             ,pondmx            ,&
                  ssi               ,wimp              ,smpmin            ,zwt               ,&
                  wdsrf             ,wa                ,qcharge           ,&
 
@@ -908,6 +907,7 @@ SUBROUTINE CoLMMAIN ( &
                  mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)  ,&
 !  irrigation variables
                  qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
+                 rsub = rnof - rsur
          ELSE
 
             CALL WATER_VSF (ipatch ,patchtype,is_dry_lake,   lb          ,nl_soil           ,&

@@ -47,7 +47,7 @@ CONTAINS
               sm          ,etr         ,qseva       ,qsdew       ,qsubl       ,&
               qfros       ,qseva_soil  ,qsdew_soil  ,qsubl_soil  ,qfros_soil  ,&
               qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow  ,fsno        ,&
-              rsur        ,rsubst      ,rnof        ,qinfl       ,pondmx      ,&
+              rsur        ,rnof        ,qinfl       ,pondmx      ,&
               ssi         ,wimp        ,smpmin      ,zwt         ,wdsrf       ,&
               wa          ,qcharge                                            ,&
 #if (defined CaMa_Flood)
@@ -158,7 +158,6 @@ CONTAINS
 
    real(r8), intent(out) :: &
         rsur                    ,&! surface runoff (mm h2o/s)
-        rsubst                  ,&! subsurface runoff (mm h2o/s)
         rnof                    ,&! total runoff (mm h2o/s)
         qinfl                   ,&! infiltration rate (mm h2o/s)
         qcharge                   ! groundwater recharge (positive to aquifer) [mm/s]
@@ -193,6 +192,7 @@ CONTAINS
        eff_porosity(1:nl_soil)  ,&! effective porosity = porosity - vol_ice
        dwat(1:nl_soil)          ,&! change in soil water
        gwat                     ,&! net water input from top (mm/s)
+       rsubst                   ,&! subsurface runoff (mm h2o/s)
        vol_liq(1:nl_soil)       ,&! partial volume of liquid water in layer
        vol_ice(1:nl_soil)       ,&! partial volume of ice lens in layer
        icefrac(1:nl_soil)       ,&! ice fraction (-)

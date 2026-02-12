@@ -357,6 +357,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             emis(i)         ,z0m(i)          ,zol(i)          ,rib(i)          ,&
             ustar(i)        ,qstar(i)        ,tstar(i)        ,fm(i)           ,&
             fh(i)           ,fq(i)           ,forc_hpbl(i)                      )
+            rsub(i) = rnof(i) - rsur(i)
          ENDIF
 
 #endif
