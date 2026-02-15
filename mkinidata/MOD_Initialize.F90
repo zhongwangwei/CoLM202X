@@ -1028,7 +1028,8 @@ ENDIF
                         smin_nh4_vr     (nsl, i)            = min_nh4_vr(nsl,i)
                         smin_no3_vr     (nsl, i)            = min_no3_vr(nsl,i)
                         sminn_vr        (nsl, i)            = min_nh4_vr(nsl,i)+min_no3_vr(nsl,i)
-                  ENDDO
+                     ENDDO
+                  ENDIF
                   IF (patchtype(i) == 0)THEN
                      DO m = ps, pe
                         ivt = pftclass(m)
