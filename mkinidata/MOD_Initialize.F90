@@ -1007,26 +1007,27 @@ ENDIF
 
             IF (p_is_worker) THEN
                DO i = 1, numpatch
-                  ps = patch_pft_s(i)
-                  pe = patch_pft_e(i)
-                  DO nsl = 1, nl_soil
-                     decomp_cpools_vr(nsl, i_met_lit, i) = litr1c_vr(nsl, i)
-                     decomp_cpools_vr(nsl, i_cel_lit, i) = litr2c_vr(nsl, i)
-                     decomp_cpools_vr(nsl, i_lig_lit, i) = litr3c_vr(nsl, i)
-                     decomp_cpools_vr(nsl, i_cwd    , i) = cwdc_vr  (nsl, i)
-                     decomp_cpools_vr(nsl, i_soil1  , i) = soil1c_vr(nsl, i)
-                     decomp_cpools_vr(nsl, i_soil2  , i) = soil2c_vr(nsl, i)
-                     decomp_cpools_vr(nsl, i_soil3  , i) = soil3c_vr(nsl, i)
-                     decomp_npools_vr(nsl, i_met_lit, i) = litr1n_vr(nsl, i)
-                     decomp_npools_vr(nsl, i_cel_lit, i) = litr2n_vr(nsl, i)
-                     decomp_npools_vr(nsl, i_lig_lit, i) = litr3n_vr(nsl, i)
-                     decomp_npools_vr(nsl, i_cwd    , i) = cwdn_vr  (nsl, i)
-                     decomp_npools_vr(nsl, i_soil1  , i) = soil1n_vr(nsl, i)
-                     decomp_npools_vr(nsl, i_soil2  , i) = soil2n_vr(nsl, i)
-                     decomp_npools_vr(nsl, i_soil3  , i) = soil3n_vr(nsl, i)
-                     smin_nh4_vr     (nsl, i)            = min_nh4_vr(nsl,i)
-                     smin_no3_vr     (nsl, i)            = min_no3_vr(nsl,i)
-                     sminn_vr        (nsl, i)            = min_nh4_vr(nsl,i)+min_no3_vr(nsl,i)
+                  IF (patchtype(i) == 0)THEN
+                     ps = patch_pft_s(i)
+                     pe = patch_pft_e(i)
+                     DO nsl = 1, nl_soil
+                        decomp_cpools_vr(nsl, i_met_lit, i) = litr1c_vr(nsl, i)
+                        decomp_cpools_vr(nsl, i_cel_lit, i) = litr2c_vr(nsl, i)
+                        decomp_cpools_vr(nsl, i_lig_lit, i) = litr3c_vr(nsl, i)
+                        decomp_cpools_vr(nsl, i_cwd    , i) = cwdc_vr  (nsl, i)
+                        decomp_cpools_vr(nsl, i_soil1  , i) = soil1c_vr(nsl, i)
+                        decomp_cpools_vr(nsl, i_soil2  , i) = soil2c_vr(nsl, i)
+                        decomp_cpools_vr(nsl, i_soil3  , i) = soil3c_vr(nsl, i)
+                        decomp_npools_vr(nsl, i_met_lit, i) = litr1n_vr(nsl, i)
+                        decomp_npools_vr(nsl, i_cel_lit, i) = litr2n_vr(nsl, i)
+                        decomp_npools_vr(nsl, i_lig_lit, i) = litr3n_vr(nsl, i)
+                        decomp_npools_vr(nsl, i_cwd    , i) = cwdn_vr  (nsl, i)
+                        decomp_npools_vr(nsl, i_soil1  , i) = soil1n_vr(nsl, i)
+                        decomp_npools_vr(nsl, i_soil2  , i) = soil2n_vr(nsl, i)
+                        decomp_npools_vr(nsl, i_soil3  , i) = soil3n_vr(nsl, i)
+                        smin_nh4_vr     (nsl, i)            = min_nh4_vr(nsl,i)
+                        smin_no3_vr     (nsl, i)            = min_no3_vr(nsl,i)
+                        sminn_vr        (nsl, i)            = min_nh4_vr(nsl,i)+min_no3_vr(nsl,i)
                   ENDDO
                   IF (patchtype(i) == 0)THEN
                      DO m = ps, pe
@@ -1339,6 +1340,8 @@ ENDIF
                ,patchlatr(i), patchlonr(i)&
                ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
 #endif
+!Ozone Vairables
+               ,o3coefv_sun(i),o3coefv_sha(i),o3coefg_sun(i),o3coefg_sha(i)&
 #ifdef BGC
                ,use_cnini, totlitc(i), totsomc(i), totcwdc(i), decomp_cpools(:,i), decomp_cpools_vr(:,:,i) &
                ,ctrunc_veg(i), ctrunc_soil(i), ctrunc_vr(:,i) &
