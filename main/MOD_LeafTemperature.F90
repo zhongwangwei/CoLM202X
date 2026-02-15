@@ -298,7 +298,7 @@ CONTAINS
         o3coefv_sun,&! Ozone stress factor for photosynthesis on sunlit leaf
         o3coefv_sha,&! Ozone stress factor for photosynthesis on sunlit leaf
         o3coefg_sun,&! Ozone stress factor for stomata on shaded leaf
-        o3coefg_sha,&! Ozone stress factor for stomata on shaded leaf
+        o3coefg_sha  ! Ozone stress factor for stomata on shaded leaf
 !End ozone stress variables
 
 !-------------------------- Local Variables ----------------------------
