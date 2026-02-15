@@ -42,6 +42,7 @@ CONTAINS
    ! ----------------------------------------------------------------------
    integer, intent(in) :: lc_year    ! which year of land cover data used
    character(len=*), intent(in) :: dir_landdata
+   character(len=4) :: wavelength  ! wavelength in nm
 
    ! Local Variables
 
@@ -59,6 +60,9 @@ CONTAINS
    real(r8), allocatable :: soil_theta_s_l             (:) ! saturated water content (cm3/cm3)
    real(r8), allocatable :: soil_psi_s_l               (:) ! matric potential at saturation (cm)
    real(r8), allocatable :: soil_lambda_l              (:) ! pore size distribution index (dimensionless)
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: soil_hyper_alb_wl          (:)
+#endif
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
    real(r8), allocatable :: soil_theta_r_l   (:)  ! residual water content (cm3/cm3)
    real(r8), allocatable :: soil_alpha_vgm_l (:)
@@ -74,10 +78,10 @@ CONTAINS
    real(r8), allocatable :: soil_BA_alpha_l(:)  ! alpha in Balland and Arp(2005) thermal conductivity scheme
    real(r8), allocatable :: soil_BA_beta_l (:)  ! beta in Balland and Arp(2005) thermal conductivity scheme
 
-   integer  :: ipatch, m, nsl  ! indices
-
+   integer  :: ipatch, m, nsl, wl  ! indices
+   integer :: wl_nm                      ! wavelength in nm (integer)
    character(len=256) :: c
-   character(len=256) :: landdir, lndname, cyear
+   character(len=256) :: landdir, lndname, cyear, wl_str, hyper_dir
    logical :: is_singlepoint
 
       ! ...............................................................
@@ -103,6 +107,9 @@ CONTAINS
             allocate ( soil_theta_s_l             (numpatch) )
             allocate ( soil_psi_s_l               (numpatch) )
             allocate ( soil_lambda_l              (numpatch) )
+#ifdef HYPERSPECTRAL
+            allocate ( soil_hyper_alb_wl          (numpatch) )
+#endif
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
             allocate ( soil_theta_r_l   (numpatch) )
             allocate ( soil_alpha_vgm_l (numpatch) )
@@ -119,7 +126,7 @@ CONTAINS
             allocate ( soil_BA_beta_l (numpatch) )
          ENDIF
 
-      ENDIF
+      ENDIF ! end if (p_is_worker)
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
@@ -519,8 +526,23 @@ CONTAINS
          lndname = trim(landdir)//'/soil_d_n_alb_patches.nc'
          CALL ncio_read_vector (lndname, 'soil_d_n_alb', landpatch, soil_d_n_alb)
 #endif
-      ENDIF
+      ENDIF    ! end of DEF_SOIL_REFL_SCHEME
+#ifdef HYPERSPECTRAL
+      ! Hyper spectral soil albedo
+      ! special treatment for the hyper spectral soil albedo
+      hyper_dir = trim(dir_landdata) // '/HyperAlbedo/' // trim(cyear)
 
+      DO wl = 1, 211
+         ! 计算波长编号并读取对应单波段文件
+         wl_nm = 400 + 10 * (wl - 1)
+         write(wavelength,'(i0)') wl_nm
+         lndname = trim(hyper_dir)//'/soil_hyper_alb_'//trim(wavelength)//'nm_patches.nc'
+         CALL ncio_read_vector (lndname, 'soil_hyper_alb', landpatch, soil_hyper_alb_wl)
+
+         ! 存储至波段矩阵
+         soil_alb(wl, :) = soil_hyper_alb_wl(:)
+      ENDDO
+#endif
    END SUBROUTINE soil_parameters_readin
 
 END MODULE MOD_SoilParametersReadin

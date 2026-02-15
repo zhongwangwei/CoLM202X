@@ -6,7 +6,7 @@ HEADER = include/define.h
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
 	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
-	: extends/CaMa/src : postprocess : .bld
+	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
 .PHONY: all
@@ -49,6 +49,7 @@ OBJS_SHARED =    \
 				  MOD_NetCDFVector.o           \
 				  MOD_RangeCheck.o             \
 				  MOD_SpatialMapping.o         \
+				  MOD_WorkerPushData.o         \
 				  MOD_AggregationRequestData.o \
 				  MOD_PixelsetShared.o         \
 				  MOD_LandElm.o                \
@@ -75,6 +76,7 @@ OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 OBJS_MKSRFDATA = \
 				  Aggregation_PercentagesPFT.o      \
 				  Aggregation_LAI.o                 \
+				  Aggregation_SoilHyperAlbedo.o     \
 				  Aggregation_SoilBrightness.o      \
 				  Aggregation_LakeDepth.o           \
 				  Aggregation_ForestHeight.o        \
@@ -106,10 +108,16 @@ mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MKSRFDATA}
 # ----- End of Target 1 mksrfdata ----
 
 OBJS_BASIC =    \
+				 MOD_Vector_ReadWrite.o         \
+				 MOD_dataSpec_PDB.o             \
+				 MOD_tav_abs.o                  \
+				 MOD_prospect_DB.o              \
 				 MOD_Catch_BasinNetwork.o       \
-				 MOD_Catch_IO.o                 \
 				 MOD_Catch_Vars_TimeVariables.o \
 				 MOD_Catch_Vars_1DFluxes.o      \
+				 MOD_Grid_RiverLakeNetwork.o    \
+				 MOD_Grid_Reservoir.o           \
+				 MOD_Grid_RiverLakeTimeVars.o   \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
 				 MOD_BGC_Vars_PFTimeVariables.o \
@@ -118,13 +126,13 @@ OBJS_BASIC =    \
 				 MOD_Urban_Vars_1DFluxes.o      \
 				 MOD_Urban_Vars_TimeVariables.o \
 				 MOD_Urban_Vars_TimeInvariants.o\
+				 MOD_DA_Vars_1DFluxes.o         \
 				 MOD_Vars_TimeInvariants.o      \
+				 MOD_DA_Vars_TimeVariables.o    \
 				 MOD_Vars_TimeVariables.o       \
 				 MOD_Vars_1DPFTFluxes.o         \
 				 MOD_Vars_1DFluxes.o            \
 				 MOD_Vars_1DForcing.o           \
-				 MOD_DA_Vars_1DFluxes.o         \
-				 MOD_DA_Vars_TimeVariables.o    \
 				 MOD_Hydro_SoilFunction.o       \
 				 MOD_Hydro_SoilWater.o          \
 				 MOD_Eroot.o                    \
@@ -137,10 +145,13 @@ OBJS_BASIC =    \
 				 MOD_FireData.o                 \
 				 MOD_OrbCoszen.o                \
 				 MOD_OrbCosazi.o                \
+				 MOD_HighRes_Parameters.o		\
 				 MOD_3DCanopyRadiation.o        \
 				 MOD_Aerosol.o                  \
 				 MOD_SnowSnicar.o               \
 				 MOD_Albedo.o                   \
+				 MOD_SnowSnicar_HiRes.o			\
+				 MOD_Albedo_HiRes.o				\
 				 MOD_SnowFraction.o             \
 				 MOD_Urban_LAIReadin.o          \
 				 MOD_Urban_Shortwave.o          \
@@ -189,10 +200,13 @@ mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MKINIDAT
 	@echo ''
 # ----- End of Target 2 mkinidata ----
 
-DEF  = $(shell grep -i cama_flood include/define.h)
-CaMa = $(word 1, ${DEF})
-ifeq (${CaMa},\#define)# Compile CoLM decoupled with river routing scheme (CaMa-Flood)
-
+CaMa = $(shell \
+	CAMA_INIT=$$(grep -E '^\#(define|undef)[[:space:]]+CaMa_Flood' $(HEADER) | head -1 | grep -q 'define' && echo 1 || echo 0); \
+	SP=$$(grep -E '^\#(define|undef)[[:space:]]+SinglePoint' $(HEADER) | tail -1 | grep -q 'define' && echo 1 || echo 0); \
+	MP=$$(if [ $$SP -eq 1 ]; then echo 0; else grep -E '^\#(define|undef)[[:space:]]+USEMPI' $(HEADER) | head -1 | grep -q 'define' && echo 1 || echo 0; fi); \
+	if [ $$CAMA_INIT -eq 0 ]; then echo NO; elif [ $$SP -eq 1 ] || [ $$MP -eq 0 ]; then echo NO; else echo YES; fi)
+ifeq (${CaMa},YES)# Compile CoLM decoupled with river routing scheme (CaMa-Flood)
+#
 OBJECTS_CAMA=\
 				  parkind1.o              \
 				  yos_cmf_input.o         \
@@ -270,15 +284,15 @@ OBJS_MAIN = \
 				MOD_UserSpecifiedForcing.o                \
 				MOD_ForcingDownscaling.o                  \
 				MOD_Forcing.o                             \
-				MOD_DA_GRACE.o                            \
+				MOD_DA_TWS.o                              \
 				MOD_DA_Const.o                            \
-				MOD_DA_ObsOperator.o                      \
+				MOD_DA_RTM.o                              \
 				MOD_DA_EnKF.o                             \
-				MOD_DA_SMAP.o                             \
-				MOD_DA_FY3D.o                             \
-				MOD_DA_Main.o                        	  \
+				MOD_DA_SM.o                               \
 				MOD_DA_Ensemble.o                         \
-				MOD_DA_Driver.o                           \
+				MOD_DA_Main.o                             \
+				MOD_Opt_Baseflow.o                        \
+				MOD_ParameterOptimization.o               \
 				MOD_AssimStomataConductance.o             \
 				MOD_PlantHydraulic.o                      \
 				MOD_FrictionVelocity.o                    \
@@ -301,6 +315,7 @@ OBJS_MAIN = \
 				MOD_GroundTemperature.o                   \
 				MOD_LeafInterception.o                    \
 				MOD_NetSolar.o                            \
+				MOD_NetSolar_Hyper.o                      \
 				MOD_WetBulb.o                             \
 				MOD_RainSnowTemp.o                        \
 				MOD_SoilSurfaceResistance.o               \
@@ -314,11 +329,13 @@ OBJS_MAIN = \
 				MOD_HistGridded.o                         \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
+				MOD_Grid_RiverLakeHist.o                  \
 				MOD_Hist.o                                \
 				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_CaMa_colmCaMa.o                       \
 				MOD_Catch_LateralFlow.o                   \
+				MOD_Grid_RiverLakeFlow.o                  \
 				MOD_Urban_Longwave.o                      \
 				MOD_Urban_NetSolar.o                      \
 				MOD_Urban_Flux.o                          \
@@ -352,7 +369,7 @@ OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 
 # ------ Target 3: main --------
 
-ifneq (${CaMa},\#define)# Compile CoLM decoupled without river routing scheme (CaMa-Flood)
+ifneq (${CaMa},YES)# Compile CoLM decoupled without river routing scheme (CaMa-Flood)
 
 colm.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MAIN}
 	@echo ''

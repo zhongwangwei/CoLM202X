@@ -39,6 +39,12 @@ MODULE MOD_Vars_PFTimeVariables
    real(r8), allocatable :: sai_p        (:) !stem area index
    real(r8), allocatable :: ssun_p   (:,:,:) !sunlit canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssha_p   (:,:,:) !shaded canopy absorption for solar radiation (0-1)
+
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: ssun_hires_p (:,:,:) !sunlit canopy absorption for solar radiation (0-1)
+   real(r8), allocatable :: ssha_hires_p (:,:,:) !shaded canopy absorption for solar radiation (0-1)
+#endif
+
    real(r8), allocatable :: thermk_p     (:) !canopy gap fraction for tir radiation
    real(r8), allocatable :: fshade_p     (:) !canopy shade fraction for tir radiation
    real(r8), allocatable :: extkb_p      (:) !(k, g(mu)/mu) direct solar extinction coefficient
@@ -110,6 +116,12 @@ CONTAINS
             allocate (sai_p        (numpft)) ; sai_p        (:) = spval !stem area index
             allocate (ssun_p   (2,2,numpft)) ; ssun_p   (:,:,:) = spval !sunlit canopy absorption for solar radiation (0-1)
             allocate (ssha_p   (2,2,numpft)) ; ssha_p   (:,:,:) = spval !shaded canopy absorption for solar radiation (0-1)
+
+#ifdef HYPERSPECTRAL
+            allocate (ssun_hires_p (211,2,numpft)) ; ssun_hires_p   (:,:,:) = spval !sunlit canopy absorption for solar radiation (0-1)
+            allocate (ssha_hires_p (211,2,numpft)) ; ssha_hires_p   (:,:,:) = spval !shaded canopy absorption for solar radiation (0-1)
+#endif
+
             allocate (thermk_p     (numpft)) ; thermk_p     (:) = spval !canopy gap fraction for tir radiation
             allocate (fshade_p     (numpft)) ; fshade_p     (:) = spval !canopy shade fraction for tir radiation
             allocate (extkb_p      (numpft)) ; extkb_p      (:) = spval !(k, g(mu)/mu) direct solar extinction coefficient
@@ -169,6 +181,12 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'sai_p    ',  landpft, sai_p       )
       CALL ncio_read_vector (file_restart, 'ssun_p   ',  2,2, landpft, ssun_p )
       CALL ncio_read_vector (file_restart, 'ssha_p   ',  2,2, landpft, ssha_p )
+
+#ifdef HYPERSPECTRAL
+      CALL ncio_read_vector (file_restart, 'ssun_hires_p   ',  211,2, landpft, ssun_hires_p )
+      CALL ncio_read_vector (file_restart, 'ssha_hires_p   ',  211,2, landpft, ssha_hires_p )
+#endif
+
       CALL ncio_read_vector (file_restart, 'thermk_p ',  landpft, thermk_p    )
       CALL ncio_read_vector (file_restart, 'fshade_p ',  landpft, fshade_p    )
       CALL ncio_read_vector (file_restart, 'extkb_p  ',  landpft, extkb_p     )
@@ -217,6 +235,9 @@ ENDIF
       CALL ncio_define_dimension_vector (file_restart, landpft, 'pft')
       CALL ncio_define_dimension_vector (file_restart, landpft, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpft, 'rtyp', 2)
+
+      CALL ncio_define_dimension_vector (file_restart, landpft, 'wavelength', 211)
+
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_define_dimension_vector (file_restart, landpft, 'vegnodes', nvegwcs)
 ENDIF
@@ -235,6 +256,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'sai_p    ', 'pft', landpft, sai_p    , compress)
       CALL ncio_write_vector (file_restart, 'ssun_p   ', 'band', 2, 'rtyp', 2, 'pft', landpft, ssun_p, compress)
       CALL ncio_write_vector (file_restart, 'ssha_p   ', 'band', 2, 'rtyp', 2, 'pft', landpft, ssha_p, compress)
+
+#ifdef HYPERSPECTRAL
+      CALL ncio_write_vector (file_restart, 'ssun_hires_p', 'wavelength', 211, 'rtyp', 2, 'pft', landpft, ssun_hires_p, compress)
+      CALL ncio_write_vector (file_restart, 'ssha_hires_p', 'wavelength', 211, 'rtyp', 2, 'pft', landpft, ssha_hires_p, compress)
+#endif
+
       CALL ncio_write_vector (file_restart, 'thermk_p ', 'pft', landpft, thermk_p , compress)
       CALL ncio_write_vector (file_restart, 'fshade_p ', 'pft', landpft, fshade_p , compress)
       CALL ncio_write_vector (file_restart, 'extkb_p  ', 'pft', landpft, extkb_p  , compress)
@@ -287,6 +314,12 @@ ENDIF
             deallocate (sai_p          )  ! stem area index
             deallocate (ssun_p         )  ! sunlit canopy absorption for solar radiation (0-1)
             deallocate (ssha_p         )  ! shaded canopy absorption for solar radiation (0-1)
+
+#ifdef HYPERSPECTRAL
+            deallocate (ssun_hires_p   )  ! sunlit canopy absorption for solar radiation (0-1)
+            deallocate (ssha_hires_p   )  ! shaded canopy absorption for solar radiation (0-1)
+#endif
+
             deallocate (thermk_p       )  ! canopy gap fraction for tir radiation
             deallocate (fshade_p       )  ! canopy gap fraction for tir radiation
             deallocate (extkb_p        )  ! (k, g(mu)/mu) direct solar extinction coefficient
@@ -396,11 +429,17 @@ MODULE MOD_Vars_TimeVariables
 #ifdef CatchLateralFlow
    USE MOD_Catch_Vars_TimeVariables
 #endif
+#ifdef GridRiverLakeFlow
+   USE MOD_Grid_RiverLakeTimeVars
+#endif
 #ifdef URBAN_MODEL
    USE MOD_Urban_Vars_TimeVariables
 #endif
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_TimeVars
+#endif
+#ifdef DataAssimilation
+   USE MOD_DA_Vars_TimeVariables
 #endif
 
    IMPLICIT NONE
@@ -460,12 +499,35 @@ MODULE MOD_Vars_TimeVariables
    real(r8), allocatable :: laisha        (:) ! leaf area index for shaded leaf
    real(r8), allocatable :: tsai          (:) ! stem area index
    real(r8), allocatable :: sai           (:) ! stem area index
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   real(r8), allocatable :: lai_enftemp   (:) ! lai for needleleaf evergreen temperate tree (m2 m-2)
+   real(r8), allocatable :: lai_enfboreal (:) ! lai for needleleaf evergreen boreal tree (m2 m-2)
+   real(r8), allocatable :: lai_dnfboreal (:) ! lai for needleleaf deciduous boreal tree (m2 m-2)
+   real(r8), allocatable :: lai_ebftrop   (:) ! lai for broadleaf evergreen tropical tree (m2 m-2)
+   real(r8), allocatable :: lai_ebftemp   (:) ! lai for broadleaf evergreen temperate tree (m2 m-2)
+   real(r8), allocatable :: lai_dbftrop   (:) ! lai for broadleaf deciduous tropical tree (m2 m-2)
+   real(r8), allocatable :: lai_dbftemp   (:) ! lai for broadleaf deciduous temperate tree (m2 m-2)
+   real(r8), allocatable :: lai_dbfboreal (:) ! lai for broadleaf deciduous boreal tree (m2 m-2)
+   real(r8), allocatable :: lai_ebstemp   (:) ! lai for broadleaf evergreen temperate shrub (m2 m-2)
+   real(r8), allocatable :: lai_dbstemp   (:) ! lai for broadleaf deciduous temperate shrub (m2 m-2)
+   real(r8), allocatable :: lai_dbsboreal (:) ! lai for broadleaf deciduous boreal shrub (m2 m-2)
+   real(r8), allocatable :: lai_c3arcgrass(:) ! lai for c3 arctic grass (m2 m-2)
+   real(r8), allocatable :: lai_c3grass   (:) ! lai for c3 grass (m2 m-2)
+   real(r8), allocatable :: lai_c4grass   (:) ! lai for c4 grass (m2 m-2)
+#endif
+
    real(r8), allocatable :: coszen        (:) ! cosine of solar zenith angle
    real(r8), allocatable :: alb       (:,:,:) ! averaged albedo [-]
    real(r8), allocatable :: ssun      (:,:,:) ! sunlit canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssha      (:,:,:) ! shaded canopy absorption for solar radiation (0-1)
    real(r8), allocatable :: ssoi      (:,:,:) ! soil absorption for solar radiation (0-1)
    real(r8), allocatable :: ssno      (:,:,:) ! snow absorption for solar radiation (0-1)
+#ifdef HYPERSPECTRAL
+   ! new variables for hyperspectral scheme
+   real(r8), allocatable :: alb_hires (:,:,:) ! averaged albedo [-]
+   real(r8), allocatable :: reflectance_out   (:,:,:) ! averaged albedo [-]
+   real(r8), allocatable :: transmittance_out (:,:,:) ! averaged albedo [-]
+#endif
    real(r8), allocatable :: thermk        (:) ! canopy gap fraction for tir radiation
    real(r8), allocatable :: extkb         (:) ! (k, g(mu)/mu) direct solar extinction coefficient
    real(r8), allocatable :: extkd         (:) ! diffuse and scattered diffuse PAR extinction coefficient
@@ -586,7 +648,7 @@ CONTAINS
             allocate (hk                (1:nl_soil,numpatch)); hk          (:,:) = spval
             allocate (h2osoi            (1:nl_soil,numpatch)); h2osoi      (:,:) = spval
             allocate (rootr             (1:nl_soil,numpatch)); rootr       (:,:) = spval
-            allocate (rootflux          (1:nl_soil,numpatch)); rootflux    (:,:) = spval  
+            allocate (rootflux          (1:nl_soil,numpatch)); rootflux    (:,:) = spval
 !Plant Hydraulic variables
             allocate (vegwp             (1:nvegwcs,numpatch)); vegwp       (:,:) = spval
             allocate (gs0sun                      (numpatch)); gs0sun        (:) = spval
@@ -630,12 +692,35 @@ CONTAINS
             allocate (laisha                      (numpatch)); laisha        (:) = spval
             allocate (tsai                        (numpatch)); tsai          (:) = spval
             allocate (sai                         (numpatch)); sai           (:) = spval
+
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+            allocate (lai_enftemp                 (numpatch)); lai_enftemp   (:) = spval
+            allocate (lai_enfboreal               (numpatch)); lai_enfboreal (:) = spval
+            allocate (lai_dnfboreal               (numpatch)); lai_dnfboreal (:) = spval
+            allocate (lai_ebftrop                 (numpatch)); lai_ebftrop   (:) = spval
+            allocate (lai_ebftemp                 (numpatch)); lai_ebftemp   (:) = spval
+            allocate (lai_dbftrop                 (numpatch)); lai_dbftrop   (:) = spval
+            allocate (lai_dbftemp                 (numpatch)); lai_dbftemp   (:) = spval
+            allocate (lai_dbfboreal               (numpatch)); lai_dbfboreal (:) = spval
+            allocate (lai_ebstemp                 (numpatch)); lai_ebstemp   (:) = spval
+            allocate (lai_dbstemp                 (numpatch)); lai_dbstemp   (:) = spval
+            allocate (lai_dbsboreal               (numpatch)); lai_dbsboreal (:) = spval
+            allocate (lai_c3arcgrass              (numpatch)); lai_c3arcgrass(:) = spval
+            allocate (lai_c3grass                 (numpatch)); lai_c3grass   (:) = spval
+            allocate (lai_c4grass                 (numpatch)); lai_c4grass   (:) = spval
+#endif
             allocate (coszen                      (numpatch)); coszen        (:) = spval
             allocate (alb                     (2,2,numpatch)); alb       (:,:,:) = spval
             allocate (ssun                    (2,2,numpatch)); ssun      (:,:,:) = spval
             allocate (ssha                    (2,2,numpatch)); ssha      (:,:,:) = spval
             allocate (ssoi                    (2,2,numpatch)); ssoi      (:,:,:) = spval
             allocate (ssno                    (2,2,numpatch)); ssno      (:,:,:) = spval
+#ifdef HYPERSPECTRAL
+            ! high resolution parameters
+            allocate (alb_hires             (211,2,numpatch)); alb_hires        (:,:,:) = spval
+            allocate (reflectance_out       (211,0:15,numpatch)); reflectance_out  (:,:,:) = spval
+            allocate (transmittance_out     (211,0:15,numpatch)); transmittance_out(:,:,:) = spval
+#endif
             allocate (thermk                      (numpatch)); thermk        (:) = spval
             allocate (extkb                       (numpatch)); extkb         (:) = spval
             allocate (extkd                       (numpatch)); extkd         (:) = spval
@@ -709,7 +794,7 @@ CONTAINS
             allocate ( irrig_method_rice1         (numpatch)); irrig_method_rice1     (:) = spval_i4
             allocate ( irrig_method_rice2         (numpatch)); irrig_method_rice2     (:) = spval_i4
             allocate ( irrig_method_sugarcane     (numpatch)); irrig_method_sugarcane (:) = spval_i4
-            
+
             allocate ( irrig_gw_alloc             (numpatch)); irrig_gw_alloc         (:) = spval
             allocate ( irrig_sw_alloc             (numpatch)); irrig_sw_alloc         (:) = spval
             allocate ( zwt_stand                  (numpatch)); zwt_stand              (:) = spval
@@ -728,12 +813,20 @@ CONTAINS
       CALL allocate_CatchTimeVariables
 #endif
 
+#ifdef GridRiverLakeFlow
+      CALL allocate_GridRiverLakeTimeVars
+#endif
+
 #ifdef URBAN_MODEL
       CALL allocate_UrbanTimeVariables
 #endif
 
 #ifdef EXTERNAL_LAKE
       CALL allocate_LakeTimeVars
+#endif
+
+#ifdef DataAssimilation
+      CALL allocate_DATimeVariables
 #endif
 
    END SUBROUTINE allocate_TimeVariables
@@ -806,6 +899,22 @@ CONTAINS
             deallocate (laisha                 )
             deallocate (tsai                   )
             deallocate (sai                    )
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+            deallocate (lai_enftemp            )
+            deallocate (lai_enfboreal          )
+            deallocate (lai_dnfboreal          )
+            deallocate (lai_ebftrop            )
+            deallocate (lai_ebftemp            )
+            deallocate (lai_dbftrop            )
+            deallocate (lai_dbftemp            )
+            deallocate (lai_dbfboreal          )
+            deallocate (lai_ebstemp            )
+            deallocate (lai_dbstemp            )
+            deallocate (lai_dbsboreal          )
+            deallocate (lai_c3arcgrass         )
+            deallocate (lai_c3grass            )
+            deallocate (lai_c4grass            )
+#endif
             deallocate (coszen                 )
             deallocate (alb                    )
             deallocate (ssun                   )
@@ -906,12 +1015,20 @@ CONTAINS
       CALL deallocate_CatchTimeVariables
 #endif
 
+#ifdef GridRiverLakeFlow
+      CALL deallocate_GridRiverLakeTimeVars
+#endif
+
 #if (defined URBAN_MODEL)
       CALL deallocate_UrbanTimeVariables
 #endif
 
 #ifdef EXTERNAL_LAKE
       CALL deallocate_LakeTimeVars
+#endif
+
+#ifdef DataAssimilation
+      CALL deallocate_DATimeVariables
 #endif
 
    END SUBROUTINE deallocate_TimeVariables
@@ -1015,7 +1132,10 @@ ENDIF
 
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'band', 2)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'rtyp', 2)
-
+#ifdef HYPERSPECTRAL
+      CALL ncio_define_dimension_vector (file_restart, landpatch, 'wavelength', 211)
+      CALL ncio_define_dimension_vector (file_restart, landpatch, 'PFT', 16)
+#endif
       ! Time-varying state variables which required by restart run
       CALL ncio_write_vector (file_restart, 'z_sno   '   , 'snow', -maxsnl, 'patch', landpatch, z_sno , compress)                 ! node depth [m]
       CALL ncio_write_vector (file_restart, 'dz_sno  '   , 'snow', -maxsnl, 'patch', landpatch, dz_sno, compress)                 ! interface depth [m]
@@ -1057,6 +1177,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'ssha    '   , 'band', 2, 'rtyp', 2, 'patch', landpatch, ssha, compress)    ! shaded canopy absorption for solar radiation (0-1)
       CALL ncio_write_vector (file_restart, 'ssoi    '   , 'band', 2, 'rtyp', 2, 'patch', landpatch, ssoi, compress)    ! shaded canopy absorption for solar radiation (0-1)
       CALL ncio_write_vector (file_restart, 'ssno    '   , 'band', 2, 'rtyp', 2, 'patch', landpatch, ssno, compress)    ! shaded canopy absorption for solar radiation (0-1)
+#ifdef HYPERSPECTRAL
+      CALL ncio_write_vector (file_restart, 'alb_hires'   , 'wavelength', 211, 'rtyp', 2, 'patch', landpatch, alb_hires , compress)    ! averaged albedo [-]
+      CALL ncio_write_vector (file_restart, 'reflectance_out'  , 'wavelength', 211, 'PFT', 16, 'patch', landpatch, reflectance_out  , compress)    ! averaged albedo [-]
+      CALL ncio_write_vector (file_restart, 'transmittance_out', 'wavelength', 211, 'PFT', 16, 'patch', landpatch, transmittance_out, compress)    ! averaged albedo [-]
+#endif
+
       CALL ncio_write_vector (file_restart, 'thermk  '   , 'patch', landpatch, thermk    , compress)                    ! canopy gap fraction for tir radiation
       CALL ncio_write_vector (file_restart, 'extkb   '   , 'patch', landpatch, extkb     , compress)                    ! (k, g(mu)/mu) direct solar extinction coefficient
       CALL ncio_write_vector (file_restart, 'extkd   '   , 'patch', landpatch, extkd     , compress)                    ! diffuse and scattered diffuse PAR extinction coefficient
@@ -1100,12 +1226,12 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
 
 IF (DEF_USE_IRRIGATION) THEN
-      CALL Ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_irrig             ' , 'patch',landpatch,sum_irrig             , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_deficit_irrig     ' , 'patch',landpatch,sum_deficit_irrig     , compress)
-      CALL Ncio_write_vector (file_restart, 'sum_irrig_count       ' , 'patch',landpatch,sum_irrig_count       , compress)
-      CALL Ncio_write_vector (file_restart, 'n_irrig_steps_left    ' , 'patch',landpatch,n_irrig_steps_left    , compress)
-      CALL Ncio_write_vector (file_restart, 'waterstorage          ' , 'patch',landpatch,waterstorage          , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
+      CALL ncio_write_vector (file_restart, 'sum_irrig             ' , 'patch',landpatch,sum_irrig             , compress)
+      CALL ncio_write_vector (file_restart, 'sum_deficit_irrig     ' , 'patch',landpatch,sum_deficit_irrig     , compress)
+      CALL ncio_write_vector (file_restart, 'sum_irrig_count       ' , 'patch',landpatch,sum_irrig_count       , compress)
+      CALL ncio_write_vector (file_restart, 'n_irrig_steps_left    ' , 'patch',landpatch,n_irrig_steps_left    , compress)
+      CALL ncio_write_vector (file_restart, 'waterstorage          ' , 'patch',landpatch,waterstorage          , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_corn     ' , 'patch',landpatch,irrig_method_corn     , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_swheat   ' , 'patch',landpatch,irrig_method_swheat   , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_wwheat   ' , 'patch',landpatch,irrig_method_wwheat   , compress)
@@ -1114,9 +1240,9 @@ IF (DEF_USE_IRRIGATION) THEN
       CALL ncio_write_vector (file_restart, 'irrig_method_rice1    ' , 'patch',landpatch,irrig_method_rice1    , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_rice2    ' , 'patch',landpatch,irrig_method_rice2    , compress)
       CALL ncio_write_vector (file_restart, 'irrig_method_sugarcane' , 'patch',landpatch,irrig_method_sugarcane, compress)
-      CALL Ncio_write_vector (file_restart, 'irrig_gw_alloc        ' , 'patch',landpatch,irrig_gw_alloc        , compress)
-      CALL Ncio_write_vector (file_restart, 'irrig_sw_alloc        ' , 'patch',landpatch,irrig_sw_alloc        , compress)
-      CALL Ncio_write_vector (file_restart, 'zwt_stand             ' , 'patch',landpatch,zwt_stand             , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_gw_alloc        ' , 'patch',landpatch,irrig_gw_alloc        , compress)
+      CALL ncio_write_vector (file_restart, 'irrig_sw_alloc        ' , 'patch',landpatch,irrig_sw_alloc        , compress)
+      CALL ncio_write_vector (file_restart, 'zwt_stand             ' , 'patch',landpatch,zwt_stand             , compress)
 ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -1141,6 +1267,11 @@ ENDIF
       CALL WRITE_CatchTimeVariables (file_restart)
 #endif
 
+#ifdef GridRiverLakeFlow
+      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+      CALL WRITE_GridRiverLakeTimeVars (file_restart)
+#endif
+
 #if (defined URBAN_MODEL)
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_urban_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_UrbanTimeVariables (file_restart)
@@ -1148,6 +1279,10 @@ ENDIF
 
 #ifdef EXTERNAL_LAKE
       CALL WRITE_LakeTimeVars (idate, lc_year, site, dir_restart)
+#endif
+
+#ifdef DataAssimilation
+      CALL WRITE_DATimeVariables (idate, lc_year, site, dir_restart)
 #endif
 
    END SUBROUTINE WRITE_TimeVariables
@@ -1236,6 +1371,12 @@ ENDIF
       CALL ncio_read_vector (file_restart, 'ssha    '   , 2, 2, landpatch, ssha ) ! shaded canopy absorption for solar radiation (0-1)
       CALL ncio_read_vector (file_restart, 'ssoi    '   , 2, 2, landpatch, ssoi ) ! soil absorption for solar radiation (0-1)
       CALL ncio_read_vector (file_restart, 'ssno    '   , 2, 2, landpatch, ssno ) ! snow absorption for solar radiation (0-1)
+#ifdef HYPERSPECTRAL
+      CALL ncio_read_vector (file_restart, 'alb_hires ' , 211, 2, landpatch, alb_hires  ) ! averaged albedo [-]
+      CALL ncio_read_vector (file_restart, 'reflectance_out'  , 211, 16, landpatch, reflectance_out  ) ! averaged albedo [-]
+      CALL ncio_read_vector (file_restart, 'transmittance_out', 211, 16, landpatch, transmittance_out) ! averaged albedo [-]
+#endif
+
       CALL ncio_read_vector (file_restart, 'thermk  '   , landpatch, thermk     ) ! canopy gap fraction for tir radiation
       CALL ncio_read_vector (file_restart, 'extkb   '   , landpatch, extkb      ) ! (k, g(mu)/mu) direct solar extinction coefficient
       CALL ncio_read_vector (file_restart, 'extkd   '   , landpatch, extkd      ) ! diffuse and scattered diffuse PAR extinction coefficient
@@ -1321,6 +1462,11 @@ ENDIF
       CALL READ_CatchTimeVariables (file_restart)
 #endif
 
+#ifdef GridRiverLakeFlow
+      file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
+      CALL READ_GridRiverLakeTimeVars (file_restart)
+#endif
+
 #if (defined URBAN_MODEL)
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_urban_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL READ_UrbanTimeVariables (file_restart)
@@ -1328,6 +1474,10 @@ ENDIF
 
 #ifdef EXTERNAL_LAKE
       CALL READ_LakeTimeVars(idate, lc_year, site, dir_restart)
+#endif
+
+#ifdef DataAssimilation
+      CALL READ_DATimeVariables (idate, lc_year, site, dir_restart)
 #endif
 
 #ifdef RangeCheck
@@ -1468,6 +1618,10 @@ ENDIF
 
 #ifdef EXTERNAL_LAKE
       CALL CHECK_LakeTimeVars
+#endif
+
+#ifdef DataAssimilation
+      IF (DEF_DA_ENS_NUM > 1) CALL check_DATimeVariables
 #endif
 
 #ifdef USEMPI

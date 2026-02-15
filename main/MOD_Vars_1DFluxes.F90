@@ -18,6 +18,9 @@ MODULE MOD_Vars_1DFluxes
 #ifdef URBAN_MODEL
    USE MOD_Urban_Vars_1DFluxes
 #endif
+#ifdef DataAssimilation
+   USE MOD_DA_Vars_1DFluxes
+#endif
    IMPLICIT NONE
    SAVE
 
@@ -55,6 +58,12 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: srviln (:) !reflected diffuse beam vis solar radiation at local noon (W/m2)
    real(r8), allocatable :: srndln (:) !reflected direct beam nir solar radiation at local noon (W/m2)
    real(r8), allocatable :: srniln (:) !reflected diffuse beam nir solar radiation at local noon (W/m2)
+#ifdef HYPERSPECTRAL
+   real(r8), allocatable :: sol_dir_ln_hires(:,:) !incident direct beam vis solar radiation at local noon (W/m2)
+   real(r8), allocatable :: sol_dif_ln_hires(:,:) !incident diffuse beam vis solar radiation at local noon (W/m2)
+   real(r8), allocatable :: sr_dir_ln_hires (:,:) !reflected direct beam nir solar radiation at local noon (W/m2)
+   real(r8), allocatable :: sr_dif_ln_hires (:,:) !reflected diffuse beam nir solar radiation at local noon (W/m2)
+#endif
    real(r8), allocatable :: olrg   (:) !outgoing long-wave radiation from ground+canopy [W/m2]
    real(r8), allocatable :: rnet   (:) !net radiation by surface [W/m2]
    real(r8), allocatable :: xerr   (:) !the error of water balance [mm/s]
@@ -72,6 +81,9 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: respc  (:) !canopy respiration (mol m-2 s-1)
 
    real(r8), allocatable :: qcharge(:) !groundwater recharge [mm/s]
+
+   real(r8), allocatable :: qlayer     (:,:) !water flux at between soil layer [mm h2o/s]
+   real(r8), allocatable :: lake_deficit (:) !lake deficit due to evaporation (mm h2o/s)
 
    real(r8), allocatable :: oroflag(:) !/ocean(0)/seaice(2) flag
 
@@ -135,6 +147,12 @@ CONTAINS
             allocate ( srviln (numpatch) )  ; srviln (:) = spval ! reflected diffuse beam vis solar radiation at local noon(W/m2)
             allocate ( srndln (numpatch) )  ; srndln (:) = spval ! reflected direct beam nir solar radiation at local noon(W/m2)
             allocate ( srniln (numpatch) )  ; srniln (:) = spval ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#ifdef HYPERSPECTRAL
+            allocate ( sol_dir_ln_hires(211,numpatch) )  ; sol_dir_ln_hires(:,:) = spval ! incident direct beam vis solar radiation at local noon(W/m2)
+            allocate ( sol_dif_ln_hires(211,numpatch) )  ; sol_dif_ln_hires(:,:) = spval ! incident diffuse beam vis solar radiation at local noon(W/m2)
+            allocate ( sr_dir_ln_hires (211,numpatch) )  ; sr_dir_ln_hires (:,:) = spval ! reflected direct beam nir solar radiation at local noon(W/m2)
+            allocate ( sr_dif_ln_hires (211,numpatch) )  ; sr_dif_ln_hires (:,:) = spval ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#endif
             allocate ( olrg   (numpatch) )  ; olrg   (:) = spval ! outgoing long-wave radiation from ground+canopy [W/m2]
             allocate ( rnet   (numpatch) )  ; rnet   (:) = spval ! net radiation by surface [W/m2]
             allocate ( xerr   (numpatch) )  ; xerr   (:) = spval ! the error of water balance [mm/s]
@@ -153,6 +171,9 @@ CONTAINS
             allocate ( respc  (numpatch) )  ; respc  (:) = spval ! canopy respiration (mol m-2 s-1)
 
             allocate ( qcharge(numpatch) )  ; qcharge(:) = spval ! groundwater recharge [mm/s]
+
+            allocate ( qlayer (0:nl_soil,numpatch) ); qlayer(:,:) = spval ! water flux between soil layer [mm h2o/s]
+            allocate ( lake_deficit (numpatch) ); lake_deficit(:) = spval ! lake deficit due to evaporation (mm h2o/s)
 
             allocate ( oroflag(numpatch) )  ; oroflag(:) = 1.0   ! /ocean(0)/seaice(2) flag
 
@@ -175,6 +196,10 @@ CONTAINS
 
 #ifdef URBAN_MODEL
       CALL allocate_1D_UrbanFluxes
+#endif
+
+#ifdef DataAssimilation
+      CALL allocate_1D_DAFluxes
 #endif
 
    END SUBROUTINE allocate_1D_Fluxes
@@ -221,6 +246,12 @@ CONTAINS
             deallocate ( srviln  )  ! reflected diffuse beam vis solar radiation at local noon(W/m2)
             deallocate ( srndln  )  ! reflected direct beam nir solar radiation at local noon(W/m2)
             deallocate ( srniln  )  ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#ifdef HYPERSPECTRAL
+            deallocate ( sol_dir_ln_hires )  ! incident direct beam vis solar radiation at local noon(W/m2)
+            deallocate ( sol_dif_ln_hires )  ! incident diffuse beam vis solar radiation at local noon(W/m2)
+            deallocate ( sr_dir_ln_hires  )  ! reflected direct beam nir solar radiation at local noon(W/m2)
+            deallocate ( sr_dif_ln_hires  )  ! reflected diffuse beam nir solar radiation at local noon(W/m2)
+#endif
             deallocate ( olrg    )  ! outgoing long-wave radiation from ground+canopy [W/m2]
             deallocate ( rnet    )  ! net radiation by surface [W/m2]
             deallocate ( xerr    )  ! the error of water balance [mm/s]
@@ -238,6 +269,8 @@ CONTAINS
             deallocate ( respc   )  ! canopy respiration (mol m-2 s-1)
 
             deallocate ( qcharge )  ! groundwater recharge [mm/s]
+            deallocate ( qlayer  )  ! water flux between soil layer [mm h2o/s]
+            deallocate ( lake_deficit )  ! lake deficit due to evaporation (mm h2o/s)
 
             deallocate ( oroflag )  !
 
@@ -260,6 +293,10 @@ CONTAINS
 
 #ifdef URBAN_MODEL
       CALL deallocate_1D_UrbanFluxes
+#endif
+
+#ifdef DataAssimilation
+      CALL deallocate_1D_DAFluxes
 #endif
 
    END SUBROUTINE deallocate_1D_Fluxes

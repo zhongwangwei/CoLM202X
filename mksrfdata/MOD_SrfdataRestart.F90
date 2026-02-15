@@ -231,6 +231,13 @@ CONTAINS
          ENDDO
          CALL ncio_write_serial (filename, 'latitude', lat, 'latitude')
 
+#ifdef GRIDBASED
+         CALL ncio_write_serial (filename, 'lat_s', gridmesh%lat_s, 'latitude' )
+         CALL ncio_write_serial (filename, 'lat_n', gridmesh%lat_n, 'latitude' )
+         CALL ncio_write_serial (filename, 'lon_w', gridmesh%lon_w, 'longitude')
+         CALL ncio_write_serial (filename, 'lon_e', gridmesh%lon_e, 'longitude')
+#endif
+
          deallocate (lon)
          deallocate (lat)
 

@@ -234,6 +234,7 @@ CONTAINS
          IF (p_is_io) CALL allocate_block_data (gforc, topo_grid)
          CALL mg2p_forc%pset2grid (forc_topo, topo_grid, msk = patchmask)
 
+         IF (p_is_io) CALL allocate_block_data (gforc, areagrid)
          CALL mg2p_forc%get_sumarea(areagrid, patchmask)
          CALL block_data_division (topo_grid, areagrid)
 
@@ -382,7 +383,7 @@ CONTAINS
 
 
 !-----------------------------------------------------------------------
-   SUBROUTINE read_forcing (idate, dir_forcing)
+   SUBROUTINE read_forcing (idate, dir_forcing, is_spinup)
    USE MOD_OrbCosazi
    USE MOD_Precision
    USE MOD_Namelist
@@ -405,6 +406,7 @@ CONTAINS
 
    integer, intent(in) :: idate(3)
    character(len=*), intent(in) :: dir_forcing
+   logical, intent(in) :: is_spinup
 
    ! local variables:
    integer  :: ivar, istt, iend, id(3)
@@ -431,7 +433,7 @@ CONTAINS
          !------------------------------------------------------------
          ! READ in THE ATMOSPHERIC FORCING
          ! read lower and upper boundary forcing data
-         CALL metreadLBUB(idate, dir_forcing)
+         CALL metreadLBUB(idate, dir_forcing, is_spinup)
          ! set model time stamp
          id(:) = idate(:)
          !CALL adj2end(id)
@@ -1018,7 +1020,7 @@ CONTAINS
 !  04/2014, Hua Yuan: initial code
 !
 !-----------------------------------------------------------------------
-   SUBROUTINE metreadLBUB (idate, dir_forcing)
+   SUBROUTINE metreadLBUB (idate, dir_forcing, is_spinup)
 
    USE MOD_UserSpecifiedForcing
    USE MOD_Namelist
@@ -1031,6 +1033,7 @@ CONTAINS
 
    integer, intent(in) :: idate(3)
    character(len=*), intent(in) :: dir_forcing
+   logical, intent(in) :: is_spinup
 
    ! Local variables
    integer         :: ivar, year, month, day, time_i
@@ -1055,7 +1058,7 @@ CONTAINS
             CALL setstampLB(mtstamp, ivar, year, month, day, time_i)
 
             ! read forcing data
-            filename = trim(dir_forcing)//trim(metfilename(year, month, day, ivar))
+            filename = trim(dir_forcing)//trim(metfilename(year, month, day, ivar, is_spinup))
             IF (trim(DEF_forcing%dataset) == 'POINT') THEN
 
                IF (forcing_read_ahead) THEN
@@ -1104,7 +1107,7 @@ CONTAINS
             ENDIF
 
             ! read forcing data
-            filename = trim(dir_forcing)//trim(metfilename(year, month, day, ivar))
+            filename = trim(dir_forcing)//trim(metfilename(year, month, day, ivar, is_spinup))
             IF (trim(DEF_forcing%dataset) == 'POINT') THEN
 
                IF (forcing_read_ahead) THEN

@@ -72,6 +72,9 @@ CONTAINS
                      pixel%lat_s(mesh(ie)%ilat(ipxl)), pixel%lat_n(mesh(ie)%ilat(ipxl)), &
                      pixel%lon_w(mesh(ie)%ilon(ipxl)), pixel%lon_e(mesh(ie)%ilon(ipxl)) )
                ENDDO
+               IF (landpatch%has_shared) THEN
+                  patcharea(ip) = patcharea(ip) * landpatch%pctshared(ip)
+               ENDIF
             ENDDO
          ENDIF
 
@@ -166,7 +169,7 @@ CONTAINS
             IF (numresv > 0) qresv_out_ta(:) = 0.
          ENDIF
 
-         CALL worker_push_subset_data (iam_elm, iam_bsn, elm_hru, basin_hru, wdsrf_hru, wdsrf_bsnhru)
+         CALL worker_push_data (push_elmhru2bsnhru, wdsrf_hru, wdsrf_bsnhru, spval)
 
 #ifdef CoLMDEBUG
          IF (numbsnhru > 0) THEN
@@ -226,7 +229,7 @@ CONTAINS
          ENDIF
 
          ! update surface water depth on patches
-         CALL worker_push_subset_data (iam_bsn, iam_elm, basin_hru, elm_hru, wdsrf_bsnhru, wdsrf_hru)
+         CALL worker_push_data (push_bsnhru2elmhru, wdsrf_bsnhru, wdsrf_hru, spval)
          DO i = 1, numhru
             wdsrf_hru(i) = max(0., wdsrf_hru(i))
             ps = hru_patch%substt(i)

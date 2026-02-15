@@ -69,6 +69,10 @@ CONTAINS
    USE MOD_ElementNeighbour
    USE MOD_Catch_RiverLakeNetwork
 #endif
+#ifdef GridRiverLakeFlow
+   USE MOD_Grid_RiverLakeNetwork
+   USE MOD_Grid_Reservoir
+#endif
 #ifdef CROP
    USE MOD_CropReadin
 #endif
@@ -81,6 +85,9 @@ CONTAINS
    USE MOD_LakeDepthReadin
    USE MOD_PercentagesPFTReadin
    USE MOD_SoilParametersReadin
+#ifdef HYPERSPECTRAL
+   USE MOD_HighRes_Parameters
+#endif
    USE MOD_SoilTextureReadin
    USE MOD_VicParaReadin
 #ifdef SinglePoint
@@ -257,8 +264,17 @@ CONTAINS
    real(r8), parameter :: BVIC_USDA(0:12) = (/ 1., 0.300,  0.280, 0.250, 0.230,  0.220, 0.200,  0.180, 0.100,  0.090, 0.150, 0.080,  0.050/)
 
 
+
 #ifdef CatchLateralFlow
       CALL build_basin_network ()
+#endif
+
+#ifdef GridRiverLakeFlow
+      CALL build_riverlake_network ()
+
+      IF (DEF_Reservoir_Method > 0) THEN
+         CALL reservoir_init ()
+      ENDIF
 #endif
 
 ! --------------------------------------------------------------------
@@ -267,9 +283,6 @@ CONTAINS
 
       CALL allocate_TimeInvariants
       CALL allocate_TimeVariables
-#ifdef DataAssimilation
-      CALL allocate_TimeVariables_ens
-#endif
 
 ! ---------------------------------------------------------------
 ! 1. INITIALIZE TIME INVARIANT VARIABLES
@@ -653,7 +666,7 @@ ENDIF
       max_depth_cryoturb         = 3._r8
 
       br              = 2.525e-6_r8
-      br_root         = 0.83e-6_r8
+      br_root         = 2.000e-6_r8
 
       fstor2tran      = 0.5
       ndays_on        = 30
@@ -1290,7 +1303,12 @@ ENDIF
             prms(4,1:nl_soil) = sc_vgm   (1:nl_soil,i)
             prms(5,1:nl_soil) = fc_vgm   (1:nl_soil,i)
 #endif
-
+#ifdef HYPERSPECTRAL
+            CALL flux_frac_init              ( )
+            CALL leaf_property_init          ( rho_p, tau_p )
+            CALL get_water_optical_properties( )
+            CALL readin_urban_albedo         ( )
+#endif
             CALL iniTimeVar(i, patchtype(i)&
                ,porsl(1:,i),psi0(1:,i),hksati(1:,i)&
                ,soil_s_v_alb(i),soil_d_v_alb(i),soil_s_n_alb(i),soil_d_n_alb(i)&
@@ -1307,9 +1325,20 @@ ENDIF
                ,mss_dst1(:,i),mss_dst2(:,i),mss_dst3(:,i),mss_dst4(:,i)&
                ,alb(1:,1:,i),ssun(1:,1:,i),ssha(1:,1:,i)&
                ,ssoi(1:,1:,i),ssno(1:,1:,i),ssno_lyr(1:,1:,:,i)&
+#ifdef HYPERSPECTRAL
+               ,alb_hires(1:,1:,i)&
+#endif
                ,thermk(i),extkb(i),extkd(i)&
                ,trad(i),tref(i),qref(i),rst(i),emis(i),zol(i),rib(i)&
                ,ustar(i),qstar(i),tstar(i),fm(i),fh(i),fq(i)&
+#ifdef HYPERSPECTRAL
+               ! New added: hyperspectral scheme
+               ,clr_frac, cld_frac &
+               ,reflectance(0:,1:,1:), transmittance(0:,1:,1:), soil_alb(1:,i), kw(1:), nw(1:)&
+               ,reflectance_out(:,:,i), transmittance_out(:,:,i)&
+               ,patchlatr(i), patchlonr(i)&
+               ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
+#endif
 #ifdef BGC
                ,use_cnini, totlitc(i), totsomc(i), totcwdc(i), decomp_cpools(:,i), decomp_cpools_vr(:,:,i) &
                ,ctrunc_veg(i), ctrunc_soil(i), ctrunc_vr(:,i) &
@@ -1482,7 +1511,7 @@ ENDIF
             wdsrf_bsn_prev(i) = wdsrf_bsn(i)
          ENDDO
 
-         CALL worker_push_subset_data (iam_bsn, iam_elm, basin_hru, elm_hru, wdsrf_bsnhru, wdsrf_hru)
+         CALL worker_push_data (push_bsnhru2elmhru, wdsrf_bsnhru, wdsrf_hru, spval)
 
          ! adjust "wdsrf" according to river and lake water depth
          DO i = 1, numhru
@@ -1519,9 +1548,28 @@ ENDIF
 
 #endif
 
+#ifdef GridRiverLakeFlow
+      IF (p_is_worker) THEN
+         IF (numucat > 0) THEN
+            wdsrf_ucat = topo_rivhgt
+            veloc_riv  = 0
+         ENDIF
+
+         IF (DEF_Reservoir_Method > 0) THEN
+            IF (numresv > 0) THEN
+               WHERE (idate(1) >= dam_build_year)
+                  volresv = volresv_normal
+               ELSEWHERE
+                  volresv = spval
+               END WHERE
+            ENDIF
+         ENDIF
+      ENDIF
+#endif
+
 #ifdef DataAssimilation
       IF (p_is_worker) THEN
-         DO i = 1, DEF_DA_ENS
+         DO i = 1, DEF_DA_ENS_NUM
             z_sno_ens(:, i, :) = z_sno
             dz_sno_ens(:, i, :) = dz_sno
             t_soisno_ens(:, i, :) = t_soisno
@@ -1572,17 +1620,11 @@ ENDIF
 
 #ifdef RangeCheck
       CALL check_TimeVariables ()
-#ifdef DataAssimilation
-      CALL check_TimeVariables_ens ()
-#endif
 #endif
 
       IF ( .not. present(lulcc_call) ) THEN
          ! only be called in running MKINI, LULCC will be executed later
          CALL WRITE_TimeVariables (idate, lc_year, casename, dir_restart)
-#ifdef DataAssimilation
-         CALL WRITE_TimeVariables_ens (idate, lc_year, casename, dir_restart)
-#endif
       ENDIF
 
 #ifdef USEMPI
@@ -1599,9 +1641,6 @@ ENDIF
          ! only be called in running MKINI, LULCC will be executed later
          CALL deallocate_TimeInvariants
          CALL deallocate_TimeVariables
-#ifdef DataAssimilation
-         CALL deallocate_TimeVariables_ens
-#endif
       ENDIF
 
       IF (allocated(z_soisno )) deallocate (z_soisno )

@@ -29,6 +29,9 @@ MODULE MOD_Hist
 #ifdef CatchLateralFlow
    USE MOD_Catch_Hist
 #endif
+#ifdef GridRiverLakeFlow
+   USE MOD_Grid_RiverLakeHist
+#endif
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_Hist
 #endif
@@ -80,6 +83,10 @@ CONTAINS
       CALL hist_basin_init ()
 #endif
 
+#ifdef GridRiverLakeFlow
+      CALL hist_grid_riverlake_init (HistForm)
+#endif
+
    END SUBROUTINE hist_init
 
 
@@ -97,11 +104,15 @@ CONTAINS
       CALL hist_basin_final ()
 #endif
 
+#ifdef GridRiverLakeFlow
+      CALL hist_grid_riverlake_final ()
+#endif
+
    END SUBROUTINE hist_final
 
 
    SUBROUTINE hist_out (idate, deltim, itstamp, etstamp, ptstamp, &
-         dir_hist, site)
+         dir_hist, casename)
 
 !=======================================================================
 !  Original version: Yongjiu Dai, September 15, 1999, 03/2014
@@ -131,9 +142,10 @@ CONTAINS
 #endif
    USE MOD_Forcing, only: forcmask_pch
 #ifdef DataAssimilation
-   USE MOD_DA_GRACE, only: fslp_k_mon
+   USE MOD_DA_TWS, only: fslp_k_mon
    USE MOD_Vars_Global
    USE MOD_DA_Vars_TimeVariables
+   USE MOD_Const_Physical, only: denh2o
 #endif
 
    IMPLICIT NONE
@@ -145,7 +157,7 @@ CONTAINS
    type(timestamp), intent(in) :: ptstamp
 
    character(len=*), intent(in) :: dir_hist
-   character(len=*), intent(in) :: site
+   character(len=*), intent(in) :: casename
 
    ! Local variables
    logical :: lwrite
@@ -162,12 +174,14 @@ CONTAINS
    type(block_data_real8_2d) :: sumarea
    type(block_data_real8_2d) :: sumarea_dt
    type(block_data_real8_2d) :: sumarea_urb
+   type(block_data_real8_2d) :: sumarea_one
    real(r8), allocatable ::  vecacc     (:)
+   real(r8), allocatable ::  nac_one    (:)
    logical,  allocatable ::  filter     (:)
    logical,  allocatable ::  filter_dt  (:)
 
 #ifdef CROP
-   type(block_data_real8_2d) :: sumarea_crop                        
+   type(block_data_real8_2d) :: sumarea_crop
    type(block_data_real8_2d) :: sumarea_irrig
    logical,  allocatable ::  filter_crop (:)
    logical,  allocatable ::  filter_irrig (:)
@@ -176,6 +190,24 @@ CONTAINS
    integer i, u
 #ifdef URBAN_MODEL
    logical,  allocatable ::  filter_urb (:)
+#endif
+
+#ifdef DataAssimilation
+   integer :: np
+   real(r8), allocatable ::  a_wliq_h2osoi_5cm (:)
+   real(r8), allocatable ::  a_t_soisno_5cm (:)
+   real(r8), allocatable ::  a_wliq_soisno_ens_mean (:,:)
+   real(r8), allocatable ::  a_wliq_soisno_5cm_ens (:,:)
+   real(r8), allocatable ::  a_wliq_h2osoi_5cm_a (:)
+   real(r8), allocatable ::  a_t_soisno_ens_mean (:,:)
+   real(r8), allocatable ::  a_t_soisno_5cm_ens (:,:)
+   real(r8), allocatable ::  a_t_soisno_5cm_a (:)
+   real(r8), allocatable ::  a_t_brt_smap_a (:,:)
+   real(r8), allocatable ::  a_t_brt_fy3d_a (:,:)
+   real(r8), allocatable ::  a_wliq_soisno_5cm_ens_std (:)
+   real(r8), allocatable ::  a_t_soisno_5cm_ens_std (:)
+   real(r8), allocatable ::  a_t_brt_smap_ens_std (:,:)
+   real(r8), allocatable ::  a_t_brt_fy3d_ens_std (:,:)
 #endif
 
       IF (itstamp <= ptstamp) THEN
@@ -239,12 +271,12 @@ CONTAINS
 #if (defined CaMa_Flood)
          ! add variables to write cama-flood output.
          ! file name of cama-flood output
-         file_hist_cama = trim(dir_hist) // '/' // trim(site) //'_hist_cama_'//trim(cdate)//'.nc'
+         file_hist_cama = trim(dir_hist) // '/' // trim(casename) //'_hist_cama_'//trim(cdate)//'.nc'
          ! write CaMa-Flood output
          CALL hist_write_cama_time (file_hist_cama, 'time', idate, itime_in_file_cama)
 #endif
 
-         file_hist = trim(dir_hist) // '/' // trim(site) //'_hist_'//trim(cdate)//'.nc'
+         file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
 
@@ -582,9 +614,9 @@ CONTAINS
             'total runoff','mm/s')
 
 #ifdef DataAssimilation
-         IF (DEF_DA_GRACE) THEN
+         IF (DEF_DA_TWS_GRACE) THEN
             ! slope factors for runoff [-]
-            IF (p_is_worker) THEN
+            IF (p_is_worker .and. (numpatch > 0)) THEN
                vecacc = fslp_k_mon(month, :)
                WHERE (vecacc /= spval) vecacc = vecacc*nac
             ENDIF
@@ -632,7 +664,7 @@ CONTAINS
             'total water storage','mm')
 
          ! instantaneous total water storage [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .and. (numpatch > 0)) THEN
             vecacc = wat
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -784,18 +816,34 @@ ENDIF
          ENDIF
 
          ! wetland water storage [mm]
-         CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
-            a_wetwat, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
-            'wetland water storage','mm')
+         IF (DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_worker .and. (numpatch > 0)) THEN
+               vecacc = a_wdsrf
+            ENDIF
+            CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
+               vecacc, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
+               'wetland water storage','mm')
+         ELSE
+            CALL write_history_variable_2d ( DEF_hist_vars%wetwat, &
+               a_wetwat, file_hist, 'f_wetwat', itime_in_file, sumarea, filter, &
+               'wetland water storage','mm')
+         ENDIF
 
          ! instantaneous wetland water storage [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .and. (numpatch > 0)) THEN
             vecacc = wetwat
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%wetwat_inst, &
             vecacc, file_hist, 'f_wetwat_inst', itime_in_file, sumarea, filter, &
             'instantaneous wetland water storage','mm')
+
+         IF (p_is_worker .and. (numpatch > 0)) THEN
+            vecacc = a_zwt
+         ENDIF
+         CALL write_history_variable_2d ( DEF_hist_vars%wetzwt, &
+            vecacc, file_hist, 'f_wetzwt', itime_in_file, sumarea, filter, &
+            'the depth to water table in wetland','m')
 
          ! ------------------------------------------------------------------
          ! Mapping the urban variables at patch [numurban] to grid
@@ -1446,7 +1494,7 @@ ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%reservoirriver_demand, &
                vecacc, file_hist, 'f_reservoirriver_demand', itime_in_file, sumarea_irrig, filter_irrig, &
                'irrigation demand for reservoir or river','kg/m2')
-            
+
             ! irrigation supply from reservoir or river [kg/m2]
             IF (p_is_worker) THEN
                IF (numpatch > 0) THEN
@@ -1456,7 +1504,7 @@ ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%reservoirriver_supply, &
                vecacc, file_hist, 'f_reservoirriver_supply', itime_in_file, sumarea_irrig, filter_irrig, &
                'irrigation supply from reservoir or river','kg/m2')
-            
+
             ! irrigation supply from reservoir [kg/m2]
             IF (p_is_worker) THEN
                IF (numpatch > 0) THEN
@@ -1476,7 +1524,7 @@ ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%reservoirriver_supply, &
                vecacc, file_hist, 'f_river_supply', itime_in_file, sumarea_irrig, filter_irrig, &
                'irrigation supply from river','kg/m2')
-            
+
             ! irrigation supply from runoff [kg/m2]
             IF (p_is_worker) THEN
                IF (numpatch > 0) THEN
@@ -1485,7 +1533,7 @@ ENDIF
             ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%reservoirriver_supply, &
                vecacc, file_hist, 'f_runoff_supply', itime_in_file, sumarea_irrig, filter_irrig, &
-               'irrigation supply from runoff','kg/m2')   
+               'irrigation supply from runoff','kg/m2')
          ENDIF
 #endif
 
@@ -1947,6 +1995,21 @@ ENDIF
              a_leafc_enftemp, file_hist, 'f_leafc_enftemp', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for needleleaf evergreen temperate tree','gC/m2')
 
+         ! 1: leaf area index enf temperate
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_enftemp, &
+             a_lai_enftemp, file_hist, 'f_lai_enftemp', itime_in_file, sumarea, filter, &
+             'leaf area index for needleleaf evergreen temperate tree','m2/m2')
+
+         ! 1: npp enf temperate
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_enftemp, &
+             a_npp_enftemp, file_hist, 'f_npp_enftemp', itime_in_file, sumarea, filter, &
+             'npp for needleleaf evergreen temperate tree','m2/m2')
+
+         ! 1: npp to leafc enf temperate
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_enftemp, &
+             a_npptoleafc_enftemp, file_hist, 'f_npptoleafc_enftemp', itime_in_file, sumarea, filter, &
+             'npp to leafc for needleleaf evergreen temperate tree','m2/m2')
+
          ! 2: gpp enf boreal
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_enfboreal, &
              a_gpp_enfboreal, file_hist, 'f_gpp_enfboreal', itime_in_file, sumarea, filter, &
@@ -1956,6 +2019,21 @@ ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%leafc_enfboreal, &
              a_leafc_enfboreal, file_hist, 'f_leafc_enfboreal', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for needleleaf evergreen boreal tree','gC/m2')
+
+         ! 2: leaf area index enf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_enfboreal, &
+             a_lai_enfboreal, file_hist, 'f_lai_enfboreal', itime_in_file, sumarea, filter, &
+             'leaf area index for needleleaf evergreen boreal tree','m2/m2')
+
+         ! 2: npp enf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_enfboreal, &
+             a_npp_enfboreal, file_hist, 'f_npp_enfboreal', itime_in_file, sumarea, filter, &
+             'npp for needleleaf evergreen boreal tree','m2/m2')
+
+         ! 2: npp to leafc enf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_enfboreal, &
+             a_npptoleafc_enfboreal, file_hist, 'f_npptoleafc_enfboreal', itime_in_file, sumarea, filter, &
+             'npp to leafc for needleleaf evergreen boreal tree','m2/m2')
 
          ! 3: gpp dnf boreal
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_dnfboreal, &
@@ -1967,6 +2045,21 @@ ENDIF
              a_leafc_dnfboreal, file_hist, 'f_leafc_dnfboreal', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for needleleaf deciduous boreal tree','gC/m2')
 
+         ! 3: leaf area index dnf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_dnfboreal, &
+             a_lai_dnfboreal, file_hist, 'f_lai_dnfboreal', itime_in_file, sumarea, filter, &
+             'leaf area index for needleleaf deciduous boreal tree','m2/m2')
+
+         ! 3: npp dnf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_dnfboreal, &
+             a_npp_dnfboreal, file_hist, 'f_npp_dnfboreal', itime_in_file, sumarea, filter, &
+             'npp for needleleaf deciduous boreal tree','m2/m2')
+
+         ! 3: npp to leafc dnf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_dnfboreal, &
+             a_npptoleafc_dnfboreal, file_hist, 'f_npptoleafc_dnfboreal', itime_in_file, sumarea, filter, &
+             'npp to leafc for needleleaf deciduous boreal tree','m2/m2')
+
          ! 4: gpp ebf trop
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_ebftrop, &
              a_gpp_ebftrop, file_hist, 'f_gpp_ebftrop', itime_in_file, sumarea, filter, &
@@ -1976,6 +2069,21 @@ ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%leafc_ebftrop, &
              a_leafc_ebftrop, file_hist, 'f_leafc_ebftrop', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf evergreen tropical tree','gC/m2')
+
+         ! 4: leaf area index ebf trop
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_ebftrop, &
+             a_lai_ebftrop, file_hist, 'f_lai_ebftrop', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf evergreen tropical tree','m2/m2')
+
+         ! 4: npp ebf trop
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_ebftrop, &
+             a_npp_ebftrop, file_hist, 'f_npp_ebftrop', itime_in_file, sumarea, filter, &
+             'npp for broadleaf evergreen tropical tree','m2/m2')
+
+         ! 4: npp to leafc ebf trop
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_ebftrop, &
+             a_npptoleafc_ebftrop, file_hist, 'f_npptoleafc_ebftrop', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf evergreen tropical tree','m2/m2')
 
          ! 5: gpp ebf temp
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_ebftemp, &
@@ -1987,6 +2095,21 @@ ENDIF
              a_leafc_ebftemp, file_hist, 'f_leafc_ebftemp', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf evergreen temperate tree','gC/m2')
 
+         ! 5: leaf area index ebf temp
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_ebftemp, &
+             a_lai_ebftemp, file_hist, 'f_lai_ebftemp', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf evergreen temperate tree','m2/m2')
+
+         ! 5: npp ebf temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_ebftemp, &
+             a_npp_ebftemp, file_hist, 'f_npp_ebftemp', itime_in_file, sumarea, filter, &
+             'npp for broadleaf evergreen temperate tree','m2/m2')
+
+         ! 5: npp to leafc ebf temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_ebftemp, &
+             a_npptoleafc_ebftemp, file_hist, 'f_npptoleafc_ebftemp', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf evergreen temperate tree','m2/m2')
+
          ! 6: gpp dbf trop
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_dbftrop, &
              a_gpp_dbftrop, file_hist, 'f_gpp_dbftrop', itime_in_file, sumarea, filter, &
@@ -1996,6 +2119,21 @@ ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%leafc_dbftrop, &
              a_leafc_dbftrop, file_hist, 'f_leafc_dbftrop', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf deciduous tropical tree','gC/m2')
+
+         ! 6: leaf area index dbf trop
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_dbftrop, &
+             a_lai_dbftrop, file_hist, 'f_lai_dbftrop', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf evergreen temperate tree','m2/m2')
+
+         ! 6: npp dbf trop
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_dbftrop, &
+             a_npp_dbftrop, file_hist, 'f_npp_dbftrop', itime_in_file, sumarea, filter, &
+             'npp for broadleaf evergreen temperate tree','m2/m2')
+
+         ! 6: npp to leafc dbf trop
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_dbftrop, &
+             a_npptoleafc_dbftrop, file_hist, 'f_npptoleafc_dbftrop', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf evergreen temperate tree','m2/m2')
 
          ! 7: gpp dbf temp
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_dbftemp, &
@@ -2007,6 +2145,21 @@ ENDIF
              a_leafc_dbftemp, file_hist, 'f_leafc_dbftemp', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf deciduous temperate tree','gC/m2')
 
+         ! 7: leaf area index dbf temp
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_dbftemp, &
+             a_lai_dbftemp, file_hist, 'f_lai_dbftemp', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf decidous temperate tree','m2/m2')
+
+         ! 7: npp dbf temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_dbftemp, &
+             a_npp_dbftemp, file_hist, 'f_npp_dbftemp', itime_in_file, sumarea, filter, &
+             'npp for broadleaf decidous temperate tree','m2/m2')
+
+         ! 7: npp to leafc dbf temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_dbftemp, &
+             a_npptoleafc_dbftemp, file_hist, 'f_npptoleafc_dbftemp', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf decidous temperate tree','m2/m2')
+
          ! 8: gpp dbf boreal
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_dbfboreal, &
              a_gpp_dbfboreal, file_hist, 'f_gpp_dbfboreal', itime_in_file, sumarea, filter, &
@@ -2016,6 +2169,21 @@ ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%leafc_dbfboreal, &
              a_leafc_dbfboreal, file_hist, 'f_leafc_dbfboreal', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf deciduous boreal tree','gC/m2')
+
+         ! 8: leaf area index dbf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_dbfboreal, &
+             a_lai_dbfboreal, file_hist, 'f_lai_dbfboreal', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf decidous boreal tree','m2/m2')
+
+         ! 8: npp dbf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_dbfboreal, &
+             a_npp_dbfboreal, file_hist, 'f_npp_dbfboreal', itime_in_file, sumarea, filter, &
+             'npp for broadleaf decidous boreal tree','m2/m2')
+
+         ! 8: npp to leafc dbf boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_dbfboreal, &
+             a_npptoleafc_dbfboreal, file_hist, 'f_npptoleafc_dbfboreal', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf decidous boreal tree','m2/m2')
 
          ! 9: gpp ebs temp
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_ebstemp, &
@@ -2027,6 +2195,21 @@ ENDIF
              a_leafc_ebstemp, file_hist, 'f_leafc_ebstemp', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf evergreen temperate shrub','gC/m2')
 
+         ! 9: leaf area index ebs temp
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_ebstemp, &
+             a_lai_ebstemp, file_hist, 'f_lai_ebstemp', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf evergreen temperate shrub','m2/m2')
+
+         ! 9: npp ebs temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_ebstemp, &
+             a_npp_ebstemp, file_hist, 'f_npp_ebstemp', itime_in_file, sumarea, filter, &
+             'npp for broadleaf evergreen temperate shrub','m2/m2')
+
+         ! 9: npp to leafc ebs temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_ebstemp, &
+             a_npptoleafc_ebstemp, file_hist, 'f_npptoleafc_ebstemp', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf evergreen temperate shrub','m2/m2')
+
          ! 10: gpp dbs temp
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_dbstemp, &
              a_gpp_dbstemp, file_hist, 'f_gpp_dbstemp', itime_in_file, sumarea, filter, &
@@ -2036,6 +2219,21 @@ ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%leafc_dbstemp, &
              a_leafc_dbstemp, file_hist, 'f_leafc_dbstemp', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf deciduous temperate shrub','gC/m2')
+
+         ! 10: leaf area index dbs temp
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_dbstemp, &
+             a_lai_dbstemp, file_hist, 'f_lai_dbstemp', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf deciduous temperate shrub','m2/m2')
+
+         ! 10: npp dbs temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_dbstemp, &
+             a_npp_dbstemp, file_hist, 'f_npp_dbstemp', itime_in_file, sumarea, filter, &
+             'npp for broadleaf deciduous temperate shrub','m2/m2')
+
+         ! 10: npp to leafc dbs temp
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_dbstemp, &
+             a_npptoleafc_dbstemp, file_hist, 'f_npptoleafc_dbstemp', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf deciduous temperate shrub','m2/m2')
 
          ! 11: gpp dbs boreal
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_dbsboreal, &
@@ -2047,15 +2245,45 @@ ENDIF
              a_leafc_dbsboreal, file_hist, 'f_leafc_dbsboreal', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for broadleaf deciduous boreal shrub','gC/m2')
 
+         ! 11: leaf area index dbs boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_dbsboreal, &
+             a_lai_dbsboreal, file_hist, 'f_lai_dbsboreal', itime_in_file, sumarea, filter, &
+             'leaf area index for broadleaf deciduous boreal shrub','m2/m2')
+
+         ! 11: npp dbs boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_dbsboreal, &
+             a_npp_dbsboreal, file_hist, 'f_npp_dbsboreal', itime_in_file, sumarea, filter, &
+             'npp for broadleaf deciduous boreal shrub','m2/m2')
+
+         ! 11: npp to leafc dbs boreal
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_dbsboreal, &
+             a_npptoleafc_dbsboreal, file_hist, 'f_npptoleafc_dbsboreal', itime_in_file, sumarea, filter, &
+             'npp to leafc for broadleaf deciduous boreal shrub','m2/m2')
+
          ! 12: gpp arctic c3 grass
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_c3arcgrass, &
              a_gpp_c3arcgrass, file_hist, 'f_gpp_c3arcgrass', itime_in_file, sumarea, filter, &
              'gross primary productivity for c3 arctic grass','gC/m2/s')
 
-         ! 12: leaf carbon display pool c3 grass
-         CALL write_history_variable_2d ( DEF_hist_vars%leafc_c3grass, &
-             a_leafc_c3grass, file_hist, 'f_leafc_c3grass', itime_in_file, sumarea, filter, &
-             'leaf carbon display pool for c3 grass','gC/m2')
+         ! 12: leaf carbon display pool c3 arctic grass
+         CALL write_history_variable_2d ( DEF_hist_vars%leafc_c3arcgrass, &
+             a_leafc_c3arcgrass, file_hist, 'f_leafc_c3arcgrass', itime_in_file, sumarea, filter, &
+             'leaf carbon display pool for c3 arctic grass','gC/m2')
+
+         ! 12: leaf area index c3 arctic grass
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_c3arcgrass, &
+             a_lai_c3arcgrass, file_hist, 'f_lai_c3arcgrass', itime_in_file, sumarea, filter, &
+             'leaf area index for c3 arctic grass','gC/m2')
+
+         ! 12: npp c3 arctic grass
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_c3arcgrass, &
+             a_npp_c3arcgrass, file_hist, 'f_npp_c3arcgrass', itime_in_file, sumarea, filter, &
+             'npp for c3 arctic grass','gC/m2')
+
+         ! 12: npp to leafc c3 arctic grass
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_c3arcgrass, &
+             a_npptoleafc_c3arcgrass, file_hist, 'f_npptoleafc_c3arcgrass', itime_in_file, sumarea, filter, &
+             'npp to leafc for c3 arctic grass','gC/m2')
 
          ! 13: gpp c3 grass
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_c3grass, &
@@ -2067,6 +2295,21 @@ ENDIF
              a_leafc_c3grass, file_hist, 'f_leafc_c3grass', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for c3 arctic grass','gC/m2')
 
+         ! 13: leaf area index arctic c3 grass
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_c3grass, &
+             a_lai_c3grass, file_hist, 'f_lai_c3grass', itime_in_file, sumarea, filter, &
+             'leaf area index for c3 arctic grass','gC/m2')
+
+         ! 13: npp arctic c3 grass
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_c3grass, &
+             a_npp_c3grass, file_hist, 'f_npp_c3grass', itime_in_file, sumarea, filter, &
+             'npp for c3 arctic grass','gC/m2')
+
+         ! 13: npp to leafc arctic c3 grass
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_c3grass, &
+             a_npptoleafc_c3grass, file_hist, 'f_npptoleafc_c3grass', itime_in_file, sumarea, filter, &
+             'npp to leafc for c3 arctic grass','gC/m2')
+
          ! 14: gpp c4 grass
          CALL write_history_variable_2d ( DEF_hist_vars%gpp_c4grass, &
              a_gpp_c4grass, file_hist, 'f_gpp_c4grass', itime_in_file, sumarea, filter, &
@@ -2076,6 +2319,21 @@ ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%leafc_c4grass, &
              a_leafc_c4grass, file_hist, 'f_leafc_c4grass', itime_in_file, sumarea, filter, &
              'leaf carbon display pool for c4 arctic grass','gC/m2')
+
+         ! 14: leaf area index arctic c4 grass
+         CALL write_history_variable_2d ( DEF_hist_vars%lai_c4grass, &
+             a_lai_c4grass, file_hist, 'f_lai_c4grass', itime_in_file, sumarea, filter, &
+             'leaf area index for c4 arctic grass','gC/m2')
+
+         ! 14: npp arctic c4 grass
+         CALL write_history_variable_2d ( DEF_hist_vars%npp_c4grass, &
+             a_npp_c4grass, file_hist, 'f_npp_c4grass', itime_in_file, sumarea, filter, &
+             'npp for c4 arctic grass','gC/m2')
+
+         ! 14: npp to leafc arctic c4 grass
+         CALL write_history_variable_2d ( DEF_hist_vars%npptoleafc_c4grass, &
+             a_npptoleafc_c4grass, file_hist, 'f_npptoleafc_c4grass', itime_in_file, sumarea, filter, &
+             'npp to leafc for c4 arctic grass','gC/m2')
 
 #ifdef CROP
 !*****************************************
@@ -3915,15 +4173,118 @@ ENDIF
 
 
 #ifdef DataAssimilation
-         IF (DEF_DA_ENS > 1) THEN
-            CALL write_history_variable_4d(DEF_hist_vars%wliq_soisno, &
-               a_wliq_soisno_ens, file_hist, 'f_wliq_soisno_ens', itime_in_file, 'soilsnow', maxsnl + 1, nl_soil - maxsnl, &
-               'ens', 1, DEF_DA_ENS, sumarea, filter, 'ensemble liquid water in soil layers', 'kg/m2')
+         IF (p_is_worker) THEN
+            allocate (a_wliq_h2osoi_5cm     (numpatch                 )); a_wliq_h2osoi_5cm         = spval
+            allocate (a_t_soisno_5cm        (numpatch                 )); a_t_soisno_5cm            = spval
 
-            CALL write_history_variable_4d(DEF_hist_vars%wliq_soisno, &
-               a_wice_soisno_ens, file_hist, 'f_wice_soisno_ens', itime_in_file, 'soilsnow', maxsnl + 1, nl_soil - maxsnl, &
-               'ens', 1, DEF_DA_ENS, sumarea, filter, 'ensemble ice lens in soil layers', 'kg/m2')
+            allocate (a_wliq_soisno_ens_mean(maxsnl+1:nl_soil,numpatch)); a_wliq_soisno_ens_mean    = spval
+            allocate (a_wliq_soisno_5cm_ens (DEF_DA_ENS_NUM,numpatch  )); a_wliq_soisno_5cm_ens     = spval
+            allocate (a_wliq_h2osoi_5cm_a   (numpatch                 )); a_wliq_h2osoi_5cm_a       = spval
+
+            allocate (a_t_soisno_ens_mean   (maxsnl+1:nl_soil,numpatch)); a_t_soisno_ens_mean       = spval
+            allocate (a_t_soisno_5cm_ens    (DEF_DA_ENS_NUM,numpatch  )); a_t_soisno_5cm_ens        = spval
+            allocate (a_t_soisno_5cm_a      (numpatch                 )); a_t_soisno_5cm_a          = spval
+
+            allocate (a_t_brt_smap_a        (2,numpatch               )); a_t_brt_smap_a            = spval
+            allocate (a_t_brt_fy3d_a        (2,numpatch               )); a_t_brt_fy3d_a            = spval
+
+            allocate (a_wliq_soisno_5cm_ens_std(numpatch              )); a_wliq_soisno_5cm_ens_std = spval
+            allocate (a_t_soisno_5cm_ens_std   (numpatch              )); a_t_soisno_5cm_ens_std    = spval
+            allocate (a_t_brt_smap_ens_std     (2,numpatch            )); a_t_brt_smap_ens_std      = spval
+            allocate (a_t_brt_fy3d_ens_std     (2,numpatch            )); a_t_brt_fy3d_ens_std      = spval
          END IF
+
+         IF (p_is_worker) THEN
+!#############################################################################
+! States before DA
+!#############################################################################
+            ! calculate surface liquid soil moisture (0-5cm) before DA
+            a_wliq_h2osoi_5cm = (a_wliq_soisno(1,:) + a_wliq_soisno(2,:) + &
+               a_wliq_soisno(3, :)*(0.05 - 0.0451)/(0.0906 - 0.0451))/(0.05*denh2o)
+
+            ! calculate surface liquid soil moisture (0-5cm) before DA
+            a_t_soisno_5cm = (a_t_soisno(1,:)*0.0175 + a_t_soisno(2,:)*(0.0451 - 0.0175))/(0.0451)
+
+!#############################################################################
+! States after DA
+!#############################################################################
+            ! calculate surface liquid soil moisture (0-5cm) after DA
+            a_wliq_soisno_ens_mean = sum(a_wliq_soisno_ens, dim=2) / DEF_DA_ENS_NUM
+            a_wliq_soisno_5cm_ens = (a_wliq_soisno_ens(1,:,:) + a_wliq_soisno_ens(2,:,:) + &
+               a_wliq_soisno_ens(3,:,:)*(0.05-0.0451)/(0.0906-0.0451))/(0.05*denh2o)
+            a_wliq_h2osoi_5cm_a = (a_wliq_soisno_ens_mean(1,:) + a_wliq_soisno_ens_mean(2,:) + &
+               a_wliq_soisno_ens_mean(3,:)*(0.05 - 0.0451)/(0.0906 - 0.0451))/(0.05*denh2o)
+
+            ! calculate surface soil temperature (0-5cm) before DA & after DA
+            a_t_soisno_ens_mean = sum(a_t_soisno_ens, dim=2) / DEF_DA_ENS_NUM
+            a_t_soisno_5cm_ens = (a_t_soisno_ens(1,:,:)*0.0175 + a_t_soisno_ens(2,:,:)*(0.0451 - 0.0175))/(0.0451)
+            a_t_soisno_5cm_a = (a_t_soisno_ens_mean(1,:)*0.0175 + a_t_soisno_ens_mean(2,:)*(0.0451 - 0.0175))/(0.0451)
+
+!#############################################################################
+! brightness temperature after DA
+!#############################################################################
+            a_t_brt_smap_a = sum(a_t_brt_smap_ens, dim=2) / DEF_DA_ENS_NUM
+            a_t_brt_fy3d_a = sum(a_t_brt_fy3d_ens, dim=2) / DEF_DA_ENS_NUM
+
+!#############################################################################
+! Standard deviation of states and brightness temperature
+!#############################################################################
+            ! calculate standard deviation of surface soil moisture, temperature and brightness temperature
+            DO np = 1, numpatch
+               a_wliq_soisno_5cm_ens_std(np) = &
+                  sqrt(sum((a_wliq_soisno_5cm_ens(:,np)-a_wliq_h2osoi_5cm_a(np))**2)/real(DEF_DA_ENS_NUM-1))
+               a_t_soisno_5cm_ens_std(np) = &
+                  sqrt(sum((a_t_soisno_5cm_ens(:,np)-a_t_soisno_5cm_a(np))**2)/real(DEF_DA_ENS_NUM-1))
+               IF (DEF_DA_SM_SMAP) THEN
+                  IF (patchtype(np) >= 3) cycle
+                  a_t_brt_smap_ens_std(1,np) = &
+                     sqrt(sum((a_t_brt_smap_ens(1,:,np)-a_t_brt_smap_a(1,np))**2)/real(DEF_DA_ENS_NUM-1))
+                  a_t_brt_smap_ens_std(2,np) = &
+                     sqrt(sum((a_t_brt_smap_ens(2,:,np)-a_t_brt_smap_a(2,np))**2)/real(DEF_DA_ENS_NUM-1))
+               ENDIF
+               IF (DEF_DA_SM_FY) THEN
+                  IF (patchtype(np) >= 3) cycle
+                  a_t_brt_fy3d_ens_std(1,np) = &
+                     sqrt(sum((a_t_brt_fy3d_ens(1,:,np)-a_t_brt_fy3d_a(1,np))**2)/real(DEF_DA_ENS_NUM-1))
+                  a_t_brt_fy3d_ens_std(2,np) = &
+                     sqrt(sum((a_t_brt_fy3d_ens(2,:,np)-a_t_brt_fy3d_a(2,np))**2)/real(DEF_DA_ENS_NUM-1))
+               ENDIF
+            ENDDO
+         ENDIF
+
+         ! surface soil moisture (0-5cm) before and after DA
+         CALL write_history_variable_2d(DEF_hist_vars%DA_wliq_h2osoi_5cm, &
+            a_wliq_h2osoi_5cm, file_hist, 'f_wliq_h2osoi_5cm', itime_in_file, &
+            sumarea, filter, 'Volumetric liquid water content in 0-5cm', 'm3/m3')
+         CALL write_history_variable_2d(DEF_hist_vars%DA_wliq_h2osoi_5cm_a, &
+            a_wliq_h2osoi_5cm_a, file_hist, 'f_wliq_h2osoi_5cm_a', itime_in_file, &
+            sumarea, filter, 'Analysis volumetric liquid water content in 0-5cm', 'm3/m3')
+
+         ! surface soil temperature (0-5cm) before and after DA
+         CALL write_history_variable_2d(DEF_hist_vars%DA_t_soisno_5cm, &
+            a_t_soisno_5cm, file_hist, 'f_t_soisno_5cm', itime_in_file, &
+            sumarea, filter, 'Soil temperature in 0-5cm', 'K')
+         CALL write_history_variable_2d(DEF_hist_vars%DA_t_soisno_5cm_a, &
+            a_t_soisno_5cm_a, file_hist, 'f_t_soisno_5cm_a', itime_in_file, &
+            sumarea, filter, 'Analysis soil temperature in 0-5cm', 'K')
+
+         ! ensemble soil moisture & temperature in soil layers [kg/m2]
+         IF (DEF_DA_ENS_NUM > 1) THEN
+            CALL write_history_variable_4d(DEF_hist_vars%DA_wliq_soisno_ens, &
+               a_wliq_soisno_ens, file_hist, 'f_wliq_soisno_ens', itime_in_file, 'soilsnow', maxsnl + 1, nl_soil - maxsnl, &
+               'ens', 1, DEF_DA_ENS_NUM, sumarea, filter, 'ensemble liquid water in soil layers', 'kg/m2')
+            CALL write_history_variable_4d(DEF_hist_vars%DA_t_soisno_ens, &
+               a_t_soisno_ens, file_hist, 'f_t_soisno_ens', itime_in_file, 'soilsnow', maxsnl + 1, nl_soil - maxsnl, &
+               'ens', 1, DEF_DA_ENS_NUM, sumarea, filter, 'ensemble soil temperature', 'K')
+         ENDIF
+
+         ! standard deviation of ensemble surface soil moisture and temperature (0-5cm)
+         CALL write_history_variable_2d(DEF_hist_vars%DA_wliq_soisno_5cm_ens_std, &
+            a_wliq_soisno_5cm_ens_std, file_hist, 'f_wliq_soisno_ens_5cm_ens_std', itime_in_file, &
+            sumarea, filter, 'Standard deviation of ensemble volumetric liquid water content in 0-5cm', 'm3/m3')
+         CALL write_history_variable_2d(DEF_hist_vars%DA_t_soisno_5cm_ens_std, &
+            a_t_soisno_5cm_ens_std, file_hist, 'f_t_soisno_ens_5cm_ens_std', itime_in_file, &
+            sumarea, filter, 'Standard deviation of ensemble soil temperature in 0-5cm', 'K')
 
          ! --------------------------------------------------------------------
          ! brightness temperature (excluding land ice, land water bodies and ocean patches)
@@ -3954,19 +4315,58 @@ ENDIF
             CALL mp2g_hist%get_sumarea(sumarea, filter)
          END IF
 
-         IF (DEF_DA_ENS > 1) THEN
-            CALL write_history_variable_4d(.true., &
-               a_h2osoi_ens, file_hist, 'f_h2osoi_ens', itime_in_file, 'soil', 1, nl_soil, 'ens', 1, DEF_DA_ENS, &
-               sumarea, filter, 'ensemble volumetric water in soil layers', 'm3/m3')
+         ! brightness temperature for SMAP and FY satellites
+         IF (DEF_DA_SM_SMAP) THEN
+            CALL write_history_variable_3d(DEF_hist_vars%DA_t_brt_smap, &
+               a_t_brt_smap, file_hist, 'f_t_brt_smap', itime_in_file, 'band', 1, 2, sumarea, filter, &
+               'H- & V- polarized brightness temperature for SMAP satellite (L-band, 1.4GHz)', 'K')
+            CALL write_history_variable_3d(DEF_hist_vars%DA_t_brt_smap_a, &
+               a_t_brt_smap_a, file_hist, 'f_t_brt_smap_a', itime_in_file, 'band', 1, 2, sumarea, filter, &
+               'Analysis H- & V- polarized brightness temperature for SMAP satellite (L-band,1.4GHz)', 'K')
+            IF (DEF_DA_ENS_NUM > 1) THEN
+               CALL write_history_variable_4d(DEF_hist_vars%DA_t_brt_smap_ens, &
+                  a_t_brt_smap_ens, file_hist, 'f_t_brt_smap_ens', itime_in_file, 'band', 1, 2, 'ens', 1, DEF_DA_ENS_NUM, &
+                  sumarea, filter, 'ensemble H- & V- polarized brightness temperature for SMAP satellite (L-band,1.4GHz)', 'K')
+            END IF
+            CALL write_history_variable_3d(DEF_hist_vars%DA_t_brt_smap_ens_std, &
+               a_t_brt_smap_ens_std, file_hist, 'f_t_brt_smap_ens_std', itime_in_file, 'band', 1, 2, &
+               sumarea, filter, 'Standard deviation of H- & V- polarized brightness temperature for SMAP satellite (L-band,1.4GHz)', 'K')
+         ENDIF
 
-            CALL write_history_variable_4d(.true., &
-               a_t_brt_ens, file_hist, 'f_t_brt_ens', itime_in_file, 'band', 1, 2, 'ens', 1, DEF_DA_ENS, &
-               sumarea, filter, 'ensemble H- & V- polarized brightness temperature', 'K')
+         IF (DEF_DA_SM_FY) THEN
+            CALL write_history_variable_3d(DEF_hist_vars%DA_t_brt_fy3d, &
+               a_t_brt_fy3d, file_hist, 'f_t_brt_fy3d', itime_in_file, 'band', 1, 2, sumarea, filter, &
+               'H- & V- polarized brightness temperature for FY satellite (X-band, 10.65GHz)', 'K')
+            CALL write_history_variable_3d(DEF_hist_vars%DA_t_brt_fy3d_a, &
+               a_t_brt_fy3d_a, file_hist, 'f_t_brt_fy3d_a', itime_in_file, 'band', 1, 2, sumarea, filter, &
+               'Analysis H- & V- polarized brightness temperature for FY satellite (X-band, 10.65GHz)', 'K')
+            IF (DEF_DA_ENS_NUM > 1) THEN
+               CALL write_history_variable_4d(DEF_hist_vars%DA_t_brt_fy3d_ens, &
+                  a_t_brt_fy3d_ens, file_hist, 'f_t_brt_fy3d_ens', itime_in_file, 'band', 1, 2, 'ens', 1, DEF_DA_ENS_NUM, &
+                  sumarea, filter, 'ensemble H- & V- polarized brightness temperature for FY satellite (X-band, 10.65GHz)', 'K')
+            END IF
+            CALL write_history_variable_3d(DEF_hist_vars%DA_t_brt_fy3d_ens_std, &
+               a_t_brt_fy3d_ens_std, file_hist, 'f_t_brt_fy3d_ens_std', itime_in_file, 'band', 1, 2, &
+               sumarea, filter, 'Standard deviation of H- & V- polarized brightness temperature for FY satellite (X-band, 10.65GHz)', 'K')
+         ENDIF
+
+         IF (p_is_worker) THEN
+            deallocate (a_wliq_h2osoi_5cm)
+            deallocate (a_t_soisno_5cm)
+            deallocate (a_wliq_soisno_ens_mean)
+            deallocate (a_wliq_soisno_5cm_ens)
+            deallocate (a_wliq_h2osoi_5cm_a)
+            deallocate (a_t_soisno_ens_mean)
+            deallocate (a_t_soisno_5cm_ens)
+            deallocate (a_t_soisno_5cm_a)
+            deallocate (a_t_brt_smap_a)
+            deallocate (a_t_brt_fy3d_a)
+            deallocate (a_wliq_soisno_5cm_ens_std)
+            deallocate (a_t_soisno_5cm_ens_std)
+            deallocate (a_t_brt_smap_ens_std)
+            deallocate (a_t_brt_fy3d_ens_std)
          END IF
 
-         CALL write_history_variable_3d(.true., &
-            a_t_brt, file_hist, 'f_t_brt', itime_in_file, 'band', 1, 2, sumarea, filter, &
-            'H- & V- polarized brightness temperature', 'K')
 #endif
 
          ! --------------------------------------------------------------------
@@ -3996,6 +4396,13 @@ ENDIF
          CALL write_history_variable_3d ( DEF_hist_vars%h2osoi, &
             a_h2osoi, file_hist, 'f_h2osoi', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
             'volumetric water in soil layers','m3/m3')
+
+         IF (DEF_USE_VariablySaturatedFlow) THEN
+            ! water flux between water layers [mm h2o/s]
+            CALL write_history_variable_3d ( DEF_hist_vars%qlayer, &
+               a_qlayer, file_hist, 'f_qlayer', itime_in_file, 'soilinterface', 0, nl_soil+1, &
+               sumarea, filter, 'water flux between soil layers','mm/s')
+         ENDIF
 
          ! fraction of root water uptake from each soil layer, all layers add to 1,
          ! when PHS is not defined water exchange between soil layers and root.
@@ -4082,6 +4489,13 @@ ENDIF
             CALL mp2g_hist%get_sumarea (sumarea, filter)
          ENDIF
 
+         IF (HistForm == 'Gridded') THEN
+            IF (trim(file_hist) /= trim(file_last)) THEN
+               CALL hist_write_var_real8_2d (file_hist, 'area_lake', ghist, -1, sumarea, &
+                  compress = 1, longname = 'area of lake', units = 'km2')
+            ENDIF
+         ENDIF
+
          ! lake layer depth [m]
          CALL write_history_variable_3d ( DEF_hist_vars%dz_lake .and. DEF_USE_Dynamic_Lake, &
             a_dz_lake, file_hist, 'f_dz_lake', itime_in_file, 'lake', 1, nl_lake, sumarea, filter, &
@@ -4096,6 +4510,13 @@ ENDIF
          CALL write_history_variable_3d ( DEF_hist_vars%lake_icefrac, &
             a_lake_icefrac, file_hist, 'f_lake_icefrac', itime_in_file, 'lake', 1, nl_lake, &
             sumarea, filter, 'lake ice fraction cover','0-1')
+
+         ! lake water deficit due to evaporation [mm/s]
+         IF (.not. DEF_USE_Dynamic_Lake) THEN
+            CALL write_history_variable_2d ( DEF_hist_vars%lake_deficit, &
+               a_lake_deficit, file_hist, 'f_lake_deficit', itime_in_file, sumarea, filter, &
+               'lake water deficit due to evaporation','mm/s')
+         ENDIF
 
 #ifdef EXTERNAL_LAKE
          CALL LakeVarsSaveHist (nl_lake, file_hist, HistForm, itime_in_file, sumarea, filter)
@@ -4306,6 +4727,51 @@ ENDIF
          CALL hist_basin_out (file_hist, idate)
 #endif
 
+#ifdef GridRiverLakeFlow
+         CALL hist_grid_riverlake_out (file_hist, HistForm, idate, &
+            itime_in_file, trim(file_hist)/=trim(file_last))
+
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               allocate (nac_one (numpatch))
+               nac_one = 1.
+            ENDIF
+         ENDIF
+
+         IF (p_is_io) CALL allocate_block_data (ghist, sumarea_one)
+         IF (p_is_io) CALL flush_block_data (sumarea_one, 1.)
+
+         CALL write_history_variable_2d ( DEF_hist_vars%riv_height, a_wdsrf_ucat_pch,   &
+            file_hist, 'f_wdpth_ucat_regrid', itime_in_file, sumarea_ucat, filter_ucat, &
+            'regridded deepest water depth in river and flood plain', 'm', nac_one)
+
+         CALL write_history_variable_2d ( DEF_hist_vars%riv_veloct, a_veloc_riv_pch,    &
+            file_hist, 'f_veloc_riv_regrid', itime_in_file, sumarea_ucat, filter_ucat,  &
+            'regridded water velocity in river', 'm/s', nac_one)
+
+         CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_discharge_pch,     &
+            file_hist, 'f_discharge', itime_in_file, sumarea_one, filter_ucat,          &
+            'regridded discharge in river and flood plain', 'm^3/s',                    &
+            nac_one, input_mode = 'total')
+
+         CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_dis_rmth_pch,      &
+            file_hist, 'f_discharge_rivermouth_regrid', itime_in_file, sumarea_one,     &
+            filter_ucat, 'regridded river mouth discharge into ocean', 'm^3/s',         &
+            nac_one, input_mode = 'total')
+
+         CALL write_history_variable_2d ( DEF_hist_vars%floodfrc, a_floodfrc_pch,       &
+            file_hist, 'f_floodfrc', itime_in_file, sumarea_inpm, filter_inpm,          &
+            'flooded area fraction', '100%', nac_one)
+
+         IF (trim(HistForm) == 'Gridded') THEN
+            CALL write_history_variable_2d ( DEF_hist_vars%floodarea, a_floodfrc_pch,   &
+               file_hist, 'f_floodarea', itime_in_file, sumarea_one, filter_inpm,       &
+               'flooded area', 'km^2', nac_one)
+         ENDIF
+
+         IF (allocated(nac_one   )) deallocate (nac_one   )
+#endif
+
          IF (allocated(filter    )) deallocate (filter    )
          IF (allocated(filter_dt )) deallocate (filter_dt )
 #ifdef URBAN_MODEL
@@ -4329,7 +4795,7 @@ ENDIF
 
    SUBROUTINE write_history_variable_2d ( is_hist, &
          acc_vec, file_hist, varname, itime_in_file, sumarea, filter, &
-         longname, units, acc_num)
+         longname, units, acc_num, input_mode)
 
    USE MOD_Vars_1DAccFluxes, only: nac
 
@@ -4347,6 +4813,8 @@ ENDIF
    type(block_data_real8_2d), intent(in) :: sumarea
    logical, intent(in) :: filter(:)
    real(r8), intent(in), optional  :: acc_num(:)
+
+   character(len=*), intent(in), optional :: input_mode
 
       IF (.not. is_hist) RETURN
 
@@ -4368,12 +4836,22 @@ ENDIF
 
       select CASE (HistForm)
       CASE ('Gridded')
-         CALL flux_map_and_write_2d ( &
-            acc_vec, file_hist, varname, itime_in_file, sumarea, filter, longname, units)
+         IF (present(input_mode)) THEN
+            CALL flux_map_and_write_2d ( &
+               acc_vec, file_hist, varname, itime_in_file, sumarea, filter, longname, units, input_mode)
+         ELSE
+            CALL flux_map_and_write_2d ( &
+               acc_vec, file_hist, varname, itime_in_file, sumarea, filter, longname, units)
+         ENDIF
 #if (defined UNSTRUCTURED || defined CATCHMENT)
       CASE ('Vector')
-         CALL aggregate_to_vector_and_write_2d ( &
-            acc_vec, file_hist, varname, itime_in_file, filter, longname, units)
+         IF (present(input_mode)) THEN
+            CALL aggregate_to_vector_and_write_2d ( &
+               acc_vec, file_hist, varname, itime_in_file, filter, longname, units, input_mode)
+         ELSE
+            CALL aggregate_to_vector_and_write_2d ( &
+               acc_vec, file_hist, varname, itime_in_file, filter, longname, units)
+         ENDIF
 #endif
 #ifdef SinglePoint
       CASE ('Single')

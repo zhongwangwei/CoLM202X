@@ -11,7 +11,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist
    USE MOD_NetCDFSerial
-   USE MOD_Catch_IO
+   USE MOD_Vector_ReadWrite
    USE MOD_ElmVector
    USE MOD_Catch_Reservoir
    USE MOD_Vars_TimeInvariants,  only : wf_sand, wf_clay, wf_om, wf_gravels, patchclass
@@ -60,8 +60,8 @@ CONTAINS
             ENDDO
          ENDIF
 
-         CALL vector_write_basin (&
-            file_parameters, hrupara, numhru, totalnumhru, 'wf_sand_l'//slev, 'hydrounit', hru_data_address)
+         CALL vector_gather_and_write (&
+            hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_sand_l'//slev, 'hydrounit')
 
          ! clay
          IF (p_is_worker) THEN
@@ -72,8 +72,8 @@ CONTAINS
             ENDDO
          ENDIF
 
-         CALL vector_write_basin (&
-            file_parameters, hrupara, numhru, totalnumhru, 'wf_clay_l'//slev, 'hydrounit', hru_data_address)
+         CALL vector_gather_and_write (&
+            hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_clay_l'//slev, 'hydrounit')
 
          ! organic matter
          IF (p_is_worker) THEN
@@ -84,8 +84,8 @@ CONTAINS
             ENDDO
          ENDIF
 
-         CALL vector_write_basin (&
-            file_parameters, hrupara, numhru, totalnumhru, 'wf_om_l'//slev, 'hydrounit', hru_data_address)
+         CALL vector_gather_and_write (&
+            hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_om_l'//slev, 'hydrounit')
 
          ! silt
          IF (p_is_worker) THEN
@@ -96,8 +96,8 @@ CONTAINS
             ENDDO
          ENDIF
 
-         CALL vector_write_basin (&
-            file_parameters, hrupara, numhru, totalnumhru, 'wf_silt_l'//slev, 'hydrounit', hru_data_address)
+         CALL vector_gather_and_write (&
+            hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'wf_silt_l'//slev, 'hydrounit')
       ENDDO
 
 
@@ -110,8 +110,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      CALL vector_write_basin (&
-         file_parameters, hrupara, numhru, totalnumhru, 'lulc_igbp', 'hydrounit', hru_data_address)
+      CALL vector_gather_and_write (&
+         hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'lulc_igbp', 'hydrounit')
 
       IF (p_is_worker) THEN
          IF (numhru > 0) hrupara(:) = spval
@@ -127,8 +127,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      CALL vector_write_basin (&
-         file_parameters, hrupara, numhru, totalnumhru, 'slope_length', 'hydrounit', hru_data_address)
+      CALL vector_gather_and_write (&
+         hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'slope_length', 'hydrounit')
 
       IF (p_is_master) THEN
          CALL ncio_put_attr (file_parameters, 'slope_length', 'units', 'm')
@@ -149,8 +149,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      CALL vector_write_basin (&
-         file_parameters, hrupara, numhru, totalnumhru, 'elevation', 'hydrounit', hru_data_address)
+      CALL vector_gather_and_write (&
+         hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'elevation', 'hydrounit')
 
       IF (p_is_master) THEN
          CALL ncio_put_attr (file_parameters, 'elevation', 'units', 'm')
@@ -177,8 +177,8 @@ CONTAINS
          ENDDO
       ENDIF
 
-      CALL vector_write_basin (&
-         file_parameters, hrupara, numhru, totalnumhru, 'slope_ratio', 'hydrounit', hru_data_address)
+      CALL vector_gather_and_write (&
+         hrupara, numhru, totalnumhru, hru_data_address, file_parameters, 'slope_ratio', 'hydrounit')
 
       IF (p_is_master) THEN
          CALL ncio_put_attr (file_parameters, 'slope_ratio', 'units', '-')

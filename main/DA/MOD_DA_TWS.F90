@@ -1,15 +1,10 @@
 #include <define.h>
 
 #ifdef DataAssimilation
-MODULE MOD_DA_GRACE
+MODULE MOD_DA_TWS
 !-----------------------------------------------------------------------------
 ! DESCRIPTION:
 !    Data assimilation of terrestrial water storge from GRACE satellite
-!
-! REFERENCES:
-!    [1] Su, Y.; Zhang, S. Optimizing Parameters in the Common Land Model 
-!        by Using Gravity Recovery and Climate Experiment Satellite Observations. 
-!        Land 2024, 13, 508.
 !
 ! AUTHOR:
 !   Shupeng Zhang: Initial version
@@ -21,13 +16,13 @@ MODULE MOD_DA_GRACE
 
    PUBLIC :: init_DA_GRACE
    PUBLIC :: run_DA_GRACE
-   PUBLIC :: end_DA_GRACE 
-   
+   PUBLIC :: end_DA_GRACE
+
    real(r8), allocatable, PUBLIC :: fslp_k_mon (:,:) ! slope factor of runoff
    real(r8), allocatable, PUBLIC :: fslp_k (:) ! slope factor of runoff
 
    PRIVATE
-      
+
    character(len=256) :: file_grace
    type(grid_type)    :: grid_grace
 
@@ -39,13 +34,13 @@ MODULE MOD_DA_GRACE
    integer,  allocatable :: obsmonth (:)
 
    type (spatial_mapping_type) :: mg2p_grace
-   
+
    real(r8), allocatable :: lwe_obs_this (:)
    real(r8), allocatable :: err_obs_this (:)
-   
+
    real(r8), allocatable :: lwe_obs_prev (:)
    real(r8), allocatable :: err_obs_prev (:)
-   
+
    real(r8), allocatable :: wat_prev_m (:)
    real(r8), allocatable :: wat_this_m (:)
 
@@ -53,7 +48,7 @@ MODULE MOD_DA_GRACE
    real(r8), allocatable :: rnof_acc_this_m (:)
    real(r8), allocatable :: zwt_acc_prev_m  (:)
    real(r8), allocatable :: zwt_acc_this_m  (:)
-   
+
    real(r8), allocatable :: rnof_prev_m0 (:)
    real(r8), allocatable :: rnof_prev_m1 (:)
    real(r8), allocatable :: rnof_this_m  (:)
@@ -69,7 +64,7 @@ CONTAINS
 
    ! ----------
    SUBROUTINE init_DA_GRACE ()
-      
+
    USE MOD_Spmd_Task
    USE MOD_Namelist, only : DEF_DA_obsdir
    USE MOD_Grid
@@ -77,7 +72,7 @@ CONTAINS
    USE MOD_Mesh,     only : numelm
    USE MOD_LandElm,  only : landelm
    USE MOD_LandPatch
-#ifdef CROP 
+#ifdef CROP
    USE MOD_LandCrop
 #endif
    USE MOD_Pixelset
@@ -85,12 +80,12 @@ CONTAINS
    USE MOD_Forcing, only : forcmask_pch
    USE MOD_RangeCheck
    IMPLICIT NONE
-   
+
    ! Local Variables
 
    real(r8), allocatable :: time_real8(:)
    integer :: itime
-      
+
       file_grace = trim(DEF_DA_obsdir) &
          // '/GRACE_JPL/GRCTellus.JPL.200204_202207.GLO.RL06M.MSCNv02CRI.nc'
 
@@ -137,12 +132,12 @@ CONTAINS
             allocate (rnof_prev_m1    (numpatch))
             allocate (rnof_this_m     (numpatch))
             allocate (rnofmask        (numpatch))
-            
+
             allocate (fslp_k_mon   (12,numpatch))
             allocate (fslp_k          (numpatch))
          ENDIF
       ENDIF
-      
+
       IF (p_is_worker) THEN
          CALL elm_patch%build (landelm, landpatch, use_frac = .true.)
       ENDIF
@@ -156,12 +151,12 @@ CONTAINS
          ENDIF
       ENDIF
 
-      
+
       has_prev_grace_obs = .false.
 
       nac_grace_this = 0
       nac_grace_prev = 0
-      
+
       IF (p_is_worker) THEN
          wat_this_m     (:) = 0.
          rnof_acc_this_m(:) = 0.
@@ -173,11 +168,11 @@ CONTAINS
 
       deallocate (time_real8)
 
-   END SUBROUTINE init_DA_GRACE 
+   END SUBROUTINE init_DA_GRACE
 
    ! ----------
    SUBROUTINE run_DA_GRACE (idate, deltim)
-      
+
    USE MOD_Spmd_task
    USE MOD_TimeManager
    USE MOD_NetCDFBlock
@@ -186,10 +181,10 @@ CONTAINS
    USE MOD_LandPatch
    USE MOD_Vars_1DFluxes,       only : rnof, rsur
    USE MOD_Vars_TimeVariables,  only : wat, wa, wdsrf, zwt
-   USE MOD_RangeCheck 
+   USE MOD_RangeCheck
    USE MOD_UserDefFun
    IMPLICIT NONE
-   
+
    integer,  intent(in) :: idate(3)
    real(r8), intent(in) :: deltim
 
@@ -200,14 +195,14 @@ CONTAINS
    real(r8) :: sumpct
    real(r8) :: w1, w0, r1, r0, var_o, var_m, dw_f, dw_o, dw_a, rr, zwt_ave
    real(r8) :: fscal, fprev, fthis
-   
+
    type(block_data_real8_2d) :: f_grace_lwe ! unit: cm
    type(block_data_real8_2d) :: f_grace_err ! unit: cm
 
    character(len=256) :: sid, logfile
-      
+
       CALL julian2monthday (idate(1), idate(2), month, mday)
-   
+
       is_obs_time = any((obsyear == idate(1)) .and. (obsmonth == month))
 
       IF (p_is_master) THEN
@@ -219,9 +214,9 @@ CONTAINS
       IF (p_is_worker) THEN
 
          IF (has_prev_grace_obs) THEN
-            
+
             nac_grace_prev = nac_grace_prev + 1
-            
+
             rnof_acc_prev_m = rnof_acc_prev_m + rnof * deltim
             IF (is_obs_time) THEN
                rnof_prev_m1 = rnof_prev_m1 + rnof_acc_prev_m
@@ -247,10 +242,10 @@ CONTAINS
       IF (is_obs_time .and. (isendofmonth(idate, deltim))) THEN
 
          itime = findloc_ud((obsyear == idate(1)) .and. (obsmonth == month))
-      
+
          IF (p_is_io) THEN
-            CALL allocate_block_data (grid_grace, f_grace_lwe)  
-            CALL allocate_block_data (grid_grace, f_grace_err)  
+            CALL allocate_block_data (grid_grace, f_grace_lwe)
+            CALL allocate_block_data (grid_grace, f_grace_err)
             CALL ncio_read_block_time (file_grace, 'lwe_thickness', grid_grace, itime, f_grace_lwe)
             CALL ncio_read_block_time (file_grace, 'uncertainty'  , grid_grace, itime, f_grace_err)
          ENDIF
@@ -259,7 +254,7 @@ CONTAINS
          CALL mg2p_grace%grid2pset (f_grace_err, err_obs_this)
 
          IF (p_is_worker) THEN
-            
+
             lwe_obs_this = lwe_obs_this * 10.0 ! from cm to mm
             err_obs_this = err_obs_this * 10.0 ! from cm to mm
 
@@ -304,13 +299,13 @@ CONTAINS
 
 
                   var_o = err_obs_this(ielm)**2 + err_obs_prev(ielm)**2
-                     
+
                   dw_f = w1 - w0
                   dw_o = lwe_obs_this(ielm) - lwe_obs_prev(ielm)
                   var_m = (dw_f-dw_o)**2 - var_o
 
                   IF (var_m > 0) THEN
-                 
+
                      dw_a = (var_o * dw_f + var_m * dw_o) / (var_m+var_o)
 
                      rr = r1 - r0
@@ -324,7 +319,7 @@ CONTAINS
                         fthis = fprev * fscal
                         fthis = min(max(fthis, fprev*0.5), fprev*2.0)
                         fslp_k_mon(month,istt:iend) = fthis
-                        
+
                         fprev = fslp_k_mon(month_prev,istt)
                         fthis = fprev * fscal
                         fthis = min(max(fthis, fprev*0.5), fprev*2.0)
@@ -337,7 +332,7 @@ CONTAINS
                      ENDIF
 
                   ENDIF
-                        
+
                ENDDO
 
                ! close(12)
@@ -351,7 +346,7 @@ CONTAINS
 
             rnof_acc_prev_m = rnof_acc_this_m
             rnof_acc_this_m = 0.
-            
+
             zwt_acc_prev_m = zwt_acc_this_m
             zwt_acc_this_m = 0.
 
@@ -369,7 +364,7 @@ CONTAINS
          month_prev = month
 
       ENDIF
-         
+
       IF (isendofmonth(idate, deltim)) THEN
          IF (p_is_worker .and. (numpatch > 0)) THEN
             nextmonth = mod(month+1,12)+1
@@ -404,7 +399,7 @@ CONTAINS
       IF (allocated(longrace)) deallocate(longrace)
       IF (allocated(latgrace)) deallocate(latgrace)
 
-   END SUBROUTINE end_DA_GRACE 
+   END SUBROUTINE end_DA_GRACE
 
    ! ---------
    SUBROUTINE retrieve_yymm_from_days (days, yy, mm)
@@ -420,10 +415,10 @@ CONTAINS
       yy = 2002
       mm = 1
       mdays = (/31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31/)
-      
+
       resday = days
       DO WHILE (resday > mdays(mm))
-           
+
          resday = resday - mdays(mm)
 
          mm = mm + 1
@@ -441,5 +436,5 @@ CONTAINS
 
    END SUBROUTINE retrieve_yymm_from_days
 
-END MODULE MOD_DA_GRACE
+END MODULE MOD_DA_TWS
 #endif
