@@ -47,9 +47,9 @@ CONTAINS
               sm          ,etr         ,qseva       ,qsdew       ,qsubl       ,&
               qfros       ,qseva_soil  ,qsdew_soil  ,qsubl_soil  ,qfros_soil  ,&
               qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow  ,fsno        ,&
-              rsur        ,rnof        ,qinfl       ,pondmx      ,&
-              ssi         ,wimp        ,smpmin      ,zwt         ,wdsrf       ,&
-              wa          ,qcharge                                            ,&
+              rsur        ,rnof        ,qinfl       ,pondmx      ,ssi         ,&
+              wimp        ,smpmin      ,zwt         ,wdsrf       ,wa          ,&
+              qcharge                                                         ,&
 #if (defined CaMa_Flood)
               flddepth    ,fldfrc      ,qinfl_fld                             ,&
 #endif
