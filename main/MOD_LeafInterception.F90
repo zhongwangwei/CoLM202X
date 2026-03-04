@@ -663,7 +663,7 @@ CONTAINS
 
             ! assume no fall down of the intercepted snowfall in a time step
             ! drainage
-            tex_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * fpi + max(0., ldew - satcap)
+            tex_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * fpi + ldew - satcap
             tex_rain = max(tex_rain, 0. )
             ! Ensure physical constraint: tex_rain + tti_rain <= total rain input
             tex_rain = min( tex_rain, (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim - tti_rain )
