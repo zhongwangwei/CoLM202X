@@ -1400,12 +1400,10 @@ CONTAINS
             tex_snow  = max(0.0,tex_snow)
             !-------------------------------------------------------------------------
 
-
-#if (defined CoLMDEBUG)
-            IF (tex_rain+tex_snow+tti_rain+tti_snow-p0 > 1.e-10) THEN
-               write(6,*) 'tex_ + tti_ > p0 in interception code : '
-            ENDIF
-#endif
+! NOTE: The check "tex+tti > p0" is not applicable to MATSIRO scheme.
+! Rutter exponential drainage drains pre-existing canopy water (ldew),
+! so tex+tti can legitimately exceed p0. The real mass balance check
+! is performed below (w residual check with abort).
 
          ELSE
             ! all intercepted by canopy leaves for very small precipitation
