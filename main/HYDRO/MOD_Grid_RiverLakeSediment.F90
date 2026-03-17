@@ -48,7 +48,7 @@ MODULE MOD_Grid_RiverLakeSediment
    real(r8), save :: pyldpc         ! Precipitation exponent
    real(r8), save :: dsylunit       ! Unit conversion factor
 
-   real(r8), parameter :: MAX_SED_CONC = 0.01_r8  ! Maximum sediment concentration (1% by volume, matches CaMa-Flood)
+   real(r8), parameter :: MAX_SED_CONC = 0.1_r8  ! Maximum sediment concentration (10% by volume, matches CoLM-sed-master)
 
    !-------------------------------------------------------------------------------------
    ! Static Data (read from DEF_UnitCatchment_file)
@@ -314,14 +314,14 @@ CONTAINS
          IF (clk_rate > 0) t_adv = t_adv + real(clk_phase_end - clk_phase_start, r8) / real(clk_rate, r8)
 
          CALL system_clock(clk_phase_start)
-         CALL apply_sediment_input(dt_sed, rivsto, topo_rivwth, topo_rivlen)
-         CALL system_clock(clk_phase_end)
-         IF (clk_rate > 0) t_input = t_input + real(clk_phase_end - clk_phase_start, r8) / real(clk_rate, r8)
-
-         CALL system_clock(clk_phase_start)
          CALL calc_sediment_exchange(dt_sed, rivsto, topo_rivwth, topo_rivlen)
          CALL system_clock(clk_phase_end)
          IF (clk_rate > 0) t_exchange = t_exchange + real(clk_phase_end - clk_phase_start, r8) / real(clk_rate, r8)
+
+         CALL system_clock(clk_phase_start)
+         CALL apply_sediment_input(dt_sed, rivsto, topo_rivwth, topo_rivlen)
+         CALL system_clock(clk_phase_end)
+         IF (clk_rate > 0) t_input = t_input + real(clk_phase_end - clk_phase_start, r8) / real(clk_rate, r8)
 
          CALL system_clock(clk_phase_start)
          CALL calc_layer_redistribution(topo_rivwth, topo_rivlen)
@@ -1006,9 +1006,9 @@ CONTAINS
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE apply_sediment_input(dt, rivsto, rivwth, rivlen)
-   ! Apply hillslope erosion input (sedinp) to storage, independent of exchange.
-   ! For cells with enough water: add to suspended sediment (with MAX_SED_CONC cap).
-   ! For shallow/dry cells: deposit directly into bed layer (no water to suspend in).
+   ! Apply hillslope erosion input after exchange, following CoLM-sed-master more closely.
+   ! Add input to suspended storage when enough water is present, then apply a single
+   ! MAX_SED_CONC cap. For shallow/dry cells, deposit directly into the bed layer.
    !-------------------------------------------------------------------------------------
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
@@ -1016,9 +1016,9 @@ CONTAINS
    real(r8), intent(in) :: dt
    real(r8), intent(in) :: rivsto(:), rivwth(:), rivlen(:)
 
-   real(r8), parameter :: IGNORE_DPH = 0.05_r8
-   real(r8) :: sedsto_new(nsed), sedsto_sum, dTmp(nsed)
-   integer :: i
+      real(r8), parameter :: IGNORE_DPH = 0.05_r8
+      real(r8) :: sedsto_new(nsed), sedsto_sum, dTmp(nsed)
+      integer :: i
 
       IF (.not. p_is_worker) RETURN
       IF (numucat <= 0) RETURN
@@ -1027,22 +1027,18 @@ CONTAINS
          IF (sum(sedinp(:,i)) <= 0._r8) CYCLE
 
          IF (rivsto(i) >= rivwth(i) * rivlen(i) * IGNORE_DPH) THEN
-            ! Enough water: add to suspended sediment
             sedsto_new(:) = sedcon(:,i) * rivsto(i) + sedinp(:,i) * dt
-
-            ! Apply MAX_SED_CONC cap; excess goes to bed layer
             sedsto_sum = sum(sedsto_new(:))
             IF (sedsto_sum > rivsto(i) * MAX_SED_CONC) THEN
                dTmp(:) = (sedsto_sum - rivsto(i) * MAX_SED_CONC) &
                   * sedsto_new(:) / max(sedsto_sum, 1.e-20_r8)
                dTmp(:) = min(dTmp(:), sedsto_new(:))
+               netflw(:,i) = netflw(:,i) - dTmp(:) / dt
                sedsto_new(:) = sedsto_new(:) - dTmp(:)
                layer(:,i) = layer(:,i) + dTmp(:) / (1._r8 - lambda)
             ENDIF
-
             sedcon(:,i) = sedsto_new(:) / rivsto(i)
          ELSE
-            ! Shallow/dry: deposit erosion input directly into bed layer
             layer(:,i) = layer(:,i) + sedinp(:,i) * dt / (1._r8 - lambda)
          ENDIF
       ENDDO
@@ -1123,17 +1119,6 @@ CONTAINS
                layer(ised,i) = layer(ised,i) + abs(netflw(ised,i)) * dt / (1._r8 - lambda)
             ENDIF
          ENDDO
-
-         ! Note: sedinp is applied in apply_sediment_input before this subroutine
-
-         sedsto_sum = sum(sedsto(:))
-         IF (sedsto_sum > rivsto(i) * MAX_SED_CONC) THEN
-            dTmp(:) = (sedsto_sum - rivsto(i) * MAX_SED_CONC) * sedsto(:) / max(sedsto_sum, 1.e-20_r8)
-            dTmp(:) = min(dTmp(:), sedsto(:))   ! Prevent individual components going negative
-            netflw(:,i) = netflw(:,i) - dTmp(:) / dt
-            sedsto(:) = sedsto(:) - dTmp(:)
-            layer(:,i) = layer(:,i) + dTmp(:) / (1._r8 - lambda)
-         ENDIF
 
          IF (rivsto(i) > 0._r8) THEN
             sedcon(:,i) = sedsto(:) / rivsto(i)
