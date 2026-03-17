@@ -1047,7 +1047,7 @@ CONTAINS
                   CALL mpi_send (isend1d, nucat, MPI_INTEGER, p_address_worker(iworker), &
                      mpi_tag_data, p_comm_glb, p_err)
 
-                  deallocate (rsend1d)
+                  deallocate (isend1d)
                ENDIF
             ENDIF
          ENDDO
