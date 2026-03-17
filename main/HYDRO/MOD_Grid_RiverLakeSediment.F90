@@ -80,7 +80,7 @@ MODULE MOD_Grid_RiverLakeSediment
    ! Accumulated Variables for Sediment Time-stepping (per-cell)
    !-------------------------------------------------------------------------------------
    real(r8), allocatable :: sed_acc_time (:)   ! Accumulated time [numucat]
-   real(r8), allocatable :: sed_acc_veloc(:)   ! Accumulated velocity*dt [numucat]
+   real(r8), allocatable :: sed_acc_v2   (:)   ! Accumulated velocity**2 * dt [numucat]
    real(r8), allocatable :: sed_acc_wdsrf(:)   ! Accumulated water depth*dt [numucat]
    real(r8), allocatable :: sed_acc_rivout(:)  ! Accumulated discharge*dt [numucat]
    real(r8), allocatable :: sed_precip(:)      ! Accumulated precipitation [numucat]
@@ -199,13 +199,14 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    USE MOD_Grid_RiverLakeNetwork, only: numucat, topo_rivwth, topo_rivlen, &
       topo_rivman, topo_area
+   USE MOD_Const_Physical, only: grav
    IMPLICIT NONE
 
    real(r8), intent(in) :: deltime
    real(r8), intent(in) :: fldfrc_in(:)
 
    real(r8) :: sed_time_remaining, dt_sed
-   real(r8) :: avg_veloc, avg_wdsrf, avg_rivout
+   real(r8) :: avg_v2, avg_wdsrf, avg_rivout
    real(r8), allocatable :: rivsto(:), rivout(:)
    real(r8) :: precip_time_local
    integer  :: i, iter_sed
@@ -283,11 +284,19 @@ CONTAINS
          ! Calculate average water flow variables from per-cell accumulators
          DO i = 1, numucat
             IF (sed_acc_time(i) > 0._r8) THEN
-               avg_veloc  = sed_acc_veloc(i)  / sed_acc_time(i)
+               avg_v2     = sed_acc_v2(i)     / sed_acc_time(i)
                avg_wdsrf  = sed_acc_wdsrf(i)  / sed_acc_time(i)
                avg_rivout = sed_acc_rivout(i) / sed_acc_time(i)
 
-               shearvel(i) = calc_shear_velocity(avg_veloc, avg_wdsrf, topo_rivman(i))
+               ! Shear velocity from RMS velocity: u* = sqrt(g * n^2 * <v^2> * d^(-1/3))
+               ! Using <v^2> (mean of squared velocity) avoids sign cancellation
+               ! when flow direction oscillates (tidal/backwater areas).
+               IF (avg_wdsrf > 0._r8) THEN
+                  shearvel(i) = sqrt(grav * topo_rivman(i)**2 * avg_v2 &
+                     * avg_wdsrf**(-1._r8/3._r8))
+               ELSE
+                  shearvel(i) = 0._r8
+               ENDIF
                CALL calc_critical_shear_egiazoroff(i, shearvel(i), critshearvel(:,i))
                CALL calc_suspend_velocity(critshearvel(:,i), shearvel(i), susvel(:,i))
 
@@ -341,7 +350,7 @@ CONTAINS
 
       ! Reset accumulation variables
       sed_acc_time(:)   = 0._r8
-      sed_acc_veloc(:)  = 0._r8
+      sed_acc_v2(:)     = 0._r8
       sed_acc_wdsrf(:)  = 0._r8
       sed_acc_rivout(:) = 0._r8
       sed_precip(:)     = 0._r8
@@ -476,9 +485,9 @@ CONTAINS
          IF (.not. ucatfilter(i)) CYCLE
          dt = dt_all(irivsys(i))
          sed_acc_time(i)   = sed_acc_time(i)   + dt
-         sed_acc_veloc(i)  = sed_acc_veloc(i)  + veloc(i)     * dt
-         sed_acc_wdsrf(i)  = sed_acc_wdsrf(i)  + wdsrf(i)     * dt
-         sed_acc_rivout(i) = sed_acc_rivout(i) + rivout_fc(i) * dt
+         sed_acc_v2(i)     = sed_acc_v2(i)     + veloc(i)**2   * dt
+         sed_acc_wdsrf(i)  = sed_acc_wdsrf(i)  + wdsrf(i)      * dt
+         sed_acc_rivout(i) = sed_acc_rivout(i) + rivout_fc(i)  * dt
       ENDDO
 
    END SUBROUTINE sediment_diag_accumulate
@@ -646,7 +655,7 @@ CONTAINS
       allocate(susvel      (nsed, numucat))
 
       allocate(sed_acc_time  (numucat))
-      allocate(sed_acc_veloc (numucat))
+      allocate(sed_acc_v2    (numucat))
       allocate(sed_acc_wdsrf (numucat))
       allocate(sed_acc_rivout(numucat))
       allocate(sed_precip    (numucat))
@@ -663,7 +672,7 @@ CONTAINS
       sedout       = 0._r8;  bedout       = 0._r8;  sedinp       = 0._r8
       netflw       = 0._r8;  shearvel     = 0._r8;  critshearvel = 0._r8
       susvel       = 0._r8
-      sed_acc_time  = 0._r8;  sed_acc_veloc = 0._r8
+      sed_acc_time  = 0._r8;  sed_acc_v2     = 0._r8
       sed_acc_wdsrf = 0._r8;  sed_acc_rivout = 0._r8
       sed_precip    = 0._r8;  sed_precip_time = 0._r8
       sed_hist_acctime = 0._r8
@@ -1249,7 +1258,7 @@ CONTAINS
          ENDIF
 
          precip_mm = precip_rate * 86400._r8
-         IF (precip_mm <= 10._r8) CYCLE
+         IF (precip_mm <= 2._r8) CYCLE
 
          DO ilyr = 1, nlfp_sed
             IF (fldfrc(i) * nlfp_sed > real(ilyr, r8)) CYCLE
@@ -1464,7 +1473,7 @@ CONTAINS
       IF (allocated(critshearvel )) deallocate(critshearvel )
       IF (allocated(susvel       )) deallocate(susvel       )
       IF (allocated(sed_acc_time )) deallocate(sed_acc_time )
-      IF (allocated(sed_acc_veloc)) deallocate(sed_acc_veloc)
+      IF (allocated(sed_acc_v2   )) deallocate(sed_acc_v2   )
       IF (allocated(sed_acc_wdsrf)) deallocate(sed_acc_wdsrf)
       IF (allocated(sed_acc_rivout)) deallocate(sed_acc_rivout)
       IF (allocated(sed_precip   )) deallocate(sed_precip   )
