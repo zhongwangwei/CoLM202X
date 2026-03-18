@@ -720,7 +720,7 @@ CONTAINS
             CALL vector_gather_map2grid_and_write ( a_netflw_avg(ised,:), numucat,     &
                totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
                file_hist_ucat, 'f_netflw_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'net suspension-deposition flux, size class ' // trim(cised), 'm^3/s')
+               'net bed-water exchange flux (incl. shallow deposit), size class ' // trim(cised), 'm^3/s')
          ENDDO
       ENDIF
 

@@ -103,7 +103,7 @@ CONTAINS
    real(r8), allocatable :: prcp_gd(:)
    real(r8), allocatable :: prcp_uc(:)
    real(r8), allocatable :: prcp_pch(:)
-   real(r8), allocatable :: fldfrc_sed(:)
+   real(r8), allocatable :: floodarea_sed(:)
 #endif
 
    logical,  allocatable :: is_built_resv(:)
@@ -642,8 +642,21 @@ CONTAINS
 
 #ifdef GridRiverLakeSediment
             IF (DEF_USE_SEDIMENT) THEN
+               IF (numucat > 0) THEN
+                  allocate(floodarea_sed(numucat))
+                  DO i = 1, numucat
+                     IF (ucatfilter(i)) THEN
+                        floodarea_sed(i) = floodplain_curve(i)%floodarea(wdsrf_ucat(i))
+                     ELSE
+                        floodarea_sed(i) = 0._r8
+                     ENDIF
+                  ENDDO
+               ELSE
+                  allocate(floodarea_sed(0))
+               ENDIF
                CALL sediment_diag_accumulate(dt_all, irivsys, ucatfilter, &
-                  veloc_riv, wdsrf_ucat, hflux_fc)
+                  veloc_riv, wdsrf_ucat, hflux_fc, floodarea_sed)
+               deallocate(floodarea_sed)
             ENDIF
 #endif
 
@@ -690,18 +703,9 @@ CONTAINS
 #ifdef GridRiverLakeSediment
       IF (DEF_USE_SEDIMENT .and. p_is_worker) THEN
          ! All workers must participate (MPI point-to-point inside push_data).
-         IF (numucat > 0) THEN
-            allocate (fldfrc_sed (numucat))
-            WHERE (topo_area > 0._r8 .and. acctime_ucat > 0._r8)
-               fldfrc_sed = a_floodarea / topo_area / acctime_ucat
-            ELSEWHERE
-               fldfrc_sed = 0._r8
-            END WHERE
-         ELSE
-            allocate (fldfrc_sed (0))
-         ENDIF
-         CALL grid_sediment_calc(acctime_rnof, fldfrc_sed)
-         deallocate(fldfrc_sed)
+         ! fldfrc is now computed inside grid_sediment_calc from per-routing-period
+         ! accumulators (sed_acc_floodarea), not from history-period averages.
+         CALL grid_sediment_calc(acctime_rnof)
       ENDIF
 #endif
 
