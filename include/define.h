@@ -63,7 +63,7 @@
 #undef GridRiverLakeFlow
 #endif
 
-#define GridRiverLakeSediment
+#undef GridRiverLakeSediment
 #if (!defined GridRiverLakeFlow)
 #undef GridRiverLakeSediment
 #endif
