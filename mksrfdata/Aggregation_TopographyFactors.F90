@@ -379,6 +379,7 @@ SUBROUTINE Aggregation_TopographyFactors ( &
          x(:) = zenith_angle(:)
 
          ! Obtain the last position of y==1
+         index = 1
          DO z = 1, num_zenith-1
             IF ((y(z)==1.).and.(y(z+1)<1.)) THEN
                index = z+1

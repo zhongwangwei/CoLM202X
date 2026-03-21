@@ -432,7 +432,7 @@ CONTAINS
       numucat_wrk(0) = numucat
 
       allocate (ucat_data_address (0:0))
-      allocate (ucat_data_address(0)%val (nucat))
+      allocate (ucat_data_address(0)%val (numucat))
       ucat_data_address(0)%val = ucat_ucid
 #endif
 
