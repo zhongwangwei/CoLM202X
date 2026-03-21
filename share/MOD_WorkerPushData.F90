@@ -886,8 +886,10 @@ CONTAINS
 
       IF (p_is_worker) THEN
 
+         ! Always allocate (zero-length if no requests) to avoid passing
+         ! unallocated array to worker_push_data_uniq_real8.
+         allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
-            allocate (vec_recv_uniq (pushdata%num_req_uniq))
             vec_recv_uniq(:) = fillvalue
          ENDIF
 
@@ -895,8 +897,8 @@ CONTAINS
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = vec_recv_uniq(pushdata%addr_single)
-            deallocate (vec_recv_uniq)
          ENDIF
+         deallocate (vec_recv_uniq)
 
       ENDIF
 
@@ -922,8 +924,10 @@ CONTAINS
 
       IF (p_is_worker) THEN
 
+         ! Always allocate (zero-length if no requests) to avoid passing
+         ! unallocated array to worker_push_data_uniq_real8.
+         allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
-            allocate (vec_recv_uniq (pushdata%num_req_uniq))
             vec_recv_uniq(:) = fillvalue
          ENDIF
 
@@ -956,8 +960,8 @@ CONTAINS
                ENDIF
             ENDDO
 
-            deallocate (vec_recv_uniq)
          ENDIF
+         deallocate (vec_recv_uniq)
 
       ENDIF
 
@@ -979,8 +983,8 @@ CONTAINS
 
       IF (p_is_worker) THEN
 
+         allocate (vec_recv_uniq (pushdata%num_req_uniq))
          IF (pushdata%num_req_uniq > 0) THEN
-            allocate (vec_recv_uniq (pushdata%num_req_uniq))
             vec_recv_uniq(:) = fillvalue
          ENDIF
 
@@ -988,8 +992,8 @@ CONTAINS
 
          IF (pushdata%num_req_uniq > 0) THEN
             vec_recv = vec_recv_uniq(pushdata%addr_single)
-            deallocate (vec_recv_uniq)
          ENDIF
+         deallocate (vec_recv_uniq)
 
       ENDIF
 
