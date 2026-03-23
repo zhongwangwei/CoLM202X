@@ -199,7 +199,7 @@ CONTAINS
 
       ! 1. Determine number of groups
       IF (ngrp <= 0) THEN
-         CALL mpi_abort (p_comm_glb, p_err)
+         CALL mpi_abort (p_comm_glb, 1, p_err)
       ENDIF
 
       ! 2. What task will I take? Which group I am in?
@@ -332,12 +332,11 @@ CONTAINS
 
    IMPLICIT NONE
    character(len=*), optional :: mesg
-   integer :: errorcode
 
       IF (present(mesg)) write(*,*) trim(mesg)
 
 #ifdef USEMPI
-      CALL mpi_abort (p_comm_glb, errorcode, p_err)
+      CALL mpi_abort (p_comm_glb, 1, p_err)
 #else
       STOP
 #endif

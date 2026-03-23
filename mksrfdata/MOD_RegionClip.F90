@@ -61,7 +61,9 @@ CONTAINS
                ' to ', trim(adjustl(dir_landdata_out))
             write(*,*) 'Data will be overwritten, please CHANGE directory.'
 #ifdef USEMPI
-            CALL mpi_abort (p_comm_glb, p_err)
+            CALL mpi_abort (p_comm_glb, 1, p_err)
+#else
+            CALL EXIT(1)
 #endif
          ELSE
             CALL system('mkdir -p ' // trim(dir_landdata_out))
@@ -122,7 +124,7 @@ CONTAINS
          DO iblk = 1, gblock%nxblk
             IF ((gblock%lon_w(iblk) == gblock%lon_e(iblk)) .or. (edgew == edgee)) THEN
                IF (nelm_blk(iblk,jblk) > 0) THEN
-                  iproc  = iproc + 1
+                  iproc  = mod(iproc + 1, p_np_glb)
                   IOproc(iblk,jblk) = iproc
                ENDIF
             ELSE
@@ -131,7 +133,7 @@ CONTAINS
                   .or. lon_between_floor(edgew, gblock%lon_w(iblk), gblock%lon_e(iblk)) &
                   .or. lon_between_ceil (edgee, gblock%lon_w(iblk), gblock%lon_e(iblk))) THEN
                   IF (nelm_blk(iblk,jblk) > 0) THEN
-                     iproc  = iproc + 1
+                     iproc  = mod(iproc + 1, p_np_glb)
                      IOproc(iblk,jblk) = iproc
                   ENDIF
                ENDIF
@@ -252,11 +254,16 @@ CONTAINS
                   end_year   = DEF_LC_YEAR
                ENDIF
 
+               DO YY = start_year, end_year
+                  write(cyear,'(i4.4)') YY
+                  CALL system('mkdir -p ' // trim(dir_landdata_out) // '/LAI/' // trim(cyear))
+               ENDDO
+
                IF (DEF_LAI_MONTHLY) THEN
                   DO YY = start_year, end_year
+                     write(cyear,'(i4.4)') YY
                      DO month = 1, 12
                         write(c2,'(i2.2)') month
-                        write(cyear,'(i4.4)') YY
 
                         file_in  = trim(dir_landdata_in)  // '/LAI/' // trim(cyear) // '/LAI_patches' // trim(c2) // '.nc'
                         file_out = trim(dir_landdata_out) // '/LAI/' // trim(cyear) // '/LAI_patches' // trim(c2) // '.nc'
@@ -269,10 +276,7 @@ CONTAINS
                   ENDDO
                ELSE
                   DO YY = DEF_simulation_time%start_year, DEF_simulation_time%end_year
-
                      write(cyear,'(i4.4)') YY
-                     CALL system('mkdir -p ' // trim(dir_landdata_out) // '/LAI/' // trim(cyear))
-
                      DO itime = 1, 46
                         Julian_day = 1 + (itime-1)*8
                         write(c3, '(i3.3)') Julian_day
