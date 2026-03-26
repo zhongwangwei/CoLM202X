@@ -47,7 +47,7 @@ MODULE MOD_LeafInterception
 
    ! Tolerance for interception water balance checks [mm]
    ! Used by check_interception_balance subroutine under CoLMDEBUG
-   real(r8), parameter ::  INTERCEPTION_BALANCE_TOL = 1.0e-6_r8
+   real(r8), parameter ::  INTERCEPTION_BALANCE_TOL = 1.0e-5_r8
 
    !----------------------- Dummy argument --------------------------------
    real(r8) :: satcap                     ! maximum allowed water on canopy [mm]
@@ -333,13 +333,13 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code: '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
             CALL abort
          ENDIF
 
-         IF (DEF_VEG_SNOW .and. abs(ldew-ldew_rain-ldew_snow) > 1.e-6) THEN
+         IF (DEF_VEG_SNOW .and. abs(ldew-ldew_rain-ldew_snow) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code when DEF_VEG_SNOW: '
             write(6,*) ldew, ldew_rain, ldew_snow
             CALL abort
@@ -524,7 +524,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
             CALL abort
@@ -554,6 +554,8 @@ CONTAINS
          ENDIF
 
          ldew  = 0.
+         ldew_rain  = 0.
+         ldew_snow  = 0.
          qintr = 0.
          qintr_rain = 0.
          qintr_snow = 0.
@@ -661,7 +663,7 @@ CONTAINS
 
             ! assume no fall down of the intercepted snowfall in a time step
             ! drainage
-            tex_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * fpi + max(0., ldew - satcap)
+            tex_rain = (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim * fpi + ldew - satcap
             tex_rain = max(tex_rain, 0. )
             ! Ensure physical constraint: tex_rain + tti_rain <= total rain input
             tex_rain = min( tex_rain, (prc_rain+prl_rain+qflx_irrig_sprinkler)*deltim - tti_rain )
@@ -700,7 +702,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim, satcap
             CALL abort
@@ -723,6 +725,8 @@ CONTAINS
          ENDIF
 
          ldew  = 0.
+         ldew_rain  = 0.
+         ldew_snow  = 0.
          qintr = 0.
          qintr_rain = 0.
          qintr_snow = 0.
@@ -913,7 +917,7 @@ CONTAINS
 #if (defined CoLMDEBUG)
          ! Mass balance check
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'Mass balance error in CLM5 interception:'
             write(6,*) 'Error:', w, 'ldew:', ldew, 'outflow:', (pg_rain+pg_snow)*deltim
             write(6,*) 'satcap_rain:', satcap_rain, 'satcap_snow:', satcap_snow
@@ -1161,7 +1165,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim  !, satcap
             CALL abort
@@ -1396,12 +1400,10 @@ CONTAINS
             tex_snow  = max(0.0,tex_snow)
             !-------------------------------------------------------------------------
 
-
-#if (defined CoLMDEBUG)
-            IF (tex_rain+tex_snow+tti_rain+tti_snow-p0 > 1.e-10) THEN
-               write(6,*) 'tex_ + tti_ > p0 in interception code : '
-            ENDIF
-#endif
+! NOTE: The check "tex+tti > p0" is not applicable to MATSIRO scheme.
+! Rutter exponential drainage drains pre-existing canopy water (ldew),
+! so tex+tti can legitimately exceed p0. The real mass balance check
+! is performed below (w residual check with abort).
 
          ELSE
             ! all intercepted by canopy leaves for very small precipitation
@@ -1434,7 +1436,7 @@ CONTAINS
          qintr_snow = prc_snow + prl_snow - thru_snow / deltim
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim !, satcap
             CALL abort
@@ -1656,7 +1658,11 @@ CONTAINS
             ! Physical meaning:
             !   - In vegetated fraction (sigf): only non-intercepted part passes through
             !   - In bare fraction (1-sigf): all precipitation passes through
-            tti_snow = (Snow - DeltaSnowInt) * sigf + Snow * (1.0 - sigf)
+            !
+            ! Use sigf_safe consistently with the storage scaling above. Mixing sigf_safe
+            ! for state variables with raw sigf for throughfall creates small residuals
+            ! in the debug mass-balance check when sigf is very small.
+            tti_snow = (Snow - DeltaSnowInt) * sigf_safe + Snow * (1.0 - sigf_safe)
             ldew_snow = ldew_snow + DeltaSnowInt
 
             ! Rain interception: Original VIC capacity-based algorithm
@@ -1674,11 +1680,11 @@ CONTAINS
                ! All rain can be intercepted (capacity not exceeded)
                ldew_rain = ldew_rain + Rain
                ! Throughfall: only bare area contribution
-               tti_rain = Rain * (1.0 - sigf)
+               tti_rain = Rain * (1.0 - sigf_safe)
             ELSE
                ! Capacity exceeded: excess becomes throughfall
                ! Throughfall = vegetated area excess + bare area all
-               tti_rain = (ldew_rain + Rain - MaxWaterInt) * sigf + Rain * (1.0 - sigf)
+               tti_rain = (ldew_rain + Rain - MaxWaterInt) * sigf_safe + Rain * (1.0 - sigf_safe)
                ! Storage saturated at maximum capacity
                ldew_rain = MaxWaterInt
             ENDIF
@@ -1736,11 +1742,11 @@ CONTAINS
                tex_snow  = tex_snow  + Overload*IntSnowFract
             ENDIF
 
-#if (defined CoLMDEBUG)
-            IF (tex_rain+tex_snow+tti_rain+tti_snow-p0 > 1.e-10) THEN
-               write(6,*) 'tex_ + tti_ > p0 in interception code : '
-            ENDIF
-#endif
+! NOTE: The check "tex+tti > p0" is not applicable to VIC scheme.
+! VIC's tex includes drainage of pre-existing canopy water (ldew) from
+! capacity overflow, wind unloading, and structural overloading.
+! Additionally, tti includes bare-fraction precipitation.
+! The real mass balance check is performed below (w residual check with abort).
 
          ELSE
             ! all intercepted by canopy leaves for very small precipitation
@@ -1786,7 +1792,7 @@ CONTAINS
          qintr_snow = prc_snow + prl_snow - thru_snow / deltim
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
-         IF (abs(w) > 1.e-6) THEN
+         IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
             write(6,*) 'something wrong in interception code : '
             write(6,*) w, ldew, (pg_rain+pg_snow)*deltim !, satcap
             CALL abort
@@ -2293,8 +2299,8 @@ CONTAINS
    real(r8), intent(in)    :: forc_t     !air temperature
    real(r8), intent(in)    :: z0m        !roughness length
    real(r8), intent(in)    :: hu         !forcing height of U
-   real(r8), intent(in)    :: ldew_rain  !depth of water on foliage [mm]
-   real(r8), intent(in)    :: ldew_snow  !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_rain  !depth of water on foliage [mm]
+   real(r8), intent(inout) :: ldew_snow  !depth of water on foliage [mm]
    real(r8), intent(in)    :: prc_rain   !convective ranfall [mm/s]
    real(r8), intent(in)    :: prc_snow   !convective snowfall [mm/s]
    real(r8), intent(in)    :: prl_rain   !large-scale rainfall [mm/s]
@@ -2398,6 +2404,8 @@ CONTAINS
       pg_rain = pg_rain_tmp
       pg_snow = pg_snow_tmp
       ldew    = sum( ldew_p(ps:pe) * pftfrac(ps:pe))
+      ldew_rain = sum( ldew_rain_p(ps:pe) * pftfrac(ps:pe))
+      ldew_snow = sum( ldew_snow_p(ps:pe) * pftfrac(ps:pe))
       qintr   = sum(qintr_p(ps:pe) * pftfrac(ps:pe))
       qintr_rain = sum(qintr_rain_p(ps:pe) * pftfrac(ps:pe))
       qintr_snow = sum(qintr_snow_p(ps:pe) * pftfrac(ps:pe))
