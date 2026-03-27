@@ -519,6 +519,8 @@ CONTAINS
       ENDIF
       CALL this%get_sumarea (this%areagrid, msk)
 
+      IF (allocated(msk)) deallocate(msk)
+
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
@@ -971,6 +973,7 @@ CONTAINS
       IF (allocated(wwgt)) deallocate(wwgt)
       IF (allocated(ewgt)) deallocate(ewgt)
 
+      IF (allocated(msk)) deallocate(msk)
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)

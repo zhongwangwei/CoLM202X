@@ -207,7 +207,7 @@ CONTAINS
       nres = mod(p_np_glb-1, ngrp)
 
       IF (.not. p_is_master) THEN
-         IF (p_iam_glb <= (nave+1)*nres) THEN
+         IF (p_iam_glb < (nave+1)*nres) THEN
             p_is_io = mod(p_iam_glb, nave+1) == 0
             p_my_group = p_iam_glb / (nave+1)
          ELSE
