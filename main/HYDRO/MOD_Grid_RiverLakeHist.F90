@@ -24,6 +24,11 @@ MODULE MOD_Grid_RiverLakeHist
    real(r8), allocatable :: a_veloc_riv      (:)
    real(r8), allocatable :: a_discharge      (:)
    real(r8), allocatable :: a_floodarea      (:)  ! flooded area [m^2]
+   real(r8), allocatable :: a_rivsto         (:)  ! river channel storage [m^3]
+   real(r8), allocatable :: a_fldsto         (:)  ! floodplain storage [m^3]
+   real(r8), allocatable :: a_flddph         (:)  ! floodplain depth [m]
+   real(r8), allocatable :: a_storge         (:)  ! total storage (river+floodplain+levee) [m^3]
+   real(r8), allocatable :: a_sfcelv         (:)  ! water surface elevation [m]
    real(r8), allocatable :: a_levsto         (:)  ! accumulated levee storage [m^3 * s]
    real(r8), allocatable :: a_levdph         (:)  ! accumulated levee depth   [m * s]
 
@@ -98,6 +103,11 @@ CONTAINS
             allocate (a_veloc_riv  (numucat))
             allocate (a_discharge  (numucat))
             allocate (a_floodarea  (numucat))
+            allocate (a_rivsto     (numucat))
+            allocate (a_fldsto     (numucat))
+            allocate (a_flddph     (numucat))
+            allocate (a_storge     (numucat))
+            allocate (a_sfcelv     (numucat))
             IF (DEF_USE_LEVEE) THEN
                allocate (a_levsto    (numucat))
                allocate (a_levdph    (numucat))
@@ -463,6 +473,44 @@ CONTAINS
 
       ENDIF
 
+      ! ----- river/floodplain storage separation and water surface elevation -----
+      IF (p_is_worker) THEN
+         IF (numucat > 0) THEN
+            WHERE (acctime_ucat > 0.)
+               a_rivsto = a_rivsto / acctime_ucat
+               a_fldsto = a_fldsto / acctime_ucat
+               a_flddph = a_flddph / acctime_ucat
+               a_storge = a_storge / acctime_ucat
+               a_sfcelv = a_sfcelv / acctime_ucat
+            END WHERE
+         ENDIF
+      ENDIF
+
+      CALL vector_gather_map2grid_and_write ( a_rivsto, numucat,                       &
+         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+         file_hist_ucat, 'f_rivsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+         'river channel storage', 'm^3')
+
+      CALL vector_gather_map2grid_and_write ( a_fldsto, numucat,                       &
+         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+         file_hist_ucat, 'f_fldsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+         'floodplain storage', 'm^3')
+
+      CALL vector_gather_map2grid_and_write ( a_flddph, numucat,                       &
+         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+         file_hist_ucat, 'f_flddph', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+         'floodplain water depth', 'm')
+
+      CALL vector_gather_map2grid_and_write ( a_storge, numucat,                       &
+         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+         file_hist_ucat, 'f_storge', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+         'total water storage (river+floodplain+levee)', 'm^3')
+
+      CALL vector_gather_map2grid_and_write ( a_sfcelv, numucat,                       &
+         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+         file_hist_ucat, 'f_sfcelv', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+         'water surface elevation', 'm')
+
       ! ----- levee variables -----
       IF (DEF_USE_LEVEE) THEN
          IF (p_is_worker) THEN
@@ -574,6 +622,11 @@ CONTAINS
             a_veloc_riv  (:) = 0.
             a_discharge  (:) = 0.
             a_floodarea  (:) = 0.
+            a_rivsto     (:) = 0.
+            a_fldsto     (:) = 0.
+            a_flddph     (:) = 0.
+            a_storge     (:) = 0.
+            a_sfcelv     (:) = 0.
             IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
                a_levsto (:) = 0.
                a_levdph (:) = 0.
@@ -614,6 +667,11 @@ CONTAINS
       IF (allocated(a_veloc_riv     )) deallocate (a_veloc_riv     )
       IF (allocated(a_discharge     )) deallocate (a_discharge     )
       IF (allocated(a_floodarea     )) deallocate (a_floodarea     )
+      IF (allocated(a_rivsto        )) deallocate (a_rivsto        )
+      IF (allocated(a_fldsto        )) deallocate (a_fldsto        )
+      IF (allocated(a_flddph        )) deallocate (a_flddph        )
+      IF (allocated(a_storge        )) deallocate (a_storge        )
+      IF (allocated(a_sfcelv        )) deallocate (a_sfcelv        )
       IF (allocated(a_levsto        )) deallocate (a_levsto        )
       IF (allocated(a_levdph        )) deallocate (a_levdph        )
 

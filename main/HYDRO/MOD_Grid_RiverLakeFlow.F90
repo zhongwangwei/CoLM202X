@@ -654,6 +654,25 @@ CONTAINS
                   ENDIF
                   a_floodarea (i) = a_floodarea (i) + floodarea * dt_all(irivsys(i))
 
+                  ! River/floodplain storage separation, total storage, surface elevation
+                  ! rivsto = rivare * wdsrf (matches CaMa-Flood: P2RIVSTO = RIVLEN*RIVWTH*RIVDPH)
+                  ! fldsto = total_volume - rivsto
+                  ! flddph = max(wdsrf - rivhgt, 0) (depth above channel banks)
+                  ! storge = total_volume (+ levsto if levee enabled)
+                  ! sfcelv = bed_elevation + wdsrf (matches CaMa: D2RIVELV + D2RIVDPH)
+                  volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                  a_rivsto(i) = a_rivsto(i) + floodplain_curve(i)%rivare * wdsrf_ucat(i) * dt_all(irivsys(i))
+                  a_fldsto(i) = a_fldsto(i) &
+                     + max(volwater - floodplain_curve(i)%rivare * wdsrf_ucat(i), 0._r8) * dt_all(irivsys(i))
+                  a_flddph(i) = a_flddph(i) &
+                     + max(wdsrf_ucat(i) - floodplain_curve(i)%rivhgt, 0._r8) * dt_all(irivsys(i))
+                  IF (DEF_USE_LEVEE .and. allocated(levsto)) THEN
+                     a_storge(i) = a_storge(i) + (volwater + levsto(i)) * dt_all(irivsys(i))
+                  ELSE
+                     a_storge(i) = a_storge(i) + volwater * dt_all(irivsys(i))
+                  ENDIF
+                  a_sfcelv(i) = a_sfcelv(i) + (topo_rivelv(i) + wdsrf_ucat(i)) * dt_all(irivsys(i))
+
                   IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
                      a_levsto(i) = a_levsto(i) + levsto(i) * dt_all(irivsys(i))
                      a_levdph(i) = a_levdph(i) + levdph(i) * dt_all(irivsys(i))
