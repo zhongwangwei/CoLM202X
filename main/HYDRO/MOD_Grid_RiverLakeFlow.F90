@@ -16,6 +16,7 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_Reservoir
    USE MOD_Grid_RiverLakeHist
+   USE MOD_Grid_RiverLakeLevee
 #ifdef GridRiverLakeSediment
    USE MOD_Grid_RiverLakeSediment, only: grid_sediment_init, grid_sediment_calc, &
       grid_sediment_final, sediment_diag_accumulate, sediment_forcing_put, &
@@ -70,13 +71,15 @@ CONTAINS
       ENDIF
 #endif
 
+      IF (DEF_USE_LEVEE) CALL levee_init()
+
    END SUBROUTINE grid_riverlake_flow_init
 
    ! ---------
    SUBROUTINE grid_riverlake_flow (year, deltime)
 
    USE MOD_Utils
-   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT
+   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE
    USE MOD_Vars_1DFluxes,  only: rnof
    USE MOD_Mesh,           only: numelm
    USE MOD_LandPatch,      only: elm_patch, numpatch
@@ -130,6 +133,7 @@ CONTAINS
    real(r8) :: bedelv_fc, height_up, height_dn
    real(r8) :: vwave_up, vwave_dn, hflux_up, hflux_dn, mflux_up, mflux_dn
    real(r8) :: volwater, friction, floodarea
+   real(r8) :: vol_total_levee, fldfrc_levee
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
 #ifdef CoLMDEBUG
@@ -581,7 +585,13 @@ CONTAINS
                   ENDIF
                ENDIF
 
-               wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+               IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
+                  vol_total_levee = volwater + levsto(i)
+                  CALL levee_fldstg(i, vol_total_levee, wdsrf_ucat(i), &
+                     levsto(i), levdph(i), fldfrc_levee)
+               ELSE
+                  wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+               ENDIF
 
                IF (is_built_resv(i)) THEN
                   volresv(ucat2resv(i)) = volwater
@@ -627,6 +637,11 @@ CONTAINS
                   floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
                   a_floodarea (i) = a_floodarea (i) + floodarea * dt_all(irivsys(i))
 
+                  IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
+                     a_levsto(i) = a_levsto(i) + levsto(i) * dt_all(irivsys(i))
+                     a_levdph(i) = a_levdph(i) + levdph(i) * dt_all(irivsys(i))
+                  ENDIF
+
                   IF (is_built_resv(i)) THEN
                      irsv = ucat2resv(i)
                      acctime_resv(irsv) = acctime_resv(irsv) + dt_all(irivsys(i))
@@ -666,7 +681,9 @@ CONTAINS
          totalvol_aft = 0.
          DO i = 1, numucat
             IF (.not. is_built_resv(i)) THEN
-               totalvol_aft = totalvol_aft + floodplain_curve(i)%volume (wdsrf_ucat(i))
+               volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+               IF (DEF_USE_LEVEE) volwater = volwater + levsto(i)
+               totalvol_aft = totalvol_aft + volwater
             ELSE
                totalvol_aft = totalvol_aft + volresv(ucat2resv(i))
             ENDIF
@@ -749,6 +766,8 @@ CONTAINS
 #ifdef GridRiverLakeSediment
       CALL grid_sediment_final()
 #endif
+
+      IF (DEF_USE_LEVEE) CALL levee_final()
 
       IF (allocated(acc_rnof_uc)) deallocate(acc_rnof_uc)
       IF (allocated(filter_rnof)) deallocate(filter_rnof)

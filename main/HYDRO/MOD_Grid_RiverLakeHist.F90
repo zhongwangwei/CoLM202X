@@ -24,6 +24,8 @@ MODULE MOD_Grid_RiverLakeHist
    real(r8), allocatable :: a_veloc_riv      (:)
    real(r8), allocatable :: a_discharge      (:)
    real(r8), allocatable :: a_floodarea      (:)  ! flooded area [m^2]
+   real(r8), allocatable :: a_levsto         (:)  ! accumulated levee storage [m^3 * s]
+   real(r8), allocatable :: a_levdph         (:)  ! accumulated levee depth   [m * s]
 
    real(r8), allocatable :: a_wdsrf_ucat_pch (:)
    real(r8), allocatable :: a_veloc_riv_pch  (:)
@@ -75,6 +77,7 @@ CONTAINS
    USE MOD_LandPatch,           only: numpatch
    USE MOD_Forcing,             only: forcmask_pch
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
+   USE MOD_Namelist
 
    IMPLICIT NONE
 
@@ -95,6 +98,10 @@ CONTAINS
             allocate (a_veloc_riv  (numucat))
             allocate (a_discharge  (numucat))
             allocate (a_floodarea  (numucat))
+            IF (DEF_USE_LEVEE) THEN
+               allocate (a_levsto    (numucat))
+               allocate (a_levdph    (numucat))
+            ENDIF
          ENDIF
 
          IF (numpatch > 0) THEN
@@ -456,6 +463,27 @@ CONTAINS
 
       ENDIF
 
+      ! ----- levee variables -----
+      IF (DEF_USE_LEVEE) THEN
+         IF (p_is_worker) THEN
+            IF (numucat > 0 .and. allocated(a_levsto)) THEN
+               WHERE (acctime_ucat > 0.)
+                  a_levsto = a_levsto / acctime_ucat
+                  a_levdph = a_levdph / acctime_ucat
+               END WHERE
+            ENDIF
+         ENDIF
+
+         CALL vector_gather_map2grid_and_write ( a_levsto, numucat,                       &
+            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+            file_hist_ucat, 'f_levsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+            'water storage in levee-protected area', 'm^3')
+
+         CALL vector_gather_map2grid_and_write ( a_levdph, numucat,                       &
+            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+            file_hist_ucat, 'f_levdph', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+            'water depth in levee-protected area', 'm')
+      ENDIF
 
       IF (allocated (a_floodfrc_ucat)) deallocate (a_floodfrc_ucat)
       IF (allocated (a_floodfrc_inpm)) deallocate (a_floodfrc_inpm)
@@ -546,6 +574,10 @@ CONTAINS
             a_veloc_riv  (:) = 0.
             a_discharge  (:) = 0.
             a_floodarea  (:) = 0.
+            IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
+               a_levsto (:) = 0.
+               a_levdph (:) = 0.
+            ENDIF
          ENDIF
 
          IF (numresv > 0) THEN
@@ -582,6 +614,8 @@ CONTAINS
       IF (allocated(a_veloc_riv     )) deallocate (a_veloc_riv     )
       IF (allocated(a_discharge     )) deallocate (a_discharge     )
       IF (allocated(a_floodarea     )) deallocate (a_floodarea     )
+      IF (allocated(a_levsto        )) deallocate (a_levsto        )
+      IF (allocated(a_levdph        )) deallocate (a_levdph        )
 
       IF (allocated(a_wdsrf_ucat_pch)) deallocate (a_wdsrf_ucat_pch)
       IF (allocated(a_veloc_riv_pch )) deallocate (a_veloc_riv_pch )

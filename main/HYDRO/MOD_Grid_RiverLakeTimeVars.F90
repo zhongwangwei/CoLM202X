@@ -56,10 +56,12 @@ CONTAINS
    SUBROUTINE READ_GridRiverLakeTimeVars (file_restart)
 
    USE MOD_SPMD_Task
-   USE MOD_Namelist
+   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_LEVEE
+   USE MOD_NetCDFSerial,          only: ncio_var_exist
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address
    USE MOD_Grid_Reservoir,        only: numresv, resv_data_address, totalnumresv
+   USE MOD_Grid_RiverLakeLevee,   only: levsto
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
@@ -75,6 +77,12 @@ CONTAINS
          ENDIF
       ENDIF
 
+      IF (DEF_USE_LEVEE) THEN
+         IF (ncio_var_exist(file_restart, 'levsto')) THEN
+            CALL vector_read_and_scatter (file_restart, levsto, numucat, 'levsto', ucat_data_address)
+         ENDIF
+      ENDIF
+
       ! Note: sediment restart is read separately in grid_sediment_read_restart,
       ! called from grid_riverlake_flow_init after sediment module is initialized.
 
@@ -84,11 +92,12 @@ CONTAINS
    SUBROUTINE WRITE_GridRiverLakeTimeVars (file_restart)
 
    USE MOD_SPMD_Task
-   USE MOD_Namelist
+   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE
    USE MOD_NetCDFSerial
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address
    USE MOD_Grid_Reservoir,        only: numresv, totalnumresv, resv_data_address
+   USE MOD_Grid_RiverLakeLevee,   only: levsto
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
@@ -112,6 +121,11 @@ CONTAINS
             CALL vector_gather_and_write (&
                volresv, numresv, totalnumresv, resv_data_address, file_restart, 'volresv', 'reservoir')
          ENDIF
+      ENDIF
+
+      IF (DEF_USE_LEVEE) THEN
+         CALL vector_gather_and_write (&
+            levsto, numucat, totalnumucat, ucat_data_address, file_restart, 'levsto', 'ucatch')
       ENDIF
 
 #ifdef GridRiverLakeSediment
