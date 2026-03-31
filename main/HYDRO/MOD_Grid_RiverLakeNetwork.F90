@@ -75,6 +75,10 @@ MODULE MOD_Grid_RiverLakeNetwork
    real(r8), allocatable :: topo_area      (:)   ! floodplain area [m^2]
    real(r8), allocatable :: topo_fldhgt    (:,:) ! floodplain height profile [m]
 
+   ! ----- Levee parameters (read from file) -----
+   real(r8), allocatable :: levee_frc_data (:)   ! levee unprotected fraction [0-1]
+   real(r8), allocatable :: levee_hgt_data (:)   ! levee crest height above riverbed [m]
+
    real(r8), allocatable :: bedelv_next    (:)   ! downstream river bed elevation [m]
    real(r8), allocatable :: outletwth      (:)   ! river outlet width [m]
 
@@ -831,6 +835,11 @@ CONTAINS
       CALL readin_riverlake_parameter (parafile, 'topo_area',      rdata1d = topo_area     )
       CALL readin_riverlake_parameter (parafile, 'topo_fldhgt',    rdata2d = topo_fldhgt   )
 
+      IF (DEF_USE_LEVEE) THEN
+         CALL readin_riverlake_parameter (parafile, 'levee_frc', rdata1d = levee_frc_data)
+         CALL readin_riverlake_parameter (parafile, 'levee_hgt', rdata1d = levee_hgt_data)
+      ENDIF
+
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
 
@@ -1241,6 +1250,8 @@ CONTAINS
       IF (allocated(topo_rivstomax   )) deallocate(topo_rivstomax   )
       IF (allocated(topo_area        )) deallocate(topo_area        )
       IF (allocated(topo_fldhgt      )) deallocate(topo_fldhgt      )
+      IF (allocated(levee_frc_data   )) deallocate(levee_frc_data   )
+      IF (allocated(levee_hgt_data   )) deallocate(levee_hgt_data   )
       IF (allocated(bedelv_next      )) deallocate(bedelv_next      )
       IF (allocated(outletwth        )) deallocate(outletwth        )
 
