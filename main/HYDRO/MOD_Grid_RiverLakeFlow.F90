@@ -71,7 +71,12 @@ CONTAINS
       ENDIF
 #endif
 
-      IF (DEF_USE_LEVEE) CALL levee_init()
+      IF (DEF_USE_LEVEE) THEN
+         CALL levee_init()
+         IF (len_trim(gridriver_restart_file) > 0) THEN
+            CALL read_levee_restart(gridriver_restart_file)
+         ENDIF
+      ENDIF
 
    END SUBROUTINE grid_riverlake_flow_init
 
@@ -134,6 +139,7 @@ CONTAINS
    real(r8) :: vwave_up, vwave_dn, hflux_up, hflux_dn, mflux_up, mflux_dn
    real(r8) :: volwater, friction, floodarea
    real(r8) :: vol_total_levee, fldfrc_levee
+   real(r8), allocatable :: levee_floodarea(:)
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
 #ifdef CoLMDEBUG
@@ -239,6 +245,11 @@ CONTAINS
             allocate (sum_mflux_riv (numucat))
             allocate (sum_zgrad_riv (numucat))
             allocate (ucatfilter    (numucat))
+
+            IF (DEF_USE_LEVEE) THEN
+               allocate (levee_floodarea (numucat))
+               levee_floodarea = 0.
+            ENDIF
 
             allocate (hflux_sumups  (numucat))
             allocate (mflux_sumups  (numucat))
@@ -589,8 +600,10 @@ CONTAINS
                   vol_total_levee = volwater + levsto(i)
                   CALL levee_fldstg(i, vol_total_levee, wdsrf_ucat(i), &
                      levsto(i), levdph(i), fldfrc_levee)
+                  levee_floodarea(i) = fldfrc_levee * topo_area(i)
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+                  IF (DEF_USE_LEVEE) levee_floodarea(i) = 0.
                ENDIF
 
                IF (is_built_resv(i)) THEN
@@ -634,7 +647,11 @@ CONTAINS
                   a_veloc_riv (i) = a_veloc_riv (i) + veloc_riv (i) * dt_all(irivsys(i))
                   a_discharge (i) = a_discharge (i) + hflux_fc  (i) * dt_all(irivsys(i))
 
-                  floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
+                  IF (DEF_USE_LEVEE .and. levee_floodarea(i) > 0.) THEN
+                     floodarea = levee_floodarea(i)
+                  ELSE
+                     floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
+                  ENDIF
                   a_floodarea (i) = a_floodarea (i) + floodarea * dt_all(irivsys(i))
 
                   IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
@@ -661,7 +678,11 @@ CONTAINS
                   allocate(floodarea_sed(numucat))
                   DO i = 1, numucat
                      IF (ucatfilter(i)) THEN
-                        floodarea_sed(i) = floodplain_curve(i)%floodarea(wdsrf_ucat(i))
+                        IF (DEF_USE_LEVEE .and. levee_floodarea(i) > 0.) THEN
+                           floodarea_sed(i) = levee_floodarea(i)
+                        ELSE
+                           floodarea_sed(i) = floodplain_curve(i)%floodarea(wdsrf_ucat(i))
+                        ENDIF
                      ELSE
                         floodarea_sed(i) = 0._r8
                      ENDIF
@@ -748,8 +769,9 @@ CONTAINS
       IF (allocated(sum_hflux_riv)) deallocate(sum_hflux_riv)
       IF (allocated(sum_mflux_riv)) deallocate(sum_mflux_riv)
       IF (allocated(sum_zgrad_riv)) deallocate(sum_zgrad_riv)
-      IF (allocated(ucatfilter   )) deallocate(ucatfilter   )
-      IF (allocated(dt_res       )) deallocate(dt_res       )
+      IF (allocated(ucatfilter      )) deallocate(ucatfilter      )
+      IF (allocated(levee_floodarea)) deallocate(levee_floodarea)
+      IF (allocated(dt_res         )) deallocate(dt_res         )
       IF (allocated(dt_all       )) deallocate(dt_all       )
 
    END SUBROUTINE grid_riverlake_flow

@@ -36,6 +36,7 @@ MODULE MOD_Grid_RiverLakeLevee
    real(r8), allocatable :: levdph        (:)   ! protected-side water depth [m]
 
    PUBLIC :: levee_init
+   PUBLIC :: read_levee_restart
    PUBLIC :: levee_fldstg
    PUBLIC :: levee_final
 
@@ -104,7 +105,7 @@ CONTAINS
          rivwth  = topo_rivwth(i)
          catarea = topo_area(i)
 
-         IF (rivlen <= 0. .or. nlfp <= 0) THEN
+         IF (rivlen <= 0. .or. nlfp <= 0 .or. catarea <= 0.) THEN
             has_levee(i) = .false.
             CYCLE
          ENDIF
@@ -284,6 +285,31 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE levee_fldstg
+
+
+   ! =========================================================================
+   SUBROUTINE read_levee_restart (file_restart)
+   ! =========================================================================
+   ! Read levee state from restart file. Called AFTER levee_init() so that
+   ! levsto is already allocated. If the restart file doesn't contain 'levsto',
+   ! the array keeps its zero initialization from levee_init().
+   ! =========================================================================
+
+   USE MOD_NetCDFSerial,        only: ncio_var_exist
+   USE MOD_Vector_ReadWrite
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: file_restart
+
+      IF (.not. p_is_worker) RETURN
+      IF (numucat <= 0) RETURN
+
+      IF (ncio_var_exist(file_restart, 'levsto')) THEN
+         CALL vector_read_and_scatter (file_restart, levsto, numucat, 'levsto', ucat_data_address)
+      ENDIF
+
+   END SUBROUTINE read_levee_restart
 
 
    ! =========================================================================
