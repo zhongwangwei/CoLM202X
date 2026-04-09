@@ -17,11 +17,15 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_Reservoir
    USE MOD_Grid_RiverLakeHist
    USE MOD_Grid_RiverLakeLevee
+   USE MOD_Grid_RiverLakeBifurcation
 #ifdef GridRiverLakeSediment
    USE MOD_Grid_RiverLakeSediment, only: grid_sediment_init, grid_sediment_calc, &
       grid_sediment_final, sediment_diag_accumulate, sediment_forcing_put, &
       read_sediment_restart
 #endif
+   USE MOD_Grid_RiverLakeTracer, only: tracer_init, tracer_input_from_runoff, &
+      tracer_calc, tracer_diag_accumulate, tracer_flush_acc, &
+      read_tracer_restart, tracer_final, acc_trc_inp
    IMPLICIT NONE
 
    real(r8), parameter :: RIVERMIN  = 1.e-5_r8
@@ -78,13 +82,27 @@ CONTAINS
          ENDIF
       ENDIF
 
+      IF (DEF_USE_BIFURCATION) THEN
+         CALL bifurcation_init()
+         IF (len_trim(gridriver_restart_file) > 0) THEN
+            CALL read_bifurcation_restart(gridriver_restart_file)
+         ENDIF
+      ENDIF
+
+      IF (DEF_USE_TRACER) THEN
+         CALL tracer_init()
+         IF (len_trim(gridriver_restart_file) > 0) THEN
+            CALL read_tracer_restart(gridriver_restart_file)
+         ENDIF
+      ENDIF
+
    END SUBROUTINE grid_riverlake_flow_init
 
    ! ---------
    SUBROUTINE grid_riverlake_flow (year, deltime)
 
    USE MOD_Utils
-   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE
+   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE, DEF_USE_BIFURCATION
    USE MOD_Vars_1DFluxes,  only: rnof
    USE MOD_Mesh,           only: numelm
    USE MOD_LandPatch,      only: elm_patch, numpatch
@@ -99,7 +117,7 @@ CONTAINS
    real(r8), intent(in) :: deltime
 
    ! Local Variables
-   integer  :: i, j, irsv, ntimestep
+   integer  :: i, j, irsv, ntimestep, ipth, i_up
    real(r8) :: dt_this
    integer  :: sed_clock_start, sed_clock_end, sed_clock_rate
    real(r8) :: sed_elapsed
@@ -142,6 +160,14 @@ CONTAINS
    real(r8), allocatable :: levee_floodarea(:)
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
+   real(r8),  allocatable :: hflux_avg_trc(:)
+   logical,   allocatable :: trc_filter(:)
+   real(r8),  allocatable :: volresv_trc(:)
+   integer,   allocatable :: ucat2resv_trc(:)
+   real(r8),  allocatable :: trc_acc_discharge(:) ! Per-routing-period discharge accumulator for tracer
+   real(r8),  allocatable :: trc_acctime(:)       ! Per-routing-period time accumulator for tracer
+   real(r8),  allocatable :: trc_acc_bifflw_lev(:,:) ! Per-routing-period bif pathway flux for tracer
+   real(r8),  allocatable :: trc_acc_bifflw_time(:)  ! Per-routing-period bif pathway time for tracer
 #ifdef CoLMDEBUG
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
 #endif
@@ -166,6 +192,11 @@ CONTAINS
 
          IF (numucat > 0) THEN
             acc_rnof_uc = acc_rnof_uc + rnof_uc*1.e-3*deltime
+
+            ! Accumulate tracer input associated with this runoff increment
+            IF (DEF_USE_TRACER) THEN
+               CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat)
+            ENDIF
          ENDIF
 
          deallocate(rnof_gd)
@@ -263,6 +294,23 @@ CONTAINS
             allocate (dt_res (numrivsys))
             allocate (dt_all (numrivsys))
 
+            IF (DEF_USE_TRACER) THEN
+               allocate (trc_acc_discharge (numucat))
+               allocate (trc_acctime       (numucat))
+               trc_acc_discharge = 0._r8
+               trc_acctime       = 0._r8
+               ! Always allocate (zero-length if no bifurcation) for safe passing
+               IF (DEF_USE_BIFURCATION) THEN
+                  allocate (trc_acc_bifflw_lev  (npthlev_bif, npthout_local))
+                  allocate (trc_acc_bifflw_time (npthout_local))
+               ELSE
+                  allocate (trc_acc_bifflw_lev  (0, 0))
+                  allocate (trc_acc_bifflw_time (0))
+               ENDIF
+               trc_acc_bifflw_lev  = 0._r8
+               trc_acc_bifflw_time = 0._r8
+            ENDIF
+
          ENDIF
 
 #ifdef CoLMDEBUG
@@ -287,7 +335,23 @@ CONTAINS
 
             IF (.not. is_built_resv(i)) THEN
                momen_riv(i) = wdsrf_ucat(i) * veloc_riv(i)
-               volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+               IF (DEF_USE_LEVEE .and. has_levee(i) .and. volwater_ucat_valid) THEN
+                  ! Persistent tracked volume (restored from restart or previous call)
+                  volwater = volwater_ucat(i)
+               ELSEIF (DEF_USE_LEVEE .and. has_levee(i) .and. levsto(i) > 0._r8) THEN
+                  ! Old restart without volwater_ucat: reconstruct per case.
+                  ! Case-3: wdsrf pinned at levee crest, volume(wdsrf) includes protected side
+                  !   → non-protected volume = levee_topsto (exact)
+                  ! Case-4: volume(wdsrf) = vol_total → volwater = volume(wdsrf) - levsto
+                  IF (wdsrf_ucat(i) <= floodplain_curve(i)%rivhgt + levee_hgt(i) + 1.e-6_r8) THEN
+                     volwater = levee_topsto(i)
+                  ELSE
+                     volwater = floodplain_curve(i)%volume(wdsrf_ucat(i)) - levsto(i)
+                  ENDIF
+                  volwater = max(volwater, 0._r8)
+               ELSE
+                  volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+               ENDIF
             ELSE
                ! water in reservoirs is assumued to be stationary.
                momen_riv(i) = 0
@@ -296,13 +360,24 @@ CONTAINS
             ENDIF
 
 #ifdef CoLMDEBUG
-            totalvol_bef = totalvol_bef + volwater
+            IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
+               totalvol_bef = totalvol_bef + volwater + levsto(i)
+            ELSE
+               totalvol_bef = totalvol_bef + volwater
+            ENDIF
 #endif
 
             volwater = volwater + acc_rnof_uc(i)
 
             IF (.not. is_built_resv(i)) THEN
-               wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+               IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                  vol_total_levee = volwater + levsto(i)
+                  CALL levee_fldstg(i, vol_total_levee, wdsrf_ucat(i), &
+                     levsto(i), levdph(i), fldfrc_levee)
+                  volwater_ucat(i) = vol_total_levee - levsto(i)
+               ELSE
+                  wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+               ENDIF
                IF (wdsrf_ucat(i) > RIVERMIN) THEN
                    veloc_riv(i) = momen_riv(i) / wdsrf_ucat(i)
                 ELSE
@@ -313,7 +388,6 @@ CONTAINS
             ENDIF
 
          ENDDO
-
 
          ntimestep = 0
 #ifdef CoLMDEBUG
@@ -529,6 +603,32 @@ CONTAINS
 
             ENDIF
 
+            ! ----- Bifurcation pathways -----
+            IF (DEF_USE_BIFURCATION) THEN
+               CALL bifurcation_calc(wdsrf_ucat, veloc_riv, volresv, is_built_resv, dt_all, irivsys, ucatfilter)
+               IF (allocated(a_bifflw_lev) .and. allocated(a_bifflw_acctime)) THEN
+                  DO ipth = 1, npthout_local
+                     i_up = pth_upst_local(ipth)
+                     IF (i_up < 1 .or. i_up > numucat) CYCLE
+                     IF (.not. ucatfilter(i_up)) CYCLE
+                     a_bifflw_lev(:, ipth) = a_bifflw_lev(:, ipth) &
+                        + bif_hflux_lev(:, ipth) * dt_all(irivsys(i_up))
+                     a_bifflw_acctime(ipth) = a_bifflw_acctime(ipth) + dt_all(irivsys(i_up))
+                     IF (DEF_USE_TRACER) THEN
+                        trc_acc_bifflw_lev(:, ipth) = trc_acc_bifflw_lev(:, ipth) &
+                           + bif_hflux_lev(:, ipth) * dt_all(irivsys(i_up))
+                        trc_acc_bifflw_time(ipth) = trc_acc_bifflw_time(ipth) + dt_all(irivsys(i_up))
+                     ENDIF
+                  ENDDO
+               ENDIF
+               ! Add bifurcation volume flux to main routing (volume only, not momentum)
+               IF (numucat > 0) THEN
+                  WHERE (ucatfilter)
+                     sum_hflux_riv = sum_hflux_riv + bif_hflux_sum
+                  END WHERE
+               ENDIF
+            ENDIF
+
             DO i = 1, numucat
 
                IF (.not. ucatfilter(i)) CYCLE
@@ -546,7 +646,11 @@ CONTAINS
                IF (sum_hflux_riv(i) > 0) THEN
                   IF (.not. is_built_resv(i)) THEN
                      ! for river or lake catchment
-                     volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                     IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                        volwater = volwater_ucat(i)
+                     ELSE
+                        volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                     ENDIF
                   ELSE
                      ! for reservoir
                      volwater = volresv(ucat2resv(i))
@@ -569,6 +673,19 @@ CONTAINS
 
             ENDDO
 
+            ! No dedicated CFL constraint for bifurcation pathways.
+            ! This is an engineering trade-off (not a strict stability proof):
+            ! the momentum driving term (mflux_lev) is explicit, so the scheme
+            ! is not unconditionally stable in theory. In practice, stability
+            ! is maintained by: (1) 5% storage limiter per pathway,
+            ! (2) volume constraint (constraint 2) via sum_hflux_riv,
+            ! (3) semi-implicit friction damping in momentum update,
+            ! (4) velocity clamp at +/-20 m/s.
+            ! This follows CaMa-Flood's approach and avoids short pathways
+            ! (small pth_dst) forcing excessively small timesteps.
+            ! If bifurcation instability is observed, re-adding a CFL
+            ! constraint based on pth_dst is the first thing to try.
+
 #ifdef USEMPI
             IF (rivsys_by_multiple_procs) THEN
                CALL mpi_allreduce (MPI_IN_PLACE, dt_all, 1, MPI_REAL8, MPI_MIN, p_comm_rivsys, p_err)
@@ -580,7 +697,11 @@ CONTAINS
                IF (.not. ucatfilter(i)) CYCLE
 
                IF (.not. is_built_resv(i)) THEN
-                  volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                  IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                     volwater = volwater_ucat(i)
+                  ELSE
+                     volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                  ENDIF
                ELSE
                   volwater = volresv(ucat2resv(i))
                ENDIF
@@ -600,6 +721,7 @@ CONTAINS
                   vol_total_levee = volwater + levsto(i)
                   CALL levee_fldstg(i, vol_total_levee, wdsrf_ucat(i), &
                      levsto(i), levdph(i), fldfrc_levee)
+                  volwater_ucat(i) = vol_total_levee - levsto(i)
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
@@ -647,6 +769,11 @@ CONTAINS
                   a_veloc_riv (i) = a_veloc_riv (i) + veloc_riv (i) * dt_all(irivsys(i))
                   a_discharge (i) = a_discharge (i) + hflux_fc  (i) * dt_all(irivsys(i))
 
+                  IF (DEF_USE_TRACER) THEN
+                     trc_acc_discharge(i) = trc_acc_discharge(i) + hflux_fc(i) * dt_all(irivsys(i))
+                     trc_acctime(i) = trc_acctime(i) + dt_all(irivsys(i))
+                  ENDIF
+
                   IF (DEF_USE_LEVEE .and. levee_floodarea(i) > 0.) THEN
                      floodarea = levee_floodarea(i)
                   ELSE
@@ -660,22 +787,30 @@ CONTAINS
                   ! flddph = max(wdsrf - rivhgt, 0) (depth above channel banks)
                   ! storge = total_volume (+ levsto if levee enabled)
                   ! sfcelv = bed_elevation + wdsrf (matches CaMa: D2RIVELV + D2RIVDPH)
-                  volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                  IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                     volwater = volwater_ucat(i)
+                  ELSE
+                     volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                  ENDIF
                   a_rivsto(i) = a_rivsto(i) + floodplain_curve(i)%rivare * wdsrf_ucat(i) * dt_all(irivsys(i))
                   a_fldsto(i) = a_fldsto(i) &
                      + max(volwater - floodplain_curve(i)%rivare * wdsrf_ucat(i), 0._r8) * dt_all(irivsys(i))
                   a_flddph(i) = a_flddph(i) &
                      + max(wdsrf_ucat(i) - floodplain_curve(i)%rivhgt, 0._r8) * dt_all(irivsys(i))
-                  IF (DEF_USE_LEVEE .and. allocated(levsto)) THEN
+                  IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
                      a_storge(i) = a_storge(i) + (volwater + levsto(i)) * dt_all(irivsys(i))
                   ELSE
                      a_storge(i) = a_storge(i) + volwater * dt_all(irivsys(i))
                   ENDIF
                   a_sfcelv(i) = a_sfcelv(i) + (topo_rivelv(i) + wdsrf_ucat(i)) * dt_all(irivsys(i))
 
-                  IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
+                  IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
                      a_levsto(i) = a_levsto(i) + levsto(i) * dt_all(irivsys(i))
                      a_levdph(i) = a_levdph(i) + levdph(i) * dt_all(irivsys(i))
+                  ENDIF
+
+                  IF (DEF_USE_BIFURCATION) THEN
+                     a_bifout(i) = a_bifout(i) + bif_hflux_sum(i) * dt_all(irivsys(i))
                   ENDIF
 
                   IF (is_built_resv(i)) THEN
@@ -717,12 +852,18 @@ CONTAINS
 
          ENDDO
 
+         ! After first routing call, volwater_ucat is valid for all levee cells
+         IF (DEF_USE_LEVEE) volwater_ucat_valid = .true.
+
 #ifdef CoLMDEBUG
          totalvol_aft = 0.
          DO i = 1, numucat
             IF (.not. is_built_resv(i)) THEN
-               volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
-               IF (DEF_USE_LEVEE) volwater = volwater + levsto(i)
+               IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                  volwater = volwater_ucat(i) + levsto(i)
+               ELSE
+                  volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+               ENDIF
                totalvol_aft = totalvol_aft + volwater
             ELSE
                totalvol_aft = totalvol_aft + volresv(ucat2resv(i))
@@ -765,6 +906,54 @@ CONTAINS
          CALL grid_sediment_calc(acctime_rnof)
       ENDIF
 #endif
+
+      ! ----- Tracer transport -----
+      ! All workers must participate (MPI point-to-point inside worker_push_data).
+      IF (DEF_USE_TRACER .and. p_is_worker) THEN
+         ! Allocate on all workers (zero-length if numucat=0)
+         allocate (hflux_avg_trc (numucat))
+         allocate (trc_filter    (numucat))
+
+         IF (numucat > 0) THEN
+            ! Use per-routing-period accumulators (not history-window ones)
+            WHERE (trc_acctime > 0._r8)
+               hflux_avg_trc = trc_acc_discharge / trc_acctime
+            ELSE WHERE
+               hflux_avg_trc = 0._r8
+            END WHERE
+            trc_filter = trc_acctime > 0._r8
+         ENDIF
+
+         ! Safe wrappers: volresv/ucat2resv may not be allocated on reservoir-free workers
+         IF (allocated(volresv)) THEN
+            allocate (volresv_trc(size(volresv)));  volresv_trc = volresv
+         ELSE
+            allocate (volresv_trc(0))
+         ENDIF
+         IF (allocated(ucat2resv)) THEN
+            allocate (ucat2resv_trc(size(ucat2resv)));  ucat2resv_trc = ucat2resv
+         ELSE
+            allocate (ucat2resv_trc(0))
+         ENDIF
+
+         CALL tracer_calc(acctime_rnof, wdsrf_ucat, veloc_riv, &
+            hflux_avg_trc, numucat, trc_filter, volresv_trc, ucat2resv_trc, &
+            DEF_USE_BIFURCATION, trc_acc_bifflw_lev, trc_acc_bifflw_time)
+
+         IF (numucat > 0) THEN
+            CALL tracer_diag_accumulate(acctime_rnof)
+            acc_trc_inp = 0._r8
+         ENDIF
+
+         deallocate (hflux_avg_trc)
+         deallocate (trc_filter)
+         deallocate (volresv_trc)
+         deallocate (ucat2resv_trc)
+         IF (allocated(trc_acc_discharge  )) deallocate(trc_acc_discharge  )
+         IF (allocated(trc_acctime        )) deallocate(trc_acctime        )
+         IF (allocated(trc_acc_bifflw_lev )) deallocate(trc_acc_bifflw_lev )
+         IF (allocated(trc_acc_bifflw_time)) deallocate(trc_acc_bifflw_time)
+      ENDIF
 
       acctime_rnof = 0.
 
@@ -809,8 +998,10 @@ CONTAINS
 #endif
 
       IF (DEF_USE_LEVEE) CALL levee_final()
+      IF (DEF_USE_BIFURCATION) CALL bifurcation_final()
+      IF (DEF_USE_TRACER) CALL tracer_final()
 
-      IF (allocated(acc_rnof_uc)) deallocate(acc_rnof_uc)
+      IF (allocated(acc_rnof_uc )) deallocate(acc_rnof_uc )
       IF (allocated(filter_rnof)) deallocate(filter_rnof)
 
    END SUBROUTINE grid_riverlake_flow_final

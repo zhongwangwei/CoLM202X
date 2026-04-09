@@ -73,6 +73,7 @@ CONTAINS
       CALL ncio_read_bcast_serial (parafile, 'dam_seq', dam_seq)
 
       totalnumresv = size(dam_seq)
+      numresv = 0  ! Safe default for all ranks; workers overwrite below
 
       IF (p_is_worker) THEN
 
@@ -123,6 +124,11 @@ CONTAINS
                mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 
+      ENDIF
+
+      ! IO processes: safe default for gather calls
+      IF (p_is_io .and. .not. allocated(resv_data_address)) THEN
+         allocate (resv_data_address (0:-1))  ! zero-size
       ENDIF
 #else
       IF (numresv > 0) THEN

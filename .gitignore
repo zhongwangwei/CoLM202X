@@ -1,5 +1,7 @@
 
 .DS_Store
+docs/superpowers/
+tests/
 run/log_CaMa.txt
 *.pyc
 __pycache__
@@ -11,3 +13,4 @@ lib
 *.a
 *.x
 *.log
+/docs

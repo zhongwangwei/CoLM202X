@@ -335,6 +335,8 @@ CONTAINS
       ENDIF
 
       IF (present(readflag)) THEN
+         ! Optional callers can pass readflag=.false. to probe for legacy-compatible
+         ! restart variables without emitting a warning on older files.
          readflag_ = readflag
       ELSE
          readflag_ = .true.
@@ -1769,6 +1771,7 @@ CONTAINS
          CALL nccheck (nf90_inq_dimid(ncid, trim(dim2name), dimid(2)))
 
          CALL nccheck (nf90_redef(ncid))
+         ! Preserve caller-provided dimension order for 2-D floating-point state variables.
          IF (present(compress)) THEN
             CALL nccheck (nf90_def_var(ncid, trim(dataname), NF90_DOUBLE, dimid, varid, &
                deflate_level = compress))

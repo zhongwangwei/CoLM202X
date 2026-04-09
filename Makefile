@@ -118,7 +118,9 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeNetwork.o    \
 				 MOD_Grid_Reservoir.o           \
 				 MOD_Grid_RiverLakeLevee.o     \
+				 MOD_Grid_RiverLakeBifurcation.o \
 				 MOD_Grid_RiverLakeSediment.o   \
+				 MOD_Grid_RiverLakeTracer.o     \
 				 MOD_Grid_RiverLakeTimeVars.o   \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
@@ -366,10 +368,13 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
-MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o
+MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o MOD_Grid_RiverLakeLevee.o
-MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeLevee.o
+MOD_Grid_RiverLakeTracer.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeLevee.o
+MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeTracer.o MOD_Grid_RiverLakeSediment.o
+MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeTracer.o
+MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeTracer.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 
@@ -462,4 +467,3 @@ clean :
 	rm -f run/mksrfdata.x run/mkinidata.x run/colm.x
 	rm -f run/hist_concatenate.x run/srfdata_concatenate.x run/post_vector2grid.x
 	rm -f CaMa/src/*.o CaMa/src/*.mod CaMa/src/*.a
-

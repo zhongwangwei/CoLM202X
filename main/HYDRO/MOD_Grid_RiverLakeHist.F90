@@ -16,6 +16,8 @@ MODULE MOD_Grid_RiverLakeHist
    USE MOD_Grid_RiverLakeSediment, only: nsed, sed_hist_acctime, &
       a_sedcon, a_sedout, a_bedout, a_sedinp, a_netflw, a_layer, a_shearvel
 #endif
+   USE MOD_Grid_RiverLakeTracer, only: write_tracer_history, tracer_flush_acc, &
+      ntracers, a_trc_conc, a_trc_out, a_trc_bifout
 
    ! -- ACC Fluxes --
    real(r8), allocatable :: acctime_ucat     (:)
@@ -31,6 +33,9 @@ MODULE MOD_Grid_RiverLakeHist
    real(r8), allocatable :: a_sfcelv         (:)  ! water surface elevation [m]
    real(r8), allocatable :: a_levsto         (:)  ! accumulated levee storage [m^3 * s]
    real(r8), allocatable :: a_levdph         (:)  ! accumulated levee depth   [m * s]
+   real(r8), allocatable :: a_bifout         (:)  ! accumulated bifurcation outflow [m^3/s * s]
+   real(r8), allocatable :: a_bifflw_lev     (:,:) ! accumulated pathway-layer bifurcation flow [m^3/s * s]
+   real(r8), allocatable :: a_bifflw_acctime  (:)  ! accumulated pathway time [s]
 
    real(r8), allocatable :: a_wdsrf_ucat_pch (:)
    real(r8), allocatable :: a_veloc_riv_pch  (:)
@@ -95,25 +100,33 @@ CONTAINS
 
 
       ! ----- allocate memory for accumulative variables -----
+      ! All ranks must allocate (zero-length on non-workers / numucat=0)
+      ! because vector_gather_map2grid_and_write passes assumed-shape arrays
+      ! on every rank including master and IO.
+
+      ! numucat is 0 on non-worker ranks (set in build_riverlake_network),
+      ! so these allocate zero-length arrays automatically.
+      allocate (acctime_ucat (numucat))
+      allocate (a_wdsrf_ucat (numucat))
+      allocate (a_veloc_riv  (numucat))
+      allocate (a_discharge  (numucat))
+      allocate (a_floodarea  (numucat))
+      allocate (a_rivsto     (numucat))
+      allocate (a_fldsto     (numucat))
+      allocate (a_flddph     (numucat))
+      allocate (a_storge     (numucat))
+      allocate (a_sfcelv     (numucat))
+      IF (DEF_USE_LEVEE) THEN
+         allocate (a_levsto    (numucat))
+         allocate (a_levdph    (numucat))
+      ENDIF
+      IF (DEF_USE_BIFURCATION) THEN
+         allocate (a_bifout         (numucat))
+         allocate (a_bifflw_lev     (npthlev_bif, npthout_local))
+         allocate (a_bifflw_acctime (npthout_local))
+      ENDIF
+
       IF (p_is_worker) THEN
-
-         IF (numucat > 0) THEN
-            allocate (acctime_ucat (numucat))
-            allocate (a_wdsrf_ucat (numucat))
-            allocate (a_veloc_riv  (numucat))
-            allocate (a_discharge  (numucat))
-            allocate (a_floodarea  (numucat))
-            allocate (a_rivsto     (numucat))
-            allocate (a_fldsto     (numucat))
-            allocate (a_flddph     (numucat))
-            allocate (a_storge     (numucat))
-            allocate (a_sfcelv     (numucat))
-            IF (DEF_USE_LEVEE) THEN
-               allocate (a_levsto    (numucat))
-               allocate (a_levdph    (numucat))
-            ENDIF
-         ENDIF
-
          IF (numpatch > 0) THEN
             allocate (a_wdsrf_ucat_pch (numpatch))
             allocate (a_veloc_riv_pch  (numpatch))
@@ -121,15 +134,14 @@ CONTAINS
             allocate (a_dis_rmth_pch   (numpatch))
             allocate (a_floodfrc_pch   (numpatch))
          ENDIF
-
-         IF (numresv > 0) THEN
-            allocate (acctime_resv (numresv))
-            allocate (a_volresv    (numresv))
-            allocate (a_qresv_in   (numresv))
-            allocate (a_qresv_out  (numresv))
-         ENDIF
-
       ENDIF
+
+      ! Reservoir arrays: all ranks allocate (zero-length on non-workers / numresv=0)
+      ! because vector_gather_and_write is called on all ranks.
+      allocate (acctime_resv (numresv))
+      allocate (a_volresv    (numresv))
+      allocate (a_qresv_in   (numresv))
+      allocate (a_qresv_out  (numresv))
 
       CALL flush_acc_fluxes_riverlake ()
 
@@ -319,10 +331,19 @@ CONTAINS
    ! Local variables
    character(len=256) :: file_hist_ucat
    logical :: fexists
-   integer :: itime_in_file_ucat, i
+   integer :: itime_in_file_ucat, i, ncol_local_bif
+   integer, allocatable :: pth_global_id_bif(:)
 
    real(r8), allocatable :: acc_vec_grid    (:)
+   real(r8), allocatable :: bifflw_wdata    (:,:)
+   real(r8), allocatable :: bifflw_local    (:,:)
    real(r8), allocatable :: a_floodfrc_ucat (:)  ! flooded area fraction
+   real(r8), allocatable :: levsto_local    (:)  ! safe buffer for levee hist
+   real(r8), allocatable :: levdph_local    (:)  ! safe buffer for levee hist
+   real(r8), allocatable :: bifout_local    (:)  ! safe buffer for bifurcation hist
+   real(r8), allocatable :: volresv_local   (:)  ! safe buffer for reservoir hist
+   real(r8), allocatable :: qresv_in_local  (:)  ! safe buffer for reservoir hist
+   real(r8), allocatable :: qresv_out_local (:)  ! safe buffer for reservoir hist
    real(r8), allocatable :: a_floodfrc_inpm (:)  ! flooded area fraction
 
 
@@ -460,6 +481,8 @@ CONTAINS
                ELSE WHERE
                   a_floodfrc_ucat = spval
                END WHERE
+            ELSE
+               allocate (a_floodfrc_ucat (0))
             ENDIF
 
             IF (numinpm > 0) allocate (a_floodfrc_inpm (numinpm))
@@ -469,7 +492,20 @@ CONTAINS
 
             CALL worker_remap_data_grid2pset (remap_patch2inpm, a_floodfrc_inpm, a_floodfrc_pch, &
                fillvalue = spval, mode = 'average')
+         ELSE
+            ! Non-worker: zero-length safe buffer
+            allocate (a_floodfrc_ucat (0))
          ENDIF
+
+         CALL vector_gather_map2grid_and_write ( a_floodarea, numucat,                      &
+            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat,  &
+            file_hist_ucat, 'f_floodarea', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
+            'flooded area', 'm^2')
+
+         CALL vector_gather_map2grid_and_write ( a_floodfrc_ucat, numucat,                  &
+            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat,  &
+            file_hist_ucat, 'f_floodfrc', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,      &
+            'flooded area fraction', '-')
 
       ENDIF
 
@@ -513,33 +549,127 @@ CONTAINS
 
       ! ----- levee variables -----
       IF (DEF_USE_LEVEE) THEN
-         IF (p_is_worker) THEN
-            IF (numucat > 0 .and. allocated(a_levsto)) THEN
-               WHERE (acctime_ucat > 0.)
-                  a_levsto = a_levsto / acctime_ucat
-                  a_levdph = a_levdph / acctime_ucat
-               END WHERE
-            ENDIF
+         IF (p_is_worker .and. numucat > 0 .and. allocated(a_levsto)) THEN
+            allocate (levsto_local (numucat))
+            allocate (levdph_local (numucat))
+            WHERE (acctime_ucat > 0.)
+               levsto_local = a_levsto / acctime_ucat
+               levdph_local = a_levdph / acctime_ucat
+            ELSE WHERE
+               levsto_local = 0._r8
+               levdph_local = 0._r8
+            END WHERE
+         ELSE
+            allocate (levsto_local (0))
+            allocate (levdph_local (0))
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( a_levsto, numucat,                       &
+         CALL vector_gather_map2grid_and_write ( levsto_local, numucat,                    &
             totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
             file_hist_ucat, 'f_levsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
             'water storage in levee-protected area', 'm^3')
 
-         CALL vector_gather_map2grid_and_write ( a_levdph, numucat,                       &
+         CALL vector_gather_map2grid_and_write ( levdph_local, numucat,                    &
             totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
             file_hist_ucat, 'f_levdph', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
             'water depth in levee-protected area', 'm')
+
+         deallocate (levsto_local)
+         deallocate (levdph_local)
+      ENDIF
+
+      ! ----- bifurcation variables -----
+      IF (DEF_USE_BIFURCATION) THEN
+         ! a_bifout: use safe local buffer for all ranks
+         IF (p_is_worker .and. numucat > 0 .and. allocated(a_bifout)) THEN
+            allocate (bifout_local (numucat))
+            WHERE (acctime_ucat > 0.)
+               bifout_local = a_bifout / acctime_ucat
+            ELSE WHERE
+               bifout_local = 0._r8
+            END WHERE
+         ELSE
+            allocate (bifout_local (0))
+         ENDIF
+
+         CALL vector_gather_map2grid_and_write ( bifout_local, numucat,                    &
+            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+            file_hist_ucat, 'f_bifout', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
+            'net bifurcation outflow', 'm^3/s')
+
+         deallocate (bifout_local)
+
+         ! a_bifflw_lev: pathway-layer matrix gather
+         IF (npthlev_bif > 0 .and. totalnpthout > 0) THEN
+            IF (p_is_master) THEN
+               CALL ncio_define_dimension (file_hist_ucat, 'bifurcation_level', npthlev_bif)
+               CALL ncio_define_dimension (file_hist_ucat, 'bifurcation_pathway', totalnpthout)
+            ENDIF
+
+            IF (p_is_worker) THEN
+               ncol_local_bif = npthout_local
+               IF (allocated(a_bifflw_lev) .and. allocated(a_bifflw_acctime)) THEN
+                  allocate (bifflw_local (npthlev_bif, npthout_local))
+                  DO i = 1, npthout_local
+                     IF (a_bifflw_acctime(i) > 0._r8) THEN
+                        bifflw_local(:, i) = a_bifflw_lev(:, i) / a_bifflw_acctime(i)
+                     ELSE
+                        bifflw_local(:, i) = 0._r8
+                     ENDIF
+                  ENDDO
+               ELSE
+                  allocate (bifflw_local (npthlev_bif, npthout_local))
+                  bifflw_local = 0._r8
+               ENDIF
+               allocate (pth_global_id_bif (ncol_local_bif))
+               pth_global_id_bif(:) = pth_global_id(:)
+            ELSE
+               ncol_local_bif = 0
+               allocate (bifflw_local      (npthlev_bif, 0))
+               allocate (pth_global_id_bif (0))
+            ENDIF
+
+            CALL vector_gather_matrix_to_master ( &
+               bifflw_local, npthlev_bif, ncol_local_bif, totalnpthout, pth_global_id_bif, bifflw_wdata)
+
+            IF (p_is_master) THEN
+               CALL ncio_write_serial_time (file_hist_ucat, 'f_bifflw_lev', itime_in_file_ucat, bifflw_wdata, &
+                  'bifurcation_level', 'bifurcation_pathway', 'time', DEF_HIST_CompressLevel)
+               CALL ncio_put_attr (file_hist_ucat, 'f_bifflw_lev', 'long_name', &
+                  'effective bifurcation pathway-layer flow')
+               CALL ncio_put_attr (file_hist_ucat, 'f_bifflw_lev', 'units', 'm^3/s')
+               deallocate (bifflw_wdata)
+            ENDIF
+
+            deallocate (bifflw_local)
+            deallocate (pth_global_id_bif)
+         ENDIF
       ENDIF
 
       IF (allocated (a_floodfrc_ucat)) deallocate (a_floodfrc_ucat)
       IF (allocated (a_floodfrc_inpm)) deallocate (a_floodfrc_inpm)
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
+      IF (allocated (bifflw_wdata   )) deallocate (bifflw_wdata   )
 
 #ifdef GridRiverLakeSediment
       CALL write_sediment_history (file_hist_ucat, itime_in_file_ucat)
 #endif
+
+      ! ----- tracer variables -----
+      IF (DEF_USE_TRACER) THEN
+         ! Time-average tracer accumulators using per-cell acctime
+         IF (p_is_worker .and. numucat > 0 .and. allocated(a_trc_conc)) THEN
+            DO i = 1, numucat
+               IF (acctime_ucat(i) > 0._r8) THEN
+                  a_trc_conc  (:,i) = a_trc_conc  (:,i) / acctime_ucat(i)
+                  a_trc_out   (:,i) = a_trc_out   (:,i) / acctime_ucat(i)
+                  a_trc_bifout(:,i) = a_trc_bifout(:,i) / acctime_ucat(i)
+               ENDIF
+            ENDDO
+         ENDIF
+
+         CALL write_tracer_history (file_hist_ucat, itime_in_file_ucat, 1._r8)
+      ENDIF
 
       ! ----- reservoir variables -----
       IF (DEF_Reservoir_Method > 0) THEN
@@ -554,48 +684,54 @@ CONTAINS
             ENDIF
 
             IF (DEF_hist_vars%volresv) THEN
-               IF (p_is_worker) THEN
-                  IF (numresv > 0) THEN
-                     WHERE (acctime_resv > 0)
-                        a_volresv = a_volresv / acctime_resv
-                     ELSEWHERE
-                        a_volresv = spval
-                     END WHERE
-                  ENDIF
+               IF (p_is_worker .and. numresv > 0) THEN
+                  allocate (volresv_local (numresv))
+                  WHERE (acctime_resv > 0)
+                     volresv_local = a_volresv / acctime_resv
+                  ELSEWHERE
+                     volresv_local = spval
+                  END WHERE
+               ELSE
+                  allocate (volresv_local (0))
                ENDIF
 
-               CALL vector_gather_and_write ( a_volresv, numresv, totalnumresv, resv_data_address, &
+               CALL vector_gather_and_write ( volresv_local, numresv, totalnumresv, resv_data_address, &
                   file_hist_ucat, 'volresv', 'reservoir', itime_in_file_ucat, 'reservoir water volume', 'm^3')
+               deallocate (volresv_local)
             ENDIF
 
             IF (DEF_hist_vars%qresv_in) THEN
-               IF (p_is_worker) THEN
-                  IF (numresv > 0) THEN
-                     WHERE (acctime_resv > 0)
-                        a_qresv_in = a_qresv_in / acctime_resv
-                     ELSEWHERE
-                        a_qresv_in = spval
-                     END WHERE
-                  ENDIF
+               IF (p_is_worker .and. numresv > 0) THEN
+                  allocate (qresv_in_local (numresv))
+                  WHERE (acctime_resv > 0)
+                     qresv_in_local = a_qresv_in / acctime_resv
+                  ELSEWHERE
+                     qresv_in_local = spval
+                  END WHERE
+               ELSE
+                  allocate (qresv_in_local (0))
                ENDIF
 
-               CALL vector_gather_and_write ( a_qresv_in, numresv, totalnumresv, resv_data_address, &
+               CALL vector_gather_and_write ( qresv_in_local, numresv, totalnumresv, resv_data_address, &
                   file_hist_ucat, 'qresv_in', 'reservoir', itime_in_file_ucat, 'reservoir inflow', 'm^3/s')
+               deallocate (qresv_in_local)
             ENDIF
 
             IF (DEF_hist_vars%qresv_out) THEN
-               IF (p_is_worker) THEN
-                  IF (numresv > 0) THEN
-                     WHERE (acctime_resv > 0)
-                        a_qresv_out = a_qresv_out / acctime_resv
-                     ELSEWHERE
-                        a_qresv_out = spval
-                     END WHERE
-                  ENDIF
+               IF (p_is_worker .and. numresv > 0) THEN
+                  allocate (qresv_out_local (numresv))
+                  WHERE (acctime_resv > 0)
+                     qresv_out_local = a_qresv_out / acctime_resv
+                  ELSEWHERE
+                     qresv_out_local = spval
+                  END WHERE
+               ELSE
+                  allocate (qresv_out_local (0))
                ENDIF
 
-               CALL vector_gather_and_write ( a_qresv_out, numresv, totalnumresv, resv_data_address, &
+               CALL vector_gather_and_write ( qresv_out_local, numresv, totalnumresv, resv_data_address, &
                   file_hist_ucat, 'qresv_out', 'reservoir', itime_in_file_ucat, 'reservoir outflow', 'm^3/s')
+               deallocate (qresv_out_local)
             ENDIF
 
          ENDIF
@@ -614,30 +750,34 @@ CONTAINS
    USE MOD_Grid_Reservoir,        only: numresv
    IMPLICIT NONE
 
-      IF (p_is_worker) THEN
+      ! Zero-length arrays on non-workers are safe to assign (no-op).
+      IF (allocated(acctime_ucat)) acctime_ucat = 0.
+      IF (allocated(a_wdsrf_ucat)) a_wdsrf_ucat = 0.
+      IF (allocated(a_veloc_riv )) a_veloc_riv  = 0.
+      IF (allocated(a_discharge )) a_discharge  = 0.
+      IF (allocated(a_floodarea )) a_floodarea  = 0.
+      IF (allocated(a_rivsto    )) a_rivsto     = 0.
+      IF (allocated(a_fldsto    )) a_fldsto     = 0.
+      IF (allocated(a_flddph    )) a_flddph     = 0.
+      IF (allocated(a_storge    )) a_storge     = 0.
+      IF (allocated(a_sfcelv    )) a_sfcelv     = 0.
+      IF (allocated(a_levsto    )) a_levsto     = 0.
+      IF (allocated(a_levdph    )) a_levdph     = 0.
+      IF (allocated(a_bifout    )) a_bifout     = 0.
+      IF (allocated(a_bifflw_lev)) a_bifflw_lev = 0.
+      IF (allocated(a_bifflw_acctime)) a_bifflw_acctime = 0.
 
-         IF (numucat > 0) THEN
-            acctime_ucat (:) = 0.
-            a_wdsrf_ucat (:) = 0.
-            a_veloc_riv  (:) = 0.
-            a_discharge  (:) = 0.
-            a_floodarea  (:) = 0.
-            a_rivsto     (:) = 0.
-            a_fldsto     (:) = 0.
-            a_flddph     (:) = 0.
-            a_storge     (:) = 0.
-            a_sfcelv     (:) = 0.
-            IF (DEF_USE_LEVEE .and. allocated(a_levsto)) THEN
-               a_levsto (:) = 0.
-               a_levdph (:) = 0.
-            ENDIF
-         ENDIF
+      IF (p_is_worker) THEN
 
          IF (numresv > 0) THEN
             acctime_resv (:) = 0.
             a_volresv    (:) = 0.
             a_qresv_in   (:) = 0.
             a_qresv_out  (:) = 0.
+         ENDIF
+
+         IF (DEF_USE_TRACER) THEN
+            CALL tracer_flush_acc()
          ENDIF
 
 #ifdef GridRiverLakeSediment
@@ -674,6 +814,9 @@ CONTAINS
       IF (allocated(a_sfcelv        )) deallocate (a_sfcelv        )
       IF (allocated(a_levsto        )) deallocate (a_levsto        )
       IF (allocated(a_levdph        )) deallocate (a_levdph        )
+      IF (allocated(a_bifout        )) deallocate (a_bifout        )
+      IF (allocated(a_bifflw_lev    )) deallocate (a_bifflw_lev    )
+      IF (allocated(a_bifflw_acctime)) deallocate (a_bifflw_acctime)
 
       IF (allocated(a_wdsrf_ucat_pch)) deallocate (a_wdsrf_ucat_pch)
       IF (allocated(a_veloc_riv_pch )) deallocate (a_veloc_riv_pch )

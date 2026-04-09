@@ -336,6 +336,14 @@ MODULE MOD_Namelist
    ! ----- levee module -----
    logical  :: DEF_USE_LEVEE           = .false.
 
+   ! ----- bifurcation module -----
+   logical  :: DEF_USE_BIFURCATION     = .false.
+
+   ! ----- tracer module -----
+   logical  :: DEF_USE_TRACER          = .false.
+   integer  :: DEF_TRACER_NUM          = 2
+   character(len=256) :: DEF_TRACER_NAMES = "delta18O,deltaD"
+
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
    real(r8) :: DEF_SED_LAMBDA          = 0.4
@@ -1169,6 +1177,10 @@ CONTAINS
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
 
       DEF_USE_LEVEE,                          &
+      DEF_USE_BIFURCATION,                    &
+      DEF_USE_TRACER,                         &
+      DEF_TRACER_NUM,                         &
+      DEF_TRACER_NAMES,                       &
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
       DEF_SED_LYRDPH,                         &
@@ -1821,6 +1833,10 @@ CONTAINS
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_LEVEE                            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_BIFURCATION                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_TRACER                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NAMES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)

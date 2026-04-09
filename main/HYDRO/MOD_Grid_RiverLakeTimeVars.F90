@@ -14,6 +14,8 @@ MODULE MOD_Grid_RiverLakeTimeVars
 #ifdef GridRiverLakeSediment
    USE MOD_Grid_RiverLakeSediment, only: write_sediment_restart
 #endif
+   USE MOD_Grid_RiverLakeBifurcation, only: write_bifurcation_restart
+   USE MOD_Grid_RiverLakeTracer,      only: write_tracer_restart
    IMPLICIT NONE
 
    ! -- state variables --
@@ -78,6 +80,13 @@ CONTAINS
       ! Note: levee restart (levsto) is read separately in grid_riverlake_flow_init
       ! after levee_init() allocates the levsto array. Same pattern as sediment.
 
+      ! Note: bifurcation restart (pth_veloc, pth_momen) is read separately
+      ! in grid_riverlake_flow_init after bifurcation_init() allocates the
+      ! arrays. Same pattern as levee and sediment.
+
+      ! Note: tracer restart is read separately in grid_riverlake_flow_init
+      ! after tracer_init() allocates the arrays. Same pattern as others.
+
       ! Note: sediment restart is read separately in grid_sediment_read_restart,
       ! called from grid_riverlake_flow_init after sediment module is initialized.
 
@@ -87,12 +96,12 @@ CONTAINS
    SUBROUTINE WRITE_GridRiverLakeTimeVars (file_restart)
 
    USE MOD_SPMD_Task
-   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE
+   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE, DEF_USE_BIFURCATION, DEF_USE_TRACER
    USE MOD_NetCDFSerial
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address
    USE MOD_Grid_Reservoir,        only: numresv, totalnumresv, resv_data_address
-   USE MOD_Grid_RiverLakeLevee,   only: levsto
+   USE MOD_Grid_RiverLakeLevee,   only: levsto, volwater_ucat
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
@@ -121,6 +130,16 @@ CONTAINS
       IF (DEF_USE_LEVEE) THEN
          CALL vector_gather_and_write (&
             levsto, numucat, totalnumucat, ucat_data_address, file_restart, 'levsto', 'ucatch')
+         CALL vector_gather_and_write (&
+            volwater_ucat, numucat, totalnumucat, ucat_data_address, file_restart, 'volwater_ucat', 'ucatch')
+      ENDIF
+
+      IF (DEF_USE_BIFURCATION) THEN
+         CALL write_bifurcation_restart(file_restart)
+      ENDIF
+
+      IF (DEF_USE_TRACER) THEN
+         CALL write_tracer_restart(file_restart)
       ENDIF
 
 #ifdef GridRiverLakeSediment

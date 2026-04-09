@@ -71,6 +71,7 @@ CONTAINS
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
+   USE MOD_Grid_RiverLakeLevee,   only : levee_init
    USE MOD_Grid_Reservoir
 #endif
 #ifdef CROP
@@ -274,6 +275,10 @@ CONTAINS
 
       IF (DEF_Reservoir_Method > 0) THEN
          CALL reservoir_init ()
+      ENDIF
+
+      IF (DEF_USE_LEVEE) THEN
+         CALL levee_init ()
       ENDIF
 #endif
 
