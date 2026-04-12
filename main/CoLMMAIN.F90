@@ -1151,6 +1151,31 @@ SUBROUTINE CoLMMAIN ( &
 
          IF (DEF_USE_TRACER) THEN
             CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer)
+
+            ! --- DIAGNOSTIC: ratio drift per pool for patch 1 ---
+            IF (xerr_tracer*deltim > 1.e-10_r8 .and. ipatch == 1) THEN
+               BLOCK
+               USE MOD_Tracer_Defs, only: delta_to_R
+               real(r8) :: Ri, drift_soil, drift_j, max_j
+               integer :: jj
+               Ri = delta_to_R(tracers(1)%init_delta, tracers(1)%ref_ratio)
+               drift_soil = 0._r8; max_j = 1
+               DO jj = snl+1, nl_soil
+                  drift_j = (trc_wliq_soisno(1,jj,ipatch)+trc_wice_soisno(1,jj,ipatch)) &
+                           - (wliq_soisno(jj)+wice_soisno(jj)) * Ri
+                  IF (abs(drift_j) > abs(drift_soil)) THEN
+                     drift_soil = drift_j; max_j = jj
+                  ENDIF
+               ENDDO
+               WRITE(*,'(A,I3,A,E11.4,A,E11.4,A,E11.4,A,E11.4)') &
+                  ' DRIFT soil_j=', int(max_j), ' d=', drift_soil, &
+                  ' wa=', trc_wa(1,ipatch) - wa*Ri, &
+                  ' wdsrf=', trc_wdsrf(1,ipatch) - wdsrf*Ri, &
+                  ' ldew=', (trc_ldew_rain(1,ipatch)+trc_ldew_snow(1,ipatch)) &
+                           - (ldew_rain+ldew_snow)*Ri
+               END BLOCK
+            ENDIF
+
             CALL tracer_hist_accumulate(ipatch, nl_soil, ldew_rain, ldew_snow, &
                wliq_soisno(1:nl_soil))
             deallocate(wliq_soisno_old_trc, wice_soisno_old_trc)

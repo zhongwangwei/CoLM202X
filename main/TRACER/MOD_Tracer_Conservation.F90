@@ -3,7 +3,7 @@
 MODULE MOD_Tracer_Conservation
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny
+   USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, delta_to_R
    USE MOD_Tracer_Vars
 
    IMPLICIT NONE
@@ -58,6 +58,8 @@ CONTAINS
 
       integer  :: itrc, j
       real(r8) :: storage_end, step_input, step_output, err
+      real(r8) :: R_input, trc_expected, trc_actual, max_drift
+      real(r8) :: w_pool, t_pool, drift
 
       xerr_tracer = 0._r8
       IF (ntracers <= 0) RETURN
@@ -82,15 +84,11 @@ CONTAINS
          err = storage_end - trc_storage_beg(itrc, ipatch) - step_input + step_output
          trc_balance_err(itrc, ipatch) = err
 
-         IF (abs(err) > trc_balance_tol .and. ipatch <= 3) THEN
-            WRITE(*,'(A,A,A,I6,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
-               'TRC_ERR [', TRIM(tracers(itrc)%name), &
-               '] p=', ipatch, &
+         IF (abs(err) > trc_balance_tol .and. ipatch <= 1 .and. itrc == 1) THEN
+            WRITE(*,'(A,I6,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
+               'TRC_ERR p=', ipatch, &
                ' dS=', storage_end - trc_storage_beg(itrc, ipatch), &
-               ' in=', step_input, &
-               ' out=', step_output, &
-               ' err=', err, &
-               ' S_end=', storage_end
+               ' in=', step_input, ' out=', step_output, ' err=', err
          ENDIF
 
          xerr_tracer = max(xerr_tracer, abs(err) / deltim)
