@@ -1022,7 +1022,7 @@ SUBROUTINE CoLMMAIN ( &
                DEF_USE_VariablySaturatedFlow)
 
             CALL tracer_runoff(ipatch, deltim, nl_soil, &
-               rsur, rsub, rnof, wdsrf, wliq_soisno(1:nl_soil))
+               rsub, wliq_soisno(1:nl_soil))
          ENDIF
 
          IF (snl < 0) THEN

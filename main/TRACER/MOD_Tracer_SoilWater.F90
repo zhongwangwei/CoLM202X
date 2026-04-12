@@ -6,7 +6,8 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, delta_to_R
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
       trc_wa, trc_wdsrf, trc_wetwat, &
-      a_trc_qinfl, a_trc_qcharge, trc_pg_to_ground
+      a_trc_qinfl, a_trc_qcharge, a_trc_rsur, a_trc_rnof, &
+      trc_pg_to_ground
 
    IMPLICIT NONE
 
@@ -84,14 +85,22 @@ CONTAINS
 
          IF (water_pool_total > trc_tiny) THEN
             ratio = trc_pool_total / water_pool_total
-            ! New surface water tracer = residual water * pool ratio
-            trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * ratio
          ELSE
-            trc_wdsrf(itrc, ipatch) = 0._r8
+            ratio = R_precip
+         ENDIF
+
+         ! New surface water tracer = residual water * mixed pool ratio
+         trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * ratio
+
+         ! Surface runoff tracer = rsur * mixed pool ratio
+         ! (tracked here, NOT in tracer_runoff, to avoid double-counting)
+         IF (rsur > trc_tiny) THEN
+            a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + rsur * ratio * deltim
+            a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + rsur * ratio * deltim
          ENDIF
 
          ! Track infiltration diagnostic
-         IF (qinfl > trc_tiny .and. water_pool_total > trc_tiny) THEN
+         IF (qinfl > trc_tiny) THEN
             a_trc_qinfl(itrc, ipatch) = a_trc_qinfl(itrc, ipatch) + qinfl * ratio * deltim
          ENDIF
 
