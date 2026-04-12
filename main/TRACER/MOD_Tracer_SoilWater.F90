@@ -83,11 +83,15 @@ CONTAINS
          trc_pool_total  = trc_wdsrf(itrc, ipatch) + trc_throughfall
 
          ! Actual water that was distributed by WATER:
-         ! wdsrf_new + rsur*dt + max(qinfl,0)*dt  [negative qinfl is soil→surface, handled separately]
          water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim + max(qinfl, 0._r8) * deltim
 
-         IF (water_pool_total > trc_tiny) THEN
+         IF (water_pool_total > trc_tiny .and. trc_pool_total > trc_tiny) THEN
             ratio = trc_pool_total / water_pool_total
+         ELSEIF (trc_pool_total <= trc_tiny) THEN
+            ! No tracer source (no throughfall, no old surface water tracer)
+            ! Any water here came from soil — its tracer is handled in the
+            ! soil layer delta section. Don't create tracer from nothing.
+            ratio = 0._r8
          ELSE
             ratio = R_precip
          ENDIF
