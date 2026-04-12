@@ -62,26 +62,29 @@ CONTAINS
          R_precip = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
 
          ! ============================================================
-         ! Surface water (wdsrf): mixed-pool delta approach
+         ! Surface water (wdsrf): use actual water model budget
          !
-         ! The surface water pool receives throughfall and loses to
-         ! infiltration and runoff. WATER processes all simultaneously.
+         ! The water model computes:
+         !   gwat = pg_rain + sm - qseva + irrigation + wdsrf_old/dt
+         !   rsur = surface runoff from gwat
+         !   qinfl = gwat - rsur - wdsrf_new/dt
          !
-         ! Conceptual pool before WATER processing:
-         !   water_pool = wdsrf_bef + (pg_rain + pg_snow) * dt
-         !   trc_pool   = trc_wdsrf_old + throughfall_trc
+         ! So the actual pool that was split is:
+         !   water_pool_actual = wdsrf_new + rsur*dt + qinfl*dt
+         !   (NOT wdsrf_old + pg*dt, which ignores evap subtraction in gwat)
          !
-         ! After WATER: wdsrf is the residual.
-         ! The removed water (infiltration + runoff) carries the pool ratio.
+         ! The tracer pool entering this system:
+         !   trc_pool = trc_wdsrf_old + trc_throughfall
+         !
+         ! We use water_pool_actual to compute the correct ratio.
          ! ============================================================
 
-         ! Use pre-computed throughfall tracer (includes correct mixing
-         ! of throughfall at R_precip + canopy drip at R_canopy_mixed)
          trc_throughfall = trc_pg_to_ground(itrc, ipatch)
          trc_pool_total  = trc_wdsrf(itrc, ipatch) + trc_throughfall
-         water_pool_total = wdsrf_bef + (pg_rain + pg_snow) * deltim
 
-         d_wdsrf = wdsrf - wdsrf_bef
+         ! Actual water that was distributed by WATER:
+         ! wdsrf_new + rsur*dt + max(qinfl,0)*dt  [negative qinfl is soil→surface, handled separately]
+         water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim + max(qinfl, 0._r8) * deltim
 
          IF (water_pool_total > trc_tiny) THEN
             ratio = trc_pool_total / water_pool_total
@@ -89,29 +92,18 @@ CONTAINS
             ratio = R_precip
          ENDIF
 
-         ! New surface water tracer = residual water * mixed pool ratio
+         ! New surface water tracer = residual water * pool ratio
          trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * ratio
 
-         ! Surface runoff tracer = rsur * mixed pool ratio
-         ! (tracked here, NOT in tracer_runoff, to avoid double-counting)
+         ! Surface runoff tracer
          IF (rsur > trc_tiny) THEN
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + rsur * ratio * deltim
             a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + rsur * ratio * deltim
          ENDIF
 
-         ! Track infiltration diagnostic
+         ! Infiltration diagnostic
          IF (qinfl > trc_tiny) THEN
             a_trc_qinfl(itrc, ipatch) = a_trc_qinfl(itrc, ipatch) + qinfl * ratio * deltim
-         ENDIF
-
-         ! --- DIAGNOSTIC: surface water budget for patch 1 ---
-         IF (ipatch == 1 .and. itrc == 1 .and. water_pool_total > trc_tiny) THEN
-            ! tracer accounting: trc_wdsrf_new + rsur_trc + qinfl_trc should = trc_pool_total
-            ! water accounting:  wdsrf + (rsur+qinfl)*dt should = water_pool_total
-            WRITE(*,'(A,6E13.5)') ' DBG_SW wpool,wdsrf,rsur*dt,qinfl*dt,sum,diff=', &
-               water_pool_total, wdsrf, rsur*deltim, qinfl*deltim, &
-               wdsrf + (rsur+qinfl)*deltim, &
-               water_pool_total - (wdsrf + (rsur+qinfl)*deltim)
          ENDIF
 
          ! ============================================================
