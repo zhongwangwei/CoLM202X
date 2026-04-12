@@ -104,6 +104,16 @@ CONTAINS
             a_trc_qinfl(itrc, ipatch) = a_trc_qinfl(itrc, ipatch) + qinfl * ratio * deltim
          ENDIF
 
+         ! --- DIAGNOSTIC: surface water budget for patch 1 ---
+         IF (ipatch == 1 .and. itrc == 1 .and. water_pool_total > trc_tiny) THEN
+            ! tracer accounting: trc_wdsrf_new + rsur_trc + qinfl_trc should = trc_pool_total
+            ! water accounting:  wdsrf + (rsur+qinfl)*dt should = water_pool_total
+            WRITE(*,'(A,6E13.5)') ' DBG_SW wpool,wdsrf,rsur*dt,qinfl*dt,sum,diff=', &
+               water_pool_total, wdsrf, rsur*deltim, qinfl*deltim, &
+               wdsrf + (rsur+qinfl)*deltim, &
+               water_pool_total - (wdsrf + (rsur+qinfl)*deltim)
+         ENDIF
+
          ! ============================================================
          ! Soil layers: delta-based
          !
