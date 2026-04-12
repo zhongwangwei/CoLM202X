@@ -16,6 +16,11 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: trc_wdsrf      (:,:)
    real(r8), allocatable :: trc_wetwat     (:,:)
 
+   ! Throughfall tracer reaching ground [kg/m2 per step]
+   ! Computed by tracer_precip, consumed by tracer_soil_water
+   ! = throughfall*R_precip + drip*R_canopy_mixed
+   real(r8), allocatable :: trc_pg_to_ground(:,:)  ! (ntracers, numpatch)
+
    real(r8), allocatable :: a_trc_precip   (:,:)
    real(r8), allocatable :: a_trc_evap     (:,:)
    real(r8), allocatable :: a_trc_trans    (:,:)
@@ -50,6 +55,7 @@ CONTAINS
       allocate(trc_wa          (ntracers, numpatch));           trc_wa          = 0._r8
       allocate(trc_wdsrf       (ntracers, numpatch));           trc_wdsrf       = 0._r8
       allocate(trc_wetwat      (ntracers, numpatch));           trc_wetwat      = 0._r8
+      allocate(trc_pg_to_ground(ntracers, numpatch));        trc_pg_to_ground = 0._r8
 
       allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
       allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
@@ -79,6 +85,7 @@ CONTAINS
       IF (allocated(trc_wa         )) deallocate(trc_wa         )
       IF (allocated(trc_wdsrf      )) deallocate(trc_wdsrf      )
       IF (allocated(trc_wetwat     )) deallocate(trc_wetwat     )
+      IF (allocated(trc_pg_to_ground)) deallocate(trc_pg_to_ground)
       IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
       IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
       IF (allocated(a_trc_trans    )) deallocate(a_trc_trans    )

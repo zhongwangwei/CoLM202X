@@ -6,7 +6,7 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, delta_to_R
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
       trc_wa, trc_wdsrf, trc_wetwat, &
-      a_trc_qinfl, a_trc_qcharge
+      a_trc_qinfl, a_trc_qcharge, trc_pg_to_ground
 
    IMPLICIT NONE
 
@@ -74,7 +74,9 @@ CONTAINS
          ! The removed water (infiltration + runoff) carries the pool ratio.
          ! ============================================================
 
-         trc_throughfall = (pg_rain + pg_snow) * R_precip * deltim
+         ! Use pre-computed throughfall tracer (includes correct mixing
+         ! of throughfall at R_precip + canopy drip at R_canopy_mixed)
+         trc_throughfall = trc_pg_to_ground(itrc, ipatch)
          trc_pool_total  = trc_wdsrf(itrc, ipatch) + trc_throughfall
          water_pool_total = wdsrf_bef + (pg_rain + pg_snow) * deltim
 
