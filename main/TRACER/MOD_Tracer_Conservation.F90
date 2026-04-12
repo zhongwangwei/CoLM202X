@@ -82,10 +82,15 @@ CONTAINS
          err = storage_end - trc_storage_beg(itrc, ipatch) - step_input + step_output
          trc_balance_err(itrc, ipatch) = err
 
-         IF (abs(err) > trc_balance_tol) THEN
-            WRITE(*,'(A,A,A,I8,A,E15.7)') &
-               'WARNING: Tracer balance error [', TRIM(tracers(itrc)%name), &
-               '] patch=', ipatch, ' err=', err
+         IF (abs(err) > trc_balance_tol .and. ipatch <= 3) THEN
+            WRITE(*,'(A,A,A,I6,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
+               'TRC_ERR [', TRIM(tracers(itrc)%name), &
+               '] p=', ipatch, &
+               ' dS=', storage_end - trc_storage_beg(itrc, ipatch), &
+               ' in=', step_input, &
+               ' out=', step_output, &
+               ' err=', err, &
+               ' S_end=', storage_end
          ENDIF
 
          xerr_tracer = max(xerr_tracer, abs(err) / deltim)
