@@ -1014,12 +1014,11 @@ SUBROUTINE CoLMMAIN ( &
 
          IF (DEF_USE_TRACER) THEN
             CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
+               qlayer, qcharge, rsur, rsub, &
                wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                wliq_soisno_old_trc, wice_soisno_old_trc, &
                wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
-               wetwat, wetwat_old_trc, pg_rain, pg_snow, &
-               rsur, rsub, qinfl, qcharge, &
-               DEF_USE_VariablySaturatedFlow)
+               wetwat, wetwat_old_trc, pg_rain, pg_snow)
 
             ! tracer_runoff removed: surface and subsurface runoff
             ! are now fully handled inside tracer_soil_water

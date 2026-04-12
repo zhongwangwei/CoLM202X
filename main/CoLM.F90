@@ -317,7 +317,11 @@ PROGRAM CoLM
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
       ! Initialize tracer system (cold-start from water state)
-      ! Only on worker ranks where water state variables are allocated
+      ! Requires VariablySaturatedFlow (WATER_VSF outputs qlayer for flux tracking)
+      IF (DEF_USE_TRACER .and. .not. DEF_USE_VariablySaturatedFlow) THEN
+         IF (p_is_master) WRITE(*,*) 'ERROR: DEF_USE_TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
+         CALL CoLM_stop()
+      ENDIF
       IF (DEF_USE_TRACER .and. numpatch > 0 .and. allocated(ldew_rain)) THEN
          CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
             ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
