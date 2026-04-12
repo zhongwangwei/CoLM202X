@@ -101,7 +101,8 @@ PROGRAM CoLM
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
    USE MOD_ParameterOptimization
-   USE MOD_Tracer_Main, only: tracer_init, tracer_final
+   USE MOD_Tracer_Main, only: land_tracer_init => tracer_init, &
+                              land_tracer_final => tracer_final
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -317,7 +318,7 @@ PROGRAM CoLM
 
       ! Initialize tracer system (cold-start from water state)
       IF (DEF_USE_TRACER) THEN
-         CALL tracer_init (numpatch, maxsnl, nl_soil, &
+         CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
             ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
             wa, wdsrf, wetwat)
       ENDIF
@@ -671,7 +672,7 @@ PROGRAM CoLM
 
       ENDDO TIMELOOP
 
-      IF (DEF_USE_TRACER) CALL tracer_final ()
+      IF (DEF_USE_TRACER) CALL land_tracer_final ()
 
       CALL deallocate_TimeInvariants ()
       CALL deallocate_TimeVariables  ()
