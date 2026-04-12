@@ -101,6 +101,7 @@ PROGRAM CoLM
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
    USE MOD_ParameterOptimization
+   USE MOD_Tracer_Main, only: tracer_init, tracer_final
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -313,6 +314,13 @@ PROGRAM CoLM
       ! Read in the model time varying data (model state variables)
       CALL allocate_TimeVariables  ()
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
+
+      ! Initialize tracer system (cold-start from water state)
+      IF (DEF_USE_TRACER) THEN
+         CALL tracer_init (numpatch, maxsnl, nl_soil, &
+            ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+            wa, wdsrf, wetwat)
+      ENDIF
 
       ! Read in SNICAR optical and aging parameters
       IF (DEF_USE_SNICAR) THEN
@@ -662,6 +670,8 @@ PROGRAM CoLM
          istep = istep + 1
 
       ENDDO TIMELOOP
+
+      IF (DEF_USE_TRACER) CALL tracer_final ()
 
       CALL deallocate_TimeInvariants ()
       CALL deallocate_TimeVariables  ()
