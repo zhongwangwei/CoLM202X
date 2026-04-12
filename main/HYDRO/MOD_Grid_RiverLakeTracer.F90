@@ -198,8 +198,6 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE tracer_input_from_runoff (rnof_uc_vol, numucat_in, trc_rnof_ext)
 
-      USE MOD_Tracer_Defs, only: tracers
-
       IMPLICIT NONE
       real(r8), intent(in) :: rnof_uc_vol(:)
       integer,  intent(in) :: numucat_in
@@ -207,6 +205,11 @@ CONTAINS
 
       integer :: i, itrc
       real(r8) :: R_default
+      real(r8) :: ref_ratios(ntracers), init_deltas(ntracers)
+
+      ! Parse reference ratios and init deltas from namelist strings
+      CALL parse_csv_real_local(DEF_TRACER_REF_RATIO, ntracers, ref_ratios,  1.0_r8)
+      CALL parse_csv_real_local(DEF_TRACER_INIT_DELTA, ntracers, init_deltas, 0.0_r8)
 
       DO i = 1, numucat_in
          IF (rnof_uc_vol(i) > 0._r8) THEN
@@ -214,8 +217,7 @@ CONTAINS
                IF (present(trc_rnof_ext)) THEN
                   acc_trc_inp(itrc, i) = acc_trc_inp(itrc, i) + trc_rnof_ext(itrc, i)
                ELSE
-                  R_default = tracers(itrc)%ref_ratio * &
-                     (1._r8 + tracers(itrc)%init_delta / 1000._r8)
+                  R_default = ref_ratios(itrc) * (1._r8 + init_deltas(itrc) / 1000._r8)
                   acc_trc_inp(itrc, i) = acc_trc_inp(itrc, i) + R_default * rnof_uc_vol(i)
                ENDIF
             ENDDO
@@ -223,6 +225,42 @@ CONTAINS
       ENDDO
 
    END SUBROUTINE tracer_input_from_runoff
+
+   !-------------------------------------------------------------------------------------
+   ! Parse comma-separated real values from a string (local helper)
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE parse_csv_real_local (csvstr, n, vals, default_val)
+      IMPLICIT NONE
+      character(len=*), intent(in)  :: csvstr
+      integer, intent(in) :: n
+      real(r8), intent(out) :: vals(n)
+      real(r8), intent(in) :: default_val
+      integer :: i, j, slen, itok, ios
+      character(len=256) :: buf
+      character(len=32)  :: tok
+
+      buf = ADJUSTL(TRIM(csvstr))
+      slen = LEN_TRIM(buf)
+      vals(:) = default_val
+      itok = 0; j = 1
+      DO i = 1, slen
+         IF (buf(i:i) == ',') THEN
+            itok = itok + 1
+            IF (itok <= n) THEN
+               tok = ADJUSTL(TRIM(buf(j:i-1)))
+               READ(tok, *, iostat=ios) vals(itok)
+               IF (ios /= 0) vals(itok) = default_val
+            ENDIF
+            j = i + 1
+         ENDIF
+      ENDDO
+      itok = itok + 1
+      IF (itok <= n) THEN
+         tok = ADJUSTL(TRIM(buf(j:slen)))
+         READ(tok, *, iostat=ios) vals(itok)
+         IF (ios /= 0) vals(itok) = default_val
+      ENDIF
+   END SUBROUTINE parse_csv_real_local
 
 
    !-------------------------------------------------------------------------------------
