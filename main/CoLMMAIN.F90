@@ -201,7 +201,7 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_Tracer_Evapo,        only: tracer_evapo
    USE MOD_Tracer_SoilWater,    only: tracer_soil_water
    USE MOD_Tracer_Snow,         only: tracer_newsnow, tracer_snow_layer_adj
-   USE MOD_Tracer_Runoff,       only: tracer_runoff
+
    USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check
    USE MOD_Tracer_Hist,         only: tracer_hist_accumulate
    USE MOD_LeafInterception
@@ -1021,8 +1021,8 @@ SUBROUTINE CoLMMAIN ( &
                rsur, rsub, qinfl, qcharge, &
                DEF_USE_VariablySaturatedFlow)
 
-            CALL tracer_runoff(ipatch, deltim, nl_soil, &
-               rsub, wliq_soisno(1:nl_soil))
+            ! tracer_runoff removed: surface and subsurface runoff
+            ! are now fully handled inside tracer_soil_water
          ENDIF
 
          IF (snl < 0) THEN

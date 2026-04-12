@@ -6,7 +6,7 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, delta_to_R
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
       trc_wa, trc_wdsrf, trc_wetwat, &
-      a_trc_qinfl, a_trc_qcharge, a_trc_rsur, a_trc_rnof, &
+      a_trc_qinfl, a_trc_qcharge, a_trc_rsur, a_trc_rsub, a_trc_rnof, &
       trc_pg_to_ground
 
    IMPLICIT NONE
@@ -149,6 +149,19 @@ CONTAINS
                ENDIF
             ENDIF
          ENDDO
+
+         ! ============================================================
+         ! Subsurface runoff accounting (output only, NO removal from
+         ! layer — delta section above already reduced bottom layer)
+         ! ============================================================
+         IF (rsub > trc_tiny) THEN
+            j = nl_soil
+            IF (wliq_soisno_bef(j) > trc_tiny) THEN
+               ratio = trc_wliq_soisno(itrc, j, ipatch) / max(wliq_soisno(j), trc_tiny)
+               a_trc_rsub(itrc, ipatch) = a_trc_rsub(itrc, ipatch) + rsub * ratio * deltim
+               a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + rsub * ratio * deltim
+            ENDIF
+         ENDIF
 
          ! ============================================================
          ! Freeze/thaw during WATER (if not handled in THERMAL)
