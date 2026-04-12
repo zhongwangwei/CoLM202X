@@ -342,7 +342,11 @@ MODULE MOD_Namelist
    ! ----- tracer module -----
    logical  :: DEF_USE_TRACER          = .false.
    integer  :: DEF_TRACER_NUM          = 2
-   character(len=256) :: DEF_TRACER_NAMES = "delta18O,deltaD"
+   character(len=256) :: DEF_TRACER_NAMES     = "H2_18O,HDO"
+   character(len=256) :: DEF_TRACER_TYPES     = "isotope,isotope"
+   character(len=256) :: DEF_TRACER_MRAT      = "20.0,19.0"
+   character(len=256) :: DEF_TRACER_REF_RATIO = "2.0052e-3,1.5576e-4"
+   character(len=256) :: DEF_TRACER_INIT_DELTA = "-10.0,-70.0"
 
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
@@ -1181,6 +1185,10 @@ CONTAINS
       DEF_USE_TRACER,                         &
       DEF_TRACER_NUM,                         &
       DEF_TRACER_NAMES,                       &
+      DEF_TRACER_TYPES,                       &
+      DEF_TRACER_MRAT,                        &
+      DEF_TRACER_REF_RATIO,                   &
+      DEF_TRACER_INIT_DELTA,                  &
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
       DEF_SED_LYRDPH,                         &
@@ -1837,6 +1845,10 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_TRACER                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NAMES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_TYPES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_MRAT                        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REF_RATIO                   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_INIT_DELTA                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)

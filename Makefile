@@ -5,7 +5,7 @@ HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/TRACER : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -121,6 +121,17 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeBifurcation.o \
 				 MOD_Grid_RiverLakeSediment.o   \
 				 MOD_Grid_RiverLakeTracer.o     \
+				 MOD_Tracer_Defs.o              \
+				 MOD_Tracer_Vars.o              \
+				 MOD_Tracer_Conservation.o      \
+				 MOD_Tracer_Precip.o            \
+				 MOD_Tracer_Evapo.o             \
+				 MOD_Tracer_SoilWater.o         \
+				 MOD_Tracer_Snow.o              \
+				 MOD_Tracer_Runoff.o            \
+				 MOD_Tracer_Hist.o              \
+				 MOD_Tracer_Rest.o              \
+				 MOD_Tracer_Main.o              \
 				 MOD_Grid_RiverLakeTimeVars.o   \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
@@ -375,6 +386,19 @@ MOD_Grid_RiverLakeTracer.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o M
 MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeTracer.o MOD_Grid_RiverLakeSediment.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeTracer.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeTracer.o
+
+# Tracer module dependencies
+MOD_Tracer_Defs.o:
+MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
+MOD_Tracer_Conservation.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Precip.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Evapo.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_SoilWater.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Snow.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Runoff.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Hist.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Rest.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
+MOD_Tracer_Main.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Precip.o MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o MOD_Tracer_Snow.o MOD_Tracer_Runoff.o MOD_Tracer_Conservation.o MOD_Tracer_Hist.o MOD_Tracer_Rest.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 
