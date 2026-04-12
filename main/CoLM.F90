@@ -317,7 +317,8 @@ PROGRAM CoLM
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
       ! Initialize tracer system (cold-start from water state)
-      IF (DEF_USE_TRACER) THEN
+      ! Only on worker ranks where water state variables are allocated
+      IF (DEF_USE_TRACER .and. numpatch > 0 .and. allocated(ldew_rain)) THEN
          CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
             ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
             wa, wdsrf, wetwat)
