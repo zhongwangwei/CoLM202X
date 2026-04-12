@@ -194,7 +194,16 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_LAIEmpirical
    USE MOD_TimeManager
    USE MOD_Namelist, only: DEF_Interception_scheme, DEF_USE_VariablySaturatedFlow, &
-                           DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION
+                           DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, &
+                           DEF_USE_TRACER
+   USE MOD_Tracer_Main
+   USE MOD_Tracer_Precip,       only: tracer_precip
+   USE MOD_Tracer_Evapo,        only: tracer_evapo
+   USE MOD_Tracer_SoilWater,    only: tracer_soil_water
+   USE MOD_Tracer_Snow,         only: tracer_newsnow, tracer_snow_layer_adj
+   USE MOD_Tracer_Runoff,       only: tracer_runoff
+   USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check
+   USE MOD_Tracer_Hist,         only: tracer_hist_accumulate
    USE MOD_LeafInterception
 #if (defined CaMa_Flood)
    ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
@@ -648,6 +657,16 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
 
+   ! Tracer local variables
+   real(r8) :: xerr_tracer
+   real(r8), allocatable :: wliq_soisno_old_trc(:)
+   real(r8), allocatable :: wice_soisno_old_trc(:)
+   real(r8) :: wa_old_trc, wdsrf_old_trc, wetwat_old_trc
+   real(r8) :: ldew_rain_old_trc, ldew_snow_old_trc
+   real(r8), allocatable :: wliq_snow_bef_trc(:)
+   real(r8), allocatable :: wice_snow_bef_trc(:)
+   integer :: snl_bef_trc
+
 #if (defined CaMa_Flood)
    !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
    real(r8) :: kk
@@ -723,6 +742,11 @@ SUBROUTINE CoLMMAIN ( &
 
       forc_rain = prc_rain + prl_rain
       forc_snow = prc_snow + prl_snow
+
+         IF (DEF_USE_TRACER) THEN
+            ldew_rain_old_trc = ldew_rain
+            ldew_snow_old_trc = ldew_snow
+         ENDIF
 
 !======================================================================
 
@@ -813,6 +837,13 @@ SUBROUTINE CoLMMAIN ( &
 
          qdrip = pg_rain + pg_snow
 
+         IF (DEF_USE_TRACER) THEN
+            CALL tracer_precip(ipatch, deltim, &
+               forc_rain, forc_snow, qintr, qintr_rain, qintr_snow, &
+               pg_rain, pg_snow, ldew_rain, ldew_snow, &
+               ldew_rain_old_trc, ldew_snow_old_trc)
+         ENDIF
+
 !----------------------------------------------------------------------
 ! [3] Initialize new snow nodes for snowfall / sleet
 !----------------------------------------------------------------------
@@ -823,11 +854,29 @@ SUBROUTINE CoLMMAIN ( &
                        t_precip,zi_soisno(:0),z_soisno(:0),dz_soisno(:0),t_soisno(:0),&
                        wliq_soisno(:0),wice_soisno(:0),fiold(:0),snl,sag,scv,snowdp,fsno,wetwat)
 
+         IF (DEF_USE_TRACER) THEN
+            CALL tracer_newsnow(ipatch, snl, snl_bef, &
+               wliq_soisno(snl+1:0), wice_soisno(snl+1:0))
+         ENDIF
+
 !----------------------------------------------------------------------
 ! [4] Energy and Water balance
 !----------------------------------------------------------------------
          lb   = snl + 1           !lower bound of array
          lbsn = min(lb,0)
+
+         IF (DEF_USE_TRACER) THEN
+            allocate(wliq_soisno_old_trc(lb:nl_soil))
+            allocate(wice_soisno_old_trc(lb:nl_soil))
+            allocate(wliq_snow_bef_trc(maxsnl+1:nl_soil))
+            allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
+            wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
+            wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
+            wa_old_trc = wa
+            wdsrf_old_trc = wdsrf
+            wetwat_old_trc = wetwat
+            CALL tracer_save_storage(ipatch, snl, nl_soil)
+         ENDIF
 
          CALL THERMAL (ipatch,patchtype,is_dry_lake,lb                ,deltim            ,&
               trsmx0            ,zlnd              ,zsno              ,csoilc            ,&
@@ -885,6 +934,15 @@ SUBROUTINE CoLMMAIN ( &
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
               qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   )
+
+         IF (DEF_USE_TRACER) THEN
+            CALL tracer_evapo(ipatch, deltim, snl, nl_soil, &
+               fevpl, etr, qseva, qsdew, qsubl, qfros, &
+               qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+               qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+               rootflux, wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+               ldew_rain, ldew_snow)
+         ENDIF
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
 
@@ -949,6 +1007,19 @@ SUBROUTINE CoLMMAIN ( &
                  qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
          ENDIF
 
+         IF (DEF_USE_TRACER) THEN
+            CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
+               qinfl, qlayer, qcharge, &
+               wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+               wliq_soisno_old_trc, wice_soisno_old_trc, &
+               wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
+               wetwat, wetwat_old_trc, pg_rain, pg_snow, &
+               DEF_USE_VariablySaturatedFlow)
+
+            CALL tracer_runoff(ipatch, deltim, nl_soil, &
+               rsur, rsub, rnof, wdsrf, wliq_soisno(1:nl_soil))
+         ENDIF
+
          IF (snl < 0) THEN
             ! Compaction rate for snow
             ! Natural compaction and metamorphosis. The compaction rate
@@ -960,6 +1031,12 @@ SUBROUTINE CoLMMAIN ( &
 
             ! Combine thin snow elements
             lb = maxsnl + 1
+
+            IF (DEF_USE_TRACER) THEN
+               wliq_snow_bef_trc(maxsnl+1:nl_soil) = wliq_soisno(maxsnl+1:nl_soil)
+               wice_snow_bef_trc(maxsnl+1:nl_soil) = wice_soisno(maxsnl+1:nl_soil)
+               snl_bef_trc = snl
+            ENDIF
 
             IF (DEF_USE_SNICAR) THEN
                CALL snowlayerscombine_snicar (lb,snl,&
@@ -986,6 +1063,13 @@ SUBROUTINE CoLMMAIN ( &
                             z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
                             wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0))
                ENDIF
+            ENDIF
+
+            IF (DEF_USE_TRACER) THEN
+               CALL tracer_snow_layer_adj(ipatch, maxsnl, nl_soil, &
+                  snl, snl_bef_trc, &
+                  wliq_soisno(maxsnl+1:nl_soil), wice_soisno(maxsnl+1:nl_soil), &
+                  wliq_snow_bef_trc, wice_snow_bef_trc)
             ENDIF
          ENDIF
 
@@ -1059,6 +1143,14 @@ SUBROUTINE CoLMMAIN ( &
          ENDIF
 
          xerr=errorw/deltim
+
+         IF (DEF_USE_TRACER) THEN
+            CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer)
+            CALL tracer_hist_accumulate(ipatch, nl_soil, ldew_rain, ldew_snow, &
+               wliq_soisno(1:nl_soil))
+            deallocate(wliq_soisno_old_trc, wice_soisno_old_trc)
+            deallocate(wliq_snow_bef_trc, wice_snow_bef_trc)
+         ENDIF
 
 #if (defined CoLMDEBUG)
          IF (abs(errorw) > 1.e-3) THEN
