@@ -51,7 +51,7 @@ CONTAINS
       integer  :: itrc, j, lb
       real(r8) :: R_precip
       real(r8) :: trc_flux, ratio
-      real(r8) :: d_wdsrf, d_wa, d_wliq, d_wetwat
+      real(r8) :: d_wdsrf, d_wa, d_wliq, d_wice, d_wetwat
       real(r8) :: trc_throughfall, trc_pool_total, water_pool_total
 
       IF (ntracers <= 0) RETURN
