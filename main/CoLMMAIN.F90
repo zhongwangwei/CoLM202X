@@ -944,9 +944,16 @@ SUBROUTINE CoLMMAIN ( &
                ldew_rain, ldew_snow, ldew_rain_bef_th, ldew_snow_bef_th, &
                wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                wliq_soisno_old_trc, wice_soisno_old_trc)
+            ! Diagnostic: check after THERMAL/evapo only
+            CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer)
+            IF (xerr_tracer*deltim > 1.e-10_r8 .and. ipatch == 1) THEN
+               WRITE(*,'(A,E12.5)') '  DBG after_evapo err=', xerr_tracer*deltim
+            ENDIF
             ! Update saved states to post-THERMAL for WATER delta tracking
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
+            ! Re-save storage and snapshots for WATER phase
+            CALL tracer_save_storage(ipatch, snl, nl_soil)
          ENDIF
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
