@@ -662,7 +662,8 @@ SUBROUTINE CoLMMAIN ( &
    real(r8), allocatable :: wliq_soisno_old_trc(:)
    real(r8), allocatable :: wice_soisno_old_trc(:)
    real(r8) :: wa_old_trc, wdsrf_old_trc, wetwat_old_trc
-   real(r8) :: ldew_rain_old_trc, ldew_snow_old_trc
+   real(r8) :: ldew_rain_old_trc, ldew_snow_old_trc   ! before LEAF_INTERCEPTION
+   real(r8) :: ldew_rain_bef_th, ldew_snow_bef_th    ! before THERMAL
    real(r8), allocatable :: wliq_snow_bef_trc(:)
    real(r8), allocatable :: wice_snow_bef_trc(:)
    integer :: snl_bef_trc
@@ -875,6 +876,9 @@ SUBROUTINE CoLMMAIN ( &
             wa_old_trc = wa
             wdsrf_old_trc = wdsrf
             wetwat_old_trc = wetwat
+            ! Save ldew before THERMAL (for delta-based ET tracking)
+            ldew_rain_bef_th = ldew_rain
+            ldew_snow_bef_th = ldew_snow
             CALL tracer_save_storage(ipatch, snl, nl_soil)
          ENDIF
 
@@ -937,11 +941,12 @@ SUBROUTINE CoLMMAIN ( &
 
          IF (DEF_USE_TRACER) THEN
             CALL tracer_evapo(ipatch, deltim, snl, nl_soil, &
-               fevpl, etr, qseva, qsdew, qsubl, qfros, &
-               qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
-               qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
-               rootflux, wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
-               ldew_rain, ldew_snow)
+               ldew_rain, ldew_snow, ldew_rain_bef_th, ldew_snow_bef_th, &
+               wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+               wliq_soisno_old_trc, wice_soisno_old_trc)
+            ! Update saved states to post-THERMAL for WATER delta tracking
+            wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
+            wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
          ENDIF
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
@@ -1009,11 +1014,11 @@ SUBROUTINE CoLMMAIN ( &
 
          IF (DEF_USE_TRACER) THEN
             CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
-               qinfl, qlayer, qcharge, &
                wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                wliq_soisno_old_trc, wice_soisno_old_trc, &
                wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
                wetwat, wetwat_old_trc, pg_rain, pg_snow, &
+               rsur, rsub, qinfl, qcharge, &
                DEF_USE_VariablySaturatedFlow)
 
             CALL tracer_runoff(ipatch, deltim, nl_soil, &
