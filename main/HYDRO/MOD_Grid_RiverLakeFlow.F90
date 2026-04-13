@@ -25,7 +25,7 @@ MODULE MOD_Grid_RiverLakeFlow
 #endif
    USE MOD_Grid_RiverLakeTracer, only: tracer_init, tracer_input_from_runoff, &
       tracer_calc, tracer_substep, tracer_diag_accumulate, tracer_flush_acc, &
-      read_tracer_restart, tracer_final, acc_trc_inp, trc_mass
+      read_tracer_restart, tracer_final, acc_trc_inp, trc_mass, trc_flux_out
    IMPLICIT NONE
 
    real(r8), parameter :: RIVERMIN  = 1.e-5_r8
