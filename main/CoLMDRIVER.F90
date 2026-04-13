@@ -363,16 +363,22 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             ! Urban runoff tracer: approximate with R_input * rnof
             ! Urban processes don't have full tracer tracking yet,
             ! but the runoff must carry tracer for land→river coupling.
-            IF (DEF_USE_TRACER .and. rnof(i) > 0._r8) THEN
+            IF (DEF_USE_TRACER) THEN
                BLOCK
                USE MOD_Tracer_Defs, only: ntracers_u => ntracers, tracers_u => tracers, &
                   delta_to_R_u => delta_to_R
                USE MOD_Tracer_Vars, only: trc_rnof_step_u => trc_rnof_step
                integer :: itrc_u
+               ! Clear first (urban doesn't go through tracer_save_storage)
                DO itrc_u = 1, ntracers_u
-                  trc_rnof_step_u(itrc_u, i) = rnof(i) * deltim * &
-                     delta_to_R_u(tracers_u(itrc_u)%init_delta, tracers_u(itrc_u)%ref_ratio)
+                  trc_rnof_step_u(itrc_u, i) = 0._r8
                ENDDO
+               IF (rnof(i) > 0._r8) THEN
+                  DO itrc_u = 1, ntracers_u
+                     trc_rnof_step_u(itrc_u, i) = rnof(i) * deltim * &
+                        delta_to_R_u(tracers_u(itrc_u)%init_delta, tracers_u(itrc_u)%ref_ratio)
+                  ENDDO
+               ENDIF
                END BLOCK
             ENDIF
          ENDIF
