@@ -866,7 +866,6 @@ SUBROUTINE CoLMMAIN ( &
             IF (snl < 0) THEN
                wice_snow_bef_trc(snl+1:0) = wice_soisno(snl+1:0)
             ENDIF
-            scv_bef_trc = scv  ! save pre-newsnow scv
          ENDIF
 
          CALL newsnow (patchtype,maxsnl,deltim,t_grnd,pg_rain,pg_snow,bifall,&
@@ -874,6 +873,10 @@ SUBROUTINE CoLMMAIN ( &
                        wliq_soisno(:0),wice_soisno(:0),fiold(:0),snl,sag,scv,snowdp,fsno,wetwat)
 
          IF (DEF_USE_TRACER) THEN
+            ! scv_bef_trc = POST-newsnow scv (includes this step's snowfall).
+            ! Used later to detect thin-snow melt during THERMAL.
+            scv_bef_trc = scv
+
             IF (snl < 0) THEN
                CALL tracer_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
                   scv, scv_bef_trc, wetwat, &
