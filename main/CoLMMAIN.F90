@@ -747,9 +747,7 @@ SUBROUTINE CoLMMAIN ( &
          IF (DEF_USE_TRACER) THEN
             ldew_rain_old_trc = ldew_rain
             ldew_snow_old_trc = ldew_snow
-            ! Save accumulator snapshots BEFORE any tracer processing this step.
-            ! Must happen before tracer_precip (which updates a_trc_precip).
-            CALL tracer_save_storage(ipatch, snl, nl_soil)
+            ! NOTE: tracer_save_storage moved below, after snl is recomputed (line ~771)
          ENDIF
 
 !======================================================================
@@ -842,6 +840,10 @@ SUBROUTINE CoLMMAIN ( &
          qdrip = pg_rain + pg_snow
 
          IF (DEF_USE_TRACER) THEN
+            ! Save step-start storage and accumulator snapshots.
+            ! Must be AFTER snl recomputation (line 769) and BEFORE tracer_precip.
+            CALL tracer_save_storage(ipatch, snl, nl_soil)
+
             CALL tracer_precip(ipatch, deltim, &
                forc_rain, forc_snow, qintr, qintr_rain, qintr_snow, &
                pg_rain, pg_snow, ldew_rain, ldew_snow, &
@@ -854,13 +856,17 @@ SUBROUTINE CoLMMAIN ( &
 
          snl_bef = snl
 
-         ! Save pre-newsnow ice state for tracer snowfall tracking
-         IF (DEF_USE_TRACER .and. snl < 0) THEN
+         ! Save pre-newsnow ice state for tracer snowfall tracking.
+         ! newsnow can create the first snow layer from a no-snow state, so
+         ! the scratch array must exist even when snl >= 0 before newsnow.
+         IF (DEF_USE_TRACER) THEN
             IF (.not. allocated(wice_snow_bef_trc)) THEN
                allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
-               wice_snow_bef_trc = 0._r8
             ENDIF
-            wice_snow_bef_trc(snl+1:0) = wice_soisno(snl+1:0)
+            wice_snow_bef_trc = 0._r8
+            IF (snl < 0) THEN
+               wice_snow_bef_trc(snl+1:0) = wice_soisno(snl+1:0)
+            ENDIF
          ENDIF
 
          CALL newsnow (patchtype,maxsnl,deltim,t_grnd,pg_rain,pg_snow,bifall,&
@@ -1192,7 +1198,7 @@ SUBROUTINE CoLMMAIN ( &
             ENDIF
 
             CALL tracer_hist_accumulate(ipatch, nl_soil, ldew_rain, ldew_snow, &
-               wliq_soisno(1:nl_soil))
+               wliq_soisno(1:nl_soil), wice_soisno(1:nl_soil))
             deallocate(wliq_soisno_old_trc, wice_soisno_old_trc)
             deallocate(wliq_snow_bef_trc, wice_snow_bef_trc)
          ENDIF
