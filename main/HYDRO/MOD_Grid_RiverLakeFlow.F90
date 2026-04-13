@@ -247,7 +247,10 @@ CONTAINS
             ! Accumulate tracer input associated with this runoff increment
             IF (DEF_USE_TRACER) THEN
                IF (ntracers > 0) THEN
-                  CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc)
+                  ! trc_rnof_uc is in R×mm (from land: rsur*ratio*dt, rsur in mm/s)
+                  ! rnof_uc_vol is in m (from rnof_uc*1e-3*dt, rnof_uc in mm/s)
+                  ! Need to convert trc_rnof_uc from mm to m to match water units
+                  CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc*1.e-3)
                ELSE
                   CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat)
                ENDIF
