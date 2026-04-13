@@ -49,7 +49,7 @@ CONTAINS
       integer  :: itrc, j, lb
       real(r8) :: R_precip
       real(r8) :: trc_flux, ratio, ratio_src
-      real(r8) :: d_wice, d_wliq, d_wetwat
+      real(r8) :: d_wetwat
       real(r8) :: trc_throughfall, trc_pool_total, water_pool_total
       real(r8) :: ratio_layer(1:nl_soil)  ! pre-WATER tracer ratio per layer
       real(r8) :: trc_soil_upflow         ! tracer from soil when qlayer(0)<0
@@ -202,42 +202,21 @@ CONTAINS
          ENDIF
 
          ! ============================================================
-         ! 5. Freeze/thaw during WATER: use ice delta as direct signal
+         ! 5. Freeze/thaw during WATER: DISABLED for now
          !
-         !    d_wice is a reliable freeze/thaw indicator because qlayer
-         !    only moves liquid, not ice. So:
-         !      d_wice > 0 → freeze happened (liquid→ice), amount = d_wice
-         !      d_wice < 0 → thaw happened (ice→liquid), amount = |d_wice|
+         !    d_wice during WATER is NOT a pure freeze/thaw signal.
+         !    WATER may also apply qfros_soil (frost deposition, external
+         !    input to ice) and qsubl_soil (sublimation, external output
+         !    from ice). Treating all d_wice as internal liquid↔ice
+         !    transfer would misclassify external fluxes.
          !
-         !    We do NOT use d_wliq to gate the detection, because d_wliq
-         !    mixes qlayer transport with phase change and would mask
-         !    freeze/thaw when simultaneous infiltration occurs.
+         !    THERMAL-phase freeze/thaw is already handled in tracer_evapo.
+         !    WATER-phase ice changes need a more refined approach that
+         !    separates internal phase change from external frost/sublimation
+         !    (requires access to individual flux components from WATER).
+         !
+         !    Phase 1 tropical tests are unaffected (no freezing).
          ! ============================================================
-         DO j = lb, nl_soil
-            d_wice = wice_soisno(j) - wice_soisno_bef(j)
-
-            IF (d_wice > trc_tiny) THEN
-               ! Freeze: d_wice mm of liquid became ice
-               IF (wliq_soisno_bef(j) > trc_tiny) THEN
-                  ratio_src = trc_wliq_soisno(itrc, j, ipatch) / &
-                     max(wliq_soisno_bef(j), trc_tiny)
-                  trc_flux = d_wice * ratio_src
-                  trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
-                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
-                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux
-               ENDIF
-            ELSEIF (d_wice < -trc_tiny) THEN
-               ! Thaw: |d_wice| mm of ice became liquid
-               IF (wice_soisno_bef(j) > trc_tiny) THEN
-                  ratio_src = trc_wice_soisno(itrc, j, ipatch) / &
-                     max(wice_soisno_bef(j), trc_tiny)
-                  trc_flux = abs(d_wice) * ratio_src
-                  trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
-                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
-                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux
-               ENDIF
-            ENDIF
-         ENDDO
 
          ! ============================================================
          ! 6. Wetland water: delta-based
