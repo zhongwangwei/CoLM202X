@@ -79,6 +79,7 @@ CONTAINS
       real(r8) :: water_ice_pool, water_liq_pool  ! post-deposit pool sizes
       real(r8) :: subl_water, evap_water           ! water to remove
       real(r8) :: deficit_water                    ! excess beyond primary phase
+      real(r8) :: water_ice_pool_prefrost          ! pre-subl ice pool for deficit check
       real(r8) :: gwat_evap              ! evaporation subtracted from gwat [mm]
       real(r8) :: trc_gwat_evap         ! corresponding tracer removed
       real(r8) :: eff_qseva             ! effective evap used in gwat
@@ -144,6 +145,7 @@ CONTAINS
 
             ! Post-frost ice pool (water and tracer)
             water_ice_pool = wice_soisno_bef(lb_snow) + max(eff_qfros_snow, 0._r8) * deltim
+            water_ice_pool_prefrost = water_ice_pool  ! save pre-subl value for Step 2 deficit check
             subl_water = max(eff_qsubl_snow, 0._r8) * deltim
 
             IF (subl_water > trc_tiny) THEN
@@ -203,8 +205,9 @@ CONTAINS
                   water_liq_pool = wliq_soisno_bef(lb_snow) + (pg_rain + max(eff_qsdew_snow,0._r8)) * deltim
                ENDIF
                ! Account for qsubl deficit transferred from ice (Step 1)
-               IF (water_ice_pool < eff_qsubl_snow * deltim) THEN
-                  water_liq_pool = water_liq_pool - (eff_qsubl_snow * deltim - water_ice_pool)
+               ! Use PRE-subl ice pool to check if deficit actually occurred
+               IF (water_ice_pool_prefrost < subl_water) THEN
+                  water_liq_pool = water_liq_pool - (subl_water - water_ice_pool_prefrost)
                ENDIF
                water_liq_pool = max(water_liq_pool, 0._r8)
                evap_water = eff_qseva_snow * deltim
