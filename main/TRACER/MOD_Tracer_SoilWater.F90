@@ -16,13 +16,13 @@ CONTAINS
    !---------------------------------------------------------------
    ! Flux-driven tracer update after WATER_VSF.
    !
-   ! Surface water: mixed-pool approach (throughfall + old wdsrf)
+   ! Surface water: mixed-pool approach (throughfall + old wdsrf + soil upflow)
    ! Soil layers: qlayer-driven (exact inter-layer flux tracking)
    ! Aquifer: qcharge-driven
+   ! Subsurface runoff: pre-WATER ratio
    ! Freeze/thaw: delta-based (same-layer internal transfer)
    !
    ! REQUIRES: DEF_USE_VariablySaturatedFlow = .true.
-   !           (WATER_2014 does not output qlayer)
    !---------------------------------------------------------------
    SUBROUTINE tracer_soil_water (ipatch, deltim, snl, nl_soil, &
       qlayer, qcharge, rsur, rsub, &
@@ -49,9 +49,10 @@ CONTAINS
       integer  :: itrc, j, lb
       real(r8) :: R_precip
       real(r8) :: trc_flux, ratio, ratio_src
-      real(r8) :: d_wice, d_wliq, d_wa, d_wetwat
+      real(r8) :: d_wice, d_wliq, d_wetwat
       real(r8) :: trc_throughfall, trc_pool_total, water_pool_total
       real(r8) :: ratio_layer(1:nl_soil)  ! pre-WATER tracer ratio per layer
+      real(r8) :: trc_soil_upflow         ! tracer from soil when qlayer(0)<0
 
       IF (ntracers <= 0) RETURN
       lb = snl + 1
@@ -61,7 +62,6 @@ CONTAINS
 
          ! ============================================================
          ! 0. Compute pre-WATER tracer ratios for all soil layers
-         !    (after tracer_evapo, ratios should be exact R_input in Phase 1)
          ! ============================================================
          DO j = 1, nl_soil
             IF (wliq_soisno_bef(j) > trc_tiny) THEN
@@ -73,15 +73,32 @@ CONTAINS
 
          ! ============================================================
          ! 1. Surface water: mixed-pool approach
-         !    Pool = old_wdsrf_trc + throughfall_trc
-         !    Distributed to: wdsrf_new, rsur, and soil (via qlayer(0))
+         !
+         !    First handle soil→surface upflow (qlayer(0)<0) so that
+         !    the upflow tracer participates in the same-step mixed pool.
+         !    Then compute ratio and distribute to wdsrf/rsur/infiltration.
          ! ============================================================
-         trc_throughfall = trc_pg_to_ground(itrc, ipatch)
-         trc_pool_total  = trc_wdsrf(itrc, ipatch) + trc_throughfall
 
-         ! Surface pool ratio
-         water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim &
-                          + max(qlayer(0), 0._r8) * deltim
+         ! Start with old surface tracer + throughfall from canopy
+         trc_pool_total  = trc_wdsrf(itrc, ipatch) + trc_pg_to_ground(itrc, ipatch)
+         water_pool_total = wdsrf_bef + (pg_rain + pg_snow) * deltim
+
+         ! If soil pushes water to surface (qlayer(0)<0), add to mixed pool
+         ! BEFORE computing ratio, so it participates in rsur allocation.
+         trc_soil_upflow = 0._r8
+         IF (qlayer(0) < -trc_tiny) THEN
+            trc_soil_upflow = abs(qlayer(0)) * ratio_layer(1) * deltim
+            trc_soil_upflow = min(trc_soil_upflow, max(trc_wliq_soisno(itrc, 1, ipatch), 0._r8))
+            ! Remove from soil layer 1
+            trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_soil_upflow
+            ! Add to surface mixed pool
+            trc_pool_total   = trc_pool_total   + trc_soil_upflow
+            water_pool_total = water_pool_total + abs(qlayer(0)) * deltim
+         ENDIF
+
+         ! Compute mixed-pool ratio
+         ! water_pool_total now includes all sources: old wdsrf + throughfall + soil upflow
+         ! This should equal: wdsrf_new + rsur*dt + qlayer(0)*dt (when qlayer(0)>0)
          IF (water_pool_total > trc_tiny .and. trc_pool_total > trc_tiny) THEN
             ratio = trc_pool_total / water_pool_total
          ELSEIF (trc_pool_total <= trc_tiny) THEN
@@ -90,15 +107,14 @@ CONTAINS
             ratio = R_precip
          ENDIF
 
+         ! Distribute: wdsrf residual, surface runoff, infiltration
          trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * ratio
 
-         ! Surface runoff output
          IF (rsur > trc_tiny) THEN
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + rsur * ratio * deltim
             a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + rsur * ratio * deltim
          ENDIF
 
-         ! Infiltration diagnostic
          IF (qlayer(0) > trc_tiny) THEN
             a_trc_qinfl(itrc, ipatch) = a_trc_qinfl(itrc, ipatch) + qlayer(0) * ratio * deltim
          ENDIF
@@ -110,21 +126,13 @@ CONTAINS
          !    qlayer(j) < 0: upward from j+1 to j, source = layer j+1
          !
          !    Each flux removes from source, adds to destination.
-         !    Perfectly conservative: remove = add for every flux.
          ! ============================================================
 
-         ! --- qlayer(0): surface → layer 1 ---
+         ! --- qlayer(0): surface → layer 1 (downward only) ---
+         ! Upward case was already handled above (added to mixed pool).
          IF (qlayer(0) > trc_tiny) THEN
-            ! Downward: surface to soil. Tracer at surface pool ratio.
             trc_flux = qlayer(0) * ratio * deltim
             trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) + trc_flux
-         ELSEIF (qlayer(0) < -trc_tiny) THEN
-            ! Upward: soil to surface. Tracer at layer 1 ratio.
-            trc_flux = abs(qlayer(0)) * ratio_layer(1) * deltim
-            trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, 1, ipatch), 0._r8))
-            trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_flux
-            ! Goes to surface water (add to trc_wdsrf)
-            trc_wdsrf(itrc, ipatch) = trc_wdsrf(itrc, ipatch) + trc_flux
          ENDIF
 
          ! --- qlayer(j): layer j ↔ layer j+1 ---
@@ -146,8 +154,6 @@ CONTAINS
 
          ! ============================================================
          ! 3. Groundwater: qcharge-driven
-         !    qcharge > 0: soil bottom → aquifer (recharge)
-         !    qcharge < 0: aquifer → soil bottom (discharge)
          ! ============================================================
          IF (qcharge > trc_tiny) THEN
             j = nl_soil
@@ -171,19 +177,15 @@ CONTAINS
          ENDIF
 
          ! ============================================================
-         ! 4. Subsurface runoff: from bottom soil layer
+         ! 4. Subsurface runoff: use pre-WATER ratio (fix #3)
          ! ============================================================
          IF (rsub > trc_tiny) THEN
             j = nl_soil
-            IF (wliq_soisno_bef(j) > trc_tiny) THEN
-               ratio_src = trc_wliq_soisno(itrc, j, ipatch) / &
-                  max(wliq_soisno(j), trc_tiny)
-               trc_flux = rsub * ratio_src * deltim
-               trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
-               trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
-               a_trc_rsub(itrc, ipatch) = a_trc_rsub(itrc, ipatch) + trc_flux
-               a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + trc_flux
-            ENDIF
+            trc_flux = rsub * ratio_layer(j) * deltim
+            trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
+            trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
+            a_trc_rsub(itrc, ipatch) = a_trc_rsub(itrc, ipatch) + trc_flux
+            a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + trc_flux
          ENDIF
 
          ! ============================================================
