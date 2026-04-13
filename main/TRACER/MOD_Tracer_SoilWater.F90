@@ -81,7 +81,6 @@ CONTAINS
 
          ! Start with old surface tracer + throughfall from canopy
          trc_pool_total  = trc_wdsrf(itrc, ipatch) + trc_pg_to_ground(itrc, ipatch)
-         water_pool_total = wdsrf_bef + (pg_rain + pg_snow) * deltim
 
          ! If soil pushes water to surface (qlayer(0)<0), add to mixed pool
          ! BEFORE computing ratio, so it participates in rsur allocation.
@@ -89,16 +88,19 @@ CONTAINS
          IF (qlayer(0) < -trc_tiny) THEN
             trc_soil_upflow = abs(qlayer(0)) * ratio_layer(1) * deltim
             trc_soil_upflow = min(trc_soil_upflow, max(trc_wliq_soisno(itrc, 1, ipatch), 0._r8))
-            ! Remove from soil layer 1
             trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_soil_upflow
-            ! Add to surface mixed pool
-            trc_pool_total   = trc_pool_total   + trc_soil_upflow
-            water_pool_total = water_pool_total + abs(qlayer(0)) * deltim
+            trc_pool_total = trc_pool_total + trc_soil_upflow
          ENDIF
 
+         ! Use OUTPUT-side water pool: the actual water that was distributed
+         ! by WATER to wdsrf/rsur/qlayer(0). This guarantees:
+         !   distributed = water_pool * ratio = water_pool * (trc_pool / water_pool) = trc_pool
+         ! Using input-side (wdsrf_bef + pg*dt) would be too large (gwat subtracts
+         ! qseva), causing ratio to be too small and tracer to silently vanish.
+         water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim &
+                          + max(qlayer(0), 0._r8) * deltim
+
          ! Compute mixed-pool ratio
-         ! water_pool_total now includes all sources: old wdsrf + throughfall + soil upflow
-         ! This should equal: wdsrf_new + rsur*dt + qlayer(0)*dt (when qlayer(0)>0)
          IF (water_pool_total > trc_tiny .and. trc_pool_total > trc_tiny) THEN
             ratio = trc_pool_total / water_pool_total
          ELSEIF (trc_pool_total <= trc_tiny) THEN
@@ -200,27 +202,37 @@ CONTAINS
          ENDIF
 
          ! ============================================================
-         ! 5. Freeze/thaw during WATER: delta-based (same-layer only)
+         ! 5. Freeze/thaw during WATER: use ice delta as direct signal
+         !
+         !    d_wice is a reliable freeze/thaw indicator because qlayer
+         !    only moves liquid, not ice. So:
+         !      d_wice > 0 → freeze happened (liquid→ice), amount = d_wice
+         !      d_wice < 0 → thaw happened (ice→liquid), amount = |d_wice|
+         !
+         !    We do NOT use d_wliq to gate the detection, because d_wliq
+         !    mixes qlayer transport with phase change and would mask
+         !    freeze/thaw when simultaneous infiltration occurs.
          ! ============================================================
          DO j = lb, nl_soil
-            d_wliq = wliq_soisno(j) - wliq_soisno_bef(j)
             d_wice = wice_soisno(j) - wice_soisno_bef(j)
 
-            IF (d_wice > trc_tiny .and. d_wliq < -trc_tiny) THEN
-               ! Freeze: liquid → ice
-               trc_flux = min(abs(d_wliq), d_wice)
-               IF (wliq_soisno_bef(j) > trc_tiny .and. trc_flux > trc_tiny) THEN
-                  ratio_src = trc_wliq_soisno(itrc, j, ipatch) / max(wliq_soisno_bef(j), trc_tiny)
-                  trc_flux = min(trc_flux * ratio_src, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
+            IF (d_wice > trc_tiny) THEN
+               ! Freeze: d_wice mm of liquid became ice
+               IF (wliq_soisno_bef(j) > trc_tiny) THEN
+                  ratio_src = trc_wliq_soisno(itrc, j, ipatch) / &
+                     max(wliq_soisno_bef(j), trc_tiny)
+                  trc_flux = d_wice * ratio_src
+                  trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
                   trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
                   trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux
                ENDIF
-            ELSEIF (d_wice < -trc_tiny .and. d_wliq > trc_tiny) THEN
-               ! Thaw: ice → liquid
-               trc_flux = min(abs(d_wice), d_wliq)
-               IF (wice_soisno_bef(j) > trc_tiny .and. trc_flux > trc_tiny) THEN
-                  ratio_src = trc_wice_soisno(itrc, j, ipatch) / max(wice_soisno_bef(j), trc_tiny)
-                  trc_flux = min(trc_flux * ratio_src, max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
+            ELSEIF (d_wice < -trc_tiny) THEN
+               ! Thaw: |d_wice| mm of ice became liquid
+               IF (wice_soisno_bef(j) > trc_tiny) THEN
+                  ratio_src = trc_wice_soisno(itrc, j, ipatch) / &
+                     max(wice_soisno_bef(j), trc_tiny)
+                  trc_flux = abs(d_wice) * ratio_src
+                  trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
                   trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
                   trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux
                ENDIF
