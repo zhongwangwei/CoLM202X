@@ -81,15 +81,7 @@ CONTAINS
       real(r8) :: eff_qsubl_top         ! effective sublimation on top layer (ice)
       real(r8) :: eff_qfros_top         ! effective frost on top layer (ice)
       real(r8) :: pool_ratio            ! actual ratio of mixed pool
-      ! Snow percolation reconstruction variables
-      real(r8) :: trc_gwat_snow         ! tracer exiting snow bottom → surface pool
-      real(r8) :: srf_input_water       ! liquid water input to top snow layer [mm]
-      real(r8) :: trc_srf_input         ! tracer in surface input to snow
-      real(r8) :: qin_water, trc_qin    ! water/tracer flowing into current snow layer
-      real(r8) :: qout_water, trc_qout  ! water/tracer flowing out of current snow layer
-      real(r8) :: d_wliq_j              ! per-layer wliq delta
-      real(r8) :: trc_total_j           ! total tracer in layer after receiving qin
-      real(r8) :: water_total_j         ! total water in layer after receiving qin
+      ! Snow percolation: not yet implemented (see 0c comment)
 
       IF (ntracers <= 0) RETURN
       lb = snl + 1
@@ -147,78 +139,53 @@ CONTAINS
                   ENDIF
                ENDIF
             ENDIF
-            ! Note: when NOT split_soilsnow, qseva/qsdew/qsubl/qfros (without _snow suffix)
-            ! are applied to snow layers by snowwater. These are the same as qseva_soil etc.
-            ! but we already handle qseva_soil in the surface pool section below.
-            ! The snow layer internal changes (percolation etc.) are captured by the
-            ! delta approach for snow layers in sections 5a/5b.
-         ENDIF
-
-         ! ============================================================
-         ! 0c. Snow percolation tracer tracking (when snow exists)
-         !
-         !     Reconstruct layer-by-layer qin/qout from wliq deltas:
-         !       qout(j) = qin(j) - Δwliq(j)
-         !     At each layer, incoming tracer mixes with existing,
-         !     outflow carries the mixed ratio.
-         !
-         !     External fluxes (qseva/qsdew/qfros/qsubl) were already
-         !     handled in 0b, so wliq_bef already reflects pre-percolation
-         !     state EXCEPT for the surface input.
-         !
-         !     Output: trc_gwat_snow = tracer exiting snow bottom → surface pool
-         ! ============================================================
-         trc_gwat_snow = 0._r8
-         IF (snl < 0) THEN
-            ! Surface liquid input to top snow layer (same as snowwater):
-            IF (split_soilsnow) THEN
-               srf_input_water = (pg_rain * fsno + max(qsdew_snow,0._r8) - max(qseva_snow,0._r8)) * deltim
-            ELSE
-               srf_input_water = (pg_rain + max(qsdew_in,0._r8) - max(qseva_in,0._r8)) * deltim
-            ENDIF
-            srf_input_water = max(srf_input_water, 0._r8)
-
-            ! Tracer in surface input: rain portion at throughfall ratio,
-            ! dew portion at R_precip (already handled in 0b for split path)
-            ! For simplicity, use throughfall fraction of trc_pg_to_ground
-            IF (split_soilsnow) THEN
-               ! Only the fsno fraction of throughfall goes through snow
-               trc_srf_input = trc_pg_to_ground(itrc, ipatch) * fsno
-            ELSE
-               trc_srf_input = trc_pg_to_ground(itrc, ipatch)
-            ENDIF
-
-            ! Sequential top→bottom percolation
-            qin_water = srf_input_water
-            trc_qin   = trc_srf_input
-            DO j = snl + 1, 0
-               d_wliq_j = wliq_soisno(j) - wliq_soisno_bef(j)
-               ! Reconstruct outflow: qout = qin - Δwliq
-               qout_water = max(qin_water - d_wliq_j, 0._r8)
-
-               ! Mix incoming tracer with existing layer tracer
-               trc_total_j = trc_wliq_soisno(itrc, j, ipatch) + trc_qin
-               water_total_j = max(wliq_soisno_bef(j) + qin_water, trc_tiny)
-
-               IF (qout_water > trc_tiny) THEN
-                  ratio_src = trc_total_j / water_total_j
-                  trc_qout = qout_water * ratio_src
-                  trc_qout = min(trc_qout, max(trc_total_j, 0._r8))
-               ELSE
-                  trc_qout = 0._r8
+         ELSE  ! NOT split_soilsnow: snowwater uses total qseva/qsdew/qsubl/qfros
+               ! on snow layers. Track these as system I/O here (not in surface pool).
+               IF (qsdew_in > trc_tiny) THEN
+                  trc_flux = qsdew_in * R_precip * deltim
+                  trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) + trc_flux
+                  a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
                ENDIF
+               IF (qseva_in > trc_tiny) THEN
+                  IF (wliq_soisno_bef(lb_snow) > trc_tiny) THEN
+                     ratio_src = trc_wliq_soisno(itrc, lb_snow, ipatch) / max(wliq_soisno_bef(lb_snow), trc_tiny)
+                     trc_flux = qseva_in * ratio_src * deltim
+                     trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, lb_snow, ipatch), 0._r8))
+                     trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) - trc_flux
+                     a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                  ENDIF
+               ENDIF
+               IF (qfros_in > trc_tiny) THEN
+                  trc_flux = qfros_in * R_precip * deltim
+                  trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) + trc_flux
+                  a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+               ENDIF
+               IF (qsubl_in > trc_tiny) THEN
+                  IF (wice_soisno_bef(lb_snow) > trc_tiny) THEN
+                     ratio_src = trc_wice_soisno(itrc, lb_snow, ipatch) / max(wice_soisno_bef(lb_snow), trc_tiny)
+                     trc_flux = qsubl_in * ratio_src * deltim
+                     trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, lb_snow, ipatch), 0._r8))
+                     trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) - trc_flux
+                     a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                  ENDIF
+               ENDIF
+            ENDIF  ! split_soilsnow
+         ENDIF  ! snl < 0
 
-               ! Update layer tracer
-               trc_wliq_soisno(itrc, j, ipatch) = max(trc_total_j - trc_qout, 0._r8)
-
-               ! Set up for next layer
-               qin_water = qout_water
-               trc_qin = trc_qout
-            ENDDO
-
-            ! gwat tracer = what exits bottom snow layer
-            trc_gwat_snow = trc_qout
-         ENDIF
+         ! ============================================================
+         ! 0c. Snow percolation tracer tracking: NOT YET IMPLEMENTED
+         !
+         !     Correct implementation requires:
+         !     - Separating rain tracer from snow tracer in trc_pg_to_ground
+         !     - Properly reconstructing per-layer qin/qout including
+         !       external surface inputs at the top layer
+         !     - Avoiding double-counting of qseva/qsdew between snow
+         !       percolation and surface pool paths
+         !
+         !     For now, use R_precip approximation for gwat from snow.
+         !     Phase 1 (constant R): no impact on conservation.
+         !     Phase 2: needs dedicated snow percolation tracer module.
+         ! ============================================================
 
          ! ============================================================
          ! 1. Surface water: mixed-pool approach
@@ -228,21 +195,10 @@ CONTAINS
          !    Then compute ratio and distribute to wdsrf/rsur/infiltration.
          ! ============================================================
 
-         ! Build surface pool tracer:
-         !   If snow: gwat tracer from snow bottom + bare-ground throughfall
-         !   If no snow: full throughfall from canopy
-         IF (snl < 0 .and. split_soilsnow) THEN
-            ! Split: snow portion went through snow → trc_gwat_snow
-            !        bare portion = (1-fsno) fraction of throughfall → direct
-            trc_pool_total = trc_wdsrf(itrc, ipatch) &
-               + trc_gwat_snow + trc_pg_to_ground(itrc, ipatch) * (1._r8 - fsno)
-         ELSEIF (snl < 0) THEN
-            ! Not split: all rain went through snow → trc_gwat_snow
-            trc_pool_total = trc_wdsrf(itrc, ipatch) + trc_gwat_snow
-         ELSE
-            ! No snow: all throughfall goes directly to surface
-            trc_pool_total = trc_wdsrf(itrc, ipatch) + trc_pg_to_ground(itrc, ipatch)
-         ENDIF
+         ! Start with old surface tracer + throughfall from canopy
+         ! (When snow exists, throughfall tracer approximated at R_precip
+         !  via trc_pg_to_ground, which is acceptable for Phase 1.)
+         trc_pool_total = trc_wdsrf(itrc, ipatch) + trc_pg_to_ground(itrc, ipatch)
 
          ! If soil pushes water to surface (qlayer(0)<0), add to mixed pool
          ! BEFORE computing ratio, so it participates in rsur allocation.
@@ -254,18 +210,43 @@ CONTAINS
             trc_pool_total = trc_pool_total + trc_soil_upflow
          ENDIF
 
-         ! ---- Determine effective fluxes used in gwat computation ----
-         ! WATER_VSF uses different variables depending on path:
-         !   split_soilsnow AND snow:  gwat includes qseva_soil (soil portion)
-         !   NOT split_soilsnow AND snow: gwat includes qseva (total, via snowwater)
-         !   no snow (lb>=1):  gwat = pg_rain + sm - qseva_soil  (or qseva, same thing)
-         IF (split_soilsnow .and. snl < 0) THEN
-            eff_qseva = qseva_soil     ! soil portion only
+         ! ---- Determine effective fluxes applied to gwat / soil layer 1 ----
+         !
+         ! Three cases for how WATER handles evaporation:
+         !
+         ! Case A: no snow (lb>=1)
+         !   gwat = pg_rain + sm - qseva  (= qseva_soil, same thing)
+         !   ice fluxes on soil layer 1: qfros/qsubl (= qfros_soil/qsubl_soil)
+         !   → surface pool must deduct qseva, add qsdew
+         !
+         ! Case B: snow + split_soilsnow
+         !   snowwater handles snow portion with qseva_snow/qsdew_snow/etc.
+         !   gwat from snow bottom → then gwat += pg_rain*(1-fsno) - qseva_soil
+         !   ice fluxes on soil layer 1: qfros_soil/qsubl_soil
+         !   → surface pool deducts qseva_soil (soil portion only)
+         !
+         ! Case C: snow + NOT split_soilsnow
+         !   snowwater handles ALL qseva/qsdew/qsubl/qfros on snow layers
+         !   gwat is snowwater's OUTPUT (already post-evaporation)
+         !   → surface pool should NOT deduct qseva again (already in gwat)
+         !   → ice fluxes on soil layer 1: none separate (snowwater handled them)
+         !     but qfros/qsubl still may affect soil layer 1 via wice update
+         !
+         IF (snl < 0 .and. .not. split_soilsnow) THEN
+            ! Case C: evap/dew handled inside snowwater, not in surface pool
+            eff_qseva = 0._r8
+            eff_qsdew = 0._r8
+            eff_qsubl_top = qsubl_in    ! still affects soil layer 1 ice
+            eff_qfros_top = qfros_in
+         ELSEIF (snl < 0 .and. split_soilsnow) THEN
+            ! Case B: only soil portion affects surface pool
+            eff_qseva = qseva_soil
             eff_qsdew = qsdew_soil
-            eff_qsubl_top = qsubl_soil  ! on soil layer 1
+            eff_qsubl_top = qsubl_soil
             eff_qfros_top = qfros_soil
          ELSE
-            eff_qseva = qseva_in       ! total (includes snow portion when no split)
+            ! Case A: no snow, all fluxes apply
+            eff_qseva = qseva_in
             eff_qsdew = qsdew_in
             eff_qsubl_top = qsubl_in
             eff_qfros_top = qfros_in
