@@ -177,15 +177,40 @@ CONTAINS
                ENDIF
             ENDIF
 
-            ! Step 2: Liquid phase — dew deposits, evaporation removes
+            ! Step 2: Liquid phase — rain + dew deposits, evaporation removes
             ! snowwater does: wliq(lb) += (pg_rain + qsdew - qseva)*dt
             ! If wliq goes negative, deficit removes from wice.
+            !
+            ! Add RAIN tracer here (before evaporation), mirroring snowwater's
+            ! order: wliq += (pg_rain + qsdew - qseva)*dt applied together.
+            ! This ensures evaporation can draw from rain that arrived this step.
+            ! The rain tracer is then NOT re-added in section 0c percolation.
+            IF (split_soilsnow) THEN
+               trc_flux = trc_pg_rain_ground(itrc, ipatch) * fsno
+            ELSE
+               trc_flux = trc_pg_rain_ground(itrc, ipatch)
+            ENDIF
+            trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) + trc_flux
+
+            ! Add dew
             trc_flux = max(eff_qsdew_snow, 0._r8) * R_precip * deltim
             trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) + trc_flux
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
 
+            ! Evaporate from the full pool (wliq_bef + qsubl_deficit + rain + dew)
             IF (eff_qseva_snow > trc_tiny) THEN
-               water_liq_pool = wliq_soisno_bef(lb_snow) + max(eff_qsdew_snow, 0._r8) * deltim
+               ! Reconstruct pre-evap water pool (matches snowwater):
+               ! wliq_bef + (pg_rain + qsdew)*dt + any ice deficit transferred earlier
+               IF (split_soilsnow) THEN
+                  water_liq_pool = wliq_soisno_bef(lb_snow) + (pg_rain*fsno + max(eff_qsdew_snow,0._r8)) * deltim
+               ELSE
+                  water_liq_pool = wliq_soisno_bef(lb_snow) + (pg_rain + max(eff_qsdew_snow,0._r8)) * deltim
+               ENDIF
+               ! Account for qsubl deficit transferred from ice (Step 1)
+               IF (water_ice_pool < eff_qsubl_snow * deltim) THEN
+                  water_liq_pool = water_liq_pool - (eff_qsubl_snow * deltim - water_ice_pool)
+               ENDIF
+               water_liq_pool = max(water_liq_pool, 0._r8)
                evap_water = eff_qseva_snow * deltim
 
                IF (evap_water <= water_liq_pool .or. water_liq_pool < trc_tiny) THEN
@@ -238,15 +263,16 @@ CONTAINS
                snow_evap_output = max(qseva_snow, 0._r8) * deltim
                snow_frost_input = max(qfros_snow, 0._r8) * deltim
                snow_subl_output = max(qsubl_snow, 0._r8) * deltim
-               trc_qin_snow = trc_pg_rain_ground(itrc, ipatch) * fsno
             ELSE
                snow_rain_input  = max(pg_rain, 0._r8) * deltim
                snow_dew_input   = max(qsdew_in, 0._r8) * deltim
                snow_evap_output = max(qseva_in, 0._r8) * deltim
                snow_frost_input = max(qfros_in, 0._r8) * deltim
                snow_subl_output = max(qsubl_in, 0._r8) * deltim
-               trc_qin_snow = trc_pg_rain_ground(itrc, ipatch)
             ENDIF
+            ! Rain tracer was already added to trc_wliq in Step 2 (section 0b).
+            ! Top snow layer starts percolation with trc_qin_snow = 0.
+            trc_qin_snow = 0._r8
 
             snow_wliq_before_flow = wliq_soisno_bef(lb_snow)
             IF (wice_soisno_bef(lb_snow) + snow_frost_input - snow_subl_output < 0._r8) THEN
