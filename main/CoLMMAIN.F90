@@ -874,9 +874,14 @@ SUBROUTINE CoLMMAIN ( &
                        wliq_soisno(:0),wice_soisno(:0),fiold(:0),snl,sag,scv,snowdp,fsno,wetwat)
 
          IF (DEF_USE_TRACER) THEN
-            CALL tracer_newsnow(ipatch, snl, snl_bef, &
-               wliq_soisno(snl+1:0), wice_soisno(snl+1:0), &
-               wice_snow_bef_trc(snl+1:0), pg_snow, deltim)
+            IF (snl < 0) THEN
+               CALL tracer_newsnow(ipatch, snl, snl_bef, pg_snow, deltim, &
+                  wliq_soisno(snl+1:0), wice_soisno(snl+1:0), &
+                  wice_snow_bef_trc(snl+1:0))
+            ELSE
+               ! No snow layers: accumulate trc_scv only (no arrays to pass)
+               CALL tracer_newsnow(ipatch, snl, snl_bef, pg_snow, deltim)
+            ENDIF
          ENDIF
 
 !----------------------------------------------------------------------

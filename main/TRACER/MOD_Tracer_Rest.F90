@@ -5,6 +5,10 @@ MODULE MOD_Tracer_Rest
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, tracers, delta_to_R, trc_tiny
    USE MOD_Tracer_Vars
+   USE MOD_LandPatch, only: landpatch
+   USE MOD_Namelist, only: DEF_REST_CompressLevel
+   USE MOD_NetCDFSerial, only: ncio_var_exist
+   USE MOD_NetCDFVector, only: ncio_read_vector, ncio_write_vector
 
    IMPLICIT NONE
 
@@ -42,5 +46,57 @@ CONTAINS
          ENDDO
       ENDDO
    END SUBROUTINE tracer_init_from_water
+
+   SUBROUTINE read_land_tracer_restart (file_restart, maxsnl, nl_soil, found_restart)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: file_restart
+      integer, intent(in) :: maxsnl, nl_soil
+      logical, intent(out) :: found_restart
+      logical :: file_ok
+
+      found_restart = .false.
+      IF (ntracers <= 0) RETURN
+
+      inquire(file = trim(file_restart), exist = file_ok)
+      IF (.not. file_ok) RETURN
+      IF (.not. ncio_var_exist(file_restart, 'trc_ldew_rain', readflag = .false.)) RETURN
+
+      CALL ncio_read_vector(file_restart, 'trc_ldew_rain', ntracers, landpatch, trc_ldew_rain)
+      CALL ncio_read_vector(file_restart, 'trc_ldew_snow', ntracers, landpatch, trc_ldew_snow)
+      CALL ncio_read_vector(file_restart, 'trc_wliq_soisno', ntracers, nl_soil-maxsnl, landpatch, trc_wliq_soisno)
+      CALL ncio_read_vector(file_restart, 'trc_wice_soisno', ntracers, nl_soil-maxsnl, landpatch, trc_wice_soisno)
+      CALL ncio_read_vector(file_restart, 'trc_wa', ntracers, landpatch, trc_wa)
+      CALL ncio_read_vector(file_restart, 'trc_wdsrf', ntracers, landpatch, trc_wdsrf)
+      CALL ncio_read_vector(file_restart, 'trc_wetwat', ntracers, landpatch, trc_wetwat)
+      IF (ncio_var_exist(file_restart, 'trc_scv', readflag = .false.)) THEN
+         CALL ncio_read_vector(file_restart, 'trc_scv', ntracers, landpatch, trc_scv)
+      ENDIF
+      found_restart = .true.
+   END SUBROUTINE read_land_tracer_restart
+
+   SUBROUTINE write_land_tracer_restart (file_restart, maxsnl, nl_soil)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: file_restart
+      integer, intent(in) :: maxsnl, nl_soil
+
+      IF (ntracers <= 0) RETURN
+
+      CALL ncio_write_vector(file_restart, 'trc_ldew_rain', 'tracer', ntracers, 'patch', landpatch, &
+         trc_ldew_rain, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_ldew_snow', 'tracer', ntracers, 'patch', landpatch, &
+         trc_ldew_snow, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_wliq_soisno', 'tracer', ntracers, 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, &
+         trc_wliq_soisno, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_wice_soisno', 'tracer', ntracers, 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, &
+         trc_wice_soisno, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_wa', 'tracer', ntracers, 'patch', landpatch, &
+         trc_wa, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_wdsrf', 'tracer', ntracers, 'patch', landpatch, &
+         trc_wdsrf, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_wetwat', 'tracer', ntracers, 'patch', landpatch, &
+         trc_wetwat, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'trc_scv', 'tracer', ntracers, 'patch', landpatch, &
+         trc_scv, DEF_REST_CompressLevel)
+   END SUBROUTINE write_land_tracer_restart
 
 END MODULE MOD_Tracer_Rest

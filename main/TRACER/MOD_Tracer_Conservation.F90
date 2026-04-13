@@ -32,6 +32,8 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         trc_rnof_step(itrc, ipatch) = 0._r8
+
          ! Save current storage
          trc_storage_beg(itrc, ipatch) = 0._r8
          trc_storage_beg(itrc, ipatch) = trc_storage_beg(itrc, ipatch) &
@@ -41,7 +43,8 @@ CONTAINS
                + trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
          ENDDO
          trc_storage_beg(itrc, ipatch) = trc_storage_beg(itrc, ipatch) &
-            + trc_wa(itrc, ipatch) + trc_wdsrf(itrc, ipatch) + trc_wetwat(itrc, ipatch)
+            + trc_wa(itrc, ipatch) + trc_wdsrf(itrc, ipatch) + trc_wetwat(itrc, ipatch) &
+            + trc_scv(itrc, ipatch)
 
          ! Snapshot accumulators at start of this step
          snap_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch)
@@ -73,7 +76,8 @@ CONTAINS
                + trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
          ENDDO
          storage_end = storage_end &
-            + trc_wa(itrc, ipatch) + trc_wdsrf(itrc, ipatch) + trc_wetwat(itrc, ipatch)
+            + trc_wa(itrc, ipatch) + trc_wdsrf(itrc, ipatch) + trc_wetwat(itrc, ipatch) &
+            + trc_scv(itrc, ipatch)
 
          ! Per-step fluxes = current accumulator - snapshot at step start
          step_input  = a_trc_precip(itrc, ipatch) - snap_precip(itrc, ipatch)

@@ -16,10 +16,18 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: trc_wdsrf      (:,:)
    real(r8), allocatable :: trc_wetwat     (:,:)
 
+   ! Snow water equivalent tracer for pre-layer accumulation [kg/m2]
+   ! Tracks tracer in scv before a snow layer is created (snl=0).
+   ! When the first snow layer forms, trc_scv is transferred to trc_wice_soisno.
+   real(r8), allocatable :: trc_scv        (:,:)  ! (ntracers, numpatch)
+
    ! Throughfall tracer reaching ground [kg/m2 per step]
-   ! Computed by tracer_precip, consumed by tracer_soil_water
-   ! = throughfall*R_precip + drip*R_canopy_mixed
-   real(r8), allocatable :: trc_pg_to_ground(:,:)  ! (ntracers, numpatch)
+   ! Computed by tracer_precip, consumed by tracer_soil_water.
+   ! Keep total plus rain/snow split so snowwater tracer can follow only liquid rain.
+   real(r8), allocatable :: trc_pg_to_ground(:,:)      ! (ntracers, numpatch)
+   real(r8), allocatable :: trc_pg_rain_ground(:,:)    ! (ntracers, numpatch)
+   real(r8), allocatable :: trc_pg_snow_ground(:,:)    ! (ntracers, numpatch)
+   real(r8), allocatable :: trc_rnof_step(:,:)         ! (ntracers, numpatch), this land step only
 
    real(r8), allocatable :: a_trc_precip   (:,:)
    real(r8), allocatable :: a_trc_evap     (:,:)
@@ -55,7 +63,11 @@ CONTAINS
       allocate(trc_wa          (ntracers, numpatch));           trc_wa          = 0._r8
       allocate(trc_wdsrf       (ntracers, numpatch));           trc_wdsrf       = 0._r8
       allocate(trc_wetwat      (ntracers, numpatch));           trc_wetwat      = 0._r8
+      allocate(trc_scv         (ntracers, numpatch));           trc_scv         = 0._r8
       allocate(trc_pg_to_ground(ntracers, numpatch));        trc_pg_to_ground = 0._r8
+      allocate(trc_pg_rain_ground(ntracers, numpatch));      trc_pg_rain_ground = 0._r8
+      allocate(trc_pg_snow_ground(ntracers, numpatch));      trc_pg_snow_ground = 0._r8
+      allocate(trc_rnof_step(ntracers, numpatch));           trc_rnof_step = 0._r8
 
       allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
       allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
@@ -85,7 +97,11 @@ CONTAINS
       IF (allocated(trc_wa         )) deallocate(trc_wa         )
       IF (allocated(trc_wdsrf      )) deallocate(trc_wdsrf      )
       IF (allocated(trc_wetwat     )) deallocate(trc_wetwat     )
-      IF (allocated(trc_pg_to_ground)) deallocate(trc_pg_to_ground)
+      IF (allocated(trc_scv        )) deallocate(trc_scv        )
+      IF (allocated(trc_pg_to_ground )) deallocate(trc_pg_to_ground )
+      IF (allocated(trc_pg_rain_ground)) deallocate(trc_pg_rain_ground)
+      IF (allocated(trc_pg_snow_ground)) deallocate(trc_pg_snow_ground)
+      IF (allocated(trc_rnof_step    )) deallocate(trc_rnof_step    )
       IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
       IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
       IF (allocated(a_trc_trans    )) deallocate(a_trc_trans    )
@@ -116,6 +132,10 @@ CONTAINS
       IF (allocated(a_water_ldew   )) a_water_ldew    = 0._r8
       IF (allocated(a_trc_soil_mass)) a_trc_soil_mass = 0._r8
       IF (allocated(a_water_soil   )) a_water_soil    = 0._r8
+      IF (allocated(trc_pg_to_ground )) trc_pg_to_ground  = 0._r8
+      IF (allocated(trc_pg_rain_ground)) trc_pg_rain_ground = 0._r8
+      IF (allocated(trc_pg_snow_ground)) trc_pg_snow_ground = 0._r8
+      IF (allocated(trc_rnof_step    )) trc_rnof_step     = 0._r8
       trc_hist_nac = 0
    END SUBROUTINE flush_Tracer_Acc
 

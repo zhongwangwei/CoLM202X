@@ -4,51 +4,80 @@ MODULE MOD_Tracer_Snow
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, delta_to_R, tracers
-   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground
+   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, trc_scv
 
    IMPLICIT NONE
 
 CONTAINS
 
-   SUBROUTINE tracer_newsnow (ipatch, snl, snl_old, &
-      wliq_soisno, wice_soisno, wice_soisno_bef, pg_snow, deltim)
+   SUBROUTINE tracer_newsnow (ipatch, snl, snl_old, pg_snow, deltim, &
+      wliq_soisno, wice_soisno, wice_soisno_bef)
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, snl_old
-      real(r8), intent(in) :: wliq_soisno(snl+1:0)
-      real(r8), intent(in) :: wice_soisno(snl+1:0)
-      real(r8), intent(in) :: wice_soisno_bef(snl+1:0)  ! pre-newsnow ice
       real(r8), intent(in) :: pg_snow                    ! snow throughfall [mm/s]
       real(r8), intent(in) :: deltim
+      ! These arrays are only valid when snl < 0
+      real(r8), intent(in), optional :: wliq_soisno(:)
+      real(r8), intent(in), optional :: wice_soisno(:)
+      real(r8), intent(in), optional :: wice_soisno_bef(:)
 
       integer  :: itrc, j
       real(r8) :: R_precip, d_wice
 
       IF (ntracers <= 0) RETURN
-      IF (snl >= 0) RETURN
 
       DO itrc = 1, ntracers
          R_precip = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
 
-         IF (snl < snl_old) THEN
-            ! Case 1: New snow layer created — initialize tracer for entire layer
+         ! Every step: accumulate snowfall tracer into trc_scv
+         ! (mirrors water model's scv += pg_snow*dt at every step)
+         trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
+
+         IF (snl_old == 0 .and. snl < 0) THEN
+            ! Case A: First snow layer just created from accumulated scv.
+            ! wice_soisno(0) = scv (accumulated over multiple steps).
+            ! Transfer trc_scv (accumulated tracer) to the new layer.
+            j = snl + 1  ! = 0
+            trc_wice_soisno(itrc, j, ipatch) = trc_scv(itrc, ipatch)
+            IF (present(wliq_soisno)) THEN
+               IF (size(wliq_soisno) > 0) THEN
+                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_precip
+               ENDIF
+            ENDIF
+            ! Clear trc_scv: all transferred to the snow layer
+            trc_scv(itrc, ipatch) = 0._r8
+
+         ELSEIF (snl < 0 .and. snl < snl_old) THEN
+            ! Case B: New layer added to existing snow pack (deeper snow).
+            ! This is a less common case (snow pack growing a new layer).
             j = snl + 1
-            IF (wice_soisno(j) > trc_tiny) THEN
-               trc_wice_soisno(itrc, j, ipatch) = wice_soisno(j) * R_precip
+            IF (present(wice_soisno)) THEN
+               trc_wice_soisno(itrc, j, ipatch) = wice_soisno(1) * R_precip
             ENDIF
-            IF (wliq_soisno(j) > trc_tiny) THEN
-               trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(j) * R_precip
+            IF (present(wliq_soisno)) THEN
+               IF (size(wliq_soisno) > 0) THEN
+                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_precip
+               ENDIF
             ENDIF
+            ! trc_scv should be 0 when layers already exist
+            trc_scv(itrc, ipatch) = 0._r8
+
+         ELSEIF (snl < 0 .and. snl == snl_old) THEN
+            ! Case C: Snow added to existing top layer (no new node).
+            j = snl + 1
+            IF (present(wice_soisno) .and. present(wice_soisno_bef)) THEN
+               d_wice = wice_soisno(1) - wice_soisno_bef(1)
+               IF (d_wice > trc_tiny) THEN
+                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+                     + trc_pg_snow_ground(itrc, ipatch)
+               ENDIF
+            ENDIF
+            ! trc_scv should be 0 when layers exist
+            trc_scv(itrc, ipatch) = 0._r8
+
          ELSE
-            ! Case 2: Snow added to existing top layer — add snowfall tracer
-            ! newsnow adds pg_snow*dt to wice of top layer (no new node)
-            j = snl + 1
-            d_wice = wice_soisno(j) - wice_soisno_bef(j)
-            IF (d_wice > trc_tiny) THEN
-               ! Snowfall tracer: use trc_pg_snow_ground (from tracer_precip,
-               ! which correctly accounts for canopy interception/drip mixing)
-               trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
-                  + trc_pg_snow_ground(itrc, ipatch)
-            ENDIF
+            ! snl == 0: no snow layer yet. trc_scv accumulates (done above).
+            ! Nothing else to do.
          ENDIF
       ENDDO
    END SUBROUTINE tracer_newsnow
