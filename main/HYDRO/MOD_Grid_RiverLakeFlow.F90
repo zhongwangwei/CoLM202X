@@ -1078,11 +1078,12 @@ CONTAINS
       ! Max concentration diagnostic — runs on each worker, prints locally
       IF (DEF_USE_TRACER .and. p_is_worker .and. numucat > 0) THEN
          BLOCK
+         USE MOD_Grid_RiverLakeTracer, only: trc_conc_dbg => trc_conc
          integer :: imax
          real(r8) :: volw_max, conc_max
-         conc_max = maxval(trc_conc(1,:))
+         conc_max = maxval(trc_conc_dbg(1,:))
          IF (conc_max > 5.0e-3_r8) THEN  ! only print if notably above R_input (~2e-3)
-            imax = maxloc(trc_conc(1,:), 1)
+            imax = maxloc(trc_conc_dbg(1,:), 1)
             IF (lake_type(imax) == 2 .and. size(volresv) > 0) THEN
                volw_max = volresv(ucat2resv(imax))
             ELSEIF (DEF_USE_LEVEE .and. has_levee(imax)) THEN
@@ -1092,8 +1093,8 @@ CONTAINS
             ENDIF
             WRITE(*,'(A,I8,A,E10.3,A,E10.3,A,E10.3)') &
                ' DBG_MAXCONC: ucat=', imax, &
-               ' conc=', trc_conc(1,imax), &
-               ' mass=', trc_mass(1,imax), &
+               ' conc=', trc_conc_dbg(1,imax), &
+               ' mass=', trc_mass(1,imax), &  ! trc_mass already imported at module level
                ' vol=', volw_max
          ENDIF
          END BLOCK
