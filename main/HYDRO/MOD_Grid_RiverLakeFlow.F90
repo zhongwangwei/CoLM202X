@@ -852,7 +852,12 @@ CONTAINS
                            trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) - trc_removed
                            trc_flux_out(itrc_dep, i) = trc_removed / dt_all(irivsys(i))
                            ! Sync concentration with updated mass and volume
-                           trc_conc_dep(itrc_dep, i) = trc_mass(itrc_dep, i) / topo_rivstomax(i)
+                           IF (topo_rivstomax(i) > 1.e-6_r8) THEN
+                              trc_conc_dep(itrc_dep, i) = trc_mass(itrc_dep, i) / topo_rivstomax(i)
+                           ELSE
+                              trc_conc_dep(itrc_dep, i) = 0._r8
+                              trc_mass(itrc_dep, i) = 0._r8
+                           ENDIF
                         ENDDO
                         END BLOCK
                      ENDIF
