@@ -237,21 +237,30 @@ CONTAINS
          ENDIF
 
          ! ============================================================
-         ! 5. Freeze/thaw during WATER: DISABLED for now
+         ! 5. WATER-phase ice external fluxes: qfros_soil / qsubl_soil
+         !    These are atmosphere↔soil ice exchanges applied by WATER
+         !    directly to wice_soisno(1). They are NOT internal freeze/thaw.
          !
-         !    d_wice during WATER is NOT a pure freeze/thaw signal.
-         !    WATER may also apply qfros_soil (frost deposition, external
-         !    input to ice) and qsubl_soil (sublimation, external output
-         !    from ice). Treating all d_wice as internal liquid↔ice
-         !    transfer would misclassify external fluxes.
-         !
-         !    THERMAL-phase freeze/thaw is already handled in tracer_evapo.
-         !    WATER-phase ice changes need a more refined approach that
-         !    separates internal phase change from external frost/sublimation
-         !    (requires access to individual flux components from WATER).
-         !
-         !    Phase 1 tropical tests are unaffected (no freezing).
+         !    Internal freeze/thaw during WATER is not yet tracked here
+         !    (needs separating d_wice into external + internal components).
+         !    THERMAL-phase freeze/thaw is handled in tracer_evapo.
          ! ============================================================
+         IF (qfros_soil > trc_tiny) THEN
+            ! Frost deposition: atmosphere → ice in top soil layer
+            trc_flux = qfros_soil * R_precip * deltim
+            trc_wice_soisno(itrc, 1, ipatch) = trc_wice_soisno(itrc, 1, ipatch) + trc_flux
+            a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+         ENDIF
+         IF (qsubl_soil > trc_tiny) THEN
+            ! Sublimation: ice in top soil layer → atmosphere
+            IF (wice_soisno_bef(1) > trc_tiny) THEN
+               ratio_src = trc_wice_soisno(itrc, 1, ipatch) / max(wice_soisno_bef(1), trc_tiny)
+               trc_flux = qsubl_soil * ratio_src * deltim
+               trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, 1, ipatch), 0._r8))
+               trc_wice_soisno(itrc, 1, ipatch) = trc_wice_soisno(itrc, 1, ipatch) - trc_flux
+               a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+            ENDIF
+         ENDIF
 
          ! ============================================================
          ! 6. Wetland water: delta-based
