@@ -1073,28 +1073,30 @@ CONTAINS
             write(*,'(A,ES12.4,A)') 'Tracer(1) mass balance : ', &
                trc_mass_aft - trc_mass_bef - trc_mass_inp + trc_mass_dis, ' kg (should be ~0)'
          ENDIF
-         IF (DEF_USE_TRACER .and. p_is_worker .and. numucat > 0) THEN
-            ! Find cell with max concentration for diagnostic
-            BLOCK
-            integer :: imax
-            real(r8) :: volw_max
+      ENDIF  ! p_is_master
+
+      ! Max concentration diagnostic — runs on each worker, prints locally
+      IF (DEF_USE_TRACER .and. p_is_worker .and. numucat > 0) THEN
+         BLOCK
+         integer :: imax
+         real(r8) :: volw_max, conc_max
+         conc_max = maxval(trc_conc(1,:))
+         IF (conc_max > 5.0e-3_r8) THEN  ! only print if notably above R_input (~2e-3)
             imax = maxloc(trc_conc(1,:), 1)
-            IF (imax > 0 .and. imax <= numucat) THEN
-               IF (lake_type(imax) == 2 .and. size(volresv) > 0) THEN
-                  volw_max = volresv(ucat2resv(imax))
-               ELSEIF (DEF_USE_LEVEE .and. has_levee(imax)) THEN
-                  volw_max = volwater_ucat(imax)
-               ELSE
-                  volw_max = floodplain_curve(imax)%volume(wdsrf_ucat(imax))
-               ENDIF
-               WRITE(*,'(A,I8,A,E10.3,A,E10.3,A,E10.3)') &
-                  ' DBG_MAXCONC: ucat=', imax, &
-                  ' conc=', trc_conc(1,imax), &
-                  ' mass=', trc_mass(1,imax), &
-                  ' vol=', volw_max
+            IF (lake_type(imax) == 2 .and. size(volresv) > 0) THEN
+               volw_max = volresv(ucat2resv(imax))
+            ELSEIF (DEF_USE_LEVEE .and. has_levee(imax)) THEN
+               volw_max = volwater_ucat(imax)
+            ELSE
+               volw_max = floodplain_curve(imax)%volume(wdsrf_ucat(imax))
             ENDIF
-            END BLOCK
+            WRITE(*,'(A,I8,A,E10.3,A,E10.3,A,E10.3)') &
+               ' DBG_MAXCONC: ucat=', imax, &
+               ' conc=', trc_conc(1,imax), &
+               ' mass=', trc_mass(1,imax), &
+               ' vol=', volw_max
          ENDIF
+         END BLOCK
       ENDIF
 #endif
 
