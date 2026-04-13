@@ -4,32 +4,50 @@ MODULE MOD_Tracer_Snow
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, delta_to_R, tracers
-   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
+   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground
 
    IMPLICIT NONE
 
 CONTAINS
 
-   SUBROUTINE tracer_newsnow (ipatch, snl, snl_old, wliq_soisno, wice_soisno)
+   SUBROUTINE tracer_newsnow (ipatch, snl, snl_old, &
+      wliq_soisno, wice_soisno, wice_soisno_bef, pg_snow, deltim)
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, snl_old
       real(r8), intent(in) :: wliq_soisno(snl+1:0)
       real(r8), intent(in) :: wice_soisno(snl+1:0)
+      real(r8), intent(in) :: wice_soisno_bef(snl+1:0)  ! pre-newsnow ice
+      real(r8), intent(in) :: pg_snow                    ! snow throughfall [mm/s]
+      real(r8), intent(in) :: deltim
+
       integer  :: itrc, j
-      real(r8) :: R_precip
+      real(r8) :: R_precip, d_wice
 
       IF (ntracers <= 0) RETURN
       IF (snl >= 0) RETURN
 
       DO itrc = 1, ntracers
          R_precip = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
-         IF (snl < snl_old .and. snl < 0) THEN
+
+         IF (snl < snl_old) THEN
+            ! Case 1: New snow layer created — initialize tracer for entire layer
             j = snl + 1
             IF (wice_soisno(j) > trc_tiny) THEN
                trc_wice_soisno(itrc, j, ipatch) = wice_soisno(j) * R_precip
             ENDIF
             IF (wliq_soisno(j) > trc_tiny) THEN
                trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(j) * R_precip
+            ENDIF
+         ELSE
+            ! Case 2: Snow added to existing top layer — add snowfall tracer
+            ! newsnow adds pg_snow*dt to wice of top layer (no new node)
+            j = snl + 1
+            d_wice = wice_soisno(j) - wice_soisno_bef(j)
+            IF (d_wice > trc_tiny) THEN
+               ! Snowfall tracer: use trc_pg_snow_ground (from tracer_precip,
+               ! which correctly accounts for canopy interception/drip mixing)
+               trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+                  + trc_pg_snow_ground(itrc, ipatch)
             ENDIF
          ENDIF
       ENDDO

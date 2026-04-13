@@ -854,13 +854,23 @@ SUBROUTINE CoLMMAIN ( &
 
          snl_bef = snl
 
+         ! Save pre-newsnow ice state for tracer snowfall tracking
+         IF (DEF_USE_TRACER .and. snl < 0) THEN
+            IF (.not. allocated(wice_snow_bef_trc)) THEN
+               allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
+               wice_snow_bef_trc = 0._r8
+            ENDIF
+            wice_snow_bef_trc(snl+1:0) = wice_soisno(snl+1:0)
+         ENDIF
+
          CALL newsnow (patchtype,maxsnl,deltim,t_grnd,pg_rain,pg_snow,bifall,&
                        t_precip,zi_soisno(:0),z_soisno(:0),dz_soisno(:0),t_soisno(:0),&
                        wliq_soisno(:0),wice_soisno(:0),fiold(:0),snl,sag,scv,snowdp,fsno,wetwat)
 
          IF (DEF_USE_TRACER) THEN
             CALL tracer_newsnow(ipatch, snl, snl_bef, &
-               wliq_soisno(snl+1:0), wice_soisno(snl+1:0))
+               wliq_soisno(snl+1:0), wice_soisno(snl+1:0), &
+               wice_snow_bef_trc(snl+1:0), pg_snow, deltim)
          ENDIF
 
 !----------------------------------------------------------------------
@@ -872,8 +882,8 @@ SUBROUTINE CoLMMAIN ( &
          IF (DEF_USE_TRACER) THEN
             allocate(wliq_soisno_old_trc(lb:nl_soil))
             allocate(wice_soisno_old_trc(lb:nl_soil))
-            allocate(wliq_snow_bef_trc(maxsnl+1:nl_soil))
-            allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
+            IF (.not. allocated(wliq_snow_bef_trc)) allocate(wliq_snow_bef_trc(maxsnl+1:nl_soil))
+            IF (.not. allocated(wice_snow_bef_trc)) allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
             wa_old_trc = wa
