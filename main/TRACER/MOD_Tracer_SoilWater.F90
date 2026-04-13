@@ -57,7 +57,7 @@ CONTAINS
       integer  :: itrc, j, lb
       real(r8) :: R_precip
       real(r8) :: trc_flux, ratio, ratio_src
-      real(r8) :: d_wetwat
+      real(r8) :: d_wice, d_wetwat
       real(r8) :: trc_throughfall, trc_pool_total, water_pool_total
       real(r8) :: ratio_layer(1:nl_soil)  ! pre-WATER tracer ratio per layer
       real(r8) :: trc_soil_upflow         ! tracer from soil when qlayer(0)<0
@@ -261,6 +261,45 @@ CONTAINS
                a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
             ENDIF
          ENDIF
+
+         ! ============================================================
+         ! 5b. Internal freeze/thaw during WATER
+         !
+         !     d_wice_total = wice_post - wice_pre (total ice change)
+         !     d_wice_external = (qfros_soil - qsubl_soil) * dt  (layer 1 only)
+         !     d_wice_internal = d_wice_total - d_wice_external  (pure phase change)
+         !
+         !     d_wice_internal > 0 → freeze (liquid → ice)
+         !     d_wice_internal < 0 → thaw  (ice → liquid)
+         ! ============================================================
+         DO j = lb, nl_soil
+            d_wice = wice_soisno(j) - wice_soisno_bef(j)
+
+            ! Subtract external ice flux (only affects layer 1)
+            IF (j == 1) THEN
+               d_wice = d_wice - (qfros_soil - qsubl_soil) * deltim
+            ENDIF
+
+            IF (d_wice > trc_tiny) THEN
+               ! Internal freeze: liquid → ice
+               IF (wliq_soisno_bef(j) > trc_tiny) THEN
+                  ratio_src = trc_wliq_soisno(itrc, j, ipatch) / max(wliq_soisno_bef(j), trc_tiny)
+                  trc_flux = d_wice * ratio_src
+                  trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
+                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
+                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux
+               ENDIF
+            ELSEIF (d_wice < -trc_tiny) THEN
+               ! Internal thaw: ice → liquid
+               IF (wice_soisno_bef(j) > trc_tiny) THEN
+                  ratio_src = trc_wice_soisno(itrc, j, ipatch) / max(wice_soisno_bef(j), trc_tiny)
+                  trc_flux = abs(d_wice) * ratio_src
+                  trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
+                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
+                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux
+               ENDIF
+            ENDIF
+         ENDDO
 
          ! ============================================================
          ! 6. Wetland water: delta-based
