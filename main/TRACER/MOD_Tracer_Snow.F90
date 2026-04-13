@@ -29,7 +29,7 @@ CONTAINS
 
       integer  :: itrc, j
       real(r8) :: R_precip, d_wice
-      real(r8) :: scv_before_snowfall, trc_lost, ratio_scv
+      real(r8) :: scv_before_snowfall
 
       IF (ntracers <= 0) RETURN
 
@@ -87,38 +87,17 @@ CONTAINS
 
          ELSE
             ! snl == 0: no snow layer yet. trc_scv accumulates (done above).
-
-            ! Sync trc_scv with water-side scv sinks:
-            ! 1. Warm wetland: scv → wetwat, scv=0 (MOD_NewSnow.F90:75-79)
-            ! 2. Thin-snow melt: scv reduced (MOD_PhaseChange.F90:237-250)
-            ! Handle by comparing trc_scv's implied scv with actual scv.
-            ! If scv decreased, proportionally reduce trc_scv.
-            IF (scv < trc_tiny) THEN
-               ! scv was zeroed (warm wetland or full melt)
-               ! Transfer remaining trc_scv to appropriate sink
-               IF (patchtype == 2) THEN
-                  ! Wetland: scv → wetwat. Transfer tracer too.
-                  trc_wetwat(itrc, ipatch) = trc_wetwat(itrc, ipatch) + trc_scv(itrc, ipatch)
-               ELSE
-                  ! Melt: scv → sm → runoff/soil. Count as melt output.
-                  ! In Phase 1, this is effectively lost to the system
-                  ! as snowmelt water enters the gwat path.
-                  ! For now, count as evaporation (conservative: tracer leaves system).
-                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_scv(itrc, ipatch)
-               ENDIF
+            !
+            ! scv sink handling (warm wetland melt, thin-snow melt) is done
+            ! AFTER THERMAL in CoLMMAIN, not here. tracer_newsnow only
+            ! accumulates and transfers on layer creation.
+            !
+            ! One exception: warm wetland zeroing scv happens INSIDE newsnow
+            ! (before THERMAL), so handle it here.
+            IF (patchtype == 2 .and. scv < trc_tiny) THEN
+               ! Warm wetland: newsnow transferred scv → wetwat, scv=0
+               trc_wetwat(itrc, ipatch) = trc_wetwat(itrc, ipatch) + trc_scv(itrc, ipatch)
                trc_scv(itrc, ipatch) = 0._r8
-            ELSEIF (scv < scv_bef + pg_snow*deltim - trc_tiny) THEN
-               ! scv partially reduced (thin-snow melt took some)
-               ! scv_after_snowfall = scv_bef + pg_snow*dt (what it would be without melt)
-               ! actual scv < scv_after_snowfall means some was removed
-               ! Proportionally reduce trc_scv
-               ratio_scv = scv / max(scv_bef + pg_snow*deltim, trc_tiny)
-               ratio_scv = max(min(ratio_scv, 1._r8), 0._r8)
-               trc_lost = trc_scv(itrc, ipatch) * (1._r8 - ratio_scv)
-               trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) * ratio_scv
-               ! Melt tracer goes to sm → gwat → soil/runoff
-               ! For conservation, count as output (enters water system via sm)
-               a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_lost
             ENDIF
          ENDIF
       ENDDO
