@@ -1230,8 +1230,8 @@ SUBROUTINE CoLMMAIN ( &
                END BLOCK
             ENDIF
 
-            CALL tracer_hist_accumulate(ipatch, nl_soil, ldew_rain, ldew_snow, &
-               wliq_soisno(1:nl_soil), wice_soisno(1:nl_soil))
+            CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, ldew_rain, ldew_snow, &
+               wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil))
             deallocate(wliq_soisno_old_trc, wice_soisno_old_trc)
             deallocate(wliq_snow_bef_trc, wice_snow_bef_trc)
          ENDIF

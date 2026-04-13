@@ -44,8 +44,10 @@ MODULE MOD_Tracer_Vars
    integer :: trc_hist_nac = 0
    real(r8), allocatable :: a_trc_ldew_mass (:,:)
    real(r8), allocatable :: a_water_ldew    (:)
-   real(r8), allocatable :: a_trc_soil_mass (:,:,:)
-   real(r8), allocatable :: a_water_soil    (:,:)
+   real(r8), allocatable :: a_trc_soil_mass (:,:,:)  ! (ntracers, nl_soil, numpatch)
+   real(r8), allocatable :: a_water_soil    (:,:)     ! (nl_soil, numpatch)
+   real(r8), allocatable :: a_trc_snow_mass (:,:,:)  ! (ntracers, abs(maxsnl), numpatch) snow layers
+   real(r8), allocatable :: a_water_snow    (:,:)     ! (abs(maxsnl), numpatch) snow layers
 
    PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
 
@@ -85,6 +87,8 @@ CONTAINS
       allocate(a_water_ldew    (numpatch));                     a_water_ldew    = 0._r8
       allocate(a_trc_soil_mass (ntracers, nl_soil, numpatch));  a_trc_soil_mass = 0._r8
       allocate(a_water_soil    (nl_soil, numpatch));             a_water_soil    = 0._r8
+      allocate(a_trc_snow_mass (ntracers, abs(maxsnl), numpatch)); a_trc_snow_mass = 0._r8
+      allocate(a_water_snow    (abs(maxsnl), numpatch));            a_water_snow    = 0._r8
       trc_hist_nac = 0
    END SUBROUTINE allocate_Tracer_Vars
 
@@ -116,6 +120,8 @@ CONTAINS
       IF (allocated(a_water_ldew   )) deallocate(a_water_ldew   )
       IF (allocated(a_trc_soil_mass)) deallocate(a_trc_soil_mass)
       IF (allocated(a_water_soil   )) deallocate(a_water_soil   )
+      IF (allocated(a_trc_snow_mass)) deallocate(a_trc_snow_mass)
+      IF (allocated(a_water_snow   )) deallocate(a_water_snow   )
    END SUBROUTINE deallocate_Tracer_Vars
 
    SUBROUTINE flush_Tracer_Acc ()
@@ -132,6 +138,8 @@ CONTAINS
       IF (allocated(a_water_ldew   )) a_water_ldew    = 0._r8
       IF (allocated(a_trc_soil_mass)) a_trc_soil_mass = 0._r8
       IF (allocated(a_water_soil   )) a_water_soil    = 0._r8
+      IF (allocated(a_trc_snow_mass)) a_trc_snow_mass = 0._r8
+      IF (allocated(a_water_snow   )) a_water_snow    = 0._r8
       IF (allocated(trc_pg_to_ground )) trc_pg_to_ground  = 0._r8
       IF (allocated(trc_pg_rain_ground)) trc_pg_rain_ground = 0._r8
       IF (allocated(trc_pg_snow_ground)) trc_pg_snow_ground = 0._r8
