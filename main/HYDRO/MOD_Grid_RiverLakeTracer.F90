@@ -1084,15 +1084,19 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (p_is_worker .and. numucat > 0) tmp = trc_mass(itrc,:)
-         write(label,'(A,A,A)') 'trc_mass_', trim(tracer_names(itrc)), ' [mass]'
+         write(label,'(A,A,A)') 'trc_mass_', trim(tracer_names(itrc)), ' [kg]'
          CALL check_vector_data (label, tmp)
 
          IF (p_is_worker .and. numucat > 0) tmp = trc_conc(itrc,:)
-         write(label,'(A,A,A)') 'trc_conc_', trim(tracer_names(itrc)), ' [m/m3]'
+         write(label,'(A,A,A)') 'trc_conc_', trim(tracer_names(itrc)), ' [kg/m3]'
          CALL check_vector_data (label, tmp)
 
          IF (p_is_worker .and. numucat > 0) tmp = trc_flux_out(itrc,:)
-         write(label,'(A,A,A)') 'trc_flux_', trim(tracer_names(itrc)), ' [m/s]'
+         write(label,'(A,A,A)') 'trc_outflux_', trim(tracer_names(itrc)), ' [kg/s]'
+         CALL check_vector_data (label, tmp)
+
+         IF (p_is_worker .and. numucat > 0) tmp = acc_trc_inp(itrc,:)
+         write(label,'(A,A,A)') 'trc_inp_', trim(tracer_names(itrc)), ' [kg]'
          CALL check_vector_data (label, tmp)
       ENDDO
 

@@ -24,18 +24,20 @@ MODULE MOD_Grid_RiverLakeFlow
       read_sediment_restart
 #endif
    USE MOD_Grid_RiverLakeTracer, only: tracer_init, tracer_input_from_runoff, &
-      tracer_calc, tracer_diag_accumulate, tracer_flush_acc, &
-      read_tracer_restart, tracer_final, acc_trc_inp
+      tracer_calc, tracer_substep, tracer_diag_accumulate, tracer_flush_acc, &
+      read_tracer_restart, tracer_final, acc_trc_inp, trc_mass
    IMPLICIT NONE
 
    real(r8), parameter :: RIVERMIN  = 1.e-5_r8
+   logical, parameter :: dbg_skip_bif_init = .false.
+   logical, parameter :: dbg_skip_bif_restart = .false.
+   logical, parameter :: dbg_skip_bif_calc = .false.
 
    real(r8), save :: acctime_rnof_max
 
    real(r8) :: acctime_rnof
    real(r8), allocatable :: acc_rnof_uc (:)
    logical,  allocatable :: filter_rnof (:)
-
 CONTAINS
 
    ! ---------
@@ -83,9 +85,31 @@ CONTAINS
       ENDIF
 
       IF (DEF_USE_BIFURCATION) THEN
-         CALL bifurcation_init()
+         IF (dbg_skip_bif_init) THEN
+            IF (p_is_master) THEN
+               write(*,'(A)') 'DBG bifskip master bifurcation_init skipped'
+               call flush(6)
+            ENDIF
+            IF (p_is_worker .and. p_iam_worker == 0) THEN
+               write(*,'(A)') 'DBG bifskip worker0 bifurcation_init skipped'
+               call flush(6)
+            ENDIF
+         ELSE
+            CALL bifurcation_init()
+         ENDIF
          IF (len_trim(gridriver_restart_file) > 0) THEN
-            CALL read_bifurcation_restart(gridriver_restart_file)
+            IF (dbg_skip_bif_restart) THEN
+               IF (p_is_master) THEN
+                  write(*,'(A)') 'DBG bifskip master read_bifurcation_restart skipped'
+                  call flush(6)
+               ENDIF
+               IF (p_is_worker .and. p_iam_worker == 0) THEN
+                  write(*,'(A)') 'DBG bifskip worker0 read_bifurcation_restart skipped'
+                  call flush(6)
+               ENDIF
+            ELSE
+               CALL read_bifurcation_restart(gridriver_restart_file)
+            ENDIF
          ENDIF
       ENDIF
 
@@ -108,6 +132,8 @@ CONTAINS
    USE MOD_LandPatch,      only: elm_patch, numpatch
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
+   USE MOD_Tracer_Defs,    only: ntracers
+   USE MOD_Tracer_Vars,    only: trc_rnof_step
 #ifdef GridRiverLakeSediment
    USE MOD_Vars_1DForcing, only: forc_prc, forc_prl
 #endif
@@ -117,13 +143,15 @@ CONTAINS
    real(r8), intent(in) :: deltime
 
    ! Local Variables
-   integer  :: i, j, irsv, ntimestep, ipth, i_up
+   integer  :: i, j, irsv, ntimestep, ipth, i_up, itrc
    real(r8) :: dt_this
    integer  :: sed_clock_start, sed_clock_end, sed_clock_rate
    real(r8) :: sed_elapsed
 
    real(r8), allocatable :: rnof_gd(:)
    real(r8), allocatable :: rnof_uc(:)
+   real(r8), allocatable :: trc_rnof_gd(:,:)
+   real(r8), allocatable :: trc_rnof_uc(:,:)
 
 #ifdef GridRiverLakeSediment
    real(r8), allocatable :: prcp_gd(:)
@@ -168,15 +196,24 @@ CONTAINS
    real(r8),  allocatable :: trc_acctime(:)       ! Per-routing-period time accumulator for tracer
    real(r8),  allocatable :: trc_acc_bifflw_lev(:,:) ! Per-routing-period bif pathway flux for tracer
    real(r8),  allocatable :: trc_acc_bifflw_time(:)  ! Per-routing-period bif pathway time for tracer
+   logical :: loop_active
 #ifdef CoLMDEBUG
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
+   real(r8) :: trc_mass_bef, trc_mass_aft, trc_mass_inp, trc_mass_dis
+   real(r8) :: bif_flux_sum_total, bif_flux_sum_max
+   integer  :: itrc_dbg
 #endif
 
 
       IF (p_is_worker) THEN
-
          allocate (rnof_gd (numinpm))
          allocate (rnof_uc (numucat))
+         IF (DEF_USE_TRACER .and. ntracers > 0) THEN
+            allocate (trc_rnof_gd (ntracers, numinpm))
+            allocate (trc_rnof_uc (ntracers, numucat))
+            trc_rnof_gd = 0._r8
+            trc_rnof_uc = 0._r8
+         ENDIF
 
          CALL worker_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
             fillvalue = 0., filter = filter_rnof)
@@ -190,17 +227,37 @@ CONTAINS
          CALL worker_push_data (push_inpm2ucat, rnof_gd, rnof_uc, &
             fillvalue = 0., mode = 'sum')
 
+         IF (DEF_USE_TRACER .and. ntracers > 0) THEN
+            DO itrc = 1, ntracers
+               CALL worker_remap_data_pset2grid(remap_patch2inpm, trc_rnof_step(itrc, :), trc_rnof_gd(itrc, :), &
+                  fillvalue = 0._r8, filter = filter_rnof)
+               IF (numinpm > 0) THEN
+                  WHERE (push_ucat2inpm%sum_area > 0._r8)
+                     trc_rnof_gd(itrc, :) = trc_rnof_gd(itrc, :) / push_ucat2inpm%sum_area
+                  END WHERE
+               ENDIF
+               CALL worker_push_data(push_inpm2ucat, trc_rnof_gd(itrc, :), trc_rnof_uc(itrc, :), &
+                  fillvalue = 0._r8, mode = 'sum')
+            ENDDO
+         ENDIF
+
          IF (numucat > 0) THEN
             acc_rnof_uc = acc_rnof_uc + rnof_uc*1.e-3*deltime
 
             ! Accumulate tracer input associated with this runoff increment
             IF (DEF_USE_TRACER) THEN
-               CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat)
+               IF (ntracers > 0) THEN
+                  CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc)
+               ELSE
+                  CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat)
+               ENDIF
             ENDIF
          ENDIF
 
          deallocate(rnof_gd)
          deallocate(rnof_uc)
+         IF (allocated(trc_rnof_gd)) deallocate(trc_rnof_gd)
+         IF (allocated(trc_rnof_uc)) deallocate(trc_rnof_uc)
 
 #ifdef GridRiverLakeSediment
          IF (DEF_USE_SEDIMENT) THEN
@@ -392,11 +449,44 @@ CONTAINS
          ntimestep = 0
 #ifdef CoLMDEBUG
          totaldis  = 0.
+         bif_flux_sum_total = 0._r8
+         bif_flux_sum_max   = 0._r8
+         ! Tracer conservation: save total mass BEFORE input addition
+         IF (DEF_USE_TRACER .and. numucat > 0) THEN
+            trc_mass_bef = sum(trc_mass(1,:))
+            trc_mass_inp = sum(acc_trc_inp(1,:))
+            trc_mass_dis = 0._r8
+         ELSE
+            trc_mass_bef = 0._r8
+            trc_mass_inp = 0._r8
+            trc_mass_dis = 0._r8
+         ENDIF
 #endif
+
+         ! Add accumulated tracer input to mass ONCE before sub-stepping.
+         IF (DEF_USE_TRACER .and. numucat > 0) THEN
+            trc_mass = trc_mass + acc_trc_inp
+         ENDIF
 
          dt_res(:) = acctime_rnof
 
-         DO WHILE (any(dt_res > 0))
+         ! When bifurcation is on, pathways can cross river systems. Each
+         ! worker's local dt_res is per-system and can reach 0 at different
+         ! iterations. Without synchronisation, a worker that finishes early
+         ! exits this loop and stops calling worker_push_data while other
+         ! workers still need that exchange — deadlocking the isend/irecv
+         ! pairs. Fix: all workers keep looping as long as ANY worker has
+         ! dt_res > 0. "Done" workers have dt_all = 0, ucatfilter = false,
+         ! and their loop bodies are no-ops except for the collective pushes.
+         loop_active = any(dt_res > 0)
+#ifdef USEMPI
+         IF (DEF_USE_BIFURCATION) THEN
+            CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
+               MPI_LOR, p_comm_worker, p_err)
+         ENDIF
+#endif
+
+         DO WHILE (loop_active)
 
             ntimestep = ntimestep + 1
 
@@ -604,8 +694,8 @@ CONTAINS
             ENDIF
 
             ! ----- Bifurcation pathways -----
-            IF (DEF_USE_BIFURCATION) THEN
-               CALL bifurcation_calc(wdsrf_ucat, veloc_riv, volresv, is_built_resv, dt_all, irivsys, ucatfilter)
+            IF (DEF_USE_BIFURCATION .and. .not. dbg_skip_bif_calc) THEN
+               CALL bifurcation_calc(wdsrf_ucat, volresv, is_built_resv, dt_all, irivsys, ucatfilter)
                IF (allocated(a_bifflw_lev) .and. allocated(a_bifflw_acctime)) THEN
                   DO ipth = 1, npthout_local
                      i_up = pth_upst_local(ipth)
@@ -627,6 +717,21 @@ CONTAINS
                      sum_hflux_riv = sum_hflux_riv + bif_hflux_sum
                   END WHERE
                ENDIF
+#ifdef CoLMDEBUG
+               ! Bifurcation conservation: the GLOBAL sum of bif_hflux_sum
+               ! across all workers should be ~0 each step (what leaves
+               ! one cell enters another). Track cumulative and worst-case.
+               IF (numucat > 0) THEN
+                  dt_this = sum(bif_hflux_sum)
+               ELSE
+                  dt_this = 0._r8
+               ENDIF
+#ifdef USEMPI
+               CALL mpi_allreduce (MPI_IN_PLACE, dt_this, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+#endif
+               bif_flux_sum_total = bif_flux_sum_total + dt_this
+               bif_flux_sum_max = max(bif_flux_sum_max, abs(dt_this))
+#endif
             ENDIF
 
             DO i = 1, numucat
@@ -692,6 +797,22 @@ CONTAINS
             ENDIF
 #endif
 
+            ! Per-sub-step tracer transport: advance tracer in lockstep
+            ! with water BEFORE the water state update so concentration
+            ! is computed from the pre-update volume.
+            IF (DEF_USE_TRACER) THEN
+               IF (DEF_USE_BIFURCATION .and. .not. dbg_skip_bif_calc &
+                  .and. allocated(bif_hflux_lev)) THEN
+                  CALL tracer_substep (dt_all, irivsys, hflux_fc, wdsrf_ucat, ucatfilter, &
+                     volresv, ucat2resv, is_built_resv, &
+                     .true., bif_hflux_lev, npthout_local)
+               ELSE
+                  CALL tracer_substep (dt_all, irivsys, hflux_fc, wdsrf_ucat, ucatfilter, &
+                     volresv, ucat2resv, is_built_resv, &
+                     .false., reshape((/0._r8/), (/1,1/)), 0)
+               ENDIF
+            ENDIF
+
             DO i = 1, numucat
 
                IF (.not. ucatfilter(i)) CYCLE
@@ -751,6 +872,12 @@ CONTAINS
 
                veloc_riv(i) = min(veloc_riv(i),  20.)
                veloc_riv(i) = max(veloc_riv(i), -20.)
+               ! Keep momen_riv consistent with the clamped velocity; next
+               ! substep reads friction from abs(momen_riv) and flux from
+               ! veloc_riv, so they must describe the same physical state.
+               IF ((.not. is_built_resv(i)) .and. (wdsrf_ucat(i) >= RIVERMIN)) THEN
+                  momen_riv(i) = veloc_riv(i) * wdsrf_ucat(i)
+               ENDIF
 
             ENDDO
 
@@ -760,6 +887,10 @@ CONTAINS
 #ifdef CoLMDEBUG
                   IF (ucat_next(i) <= 0) THEN
                      totaldis = totaldis + hflux_fc(i)*dt_all(irivsys(i))
+                     ! Accumulate tracer discharge at river mouth
+                     IF (DEF_USE_TRACER .and. ntracers > 0) THEN
+                        trc_mass_dis = trc_mass_dis + trc_flux_out(1,i)*dt_all(irivsys(i))
+                     ENDIF
                   ENDIF
 #endif
 
@@ -809,7 +940,7 @@ CONTAINS
                      a_levdph(i) = a_levdph(i) + levdph(i) * dt_all(irivsys(i))
                   ENDIF
 
-                  IF (DEF_USE_BIFURCATION) THEN
+                  IF (DEF_USE_BIFURCATION .and. .not. dbg_skip_bif_calc) THEN
                      a_bifout(i) = a_bifout(i) + bif_hflux_sum(i) * dt_all(irivsys(i))
                   ENDIF
 
@@ -850,6 +981,14 @@ CONTAINS
             ENDIF
 #endif
 
+            loop_active = any(dt_res > 0)
+#ifdef USEMPI
+            IF (DEF_USE_BIFURCATION .or. DEF_USE_TRACER) THEN
+               CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
+                  MPI_LOR, p_comm_worker, p_err)
+            ENDIF
+#endif
+
          ENDDO
 
          ! After first routing call, volwater_ucat is valid for all levee cells
@@ -869,6 +1008,12 @@ CONTAINS
                totalvol_aft = totalvol_aft + volresv(ucat2resv(i))
             ENDIF
          ENDDO
+         ! Tracer conservation: compute total mass after routing
+         IF (DEF_USE_TRACER .and. numucat > 0) THEN
+            trc_mass_aft = sum(trc_mass(1,:))
+         ELSE
+            trc_mass_aft = 0._r8
+         ENDIF
 #endif
       ENDIF
 
@@ -887,6 +1032,21 @@ CONTAINS
       CALL mpi_allreduce (MPI_IN_PLACE, totalrnof,    1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
       CALL mpi_allreduce (MPI_IN_PLACE, totaldis,     1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
 #endif
+      IF (.not. p_is_worker) THEN
+         bif_flux_sum_total = 0._r8
+         bif_flux_sum_max   = 0._r8
+         trc_mass_bef = 0._r8
+         trc_mass_aft = 0._r8
+         trc_mass_inp = 0._r8
+      ENDIF
+      CALL mpi_allreduce (MPI_IN_PLACE, bif_flux_sum_total, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, bif_flux_sum_max,   1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_bef, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_aft, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_inp, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+#endif
+
+#ifdef CoLMDEBUG
       IF (p_is_master) THEN
          write(*,'(/,A)') 'Checking River Routing Flow ...'
          write(*,'(A,F12.5,A)') 'River Lake Flow minimum average timestep: ', acctime_rnof/ntimestep, ' seconds'
@@ -895,6 +1055,19 @@ CONTAINS
          write(*,'(A,ES8.1,A)') 'Total discharge :     ', totaldis,  ' m^3'
          write(*,'(A,ES8.1,A)') 'Total water change :  ', totalvol_aft-totalvol_bef,  ' m^3'
          write(*,'(A,ES8.1,A)') 'Total water balance : ', totalvol_aft-totalvol_bef-totalrnof+totaldis,  ' m^3'
+         IF (DEF_USE_BIFURCATION) THEN
+            write(*,'(A,ES10.2,A)') 'Bif global net flux (cumul)     : ', bif_flux_sum_total, ' m^3/s (should be ~0)'
+            write(*,'(A,ES10.2,A)') 'Bif global net flux (max/step)  : ', bif_flux_sum_max,   ' m^3/s (should be ~0)'
+         ENDIF
+         IF (DEF_USE_TRACER) THEN
+            write(*,'(A,ES12.4,A)') 'Tracer(1) mass before  : ', trc_mass_bef, ' kg'
+            write(*,'(A,ES12.4,A)') 'Tracer(1) mass input   : ', trc_mass_inp, ' kg'
+            write(*,'(A,ES12.4,A)') 'Tracer(1) mass discharge:', trc_mass_dis, ' kg'
+            write(*,'(A,ES12.4,A)') 'Tracer(1) mass after   : ', trc_mass_aft, ' kg'
+            write(*,'(A,ES12.4,A)') 'Tracer(1) mass change  : ', trc_mass_aft - trc_mass_bef, ' kg'
+            write(*,'(A,ES12.4,A)') 'Tracer(1) mass balance : ', &
+               trc_mass_aft - trc_mass_bef - trc_mass_inp + trc_mass_dis, ' kg (should be ~0)'
+         ENDIF
       ENDIF
 #endif
 
@@ -936,9 +1109,10 @@ CONTAINS
             allocate (ucat2resv_trc(0))
          ENDIF
 
-         CALL tracer_calc(acctime_rnof, wdsrf_ucat, veloc_riv, &
-            hflux_avg_trc, numucat, trc_filter, volresv_trc, ucat2resv_trc, &
-            DEF_USE_BIFURCATION, trc_acc_bifflw_lev, trc_acc_bifflw_time)
+         ! tracer_calc is now replaced by per-sub-step tracer_substep
+         ! calls inside the DO WHILE loop above. The old single-step
+         ! tracer_calc used time-averaged flux which decoupled tracer
+         ! from water, causing unphysical behaviour for signed tracers.
 
          IF (numucat > 0) THEN
             CALL tracer_diag_accumulate(acctime_rnof)
