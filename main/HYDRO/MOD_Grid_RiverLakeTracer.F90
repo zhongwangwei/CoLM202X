@@ -794,23 +794,15 @@ CONTAINS
                + (- trc_flux(i) + flux_ups(i) - bif_net(i)) * dt_i
          ENDDO
 
-         ! --- 8. Save flux for diagnostics ---
+         ! --- 8. Save flux for diagnostics (only for active cells) ---
          DO i = 1, numucat
-            trc_flux_out(itrc, i) = trc_flux(i)
-            trc_bif_net_saved(itrc, i) = bif_net(i)
+            IF (ucatfilter(i)) THEN
+               trc_flux_out(itrc, i) = trc_flux(i)
+               trc_bif_net_saved(itrc, i) = bif_net(i)
+            ENDIF
          ENDDO
 
       ENDDO  ! itrc
-
-      ! --- DBG: check substep flux ---
-      IF (ntracers > 0 .and. numucat > 0) THEN
-         IF (maxval(abs(trc_flux_out(1,:))) < 1.e-30_r8 .and. maxval(trc_mass(1,:)) > 1.e-10_r8) THEN
-            WRITE(*,'(A,E10.3,A,E10.3,A,I6)') &
-               ' DBG_FLUX0: max_mass=', maxval(trc_mass(1,:)), &
-               ' max_conc=', maxval(trc_conc(1,:)), &
-               ' active=', count(ucatfilter)
-         ENDIF
-      ENDIF
 
       ! --- 9. Final concentration (post-update) ---
       DO i = 1, numucat
