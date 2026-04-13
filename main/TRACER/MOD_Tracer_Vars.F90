@@ -83,8 +83,8 @@ CONTAINS
 
       allocate(a_trc_ldew_mass (ntracers, numpatch));           a_trc_ldew_mass = 0._r8
       allocate(a_water_ldew    (numpatch));                     a_water_ldew    = 0._r8
-      allocate(a_trc_soil_mass (ntracers, nl_soil, numpatch));  a_trc_soil_mass = 0._r8
-      allocate(a_water_soil    (nl_soil, numpatch));             a_water_soil    = 0._r8
+      allocate(a_trc_soil_mass (ntracers, maxsnl+1:nl_soil, numpatch));  a_trc_soil_mass = 0._r8
+      allocate(a_water_soil    (maxsnl+1:nl_soil, numpatch));             a_water_soil    = 0._r8
       trc_hist_nac = 0
    END SUBROUTINE allocate_Tracer_Vars
 

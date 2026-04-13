@@ -23,7 +23,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Vars_1DFluxes
    USE MOD_LandPatch, only: numpatch,landpatch
    USE MOD_LandUrban, only: patch2urban
-   USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
+   USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN, DEF_USE_TRACER
    USE MOD_Forcing, only: forcmask_pch
    USE omp_lib
 #ifdef HYPERSPECTRAL
@@ -359,6 +359,22 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             ustar(i)        ,qstar(i)        ,tstar(i)        ,fm(i)           ,&
             fh(i)           ,fq(i)           ,forc_hpbl(i)                      )
             rsub(i) = rnof(i) - rsur(i)
+
+            ! Urban runoff tracer: approximate with R_input * rnof
+            ! Urban processes don't have full tracer tracking yet,
+            ! but the runoff must carry tracer for land→river coupling.
+            IF (DEF_USE_TRACER .and. rnof(i) > 0._r8) THEN
+               BLOCK
+               USE MOD_Tracer_Defs, only: ntracers_u => ntracers, tracers_u => tracers, &
+                  delta_to_R_u => delta_to_R
+               USE MOD_Tracer_Vars, only: trc_rnof_step_u => trc_rnof_step
+               integer :: itrc_u
+               DO itrc_u = 1, ntracers_u
+                  trc_rnof_step_u(itrc_u, i) = rnof(i) * deltim * &
+                     delta_to_R_u(tracers_u(itrc_u)%init_delta, tracers_u(itrc_u)%ref_ratio)
+               ENDDO
+               END BLOCK
+            ENDIF
          ENDIF
 
 #endif
