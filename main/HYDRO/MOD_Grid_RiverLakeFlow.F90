@@ -838,7 +838,9 @@ CONTAINS
                   IF (volwater > topo_rivstomax(i)) THEN
                      ! Remove excess water
                      hflux_fc(i) = (volwater - topo_rivstomax(i)) / dt_all(irivsys(i))
-                     ! Remove corresponding tracer proportionally and count as discharge
+                     ! Remove corresponding tracer proportionally.
+                     ! Update trc_flux_out so the unified discharge diagnostic
+                     ! at line ~895 (ucat_next <= 0) picks up the correct value.
                      IF (DEF_USE_TRACER .and. volwater > 1.e-6_r8) THEN
                         BLOCK
                         integer :: itrc_dep
@@ -847,9 +849,9 @@ CONTAINS
                         DO itrc_dep = 1, ntracers
                            trc_removed = trc_mass(itrc_dep, i) * frac_remove
                            trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) - trc_removed
-#ifdef CoLMDEBUG
-                           IF (itrc_dep == 1) trc_mass_dis = trc_mass_dis + trc_removed
-#endif
+                           ! Overwrite trc_flux_out to reflect the actual outflow
+                           ! (overflow removal, not the old advective flux)
+                           trc_flux_out(itrc_dep, i) = trc_removed / dt_all(irivsys(i))
                         ENDDO
                         END BLOCK
                      ENDIF
