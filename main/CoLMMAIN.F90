@@ -664,6 +664,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: wa_old_trc, wdsrf_old_trc, wetwat_old_trc
    real(r8) :: ldew_rain_old_trc, ldew_snow_old_trc   ! before LEAF_INTERCEPTION
    real(r8) :: ldew_rain_bef_th, ldew_snow_bef_th    ! before THERMAL
+   real(r8) :: scv_bef_trc                            ! pre-newsnow scv
    real(r8), allocatable :: wliq_snow_bef_trc(:)
    real(r8), allocatable :: wice_snow_bef_trc(:)
    integer :: snl_bef_trc
@@ -856,9 +857,7 @@ SUBROUTINE CoLMMAIN ( &
 
          snl_bef = snl
 
-         ! Save pre-newsnow ice state for tracer snowfall tracking.
-         ! newsnow can create the first snow layer from a no-snow state, so
-         ! the scratch array must exist even when snl >= 0 before newsnow.
+         ! Save pre-newsnow state for tracer snowfall tracking
          IF (DEF_USE_TRACER) THEN
             IF (.not. allocated(wice_snow_bef_trc)) THEN
                allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
@@ -867,6 +866,7 @@ SUBROUTINE CoLMMAIN ( &
             IF (snl < 0) THEN
                wice_snow_bef_trc(snl+1:0) = wice_soisno(snl+1:0)
             ENDIF
+            scv_bef_trc = scv  ! save pre-newsnow scv
          ENDIF
 
          CALL newsnow (patchtype,maxsnl,deltim,t_grnd,pg_rain,pg_snow,bifall,&
@@ -875,12 +875,13 @@ SUBROUTINE CoLMMAIN ( &
 
          IF (DEF_USE_TRACER) THEN
             IF (snl < 0) THEN
-               CALL tracer_newsnow(ipatch, snl, snl_bef, pg_snow, deltim, &
+               CALL tracer_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
+                  scv, scv_bef_trc, wetwat, &
                   wliq_soisno(snl+1:0), wice_soisno(snl+1:0), &
                   wice_snow_bef_trc(snl+1:0))
             ELSE
-               ! No snow layers: accumulate trc_scv only (no arrays to pass)
-               CALL tracer_newsnow(ipatch, snl, snl_bef, pg_snow, deltim)
+               CALL tracer_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
+                  scv, scv_bef_trc, wetwat)
             ENDIF
          ENDIF
 
@@ -967,6 +968,30 @@ SUBROUTINE CoLMMAIN ( &
                ldew_rain, ldew_snow, ldew_rain_bef_th, ldew_snow_bef_th, &
                wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                wliq_soisno_old_trc, wice_soisno_old_trc)
+
+            ! Sync trc_scv after THERMAL (PhaseChange may have melted thin snow)
+            ! When scv decreases, sm is produced and enters gwat.
+            ! tracer_soil_water adds sm*R to surface pool, so we just zero trc_scv
+            ! to avoid double-counting (the melt tracer is now in the water system).
+            BLOCK
+            USE MOD_Tracer_Defs, only: ntracers_loc => ntracers, trc_tiny_loc => trc_tiny
+            integer :: itrc_loc
+            real(r8) :: ratio_loc
+            IF (snl == 0) THEN
+               IF (scv < trc_tiny_loc) THEN
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_scv(itrc_loc, ipatch) = 0._r8
+                  ENDDO
+               ELSEIF (scv < scv_bef_trc - trc_tiny_loc) THEN
+                  ratio_loc = scv / max(scv_bef_trc, trc_tiny_loc)
+                  ratio_loc = max(min(ratio_loc, 1._r8), 0._r8)
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_scv(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * ratio_loc
+                  ENDDO
+               ENDIF
+            ENDIF
+            END BLOCK
+
             ! Update saved states to post-THERMAL for WATER delta tracking
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
