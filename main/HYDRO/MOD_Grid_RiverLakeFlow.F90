@@ -843,15 +843,16 @@ CONTAINS
                      ! at line ~895 (ucat_next <= 0) picks up the correct value.
                      IF (DEF_USE_TRACER .and. volwater > 1.e-6_r8) THEN
                         BLOCK
+                        USE MOD_Grid_RiverLakeTracer, only: trc_conc_dep => trc_conc
                         integer :: itrc_dep
                         real(r8) :: frac_remove, trc_removed
                         frac_remove = (volwater - topo_rivstomax(i)) / volwater
                         DO itrc_dep = 1, ntracers
                            trc_removed = trc_mass(itrc_dep, i) * frac_remove
                            trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) - trc_removed
-                           ! Overwrite trc_flux_out to reflect the actual outflow
-                           ! (overflow removal, not the old advective flux)
                            trc_flux_out(itrc_dep, i) = trc_removed / dt_all(irivsys(i))
+                           ! Sync concentration with updated mass and volume
+                           trc_conc_dep(itrc_dep, i) = trc_mass(itrc_dep, i) / topo_rivstomax(i)
                         ENDDO
                         END BLOCK
                      ENDIF
