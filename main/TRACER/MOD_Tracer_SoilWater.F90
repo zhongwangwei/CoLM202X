@@ -177,11 +177,19 @@ CONTAINS
          ENDIF
 
          ! ============================================================
-         ! 4. Subsurface runoff: use pre-WATER ratio (fix #3)
+         ! 4. Subsurface runoff: post qlayer/qcharge bottom-layer ratio
+         !    rsub occurs after infiltration, inter-layer exchange, and
+         !    groundwater exchange have updated the bottom layer's tracer.
+         !    Use the current (post-update) bottom-layer concentration.
          ! ============================================================
          IF (rsub > trc_tiny) THEN
             j = nl_soil
-            trc_flux = rsub * ratio_layer(j) * deltim
+            IF (wliq_soisno(j) > trc_tiny) THEN
+               ratio_src = trc_wliq_soisno(itrc, j, ipatch) / wliq_soisno(j)
+            ELSE
+               ratio_src = ratio_layer(j)
+            ENDIF
+            trc_flux = rsub * ratio_src * deltim
             trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
             trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
             a_trc_rsub(itrc, ipatch) = a_trc_rsub(itrc, ipatch) + trc_flux
