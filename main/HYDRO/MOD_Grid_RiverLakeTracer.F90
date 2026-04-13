@@ -802,6 +802,16 @@ CONTAINS
 
       ENDDO  ! itrc
 
+      ! --- DBG: check substep flux ---
+      IF (ntracers > 0 .and. numucat > 0) THEN
+         IF (maxval(abs(trc_flux_out(1,:))) < 1.e-30_r8 .and. maxval(trc_mass(1,:)) > 1.e-10_r8) THEN
+            WRITE(*,'(A,E10.3,A,E10.3,A,I6)') &
+               ' DBG_FLUX0: max_mass=', maxval(trc_mass(1,:)), &
+               ' max_conc=', maxval(trc_conc(1,:)), &
+               ' active=', count(ucatfilter)
+         ENDIF
+      ENDIF
+
       ! --- 9. Final concentration (post-update) ---
       DO i = 1, numucat
          IF (lake_type(i) == 2 .and. size(volresv) > 0) THEN
