@@ -199,7 +199,7 @@ CONTAINS
    logical :: loop_active
 #ifdef CoLMDEBUG
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
-   real(r8) :: trc_mass_bef, trc_mass_aft, trc_mass_inp, trc_mass_dis
+   real(r8) :: trc_mass_bef = 0, trc_mass_aft = 0, trc_mass_inp = 0, trc_mass_dis = 0
    real(r8) :: bif_flux_sum_total, bif_flux_sum_max
    integer  :: itrc_dbg
 #endif
