@@ -75,6 +75,10 @@ CONTAINS
       real(r8) :: trc_soil_upflow         ! tracer from soil when qlayer(0)<0
       ! Snow top-layer effective flux selectors
       real(r8) :: eff_qseva_snow, eff_qsdew_snow, eff_qsubl_snow, eff_qfros_snow
+      ! Cross-phase deficit variables
+      real(r8) :: water_ice_pool, water_liq_pool  ! post-deposit pool sizes
+      real(r8) :: subl_water, evap_water           ! water to remove
+      real(r8) :: deficit_water                    ! excess beyond primary phase
       real(r8) :: gwat_evap              ! evaporation subtracted from gwat [mm]
       real(r8) :: trc_gwat_evap         ! corresponding tracer removed
       real(r8) :: eff_qseva             ! effective evap used in gwat
@@ -133,48 +137,84 @@ CONTAINS
 
             ! Step 1: Ice phase — frost deposits, sublimation removes
             ! snowwater does: wice(lb) += (qfros - qsubl)*dt
-            ! If wice goes negative, deficit transfers to wliq.
-            ! Mirror exactly: apply net flux, let tracer go negative, then transfer.
+            ! If wice goes negative, deficit (= excess sublimation) removes from wliq.
             trc_flux = max(eff_qfros_snow, 0._r8) * R_precip * deltim
             trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) + trc_flux
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
 
             IF (eff_qsubl_snow > trc_tiny) THEN
-               ! Compute removal at ratio of post-frost ice pool
-               ratio_src = trc_wice_soisno(itrc, lb_snow, ipatch) / &
-                  max(wice_soisno_bef(lb_snow) + max(eff_qfros_snow,0._r8)*deltim, trc_tiny)
-               trc_flux = eff_qsubl_snow * ratio_src * deltim
-               ! Do NOT clamp — allow tracer to go negative (mirrors water model)
-               trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) - trc_flux
-               a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
-            ENDIF
-            ! Cross-phase deficit: if ice tracer went negative, transfer to liquid
-            IF (trc_wice_soisno(itrc, lb_snow, ipatch) < 0._r8) THEN
-               trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) &
-                  + trc_wice_soisno(itrc, lb_snow, ipatch)
-               trc_wice_soisno(itrc, lb_snow, ipatch) = 0._r8
+               ! Post-frost ice pool
+               water_ice_pool = wice_soisno_bef(lb_snow) + max(eff_qfros_snow, 0._r8) * deltim
+               subl_water = eff_qsubl_snow * deltim
+
+               IF (subl_water <= water_ice_pool .or. water_ice_pool < trc_tiny) THEN
+                  ! All sublimation from ice (or no ice to begin with)
+                  IF (water_ice_pool > trc_tiny) THEN
+                     ratio_src = trc_wice_soisno(itrc, lb_snow, ipatch) / water_ice_pool
+                  ELSE
+                     ratio_src = R_precip
+                  ENDIF
+                  trc_flux = subl_water * ratio_src
+                  trc_wice_soisno(itrc, lb_snow, ipatch) = max(trc_wice_soisno(itrc, lb_snow, ipatch) - trc_flux, 0._r8)
+                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+               ELSE
+                  ! Sublimation exceeds ice: drain ice fully, remainder from liquid
+                  ! Part 1: drain all ice tracer
+                  trc_flux = trc_wice_soisno(itrc, lb_snow, ipatch)
+                  trc_wice_soisno(itrc, lb_snow, ipatch) = 0._r8
+                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                  ! Part 2: remaining water from liquid, at LIQUID ratio
+                  deficit_water = subl_water - water_ice_pool
+                  IF (wliq_soisno_bef(lb_snow) > trc_tiny) THEN
+                     ratio_src = trc_wliq_soisno(itrc, lb_snow, ipatch) / wliq_soisno_bef(lb_snow)
+                  ELSE
+                     ratio_src = R_precip
+                  ENDIF
+                  trc_flux = deficit_water * ratio_src
+                  trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, lb_snow, ipatch), 0._r8))
+                  trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) - trc_flux
+                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+               ENDIF
             ENDIF
 
             ! Step 2: Liquid phase — dew deposits, evaporation removes
             ! snowwater does: wliq(lb) += (pg_rain + qsdew - qseva)*dt
-            ! If wliq goes negative, deficit transfers to wice.
+            ! If wliq goes negative, deficit removes from wice.
             trc_flux = max(eff_qsdew_snow, 0._r8) * R_precip * deltim
             trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) + trc_flux
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
 
             IF (eff_qseva_snow > trc_tiny) THEN
-               ratio_src = trc_wliq_soisno(itrc, lb_snow, ipatch) / &
-                  max(wliq_soisno_bef(lb_snow) + max(eff_qsdew_snow,0._r8)*deltim, trc_tiny)
-               trc_flux = eff_qseva_snow * ratio_src * deltim
-               ! Do NOT clamp — allow tracer to go negative
-               trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) - trc_flux
-               a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
-            ENDIF
-            ! Cross-phase deficit: if liquid tracer went negative, transfer to ice
-            IF (trc_wliq_soisno(itrc, lb_snow, ipatch) < 0._r8) THEN
-               trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) &
-                  + trc_wliq_soisno(itrc, lb_snow, ipatch)
-               trc_wliq_soisno(itrc, lb_snow, ipatch) = 0._r8
+               water_liq_pool = wliq_soisno_bef(lb_snow) + max(eff_qsdew_snow, 0._r8) * deltim
+               evap_water = eff_qseva_snow * deltim
+
+               IF (evap_water <= water_liq_pool .or. water_liq_pool < trc_tiny) THEN
+                  IF (water_liq_pool > trc_tiny) THEN
+                     ratio_src = trc_wliq_soisno(itrc, lb_snow, ipatch) / water_liq_pool
+                  ELSE
+                     ratio_src = R_precip
+                  ENDIF
+                  trc_flux = evap_water * ratio_src
+                  trc_wliq_soisno(itrc, lb_snow, ipatch) = max(trc_wliq_soisno(itrc, lb_snow, ipatch) - trc_flux, 0._r8)
+                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+               ELSE
+                  ! Evaporation exceeds liquid: drain liquid fully, remainder from ice
+                  trc_flux = trc_wliq_soisno(itrc, lb_snow, ipatch)
+                  trc_wliq_soisno(itrc, lb_snow, ipatch) = 0._r8
+                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                  ! Remainder from ice at ICE ratio
+                  deficit_water = evap_water - water_liq_pool
+                  IF (wice_soisno_bef(lb_snow) > trc_tiny) THEN
+                     ratio_src = trc_wice_soisno(itrc, lb_snow, ipatch) / &
+                        max(wice_soisno_bef(lb_snow) + max(eff_qfros_snow,0._r8)*deltim, trc_tiny)
+                  ELSE
+                     ratio_src = R_precip
+                  ENDIF
+                  trc_flux = deficit_water * ratio_src
+                  trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, lb_snow, ipatch), 0._r8))
+                  trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) - trc_flux
+                  a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+               ENDIF
             ENDIF
 
          ENDIF  ! snl < 0
