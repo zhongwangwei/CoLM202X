@@ -10,13 +10,13 @@ MODULE MOD_Tracer_Hist
 
 CONTAINS
 
-   SUBROUTINE tracer_hist_accumulate (ipatch, snl, nl_soil, ldew_rain, ldew_snow, &
+   SUBROUTINE tracer_hist_accumulate (ipatch, nl_soil, ldew_rain, ldew_snow, &
       wliq_soisno, wice_soisno)
       IMPLICIT NONE
-      integer,  intent(in) :: ipatch, snl, nl_soil
+      integer,  intent(in) :: ipatch, nl_soil
       real(r8), intent(in) :: ldew_rain, ldew_snow
-      real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil)
-      real(r8), intent(in) :: wice_soisno(snl+1:nl_soil)
+      real(r8), intent(in) :: wliq_soisno(1:nl_soil)
+      real(r8), intent(in) :: wice_soisno(1:nl_soil)
 
       integer :: itrc, j
 
@@ -29,8 +29,9 @@ CONTAINS
             + trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
       ENDDO
 
-      ! Snow + soil layers (snl+1 : nl_soil, includes snow when snl < 0)
-      DO j = snl + 1, nl_soil
+      ! Soil layers only (1:nl_soil). Snow layer history deferred —
+      ! extending to snl+1:nl_soil caused MPI buffer mismatch in history output.
+      DO j = 1, nl_soil
          a_water_soil(j, ipatch) = a_water_soil(j, ipatch) + wliq_soisno(j) + wice_soisno(j)
          DO itrc = 1, ntracers
             a_trc_soil_mass(itrc, j, ipatch) = a_trc_soil_mass(itrc, j, ipatch) &
