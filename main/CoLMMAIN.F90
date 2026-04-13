@@ -195,7 +195,7 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_TimeManager
    USE MOD_Namelist, only: DEF_Interception_scheme, DEF_USE_VariablySaturatedFlow, &
                            DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, &
-                           DEF_USE_TRACER
+                           DEF_USE_TRACER, DEF_SPLIT_SOILSNOW
    USE MOD_Tracer_Main
    USE MOD_Tracer_Precip,       only: tracer_precip
    USE MOD_Tracer_Evapo,        only: tracer_evapo
@@ -1017,7 +1017,9 @@ SUBROUTINE CoLMMAIN ( &
          IF (DEF_USE_TRACER) THEN
             CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
                qlayer, qcharge, rsur, rsub, &
-               qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, sm, fsno, &
+               qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+               qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+               sm, fsno, DEF_SPLIT_SOILSNOW, &
                wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                wliq_soisno_old_trc, wice_soisno_old_trc, &
                wa, wa_old_trc, wdsrf, wdsrf_old_trc, &

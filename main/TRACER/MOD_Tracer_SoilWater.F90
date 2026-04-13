@@ -27,7 +27,9 @@ CONTAINS
    !---------------------------------------------------------------
    SUBROUTINE tracer_soil_water (ipatch, deltim, snl, nl_soil, &
       qlayer, qcharge, rsur, rsub, &
-      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, sm, fsno, &
+      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+      qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+      sm, fsno, split_soilsnow, &
       wliq_soisno, wice_soisno, &
       wliq_soisno_bef, wice_soisno_bef, &
       wa, wa_bef, wdsrf, wdsrf_bef, &
@@ -44,8 +46,13 @@ CONTAINS
       real(r8), intent(in) :: qsdew_soil            ! soil dew in WATER [mm/s]
       real(r8), intent(in) :: qsubl_soil            ! soil sublimation in WATER [mm/s]
       real(r8), intent(in) :: qfros_soil            ! soil frost in WATER [mm/s]
+      real(r8), intent(in) :: qseva_snow            ! snow evaporation in WATER [mm/s]
+      real(r8), intent(in) :: qsdew_snow            ! snow dew in WATER [mm/s]
+      real(r8), intent(in) :: qsubl_snow            ! snow sublimation in WATER [mm/s]
+      real(r8), intent(in) :: qfros_snow            ! snow frost in WATER [mm/s]
       real(r8), intent(in) :: sm                    ! snowmelt [mm/s]
       real(r8), intent(in) :: fsno                  ! snow fraction [-]
+      logical,  intent(in) :: split_soilsnow        ! DEF_SPLIT_SOILSNOW
       real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil)     ! post-WATER
       real(r8), intent(in) :: wice_soisno(snl+1:nl_soil)     ! post-WATER
       real(r8), intent(in) :: wliq_soisno_bef(snl+1:nl_soil) ! pre-WATER (post-THERMAL)
@@ -54,7 +61,7 @@ CONTAINS
       real(r8), intent(in) :: wetwat, wetwat_bef
       real(r8), intent(in) :: pg_rain, pg_snow
 
-      integer  :: itrc, j, lb
+      integer  :: itrc, j, lb, lb_snow
       real(r8) :: R_precip
       real(r8) :: trc_flux, ratio, ratio_src
       real(r8) :: d_wice, d_wetwat
@@ -80,6 +87,52 @@ CONTAINS
                ratio_layer(j) = R_precip
             ENDIF
          ENDDO
+
+         ! ============================================================
+         ! 0b. Snow layer external fluxes (when snow exists)
+         !     snowwater applies qseva_snow/qsdew_snow/qsubl_snow/qfros_snow
+         !     to the top snow layer. Track these as system I/O.
+         ! ============================================================
+         IF (snl < 0) THEN
+            lb_snow = snl + 1  ! top snow layer index
+
+            IF (split_soilsnow) THEN
+               ! DEF_SPLIT_SOILSNOW: snow fluxes use _snow variables
+               IF (qsdew_snow > trc_tiny) THEN
+                  trc_flux = qsdew_snow * R_precip * deltim
+                  trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) + trc_flux
+                  a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+               ENDIF
+               IF (qseva_snow > trc_tiny) THEN
+                  IF (wliq_soisno_bef(lb_snow) > trc_tiny) THEN
+                     ratio_src = trc_wliq_soisno(itrc, lb_snow, ipatch) / max(wliq_soisno_bef(lb_snow), trc_tiny)
+                     trc_flux = qseva_snow * ratio_src * deltim
+                     trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, lb_snow, ipatch), 0._r8))
+                     trc_wliq_soisno(itrc, lb_snow, ipatch) = trc_wliq_soisno(itrc, lb_snow, ipatch) - trc_flux
+                     a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                  ENDIF
+               ENDIF
+               IF (qfros_snow > trc_tiny) THEN
+                  trc_flux = qfros_snow * R_precip * deltim
+                  trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) + trc_flux
+                  a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+               ENDIF
+               IF (qsubl_snow > trc_tiny) THEN
+                  IF (wice_soisno_bef(lb_snow) > trc_tiny) THEN
+                     ratio_src = trc_wice_soisno(itrc, lb_snow, ipatch) / max(wice_soisno_bef(lb_snow), trc_tiny)
+                     trc_flux = qsubl_snow * ratio_src * deltim
+                     trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, lb_snow, ipatch), 0._r8))
+                     trc_wice_soisno(itrc, lb_snow, ipatch) = trc_wice_soisno(itrc, lb_snow, ipatch) - trc_flux
+                     a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                  ENDIF
+               ENDIF
+            ENDIF
+            ! Note: when NOT split_soilsnow, qseva/qsdew/qsubl/qfros (without _snow suffix)
+            ! are applied to snow layers by snowwater. These are the same as qseva_soil etc.
+            ! but we already handle qseva_soil in the surface pool section below.
+            ! The snow layer internal changes (percolation etc.) are captured by the
+            ! delta approach for snow layers in sections 5a/5b.
+         ENDIF
 
          ! ============================================================
          ! 1. Surface water: mixed-pool approach
@@ -275,9 +328,14 @@ CONTAINS
          DO j = lb, nl_soil
             d_wice = wice_soisno(j) - wice_soisno_bef(j)
 
-            ! Subtract external ice flux (only affects layer 1)
+            ! Subtract external ice fluxes to isolate internal freeze/thaw
             IF (j == 1) THEN
+               ! Soil layer 1: always has qfros_soil/qsubl_soil
                d_wice = d_wice - (qfros_soil - qsubl_soil) * deltim
+            ENDIF
+            IF (j < 1 .and. j == lb .and. snl < 0 .and. split_soilsnow) THEN
+               ! Top snow layer: has qfros_snow/qsubl_snow (when split)
+               d_wice = d_wice - (qfros_snow - qsubl_snow) * deltim
             ENDIF
 
             IF (d_wice > trc_tiny) THEN
