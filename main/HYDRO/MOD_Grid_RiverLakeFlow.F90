@@ -838,14 +838,18 @@ CONTAINS
                   IF (volwater > topo_rivstomax(i)) THEN
                      ! Remove excess water
                      hflux_fc(i) = (volwater - topo_rivstomax(i)) / dt_all(irivsys(i))
-                     ! Remove corresponding tracer proportionally
+                     ! Remove corresponding tracer proportionally and count as discharge
                      IF (DEF_USE_TRACER .and. volwater > 1.e-6_r8) THEN
                         BLOCK
                         integer :: itrc_dep
-                        real(r8) :: frac_remove
+                        real(r8) :: frac_remove, trc_removed
                         frac_remove = (volwater - topo_rivstomax(i)) / volwater
                         DO itrc_dep = 1, ntracers
-                           trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) * (1._r8 - frac_remove)
+                           trc_removed = trc_mass(itrc_dep, i) * frac_remove
+                           trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) - trc_removed
+#ifdef CoLMDEBUG
+                           IF (itrc_dep == 1) trc_mass_dis = trc_mass_dis + trc_removed
+#endif
                         ENDDO
                         END BLOCK
                      ENDIF
