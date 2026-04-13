@@ -836,7 +836,19 @@ CONTAINS
                ! for inland depression, remove excess water (to be optimized)
                IF (ucat_next(i) == -10) THEN
                   IF (volwater > topo_rivstomax(i)) THEN
+                     ! Remove excess water
                      hflux_fc(i) = (volwater - topo_rivstomax(i)) / dt_all(irivsys(i))
+                     ! Remove corresponding tracer proportionally
+                     IF (DEF_USE_TRACER .and. volwater > 1.e-6_r8) THEN
+                        BLOCK
+                        integer :: itrc_dep
+                        real(r8) :: frac_remove
+                        frac_remove = (volwater - topo_rivstomax(i)) / volwater
+                        DO itrc_dep = 1, ntracers
+                           trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) * (1._r8 - frac_remove)
+                        ENDDO
+                        END BLOCK
+                     ENDIF
                      volwater = topo_rivstomax(i)
                   ENDIF
                ENDIF
