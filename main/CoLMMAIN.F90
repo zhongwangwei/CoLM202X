@@ -1017,6 +1017,7 @@ SUBROUTINE CoLMMAIN ( &
          IF (DEF_USE_TRACER) THEN
             CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
                qlayer, qcharge, rsur, rsub, &
+               qseva, qsdew, qsubl, qfros, &
                qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
                qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
                sm, fsno, DEF_SPLIT_SOILSNOW, &

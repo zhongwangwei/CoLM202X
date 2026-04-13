@@ -27,6 +27,7 @@ CONTAINS
    !---------------------------------------------------------------
    SUBROUTINE tracer_soil_water (ipatch, deltim, snl, nl_soil, &
       qlayer, qcharge, rsur, rsub, &
+      qseva_in, qsdew_in, qsubl_in, qfros_in, &
       qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
       qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
       sm, fsno, split_soilsnow, &
@@ -42,14 +43,18 @@ CONTAINS
       real(r8), intent(in) :: qlayer(0:nl_soil)     ! inter-layer flux [mm/s]
       real(r8), intent(in) :: qcharge               ! groundwater recharge [mm/s]
       real(r8), intent(in) :: rsur, rsub            ! runoff [mm/s]
-      real(r8), intent(in) :: qseva_soil            ! soil evaporation in WATER [mm/s]
-      real(r8), intent(in) :: qsdew_soil            ! soil dew in WATER [mm/s]
-      real(r8), intent(in) :: qsubl_soil            ! soil sublimation in WATER [mm/s]
-      real(r8), intent(in) :: qfros_soil            ! soil frost in WATER [mm/s]
-      real(r8), intent(in) :: qseva_snow            ! snow evaporation in WATER [mm/s]
-      real(r8), intent(in) :: qsdew_snow            ! snow dew in WATER [mm/s]
-      real(r8), intent(in) :: qsubl_snow            ! snow sublimation in WATER [mm/s]
-      real(r8), intent(in) :: qfros_snow            ! snow frost in WATER [mm/s]
+      real(r8), intent(in) :: qseva_in              ! total evaporation (no _soil suffix) [mm/s]
+      real(r8), intent(in) :: qsdew_in              ! total dew [mm/s]
+      real(r8), intent(in) :: qsubl_in              ! total sublimation [mm/s]
+      real(r8), intent(in) :: qfros_in              ! total frost [mm/s]
+      real(r8), intent(in) :: qseva_soil            ! soil-only evaporation [mm/s]
+      real(r8), intent(in) :: qsdew_soil            ! soil-only dew [mm/s]
+      real(r8), intent(in) :: qsubl_soil            ! soil-only sublimation [mm/s]
+      real(r8), intent(in) :: qfros_soil            ! soil-only frost [mm/s]
+      real(r8), intent(in) :: qseva_snow            ! snow-only evaporation [mm/s]
+      real(r8), intent(in) :: qsdew_snow            ! snow-only dew [mm/s]
+      real(r8), intent(in) :: qsubl_snow            ! snow-only sublimation [mm/s]
+      real(r8), intent(in) :: qfros_snow            ! snow-only frost [mm/s]
       real(r8), intent(in) :: sm                    ! snowmelt [mm/s]
       real(r8), intent(in) :: fsno                  ! snow fraction [-]
       logical,  intent(in) :: split_soilsnow        ! DEF_SPLIT_SOILSNOW
@@ -68,8 +73,14 @@ CONTAINS
       real(r8) :: trc_throughfall, trc_pool_total, water_pool_total
       real(r8) :: ratio_layer(1:nl_soil)  ! pre-WATER tracer ratio per layer
       real(r8) :: trc_soil_upflow         ! tracer from soil when qlayer(0)<0
-      real(r8) :: gwat_evap              ! surface evaporation removed from gwat [mm]
-      real(r8) :: trc_gwat_evap          ! corresponding tracer removed
+      real(r8) :: gwat_evap              ! evaporation subtracted from gwat [mm]
+      real(r8) :: gwat_dew              ! dew added to gwat [mm]
+      real(r8) :: trc_gwat_evap         ! corresponding tracer removed
+      real(r8) :: eff_qseva             ! effective evap used in gwat
+      real(r8) :: eff_qsdew             ! effective dew used in gwat
+      real(r8) :: eff_qsubl_top         ! effective sublimation on top layer (ice)
+      real(r8) :: eff_qfros_top         ! effective frost on top layer (ice)
+      real(r8) :: pool_ratio            ! actual ratio of mixed pool
 
       IF (ntracers <= 0) RETURN
       lb = snl + 1
@@ -155,32 +166,54 @@ CONTAINS
             trc_pool_total = trc_pool_total + trc_soil_upflow
          ENDIF
 
-         ! WATER computes gwat = pg_rain + sm - qseva_soil (no snow case).
-         ! The qseva_soil term was subtracted from gwat but not from trc_pool.
-         ! Remove the corresponding tracer as evaporation output.
-         ! (qsdew_soil adds water/tracer; qfros/qsubl handled later for ice)
-         gwat_evap = max(qseva_soil, 0._r8) * deltim
+         ! ---- Determine effective fluxes used in gwat computation ----
+         ! WATER_VSF uses different variables depending on path:
+         !   split_soilsnow AND snow:  gwat includes qseva_soil (soil portion)
+         !   NOT split_soilsnow AND snow: gwat includes qseva (total, via snowwater)
+         !   no snow (lb>=1):  gwat = pg_rain + sm - qseva_soil  (or qseva, same thing)
+         IF (split_soilsnow .and. snl < 0) THEN
+            eff_qseva = qseva_soil     ! soil portion only
+            eff_qsdew = qsdew_soil
+            eff_qsubl_top = qsubl_soil  ! on soil layer 1
+            eff_qfros_top = qfros_soil
+         ELSE
+            eff_qseva = qseva_in       ! total (includes snow portion when no split)
+            eff_qsdew = qsdew_in
+            eff_qsubl_top = qsubl_in
+            eff_qfros_top = qfros_in
+         ENDIF
+
+         ! ---- Remove evaporation tracer from mixed pool ----
+         ! gwat -= eff_qseva, so trc_pool must also be reduced.
+         ! Use the ACTUAL pool ratio: trc_pool / (trc_pool / pool_ratio)
+         ! where pool_ratio = trc_pool / water_pool_before_evap.
+         ! Simplification: evap tracer = evap_water * (trc_pool / water_pool_before_evap)
+         ! water_pool_before_evap ≈ trc_pool / pool_ratio. We don't know the exact
+         ! water pool size at this point, but we can use:
+         !   pool_ratio = trc_pool / water_pool_before_evap
+         !   trc_evap = eff_qseva * dt * pool_ratio = eff_qseva * dt * trc_pool / water_bef
+         ! water_bef = water_pool_after_evap + eff_qseva*dt
+         !           = (wdsrf + rsur*dt + qlayer(0)*dt) + eff_qseva*dt  [reconstruct pre-evap]
+         gwat_evap = max(eff_qseva, 0._r8) * deltim
          IF (gwat_evap > trc_tiny .and. trc_pool_total > trc_tiny) THEN
-            ! Evaporation draws from the mixed surface pool at pool ratio
-            ! Approximate ratio before evaporation
-            trc_gwat_evap = gwat_evap * (trc_pool_total / &
-               max(trc_pool_total / R_precip, gwat_evap + trc_tiny))
+            ! Reconstruct pre-evap water pool
+            water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim &
+                             + max(qlayer(0), 0._r8) * deltim + gwat_evap
+            pool_ratio = trc_pool_total / max(water_pool_total, trc_tiny)
+            trc_gwat_evap = gwat_evap * pool_ratio
             trc_gwat_evap = min(trc_gwat_evap, trc_pool_total)
             trc_pool_total = trc_pool_total - trc_gwat_evap
             a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_gwat_evap
          ENDIF
 
-         ! Add snowmelt tracer (sm) and soil dew tracer (qsdew_soil)
-         ! to the surface pool (these increase gwat)
+         ! ---- Add snowmelt and dew tracer to pool ----
          IF (sm > trc_tiny) THEN
-            ! Snowmelt: tracer from snow layers. Use top snow layer ratio or R_precip.
-            ! Phase 1: all snow has R_precip.
             trc_pool_total = trc_pool_total + sm * R_precip * deltim
          ENDIF
-         IF (qsdew_soil > trc_tiny) THEN
-            ! Dew deposition: atmospheric input
-            trc_pool_total = trc_pool_total + qsdew_soil * R_precip * deltim
-            a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + qsdew_soil * R_precip * deltim
+         gwat_dew = max(eff_qsdew, 0._r8) * deltim
+         IF (gwat_dew > trc_tiny) THEN
+            trc_pool_total = trc_pool_total + gwat_dew * R_precip
+            a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + gwat_dew * R_precip
          ENDIF
 
          ! Use OUTPUT-side water pool for ratio computation.
@@ -298,17 +331,16 @@ CONTAINS
          !    (needs separating d_wice into external + internal components).
          !    THERMAL-phase freeze/thaw is handled in tracer_evapo.
          ! ============================================================
-         IF (qfros_soil > trc_tiny) THEN
-            ! Frost deposition: atmosphere → ice in top soil layer
-            trc_flux = qfros_soil * R_precip * deltim
+         ! Use effective fluxes (handles both split and non-split paths)
+         IF (eff_qfros_top > trc_tiny) THEN
+            trc_flux = eff_qfros_top * R_precip * deltim
             trc_wice_soisno(itrc, 1, ipatch) = trc_wice_soisno(itrc, 1, ipatch) + trc_flux
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
          ENDIF
-         IF (qsubl_soil > trc_tiny) THEN
-            ! Sublimation: ice in top soil layer → atmosphere
+         IF (eff_qsubl_top > trc_tiny) THEN
             IF (wice_soisno_bef(1) > trc_tiny) THEN
                ratio_src = trc_wice_soisno(itrc, 1, ipatch) / max(wice_soisno_bef(1), trc_tiny)
-               trc_flux = qsubl_soil * ratio_src * deltim
+               trc_flux = eff_qsubl_top * ratio_src * deltim
                trc_flux = min(trc_flux, max(trc_wice_soisno(itrc, 1, ipatch), 0._r8))
                trc_wice_soisno(itrc, 1, ipatch) = trc_wice_soisno(itrc, 1, ipatch) - trc_flux
                a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
@@ -330,11 +362,11 @@ CONTAINS
 
             ! Subtract external ice fluxes to isolate internal freeze/thaw
             IF (j == 1) THEN
-               ! Soil layer 1: always has qfros_soil/qsubl_soil
-               d_wice = d_wice - (qfros_soil - qsubl_soil) * deltim
+               ! Soil layer 1: subtract effective external ice flux
+               d_wice = d_wice - (eff_qfros_top - eff_qsubl_top) * deltim
             ENDIF
             IF (j < 1 .and. j == lb .and. snl < 0 .and. split_soilsnow) THEN
-               ! Top snow layer: has qfros_snow/qsubl_snow (when split)
+               ! Top snow layer (split path): has qfros_snow/qsubl_snow
                d_wice = d_wice - (qfros_snow - qsubl_snow) * deltim
             ENDIF
 
