@@ -6,6 +6,7 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, delta_to_R
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
       trc_wa, trc_wdsrf, trc_wetwat, &
+      a_trc_precip, a_trc_evap, &
       a_trc_qinfl, a_trc_qcharge, a_trc_rsur, a_trc_rsub, a_trc_rnof, &
       trc_pg_to_ground
 
@@ -26,6 +27,7 @@ CONTAINS
    !---------------------------------------------------------------
    SUBROUTINE tracer_soil_water (ipatch, deltim, snl, nl_soil, &
       qlayer, qcharge, rsur, rsub, &
+      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, sm, fsno, &
       wliq_soisno, wice_soisno, &
       wliq_soisno_bef, wice_soisno_bef, &
       wa, wa_bef, wdsrf, wdsrf_bef, &
@@ -38,6 +40,12 @@ CONTAINS
       real(r8), intent(in) :: qlayer(0:nl_soil)     ! inter-layer flux [mm/s]
       real(r8), intent(in) :: qcharge               ! groundwater recharge [mm/s]
       real(r8), intent(in) :: rsur, rsub            ! runoff [mm/s]
+      real(r8), intent(in) :: qseva_soil            ! soil evaporation in WATER [mm/s]
+      real(r8), intent(in) :: qsdew_soil            ! soil dew in WATER [mm/s]
+      real(r8), intent(in) :: qsubl_soil            ! soil sublimation in WATER [mm/s]
+      real(r8), intent(in) :: qfros_soil            ! soil frost in WATER [mm/s]
+      real(r8), intent(in) :: sm                    ! snowmelt [mm/s]
+      real(r8), intent(in) :: fsno                  ! snow fraction [-]
       real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil)     ! post-WATER
       real(r8), intent(in) :: wice_soisno(snl+1:nl_soil)     ! post-WATER
       real(r8), intent(in) :: wliq_soisno_bef(snl+1:nl_soil) ! pre-WATER (post-THERMAL)
@@ -53,6 +61,8 @@ CONTAINS
       real(r8) :: trc_throughfall, trc_pool_total, water_pool_total
       real(r8) :: ratio_layer(1:nl_soil)  ! pre-WATER tracer ratio per layer
       real(r8) :: trc_soil_upflow         ! tracer from soil when qlayer(0)<0
+      real(r8) :: gwat_evap              ! surface evaporation removed from gwat [mm]
+      real(r8) :: trc_gwat_evap          ! corresponding tracer removed
 
       IF (ntracers <= 0) RETURN
       lb = snl + 1
@@ -92,11 +102,36 @@ CONTAINS
             trc_pool_total = trc_pool_total + trc_soil_upflow
          ENDIF
 
-         ! Use OUTPUT-side water pool: the actual water that was distributed
-         ! by WATER to wdsrf/rsur/qlayer(0). This guarantees:
-         !   distributed = water_pool * ratio = water_pool * (trc_pool / water_pool) = trc_pool
-         ! Using input-side (wdsrf_bef + pg*dt) would be too large (gwat subtracts
-         ! qseva), causing ratio to be too small and tracer to silently vanish.
+         ! WATER computes gwat = pg_rain + sm - qseva_soil (no snow case).
+         ! The qseva_soil term was subtracted from gwat but not from trc_pool.
+         ! Remove the corresponding tracer as evaporation output.
+         ! (qsdew_soil adds water/tracer; qfros/qsubl handled later for ice)
+         gwat_evap = max(qseva_soil, 0._r8) * deltim
+         IF (gwat_evap > trc_tiny .and. trc_pool_total > trc_tiny) THEN
+            ! Evaporation draws from the mixed surface pool at pool ratio
+            ! Approximate ratio before evaporation
+            trc_gwat_evap = gwat_evap * (trc_pool_total / &
+               max(trc_pool_total / R_precip, gwat_evap + trc_tiny))
+            trc_gwat_evap = min(trc_gwat_evap, trc_pool_total)
+            trc_pool_total = trc_pool_total - trc_gwat_evap
+            a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_gwat_evap
+         ENDIF
+
+         ! Add snowmelt tracer (sm) and soil dew tracer (qsdew_soil)
+         ! to the surface pool (these increase gwat)
+         IF (sm > trc_tiny) THEN
+            ! Snowmelt: tracer from snow layers. Use top snow layer ratio or R_precip.
+            ! Phase 1: all snow has R_precip.
+            trc_pool_total = trc_pool_total + sm * R_precip * deltim
+         ENDIF
+         IF (qsdew_soil > trc_tiny) THEN
+            ! Dew deposition: atmospheric input
+            trc_pool_total = trc_pool_total + qsdew_soil * R_precip * deltim
+            a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + qsdew_soil * R_precip * deltim
+         ENDIF
+
+         ! Use OUTPUT-side water pool for ratio computation.
+         ! This guarantees: distributed = water_pool * ratio = trc_pool (exact).
          water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim &
                           + max(qlayer(0), 0._r8) * deltim
 
