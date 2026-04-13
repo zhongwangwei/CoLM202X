@@ -184,8 +184,11 @@ CONTAINS
          ! ============================================================
          IF (rsub > trc_tiny) THEN
             j = nl_soil
-            IF (wliq_soisno(j) > trc_tiny) THEN
-               ratio_src = trc_wliq_soisno(itrc, j, ipatch) / wliq_soisno(j)
+            ! Reconstruct pre-rsub water: WATER's final wliq already has rsub
+            ! removed, so add it back to get the state rsub drew from.
+            ratio_src = wliq_soisno(j) + rsub * deltim
+            IF (ratio_src > trc_tiny) THEN
+               ratio_src = trc_wliq_soisno(itrc, j, ipatch) / ratio_src
             ELSE
                ratio_src = ratio_layer(j)
             ENDIF
