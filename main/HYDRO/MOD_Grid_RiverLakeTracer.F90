@@ -802,20 +802,6 @@ CONTAINS
 
       ENDDO  ! itrc
 
-      ! --- DBG: check if substep produced non-zero fluxes ---
-      IF (ntracers > 0 .and. numucat > 0) THEN
-         IF (any(trc_flux_out(1,:) /= 0._r8)) THEN
-            ! At least one cell has non-zero outflux - good
-         ELSE
-            IF (any(trc_mass(1,:) > 0._r8)) THEN
-               WRITE(*,'(A,I6,A,E10.3,A,E10.3)') &
-                  ' DBG_SUBSTEP: mass>0 but flux=0, max_mass=', &
-                  maxloc(trc_mass(1,:),1), ' val=', maxval(trc_mass(1,:)), &
-                  ' max_conc=', maxval(trc_conc(1,:))
-            ENDIF
-         ENDIF
-      ENDIF
-
       ! --- 9. Final concentration (post-update) ---
       DO i = 1, numucat
          IF (lake_type(i) == 2 .and. size(volresv) > 0) THEN
