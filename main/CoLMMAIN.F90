@@ -747,6 +747,9 @@ SUBROUTINE CoLMMAIN ( &
          IF (DEF_USE_TRACER) THEN
             ldew_rain_old_trc = ldew_rain
             ldew_snow_old_trc = ldew_snow
+            ! Save accumulator snapshots BEFORE any tracer processing this step.
+            ! Must happen before tracer_precip (which updates a_trc_precip).
+            CALL tracer_save_storage(ipatch, snl, nl_soil)
          ENDIF
 
 !======================================================================
@@ -879,7 +882,6 @@ SUBROUTINE CoLMMAIN ( &
             ! Save ldew before THERMAL (for delta-based ET tracking)
             ldew_rain_bef_th = ldew_rain
             ldew_snow_bef_th = ldew_snow
-            CALL tracer_save_storage(ipatch, snl, nl_soil)
          ENDIF
 
          CALL THERMAL (ipatch,patchtype,is_dry_lake,lb                ,deltim            ,&
