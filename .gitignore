@@ -14,3 +14,4 @@ lib
 *.x
 *.log
 /docs
+.worktrees/
