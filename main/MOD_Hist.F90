@@ -18,6 +18,7 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
+   USE MOD_Tracer_Vars, only: flush_Tracer_Acc
 
    USE MOD_HistGridded
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -56,6 +57,7 @@ CONTAINS
 
       CALL allocate_acc_fluxes ()
       CALL FLUSH_acc_fluxes ()
+      CALL flush_Tracer_Acc ()
 
       HistForm = 'Gridded'
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -212,6 +214,7 @@ CONTAINS
 
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
+         CALL flush_Tracer_Acc ()
          RETURN
       ELSE
          CALL accumulate_fluxes ()
@@ -4171,6 +4174,208 @@ ENDIF
             itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
             sumarea, filter, 'ice lens in soil layers', 'kg/m2')
 
+         ! ============================================================
+         ! Tracer history output per patch:
+         !   Canopy ratio:        f_trc_conc_ldew_<tracer>   [R]
+         !   Soil+snow ratio:     f_trc_conc_soisno_<tracer> [R]
+         ! Time-window-averaged ratio R = sum(trc_mass) / sum(water_mass),
+         ! mirroring the river tracer output convention in
+         ! MOD_Grid_RiverLakeTracer.write_tracer_history. Gated by
+         ! DEF_USE_TRACER + DEF_hist_vars flags for consistency with
+         ! the underlying water-pool outputs.
+         ! ============================================================
+         IF (DEF_USE_TRACER) THEN
+            BLOCK
+            USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny
+            USE MOD_Tracer_Vars, only: a_trc_ldew_mass, a_water_ldew, &
+                                       a_trc_soil_mass, a_water_soil, &
+                                       a_trc_snow_mass, a_water_snow, &
+                                       a_trc_wa_mass,     a_water_wa, &
+                                       a_trc_wdsrf_mass,  a_water_wdsrf, &
+                                       a_trc_wetwat_mass, a_water_wetwat, &
+                                       a_trc_scv_mass,    a_water_scv
+            USE MOD_Vars_1DAccFluxes, only: nac
+
+            real(r8), allocatable :: trc_ratio_ldew  (:)
+            real(r8), allocatable :: trc_ratio_soisno(:,:)
+            real(r8), allocatable :: trc_ratio_pool  (:)
+            real(r8), allocatable :: ones_arr        (:)
+            character(len=64)  :: trc_varname
+            character(len=128) :: trc_longname
+            integer :: itrc_loc, ip_loc, j_loc, jsnow_loc
+
+            IF (ntracers > 0) THEN
+               IF (p_is_worker) THEN
+                  allocate (trc_ratio_ldew  (numpatch))
+                  allocate (trc_ratio_soisno(maxsnl+1:nl_soil, numpatch))
+                  allocate (trc_ratio_pool  (numpatch))
+                  allocate (ones_arr        (numpatch));  ones_arr = 1._r8
+               ELSE
+                  allocate (trc_ratio_ldew  (0))
+                  allocate (trc_ratio_soisno(0,0))
+                  allocate (trc_ratio_pool  (0))
+                  allocate (ones_arr        (0))
+               ENDIF
+
+               DO itrc_loc = 1, ntracers
+
+                  ! --- Canopy ratio ---
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        IF (a_water_ldew(ip_loc) > trc_tiny) THEN
+                           trc_ratio_ldew(ip_loc) = &
+                              a_trc_ldew_mass(itrc_loc, ip_loc) / a_water_ldew(ip_loc)
+                        ELSE
+                           trc_ratio_ldew(ip_loc) = spval
+                        ENDIF
+                     ENDDO
+                  ENDIF
+                  write(trc_varname , '(A,A)')   'f_trc_conc_ldew_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'canopy tracer ratio (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_variable_2d (DEF_hist_vars%ldew, &
+                     trc_ratio_ldew, file_hist, trim(trc_varname), itime_in_file, &
+                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+
+                  ! --- Soil + snow combined ratio ---
+                  ! Snow accumulator is keyed by jsnow = j - maxsnl (positive).
+                  ! Soil accumulator is keyed by j (1..nl_soil). Inactive snow
+                  ! layers remain as spval so downstream plotting skips them.
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        DO j_loc = maxsnl+1, 0
+                           jsnow_loc = j_loc - maxsnl
+                           IF (a_water_snow(jsnow_loc, ip_loc) > trc_tiny) THEN
+                              trc_ratio_soisno(j_loc, ip_loc) = &
+                                 a_trc_snow_mass(itrc_loc, jsnow_loc, ip_loc) &
+                                 / a_water_snow(jsnow_loc, ip_loc)
+                           ELSE
+                              trc_ratio_soisno(j_loc, ip_loc) = spval
+                           ENDIF
+                        ENDDO
+                        DO j_loc = 1, nl_soil
+                           IF (a_water_soil(j_loc, ip_loc) > trc_tiny) THEN
+                              trc_ratio_soisno(j_loc, ip_loc) = &
+                                 a_trc_soil_mass(itrc_loc, j_loc, ip_loc) &
+                                 / a_water_soil(j_loc, ip_loc)
+                           ELSE
+                              trc_ratio_soisno(j_loc, ip_loc) = spval
+                           ENDIF
+                        ENDDO
+                     ENDDO
+                     ! Pre-multiply by nac so write_history_variable_3d's
+                     ! internal divide-by-nac returns the intended ratio.
+                     IF (nac > 0) THEN
+                        WHERE (trc_ratio_soisno /= spval) &
+                           trc_ratio_soisno = trc_ratio_soisno * nac
+                     ENDIF
+                  ENDIF
+                  write(trc_varname , '(A,A)')   'f_trc_conc_soisno_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'soil/snow layer tracer ratio (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_variable_3d (DEF_hist_vars%wliq_soisno, &
+                     trc_ratio_soisno, file_hist, trim(trc_varname), itime_in_file, &
+                     'soilsnow', maxsnl+1, nl_soil-maxsnl, sumarea, filter, &
+                     trim(trc_longname), 'R')
+
+                  ! --- Aquifer (wa) ratio ---
+                  ! wa can be negative during wetland aquifer-debt episodes;
+                  ! the tracer_wetland redistribution keeps signed arithmetic.
+                  ! Thresholding: require the signed time-mean wa over the
+                  ! history window to exceed 1 mm in magnitude (physical
+                  ! aquifer scale). Below that
+                  ! the wetland pool-ratio redistribution at tracer_wetland:1299
+                  ! (trc_wa = wa*pool_ratio) can amplify FP noise into 1000‰+
+                  ! artefacts — same cutoff as the runtime rangecheck at
+                  ! MOD_Vars_TimeVariables.F90:1768. a_water_wa is a sum over
+                  ! nac steps, so compare against |sum(wa)| > 1 mm * nac.
+                  BLOCK
+                  real(r8) :: wa_sum_min
+                  integer  :: nac_safe
+                  nac_safe = nac
+                  IF (nac_safe < 1) nac_safe = 1
+                  wa_sum_min = 1.0_r8 * real(nac_safe, r8)
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        IF (abs(a_water_wa(ip_loc)) > wa_sum_min) THEN
+                           trc_ratio_pool(ip_loc) = &
+                              a_trc_wa_mass(itrc_loc, ip_loc) / a_water_wa(ip_loc)
+                        ELSE
+                           trc_ratio_pool(ip_loc) = spval
+                        ENDIF
+                     ENDDO
+                  ENDIF
+                  END BLOCK
+                  write(trc_varname , '(A,A)')   'f_trc_conc_wa_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'aquifer tracer ratio (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_variable_2d (DEF_hist_vars%wa, &
+                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
+                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+
+                  ! --- Surface water (wdsrf) ratio ---
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        IF (a_water_wdsrf(ip_loc) > trc_tiny) THEN
+                           trc_ratio_pool(ip_loc) = &
+                              a_trc_wdsrf_mass(itrc_loc, ip_loc) / a_water_wdsrf(ip_loc)
+                        ELSE
+                           trc_ratio_pool(ip_loc) = spval
+                        ENDIF
+                     ENDDO
+                  ENDIF
+                  write(trc_varname , '(A,A)')   'f_trc_conc_wdsrf_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'surface water tracer ratio (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_variable_2d (DEF_hist_vars%wdsrf, &
+                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
+                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+
+                  ! --- Wetland pool (wetwat) ratio ---
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        IF (a_water_wetwat(ip_loc) > trc_tiny) THEN
+                           trc_ratio_pool(ip_loc) = &
+                              a_trc_wetwat_mass(itrc_loc, ip_loc) / a_water_wetwat(ip_loc)
+                        ELSE
+                           trc_ratio_pool(ip_loc) = spval
+                        ENDIF
+                     ENDDO
+                  ENDIF
+                  write(trc_varname , '(A,A)')   'f_trc_conc_wetwat_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'wetland pool tracer ratio (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_variable_2d (DEF_hist_vars%wetwat, &
+                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
+                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+
+                  ! --- Pre-layer thin snow (scv) ratio ---
+                  ! Only meaningful when snl==0 (accumulated snow below
+                  ! layer-creation threshold); otherwise scv==0 and ratio
+                  ! degrades to spval.
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        IF (a_water_scv(ip_loc) > trc_tiny) THEN
+                           trc_ratio_pool(ip_loc) = &
+                              a_trc_scv_mass(itrc_loc, ip_loc) / a_water_scv(ip_loc)
+                        ELSE
+                           trc_ratio_pool(ip_loc) = spval
+                        ENDIF
+                     ENDDO
+                  ENDIF
+                  write(trc_varname , '(A,A)')   'f_trc_conc_scv_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'thin-snow (scv) tracer ratio (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_variable_2d (DEF_hist_vars%scv, &
+                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
+                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+
+               ENDDO
+
+               deallocate (trc_ratio_ldew, trc_ratio_soisno, trc_ratio_pool, ones_arr)
+            ENDIF
+            END BLOCK
+         ENDIF
 
 #ifdef DataAssimilation
          IF (p_is_worker) THEN
@@ -4728,8 +4933,16 @@ ENDIF
 #endif
 
 #ifdef GridRiverLakeFlow
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 before hist_grid_riverlake_out'
+            call flush(6)
+         ENDIF
          CALL hist_grid_riverlake_out (file_hist, HistForm, idate, &
             itime_in_file, trim(file_hist)/=trim(file_last))
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 after hist_grid_riverlake_out'
+            call flush(6)
+         ENDIF
 
          IF (p_is_worker) THEN
             IF (numpatch > 0) THEN
@@ -4743,32 +4956,80 @@ ENDIF
             IF (p_is_io) CALL flush_block_data (sumarea_one, 1.)
          ENDIF
 
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 before f_wdpth_ucat_regrid'
+            call flush(6)
+         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%riv_height, a_wdsrf_ucat_pch,   &
             file_hist, 'f_wdpth_ucat_regrid', itime_in_file, sumarea_ucat, filter_ucat, &
             'regridded deepest water depth in river and flood plain', 'm', nac_one)
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 after f_wdpth_ucat_regrid'
+            call flush(6)
+         ENDIF
 
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 before f_veloc_riv_regrid'
+            call flush(6)
+         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%riv_veloct, a_veloc_riv_pch,    &
             file_hist, 'f_veloc_riv_regrid', itime_in_file, sumarea_ucat, filter_ucat,  &
             'regridded water velocity in river', 'm/s', nac_one)
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 after f_veloc_riv_regrid'
+            call flush(6)
+         ENDIF
 
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 before f_discharge_regrid'
+            call flush(6)
+         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_discharge_pch,     &
             file_hist, 'f_discharge', itime_in_file, sumarea_one, filter_ucat,          &
             'regridded discharge in river and flood plain', 'm^3/s',                    &
             nac_one, input_mode = 'total')
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 after f_discharge_regrid'
+            call flush(6)
+         ENDIF
 
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 before f_discharge_rivermouth_regrid'
+            call flush(6)
+         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_dis_rmth_pch,      &
             file_hist, 'f_discharge_rivermouth_regrid', itime_in_file, sumarea_one,     &
             filter_ucat, 'regridded river mouth discharge into ocean', 'm^3/s',         &
             nac_one, input_mode = 'total')
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 after f_discharge_rivermouth_regrid'
+            call flush(6)
+         ENDIF
 
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 before f_floodfrc'
+            call flush(6)
+         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%floodfrc, a_floodfrc_pch,       &
             file_hist, 'f_floodfrc', itime_in_file, sumarea_inpm, filter_inpm,          &
             'flooded area fraction', '100%', nac_one)
+         IF (p_is_io .and. p_iam_io == 0) THEN
+            write(*,'(A)') 'DBG hist_out io0 after f_floodfrc'
+            call flush(6)
+         ENDIF
 
          IF (trim(HistForm) == 'Gridded') THEN
+            IF (p_is_io .and. p_iam_io == 0) THEN
+               write(*,'(A)') 'DBG hist_out io0 before f_floodarea'
+               call flush(6)
+            ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%floodarea, a_floodfrc_pch,   &
                file_hist, 'f_floodarea', itime_in_file, sumarea_one, filter_inpm,       &
                'flooded area', 'km^2', nac_one)
+            IF (p_is_io .and. p_iam_io == 0) THEN
+               write(*,'(A)') 'DBG hist_out io0 after f_floodarea'
+               call flush(6)
+            ENDIF
          ENDIF
 
          IF (allocated(nac_one   )) deallocate (nac_one   )
@@ -4781,6 +5042,7 @@ ENDIF
 #endif
 
          CALL FLUSH_acc_fluxes ()
+         CALL flush_Tracer_Acc ()
 
 #ifdef SinglePoint
          IF (USE_SITE_HistWriteBack .and. memory_to_disk) THEN

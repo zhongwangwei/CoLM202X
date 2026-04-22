@@ -103,6 +103,7 @@ PROGRAM CoLM
    USE MOD_ParameterOptimization
    USE MOD_Tracer_Main, only: land_tracer_init => tracer_init, &
                               land_tracer_final => tracer_final
+   USE MOD_Tracer_Defs, only: tracer_defs_init
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -129,6 +130,9 @@ PROGRAM CoLM
    character(len=256) :: dir_hist
    character(len=256) :: dir_restart
    character(len=256) :: fsrfdata
+   character(len=256) :: file_restart_trc
+   character(len=14)  :: cdate_restart
+   character(len=256) :: cyear_restart
 
    real(r8) :: deltim       ! time step (seconds)
    integer  :: sdate(3)     ! calendar (year, julian day, seconds)
@@ -322,10 +326,28 @@ PROGRAM CoLM
          IF (p_is_master) WRITE(*,*) 'ERROR: DEF_USE_TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
          CALL CoLM_stop()
       ENDIF
+      ! Tracer definitions must be initialised on ALL ranks (including IO)
+      ! because ncio_write_vector uses ntracers for MPI_Gatherv counts.
+      IF (DEF_USE_TRACER) CALL tracer_defs_init()
+
       IF (DEF_USE_TRACER .and. numpatch > 0 .and. allocated(ldew_rain)) THEN
-         CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
-            ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
-            wa, wdsrf, wetwat)
+         write(cyear_restart,'(i4.4)') lc_year
+         write(cdate_restart,'(i4.4,"-",i3.3,"-",i5.5)') jdate(1), jdate(2), jdate(3)
+         file_restart_trc = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)//'_restart_'//trim(cdate_restart)//'_lc'//trim(cyear_restart)//'.nc'
+         ! Pass waterstorage on cold-start so trc_waterstorage is
+         ! primed under the Phase-1 invariant. Without CROP/
+         ! DEF_USE_IRRIGATION the array is unallocated and the init
+         ! path keeps trc_waterstorage = 0 (no reservoir in the
+         ! conservation sum).
+         IF (DEF_USE_IRRIGATION .and. allocated(waterstorage)) THEN
+            CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
+               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+               wa, wdsrf, wetwat, scv, file_restart_trc, waterstorage)
+         ELSE
+            CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
+               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+               wa, wdsrf, wetwat, scv, file_restart_trc)
+         ENDIF
       ENDIF
 
       ! Read in SNICAR optical and aging parameters
@@ -625,7 +647,7 @@ PROGRAM CoLM
          ENDIF
 
 #ifdef RangeCheck
-         CALL check_TimeVariables ()
+         CALL check_TimeVariables (deltim_int, a_rsur, a_rsub, a_rnof, a_qinfl, a_qcharge)
 #endif
 
 #ifdef USEMPI

@@ -515,6 +515,10 @@ ENDIF
               rsubst      ,rnof        ,qinfl       ,qlayer      ,ssi         ,&
               pondmx      ,wimp        ,zwt         ,wdsrf       ,wa          ,&
               wetwat                                                          ,&
+              etroot                                                          ,&
+              wblc_ice_sink                                                   ,&
+              etroot_actual                                                   ,&
+              etroot_aquifer                                                  ,&
 #if (defined CaMa_Flood)
               flddepth    ,fldfrc      ,qinfl_fld                             ,&
 #endif
@@ -647,6 +651,37 @@ ENDIF
         qinfl            , &! infiltration rate (mm h2o/s)
         qlayer(0:nl_soil)   ! water flux between soil layer [mm h2o/s]
 
+   ! Per-layer transpiration demand actually applied to soil water inside
+   ! soil_water_vertical_movement (mm h2o/s). Exposed so the tracer path can
+   ! subtract the matching tracer mass from each soil layer. Set to 0 on the
+   ! wetland / non-soil-ground code branches where no per-layer soil-water
+   ! solver runs; those patches remove etr from the wetland mixed pool
+   ! instead (see tracer_wetland).
+   real(r8), intent(out) :: etroot(1:nl_soil)
+
+   ! Per-layer ice mass (kg/m2) removed by the wblc reconciliation below
+   ! (see the DO-loop after condensation/sublimation). wblc represents the
+   ! ET deficit that could not be covered by liquid water; the water
+   ! leaves the system via ET, so the tracer path must remove the matching
+   ! ice-phase tracer mass at each affected layer and count it as
+   ! evaporation output (see tracer_soil_water Section 5b). Without this,
+   ! tracer sees d_wice<0 and misclassifies it as internal thaw, moving
+   ! tracer from ice to liquid instead of out of the column — producing a
+   ! silent over-concentration in cold-region / high-ET conditions.
+   ! Zero on wetland / non-soil-ground branches that skip the wblc step.
+   real(r8), intent(out) :: wblc_ice_sink(1:nl_soil)
+
+   ! Per-layer water (mm) actually drawn for transpiration after the
+   ! deficit cascade in soil_water_vertical_movement, and the aquifer
+   ! share that absorbed any remaining deficit (mm). Tracer path uses
+   ! these to pull trc_wliq / trc_wa matching the actual water that
+   ! left each pool — `etroot` above is only the layer-wise DEMAND and
+   ! does not see layers that ran dry or the aquifer fallback.
+   ! Zero on wetland / non-soil-ground branches (which don't run the
+   ! soil_water_vertical_movement deficit cascade).
+   real(r8), intent(out) :: etroot_actual(1:nl_soil)
+   real(r8), intent(out) :: etroot_aquifer
+
 
 
 ! SNICAR model variables
@@ -725,6 +760,24 @@ ENDIF
       prms(4,1:nl_soil) = sc_vgm   (1:nl_soil)
       prms(5,1:nl_soil) = fc_vgm   (1:nl_soil)
 #endif
+
+      ! Per-layer transpiration demand — set here so the wetland / non-soil
+      ! branches (which skip soil_water_vertical_movement) still return a
+      ! defined value. The soil-ground branch overwrites this in
+      ! soil_water_vertical_movement.
+      etroot(1:nl_soil) = 0._r8
+
+      ! wblc withdrawal per layer — zero by default; the soil-ground
+      ! branch's wblc-reconciliation loop fills this in when wblc > 0.
+      wblc_ice_sink(1:nl_soil) = 0._r8
+
+      ! Actual per-layer / aquifer ET water — zero by default; the
+      ! soil_water_vertical_movement call in the soil-ground branch
+      ! fills these in. Wetland branch leaves them at 0, which is
+      ! correct since that branch removes etr from the mixed wetwat
+      ! pool rather than per soil layer.
+      etroot_actual(1:nl_soil) = 0._r8
+      etroot_aquifer           = 0._r8
 
 !=======================================================================
 ! [1] update the liquid water within snow layer and the water onto soil
@@ -1017,6 +1070,7 @@ IF((patchtype<=1) .or. is_dry_lake &
          etr,                     rootr(1:nl_soil),         rootflux(1:nl_soil), rsubst,           &
          qinfl,                   wdsrf,                    zwtmm,               wa,               &
          vol_liq(1:nl_soil),      smp(1:nl_soil),           hk(1:nl_soil),       qlayer(0:nl_soil),&
+         etroot(1:nl_soil),       etroot_actual(1:nl_soil), etroot_aquifer,                       &
          1.e-3,                   wblc)
 
       ! update the mass of liquid water
@@ -1055,10 +1109,12 @@ ENDIF
       IF (wblc > 0.) THEN
          DO j = 1, nl_soil
             IF (wice_soisno(j) > wblc) THEN
+               wblc_ice_sink(j) = wblc
                wice_soisno(j) = wice_soisno(j) - wblc
                wblc = 0.
                EXIT
             ELSE
+               wblc_ice_sink(j) = wice_soisno(j)
                wblc = wblc - wice_soisno(j)
                wice_soisno(j) = 0.
             ENDIF

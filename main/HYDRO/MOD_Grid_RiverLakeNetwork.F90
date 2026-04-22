@@ -101,6 +101,8 @@ MODULE MOD_Grid_RiverLakeNetwork
    ! Push objects for bifurcation
    type(worker_pushdata_type) :: push_bif_dn2pth   ! ucat state -> pathway downstream end
    type(worker_pushdata_type) :: push_bif_influx   ! pathway flux -> downstream ucats
+   logical, parameter :: dbg_skip_bif_network_build = .false.
+   logical, save :: dbg_bif_mapping_checked = .false.
 
    real(r8), allocatable :: bedelv_next    (:)   ! downstream river bed elevation [m]
    real(r8), allocatable :: outletwth      (:)   ! river outlet width [m]
@@ -880,7 +882,14 @@ CONTAINS
       ENDIF
 
       IF (DEF_USE_BIFURCATION) THEN
-         CALL read_and_distribute_bifurcation (parafile)
+         IF (dbg_skip_bif_network_build) THEN
+            IF (p_is_master) THEN
+               write(*,'(A)') 'DBG bifskip master build_riverlake_network/read_and_distribute_bifurcation skipped'
+               call flush(6)
+            ENDIF
+         ELSE
+            CALL read_and_distribute_bifurcation (parafile)
+         ENDIF
       ENDIF
 
       IF (p_is_worker) THEN
@@ -1742,8 +1751,79 @@ CONTAINS
       !   Uses global pathway IDs as source IDs
       CALL build_worker_pushdata (npthout_local, pth_global_id, numucat, &
          bif_incoming_pths, bif_incoming_wts, push_bif_influx)
+      CALL debug_check_bifurcation_mapping_contract ()
 
    END SUBROUTINE read_and_distribute_bifurcation
+
+   SUBROUTINE debug_check_bifurcation_mapping_contract ()
+
+   USE MOD_SPMD_Task
+   IMPLICIT NONE
+
+   integer :: nbad_upst_local
+   integer :: nbad_down_local
+   integer :: nbad_down_ucid
+   integer :: nbad_global_id
+   integer :: nbad_incoming_pths
+   integer :: nbad_incoming_wts
+   integer :: nbad_push_slots
+   integer :: nbad_total
+
+      IF (dbg_bif_mapping_checked) RETURN
+      dbg_bif_mapping_checked = .true.
+
+      IF (.not. p_is_worker) THEN
+         IF (p_is_master) THEN
+            write(*,'(A,I0,A,I0,A,I0)') 'DBG bifnet master totalnpthout=', totalnpthout, &
+               ' npthlev_bif=', npthlev_bif, ' max_bif_incoming=', max_bif_incoming
+            call flush(6)
+         ENDIF
+         RETURN
+      ENDIF
+
+      nbad_upst_local = 0
+      nbad_down_local = 0
+      nbad_down_ucid = 0
+      nbad_global_id = 0
+      nbad_incoming_pths = 0
+      nbad_incoming_wts = 0
+      nbad_push_slots = 0
+
+      IF (npthout_local > 0) THEN
+         nbad_upst_local = count(pth_upst_local < 1 .or. pth_upst_local > numucat)
+         nbad_down_local = count(pth_down_local /= -1 .and. (pth_down_local < 1 .or. pth_down_local > numucat))
+         nbad_down_ucid = count(pth_down_ucid > totalnumucat)
+         nbad_global_id = count(pth_global_id < 1 .or. pth_global_id > totalnpthout)
+      ENDIF
+
+      IF (size(bif_incoming_pths) > 0) THEN
+         nbad_incoming_pths = count(bif_incoming_pths > totalnpthout)
+         nbad_incoming_wts = count(bif_incoming_wts > 0._r8 .and. bif_incoming_pths <= 0)
+      ENDIF
+
+      IF (allocated(push_bif_influx%addr_multi) .and. allocated(push_bif_influx%area_multi)) THEN
+         nbad_push_slots = count(push_bif_influx%area_multi > 0._r8 .and. push_bif_influx%addr_multi <= 0)
+      ENDIF
+
+      nbad_total = nbad_upst_local + nbad_down_local + nbad_down_ucid + nbad_global_id + &
+         nbad_incoming_pths + nbad_incoming_wts + nbad_push_slots
+
+      IF (p_iam_worker == 0 .or. nbad_total > 0) THEN
+         write(*,'(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0)') &
+            'DBG bifnet glb=', p_iam_glb, &
+            ' npthout_local=', npthout_local, &
+            ' numucat=', numucat, &
+            ' bad_upst=', nbad_upst_local, &
+            ' bad_dnloc=', nbad_down_local, &
+            ' bad_dnucid=', nbad_down_ucid, &
+            ' bad_glid=', nbad_global_id, &
+            ' bad_inpth=', nbad_incoming_pths, &
+            ' bad_inwt=', nbad_incoming_wts, &
+            ' bad_push=', nbad_push_slots
+         call flush(6)
+      ENDIF
+
+   END SUBROUTINE debug_check_bifurcation_mapping_contract
 
 END MODULE MOD_Grid_RiverLakeNetwork
 #endif

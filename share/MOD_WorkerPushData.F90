@@ -942,6 +942,8 @@ CONTAINS
                sumarea = 0.
 
                DO i = 1, size(pushdata%addr_multi,1)
+                  IF (pushdata%addr_multi(i,j) <= 0) CYCLE
+                  IF (pushdata%area_multi(i,j) <= 0._r8) CYCLE
                   val = vec_recv_uniq(pushdata%addr_multi(i,j))
                   IF (val /= fillvalue) THEN
                      IF (vec_recv(j) == fillvalue) THEN

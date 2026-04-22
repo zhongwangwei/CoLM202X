@@ -360,25 +360,131 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             fh(i)           ,fq(i)           ,forc_hpbl(i)                      )
             rsub(i) = rnof(i) - rsur(i)
 
-            ! Urban runoff tracer: approximate with R_input * rnof
-            ! Urban processes don't have full tracer tracking yet,
-            ! but the runoff must carry tracer for land→river coupling.
+            ! ---------------------------------------------------------------
+            ! Urban tracer handling (Phase 1 approximation).
+            !
+            ! Urban patches invoke CoLMMAIN_Urban which bypasses
+            ! tracer_precip / _evapo / _soil_water. Under Phase 1
+            ! (constant atmospheric R = R_init, no fractionation) the
+            ! pool ratio must be R_init at every step by mass balance,
+            ! so the prognostic pools can be re-synced from the current
+            ! water state (sync_tracer_patch_phase1). This keeps the
+            ! per-pool δ diagnostics physical instead of drifting to
+            ! ±1000‰ as the water side evolves freely.
+            !
+            ! Urban has real canopy (ldew_rain/snow) — pass them to
+            ! the sync via the optional args so trc_ldew is rebuilt
+            ! from current ldew, not zeroed like glacier/lake.
+            !
+            ! The same save_storage → sync → accumulators →
+            ! balance_check → hist_accumulate chain used for glacier/
+            ! lake applies here (see CoLMMAIN.F90 glacier/lake blocks
+            ! for the equivalent plumbing). Iterate over maxsnl+1:
+            ! nl_soil (pass maxsnl to save_storage / balance_check) so
+            ! in-step snow-layer count changes inside CoLMMAIN_Urban
+            ! do not cause storage_beg / storage_end to disagree on
+            ! the iteration range.
+            !
+            ! Phase 2 (time-varying forcing R, fractionation) will
+            ! need a true urban mixed-box instead of the Phase-1
+            ! re-sync.
+            ! ---------------------------------------------------------------
             IF (DEF_USE_TRACER) THEN
                BLOCK
                USE MOD_Tracer_Defs, only: ntracers_u => ntracers, tracers_u => tracers, &
                   delta_to_R_u => delta_to_R
-               USE MOD_Tracer_Vars, only: trc_rnof_step_u => trc_rnof_step
-               integer :: itrc_u
-               ! Clear first (urban doesn't go through tracer_save_storage)
+               USE MOD_Tracer_Vars, only: trc_rnof_step_u => trc_rnof_step, &
+                                           a_trc_precip_u => a_trc_precip, &
+                                           a_trc_evap_u   => a_trc_evap, &
+                                           a_trc_rnof_u   => a_trc_rnof, &
+                                           trc_wetwat, trc_waterstorage, &
+                                           sync_tracer_patch_phase1
+               USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check
+               USE MOD_Tracer_Hist, only: tracer_hist_accumulate
+               integer  :: itrc_u, j_u, snl_u
+               real(r8) :: R_input_u, precip_mass_u, rnof_mass_u
+               real(r8) :: evap_mass_u, dep_mass_u, xerr_tracer_u
+
+               ! Reconstruct snl from current snow layer water content —
+               ! CoLMMAIN_Urban maintains the aggregate arrays but
+               ! does not surface snl. Same recipe used by tracer_rest
+               ! init_from_water at MOD_Tracer_Rest.F90.
+               snl_u = 0
+               DO j_u = 0, maxsnl + 1, -1
+                  IF (wliq_soisno(j_u, i) + wice_soisno(j_u, i) > 0._r8) THEN
+                     snl_u = snl_u - 1
+                  ELSE
+                     EXIT
+                  ENDIF
+               ENDDO
+
+               ! Purge pools that don't belong to urban (wetland and
+               ! irrigation reservoir) BEFORE the storage snapshot —
+               ! mirrors the glacier/lake pattern in CoLMMAIN. This
+               ! prevents a phantom conservation spike when a LULCC
+               ! class switch to urban leaves foreign wetwat or
+               ! waterstorage mass in those slots.
+               DO itrc_u = 1, ntracers_u
+                  trc_wetwat(itrc_u, i) = 0._r8
+                  IF (allocated(trc_waterstorage)) THEN
+                     trc_waterstorage(itrc_u, i) = 0._r8
+                  ENDIF
+               ENDDO
+
+               ! Snap pre-sync state; use `maxsnl` as the iteration
+               ! lower bound so the snow-layer count can change
+               ! freely inside CoLMMAIN_Urban without making
+               ! storage_beg and storage_end disagree.
+               CALL tracer_save_storage(i, maxsnl, nl_soil)
+
+               CALL sync_tracer_patch_phase1(i, snl_u, maxsnl, nl_soil, &
+                  wliq_soisno(:, i), wice_soisno(:, i), &
+                  wa(i), wdsrf(i), scv(i), &
+                  ldew_rain = ldew_rain(i), ldew_snow = ldew_snow(i))
+
+               ! Atmospheric input / evap / runoff accumulators.
+               ! fevpa>0: evap (loss); fevpa<0: condensation (gain).
+               precip_mass_u = (forc_rain(i) + forc_snow(i)) * deltim
+               rnof_mass_u   = max(rnof(i), 0._r8) * deltim
+               evap_mass_u   = max( fevpa(i), 0._r8) * deltim
+               dep_mass_u    = max(-fevpa(i), 0._r8) * deltim
+
                DO itrc_u = 1, ntracers_u
                   trc_rnof_step_u(itrc_u, i) = 0._r8
+                  R_input_u = delta_to_R_u(tracers_u(itrc_u)%init_delta, &
+                                           tracers_u(itrc_u)%ref_ratio)
+                  IF (precip_mass_u > 0._r8) THEN
+                     a_trc_precip_u(itrc_u, i) = a_trc_precip_u(itrc_u, i) &
+                        + precip_mass_u * R_input_u
+                  ENDIF
+                  IF (dep_mass_u > 0._r8) THEN
+                     a_trc_precip_u(itrc_u, i) = a_trc_precip_u(itrc_u, i) &
+                        + dep_mass_u * R_input_u
+                  ENDIF
+                  IF (evap_mass_u > 0._r8) THEN
+                     a_trc_evap_u(itrc_u, i) = a_trc_evap_u(itrc_u, i) &
+                        + evap_mass_u * R_input_u
+                  ENDIF
+                  IF (rnof_mass_u > 0._r8) THEN
+                     trc_rnof_step_u(itrc_u, i) = rnof_mass_u * R_input_u
+                     a_trc_rnof_u(itrc_u, i) = a_trc_rnof_u(itrc_u, i) &
+                        + rnof_mass_u * R_input_u
+                  ENDIF
                ENDDO
-               IF (rnof(i) > 0._r8) THEN
-                  DO itrc_u = 1, ntracers_u
-                     trc_rnof_step_u(itrc_u, i) = rnof(i) * deltim * &
-                        delta_to_R_u(tracers_u(itrc_u)%init_delta, tracers_u(itrc_u)%ref_ratio)
-                  ENDDO
-               ENDIF
+
+               ! Close the per-step balance; same `maxsnl` iteration
+               ! bound as save_storage.
+               CALL tracer_balance_check(i, maxsnl, nl_soil, deltim, xerr_tracer_u, &
+                  patchtype_in = 1)   ! urban
+
+               ! Per-pool δ diagnostic. Urban has real canopy and
+               ! soil columns, so pass ldew / wliq / wice / wa /
+               ! wdsrf / scv. No wetland — pass 0 for wetwat.
+               CALL tracer_hist_accumulate(i, snl_u, maxsnl, nl_soil, &
+                  ldew_rain(i), ldew_snow(i), &
+                  wliq_soisno(snl_u+1:nl_soil, i), &
+                  wice_soisno(snl_u+1:nl_soil, i), &
+                  wa(i), wdsrf(i), 0._r8, scv(i))
                END BLOCK
             ENDIF
          ENDIF
@@ -388,6 +494,16 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 #ifdef OPENMP
 !$OMP END PARALLEL DO
 #endif
+
+      ! Surface worst-patch tracer balance error accumulated across this
+      ! step. Previously only ipatch==1 / itrc==1 was printed, hiding
+      ! bulk failures elsewhere.
+      IF (DEF_USE_TRACER) THEN
+         BLOCK
+         USE MOD_Tracer_Conservation, only: tracer_balance_report
+         CALL tracer_balance_report()
+         END BLOCK
+      ENDIF
 
 END SUBROUTINE CoLMDRIVER
 ! ---------- EOP ------------

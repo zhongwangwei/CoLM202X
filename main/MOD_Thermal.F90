@@ -431,6 +431,7 @@ CONTAINS
        wx,                       &! patial volume of ice and water of surface layer
        xmf,                      &! total latent heat of phase change of ground water [W/m2]
        hprl,                     &! precipitation sensible heat from canopy [W/m2]
+       lfevpl,                   &! latent heat flux from leaves [W/m2]
        dheatl                     ! vegetation heat change [W/m2]
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
@@ -473,6 +474,7 @@ CONTAINS
    real(r8), allocatable :: etrsun_p      (:)
    real(r8), allocatable :: assimsha_p    (:)
    real(r8), allocatable :: etrsha_p      (:)
+   real(r8), allocatable :: lfevpl_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
 
 
@@ -488,6 +490,7 @@ CONTAINS
       taux   = 0.;  tauy   = 0.
       fsena  = 0.;  fevpa  = 0.
       lfevpa = 0.;  fsenl  = 0.
+      lfevpl = 0.
       fevpl  = 0.;  etr    = 0.
       fseng  = 0.;  fevpg  = 0.
 
@@ -706,7 +709,7 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
                  lambda      ,&! Marginal water cost of carbon gain ((mol h2o) (mol co2)-1)
 !End WUE stomata model parameter
                  forc_hpbl   ,&
-                 qintr_rain  ,qintr_snow  ,t_precip    ,hprl        ,dheatl      ,&
+                 qintr_rain  ,qintr_snow  ,t_precip    ,lfevpl      ,hprl        ,dheatl      ,&
                  smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)              )
       ELSE
          tleaf         = forc_t
@@ -773,6 +776,7 @@ IF (patchtype == 0) THEN
       allocate ( etrsun_p         (ps:pe) )
       allocate ( assimsha_p       (ps:pe) )
       allocate ( etrsha_p         (ps:pe) )
+      allocate ( lfevpl_p         (ps:pe) )
       allocate ( dheatl_p         (ps:pe) )
 
       sabv_p(ps:pe) = sabvsun_p(ps:pe) + sabvsha_p(ps:pe)
@@ -814,6 +818,7 @@ IF (patchtype == 0) THEN
             rootflux_p(:,i)= 0.
             rstfacsun_p(i) = 0.
             rstfacsha_p(i) = 0.
+            lfevpl_p(i)    = 0.
             dheatl_p(i)    = 0.
          ENDIF
       ENDDO
@@ -913,7 +918,7 @@ IF (patchtype == 0) THEN
                  lambda_p(p)    ,&! Marginal water cost of carbon gain ((mol h2o) (mol co2)-1)
 !End WUE stomata model parameter
                  forc_hpbl                                                                         ,&
-                 qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,hprl_p(i)       ,dheatl_p(i)   ,&
+                 qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,lfevpl_p(i)     ,hprl_p(i)     ,dheatl_p(i)   ,&
                  smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                )
          ELSE
 
@@ -983,6 +988,7 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       assimsha_p (ps:pe) = 0.
       etrsun_p   (ps:pe) = 0.
       etrsha_p   (ps:pe) = 0.
+      lfevpl_p   (ps:pe) = 0.
       gssun_p    (ps:pe) = 0.
       gssha_p    (ps:pe) = 0.
       fcover     (ps:pe) = pftfrac(ps:pe) / sum(pftfrac(ps:pe))
@@ -1018,7 +1024,7 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          lai_old_p(ps:pe)     ,o3uptakesun_p(ps:pe) ,o3uptakesha_p(ps:pe) ,forc_ozone           ,&
 !End ozone stress variables
          forc_hpbl            ,&
-         qintr_rain_p(ps:pe)  ,qintr_snow_p(ps:pe)  ,t_precip             ,hprl_p(:)            ,&
+         qintr_rain_p(ps:pe)  ,qintr_snow_p(ps:pe)  ,t_precip             ,lfevpl_p(ps:pe)      ,hprl_p(:)            ,&
          dheatl_p(ps:pe)      ,smp                  ,hk(1:)               ,hksati(1:)           ,&
          rootflux_p(:,:)       )
 
@@ -1064,6 +1070,7 @@ ENDIF
       respc         = sum( respc_p     (ps:pe)*pftfrac(ps:pe) )
       fsenl         = sum( fsenl_p     (ps:pe)*pftfrac(ps:pe) )
       fevpl         = sum( fevpl_p     (ps:pe)*pftfrac(ps:pe) )
+      lfevpl        = sum( lfevpl_p    (ps:pe)*pftfrac(ps:pe) )
       etr           = sum( etr_p       (ps:pe)*pftfrac(ps:pe) )
 
       dlrad         = sum( dlrad_p     (ps:pe)*pftfrac(ps:pe) )
@@ -1158,6 +1165,7 @@ END IF
       deallocate ( etrsun_p    )
       deallocate ( assimsha_p  )
       deallocate ( etrsha_p    )
+      deallocate ( lfevpl_p    )
       deallocate ( dheatl_p    )
 
 ENDIF
@@ -1304,7 +1312,11 @@ ENDIF
 ! total fluxes to atmosphere
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
-      lfevpa = hvap*fevpl + htvp*fevpg   ! W/m^2 (accounting for sublimation)
+      ! Consume the canopy latent-energy term exported by LeafTemperature /
+      ! LeafTemperaturePC directly. The canopy solver may adjust tleaf after
+      ! solving fevpl, so re-inferring hvap vs hsub here from final tleaf can
+      ! misclassify the same flux and break energy closure.
+      lfevpa = lfevpl + htvp*fevpg
 
 ! ground heat flux
 IF (.not.DEF_SPLIT_SOILSNOW) THEN
@@ -1339,7 +1351,7 @@ ENDIF
       IF (olrg < 0) THEN
          print *, "MOD_Thermal.F90: Error! Negative outgoing longwave radiation flux: "
          write(6,*) ipatch, olrg, tinc, ulrad
-         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,fgrnd
+         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,lfevpl,htvp*fevpg,xmf,fgrnd
       ENDIF
 
       trad = (olrg/stefnc)**0.25
@@ -1377,7 +1389,7 @@ ENDIF
 #if (defined CoLMDEBUG)
       IF (abs(errore) > .5) THEN
       write(6,*) 'MOD_Thermal.F90: energy balance violation'
-      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,hprl
+      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,lfevpl,htvp*fevpg,xmf,hprl
       write(6,*) cpliq*pg_rain*(t_precip-t_grnd), cpice*pg_snow*(t_precip-t_grnd)
       CALL CoLM_stop ()
       ENDIF

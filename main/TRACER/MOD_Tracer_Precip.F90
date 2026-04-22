@@ -5,7 +5,7 @@ MODULE MOD_Tracer_Precip
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, tracers, delta_to_R, trc_tiny
    USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
-      trc_pg_to_ground
+      trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage
 
    IMPLICIT NONE
 
@@ -19,16 +19,29 @@ CONTAINS
    !   2. Part intercepted (qintr): mixes with EXISTING canopy water
    !   3. Part passes through (throughfall): keeps precipitation R
    !   4. If canopy saturates, excess drips: carries MIXED canopy R
+   !   5. Phase change inside LEAF_INTERCEPTION (NoahMP/MATSIRO/VIC/
+   !      JULES) moves ldew_smelt_out from ldew_snow to ldew_rain and/or
+   !      ldew_frzc_out from ldew_rain to ldew_snow. Tracer mass has to
+   !      migrate coherently, otherwise the rain pool loses signal from
+   !      the melt event (and vice versa for freeze) and the snow tracer
+   !      gets mis-attributed as drip to trc_pg_snow_ground downstream.
    !
    ! Tracer to ground = throughfall*R_precip + drip*R_mixed
-   !   (stored in trc_pg_to_ground for use by tracer_soil_water)
+   !   (rain → trc_pg_rain_ground → surface pool via tracer_soil_water;
+   !    snow → trc_pg_snow_ground → trc_scv via tracer_newsnow)
    !
-   ! Canopy tracer: first mix interception with old, then remove drip.
+   ! Canopy tracer: migrate phase change first (updates "effective"
+   ! pre-interception anchor so the rain/snow stages below see a
+   ! consistent (ldew_*_old, trc_ldew_*) pair), then for each phase
+   ! remove xsc, mix interception with remainder, and finally strip drip.
    !---------------------------------------------------------------
    SUBROUTINE tracer_precip (ipatch, deltim, &
       forc_rain, forc_snow, qintr, qintr_rain, qintr_snow, &
       pg_rain, pg_snow, ldew_rain, ldew_snow, &
-      ldew_rain_old, ldew_snow_old)
+      ldew_rain_old, ldew_snow_old, qflx_irrig_sprinkler, &
+      gross_intr_rain, gross_intr_snow, &
+      xsc_rain_out, xsc_snow_out, &
+      ldew_smelt_mass, ldew_frzc_mass)
 
       IMPLICIT NONE
       integer,  intent(in) :: ipatch
@@ -38,73 +51,226 @@ CONTAINS
       real(r8), intent(in) :: pg_rain, pg_snow
       real(r8), intent(in) :: ldew_rain, ldew_snow         ! AFTER interception
       real(r8), intent(in) :: ldew_rain_old, ldew_snow_old ! BEFORE interception
+      ! Sprinkler irrigation rate (mm/s). LEAF_INTERCEPTION merges this
+      ! into the rain stream (MOD_LeafInterception.F90:187,232), so the
+      ! "total rain arriving" at the patch is (forc_rain + this). Without
+      ! counting it here the tracer input is under-reported and the
+      ! throughfall-vs-interception partition uses the wrong denominator.
+      real(r8), intent(in) :: qflx_irrig_sprinkler
+      ! Gross rain/snow rate entering the canopy mixed pool [mm/s], >=0.
+      ! Returned by LEAF_INTERCEPTION alongside qintr (net). Used here to
+      ! correctly attribute isotope signatures on canopy-release events:
+      ! schemes 3/5/6/7 can have qintr_rain < 0 when stored canopy water
+      ! drips out while new rain simultaneously enters the pool. Using
+      ! only qintr (net) would attribute the released canopy water to the
+      ! fresh-precipitation signature R_input. Using gross_intr_* gives
+      ! the right R_mixed for the drip and R_input for the pure-gap part.
+      real(r8), intent(in) :: gross_intr_rain
+      real(r8), intent(in) :: gross_intr_snow
+      ! Pre-mix old-pool release rate [mm/s], >=0. In most schemes a
+      ! portion of the OLD canopy pool is flushed BEFORE new precipitation
+      ! mixes in (capacity overflow on LAI-driven satcap shrink, phase-
+      ! change overflow, snow unloading in NoahMP, etc). That mass carries
+      ! the pre-mix canopy signature, NOT R_mixed. Without separating it
+      ! out, the tracer drip term would lump xsc with the post-mix tex
+      ! and dilute old canopy signatures with fresh precipitation.
+      real(r8), intent(in) :: xsc_rain_out
+      real(r8), intent(in) :: xsc_snow_out
+      ! Canopy rain<->snow phase change mass [grid-scale mm, >=0].
+      ! ldew_smelt_mass is the canopy snow -> rain transfer this step
+      ! (melt); ldew_frzc_mass is the canopy rain -> snow transfer
+      ! (freeze). Each nonzero value triggers an equal-mass tracer
+      ! migration between trc_ldew_snow and trc_ldew_rain before the
+      ! rain/snow stages run, and the pre-interception anchors
+      ! (ldew_*_old_eff, trc_ldew_*) are updated so R_canopy_pre in each
+      ! stage reflects the post-migration pool composition. Without this
+      ! step the snow-pool tracer would be spuriously classified as drip
+      ! and sent to trc_pg_snow_ground (and the rain pool would
+      ! under-report the melt signal).
+      real(r8), intent(in) :: ldew_smelt_mass
+      real(r8), intent(in) :: ldew_frzc_mass
 
       integer  :: itrc
       real(r8) :: R_input
       real(r8) :: intercepted, drip, throughfall
       real(r8) :: trc_mixed, water_mixed, R_mixed
       real(r8) :: trc_throughfall, trc_drip
+      real(r8) :: trc_rain_ground, trc_snow_ground
       real(r8) :: d_ldew
+      real(r8) :: rain_total           ! forc_rain + sprinkler [mm/s]
+      real(r8) :: xsc_mass             ! pre-mix release in this step [mm]
+      real(r8) :: trc_xsc              ! pre-mix release tracer mass
+      real(r8) :: R_canopy_pre         ! canopy signature BEFORE mix
+      real(r8) :: ldew_rain_pre_mix    ! post-xsc, pre-mix storage [mm]
+      real(r8) :: ldew_snow_pre_mix
+      ! Effective pre-interception anchors after phase-change migration.
+      ! Equal to ldew_*_old when no phase change happened; otherwise
+      ! reflect the post-migration pool so R_canopy_pre stays consistent
+      ! with the (migrated) trc_ldew_* values that feed the rain/snow
+      ! stages. Clamped to >=0 in case of float noise in the caller.
+      real(r8) :: ldew_rain_old_eff
+      real(r8) :: ldew_snow_old_eff
+      real(r8) :: smelt_mass, frzc_mass ! effective phase-change masses
+      real(r8) :: R_snow_pre, R_rain_pre
+      real(r8) :: trc_smelt, trc_frzc   ! tracer mass migrated this step
 
       IF (ntracers <= 0) RETURN
+
+      ! Interception / pg_rain / ldew already see the sprinkler-boosted
+      ! rain stream from LEAF_INTERCEPTION. Use the boosted total here
+      ! so the throughfall computation matches (intercepted + throughfall
+      ! ≡ rain_total*deltim) and the system-input accounting covers
+      ! both natural precipitation and sprinkler irrigation.
+      rain_total = forc_rain + max(qflx_irrig_sprinkler, 0._r8)
 
       DO itrc = 1, ntracers
          R_input = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
 
-         ! Count total precipitation as system input
+         ! Atmospheric precipitation is external input; count into the
+         ! precip accumulator. Sprinkler irrigation also reaches the
+         ! canopy/ground here via LEAF_INTERCEPTION, but water-side
+         ! treats it as an internal transfer from waterstorage (not a
+         ! term in forc_prc+forc_prl). Mirror that: debit
+         ! trc_waterstorage for sprinkler and keep a_trc_precip purely
+         ! atmospheric, so the tracer budget's "external input"
+         ! matches the water-side definition.
          a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) &
             + (forc_rain + forc_snow) * R_input * deltim
 
-         ! ---- Rain component ----
-         intercepted = qintr_rain * deltim      ! intercepted amount [mm]
-         d_ldew = ldew_rain - ldew_rain_old     ! net canopy change [mm]
+         IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
+            trc_waterstorage(itrc, ipatch) = trc_waterstorage(itrc, ipatch) &
+               - qflx_irrig_sprinkler * R_input * deltim
+         ENDIF
 
-         ! Drip = intercepted that didn't stay on canopy
-         ! d_ldew = intercepted - drip  =>  drip = intercepted - d_ldew
-         drip = max(intercepted - d_ldew, 0._r8)
+         trc_rain_ground = 0._r8
+         trc_snow_ground = 0._r8
 
-         ! Throughfall = precipitation that was never intercepted
-         throughfall = max(forc_rain * deltim - intercepted, 0._r8)
+         ! ---- Stage 0: canopy phase-change migration ----
+         ! NoahMP/MATSIRO/VIC/JULES may have melted part of the canopy
+         ! snow pool into the rain pool (ldew_smelt_mass > 0) or frozen
+         ! part of the rain pool into the snow pool (ldew_frzc_mass > 0)
+         ! BEFORE touching any new precipitation this step. Without
+         ! migrating the tracer mass along with the bulk water, the snow
+         ! block below would see d_ldew < 0 (for melt) and falsely
+         ! classify ldew_smelt_mass as drip to trc_pg_snow_ground, while
+         ! the rain pool would silently lose the meltwater's signature.
+         ! Clamp masses to the (post-clamp) old-pool to survive small
+         ! caller-side float noise.
+         ldew_rain_old_eff = max(0._r8, ldew_rain_old)
+         ldew_snow_old_eff = max(0._r8, ldew_snow_old)
+         smelt_mass = min(max(0._r8, ldew_smelt_mass), ldew_snow_old_eff)
+         frzc_mass  = min(max(0._r8, ldew_frzc_mass),  ldew_rain_old_eff)
 
-         ! Mix interception with existing canopy water
-         water_mixed = ldew_rain_old + intercepted
-         trc_mixed = trc_ldew_rain(itrc, ipatch) + intercepted * R_input
+         IF (smelt_mass > 0._r8) THEN
+            IF (ldew_snow_old_eff > trc_tiny) THEN
+               R_snow_pre = trc_ldew_snow(itrc, ipatch) / ldew_snow_old_eff
+            ELSE
+               R_snow_pre = R_input
+            ENDIF
+            trc_smelt = smelt_mass * R_snow_pre
+            trc_ldew_snow(itrc, ipatch) = max(0._r8, &
+               trc_ldew_snow(itrc, ipatch) - trc_smelt)
+            trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_smelt
+            ldew_snow_old_eff = ldew_snow_old_eff - smelt_mass
+            ldew_rain_old_eff = ldew_rain_old_eff + smelt_mass
+         ENDIF
 
+         IF (frzc_mass > 0._r8) THEN
+            IF (ldew_rain_old_eff > trc_tiny) THEN
+               R_rain_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
+            ELSE
+               R_rain_pre = R_input
+            ENDIF
+            trc_frzc = frzc_mass * R_rain_pre
+            trc_ldew_rain(itrc, ipatch) = max(0._r8, &
+               trc_ldew_rain(itrc, ipatch) - trc_frzc)
+            trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_frzc
+            ldew_rain_old_eff = ldew_rain_old_eff - frzc_mass
+            ldew_snow_old_eff = ldew_snow_old_eff + frzc_mass
+         ENDIF
+
+         ! ---- Rain component (2-stage isotope attribution) ----
+         ! Stage 1: PRE-MIX release. xsc_rain_out is the fraction of the
+         ! OLD canopy pool flushed out before any new rain mixes in
+         ! (capacity overflow, phase-change overflow, unloading). It
+         ! carries the canopy's pre-mix signature R_canopy_pre, derived
+         ! from the entry tracer storage and entry bulk water.
+         ! Use the post-phase-change effective old-pool so R_canopy_pre
+         ! reflects the actual pool entering the xsc stage.
+         xsc_mass = min(max(0._r8, xsc_rain_out) * deltim, ldew_rain_old_eff)
+         IF (ldew_rain_old_eff > trc_tiny) THEN
+            R_canopy_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
+         ELSE
+            R_canopy_pre = R_input
+         ENDIF
+         trc_xsc = xsc_mass * R_canopy_pre
+         ldew_rain_pre_mix = ldew_rain_old_eff - xsc_mass
+
+         ! Stage 2: gross rain enters the (post-release) canopy pool at
+         ! R_input. Blend to obtain R_mixed.
+         intercepted = max(0._r8, gross_intr_rain) * deltim
+         water_mixed = ldew_rain_pre_mix + intercepted
+         trc_mixed = (trc_ldew_rain(itrc, ipatch) - trc_xsc) &
+                   + intercepted * R_input
          IF (water_mixed > trc_tiny) THEN
             R_mixed = trc_mixed / water_mixed
          ELSE
             R_mixed = R_input
          ENDIF
 
-         ! Canopy tracer: mixed pool minus drip
+         ! Post-mix drip from the blended pool. d_ldew computed against
+         ! the pre-mix (post-xsc) baseline. Clamp against numerical noise.
+         d_ldew = ldew_rain - ldew_rain_pre_mix   ! change since pre-mix
+         drip = max(intercepted - d_ldew, 0._r8)
+
+         ! Pure-gap throughfall (never touched canopy).
+         throughfall = max(rain_total * deltim - intercepted, 0._r8)
+
+         ! Canopy tracer: blended pool minus drip
          trc_ldew_rain(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
 
-         ! Tracer to ground: throughfall (at R_precip) + drip (at R_mixed)
+         ! Tracer to ground: gap throughfall (R_input) + pre-mix xsc
+         ! (R_canopy_pre) + post-mix drip (R_mixed). Three distinct
+         ! signatures, lumped incorrectly into two before this audit fix.
          trc_throughfall = throughfall * R_input
          trc_drip = drip * R_mixed
+         trc_rain_ground = trc_throughfall + trc_xsc + trc_drip
 
-         ! ---- Snow component (same logic) ----
-         intercepted = qintr_snow * deltim
-         d_ldew = ldew_snow - ldew_snow_old
+         ! ---- Snow component (same 2-stage logic) ----
+         ! Use ldew_snow_old_eff (post-phase-change effective anchor) and
+         ! the migrated trc_ldew_snow so R_canopy_pre matches the pool
+         ! that actually feeds the xsc stage.
+         xsc_mass = min(max(0._r8, xsc_snow_out) * deltim, ldew_snow_old_eff)
+         IF (ldew_snow_old_eff > trc_tiny) THEN
+            R_canopy_pre = trc_ldew_snow(itrc, ipatch) / ldew_snow_old_eff
+         ELSE
+            R_canopy_pre = R_input
+         ENDIF
+         trc_xsc = xsc_mass * R_canopy_pre
+         ldew_snow_pre_mix = ldew_snow_old_eff - xsc_mass
+
+         intercepted = max(0._r8, gross_intr_snow) * deltim
+         water_mixed = ldew_snow_pre_mix + intercepted
+         trc_mixed = (trc_ldew_snow(itrc, ipatch) - trc_xsc) &
+                   + intercepted * R_input
+         IF (water_mixed > trc_tiny) THEN
+            R_mixed = trc_mixed / water_mixed
+         ELSE
+            R_mixed = R_input
+         ENDIF
+
+         d_ldew = ldew_snow - ldew_snow_pre_mix
          drip = max(intercepted - d_ldew, 0._r8)
          throughfall = max(forc_snow * deltim - intercepted, 0._r8)
 
-         water_mixed = ldew_snow_old + intercepted
-         trc_mixed = trc_ldew_snow(itrc, ipatch) + intercepted * R_input
-
-         IF (water_mixed > trc_tiny) THEN
-            R_mixed = trc_mixed / water_mixed
-         ELSE
-            R_mixed = R_input
-         ENDIF
-
          trc_ldew_snow(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
 
-         trc_throughfall = trc_throughfall + throughfall * R_input
-         trc_drip = trc_drip + drip * R_mixed
+         trc_snow_ground = throughfall * R_input + trc_xsc + drip * R_mixed
 
-         ! Store total tracer reaching ground (for tracer_soil_water)
-         trc_pg_to_ground(itrc, ipatch) = trc_throughfall + trc_drip
+        ! Store rain/snow tracer separately: rain feeds the surface mixed
+        ! pool in tracer_soil_water; snow feeds trc_scv in tracer_newsnow.
+         trc_pg_rain_ground(itrc, ipatch) = trc_rain_ground
+         trc_pg_snow_ground(itrc, ipatch) = trc_snow_ground
 
       ENDDO
 

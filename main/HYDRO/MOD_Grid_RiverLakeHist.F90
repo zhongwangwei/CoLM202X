@@ -346,7 +346,6 @@ CONTAINS
    real(r8), allocatable :: qresv_out_local (:)  ! safe buffer for reservoir hist
    real(r8), allocatable :: a_floodfrc_inpm (:)  ! flooded area fraction
 
-
       IF (p_is_master) THEN
          i = len_trim (file_hist)
          DO WHILE (file_hist(i:i) /= '_')

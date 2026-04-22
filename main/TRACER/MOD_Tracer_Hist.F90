@@ -11,12 +11,20 @@ MODULE MOD_Tracer_Hist
 CONTAINS
 
    SUBROUTINE tracer_hist_accumulate (ipatch, snl, maxsnl, nl_soil, &
-      ldew_rain, ldew_snow, wliq_soisno, wice_soisno)
+      ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+      wa, wdsrf, wetwat, scv)
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, maxsnl, nl_soil
       real(r8), intent(in) :: ldew_rain, ldew_snow
       real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil)
       real(r8), intent(in) :: wice_soisno(snl+1:nl_soil)
+      ! Post-step pool states paired with the existing canopy/soil/snow args.
+      ! These feed four additional per-pool tracer-ratio diagnostics in
+      ! MOD_Hist (f_trc_conc_wa / wdsrf / wetwat / scv). Without them the
+      ! aquifer, surface water, wetland and pre-layer thin-snow δ values are
+      ! only observable in the restart file — which rarely matches the
+      ! history output cadence.
+      real(r8), intent(in) :: wa, wdsrf, wetwat, scv
 
       integer :: itrc, j, jsnow
 
@@ -54,7 +62,19 @@ CONTAINS
          ENDDO
       ENDIF
 
-      trc_hist_nac = trc_hist_nac + 1
+      ! Aquifer (wa can be negative during wetland deficit; accumulate the
+      ! signed value so the later ratio = signed_mass / signed_water stays
+      ! well-defined. When wa==0 the ratio check short-circuits in MOD_Hist.)
+      a_water_wa    (ipatch) = a_water_wa    (ipatch) + wa
+      a_water_wdsrf (ipatch) = a_water_wdsrf (ipatch) + wdsrf
+      a_water_wetwat(ipatch) = a_water_wetwat(ipatch) + wetwat
+      a_water_scv   (ipatch) = a_water_scv   (ipatch) + scv
+      DO itrc = 1, ntracers
+         a_trc_wa_mass    (itrc, ipatch) = a_trc_wa_mass    (itrc, ipatch) + trc_wa    (itrc, ipatch)
+         a_trc_wdsrf_mass (itrc, ipatch) = a_trc_wdsrf_mass (itrc, ipatch) + trc_wdsrf (itrc, ipatch)
+         a_trc_wetwat_mass(itrc, ipatch) = a_trc_wetwat_mass(itrc, ipatch) + trc_wetwat(itrc, ipatch)
+         a_trc_scv_mass   (itrc, ipatch) = a_trc_scv_mass   (itrc, ipatch) + trc_scv   (itrc, ipatch)
+      ENDDO
    END SUBROUTINE tracer_hist_accumulate
 
 END MODULE MOD_Tracer_Hist

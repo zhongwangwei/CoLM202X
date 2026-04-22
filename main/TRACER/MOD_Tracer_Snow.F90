@@ -39,6 +39,22 @@ CONTAINS
       DO itrc = 1, ntracers
          R_precip = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
 
+#if (defined CoLMDEBUG)
+         ! Invariant: when the pre-newsnow state has layered snow
+         ! (snl_old < 0), trc_scv must be zero — pre-layer accumulation
+         ! stops once a real snow layer exists, and Cases B/C below will
+         ! unconditionally reset trc_scv. A non-zero residual here means
+         ! somebody else wrote trc_scv while snl_old<0 (a real bug
+         ! upstream, not a simple rounding artefact). Flag it once per
+         ! tracer per occurrence so the root cause can be traced before
+         ! the reset silently drops the mass.
+         IF (snl_old < 0 .and. abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
+            write(*,'(A,I8,A,I3,A,E12.5)') &
+               ' WARNING tracer_newsnow: trc_scv residual under layered snow ipatch=', &
+               ipatch, ' itrc=', itrc, ' trc_scv_pre=', trc_scv(itrc, ipatch)
+         ENDIF
+#endif
+
          ! Every step: accumulate snowfall tracer into trc_scv
          ! (mirrors water model's scv += pg_snow*dt at every step)
          trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
@@ -103,54 +119,12 @@ CONTAINS
       ENDDO
    END SUBROUTINE tracer_newsnow
 
-   SUBROUTINE tracer_snow_layer_adj (ipatch, maxsnl, nl_soil, &
-      snl, snl_old, wliq_soisno, wice_soisno, &
-      wliq_soisno_bef, wice_soisno_bef)
-
-      IMPLICIT NONE
-      integer,  intent(in) :: ipatch, maxsnl, nl_soil, snl, snl_old
-      real(r8), intent(in) :: wliq_soisno(maxsnl+1:nl_soil)
-      real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
-      real(r8), intent(in) :: wliq_soisno_bef(maxsnl+1:nl_soil)
-      real(r8), intent(in) :: wice_soisno_bef(maxsnl+1:nl_soil)
-
-      integer  :: itrc, j
-      real(r8) :: total_trc_wliq, total_trc_wice, total_wliq, total_wice
-
-      IF (ntracers <= 0) RETURN
-      IF (snl >= 0 .and. snl_old >= 0) RETURN
-
-      DO itrc = 1, ntracers
-         total_trc_wliq = 0._r8; total_trc_wice = 0._r8
-         DO j = maxsnl + 1, 0
-            total_trc_wliq = total_trc_wliq + max(trc_wliq_soisno(itrc, j, ipatch), 0._r8)
-            total_trc_wice = total_trc_wice + max(trc_wice_soisno(itrc, j, ipatch), 0._r8)
-         ENDDO
-
-         total_wliq = 0._r8; total_wice = 0._r8
-         DO j = snl + 1, 0
-            total_wliq = total_wliq + max(wliq_soisno(j), 0._r8)
-            total_wice = total_wice + max(wice_soisno(j), 0._r8)
-         ENDDO
-
-         DO j = maxsnl + 1, 0
-            IF (j >= snl + 1 .and. j <= 0) THEN
-               IF (total_wliq > trc_tiny) THEN
-                  trc_wliq_soisno(itrc, j, ipatch) = total_trc_wliq * (wliq_soisno(j) / total_wliq)
-               ELSE
-                  trc_wliq_soisno(itrc, j, ipatch) = 0._r8
-               ENDIF
-               IF (total_wice > trc_tiny) THEN
-                  trc_wice_soisno(itrc, j, ipatch) = total_trc_wice * (wice_soisno(j) / total_wice)
-               ELSE
-                  trc_wice_soisno(itrc, j, ipatch) = 0._r8
-               ENDIF
-            ELSE
-               trc_wliq_soisno(itrc, j, ipatch) = 0._r8
-               trc_wice_soisno(itrc, j, ipatch) = 0._r8
-            ENDIF
-         ENDDO
-      ENDDO
-   END SUBROUTINE tracer_snow_layer_adj
+   ! tracer_snow_layer_adj was removed: the prior post-hoc redistribution
+   ! (total-tracer / total-water share) homogenised the snow column every
+   ! time snowlayerscombine / snowlayersdivide fired, erasing vertical
+   ! isotope gradients that the model is otherwise supposed to preserve.
+   ! The fix carries trc_wliq / trc_wice / trc_scv through the exact same
+   ! per-layer topology as water via the new optional hooks on
+   ! MOD_SnowLayersCombineDivide's combine/divide routines.
 
 END MODULE MOD_Tracer_Snow

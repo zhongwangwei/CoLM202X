@@ -45,7 +45,7 @@ MODULE MOD_Urban_Flux
 !-----------------------------------------------------------------------
    USE MOD_Precision
    USE MOD_SPMD_Task
-   USE MOD_Namelist, only: DEF_RSS_SCHEME, DEF_VEG_SNOW
+   USE MOD_Namelist, only: DEF_RSS_SCHEME, DEF_VEG_SNOW, DEF_Interception_scheme
    USE MOD_Vars_Global
    USE MOD_Qsadv, only: qsadv
    IMPLICIT NONE
@@ -913,7 +913,7 @@ CONTAINS
 !=======================================================================
 
    USE MOD_Precision
-   USE MOD_Const_Physical, only: vonkar,grav,hvap,cpair,stefnc,cpliq, cpice, &
+   USE MOD_Const_Physical, only: vonkar,grav,hvap,hsub,cpair,stefnc,cpliq, cpice, &
                                  hfus, tfrz, denice, denh2o
    USE MOD_FrictionVelocity
    USE MOD_CanopyLayerProfile
@@ -1176,6 +1176,13 @@ CONTAINS
    real(r8) z0mg, z0hg, z0qg, cint(3)
    real(r8) fevpl_bef, fevpl_noadj, dtl_noadj, erre
    real(r8) qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
+   ! Audit fix NM-3 (URBAN extension): scheme-aware latent heat coefficient
+   ! (= hvap if tl > tfrz, else hsub). Computed once per stability iteration
+   ! at L1571-bef (after htvpl assignment patch). Replaces hardcoded hvap
+   ! in canopy energy balance / flux deficit redirect to correctly account
+   ! for canopy snow sublimation (~13% larger latent heat than vaporization).
+   real(r8) :: htvpl
+   real(r8) phase_flux_deficit
 
 !----------------------- definition for 3d run ------------------------
    integer, parameter :: nlay = 3
@@ -1283,6 +1290,20 @@ CONTAINS
    real(r8) fwet_roof, fwet_roof_, fwet_gimp, fwet_gimp_, rss_, rs_, etr_
    real(r8) fwetfac, lambda
    real(r8) cgw_imp, cgw_per
+   ! Audit fix URBAN-VIC-supplylimit: VIC-aware Ec supply limit inside
+   ! the stability iteration. Mirrors MOD_LeafTemperature.F90 VIC branch.
+   ! Note: rv/etr/evplwet below still use lsai (not Beer-Lambert
+   ! effective canopy area) — wet_area alignment is a followup refactor
+   ! that requires updating the _dtl blocks at L1946-1980 in sync.
+   real(r8) fwet_VIC_base, ec_pot_VIC_loc, f_VIC_loc, wet_area_VIC_loc
+   ! Audit fix N4 (dheatl-phase): snapshot tl before Niu (2004) pull so
+   ! phase-heat energy gets accumulated into dheatl for the URBAN
+   ! energy-balance check. Mirrors MOD_LeafTemperature.F90:1382-1391.
+   real(r8) tl_pre_phase_U
+   ! Audit fix J3: URBAN-side JULES catch/fraca split to match land JULES.
+   real(r8) sigf_safe_J, lai_perveg_J_loc
+   real(r8) catch_J_rain, catch_J_snow, epot_J, epdt_J
+   real(r8) fraca_J_rain, fraca_J_snow
 
    ! for interface
    real(r8) o3coefv, o3coefg, assim_RuBP, assim_Rubisco, ci, vpd, gammas
@@ -1345,7 +1366,18 @@ CONTAINS
       B1_5   = B1(5)
       dBdT_5 = dBdT(5)
 
-      CALL dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+      CALL dewfraction (sigf,lai,sai,dewmx,tl,ldew,ldew_rain,ldew_snow,fwet,fdry)
+
+      ! Audit fix URBAN-VIC-supplylimit: snapshot the dewfraction-derived
+      ! fwet so the stability iteration can repeatedly apply the VIC
+      ! f_VIC supply limit against a fixed wetfrac_VIC (not against the
+      ! already-limited fwet from the previous iteration). Non-VIC
+      ! schemes ignore this snapshot.
+      IF (DEF_Interception_scheme == 6) THEN
+         fwet_VIC_base = fwet
+      ELSE
+         fwet_VIC_base = 0._r8
+      ENDIF
 
       qsatl(0) = qroof
       qsatldT(0) = dqroofDT
@@ -1572,6 +1604,14 @@ CONTAINS
          del2  = del
          dele2 = dele
 
+         ! Audit fix NM-3 (URBAN): switch latent heat per current tl
+         ! before energy balance computations within this iteration.
+         IF (tl > tfrz) THEN
+            htvpl = hvap
+         ELSE
+            htvpl = hsub
+         ENDIF
+
 !-----------------------------------------------------------------------
 ! Aerodynamical resistances
 !-----------------------------------------------------------------------
@@ -1762,6 +1802,60 @@ ENDIF
          clev  = canlev(3)
          delta = 0.0
          IF (qsatl(3)-qaf(clev) .gt. 0.) delta = 1.0
+
+         ! Audit fix URBAN-VIC-supplylimit: apply VIC's ldew supply-limit
+         ! so canopy Ec cannot exceed what the canopy actually holds.
+         ! Rebuilds fwet = f_VIC * wetfrac_VIC each iteration from the
+         ! stored snapshot (fwet_VIC_base), so nesting the limit across
+         ! iterations does not shrink fwet monotonically. Driven at the
+         ! canopy-layer qsatl(3)/qaf(clev) and rb(3), matching the
+         ! downstream rv/evplwet coupling.
+         IF (DEF_Interception_scheme == 6 .and. ldew > 0._r8 .and. lai > 1.e-6_r8) THEN
+            wet_area_VIC_loc = (1._r8 - exp(-0.5_r8 * lai)) / 0.5_r8
+            ec_pot_VIC_loc = rhoair * fwet_VIC_base * wet_area_VIC_loc / rb(3) &
+                           * max(0._r8, qsatl(3) - qaf(clev))
+            IF (ec_pot_VIC_loc * deltim > 1.e-10_r8) THEN
+               f_VIC_loc = min(1.0_r8, ldew / (ec_pot_VIC_loc * deltim))
+            ELSE
+               f_VIC_loc = 1.0_r8
+            ENDIF
+            fwet = f_VIC_loc * fwet_VIC_base
+         ENDIF
+
+         ! Audit fix J3: URBAN main iteration JULES branch. Mirrors
+         ! MOD_LeafTemperature.F90 JULES thermal rebinding so urban
+         ! canopy fwet follows fraca_JULES (supply-limited, phase-split)
+         ! instead of the generic dewfraction formula. Driven at canopy
+         ! layer (qsatl(3), qaf(clev), rb(3)). Splits rain/snow fraca to
+         ! avoid the J-catch issue (liquid catch limiting total ldew).
+         IF (DEF_Interception_scheme == 7 .and. lai > 1.e-6_r8) THEN
+            sigf_safe_J = max(sigf, 0.01_r8)
+            IF (DEF_VEG_SNOW) THEN
+               lai_perveg_J_loc = lai / sigf_safe_J
+            ELSE
+               lai_perveg_J_loc = lai
+            ENDIF
+            catch_J_rain = 0.5_r8 + 0.05_r8 * lai_perveg_J_loc
+            catch_J_snow = 4.4_r8 * lai_perveg_J_loc
+            epot_J = rhoair * lai / rb(3) * max(0._r8, qsatl(3) - qaf(clev))
+            IF (epot_J > 0._r8) THEN
+               epdt_J = epot_J * deltim
+               IF (ldew_rain > 0._r8 .AND. (epdt_J + catch_J_rain) > 1.e-10_r8) THEN
+                  fraca_J_rain = min((ldew_rain / sigf_safe_J) / (epdt_J + catch_J_rain), 1.0_r8)
+               ELSE
+                  fraca_J_rain = 0.0_r8
+               ENDIF
+               IF (ldew_snow > 0._r8 .AND. (epdt_J + catch_J_snow) > 1.e-10_r8) THEN
+                  fraca_J_snow = min((ldew_snow / sigf_safe_J) / (epdt_J + catch_J_snow), 1.0_r8)
+               ELSE
+                  fraca_J_snow = 0.0_r8
+               ENDIF
+            ELSE
+               fraca_J_rain = 1.0_r8
+               fraca_J_snow = 1.0_r8
+            ENDIF
+            fwet = fraca_J_rain + fraca_J_snow - fraca_J_rain * fraca_J_snow
+         ENDIF
 
          rv = 1/( (1.-delta*(1.-fwet))*lsai/rb(3) &
                 + (1.-fwet)*delta*(lai/(rb(3)+rs)) )
@@ -2008,8 +2102,9 @@ ENDIF
          dirab_dtl = ( sum(dX(1:4)*VegVF(1:4))*ev - dBdT(5) ) / fcover(5)*fg
 
          ! solve for leaf temperature
-         dtl(it) = (sabv + irab - fsenl - hvap*fevpl) &
-                 / (clai/deltim - dirab_dtl + fsenl_dtl + hvap*fevpl_dtl)
+         ! NM-3: htvpl per current tl (set above) — frozen canopy uses hsub.
+         dtl(it) = (sabv + irab - fsenl - htvpl*fevpl) &
+                 / (clai/deltim - dirab_dtl + fsenl_dtl + htvpl*fevpl_dtl)
          dtl_noadj = dtl(it)
 
          ! check magnitude of change in leaf temperature limit to maximum allowed value
@@ -2036,7 +2131,7 @@ ENDIF
 
          del  = sqrt( dtl(it)*dtl(it) )
          dele = dtl(it) * dtl(it) * &
-                ( dirab_dtl**2 + fsenl_dtl**2 + (hvap*fevpl_dtl)**2 )
+                ( dirab_dtl**2 + fsenl_dtl**2 + (htvpl*fevpl_dtl)**2 )   ! NM-3 (URBAN)
          dele = sqrt(dele)
 
 !-----------------------------------------------------------------------
@@ -2286,10 +2381,11 @@ ENDIF
 
       fsenl = fsenl + fsenl_dtl*dtl(it-1) &
          ! add the imbalanced energy below due to T adjustment to sensible heat
+         ! NM-3 (URBAN): htvpl reflects sublim vs vap latent heat per current tl.
          + (dtl_noadj-dtl(it-1)) * (clai/deltim - dirab_dtl &
-         + fsenl_dtl + hvap*fevpl_dtl) &
+         + fsenl_dtl + htvpl*fevpl_dtl) &
          ! add the imbalanced energy below due to q adjustment to sensible heat
-         + hvap*erre
+         + htvpl*erre
 
       etr     = etr     +     etr_dtl*dtl(it-1)
       evplwet = evplwet + evplwet_dtl*dtl(it-1)
@@ -2302,7 +2398,7 @@ ENDIF
       evplwet = min(evplwet, elwmax)
 
       fevpl   = fevpl - elwdif
-      fsenl   = fsenl + hvap*elwdif
+      fsenl   = fsenl + htvpl*elwdif   ! NM-3 (URBAN): latent excess uses scheme-aware coef
 
 
 !-----------------------------------------------------------------------
@@ -2313,26 +2409,12 @@ ENDIF
 
       ! account for vegetation snow and update ldew_rain, ldew_snow, ldew
       IF ( DEF_VEG_SNOW ) THEN
-         IF (tl > tfrz) THEN
-            qevpl = max (evplwet, 0.)
-            qdewl = abs (min (evplwet, 0.) )
-            qsubl = 0.
-            qfrol = 0.
-
-            IF (qevpl > ldew_rain/deltim) THEN
-               qsubl = qevpl - ldew_rain/deltim
-               qevpl = ldew_rain/deltim
-            ENDIF
-         ELSE
-            qevpl = 0.
-            qdewl = 0.
-            qsubl = max (evplwet, 0.)
-            qfrol = abs (min (evplwet, 0.) )
-
-            IF (qsubl > ldew_snow/deltim) THEN
-               qevpl = qsubl - ldew_snow/deltim
-               qsubl = ldew_snow/deltim
-            ENDIF
+         CALL partition_canopy_latent_flux(tl, tfrz, deltim, evplwet, ldew_rain, ldew_snow, &
+                                           qevpl, qdewl, qsubl, qfrol, phase_flux_deficit)
+         IF (phase_flux_deficit > 0._r8) THEN
+            evplwet = evplwet - phase_flux_deficit
+            fevpl   = fevpl - phase_flux_deficit
+            fsenl   = fsenl + htvpl * phase_flux_deficit   ! NM-3 (URBAN)
          ENDIF
 
          ldew_rain = ldew_rain + (qdewl-qevpl)*deltim
@@ -2341,14 +2423,18 @@ ENDIF
          ldew = ldew_rain + ldew_snow
       ENDIF
 
+      ! Audit fix N4 (dheatl-phase, URBAN): snapshot tl before the Niu
+      ! (2004) phase-change pulls, so their cumulative effect on tl can be
+      ! folded into dheatl and the canopy-side energy balance check at
+      ! L2480-L2500 closes. Without this, clai/dt*(tl_post-tl_pre)/deltim
+      ! silently leaks from the energy budget whenever canopy phase change
+      ! drags tl toward tfrz. Mirrors MOD_LeafTemperature.F90:1382-1391
+      ! (already applied for non-URBAN paths).
+      tl_pre_phase_U = tl
+
       IF ( DEF_VEG_SNOW ) THEN
          ! update fwet_snow
-         fwet_snow = 0
-         IF(ldew_snow > 0.) THEN
-            fwet_snow = ((10./(48.*(lai+sai)))*ldew_snow)**.666666666666
-            ! Check for maximum limit of fwet_snow
-            fwet_snow = min(fwet_snow,1.0)
-         ENDIF
+         fwet_snow = canopy_snow_wetfrac(sigf, lai, sai, dewmx, tl, ldew_snow)
 
          ! phase change
 
@@ -2359,8 +2445,6 @@ ENDIF
             qmelt = min(ldew_snow/deltim,(tl-tfrz)*cpice*ldew_snow/(deltim*hfus))
             ldew_snow = max(0.,ldew_snow - qmelt*deltim)
             ldew_rain = max(0.,ldew_rain + qmelt*deltim)
-            !NOTE: There may be some problem, energy imbalance
-            !      However, detailed treatment could be somewhat trivial
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
          ENDIF
 
@@ -2368,26 +2452,28 @@ ENDIF
             qfrz  = min(ldew_rain/deltim,(tfrz-tl)*cpliq*ldew_rain/(deltim*hfus))
             ldew_rain = max(0.,ldew_rain - qfrz*deltim)
             ldew_snow = max(0.,ldew_snow + qfrz*deltim)
-            !NOTE: There may be some problem, energy imbalance
-            !      However, detailed treatment could be somewhat trivial
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
          ENDIF
       ENDIF
 
       ! vegetation heat change
-      dheatl = clai/deltim*dtl(it-1)
+      ! Audit fix N4: add the Niu-pull delta to dheatl so energy balance
+      ! check closes. When no phase change fires this step the extra term
+      ! is exactly zero (tl_pre_phase_U == tl).
+      dheatl = clai/deltim*dtl(it-1) + clai/deltim*(tl - tl_pre_phase_U)
 
 !-----------------------------------------------------------------------
 ! balance check
 !-----------------------------------------------------------------------
 
+      ! NM-3 (URBAN): htvpl per current tl correctly accounts for sublim vs vap.
       err = sabv + irab + dirab_dtl*dtl(it-1) &
-          - fsenl - hvap*fevpl - dheatl
+          - fsenl - htvpl*fevpl - dheatl
 
 #if (defined CoLMDEBUG)
       IF (abs(err) .gt. .2) THEN
          write(6,*) 'energy imbalance in UrbanVegFlux.F90', &
-         i,it-1,err,sabv,irab,fsenl,hvap*fevpl,dheatl
+         i,it-1,err,sabv,irab,fsenl,htvpl*fevpl,dheatl
          CALL CoLM_stop()
       ENDIF
 #endif
@@ -2564,8 +2650,52 @@ ENDIF
    END SUBROUTINE UrbanVegFlux
 !----------------------------------------------------------------------
 
+   SUBROUTINE partition_canopy_latent_flux(tleaf, tfrz, deltim, evplwet, ldew_rain, ldew_snow, &
+                                           qevpl, qdewl, qsubl, qfrol, phase_flux_deficit)
 
-   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in)  :: tleaf
+   real(r8), intent(in)  :: tfrz
+   real(r8), intent(in)  :: deltim
+   real(r8), intent(in)  :: evplwet
+   real(r8), intent(in)  :: ldew_rain
+   real(r8), intent(in)  :: ldew_snow
+   real(r8), intent(out) :: qevpl
+   real(r8), intent(out) :: qdewl
+   real(r8), intent(out) :: qsubl
+   real(r8), intent(out) :: qfrol
+   real(r8), intent(out) :: phase_flux_deficit
+
+      phase_flux_deficit = 0._r8
+      IF (tleaf > tfrz) THEN
+         qevpl = max(evplwet, 0._r8)
+         qdewl = abs(min(evplwet, 0._r8))
+         qsubl = 0._r8
+         qfrol = 0._r8
+
+         IF (qevpl > ldew_rain/deltim) THEN
+            phase_flux_deficit = qevpl - ldew_rain/deltim
+            qevpl = ldew_rain/deltim
+         ENDIF
+      ELSE
+         qevpl = 0._r8
+         qdewl = 0._r8
+         qsubl = max(evplwet, 0._r8)
+         qfrol = abs(min(evplwet, 0._r8))
+
+         IF (qsubl > ldew_snow/deltim) THEN
+            phase_flux_deficit = qsubl - ldew_snow/deltim
+            qsubl = ldew_snow/deltim
+         ENDIF
+      ENDIF
+
+   END SUBROUTINE partition_canopy_latent_flux
+
+
+   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,tleaf,ldew,ldew_rain,ldew_snow,fwet,fdry)
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
 !
@@ -2579,12 +2709,14 @@ ENDIF
 !=======================================================================
 
    USE MOD_Precision
+   USE MOD_Const_Physical, only: tfrz
    IMPLICIT NONE
 
    real(r8), intent(in)  :: sigf      !fraction of veg cover, excluding snow-covered veg [-]
    real(r8), intent(in)  :: lai       !leaf area index  [-]
    real(r8), intent(in)  :: sai       !stem area index  [-]
    real(r8), intent(in)  :: dewmx     !maximum allowed dew [0.1 mm]
+   real(r8), intent(in)  :: tleaf     !canopy temperature used by scheme-specific snow capacity [K]
    real(r8), intent(in)  :: ldew      !depth of water on foliage [kg/m2/s]
    real(r8), intent(in)  :: ldew_rain !depth of rain on foliage [kg/m2/s]
    real(r8), intent(in)  :: ldew_snow !depth of snow on foliage [kg/m2/s]
@@ -2596,6 +2728,13 @@ ENDIF
    real(r8) :: vegt                   !sigf*lsai, NOTE: remove sigf
    real(r8) :: fwet_rain              !fraction of foliage covered by water [-]
    real(r8) :: fwet_snow              !fraction of foliage covered by snow [-]
+   real(r8) :: satcap_rain_eff        !scheme-specific liquid capacity used by fwet [-]
+   real(r8) :: lai_eff                !LAI clamped to avoid division by zero [-]
+   real(r8) :: fwet_max               !scheme-specific cap on fwet [-]
+   ! Audit fix URBAN-VIC: per-veg VIC quantities
+   real(r8) :: sigf_safe_VIC, MaxInt_VIC
+   real(r8), parameter :: dewmx_MATSIRO = 0.2_r8  ! canopy water capacity per LAI [mm], Takata et al. 2003
+   real(r8), parameter :: fwet_max_CLM5 = 0.05_r8 ! CLM5.0 max leaf wetted fraction, Lawrence et al. 2019
 !
 !-----------------------------------------------------------------------
 ! Fwet is the fraction of all vegetation surfaces which are wet
@@ -2605,33 +2744,101 @@ ENDIF
       ! 06/2018, yuan: remove sigf, to compatible with PFT
       vegt   =  lsai
 
-      fwet = 0
-      IF (ldew > 0.) THEN
-         fwet = ((dewmxi/vegt)*ldew)**.666666666666
-         ! Check for maximum limit of fwet
-         fwet = min(fwet,1.0)
-      ENDIF
-
-      ! account for vegetation snow
-      ! calculate fwet_rain, fwet_snow, fwet
-      IF ( DEF_VEG_SNOW ) THEN
-
-         fwet_rain = 0
-         IF(ldew_rain > 0.) THEN
-            fwet_rain = ((dewmxi/vegt)*ldew_rain)**.666666666666
-            ! Check for maximum limit of fwet_rain
-            fwet_rain = min(fwet_rain,1.0)
+      IF (DEF_Interception_scheme == 5) THEN
+         ! MATSIRO: linear fwet on TOTAL canopy water, LAI only, no rain/snow split
+         lai_eff = max(lai, 1.e-6_r8)
+         fwet = 0
+         IF (ldew > 0.) THEN
+            fwet = ldew / (lai_eff * dewmx_MATSIRO)
+            fwet = min(fwet, 1.0)
          ENDIF
 
-         fwet_snow = 0
-         IF(ldew_snow > 0.) THEN
-            fwet_snow = ((dewmxi/(48.*vegt))*ldew_snow)**.666666666666
-            ! Check for maximum limit of fwet_snow
-            fwet_snow = min(fwet_snow,1.0)
+      ELSEIF (DEF_Interception_scheme == 4) THEN
+         ! Audit fix N1: NoahMP fwet must use fvegc-scaled capacity.
+         ! Mirrors MOD_LeafTemperature.F90 CASE(4) in dewfraction. Without
+         ! this, URBAN+NoahMP fwet saturates at fvegc^(2/3) when ldew=satcap.
+         fwet = 0
+         IF (ldew > 0.) THEN
+            IF (tleaf > tfrz) THEN
+               satcap_rain_eff = canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx)
+               IF (satcap_rain_eff > 1.e-10_r8) THEN
+                  fwet = min((ldew / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
+               ENDIF
+            ELSE
+               satcap_rain_eff = canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf)
+               IF (satcap_rain_eff > 1.e-10_r8) THEN
+                  fwet = min((ldew / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
+               ENDIF
+            ENDIF
          ENDIF
 
-         fwet = fwet_rain + fwet_snow - fwet_rain*fwet_snow
-         fwet = min(fwet,1.0)
+      ELSEIF (DEF_Interception_scheme == 6) THEN
+         ! Audit fix URBAN-VIC: mirror MOD_LeafTemperature VIC branch so
+         ! urban canopy fwet uses the VIC wetfrac formula
+         ! ((ldew/sigf)/(0.1*lai))^(2/3). DEF_VEG_SNOW handling matches
+         ! the land VIC path. Note: ec_pot supply-limit (f_VIC) is NOT
+         ! applied here — urban evap coupling still uses the default
+         ! rv/etr/evplwet forms (L1781, 1943, 1969), so the cleaner
+         ! wetfrac is the best we can deliver without a full rewrite.
+         sigf_safe_VIC = max(sigf, 0.01_r8)
+         IF (DEF_VEG_SNOW) THEN
+            MaxInt_VIC = max(0.1_r8 * lai / sigf_safe_VIC, 1.e-10_r8)
+         ELSE
+            MaxInt_VIC = max(0.1_r8 * lai, 1.e-10_r8)
+         ENDIF
+         fwet = 0
+         IF (ldew > 0.) THEN
+            fwet = ((ldew/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8)
+            fwet = min(fwet, 1.0_r8)
+         ENDIF
+
+      ELSE
+         ! Default CoLM (S/Smax)^(2/3); CLM5 clamps to 0.05
+         IF (DEF_Interception_scheme == 3) THEN
+            fwet_max = fwet_max_CLM5
+         ELSE
+            fwet_max = 1.0_r8
+         ENDIF
+
+         fwet = 0
+         IF (ldew > 0.) THEN
+            fwet = ((dewmxi/vegt)*ldew)**.666666666666
+            fwet = min(fwet, fwet_max)
+         ENDIF
+
+         ! account for vegetation snow
+         ! calculate fwet_rain, fwet_snow, fwet
+         ! Audit fix C4-double-bucket: see MOD_LeafTemperature.F90 for
+         ! rationale. CLM4 (scheme=2) is single-bucket in interception;
+         ! skip the double-bucket union formula for scheme=2 only.
+         IF ( DEF_VEG_SNOW .and. DEF_Interception_scheme /= 2 ) THEN
+
+            fwet_rain = 0
+            IF(ldew_rain > 0.) THEN
+               satcap_rain_eff = canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx)
+               IF (satcap_rain_eff > 1.e-10_r8) THEN
+                  fwet_rain = (ldew_rain / satcap_rain_eff)**.666666666666
+                  fwet_rain = min(fwet_rain, fwet_max)
+               ENDIF
+            ENDIF
+
+            fwet_snow = 0
+            IF(ldew_snow > 0.) THEN
+               fwet_snow = canopy_snow_wetfrac(sigf, lai, sai, dewmx, tleaf, ldew_snow)
+               fwet_snow = min(fwet_snow, fwet_max)
+            ENDIF
+
+            IF (DEF_Interception_scheme == 4) THEN
+               IF (ldew_snow > 0._r8 .AND. ldew_snow >= ldew_rain) THEN
+                  fwet = fwet_snow
+               ELSE
+                  fwet = fwet_rain
+               ENDIF
+            ELSE
+               fwet = fwet_rain + fwet_snow - fwet_rain*fwet_snow
+            ENDIF
+            fwet = min(fwet, fwet_max)
+         ENDIF
       ENDIF
 
       ! fdry is the fraction of lai which is dry because only leaves can
@@ -2639,6 +2846,127 @@ ENDIF
       fdry = (1.-fwet)*lai/lsai
 
    END SUBROUTINE dewfraction
+
+   FUNCTION canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx) RESULT(satcap_rain_eff)
+
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: sigf
+   real(r8), intent(in) :: lai
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: dewmx
+   real(r8)             :: satcap_rain_eff
+   real(r8)             :: lsai
+   real(r8)             :: fvegc
+   real(r8)             :: sigf_safe
+
+      lsai = max(lai + sai, 0._r8)
+
+      SELECT CASE (DEF_Interception_scheme)
+      CASE (4)
+         fvegc = max(0.05_r8, 1.0_r8 - exp(-0.52_r8 * lsai))
+         satcap_rain_eff = fvegc * dewmx * lsai
+      CASE (6)
+         ! Audit fix URBAN-VIC: VIC Wdmax = 0.1 mm * LAI (LAI-only,
+         ! no SAI; stems do not hold canopy water). Mirrors
+         ! MOD_LeafInterception.F90 LEAF_interception_VIC:2043 and
+         ! LeafTemperature VIC branches. Without CASE(6) the helper
+         ! defaulted to dewmx*lsai, inconsistent with interception.
+         satcap_rain_eff = 0.1_r8 * max(lai, 0._r8)
+      CASE (7)
+         sigf_safe = max(sigf, 0.01_r8)
+         ! Audit fix J1: mirror land path (MOD_LeafTemperature canopy_rain_capacity_for_fwet).
+         IF (DEF_VEG_SNOW) THEN
+            satcap_rain_eff = sigf_safe * (0.5_r8 + 0.05_r8 * max(lai / sigf_safe, 0._r8))
+         ELSE
+            satcap_rain_eff = sigf_safe * (0.5_r8 + 0.05_r8 * max(lai, 0._r8))
+         ENDIF
+      CASE DEFAULT
+         satcap_rain_eff = dewmx * lsai
+      END SELECT
+
+      satcap_rain_eff = max(satcap_rain_eff, 0._r8)
+
+   END FUNCTION canopy_rain_capacity_for_fwet
+
+   FUNCTION canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf) RESULT(satcap_snow_eff)
+
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: sigf
+   real(r8), intent(in) :: lai
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: dewmx
+   real(r8), intent(in) :: tleaf
+   real(r8)             :: satcap_snow_eff
+   real(r8)             :: lsai
+   real(r8)             :: fvegc
+   real(r8)             :: BDFALL
+   real(r8)             :: Lr
+   real(r8)             :: sigf_safe
+
+      lsai = max(lai + sai, 0._r8)
+      sigf_safe = max(sigf, 0.01_r8)
+
+      SELECT CASE (DEF_Interception_scheme)
+      CASE (3)
+         satcap_snow_eff = 60._r8 * dewmx * lsai
+      CASE (4)
+         fvegc = max(0.05_r8, 1.0_r8 - exp(-0.52_r8 * lsai))
+         BDFALL = 67.92_r8 + 51.25_r8 * exp(min(2.5_r8, (tleaf - 273.15_r8)) / 2.59_r8)
+         satcap_snow_eff = fvegc * 6.6_r8*(0.27_r8 + 46._r8/BDFALL) * lsai
+      CASE (5)
+         satcap_snow_eff = 0.2_r8 * max(lai, 0._r8)
+      CASE (6)
+         IF (tleaf > 272.15_r8) THEN
+            Lr = 4.0_r8
+         ELSEIF (tleaf >= 270.15_r8) THEN
+            Lr = 1.5_r8 * (tleaf - 273.15_r8) + 5.5_r8
+         ELSE
+            Lr = 1.0_r8
+         ENDIF
+         satcap_snow_eff = sigf_safe * 0.5_r8 * Lr * max(lai, 0._r8)
+      CASE (7)
+         ! Audit fix J1: see canopy_rain_capacity_for_fwet CASE(7) above.
+         IF (DEF_VEG_SNOW) THEN
+            satcap_snow_eff = sigf_safe * 4.4_r8 * max(lai / sigf_safe, 0._r8)
+         ELSE
+            satcap_snow_eff = sigf_safe * 4.4_r8 * max(lai, 0._r8)
+         ENDIF
+      CASE DEFAULT
+         satcap_snow_eff = 48._r8 * dewmx * lsai
+      END SELECT
+
+      satcap_snow_eff = max(satcap_snow_eff, 0._r8)
+
+   END FUNCTION canopy_snow_capacity_for_fwet
+
+   FUNCTION canopy_snow_wetfrac(sigf, lai, sai, dewmx, tleaf, ldew_snow) RESULT(fwet_snow)
+
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: sigf
+   real(r8), intent(in) :: lai
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: dewmx
+   real(r8), intent(in) :: tleaf
+   real(r8), intent(in) :: ldew_snow
+   real(r8)             :: fwet_snow
+   real(r8)             :: satcap_snow_eff
+
+      satcap_snow_eff = canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf)
+      fwet_snow = 0._r8
+      IF (ldew_snow > 0._r8 .AND. satcap_snow_eff > 1.e-10_r8) THEN
+         fwet_snow = min((ldew_snow / satcap_snow_eff)**(2.0_r8/3.0_r8), 1.0_r8)
+      ENDIF
+
+   END FUNCTION canopy_snow_wetfrac
 
 END MODULE MOD_Urban_Flux
 ! ---------- EOP ------------
