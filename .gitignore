@@ -1,0 +1,17 @@
+
+.DS_Store
+docs/superpowers/
+tests/
+run/log_CaMa.txt
+*.pyc
+__pycache__
+*.o
+*.mod
+.vscode
+.bld
+lib
+*.a
+*.x
+*.log
+/docs
+.worktrees/
