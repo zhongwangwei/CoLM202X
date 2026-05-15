@@ -882,12 +882,7 @@ CONTAINS
       ENDIF
 
       IF (DEF_USE_BIFURCATION) THEN
-         IF (dbg_skip_bif_network_build) THEN
-            IF (p_is_master) THEN
-               write(*,'(A)') 'DBG bifskip master build_riverlake_network/read_and_distribute_bifurcation skipped'
-               call flush(6)
-            ENDIF
-         ELSE
+         IF (.not. dbg_skip_bif_network_build) THEN
             CALL read_and_distribute_bifurcation (parafile)
          ENDIF
       ENDIF
@@ -929,7 +924,7 @@ CONTAINS
                floodplain_curve(i)%flpstomax(0) = 0.
                DO j = 1, floodplain_curve(i)%nlfp
                   floodplain_curve(i)%flpstomax(j) = floodplain_curve(i)%flpstomax(j-1)        &
-                     + 0.5 * (floodplain_curve(i)%flparea(j) + floodplain_curve(i)%flparea(j-1)) &
+                     + 0.5 * (floodplain_curve(i)%flpaccare(j) + floodplain_curve(i)%flpaccare(j-1)) &
                            * (floodplain_curve(i)%flphgt(j)  - floodplain_curve(i)%flphgt(j-1))
                ENDDO
             ENDDO
@@ -1384,6 +1379,13 @@ CONTAINS
          CALL ncio_read_serial (parafile, 'bifurcation_width',     bif_wdth_all)
          CALL ncio_read_serial (parafile, 'bifurcation_manning',   bif_mann_all)
 
+         DO ip = 1, totalnpthout
+            IF (bif_upst_all(ip) < 1 .or. bif_upst_all(ip) > totalnumucat) CALL CoLM_stop ( &
+               'bifurcation upstream index out of range')
+            IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
+            IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
+         ENDDO
+
          ! Build iworker_of_ucat: maps global seq index -> worker index
          allocate (iworker_of_ucat (totalnumucat))
          iworker_of_ucat(:) = -1
@@ -1399,6 +1401,7 @@ CONTAINS
          npth_wrk(:) = 0
          DO ip = 1, totalnpthout
             pth_owner(ip) = iworker_of_ucat(bif_upst_all(ip))
+            IF (pth_owner(ip) < 0) CALL CoLM_stop ('bifurcation upstream owner not found')
             npth_wrk(pth_owner(ip)) = npth_wrk(pth_owner(ip)) + 1
          ENDDO
 
@@ -1649,6 +1652,12 @@ CONTAINS
       CALL ncio_read_serial (parafile, 'bifurcation_width',     bif_wdth_all)
       CALL ncio_read_serial (parafile, 'bifurcation_manning',   bif_mann_all)
 
+      DO ip = 1, totalnpthout
+         IF (bif_upst_all(ip) < 1 .or. bif_upst_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation upstream index out of range')
+         IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
+         IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
+      ENDDO
+
       npthout_local = totalnpthout
 
       allocate (pth_man (npthlev_bif))
@@ -1693,6 +1702,15 @@ CONTAINS
                ENDIF
             ENDDO
          ENDDO
+      ELSE
+         npthout_local = 0
+         allocate (pth_upst_local (0))
+         allocate (pth_down_ucid  (0))
+         allocate (pth_down_local (0))
+         allocate (pth_global_id  (0))
+         allocate (pth_dst        (0))
+         allocate (pth_elv        (npthlev_bif, 0))
+         allocate (pth_wth        (npthlev_bif, 0))
       ENDIF
 
       deallocate (bif_upst_all)
@@ -1772,14 +1790,7 @@ CONTAINS
       IF (dbg_bif_mapping_checked) RETURN
       dbg_bif_mapping_checked = .true.
 
-      IF (.not. p_is_worker) THEN
-         IF (p_is_master) THEN
-            write(*,'(A,I0,A,I0,A,I0)') 'DBG bifnet master totalnpthout=', totalnpthout, &
-               ' npthlev_bif=', npthlev_bif, ' max_bif_incoming=', max_bif_incoming
-            call flush(6)
-         ENDIF
-         RETURN
-      ENDIF
+      IF (.not. p_is_worker) RETURN
 
       nbad_upst_local = 0
       nbad_down_local = 0
@@ -1808,9 +1819,9 @@ CONTAINS
       nbad_total = nbad_upst_local + nbad_down_local + nbad_down_ucid + nbad_global_id + &
          nbad_incoming_pths + nbad_incoming_wts + nbad_push_slots
 
-      IF (p_iam_worker == 0 .or. nbad_total > 0) THEN
+      IF (nbad_total > 0) THEN
          write(*,'(A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0,A,I0)') &
-            'DBG bifnet glb=', p_iam_glb, &
+            'WARNING bifurcation mapping contract glb=', p_iam_glb, &
             ' npthout_local=', npthout_local, &
             ' numucat=', numucat, &
             ' bad_upst=', nbad_upst_local, &

@@ -338,6 +338,10 @@ CONTAINS
                ! soil
                CALL system('mkdir -p ' // trim(dir_landdata_out) // '/soil')
 
+               file_in  = trim(dir_landdata_in)  // '/soil/lake_soilc_patches.nc'
+               file_out = trim(dir_landdata_out) // '/soil/lake_soilc_patches.nc'
+               CALL clip_vector (file_in, file_out, iblk, jblk, 'lake_soilc_patches', patchmask)
+
                file_in  = trim(dir_landdata_in)  // '/soil/soil_s_v_alb_patches.nc'
                file_out = trim(dir_landdata_out) // '/soil/soil_s_v_alb_patches.nc'
                CALL clip_vector (file_in, file_out, iblk, jblk, 'soil_s_v_alb', patchmask)

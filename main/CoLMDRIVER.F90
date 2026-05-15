@@ -1,6 +1,6 @@
 #include <define.h>
 
-SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
+SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
 
 
 !=======================================================================
@@ -14,7 +14,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 !=======================================================================
 
    USE MOD_Precision
-   USE MOD_Const_Physical, only: tfrz, rgas, vonkar
+   USE MOD_Const_Physical, only: tfrz, rgas, vonkar, denh2o, denice
    USE MOD_Const_LC
    USE MOD_Vars_Global
    USE MOD_Vars_TimeInvariants
@@ -23,9 +23,17 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Vars_1DFluxes
    USE MOD_LandPatch, only: numpatch,landpatch
    USE MOD_LandUrban, only: patch2urban
-   USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN, DEF_USE_TRACER
+   USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
-   USE omp_lib
+
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Methane_Driver,   only: methane_driver
+   USE MOD_Tracer_Methane_State,    only: f_h2osfc, compute_f_h2osfc, &
+                                          accumulate_methane_lake_substep_diagnostics
+   USE MOD_Tracer_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Methane_Const,    only: DEF_METHANE
+   USE MOD_Namelist,         only: DEF_METHANE_only_wetland
+#endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
 #endif
@@ -45,17 +53,28 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    logical,  intent(in) :: dosst    ! true if time for update sst/ice/snow
 
    real(r8), intent(inout) :: oro(numpatch)  ! ocean(0)/seaice(2)/ flag
+   integer,  intent(in), optional :: istep_in  ! time-step index from CoLM.F90 (METHANE uses it; DA path may omit)
 
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
+#if (defined TRACER) && (defined BGC)
+   logical  :: run_methane
+   integer  :: lb, snl_loc      ! passed to methane_driver
+   integer  :: istep_local      ! resolved from optional istep_in
+   integer  :: j_meth
+   real(r8) :: z_soisno_m(maxsnl+1:nl_soil), dz_soisno_m(maxsnl+1:nl_soil), zi_soisno_m(maxsnl:nl_soil)
+   real(r8) :: snow_mass_total_m, snow_layer_mass_m, snow_layer_depth_m
+#endif
 
 ! ======================================================================
 
-#ifdef OPENMP
-!$OMP PARALLEL DO NUM_THREADS(OPENMP) &
-!$OMP PRIVATE(i, m, u, k, steps_in_one_deltim, deltim_phy) &
-!$OMP SCHEDULE(STATIC, 1)
+#if (defined TRACER) && (defined BGC)
+      IF (present(istep_in)) THEN
+         istep_local = istep_in
+      ELSE
+         istep_local = 1   ! DA path or other callers: behave as first timestep
+      ENDIF
 #endif
 
       DO i = 1, numpatch
@@ -209,17 +228,157 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                ustar(i),        qstar(i),        tstar(i),                         &
                fm(i),           fh(i),           fq(i)                             )
 
+#if (defined TRACER) && (defined BGC)
+               ! Lake methane follows WATERBODY substepping so transport and
+               ! sediment-carbon tendencies use the same deltim as lake physics.
+               IF (igas_ch4 > 0 .and. patchtype(i) == 4 .and. DEF_METHANE%allowlakeprod) THEN
+                  CALL compute_f_h2osfc (i, slpratio(i), wdsrf(i))
+
+                  z_soisno_m(maxsnl+1:0)  = 0._r8
+                  dz_soisno_m(maxsnl+1:0) = 0._r8
+                  zi_soisno_m(maxsnl:0)   = 0._r8
+                  z_soisno_m(1:nl_soil)   = z_soi(1:nl_soil)
+                  dz_soisno_m(1:nl_soil)  = dz_soi(1:nl_soil)
+                  zi_soisno_m(0)          = 0._r8
+                  zi_soisno_m(1:nl_soil)  = zi_soi(1:nl_soil)
+
+                  snl_loc = 0
+                  DO j_meth = 0, maxsnl + 1, -1
+                     IF (wliq_soisno(j_meth,i) + wice_soisno(j_meth,i) > 0._r8) THEN
+                        snl_loc = snl_loc - 1
+                     ELSE
+                        EXIT
+                     ENDIF
+                  ENDDO
+                  lb = snl_loc + 1
+
+                  IF (snl_loc < 0) THEN
+                     snow_mass_total_m = 0._r8
+                     DO j_meth = 0, lb, -1
+                        snow_mass_total_m = snow_mass_total_m + &
+                           max(wliq_soisno(j_meth,i) + wice_soisno(j_meth,i), 0._r8)
+                     ENDDO
+
+                     DO j_meth = 0, lb, -1
+                        snow_layer_mass_m = max(wliq_soisno(j_meth,i) + wice_soisno(j_meth,i), 0._r8)
+                        IF (snowdp(i) > 0._r8 .and. snow_mass_total_m > 0._r8) THEN
+                           snow_layer_depth_m = snowdp(i) * snow_layer_mass_m / snow_mass_total_m
+                        ELSEIF (snow_layer_mass_m > 0._r8) THEN
+                           snow_layer_depth_m = wliq_soisno(j_meth,i)/denh2o + wice_soisno(j_meth,i)/denice
+                        ELSE
+                           snow_layer_depth_m = 0._r8
+                        ENDIF
+                        dz_soisno_m(j_meth) = max(snow_layer_depth_m, 1.e-12_r8)
+                        z_soisno_m(j_meth) = zi_soisno_m(j_meth) - 0.5_r8*dz_soisno_m(j_meth)
+                        zi_soisno_m(j_meth-1) = zi_soisno_m(j_meth) - dz_soisno_m(j_meth)
+                     ENDDO
+                  ENDIF
+
+	                  CALL methane_driver(istep_local,i,idate(1:3),patchclass(i),patchtype(i),deltim_phy,lb,snl_loc,&!input
+                  patchlonr(i)*180._r8/PI,patchlatr(i)*180._r8/PI,&
+                  z_soisno_m(maxsnl+1:nl_soil),dz_soisno_m(maxsnl+1:nl_soil),zi_soisno_m(maxsnl:nl_soil),&
+                  t_soisno(maxsnl+1:nl_soil,i),&
+                  t_grnd(i),wliq_soisno(maxsnl+1:nl_soil,i),wice_soisno(maxsnl+1:nl_soil,i),&
+                  forc_t(i),forc_pbot(i),forc_po2m(i),forc_pco2m(i),&
+                  zwt(i),rootfr(1:nl_soil,m),snowdp(i),wat(i),rsur(i),etr(i),lakedepth(i), &
+                  lake_icefrac(1:nl_lake,i),wdsrf(i),wetwat(i),bsw(1:nl_soil,i),smp(1:nl_soil,i),&
+                  porsl(1:nl_soil,i),lai(i),rootr(1:nl_soil,i),&
+	                  fsatmax(i),fsatdcf(i),frcsat(i),f_h2osfc(i))
+	                  CALL accumulate_methane_lake_substep_diagnostics(i, deltim_phy, k, steps_in_one_deltim)
+	               ENDIF
+#endif
+
             ENDDO
          ENDIF
 
 
 #if (defined BGC)
+         ! Keep the native CoLM BGC driver in its original soil-patch scope.
+         ! Wetland CH4 may run below, but it uses sanitized bridge defaults when
+         ! BGC state/PFT mappings are not initialized for patchtype==2.
          IF(patchtype(i) .eq. 0)THEN
             !
             !               ***** Call CoLM BGC model *****
             !
             CALL bgc_driver (i,idate(1:3),deltim, patchlatr(i)*180/PI,patchlonr(i)*180/PI)
          ENDIF
+
+#if (defined TRACER) && (defined BGC)
+         ! Runtime activation: only execute methane_driver when
+         ! CH4 is registered as a reactive tracer in the namelist
+         ! (igas_ch4 > 0). When CH4 is absent, the entire block is a no-op.
+         ! Lake CH4 is handled inside WATERBODY substeps above so it uses
+         ! deltim_phy; this post-BGC path is for soil/wetland methane.
+         run_methane = .false.
+         IF (igas_ch4 > 0) THEN
+            IF (DEF_METHANE_only_wetland) THEN
+               IF (patchtype(i) == 2) run_methane = .true.
+            ELSE
+               IF ((patchtype(i) == 2) .or. (patchtype(i) == 0)) run_methane = .true.
+            ENDIF
+         ENDIF
+         ! Execute Methane driver if condition is met
+         IF (run_methane) THEN
+            ! Compute the microtopography-based surface-water fraction before methane_driver.
+            CALL compute_f_h2osfc (i, slpratio(i), wdsrf(i))
+
+            ! CoLMMAIN keeps soil+snow geometry as local work arrays, while
+            ! CoLMDRIVER only has persistent soil temperatures/water masses.
+            ! Reconstruct the geometry needed by the Methane snow/soil diffusion
+            ! wrapper from the persistent snow water state plus the canonical
+            ! soil grid before entering methane_driver.
+            z_soisno_m(maxsnl+1:0)  = 0._r8
+            dz_soisno_m(maxsnl+1:0) = 0._r8
+            zi_soisno_m(maxsnl:0)   = 0._r8
+            z_soisno_m(1:nl_soil)   = z_soi(1:nl_soil)
+            dz_soisno_m(1:nl_soil)  = dz_soi(1:nl_soil)
+            zi_soisno_m(0)          = 0._r8
+            zi_soisno_m(1:nl_soil)  = zi_soi(1:nl_soil)
+
+            snl_loc = 0
+            DO j_meth = 0, maxsnl + 1, -1
+               IF (wliq_soisno(j_meth,i) + wice_soisno(j_meth,i) > 0._r8) THEN
+                  snl_loc = snl_loc - 1
+               ELSE
+                  EXIT
+               ENDIF
+            ENDDO
+            lb = snl_loc + 1
+
+            IF (snl_loc < 0) THEN
+               snow_mass_total_m = 0._r8
+               DO j_meth = 0, lb, -1
+                  snow_mass_total_m = snow_mass_total_m + &
+                     max(wliq_soisno(j_meth,i) + wice_soisno(j_meth,i), 0._r8)
+               ENDDO
+
+               DO j_meth = 0, lb, -1
+                  snow_layer_mass_m = max(wliq_soisno(j_meth,i) + wice_soisno(j_meth,i), 0._r8)
+                  IF (snowdp(i) > 0._r8 .and. snow_mass_total_m > 0._r8) THEN
+                     snow_layer_depth_m = snowdp(i) * snow_layer_mass_m / snow_mass_total_m
+                  ELSEIF (snow_layer_mass_m > 0._r8) THEN
+                     snow_layer_depth_m = wliq_soisno(j_meth,i)/denh2o + wice_soisno(j_meth,i)/denice
+                  ELSE
+                     snow_layer_depth_m = 0._r8
+                  ENDIF
+                  dz_soisno_m(j_meth) = max(snow_layer_depth_m, 1.e-12_r8)
+                  z_soisno_m(j_meth) = zi_soisno_m(j_meth) - 0.5_r8*dz_soisno_m(j_meth)
+                  zi_soisno_m(j_meth-1) = zi_soisno_m(j_meth) - dz_soisno_m(j_meth)
+               ENDDO
+            ENDIF
+
+            CALL methane_driver(istep_local,i,idate(1:3),patchclass(i),patchtype(i),deltim,lb,snl_loc,&!input
+            patchlonr(i)*180._r8/PI,patchlatr(i)*180._r8/PI,&
+            z_soisno_m(maxsnl+1:nl_soil),dz_soisno_m(maxsnl+1:nl_soil),zi_soisno_m(maxsnl:nl_soil),&
+            t_soisno(maxsnl+1:nl_soil,i),&
+            t_grnd(i),wliq_soisno(maxsnl+1:nl_soil,i),wice_soisno(maxsnl+1:nl_soil,i),&
+            forc_t(i),forc_pbot(i),forc_po2m(i),forc_pco2m(i),&
+            zwt(i),rootfr(1:nl_soil,m),snowdp(i),wat(i),rsur(i),etr(i),lakedepth(i), &
+            lake_icefrac(1:nl_lake,i),wdsrf(i),wetwat(i),bsw(1:nl_soil,i),smp(1:nl_soil,i),&
+            porsl(1:nl_soil,i),lai(i),rootr(1:nl_soil,i),&
+            fsatmax(i),fsatdcf(i),frcsat(i),f_h2osfc(i))
+         ENDIF
+#endif
 #endif
 
 
@@ -384,22 +543,19 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             ! in-step snow-layer count changes inside CoLMMAIN_Urban
             ! do not cause storage_beg / storage_end to disagree on
             ! the iteration range.
-            !
-            ! Phase 2 (time-varying forcing R, fractionation) will
-            ! need a true urban mixed-box instead of the Phase-1
-            ! re-sync.
             ! ---------------------------------------------------------------
-            IF (DEF_USE_TRACER) THEN
+#ifdef TRACER
                BLOCK
-               USE MOD_Tracer_Defs, only: ntracers_u => ntracers, tracers_u => tracers, &
-                  delta_to_R_u => delta_to_R
+               USE MOD_Tracer_Defs, only: ntracers_u => ntracers, tracer_init_water_ratio_u => &
+                  tracer_init_water_ratio
                USE MOD_Tracer_Vars, only: trc_rnof_step_u => trc_rnof_step, &
                                            a_trc_precip_u => a_trc_precip, &
                                            a_trc_evap_u   => a_trc_evap, &
                                            a_trc_rnof_u   => a_trc_rnof, &
                                            trc_wetwat, trc_waterstorage, &
                                            sync_tracer_patch_phase1
-               USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check
+               USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
+                  tracer_apply_reactive_processes
                USE MOD_Tracer_Hist, only: tracer_hist_accumulate
                integer  :: itrc_u, j_u, snl_u
                real(r8) :: R_input_u, precip_mass_u, rnof_mass_u
@@ -451,8 +607,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
                DO itrc_u = 1, ntracers_u
                   trc_rnof_step_u(itrc_u, i) = 0._r8
-                  R_input_u = delta_to_R_u(tracers_u(itrc_u)%init_delta, &
-                                           tracers_u(itrc_u)%ref_ratio)
+                  R_input_u = tracer_init_water_ratio_u(itrc_u)
                   IF (precip_mass_u > 0._r8) THEN
                      a_trc_precip_u(itrc_u, i) = a_trc_precip_u(itrc_u, i) &
                         + precip_mass_u * R_input_u
@@ -474,6 +629,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
                ! Close the per-step balance; same `maxsnl` iteration
                ! bound as save_storage.
+               CALL tracer_apply_reactive_processes(i, maxsnl, nl_soil, deltim)
                CALL tracer_balance_check(i, maxsnl, nl_soil, deltim, xerr_tracer_u, &
                   patchtype_in = 1)   ! urban
 
@@ -486,24 +642,21 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                   wice_soisno(snl_u+1:nl_soil, i), &
                   wa(i), wdsrf(i), 0._r8, scv(i))
                END BLOCK
-            ENDIF
+#endif
          ENDIF
 
 #endif
       ENDDO
-#ifdef OPENMP
-!$OMP END PARALLEL DO
-#endif
 
       ! Surface worst-patch tracer balance error accumulated across this
       ! step. Previously only ipatch==1 / itrc==1 was printed, hiding
       ! bulk failures elsewhere.
-      IF (DEF_USE_TRACER) THEN
+#ifdef TRACER
          BLOCK
          USE MOD_Tracer_Conservation, only: tracer_balance_report
          CALL tracer_balance_report()
          END BLOCK
-      ENDIF
+#endif
 
 END SUBROUTINE CoLMDRIVER
 ! ---------- EOP ------------

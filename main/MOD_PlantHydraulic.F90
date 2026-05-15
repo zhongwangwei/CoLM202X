@@ -3,7 +3,7 @@ MODULE MOD_PlantHydraulic
 
 !-----------------------------------------------------------------------
    USE MOD_Precision
-   USE MOD_Namelist, only: DEF_RSS_SCHEME
+   USE MOD_Namelist, only: DEF_RSS_SCHEME, DEF_Interception_scheme
    USE MOD_SPMD_Task
    IMPLICIT NONE
    SAVE
@@ -14,6 +14,7 @@ MODULE MOD_PlantHydraulic
 
 ! PRIVATE MEMBER FUNCTIONS:
    PRIVATE :: calcstress_twoleaf
+   PRIVATE :: wet_coupling_area_twoleaf
 
 
 !-----------------------------------------------------------------------
@@ -666,6 +667,7 @@ CONTAINS
    real(r8) caw      ! latent heat conductance for air [m/s]
    real(r8) cgw      ! latent heat conductance for ground [m/s]
    real(r8) cfw      ! latent heat conductance for leaf [m/s]
+   real(r8) wet_cond_cfw
 
       !----------------------------------------------------------------------
       tprcor   = 44.6*273.16*psrf/1.013e5
@@ -684,7 +686,8 @@ CONTAINS
             cgw = 1. / (rd + rss)
          ENDIF
       ENDIF
-      cfw = (1.-delta*(1.-fwet)) * (laisun+laisha+sai)*gb_mol/cf + (1.-fwet)*delta*&
+      wet_cond_cfw = wet_coupling_conductance_twoleaf(laisun, laisha, sai, raw, gb_mol, cf)
+      cfw = (1.-delta*(1.-fwet)) * wet_cond_cfw + (1.-fwet)*delta*&
           (laisun/(1._r8/gb_mol+1._r8/gs_mol_sun)/cf+laisha/(1._r8/gb_mol+1._r8/gs_mol_sha)/cf)
       wtsqi = 1. / ( caw + cgw + cfw )
 
@@ -763,6 +766,7 @@ CONTAINS
    real(r8) cqi_wet            ! latent heat conductance for air, grd and wet leaf [-]
    real(r8) cqi_leaf           ! (wtaq0 + wtgq0)*qsatl - wtaq0*qm - wtgq0*qg [m/s]
    real(r8) A1,B1,C1,A2,B2,C2  ! in binary quadratic equations
+   real(r8) wet_cond_cfw
 
       !----------------------------------------------------------------------
       IF(qflx_sun .gt. 0 .or. qflx_sha .gt. 0)THEN
@@ -782,7 +786,8 @@ CONTAINS
                cgw = 1. / (rd + rss)
             ENDIF
          ENDIF
-         cwet     = (1.-delta*(1.-fwet)) * (laisun + laisha + sai) * gb_mol / cf
+         wet_cond_cfw = wet_coupling_conductance_twoleaf(laisun, laisha, sai, raw, gb_mol, cf)
+         cwet     = (1.-delta*(1.-fwet)) * wet_cond_cfw
          cqi_wet  = caw + cgw + cwet
          cqi_leaf = caw * (qsatl - qm) + cgw * (qsatl - qg)
 
@@ -809,6 +814,71 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE getqflx_qflx2gs_twoleaf
+
+   FUNCTION wet_coupling_area_twoleaf(laisun, laisha, sai) RESULT(wet_area)
+!-----------------------------------------------------------------------
+! !DESCRIPTION:
+!  Scheme-specific wet-canopy coupling area used inside the PHS qaf solve.
+!  This mirrors the outer LeafTemperature wet-area semantics so the PHS
+!  internal canopy-air humidity coupling stays consistent with the
+!  thermal wet-canopy branch.
+!-----------------------------------------------------------------------
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: laisun
+   real(r8), intent(in) :: laisha
+   real(r8), intent(in) :: sai
+   real(r8)             :: wet_area
+   real(r8)             :: lai
+   real(r8)             :: lsai
+
+      lai = max(laisun + laisha, 0._r8)
+      lsai = max(lai + sai, 0._r8)
+
+      SELECT CASE (DEF_Interception_scheme)
+      CASE (4)
+         wet_area = min(6._r8, lsai)
+      CASE (5)
+         wet_area = min(1._r8, lai)
+      CASE (6)
+         wet_area = 1._r8
+      CASE (7)
+         wet_area = 1._r8
+      CASE DEFAULT
+         wet_area = lsai
+      END SELECT
+
+   END FUNCTION wet_coupling_area_twoleaf
+
+   FUNCTION wet_coupling_conductance_twoleaf(laisun, laisha, sai, raw, gb_mol, cf) RESULT(wet_cond)
+!-----------------------------------------------------------------------
+! !DESCRIPTION:
+!  Scheme-specific wet-canopy conductance used inside the PHS qaf solve.
+!  JULES wet-canopy exchange is aerodynamic/bulk-like, so use 1/raw
+!  instead of the leaf-boundary gb_mol/cf scaling used by the big-leaf
+!  schemes.
+!-----------------------------------------------------------------------
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: laisun
+   real(r8), intent(in) :: laisha
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: raw
+   real(r8), intent(in) :: gb_mol
+   real(r8), intent(in) :: cf
+   real(r8)             :: wet_cond
+   real(r8)             :: wet_area
+
+      wet_area = wet_coupling_area_twoleaf(laisun, laisha, sai)
+
+      SELECT CASE (DEF_Interception_scheme)
+      CASE (7)
+         wet_cond = 1._r8 / max(raw, 1.e-10_r8)
+      CASE DEFAULT
+         wet_cond = wet_area * gb_mol / cf
+      END SELECT
+
+   END FUNCTION wet_coupling_conductance_twoleaf
 
    SUBROUTINE getrootqflx_x2qe(nl_soil,smp,x_root_top,z_soisno,krad,kax,qeroot,dqeroot)
 

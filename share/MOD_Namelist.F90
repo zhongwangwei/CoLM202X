@@ -238,6 +238,49 @@ MODULE MOD_Namelist
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
    integer :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES; 8:CoLM202x
+   ! MATSIRO canopy water capacity scaling (applied consistently to both
+   ! the fwet denominator in MOD_LeafTemperature{,PC} and the interception
+   ! satcap in MOD_LeafInterception so canopy water balance stays internally
+   ! self-consistent). Upstream MATSIRO value is cnw_wcmax = 0.2 mm/LAI,
+   ! i.e. SCALE = 1.0 (default, upstream-faithful). Larger values enlarge
+   ! satcap and act as an alternative Ec-damping knob for high-LAI tropical
+   ! forest runs.
+   real(r8) :: DEF_MATSIRO_CWCAP_SCALE = 1.0_r8  ! multiplies MATSIRO cwcap = 0.2*LAI [mm]
+   ! VIC canopy rain storage scaling. Upstream VIC uses Wdmax = 0.1 mm/LAI,
+   ! i.e. SCALE = 1.0 (default, upstream-faithful). Larger values enlarge
+   ! Wdmax consistently in interception and fwet helpers as an alternative
+   ! Ec-damping knob.
+   real(r8) :: DEF_VIC_WDMAX_SCALE = 1.0_r8  ! multiplies VIC Wdmax = 0.1*LAI [mm]
+
+   ! CLM4-style free-throughfall pre-filter for VIC/MATSIRO/JULES/NoahMP
+   ! interception. When set to a non-negative value (DEFAULT: 0.25, ACTIVE)
+   ! a Lawrence-2007 interception coefficient
+   !    fpi_pre = alpha * (1 - exp(-0.5*LSAI))
+   ! is applied IN FRONT of each scheme's own canopy logic: only fpi_pre
+   ! of the incoming precipitation reaches the canopy pool, the remainder
+   ! bypasses directly to pg_rain / pg_snow (direct throughfall). The
+   ! default 0.25 reproduces the CLM4/CoLM2014 family cap (Lawrence et
+   ! al. 2007) and closes the wet-canopy Ec over-estimation seen in
+   ! VIC/MATSIRO/JULES/NoahMP when embedded in CoLM's double-source
+   ! flux framework.
+   !
+   ! BREAKING CHANGE vs. pre-2026-04 CoLM202X releases: these caps are
+   ! active by default and will alter Ec/ET partitioning in VIC/MATSIRO/
+   ! JULES/NoahMP runs. To reproduce legacy upstream-faithful behaviour,
+   ! set the corresponding namelist value to a NEGATIVE number; then
+   ! that phase's pre-filter is disabled and the scheme runs bit-for-bit
+   ! as before. Rain and snow are independent, so one can keep the rain
+   ! cap while disabling the snow cap (or vice versa) — useful for
+   ! preserving boreal snow-interception physics while still fixing
+   ! Amazon-style tropical rain-canopy Ec inflation.
+   real(r8) :: DEF_VIC_ALPHA_RAIN     = 0.25_r8
+   real(r8) :: DEF_MATSIRO_ALPHA_RAIN = 0.25_r8
+   real(r8) :: DEF_JULES_ALPHA_RAIN   = 0.25_r8
+   real(r8) :: DEF_NOAHMP_ALPHA_RAIN  = 0.25_r8
+   real(r8) :: DEF_VIC_ALPHA_SNOW     = 0.25_r8
+   real(r8) :: DEF_MATSIRO_ALPHA_SNOW = 0.25_r8
+   real(r8) :: DEF_JULES_ALPHA_SNOW   = 0.25_r8
+   real(r8) :: DEF_NOAHMP_ALPHA_SNOW  = 0.25_r8
 
    ! ----- SOIL parameters and supercool water setting ------
    integer :: DEF_THERMAL_CONDUCTIVITY_SCHEME = 4  ! Options for soil thermal conductivity schemes
@@ -340,14 +383,31 @@ MODULE MOD_Namelist
    logical  :: DEF_USE_BIFURCATION     = .false.
 
    ! ----- tracer module -----
-   logical  :: DEF_USE_TRACER          = .false.
+   ! DEF_USE_TRACER has been removed: TRACER is now a compile-time switch
+   ! controlled by `#define TRACER` in include/define.h. The fine-grained
+   ! tracer options below remain runtime-controlled.
+   logical  :: DEF_TRACER_USE_FRACTIONATION = .false.
+   ! Effective NSS leaf-water storage [mm water per unit LAI].
+   ! IsoLESC ET1 uses about 120-150 g m-2 leaf, i.e. 0.12-0.15 mm/LAI.
+   ! Keep this tunable because it directly controls transpiration isotope
+   ! storage time scale and cold-start spin-up.
+   real(r8) :: DEF_TRACER_NSS_LEAF_WATER_PER_LAI = 0.12_r8
+   ! Effective leaf-water path length for the Péclet model [m].
+   ! This is a tunable canopy-scale length, not IsoLESC's empirical Lpel constant.
+   real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
+   real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
    integer  :: DEF_TRACER_NUM          = 2
    character(len=256) :: DEF_TRACER_NAMES     = "H2_18O,HDO"
    character(len=256) :: DEF_TRACER_TYPES     = "isotope,isotope"
    character(len=256) :: DEF_TRACER_MRAT      = "20.0,19.0"
    character(len=256) :: DEF_TRACER_REF_RATIO = "2.0052e-3,1.5576e-4"
    character(len=256) :: DEF_TRACER_INIT_DELTA = "-10.0,-70.0"
-
+   ! Optional per-tracer first-order loss rate [s-1] for category=reactive.
+   ! Zero keeps reactive tracers as transport-only placeholders.
+   character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = "0.0,0.0"
+   logical  :: DEF_TRACER_USE_SOIL_INIT = .false.
+   character(len=256) :: DEF_TRACER_SOIL_INIT_FILE = 'null'
+   character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = 'soilwat_O18,soilwat_H2'
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
    real(r8) :: DEF_SED_LAMBDA          = 0.4
@@ -399,6 +459,23 @@ MODULE MOD_Namelist
    logical :: DEF_CheckEquilibrium      = .false.
 
    logical :: DEF_Output_2mWMO          = .false. ! 2m WMO temperature
+
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+! ----- Methane model sub-section ------
+! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#if (defined TRACER) && (defined BGC)
+   logical :: DEF_METHANE_only_wetland = .false.
+   logical :: DEF_USE_METHANE_para = .false.
+   character(len=256) :: DEF_file_METHANE_para = 'null'
+
+   ! Options for wetland finundation scheme
+   ! 0: Use CoLM original finundation scheme - all wetland is sat, soil is unsat
+   ! 1: Use CoLM revised finundation scheme - all wetland and soil is unsat
+   ! 2: Use CoLM runoff scheme frcsat
+   ! 3: Use CLM5.0 prognostic h2osfc (microtopography-based;
+   !    f_h2osfc = 0.5*(1+erf(d/(sigma*sqrt(2)))) maintained by the hydrology module)
+   integer :: DEF_wetland_finundation_scheme = 3
+#endif
 
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ! ----- Part 12: forcing -----
@@ -465,6 +542,39 @@ MODULE MOD_Namelist
       character(len=256) :: CBL_tintalgo       = 'linear'
       integer            :: CBL_dtime          = 21600
       integer            :: CBL_offset         = 10800
+
+      character(len=256) :: precipitation_O18_fprefix = 'null'
+      character(len=256) :: precipitation_O18_vname   = 'null'
+      character(len=256) :: precipitation_O18_tintalgo = 'linear'
+      integer            :: precipitation_O18_dtime   = 21600
+      integer            :: precipitation_O18_offset  = 10800
+      character(len=256) :: precipitation_H2_fprefix  = 'null'
+      character(len=256) :: precipitation_H2_vname    = 'null'
+      character(len=256) :: precipitation_H2_tintalgo = 'linear'
+      integer            :: precipitation_H2_dtime    = 21600
+      integer            :: precipitation_H2_offset   = 10800
+      character(len=256) :: water_vapor_O18_fprefix   = 'null'
+      character(len=256) :: water_vapor_O18_vname     = 'null'
+      character(len=256) :: water_vapor_O18_tintalgo  = 'linear'
+      integer            :: water_vapor_O18_dtime     = 21600
+      integer            :: water_vapor_O18_offset    = 10800
+      character(len=256) :: water_vapor_H2_fprefix    = 'null'
+      character(len=256) :: water_vapor_H2_vname      = 'null'
+      character(len=256) :: water_vapor_H2_tintalgo   = 'linear'
+      integer            :: water_vapor_H2_dtime      = 21600
+      integer            :: water_vapor_H2_offset     = 10800
+      character(len=1024) :: tracer_precip_fprefix    = 'null'
+      character(len=1024) :: tracer_precip_vname      = 'null'
+      character(len=1024) :: tracer_precip_tintalgo   = 'linear'
+      character(len=1024) :: tracer_precip_dtime      = '21600'
+      character(len=1024) :: tracer_precip_offset     = '10800'
+      character(len=1024) :: tracer_precip_input_mode = 'value'
+      character(len=1024) :: tracer_vapor_fprefix     = 'null'
+      character(len=1024) :: tracer_vapor_vname       = 'null'
+      character(len=1024) :: tracer_vapor_tintalgo    = 'linear'
+      character(len=1024) :: tracer_vapor_dtime       = '21600'
+      character(len=1024) :: tracer_vapor_offset      = '10800'
+      character(len=1024) :: tracer_vapor_input_mode  = 'value'
    END type nl_forcing_type
 
    type (nl_forcing_type) :: DEF_forcing
@@ -1106,6 +1216,16 @@ CONTAINS
       DEF_LAI_MONTHLY,                        & !add by zhongwang wei @ sysu 2021/12/23
       DEF_NDEP_FREQUENCY,                     & !add by Fang Shang    @ pku  2023/08
       DEF_Interception_scheme,                & !add by zhongwang wei @ sysu 2022/05/23
+      DEF_MATSIRO_CWCAP_SCALE,               &
+      DEF_VIC_WDMAX_SCALE,                   &
+      DEF_VIC_ALPHA_RAIN,                     &
+      DEF_MATSIRO_ALPHA_RAIN,                 &
+      DEF_JULES_ALPHA_RAIN,                   &
+      DEF_NOAHMP_ALPHA_RAIN,                  &
+      DEF_VIC_ALPHA_SNOW,                     &
+      DEF_MATSIRO_ALPHA_SNOW,                 &
+      DEF_JULES_ALPHA_SNOW,                   &
+      DEF_NOAHMP_ALPHA_SNOW,                  &
       DEF_SSP,                                & !add by zhongwang wei @ sysu 2023/02/07
 
       DEF_LAI_START_YEAR,                     &
@@ -1167,6 +1287,14 @@ CONTAINS
       DEF_CheckEquilibrium,                   & !add by Shupeng Zhang @ sysu 2024/11/26
       DEF_Output_2mWMO,                       &
 
+#if (defined TRACER) && (defined BGC)
+      DEF_METHANE_only_wetland,               & ! Methane reactive tracer option
+      DEF_USE_METHANE_para,                   & ! Methane reactive tracer option
+      DEF_file_METHANE_para,                  & ! Methane parameter namelist
+      DEF_wetland_finundation_scheme,         & ! Methane inundation scheme
+#endif
+
+
       DEF_LANDONLY,                           &
       DEF_USE_DOMINANT_PATCHTYPE,             &
       DEF_USE_VariablySaturatedFlow,          &
@@ -1182,13 +1310,20 @@ CONTAINS
 
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
-      DEF_USE_TRACER,                         &
+      DEF_TRACER_USE_FRACTIONATION,           &
+      DEF_TRACER_NSS_LEAF_WATER_PER_LAI,      &
+      DEF_TRACER_NSS_LEAF_PATH_LENGTH,        &
+      DEF_TRACER_NSS_LEAF_RB,                 &
       DEF_TRACER_NUM,                         &
       DEF_TRACER_NAMES,                       &
       DEF_TRACER_TYPES,                       &
       DEF_TRACER_MRAT,                        &
       DEF_TRACER_REF_RATIO,                   &
       DEF_TRACER_INIT_DELTA,                  &
+      DEF_TRACER_REACTIVE_DECAY_RATE,         &
+      DEF_TRACER_USE_SOIL_INIT,               &
+      DEF_TRACER_SOIL_INIT_FILE,              &
+      DEF_TRACER_SOIL_INIT_VARS,              &
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
       DEF_SED_LYRDPH,                         &
@@ -1763,6 +1898,16 @@ CONTAINS
       CALL mpi_bcast (DEF_LAI_MONTHLY                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_NDEP_FREQUENCY                     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Interception_scheme                ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MATSIRO_CWCAP_SCALE               ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_VIC_WDMAX_SCALE                   ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_VIC_ALPHA_RAIN                    ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MATSIRO_ALPHA_RAIN                ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_JULES_ALPHA_RAIN                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_NOAHMP_ALPHA_RAIN                 ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_VIC_ALPHA_SNOW                    ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MATSIRO_ALPHA_SNOW                ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_JULES_ALPHA_SNOW                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_NOAHMP_ALPHA_SNOW                 ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SSP                                ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_CBL_HEIGHT                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1782,6 +1927,14 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_Dynamic_Wetland                ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_CheckEquilibrium                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+
+#if (defined TRACER) && (defined BGC)
+      ! Broadcast methane namelist scalars to all ranks
+      CALL mpi_bcast (DEF_METHANE_only_wetland               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_METHANE_para                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_METHANE_para                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+#endif
 
       CALL mpi_bcast (DEF_LANDONLY                           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_DOMINANT_PATCHTYPE             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -1842,13 +1995,26 @@ CONTAINS
 
       CALL mpi_bcast (DEF_USE_LEVEE                            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_USE_TRACER                         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_USE_FRACTIONATION           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_WATER_PER_LAI      ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH        ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                 ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NAMES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_TYPES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_MRAT                        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_REF_RATIO                   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_INIT_DELTA                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REACTIVE_DECAY_RATE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_USE_SOIL_INIT               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_INIT_FILE              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_INIT_VARS              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+#if (defined TRACER) && (defined BGC)
+      CALL mpi_bcast (DEF_METHANE_only_wetland               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_METHANE_para                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_METHANE_para                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+#endif
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
@@ -1927,6 +2093,38 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%CBL_tintalgo               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset                 ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_fprefix  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_vname    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_tintalgo ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_dtime    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_offset   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_fprefix   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_vname     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_tintalgo  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_dtime     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_offset    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_fprefix    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_vname      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_tintalgo   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_dtime      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_offset     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_fprefix     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_vname       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_tintalgo    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_dtime       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_offset      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_fprefix      ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_vname        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_tintalgo     ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_dtime        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_offset       ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_input_mode   ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_fprefix       ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_vname         ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_tintalgo      ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_dtime         ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_offset        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_input_mode    ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 #endif
 
       CALL sync_hist_vars (set_defaults = .true.)

@@ -101,9 +101,29 @@ PROGRAM CoLM
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
    USE MOD_ParameterOptimization
+#ifdef TRACER
    USE MOD_Tracer_Main, only: land_tracer_init => tracer_init, &
                               land_tracer_final => tracer_final
+#endif
+#ifdef TRACER
    USE MOD_Tracer_Defs, only: tracer_defs_init
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &
+                                 tracer_forcing_reset, tracer_forcing_final
+#endif
+
+#if (defined TRACER) && (defined BGC)
+   ! Methane reactive tracer — registry, state, AccFlux, namelist reader
+   USE MOD_Tracer_Methane_Registry, only: methane_registry_init, igas_ch4
+   USE MOD_Tracer_Methane_State,    only: allocate_methane_state, deallocate_methane_state, read_methane_restart, &
+                                      initialize_methane_lake_soilc_from_surface
+   USE MOD_Tracer_Methane_AccFlux,  only: allocate_methane_acc_fluxes, deallocate_methane_acc_fluxes
+   USE MOD_Tracer_Methane_Microbes, only: allocate_methane_microbes_state, deallocate_methane_microbes_state, &
+                                      read_methane_microbes_restart
+   USE MOD_Tracer_Methane_Const,    only: read_methane_namelist, DEF_METHANE
+   USE MOD_Namelist,         only: DEF_USE_METHANE_para, DEF_file_METHANE_para
+#endif
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -320,35 +340,89 @@ PROGRAM CoLM
       CALL allocate_TimeVariables  ()
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
+#if (defined TRACER) && (defined BGC)
+      ! Defer methane_state allocation + namelist read until
+      ! tracer_defs_init has been called (next block). We allocate state
+      ! conditionally on igas_ch4 > 0 to avoid memory cost when CH4 is
+      ! absent from the namelist. See post-tracer_defs_init block below.
+#endif
+
       ! Initialize tracer system (cold-start from water state)
       ! Requires VariablySaturatedFlow (WATER_VSF outputs qlayer for flux tracking)
-      IF (DEF_USE_TRACER .and. .not. DEF_USE_VariablySaturatedFlow) THEN
-         IF (p_is_master) WRITE(*,*) 'ERROR: DEF_USE_TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
+#ifdef TRACER
+      IF (.not. DEF_USE_VariablySaturatedFlow) THEN
+         IF (p_is_master) WRITE(*,*) 'ERROR: #define TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
          CALL CoLM_stop()
-      ENDIF
+      END IF
+#endif
       ! Tracer definitions must be initialised on ALL ranks (including IO)
       ! because ncio_write_vector uses ntracers for MPI_Gatherv counts.
-      IF (DEF_USE_TRACER) CALL tracer_defs_init()
-
-      IF (DEF_USE_TRACER .and. numpatch > 0 .and. allocated(ldew_rain)) THEN
+#ifdef TRACER
+      CALL tracer_defs_init()
+#if (defined BGC)
+      ! Resolve igas_ch4 / igas_o2 / igas_co2 from the registered tracer
+      ! list. methane_registry_init is a no-op when none of CH4/O2/CO2 appear
+      ! in DEF_TRACER_NAMES.
+      CALL methane_registry_init()
+      IF (igas_ch4 > 0) THEN
+         IF (DEF_USE_METHANE_para) THEN
+            CALL read_methane_namelist (DEF_file_METHANE_para)
+         END IF
+         CALL allocate_methane_state    (numpatch)
+         CALL allocate_methane_microbes_state (numpatch)
+         CALL allocate_methane_acc_fluxes (numpatch)
          write(cyear_restart,'(i4.4)') lc_year
          write(cdate_restart,'(i4.4,"-",i3.3,"-",i5.5)') jdate(1), jdate(2), jdate(3)
-         file_restart_trc = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)//'_restart_'//trim(cdate_restart)//'_lc'//trim(cyear_restart)//'.nc'
+         file_restart_trc = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)// &
+                            '_restart_'//trim(cdate_restart)//'_lc'//trim(cyear_restart)//'.nc'
+         CALL read_methane_restart (file_restart_trc)
+         CALL read_methane_microbes_restart (file_restart_trc)
+         CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, DEF_METHANE%allowlakeprod)
+      ENDIF
+#endif
+#endif
+
+#ifdef TRACER
+         BLOCK
+         real(r8), allocatable :: tracer_dummy_patch(:)
+         real(r8), allocatable :: tracer_dummy_soisno(:,:)
+
+         write(cyear_restart,'(i4.4)') lc_year
+         write(cdate_restart,'(i4.4,"-",i3.3,"-",i5.5)') jdate(1), jdate(2), jdate(3)
+         file_restart_trc = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)// &
+                            '_restart_'//trim(cdate_restart)//'_lc'//trim(cyear_restart)//'.nc'
          ! Pass waterstorage on cold-start so trc_waterstorage is
          ! primed under the Phase-1 invariant. Without CROP/
          ! DEF_USE_IRRIGATION the array is unallocated and the init
          ! path keeps trc_waterstorage = 0 (no reservoir in the
          ! conservation sum).
-         IF (DEF_USE_IRRIGATION .and. allocated(waterstorage)) THEN
-            CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
-               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
-               wa, wdsrf, wetwat, scv, file_restart_trc, waterstorage)
+         IF (allocated(ldew_rain)) THEN
+            IF (DEF_USE_IRRIGATION .and. allocated(waterstorage)) THEN
+               CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
+                  ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+                  wa, wdsrf, wetwat, scv, file_restart_trc, waterstorage, &
+                  init_month=s_month)
+            ELSE
+               CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
+                  ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+                  wa, wdsrf, wetwat, scv, file_restart_trc, init_month=s_month)
+            ENDIF
          ELSE
-            CALL land_tracer_init (numpatch, maxsnl, nl_soil, &
-               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
-               wa, wdsrf, wetwat, scv, file_restart_trc)
+            ! Vector restart I/O is collective over IO/worker groups.
+            ! Non-worker ranks do not own patch water arrays, but they must
+            ! still enter land_tracer_init so ncio_read_vector can complete.
+            allocate(tracer_dummy_patch(0))
+            allocate(tracer_dummy_soisno(maxsnl+1:nl_soil, 0))
+            CALL land_tracer_init (0, maxsnl, nl_soil, &
+               tracer_dummy_patch, tracer_dummy_patch, &
+               tracer_dummy_soisno, tracer_dummy_soisno, &
+               tracer_dummy_patch, tracer_dummy_patch, &
+               tracer_dummy_patch, tracer_dummy_patch, file_restart_trc, &
+               init_month=s_month)
+            deallocate(tracer_dummy_patch, tracer_dummy_soisno)
          ENDIF
-      ENDIF
+         END BLOCK
+#endif
 
       ! Read in SNICAR optical and aging parameters
       IF (DEF_USE_SNICAR) THEN
@@ -373,6 +447,9 @@ PROGRAM CoLM
       ! Initialize meteorological forcing data module
       CALL allocate_1D_Forcing ()
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
+#ifdef TRACER
+      CALL tracer_forcing_init (gforc, numpatch)
+#endif
       CALL allocate_2D_Forcing (gforc)
 
       ! Initialize history data module
@@ -468,6 +545,9 @@ PROGRAM CoLM
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing, is_spinup)
+#ifdef TRACER
+         CALL read_tracer_forcing (jdate, dir_forcing)
+#endif
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -526,7 +606,7 @@ PROGRAM CoLM
          ! Call CoLM driver
          ! ----------------------------------------------------------------------
          IF (p_is_worker) THEN
-            CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
+            CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag,istep)
          ENDIF
 
 #if (defined CatchLateralFlow)
@@ -568,15 +648,22 @@ PROGRAM CoLM
             CALL deallocate_1D_Forcing
             CALL deallocate_1D_Fluxes
 
+#ifdef TRACER
+            CALL tracer_forcing_final ()
+#endif
             CALL forcing_final ()
             CALL hist_final    ()
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
 
+
             ! Allocate Forcing and Fluxes variable of next year
             CALL allocate_1D_Forcing
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
+#ifdef TRACER
+            CALL tracer_forcing_init (gforc, numpatch)
+#endif
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
             CALL allocate_1D_Fluxes
@@ -683,6 +770,9 @@ PROGRAM CoLM
                   itstamp = ststamp
                   CALL adj2begin(jdate)
                   CALL forcing_reset ()
+#ifdef TRACER
+                  CALL tracer_forcing_reset ()
+#endif
                ELSE
                   is_spinup = .false.
                ENDIF
@@ -699,7 +789,18 @@ PROGRAM CoLM
 
       ENDDO TIMELOOP
 
-      IF (DEF_USE_TRACER) CALL land_tracer_final ()
+#ifdef TRACER
+         CALL tracer_forcing_final ()
+         CALL land_tracer_final ()
+#endif
+
+#if (defined TRACER) && (defined BGC)
+      IF (igas_ch4 > 0) THEN
+         CALL deallocate_methane_acc_fluxes ()
+         CALL deallocate_methane_microbes_state ()
+         CALL deallocate_methane_state      ()
+      ENDIF
+#endif
 
       CALL deallocate_TimeInvariants ()
       CALL deallocate_TimeVariables  ()

@@ -75,12 +75,17 @@ CONTAINS
                      ENDIF
                   ENDDO
 
+                  ! Always allocate (possibly zero-length) so that the
+                  ! allocatable descriptors passed to mpi_gatherv below are
+                  ! valid even when this worker owns no elements in (iblk,jblk).
+                  ! Without this, Intel Fortran raises runtime error 408
+                  ! ("fetch from allocatable ... not allocated") at the
+                  ! collective call even if count == 0.
+                  allocate (elmindx (nelm))
+                  allocate (npxlall (nelm))
+                  allocate (elmpixels (2,totlen))
+
                   IF (nelm > 0) THEN
-
-                     allocate (elmindx (nelm))
-                     allocate (npxlall (nelm))
-                     allocate (elmpixels (2,totlen))
-
                      je = 0
                      ndsp = 0
                      DO ie = 1, numelm

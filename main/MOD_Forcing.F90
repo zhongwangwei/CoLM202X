@@ -1382,6 +1382,7 @@ CONTAINS
       year = mtstamp%year
       day  = mtstamp%day
       sec  = mtstamp%sec
+      CALL julian2monthday(year, day, month, mday)
 
       IF (trim(DEF_forcing%dataset) == 'POINT') THEN
 
@@ -1457,6 +1458,7 @@ CONTAINS
          IF ( .not. leapyear .and. isleapyear(year) .and. day>59 ) THEN
             day = day - 1
          ENDIF
+         CALL julian2monthday(year, day, month, mday)
 
          ! get record time index
          sec = 86400*(day-1) + sec
@@ -1636,6 +1638,7 @@ CONTAINS
       year = tstamp_UB(var_i)%year
       day  = tstamp_UB(var_i)%day
       sec  = tstamp_UB(var_i)%sec
+      CALL julian2monthday(year, day, month, mday)
 
       IF ( trim(groupby) == 'year' ) THEN
 
@@ -1656,6 +1659,7 @@ CONTAINS
          IF ( .not. leapyear .and. isleapyear(year) .and. day>59 ) THEN
             day = day - 1
          ENDIF
+         CALL julian2monthday(year, day, month, mday)
 
          ! set record index
          sec = 86400*(day-1) + sec

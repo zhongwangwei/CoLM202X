@@ -42,15 +42,32 @@
    DEF_forcing%timelog  = 'instant' 'instant' 'instant' 'forward' 'instant' 'instant' 'forward' 'forward'
    DEF_forcing%tintalgo = 'linear' 'linear' 'linear' 'nearest' 'linear' 'linear' 'coszen' 'linear'
 
+   ! Generic tracer forcing entries. IsoGSM isotope fields are normalized
+   ! by SMOW (raw = water * R/Rstd), so the tracer reader converts them
+   ! with normalized_over_total -> R = raw/total*Rstd.
+   DEF_forcing%tracer_precip_fprefix    = 'IsoGSM_prate,IsoGSM_prate'
+   DEF_forcing%tracer_precip_vname      = 'prate1sfc,prate2sfc'
+   DEF_forcing%tracer_precip_tintalgo   = 'nearest,nearest'
+   DEF_forcing%tracer_precip_dtime      = '21600,21600'
+   DEF_forcing%tracer_precip_offset     = '10800,10800'
+   DEF_forcing%tracer_precip_input_mode = 'normalized_over_total,normalized_over_total'
+
+   DEF_forcing%tracer_vapor_fprefix     = 'IsoGSM_Q,IsoGSM_Q'
+   DEF_forcing%tracer_vapor_vname       = 'spfh12m,spfh22m'
+   DEF_forcing%tracer_vapor_tintalgo    = 'linear,linear'
+   DEF_forcing%tracer_vapor_dtime       = '21600,21600'
+   DEF_forcing%tracer_vapor_offset      = '10800,10800'
+   DEF_forcing%tracer_vapor_input_mode  = 'normalized_over_total,normalized_over_total'
+
    DEF_forcing%precipitation_O18_fprefix        = 'IsoGSM_prate'
    DEF_forcing%precipitation_O18_vname          = 'prate1sfc'
-   DEF_forcing%precipitation_O18_tintalgo       = 'linear'
+   DEF_forcing%precipitation_O18_tintalgo       = 'nearest'
    DEF_forcing%precipitation_O18_dtime          = 21600
    DEF_forcing%precipitation_O18_offset         = 10800
 
    DEF_forcing%precipitation_H2_fprefix        = 'IsoGSM_prate'
    DEF_forcing%precipitation_H2_vname          = 'prate2sfc'
-   DEF_forcing%precipitation_H2_tintalgo       = 'linear'
+   DEF_forcing%precipitation_H2_tintalgo       = 'nearest'
    DEF_forcing%precipitation_H2_dtime          = 21600
    DEF_forcing%precipitation_H2_offset         = 10800
 

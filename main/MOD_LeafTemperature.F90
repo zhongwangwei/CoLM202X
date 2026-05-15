@@ -5,8 +5,8 @@ MODULE MOD_LeafTemperature
 !-----------------------------------------------------------------------
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
-                           DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
-                           DEF_VEG_SNOW
+                           DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_MATSIRO_CWCAP_SCALE, &
+                           DEF_VIC_WDMAX_SCALE, DEF_SPLIT_SOILSNOW, DEF_VEG_SNOW
    USE MOD_SPMD_Task
 
    IMPLICIT NONE
@@ -57,7 +57,8 @@ CONTAINS
 !End WUE stomata model parameter
               hpbl       ,&
               qintr_rain ,qintr_snow ,t_precip   ,lfevpl     ,hprl       ,dheatl     ,smp        ,&
-              hk         ,hksati     ,rootflux                                        )
+              hk         ,hksati     ,rootflux   ,canopy_phase_heat                  ,&
+              canopy_smelt_mass_out, canopy_frzc_mass_out)
 
 !=======================================================================
 ! !DESCRIPTION:
@@ -266,6 +267,23 @@ CONTAINS
         gssha,      &! stomata conductance of shaded leaf
         rootflux(1:nl_soil)  ! root water uptake from different layers
 
+   ! Canopy fusion heat flux imported from LEAF_interception [W/m^2].
+   ! Non-zero only for DEF_Interception_scheme in {4,5,6,7}: interception
+   ! runs the canopy rain<->snow phase change there, and the resulting
+   ! fusion heat is accounted here so the canopy energy residual (err)
+   ! stays near zero. Sign: +heats canopy (freeze), -cools canopy (melt).
+   real(r8), intent(in) :: canopy_phase_heat
+
+   ! Optional patch-level export of canopy phase-change
+   ! mass (mm of water-equivalent over deltim). qmelt drives ldew_snow→
+   ! ldew_rain at lines 1473-1480; qfrz drives ldew_rain→ldew_snow at
+   ! lines 1482-1489. THERMAL forwards these to MOD_Tracer_Evapo so it
+   ! can stop inferring the phase-change amount from the d_rain/d_snow
+   ! sign-pattern heuristic (which under-counts when canopy melt and
+   ! rain-pool evaporation coexist in one step).
+   real(r8), intent(out), optional :: canopy_smelt_mass_out
+   real(r8), intent(out), optional :: canopy_frzc_mass_out
+
    real(r8), intent(inout) :: &
         assimsun,   &! sunlit leaf assimilation rate [umol co2 /m**2/ s] [+]
         etrsun,     &! transpiration rate of sunlit leaf [mm/s]
@@ -407,7 +425,11 @@ CONTAINS
    real(r8) w, csoilcn, z0mg, cintsun(3), cintsha(3)
    real(r8) fevpl_bef, fevpl_noadj, dtl_noadj, htvpl, erre
    real(r8) qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
-   real(r8) tl_pre_phase   ! audit fix dheatl-phase: snapshot of tl before Niu (2004) pull
+   real(r8) tl_pre_phase   ! snapshot of tl before Niu (2004) pull
+   ! True when the active interception scheme owns
+   ! the canopy rain<->snow phase change (and exports the fusion heat
+   ! via canopy_phase_heat). Schemes 4/5/6/7 currently set this.
+   logical  phase_change_owned_by_interception
    real(r8) flux_deficit                    ! C4b: component-level evap deficit [mm]
    real(r8) phase_flux_deficit              ! Bug 3: unmet same-phase latent demand [mm/s]
 
@@ -426,13 +448,16 @@ CONTAINS
    real(r8) :: fraca_JULES_snow !JULES snow-only fraca using ldew_snow [-]
    real(r8) :: lai_perveg_JULES !per-veg LAI for DEF_VEG_SNOW coordinate fix [-]
    real(r8) :: wet_area    ! scheme-specific wet-canopy evaporating area [m2/m2]
-   real(r8) :: MaxInt_VIC  !VIC wet canopy capacity [mm] = 0.1*LAI (Wdmax)
+   real(r8) :: wet_area_cfw ! scheme-specific canopy area used in cfw [m2/m2]
+   real(r8) :: wet_cond    ! scheme-specific wet-canopy conductance [m/s]
+   real(r8) :: wet_cond_cfw ! scheme-specific wet conductance used in cfw [m/s]
+   real(r8) :: MaxInt_VIC  !VIC wet canopy capacity [mm] = 0.1*LAI*scale (Wdmax)
    real(r8) :: wetfrac_VIC !VIC (S/Wmax)^(2/3) [-]
    real(r8) :: ec_pot_VIC  !VIC potential wet-canopy evap [kg/m2/s]
    real(r8) :: f_VIC       !VIC supply-limit factor min(1, W/Ec_pot*dt) [-]
    real(r8) :: evp_weight  !Scheme-specific weight replacing (1-delta*(1-fwet)) [-]
    real(r8) :: dry_factor  !Scheme-specific (1 - wet fraction) for transpiration [-]
-   ! Audit fix H-WETFRAC: sigf floors used to convert grid-scale ldew to
+   ! sigf floors used to convert grid-scale ldew to
    ! per-vegetation before comparing with per-vegetation canopy capacity.
    real(r8) :: sigf_safe_VIC, sigf_safe_JULES
    real(r8) :: utop, ueff, ktop
@@ -522,7 +547,7 @@ CONTAINS
 ! 10/17/2017, yuan: z0m and displa with vertical profile solution
       IF (zd_opt == 3) THEN
 
-         CALL cal_z0_displa(lai+sai, htop, 1., z0mv, displa)
+         CALL cal_z0_displa(lai+sai, htop, 1._r8, z0mv, displa)
 
          ! NOTE: adjusted for small displa
          displasink = max(htop/2., displa)
@@ -732,17 +757,17 @@ CONTAINS
 
                IF (DEF_Interception_scheme == 6) THEN
                   sigf_safe_VIC = max(sigf, 0.01_r8)
-                  ! Audit fix VIC-vegsnow: MaxInt_VIC is per-veg; when
+                  ! MaxInt_VIC is per-veg; when
                   ! DEF_VEG_SNOW=T the incoming lai is already sigf-scaled
                   ! (CoLMMAIN.F90:2083), so divide back out to match the
                   ! ldew/sigf_safe_VIC coordinate on the numerator.
                   IF (DEF_VEG_SNOW) THEN
-                     MaxInt_VIC = max(0.1_r8 * lai / sigf_safe_VIC, 1.e-10_r8)
+                     MaxInt_VIC = max(0.1_r8 * lai * DEF_VIC_WDMAX_SCALE / sigf_safe_VIC, 1.e-10_r8)
                   ELSE
-                     MaxInt_VIC = max(0.1_r8 * lai, 1.e-10_r8)
+                     MaxInt_VIC = max(0.1_r8 * lai * DEF_VIC_WDMAX_SCALE, 1.e-10_r8)
                   ENDIF
                   wetfrac_VIC = min( ((ldew/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8), 1.0_r8 )
-                  wet_area    = effective_canopy_area(lai)
+                  wet_area    = 1._r8
                   ec_pot_VIC  = rhoair * wetfrac_VIC * wet_area/rb &
                               * max(0._r8, qsatl - qaf)
                   IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew > 0._r8) THEN
@@ -755,7 +780,7 @@ CONTAINS
                   ! Keep JULES wet-canopy suppression consistent between
                   ! the thermal Ec branch and the existing single-fwet PHS path.
                   sigf_safe_JULES = max(sigf, 0.01_r8)
-                  ! Audit fix J1 (DEF_VEG_SNOW coordinate): upstream makes
+                  ! DEF_VEG_SNOW coordinate: upstream makes
                   ! lai=tlai*sigf when DEF_VEG_SNOW=T (CoLMMAIN.F90:2083/2099),
                   ! but the per-veg catch_JULES / fraca_JULES coordinate
                   ! expects un-scaled LAI. Divide back out for the catch
@@ -765,7 +790,7 @@ CONTAINS
                   ELSE
                      lai_perveg_JULES = lai
                   ENDIF
-                  ! Audit fix J-catch: rain capacity (0.5+0.05*LAI ≈ 1 mm)
+                  ! Rain capacity (0.5+0.05*LAI ≈ 1 mm)
                   ! used to be applied to TOTAL ldew (rain+snow). With
                   ! snow capacity 22× larger (4.4*LAI), fraca_JULES would
                   ! hit 1 too easily when ldew_snow is large, inflating Ec
@@ -773,7 +798,7 @@ CONTAINS
                   ! combine as independent probabilities.
                   catch_JULES      = 0.5_r8 + 0.05_r8 * lai_perveg_JULES
                   catch_JULES_snow = 4.4_r8 * lai_perveg_JULES
-                  epot_JULES  = rhoair * lai / rb * (qsatl - qaf)
+                  epot_JULES  = rhoair / max(raw, 1.e-10_r8) * (qsatl - qaf)
                   IF (epot_JULES > 0._r8) THEN
                      epdt_JULES = epot_JULES * deltim
                      IF (ldew_rain > 0._r8 .AND. (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
@@ -873,20 +898,28 @@ CONTAINS
 
          ! -----------------------------------------------------------
          ! Compute scheme-specific evp_weight / dry_factor BEFORE etr.
-         ! Keep cfw on the legacy single-fwet form so it stays consistent
-         ! with the untouched PlantHydraulicStress_twoleaf internals.
+         ! cfw follows the same scheme-specific wet-area semantics used by
+         ! PlantHydraulicStress_twoleaf so the outer qaf solve stays aligned.
          ! -----------------------------------------------------------
+         wet_area_cfw = lai + sai
+         wet_cond_cfw = wet_area_cfw / rb
+
          IF (DEF_Interception_scheme == 6) THEN
-            wet_area = effective_canopy_area(lai)
+            ! Upstream VIC wet-canopy evaporation is a bulk Penman flux:
+            ! no extra LAI area multiplier beyond Wdmax = 0.1*LAI*scale.
+            wet_area = 1._r8
+            wet_area_cfw = wet_area
+            wet_cond = wet_area / rb
+            wet_cond_cfw = wet_cond
             IF (DEF_USE_PLANTHYDRAULICS) THEN
                evp_weight = fwet
             ELSE
                sigf_safe_VIC = max(sigf, 0.01_r8)
-               ! Audit fix VIC-vegsnow: see PHS branch above for rationale.
+               ! See VIC branch above for rationale.
                IF (DEF_VEG_SNOW) THEN
-                  MaxInt_VIC = max(0.1_r8 * lai / sigf_safe_VIC, 1.e-10_r8)
+                  MaxInt_VIC = max(0.1_r8 * lai * DEF_VIC_WDMAX_SCALE / sigf_safe_VIC, 1.e-10_r8)
                ELSE
-                  MaxInt_VIC = max(0.1_r8 * lai, 1.e-10_r8)
+                  MaxInt_VIC = max(0.1_r8 * lai * DEF_VIC_WDMAX_SCALE, 1.e-10_r8)
                ENDIF
                wetfrac_VIC = min( ((ldew/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8), 1.0_r8 )
                ec_pot_VIC  = rhoair * wetfrac_VIC * wet_area / rb &
@@ -902,12 +935,17 @@ CONTAINS
             dry_factor = 1._r8 - fwet                    ! PHS-compatible
 
          ELSEIF (DEF_Interception_scheme == 7) THEN
-            wet_area = effective_canopy_area(lai)
+            ! Upstream JULES uses bulk fraca/ecan with aerodynamic exchange,
+            ! not a leaf-boundary wet conductance based on rb.
+            wet_area = 1._r8
+            wet_area_cfw = wet_area
+            wet_cond = 1._r8 / max(raw, 1.e-10_r8)
+            wet_cond_cfw = wet_cond
             IF (DEF_USE_PLANTHYDRAULICS) THEN
                evp_weight = fwet
             ELSE
                sigf_safe_JULES = max(sigf, 0.01_r8)
-               ! Audit fix J1 + J-catch: see PHS branch above for rationale.
+               ! See PHS branch above for rationale.
                IF (DEF_VEG_SNOW) THEN
                   lai_perveg_JULES = lai / sigf_safe_JULES
                ELSE
@@ -915,10 +953,9 @@ CONTAINS
                ENDIF
                catch_JULES      = 0.5_r8 + 0.05_r8 * lai_perveg_JULES
                catch_JULES_snow = 4.4_r8 * lai_perveg_JULES
-               ! Audit fix VIC-qaf (applied symmetrically to JULES):
-               ! use canopy-air qaf, not atmospheric qm, so single-layer
-               ! and PC versions (MOD_LeafTemperaturePC.F90:1580) agree.
-               epot_JULES  = rhoair * lai / rb * (qsatl - qaf)
+               ! Use canopy-air qaf, not atmospheric qm (applied symmetrically to JULES),
+               ! so single-layer and PC versions (MOD_LeafTemperaturePC.F90:1580) agree.
+               epot_JULES  = rhoair * wet_cond * (qsatl - qaf)
                IF (epot_JULES > 0._r8) THEN
                   epdt_JULES = epot_JULES * deltim
                   IF (ldew_rain > 0._r8 .AND. (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
@@ -942,27 +979,36 @@ CONTAINS
             ENDIF
             dry_factor = 1._r8 - fwet                    ! JULES: Ec/Et independent
 
-         ELSEIF (DEF_Interception_scheme == 5) THEN
-            ! MATSIRO bulk-cdvc alignment. Original MATSIRO (matsiro.f90:2903)
-            ! computes canopy Ec as  ρ · fcwet · cdvc_bulk · Δq  with NO LAI
-            ! multiplier. Use min(1, LAI+SAI) — the same fctint form
-            ! MATSIRO itself uses at matsiro.f90:3355 — so CoLM's
-            ! per-leaf × LAI framework reduces to the bulk behaviour
-            ! expected by MATSIRO (at LAI≥1, wet_area saturates at 1).
+         ELSEIF (DEF_Interception_scheme == 4) THEN
+            ! NoahMP upstream uses CanopyWetFrac * min(6, VegAreaIndEff) /
+            ! ResistanceLeafBoundary for wet-canopy evaporation.
+            wet_area = min(6._r8, max(lai + sai, 0._r8))
+            wet_area_cfw = wet_area
+            wet_cond = wet_area / rb
+            wet_cond_cfw = wet_area_cfw / rb
             evp_weight = 1._r8 - delta*(1._r8 - fwet)
-            wet_area   = min(lai + sai, 1._r8)
+            dry_factor = 1._r8 - fwet
+
+         ELSEIF (DEF_Interception_scheme == 5) THEN
+            ! MATSIRO canopy water is LAI-only throughout fctint/cwcap/fcwet.
+            ! Keep both the wet-canopy output area and the cfw coupling area
+            ! on min(1, LAI) so CoLM stays consistent with upstream MATSIRO.
+            evp_weight = 1._r8 - delta*(1._r8 - fwet)
+            wet_area   = min(1._r8, max(lai, 0._r8))
+            wet_area_cfw = wet_area
+            wet_cond = wet_area / rb
+            wet_cond_cfw = wet_area_cfw / rb
             dry_factor = 1._r8 - fwet
          ELSE
             evp_weight = 1._r8 - delta*(1._r8 - fwet)
             wet_area = lai + sai
+            wet_cond = wet_area / rb
             dry_factor = 1._r8 - fwet                    ! CoLM default
          ENDIF
 
-         ! cfw (big-leaf canopy coupling) kept at (lai+sai)/rb for ALL
-         ! schemes to preserve consistency with PHS internal water
-         ! balance. Scheme-specific wet_area only affects the Ec flux
-         ! output (evplwet), not the coupled temperature solve.
-         cfw = (1.-delta*(1.-fwet))*(lai+sai)/rb + (1.-fwet)*delta* &
+         ! cfw uses the same scheme-specific wet conductance semantics as the
+         ! wet-canopy flux itself so the qaf solve stays consistent.
+         cfw = (1.-delta*(1.-fwet))*wet_cond_cfw + (1.-fwet)*delta* &
                ( laisun/(rb+rssun) + laisha/(rb+rssha) )
 
          wtshi = 1. / ( cah + cgh + cfh )
@@ -1036,9 +1082,9 @@ ENDIF
          ENDIF
 
          ! evp_weight was computed above (before etr). Use it directly here.
-         evplwet = rhoair * evp_weight * wet_area / rb &
+         evplwet = rhoair * evp_weight * wet_cond &
                  * ( (wtaq0 + wtgq0)*qsatl - wtaq0*qm - wtgq0*qg )
-         evplwet_dtl = rhoair * evp_weight * wet_area / rb &
+         evplwet_dtl = rhoair * evp_weight * wet_cond &
                      * (wtaq0 + wtgq0)*qsatlDT
 
          IF(evplwet.ge.ldew/deltim)THEN
@@ -1062,19 +1108,19 @@ ENDIF
 ! MARK#dtl
 !-----------------------------------------------------------------------
 
-         ! Audit fix NM-3: use htvpl (= hvap if tl>tfrz, else hsub) instead
+         ! Use htvpl (= hvap if tl>tfrz, else hsub) instead
          ! of hardcoded hvap so canopy snow sublimation is energetically
          ! accounted for at L_sublim (~2.83e6 J/kg) vs L_vap (~2.5e6 J/kg).
          ! htvpl is recomputed at the start of each iteration (L599-602)
          ! against the current tl.
-         ! Audit fix VIC-qintr: qintr_rain/qintr_snow are NET storage-rate
+         ! qintr_rain/qintr_snow are NET storage-rate
          ! fluxes and can go negative (canopy unloading / phase-change
          ! overflow / thin-storage cutoff) in scheme=6. The enthalpy term
          ! cpliq*qintr*(t_precip-tl) only represents incoming precipitation
          ! at t_precip; outgoing water leaves at tl, contributing 0.
          ! Clamp to max(0,·) so negative net flux does not spuriously
          ! inject t_precip-tl energy.
-         dtl(it) = (sabv + irab - fsenl - htvpl*fevpl &
+         dtl(it) = (sabv + irab - fsenl - htvpl*fevpl + canopy_phase_heat &
                  + cpliq*max(0._r8,qintr_rain)*(t_precip-tl) &
                  + cpice*max(0._r8,qintr_snow)*(t_precip-tl)) &
                  / (clai/deltim - dirab_dtl + fsenl_dtl + htvpl*fevpl_dtl  &
@@ -1306,7 +1352,7 @@ ELSE
             + 4.*(1-emg)*thermk*fac*stefnc*tlbef**3*dtl(it-1)
 ENDIF
       ! precipitation sensible heat from canopy
-      ! Audit fix VIC-qintr: clamp to max(0,·) — see dtl formula above.
+      ! Clamp to max(0,·) — see dtl formula above.
       hprl   = cpliq * max(0._r8,qintr_rain)*(t_precip-tl) &
              + cpice * max(0._r8,qintr_snow)*(t_precip-tl)
 
@@ -1326,15 +1372,20 @@ ENDIF
 ! (the computational error was created by the assumed 'dtl' in MARK#dtl)
 !-----------------------------------------------------------------------
 
-      ! NM-3: htvpl per current tl correctly accounts for sublim vs vap.
+      ! Add canopy_phase_heat so the canopy energy
+      ! residual accounts for fusion heat consumed/released by the canopy
+      ! rain<->snow phase change that LEAF_interception performed inside
+      ! schemes 4-7. Zero for other schemes / steps without canopy phase
+      ! change.
       err = sabv + irab + dirab_dtl*dtl(it-1) - fsenl - htvpl*fevpl + hprl &
+          + canopy_phase_heat &
           ! account for vegetation heat change
           - dheatl
 
 #if (defined CoLMDEBUG)
       IF(abs(err) .gt. .2) &
       write(6,*) 'energy imbalance in LeafTemperature.F90',it-1,&
-         err,sabv,irab,fsenl,htvpl*fevpl,hprl,dheatl   ! NM-3
+         err,sabv,irab,fsenl,htvpl*fevpl,hprl,dheatl,canopy_phase_heat
 #endif
 
 !-----------------------------------------------------------------------
@@ -1355,7 +1406,7 @@ ENDIF
 
             ldew_rain = ldew_rain + (qdewl-qevpl)*deltim
             ldew_snow = ldew_snow + (qfrol-qsubl)*deltim
-            ! Audit fix C4b: close the energy-balance loop when the
+            ! Close the energy-balance loop when the
             ! cross-phase redirect drives a component below zero. The
             ! bulk elwmax clamp (L~1120) sizes evplwet against total
             ! ldew at entry, but component-level inconsistency (stale
@@ -1379,18 +1430,18 @@ ENDIF
          CALL abort
       ENDIF
 
-      ! Bug fix: When DEF_VEG_SNOW is false, only ldew is updated above
+      ! When DEF_VEG_SNOW is false, only ldew is updated above
       ! (via ldew = max(0., ldew - evplwet*deltim)), but ldew_rain/ldew_snow
       ! remain unchanged. Downstream interception routines (schemes 1, 3-8)
       ! resync ldew = ldew_rain + ldew_snow at entry, which would silently
       ! revert the evaporation adjustment.
       !
-      ! Audit note (M9): DEF_VEG_SNOW=false signals "do not track phase"
+      ! DEF_VEG_SNOW=false signals "do not track phase"
       ! — components only exist so that ldew_rain+ldew_snow == ldew holds
       ! at the scheme interface. We therefore reconcile components using
       ! the current temperature (tl) rather than scaling by an old ratio:
       ! this avoids long-term phase drift while keeping the total mass
-      ! identical. Matches the S3-fixed no-veg-path behaviour.
+      ! identical. Matches the no-veg-path phase-conservation behaviour.
       IF (.not. DEF_VEG_SNOW) THEN
          IF (tl > tfrz) THEN
             ldew_rain = ldew
@@ -1401,12 +1452,28 @@ ENDIF
          ENDIF
       ENDIF
 
-      IF ( DEF_VEG_SNOW ) THEN
+      ! Canopy rain<->snow phase change is done by
+      ! LEAF_interception itself for schemes 4/5/6/7 (NoahMP / MATSIRO /
+      ! VIC / JULES), and the fusion heat has already been accounted via
+      ! canopy_phase_heat in the err residual above. Running the qmelt /
+      ! qfrz / tl-pull block below for those schemes would (a) do a
+      ! second phase-change site on the residual ldew_snow / ldew_rain
+      ! and (b) double-count the tl pull. Gate the block so it only runs
+      ! for schemes where interception does NOT own the phase change.
+      phase_change_owned_by_interception = &
+         (DEF_Interception_scheme >= 4 .and. DEF_Interception_scheme <= 7)
+
+      ! Default the optional phase-change exports to 0 so
+      ! every return path leaves them well-defined for the caller.
+      IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = 0._r8
+      IF (present(canopy_frzc_mass_out)) canopy_frzc_mass_out = 0._r8
+
+      IF ( DEF_VEG_SNOW .and. .not. phase_change_owned_by_interception ) THEN
          ! update fwet_snow
          fwet_snow = canopy_snow_wetfrac(sigf, lai, sai, dewmx, tl, ldew_snow)
 
          ! phase change
-         ! Audit fix dheatl-phase: capture tl change from Niu (2004) pull
+         ! Capture tl change from Niu (2004) pull
          ! into dheatl so the canopy-side energy balance check at
          ! MOD_Thermal.F90:1366-1383 closes. Previously the post-iteration
          ! tl update silently leaked clai*(tl_post - tl_pre)/deltim from
@@ -1423,7 +1490,11 @@ ENDIF
             ldew_rain = max(0.,ldew_rain + qmelt*deltim)
             tl_pre_phase = tl
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
-            dheatl = dheatl + clai/deltim * (tl - tl_pre_phase)   ! audit fix
+            dheatl = dheatl + clai/deltim * (tl - tl_pre_phase)
+            ! Export the actual mass that crossed (post the
+            ! ldew_snow >= 0 clamp) so tracer_evapo can charge the right
+            ! amount instead of inferring from d_rain/d_snow.
+            IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = qmelt * deltim
          ENDIF
 
          IF (ldew_rain.gt.1.e-6 .and. tl.lt.tfrz) THEN
@@ -1432,8 +1503,14 @@ ENDIF
             ldew_snow = max(0.,ldew_snow + qfrz*deltim)
             tl_pre_phase = tl
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
-            dheatl = dheatl + clai/deltim * (tl - tl_pre_phase)   ! audit fix
+            dheatl = dheatl + clai/deltim * (tl - tl_pre_phase)
+            IF (present(canopy_frzc_mass_out)) canopy_frzc_mass_out = qfrz * deltim
          ENDIF
+      ELSEIF ( DEF_VEG_SNOW ) THEN
+         ! Still need fwet_snow for downstream fwet consumers under
+         ! DEF_VEG_SNOW=T, but the mass / energy phase-change transfer
+         ! is owned by LEAF_interception for schemes 4/5/6/7.
+         fwet_snow = canopy_snow_wetfrac(sigf, lai, sai, dewmx, tl, ldew_snow)
       ENDIF
 
       ! Export the canopy latent-energy term exactly as solved here.
@@ -1521,7 +1598,7 @@ ENDIF
    !=======================================================================
 
    USE MOD_Precision
-   ! Audit fix N1: dewfraction has its own USE MOD_Precision + IMPLICIT
+   ! dewfraction has its own USE MOD_Precision + IMPLICIT
    ! NONE block which shadows host association on some compilers
    ! (gfortran/Intel both flagged tfrz as implicit). Import tfrz
    ! explicitly here so the scheme=4 temperature tie-break resolves.
@@ -1548,7 +1625,7 @@ ENDIF
    real(r8) :: satcap_rain_eff        !scheme-specific liquid capacity used by fwet [-]
    real(r8) :: lai_eff                !LAI clamped to avoid division by zero [-]
    real(r8) :: fwet_max               !scheme-specific cap on fwet [-]
-   real(r8), parameter :: dewmx_MATSIRO = 0.2_r8  ! canopy water capacity per LAI [mm], Takata et al. 2003
+   real(r8) :: dewmx_MATSIRO            ! MATSIRO canopy water capacity per LAI [mm]
    real(r8), parameter :: fwet_max_CLM5 = 0.05_r8 ! CLM5.0 max leaf wetted fraction, Lawrence et al. 2019
 
       !-----------------------------------------------------------------------
@@ -1558,6 +1635,7 @@ ENDIF
       dewmxi = 1.0/dewmx
       ! 06/2018, yuan: remove sigf, to compatible with PFT
       vegt   =  lsai
+      dewmx_MATSIRO = 0.2_r8 * DEF_MATSIRO_CWCAP_SCALE
 
       IF (DEF_Interception_scheme == 5) THEN
          ! ----------------------------------------------------------------
@@ -1577,7 +1655,7 @@ ENDIF
          ENDIF
 
       ELSEIF (DEF_Interception_scheme == 4) THEN
-         ! Audit fix N1: NoahMP fwet must use NoahMP capacity
+         ! NoahMP fwet must use NoahMP capacity
          !   CanopyWetFrac = (CanopyWater / (fvegc * dewmx * LAI))^(2/3)
          ! per CanopyHydrologyMod.F90. Prior default path omitted fvegc,
          ! so fwet saturated at fvegc^(2/3) (<1) even when ldew==satcap.
@@ -1623,7 +1701,7 @@ ENDIF
 
          ! account for vegetation snow
          ! calculate fwet_rain, fwet_snow, fwet
-         ! Audit fix C4-double-bucket: CLM4 (scheme=2) uses a single
+         ! CLM4 (scheme=2) uses a single
          ! shared canopy bucket (MOD_LeafInterception.F90:792,
          ! satcap = dewmx*vegt). The single-bucket fwet already
          ! computed above against dewmx*vegt is the correct value for
@@ -1683,16 +1761,21 @@ ENDIF
    real(r8)             :: lsai
    real(r8)             :: fvegc
    real(r8)             :: sigf_safe
+   real(r8)             :: lai_perveg
 
       lsai = max(lai + sai, 0._r8)
+      sigf_safe = max(sigf, 0.01_r8)
+      lai_perveg = lai
+      IF (DEF_VEG_SNOW) lai_perveg = lai / sigf_safe
 
       SELECT CASE (DEF_Interception_scheme)
       CASE (4)
          fvegc = max(0.05_r8, 1.0_r8 - exp(-0.52_r8 * lsai))
          satcap_rain_eff = fvegc * dewmx * lsai
+      CASE (6)
+         satcap_rain_eff = sigf_safe * 0.1_r8 * max(lai_perveg, 0._r8) * DEF_VIC_WDMAX_SCALE
       CASE (7)
-         sigf_safe = max(sigf, 0.01_r8)
-         ! Audit fix J1: under DEF_VEG_SNOW the caller passes lai=tlai*sigf.
+         ! Under DEF_VEG_SNOW the caller passes lai=tlai*sigf.
          ! JULES catch is per-veg (0.5 + 0.05*LAI_true); the grid-scale
          ! effective capacity used against grid-scale ldew is
          ! sigf * catch_perveg, so lai inside the (0.5+0.05*·) term must
@@ -1728,9 +1811,14 @@ ENDIF
    real(r8)             :: BDFALL
    real(r8)             :: Lr
    real(r8)             :: sigf_safe
+   real(r8)             :: dewmx_MATSIRO
+   real(r8)             :: lai_perveg
 
       lsai = max(lai + sai, 0._r8)
       sigf_safe = max(sigf, 0.01_r8)
+      dewmx_MATSIRO = 0.2_r8 * DEF_MATSIRO_CWCAP_SCALE
+      lai_perveg = lai
+      IF (DEF_VEG_SNOW) lai_perveg = lai / sigf_safe
 
       SELECT CASE (DEF_Interception_scheme)
       CASE (3)
@@ -1740,7 +1828,7 @@ ENDIF
          BDFALL = 67.92_r8 + 51.25_r8 * exp(min(2.5_r8, (tleaf - 273.15_r8)) / 2.59_r8)
          satcap_snow_eff = fvegc * 6.6_r8*(0.27_r8 + 46._r8/BDFALL) * lsai
       CASE (5)
-         satcap_snow_eff = 0.2_r8 * max(lai, 0._r8)
+         satcap_snow_eff = dewmx_MATSIRO * max(lai, 0._r8)
       CASE (6)
          IF (tleaf > 272.15_r8) THEN
             Lr = 4.0_r8
@@ -1749,9 +1837,9 @@ ENDIF
          ELSE
             Lr = 1.0_r8
          ENDIF
-         satcap_snow_eff = sigf_safe * 0.5_r8 * Lr * max(lai, 0._r8)
+         satcap_snow_eff = sigf_safe * 0.5_r8 * Lr * max(lai_perveg, 0._r8)
       CASE (7)
-         ! Audit fix J1: see canopy_rain_capacity_for_fwet CASE(7) above.
+         ! See canopy_rain_capacity_for_fwet CASE(7) above.
          IF (DEF_VEG_SNOW) THEN
             satcap_snow_eff = sigf_safe * 4.4_r8 * max(lai / sigf_safe, 0._r8)
          ELSE

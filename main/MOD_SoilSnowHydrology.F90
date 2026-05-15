@@ -543,9 +543,9 @@ ENDIF
 !
 !===================================================================================
 
-   USE MOD_Precision
-   USE MOD_Hydro_SoilWater
-   USE MOD_Vars_TimeInvariants, only: wetwatmax
+	   USE MOD_Precision
+	   USE MOD_Hydro_SoilWater
+	   USE MOD_Vars_TimeInvariants, only: wetwatmax
    USE MOD_Const_Physical,      only: denice, denh2o, tfrz
    USE MOD_Vars_TimeInvariants, only: vic_b_infilt, vic_Dsmax, vic_Ds, vic_Ws, vic_c
    USE MOD_Vars_1DFluxes,       only: fevpg
@@ -708,7 +708,7 @@ ENDIF
 
 !-------------------------- Local Variables ----------------------------
 
-   integer j                 ! loop counter
+	   integer j                 ! loop counter
 
    real(r8) :: &
        eff_porosity(1:nl_soil), &! effective porosity = porosity - vol_ice
@@ -720,10 +720,10 @@ ENDIF
 
    real(r8) :: eta
 
-   real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
-   real(r8) :: qgtop
+	   real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
+	   real(r8) :: qgtop
 
-   real(r8) :: zwtmm
+	   real(r8) :: zwtmm
    real(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
    logical  :: is_permeable(1:nl_soil)
    real(r8) :: dzsum, dz
@@ -838,8 +838,8 @@ ENDIF
 IF((patchtype<=1) .or. is_dry_lake &
    .or. (DEF_USE_Dynamic_Wetland .and. (patchtype==2)))THEN   ! soil ground only
 
-      ! For water balance check, the sum of water in soil column before the calculation
-      w_sum = sum(wliq_soisno(1:nl_soil)) + sum(wice_soisno(1:nl_soil)) + wa + wdsrf
+	      ! For water balance check, the sum of water in soil column before the calculation
+	      w_sum = sum(wliq_soisno(1:nl_soil)) + sum(wice_soisno(1:nl_soil)) + wa + wdsrf
 
       ! Due to the increase in volume after freezing, the total volume of water and
       ! ice may exceed the porosity of the soil. This excess water is temporarily
@@ -847,8 +847,8 @@ IF((patchtype<=1) .or. is_dry_lake &
       ! is added back to "wliq_soisno".
       wresi(1:nl_soil) = 0.
       ! porosity of soil, partial volume of ice and liquid
-      DO j = 1, nl_soil
-         vol_ice(j) = min(porsl(j), wice_soisno(j)/(dz_soisno(j)*denice))
+	      DO j = 1, nl_soil
+	         vol_ice(j) = min(porsl(j), wice_soisno(j)/(dz_soisno(j)*denice))
          IF(porsl(j) < 1.e-6)THEN
             icefrac(j) = 0.
          ELSE
@@ -863,8 +863,8 @@ IF((patchtype<=1) .or. is_dry_lake &
             wresi(j) = wliq_soisno(j) - dz_soisno(j) * denh2o * vol_liq(j)
          ELSE
             vol_liq(j) = 0.
-         ENDIF
-      ENDDO
+	         ENDIF
+	      ENDDO
 
       ! surface runoff including water table and surface saturated area
 
@@ -1002,9 +1002,9 @@ IF((patchtype<=1) .or. is_dry_lake &
 ! [3] determine the change of soil water
 !=======================================================================
 
-      ! convert length units from m to mm
-      zwtmm = zwt * 1000.0
-      sp_zc(1:nl_soil) = z_soisno (1:nl_soil) * 1000.0   ! from meter to mm
+	      ! convert length units from m to mm
+	      zwtmm = zwt * 1000.0
+	      sp_zc(1:nl_soil) = z_soisno (1:nl_soil) * 1000.0   ! from meter to mm
       sp_zi(0:nl_soil) = zi_soisno(0:nl_soil) * 1000.0   ! from meter to mm
 
       ! check consistency between water table location and liquid water content
@@ -1012,7 +1012,7 @@ IF((patchtype<=1) .or. is_dry_lake &
          IF (zwtmm <= sp_zi(nl_soil)) THEN
             CALL get_zwt_from_wa ( &
                porsl(nl_soil), theta_r(nl_soil), psi0(nl_soil), hksati(nl_soil), &
-               nprms, prms(:,nl_soil), 1.e-5, 1.e-8, wa, sp_zi(nl_soil), zwtmm)
+               nprms, prms(:,nl_soil), 1.e-5_r8, 1.e-8_r8, wa, sp_zi(nl_soil), zwtmm)
          ENDIF
       ELSE
          DO j = 1, nl_soil
@@ -1071,11 +1071,11 @@ IF((patchtype<=1) .or. is_dry_lake &
          qinfl,                   wdsrf,                    zwtmm,               wa,               &
          vol_liq(1:nl_soil),      smp(1:nl_soil),           hk(1:nl_soil),       qlayer(0:nl_soil),&
          etroot(1:nl_soil),       etroot_actual(1:nl_soil), etroot_aquifer,                       &
-         1.e-3,                   wblc)
+         1.e-3_r8,                wblc)
 
       ! update the mass of liquid water
-      DO j = nl_soil, 1, -1
-         IF (is_permeable(j)) THEN
+	      DO j = nl_soil, 1, -1
+	         IF (is_permeable(j)) THEN
             IF (zwtmm < sp_zi(j)) THEN
                IF (zwtmm >= sp_zi(j-1)) THEN
                   wliq_soisno(j)  = denh2o * ((eff_porosity(j)*(sp_zi(j)-zwtmm))  &
@@ -1088,10 +1088,10 @@ IF((patchtype<=1) .or. is_dry_lake &
             ENDIF
 
             wliq_soisno(j) = wliq_soisno(j) + wresi(j)
-         ENDIF
-      ENDDO
+	         ENDIF
+	      ENDDO
 
-      zwt = zwtmm/1000.0
+	      zwt = zwtmm/1000.0
 
       ! Renew the ice and liquid mass due to condensation
 IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN

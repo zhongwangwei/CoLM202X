@@ -1,0 +1,76 @@
+&nl_colm_methane_parameter
+    ! methane production constants
+    DEF_METHANE%q10methane = 2.0
+    DEF_METHANE%f_methane = 0.2
+
+    ! methane oxidation constants
+    DEF_METHANE%vmax_methane_oxid = 1.25e-5
+    DEF_METHANE%vmax_oxid_unsat = 1.25e-6
+    DEF_METHANE%k_m = 5.e-3
+    DEF_METHANE%k_m_unsat = 5.e-4
+    DEF_METHANE%k_m_o2 = 2.e-2
+    DEF_METHANE%q10_methane_oxid = 1.9
+
+    ! methane ebullition constants
+    DEF_METHANE%vgc_max = 0.15
+
+    ! methane aerenchyma constants
+    DEF_METHANE%poros_tiller = 0.3
+    DEF_METHANE%aere_radius = 2.9e-3
+    DEF_METHANE%rob = 3.
+    DEF_METHANE%scale_factor_aere = 1.
+
+    ! methane transport constants
+    DEF_METHANE%scale_factor_gasdiff = 1.
+    DEF_METHANE%scale_factor_liqdiff = 1.
+
+    ! redox and decomposition coupling
+    DEF_METHANE%use_vertical_redoxlag = .true.
+    DEF_METHANE%anoxicmicrosites = .false.
+    DEF_METHANE%bgc_anoxia_limits_decomp = .false.
+    DEF_METHANE%use_ch4_sif = .true.
+
+    ! lake methane is disabled by default for backward-compatible budgets.
+    ! Set allowlakeprod=.true. to enable the CTSM-style lake sediment path.
+    DEF_METHANE%allowlakeprod = .false.
+    ! Legacy compatibility field; effective lake Q10 is q10methane * 1.5.
+    DEF_METHANE%q10lake = 3.0
+    DEF_METHANE%q10lakebase = 298.0
+    DEF_METHANE%lake_decomp_fact = 9.e-11
+    DEF_METHANE%replenishlakec = .true.
+
+
+    ! optional microbial-pool diagnostics; disabled by default so legacy CH4
+    ! production/oxidation budgets remain unchanged unless explicitly enabled.
+    DEF_METHANE%use_microbial_pools = .false.
+    DEF_METHANE%use_microbial_flux_override = .false.
+    DEF_METHANE%use_microbial_dormancy = .true.
+    DEF_METHANE%B_init_methanogen = 1.0
+    DEF_METHANE%B_init_methanotroph = 1.0
+    DEF_METHANE%B_min_methanogen = 1.0e-3
+    DEF_METHANE%B_min_methanotroph = 1.0e-3
+    DEF_METHANE%mu_max_methanogen = 0.2
+    DEF_METHANE%mu_max_methanotroph = 0.5
+    DEF_METHANE%gamma_methanogen = 0.05
+    DEF_METHANE%gamma_methanotroph = 0.10
+    DEF_METHANE%gamma_microbial_dormant = 0.005
+    DEF_METHANE%gamma_microbial_freeze = 0.001
+    ! DEPRECATED: legacy rate-based substrate half-saturation; current code uses
+    ! DEF_METHANE%K_substrate_methanogen_pool.
+    DEF_METHANE%K_substrate_methanogen_rate = 1.0e-7
+    DEF_METHANE%K_substrate_methanogen_pool = 0.04
+    DEF_METHANE%K_inh_O2_methanogen = 1.0e-3
+    DEF_METHANE%kappa_m_methanogen = 1.0e-2
+    DEF_METHANE%kappa_m_methanotroph = 1.0e-2
+    DEF_METHANE%q10_microbe_growth = 3.0
+    DEF_METHANE%T_ref_microbe = 298.15
+    DEF_METHANE%dormancy_rate_active = 0.1
+    DEF_METHANE%dormancy_rate_revive = 1.0
+    ! DEPRECATED: legacy shared threshold; split thresholds below are used.
+    DEF_METHANE%dormancy_threshold_f_S = 0.1
+    DEF_METHANE%dormancy_threshold_methanogen_fS = 0.1
+    DEF_METHANE%dormancy_threshold_methanogen_fO2 = 0.1
+    DEF_METHANE%dormancy_threshold_methanotroph_fS = 0.1
+    DEF_METHANE%dormancy_threshold_methanotroph_fO2 = 0.1
+
+/

@@ -312,7 +312,7 @@ CONTAINS
       ENDIF
 
       ! Expose per-layer transpiration demand for downstream tracer accounting.
-      etroot_out       (1:nlev) = etroot(1:nlev)
+      etroot_out(1:nlev) = etroot(1:nlev)
       etroot_actual_out(1:nlev) = 0._r8
       etroot_aquifer_out        = 0._r8
 
@@ -2266,7 +2266,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, ubc_val, psi_s(ub), qlc, &
-                  flux_btm = 0.0)
+                  flux_btm = 0._r8)
             ENDIF
          ENDIF
 
@@ -2278,7 +2278,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, wdsrf, psi_s(ub), qlc, &
-                  flux_btm = 0.0)
+                  flux_btm = 0._r8)
             ENDIF
 
          ENDIF
@@ -2292,7 +2292,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, psi_s(lb), psi_s(ub), qlc, &
-                  flux_top = ubc_val, flux_btm = 0.0)
+                  flux_top = ubc_val, flux_btm = 0._r8)
             ENDIF
          ENDIF
       ENDIF
@@ -2389,7 +2389,7 @@ CONTAINS
                   dz_us_top, psi_us(i_stt), hk_us(i_stt), &
                   nlev_sat, dz_sat, psi_sat, hk_sat, psi_s(ub), &
                   qq_wt(i_stt), qlc, tol_q, tol_z, tol_p, &
-                  flux_btm = 0.0)
+                  flux_btm = 0._r8)
             ENDIF
 
          ENDSELECT
@@ -2443,7 +2443,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, psi_s(i_stt), psi_s(ub), &
-                  qlc, flux_btm = 0.0)
+                  qlc, flux_btm = 0._r8)
             ENDIF
 
          ENDSELECT

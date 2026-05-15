@@ -4,27 +4,48 @@
 
   FF = mpif90 -fopenmp
    
-  NETCDF_LIB = /usr/lib/x86_64-linux-gnu
-  NETCDF_INC = /usr/include
+  UNAME_S := $(shell uname -s)
+  ifeq ($(UNAME_S),Darwin)
+     NETCDF_LIB = /opt/homebrew/lib
+     NETCDF_INC = /opt/homebrew/include
+  else
+     NETCDF_LIB = /usr/lib/x86_64-linux-gnu
+     NETCDF_INC = /usr/include
+  endif
 
   MOD_CMD = -J
+
+  ifeq ($(UNAME_S),Darwin)
+     MCMODEL_FLAG =
+     XCHECK_FLAG =
+     FPE_TRAP_FLAG =
+  else
+     MCMODEL_FLAG = -mcmodel=medium
+     XCHECK_FLAG = -xcheck=stkovf
+     FPE_TRAP_FLAG = -ffpe-trap=invalid,zero,overflow
+  endif
 
 # determine the gfortran version
   GCC_VERSION := "`gcc -dumpversion`"
   IS_GCC_ABOVE_10 := $(shell expr "$(GCC_VERSION)" ">=" "10")
   ifeq "$(IS_GCC_ABOVE_10)" "1" 
-     FOPTS = -fdefault-real-8 -ffree-form -C -g -u -xcheck=stkovf \
-           -ffpe-trap=invalid,zero,overflow -fbounds-check \
-           -mcmodel=medium -fbacktrace -fdump-core -cpp \
+     FOPTS = -fdefault-real-8 -ffree-form -C -g -u $(XCHECK_FLAG) \
+           $(FPE_TRAP_FLAG) -fbounds-check \
+           $(MCMODEL_FLAG) -fbacktrace -fdump-core -cpp \
            -ffree-line-length-0 -fallow-argument-mismatch 
   else
-     FOPTS = -fdefault-real-8 -ffree-form -C -g -u -xcheck=stkovf \
-           -ffpe-trap=invalid,zero,overflow -fbounds-check \
-           -mcmodel=medium -fbacktrace -fdump-core -cpp \
+     FOPTS = -fdefault-real-8 -ffree-form -C -g -u $(XCHECK_FLAG) \
+           $(FPE_TRAP_FLAG) -fbounds-check \
+           $(MCMODEL_FLAG) -fbacktrace -fdump-core -cpp \
            -ffree-line-length-0
   endif
 
   INCLUDE_DIR = -I../include -I../share -I../mksrfdata -I../mkinidata -I../main -I$(NETCDF_INC)
+  ifeq ($(UNAME_S),Darwin)
+     LINK_FOPTS =
+  else
+     LINK_FOPTS = $(FOPTS)
+  endif
   LDFLAGS = -L$(NETCDF_LIB) -lnetcdff -lnetcdf -llapack -lblas 
 
 
@@ -45,8 +66,13 @@ DCDF=-DUseCDF -DUseCDF_CMF
 #DATM=-DNoAtom
 CFLAGS=$(DMPI) $(DCDF) $(DATM) 
 #----
+ifeq ($(UNAME_S),Darwin)
+FCMP = gfortran -fopenmp
+FC   = gfortran
+else
 FCMP = /usr/bin/gfortran -fopenmp
-FC   = /usr/bin/gfortran 
+FC   = /usr/bin/gfortran
+endif
 
 LFLAGS =
 FFLAGS = -O3 -Wall -cpp -free -fimplicit-none -fbounds-check -fbacktrace 

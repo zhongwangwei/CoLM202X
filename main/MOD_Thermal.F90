@@ -73,7 +73,15 @@ CONTAINS
                        zol           ,rib           ,ustar         ,qstar         ,&
                        tstar         ,fm            ,fh            ,fq            ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
-                       qintr_snow    ,snofrz        ,sabg_snow_lyr                 )
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+                       qintr_snow    ,snofrz        ,sabg_snow_lyr ,canopy_phase_heat,canopy_phase_heat_p,&
+                       canopy_smelt_mass_th, canopy_frzc_mass_th, &
+                       qphs_thaw_lay_th, qphs_frzc_lay_th)
+#else
+                       qintr_snow    ,snofrz        ,sabg_snow_lyr ,canopy_phase_heat,&
+                       canopy_smelt_mass_th, canopy_frzc_mass_th, &
+                       qphs_thaw_lay_th, qphs_frzc_lay_th)
+#endif
 
 !=======================================================================
 !  this is the main subroutine to execute the calculation
@@ -261,6 +269,33 @@ CONTAINS
 
    real(r8), intent(in) :: &
        sabg_snow_lyr(lb:1)        ! snow layer absorption
+
+   ! Canopy rain<->snow fusion heat flux exported by LEAF_INTERCEPTION
+   ! [W/m^2; +heats canopy, -cools canopy]. Scheme 4/5/6/7 perform the
+   ! canopy phase change inside interception (ROLLBACK NM-1-v2 design);
+   ! without this term the canopy energy balance would omit the fusion
+   ! heat, tleaf would bias warm, and Ec/ET would be systematically too
+   ! high. Schemes 1/2/3/8 report 0 here and let LeafTemperature's own
+   ! qmelt/qfrz block (gated by DEF_VEG_SNOW) handle phase change.
+   real(r8), intent(in) :: &
+       canopy_phase_heat          ! canopy fusion heat flux [W/m^2]
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   real(r8), intent(in) :: canopy_phase_heat_p(:)
+#endif
+
+   ! Optional patch-level canopy phase-change MASS exports [mm water-equivalent
+   ! over deltim]. Sourced from LeafTemperature (non-PC) directly, or from
+   ! per-PFT LeafTemperaturePC values aggregated by pftfrac. Forwarded to
+   ! MOD_Tracer_Evapo so it can attribute canopy melt / freeze tracer mass
+   ! without falling back on the d_rain/d_snow sign-pattern heuristic.
+   real(r8), intent(out), optional :: canopy_smelt_mass_th, canopy_frzc_mass_th
+
+   ! Per-layer phase-change mass exports from GroundTemperature/meltf,
+   ! forwarded into MOD_Tracer_Evapo. Replaces the d_wice/d_wliq net-change
+   ! heuristic in CoLMMAIN that conflates phase change with sublimation/dew
+   ! on the snow surface layer.
+   real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil)
+   real(r8), intent(out), optional :: qphs_frzc_lay_th(lb:nl_soil)
 
        ! state variables (2)
    real(r8), intent(inout) :: &
@@ -476,6 +511,14 @@ CONTAINS
    real(r8), allocatable :: etrsha_p      (:)
    real(r8), allocatable :: lfevpl_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
+   real(r8), allocatable :: canopy_phase_heat_p_local(:)
+   ! Per-PFT canopy phase-change mass buffers and patch-level aggregates.
+   ! The PC LeafTemperaturePC variant fills the per-PFT slots; the non-PC
+   ! LeafTemperature path on PFT-tile patches fills one slot at a time.
+   ! Both paths are aggregated via pftfrac and surfaced through the optional
+   ! output args canopy_smelt_mass_th / canopy_frzc_mass_th.
+   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:)
+   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local
 
 
 !=======================================================================
@@ -485,6 +528,11 @@ CONTAINS
       ! emissivity
       emg = 0.96
       IF (scv>0. .or. patchtype==3) emg = 0.97
+
+      ! Zero canopy phase-change accumulators up front so a non-vegetated
+      ! branch (no LeafTemperature call) returns 0.
+      canopy_smelt_mass_local = 0._r8
+      canopy_frzc_mass_local  = 0._r8
 
       ! fluxes
       taux   = 0.;  tauy   = 0.
@@ -710,7 +758,9 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 !End WUE stomata model parameter
                  forc_hpbl   ,&
                  qintr_rain  ,qintr_snow  ,t_precip    ,lfevpl      ,hprl        ,dheatl      ,&
-                 smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)              )
+                 smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:),canopy_phase_heat,&
+                 canopy_smelt_mass_out=canopy_smelt_mass_local, &
+                 canopy_frzc_mass_out =canopy_frzc_mass_local)
       ELSE
          tleaf         = forc_t
          laisun        = 0.
@@ -778,6 +828,13 @@ IF (patchtype == 0) THEN
       allocate ( etrsha_p         (ps:pe) )
       allocate ( lfevpl_p         (ps:pe) )
       allocate ( dheatl_p         (ps:pe) )
+      allocate ( canopy_phase_heat_p_local(ps:pe) )
+      allocate ( canopy_smelt_mass_p_local(ps:pe) )
+      allocate ( canopy_frzc_mass_p_local (ps:pe) )
+      canopy_smelt_mass_p_local(:) = 0._r8
+      canopy_frzc_mass_p_local (:) = 0._r8
+
+      canopy_phase_heat_p_local(ps:pe) = canopy_phase_heat_p(1:pe-ps+1)
 
       sabv_p(ps:pe) = sabvsun_p(ps:pe) + sabvsha_p(ps:pe)
       sabv = sabvsun + sabvsha
@@ -919,7 +976,9 @@ IF (patchtype == 0) THEN
 !End WUE stomata model parameter
                  forc_hpbl                                                                         ,&
                  qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,lfevpl_p(i)     ,hprl_p(i)     ,dheatl_p(i)   ,&
-                 smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                )
+                 smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i),canopy_phase_heat_p_local(i),&
+                 canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
+                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i))
          ELSE
 
             CALL GroundFluxes (zlnd,zsno,forc_hgt_u,forc_hgt_t,forc_hgt_q,forc_hpbl, &
@@ -1026,7 +1085,9 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          forc_hpbl            ,&
          qintr_rain_p(ps:pe)  ,qintr_snow_p(ps:pe)  ,t_precip             ,lfevpl_p(ps:pe)      ,hprl_p(:)            ,&
          dheatl_p(ps:pe)      ,smp                  ,hk(1:)               ,hksati(1:)           ,&
-         rootflux_p(:,:)       )
+         rootflux_p(:,:)      ,canopy_phase_heat_p_local(ps:pe)            ,&
+         canopy_smelt_mass_p_out=canopy_smelt_mass_p_local(ps:pe),&
+         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe))
 
       dlrad_p      (ps:pe) = dlrad
       ulrad_p      (ps:pe) = ulrad
@@ -1062,6 +1123,11 @@ ENDIF
       tleaf         = sum( tleaf_p     (ps:pe)*pftfrac(ps:pe) )
       ldew_rain     = sum( ldew_rain_p (ps:pe)*pftfrac(ps:pe) )
       ldew_snow     = sum( ldew_snow_p (ps:pe)*pftfrac(ps:pe) )
+      ! Aggregate per-PFT canopy phase-change mass via the same pftfrac
+      ! weighting as ldew_rain / ldew_snow so the patch sum is consistent
+      ! with the bulk pool change MOD_Tracer_Evapo sees.
+      canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe) * pftfrac(ps:pe) )
+      canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe) * pftfrac(ps:pe) )
       fwet_snow     = sum( fwet_snow_p (ps:pe)*pftfrac(ps:pe) )
       ldew          = sum( ldew_p      (ps:pe)*pftfrac(ps:pe) )
       ! may have problem with rst, but the same for LC
@@ -1167,6 +1233,9 @@ END IF
       deallocate ( etrsha_p    )
       deallocate ( lfevpl_p    )
       deallocate ( dheatl_p    )
+      deallocate ( canopy_phase_heat_p_local )
+      deallocate ( canopy_smelt_mass_p_local )
+      deallocate ( canopy_frzc_mass_p_local  )
 
 ENDIF
 #endif
@@ -1192,7 +1261,9 @@ ENDIF
                       t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                       frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                       fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip)
+                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip, &
+                      qphs_thaw_lay = qphs_thaw_lay_th, &
+                      qphs_frzc_lay = qphs_frzc_lay_th)
 
 !=======================================================================
 ! [6] Correct fluxes to present soil temperature
@@ -1374,12 +1445,20 @@ ENDIF
 ! [7] energy balance error
 !=======================================================================
 
+      ! canopy_phase_heat is the fusion heat flux exported by LEAF_interception
+      ! (schemes 4-7) when canopy ice melts or canopy water freezes inside the
+      ! interception routine. It has to appear on the same side as hprl / -dheatl
+      ! in the global energy balance — melt (negative canopy_phase_heat) removes
+      ! energy from the canopy system, freeze (positive) adds it — so the column
+      ! errore stays near zero. Schemes 1/2/3/8 report 0 and the sum is unchanged.
       ! one way to check energy balance
       errore = sabv + sabg + frl - olrg - fsena - lfevpa - fgrnd - dheatl + hprl &
+             + canopy_phase_heat &
              + cpliq*pg_rain*(t_precip-t_grnd) + cpice*pg_snow*(t_precip-t_grnd)
 
       ! another way to check energy balance
       errore = sabv + sabg + frl - olrg - fsena - lfevpa - xmf - dheatl + hprl &
+             + canopy_phase_heat &
              + cpliq*pg_rain*(t_precip-t_grnd) + cpice*pg_snow*(t_precip-t_grnd)
 
       DO j = lb, nl_soil
@@ -1395,6 +1474,13 @@ ENDIF
       ENDIF
 100   format(10(f15.3))
 #endif
+
+      ! Surface canopy phase-change masses (zeroed above, accumulated by
+      ! LeafTemperature / LeafTemperaturePC) forwarded so the caller can
+      ! pass the actual qmelt*dt and qfrz*dt to tracer_evapo. Non-vegetated
+      ! branches that never call LeafTemperature return 0, matching their physics.
+      IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
+      IF (present(canopy_frzc_mass_th)) canopy_frzc_mass_th  = canopy_frzc_mass_local
 
   END SUBROUTINE THERMAL
 

@@ -1,11 +1,12 @@
 #include <define.h>
 
+#ifdef TRACER
 MODULE MOD_Tracer_Snow
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, delta_to_R, tracers
-   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
-      trc_scv, trc_wetwat, a_trc_evap
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny
+	   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
+	      trc_scv, trc_wetwat
 
    IMPLICIT NONE
 
@@ -14,7 +15,6 @@ CONTAINS
    SUBROUTINE tracer_newsnow (ipatch, patchtype, snl, snl_old, pg_snow, deltim, &
       scv, scv_bef, wetwat_val, &
       wliq_soisno, wice_soisno, wice_soisno_bef)
-      USE MOD_Const_Physical, only: tfrz
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, patchtype, snl, snl_old
       real(r8), intent(in) :: pg_snow                    ! snow throughfall [mm/s]
@@ -28,16 +28,17 @@ CONTAINS
       real(r8), intent(in), optional :: wice_soisno_bef(:)
 
       integer  :: itrc, j
-      real(r8) :: R_precip, d_wice
-      real(r8) :: scv_before_snowfall
+      real(r8) :: R_snow_step, R_layer, d_wice, snow_mass_step
 
       IF (ntracers <= 0) RETURN
 
-      ! scv before this step's snowfall addition
-      scv_before_snowfall = scv_bef
-
       DO itrc = 1, ntracers
-         R_precip = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
+         snow_mass_step = max(pg_snow, 0._r8) * deltim
+         IF (snow_mass_step > trc_tiny) THEN
+            R_snow_step = trc_pg_snow_ground(itrc, ipatch) / snow_mass_step
+         ELSE
+            R_snow_step = 0._r8
+         ENDIF
 
 #if (defined CoLMDEBUG)
          ! Invariant: when the pre-newsnow state has layered snow
@@ -46,8 +47,8 @@ CONTAINS
          ! unconditionally reset trc_scv. A non-zero residual here means
          ! somebody else wrote trc_scv while snl_old<0 (a real bug
          ! upstream, not a simple rounding artefact). Flag it once per
-         ! tracer per occurrence so the root cause can be traced before
-         ! the reset silently drops the mass.
+	         ! tracer per occurrence so the root cause can be traced; Cases
+	         ! B/C now fold any residual into the top snow layer before reset.
          IF (snl_old < 0 .and. abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
             write(*,'(A,I8,A,I3,A,E12.5)') &
                ' WARNING tracer_newsnow: trc_scv residual under layered snow ipatch=', &
@@ -55,19 +56,21 @@ CONTAINS
          ENDIF
 #endif
 
-         ! Every step: accumulate snowfall tracer into trc_scv
-         ! (mirrors water model's scv += pg_snow*dt at every step)
-         trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
-
          IF (snl_old == 0 .and. snl < 0) THEN
             ! Case A: First snow layer just created from accumulated scv.
             ! wice_soisno(0) = scv (accumulated over multiple steps).
             ! Transfer trc_scv (accumulated tracer) to the new layer.
+            trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
             j = snl + 1  ! = 0
             trc_wice_soisno(itrc, j, ipatch) = trc_scv(itrc, ipatch)
             IF (present(wliq_soisno)) THEN
                IF (size(wliq_soisno) > 0) THEN
-                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_precip
+                  IF (scv > trc_tiny) THEN
+                     R_layer = trc_scv(itrc, ipatch) / scv
+                  ELSE
+                     R_layer = R_snow_step
+                  ENDIF
+                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_layer
                ENDIF
             ENDIF
             ! Clear trc_scv: all transferred to the snow layer
@@ -76,33 +79,78 @@ CONTAINS
          ELSEIF (snl < 0 .and. snl < snl_old) THEN
             ! Case B: New layer added to existing snow pack (deeper snow).
             ! This is a less common case (snow pack growing a new layer).
+            ! R_snow_step is correct ONLY when the new layer's mass came from
+            ! fresh snowfall this step. SnowLayersCombineDivide handles
+            ! split/combine via dedicated tracer hooks (see file-end
+            ! comment), so reaching this branch via re-distribution would
+            ! quietly use fresh-snow R on existing-pack water and erase the
+            ! aged R signal. A CoLMDEBUG warning fires when the new
+            ! layer mass disagrees with pg_snow*dt by more than FP noise
+            ! — covers the regression risk if a future split path forgets
+            ! to route through the hooks.
             j = snl + 1
+#if (defined CoLMDEBUG)
             IF (present(wice_soisno)) THEN
-               trc_wice_soisno(itrc, j, ipatch) = wice_soisno(1) * R_precip
-            ENDIF
-            IF (present(wliq_soisno)) THEN
-               IF (size(wliq_soisno) > 0) THEN
-                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_precip
+               IF (abs(wice_soisno(1) - max(pg_snow, 0._r8) * deltim) > 1.e-6_r8) THEN
+                  write(*,'(A,I8,A,I3,A,E12.5,A,E12.5)') &
+                     ' WARNING tracer_newsnow Case B: wice_soisno(1) /= pg_snow*dt ipatch=', &
+                     ipatch, ' itrc=', itrc, &
+                     ' wice=', wice_soisno(1), &
+                     ' pg_snow*dt=', max(pg_snow, 0._r8) * deltim
                ENDIF
             ENDIF
-            ! trc_scv should be 0 when layers already exist
-            trc_scv(itrc, ipatch) = 0._r8
+#endif
+            IF (present(wice_soisno)) THEN
+               trc_wice_soisno(itrc, j, ipatch) = wice_soisno(1) * R_snow_step
+            ENDIF
+	            IF (present(wliq_soisno)) THEN
+	               IF (size(wliq_soisno) > 0) THEN
+	                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_snow_step
+	               ENDIF
+	            ENDIF
+	            IF (abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
+	               trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+	                  + trc_scv(itrc, ipatch)
+	            ENDIF
+	            ! trc_scv should be 0 when layers already exist
+	            trc_scv(itrc, ipatch) = 0._r8
 
          ELSEIF (snl < 0 .and. snl == snl_old) THEN
             ! Case C: Snow added to existing top layer (no new node).
+            ! Do not route through trc_scv here: once layered snow exists,
+            ! the water-side pg_snow increment goes directly into the top
+            ! snow ice layer. A previous scv -> d_wice-gated -> clear path
+            ! could silently drop ground-snow tracer if tracer_precip's
+            ! canopy residual correction and the water increment differed by
+            ! more than trc_tiny.
             j = snl + 1
             IF (present(wice_soisno) .and. present(wice_soisno_bef)) THEN
                d_wice = wice_soisno(1) - wice_soisno_bef(1)
-               IF (d_wice > trc_tiny) THEN
-                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
-                     + trc_pg_snow_ground(itrc, ipatch)
-               ENDIF
+	               IF (trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
+	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+	                     + trc_pg_snow_ground(itrc, ipatch)
+	               ENDIF
+#if (defined CoLMDEBUG)
+               IF (abs(d_wice - snow_mass_step) > 1.e-6_r8 .and. &
+                   trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
+                  write(*,'(A,I8,A,I3,A,E12.5,A,E12.5,A,E12.5)') &
+                     ' WARNING tracer_newsnow Case C: d_wice /= pg_snow*dt ipatch=', &
+                     ipatch, ' itrc=', itrc, ' d_wice=', d_wice, &
+                     ' pg_snow*dt=', snow_mass_step, &
+                     ' trc_pg_snow_ground=', trc_pg_snow_ground(itrc, ipatch)
+	               ENDIF
+#endif
+	               IF (abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
+	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+	                     + trc_scv(itrc, ipatch)
+	               ENDIF
             ENDIF
             ! trc_scv should be 0 when layers exist
             trc_scv(itrc, ipatch) = 0._r8
 
          ELSE
-            ! snl == 0: no snow layer yet. trc_scv accumulates (done above).
+            ! snl == 0: no snow layer yet. Accumulate in trc_scv until
+            ! the first real snow layer is created.
             !
             ! scv sink handling (warm wetland melt, thin-snow melt) is done
             ! AFTER THERMAL in CoLMMAIN, not here. tracer_newsnow only
@@ -110,6 +158,7 @@ CONTAINS
             !
             ! One exception: warm wetland zeroing scv happens INSIDE newsnow
             ! (before THERMAL), so handle it here.
+            trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
             IF (patchtype == 2 .and. scv < trc_tiny) THEN
                ! Warm wetland: newsnow transferred scv → wetwat, scv=0
                trc_wetwat(itrc, ipatch) = trc_wetwat(itrc, ipatch) + trc_scv(itrc, ipatch)
@@ -128,3 +177,4 @@ CONTAINS
    ! MOD_SnowLayersCombineDivide's combine/divide routines.
 
 END MODULE MOD_Tracer_Snow
+#endif

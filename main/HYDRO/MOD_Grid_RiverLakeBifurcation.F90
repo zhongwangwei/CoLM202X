@@ -17,26 +17,41 @@ MODULE MOD_Grid_RiverLakeBifurcation
    USE MOD_Namelist, only: DEF_USE_LEVEE
    USE MOD_SPMD_Task
    USE MOD_Grid_Reservoir, only: ucat2resv
-   USE MOD_Grid_RiverLakeLevee, only: has_levee, levdph, levsto, levee_hgt, levee_topsto, &
-      volwater_ucat, volwater_ucat_valid
+   USE MOD_Grid_RiverLakeLevee, only: has_levee, levdph, levsto, &
+      volwater_ucat, volwater_ucat_valid, levee_visible_volume_from_stage
    USE MOD_Grid_RiverLakeNetwork, only: floodplain_curve
    IMPLICIT NONE
 
    real(r8), parameter :: BIFMIN = 1.e-5_r8
+   real(r8), parameter :: BIF_STORAGE_EPS = 1.e-6_r8
 
    ! ----- State variables -----
    real(r8), allocatable :: pth_veloc     (:,:)  ! velocity (npthlev, npthout_local) [m/s]
    real(r8), allocatable :: pth_momen     (:,:)  ! momentum (npthlev, npthout_local) [m^2/s]
    real(r8), allocatable :: bif_hflux_lev (:,:)  ! effective volume flux per pathway layer [m^3/s]
    real(r8), allocatable :: bif_hflux_sum (:)    ! net volume flux per ucat [m^3/s]
+   logical, allocatable :: bif_path_active (:)    ! true when pathway was eligible this call
+   ! Per-ucat layer-2+ ("overland" / above-bankfull) bif
+   ! water flux. tracer_substep already subtracts the matching layer-2+
+   ! tracer flux from trc_levsto, but the water-side accumulator
+   ! `sum_hflux_riv` (MOD_Grid_RiverLakeFlow.F90:820) lumps every layer
+   ! onto the visible side. The second levee_tracer_repartition uses
+   ! `levsto_bef = levsto(i)` as the ratio denominator while
+   ! `trc_levsto` already reflects the layer-2+ subtraction — denominator
+   ! and numerator are out of phase, leaking the Phase-1 R_init invariant
+   ! at the levee/bif interface. Exposing this per-cell layer-2+ flux
+   ! lets the caller compute the post-bif protected water and align both.
+   real(r8), allocatable :: bif_lev_hflux_sum(:) ! net layer-2+ vol flux per ucat [m^3/s]
    logical, save :: dbg_bif_restart_checked = .false.
+   integer, save :: n_dt_mismatch_warn_count = 0
 
    ! ----- Persistent scratch buffers (allocated once in bifurcation_init,
    !       reused every bifurcation_calc call to avoid alloc/dealloc churn).
    !       TARGET attribute lets bifurcation_calc alias them via pointers.  -----
    real(r8), allocatable, target, save :: wdsrf_dn_pth_buf     (:)
    real(r8), allocatable, target, save :: rivelv_dn_pth_buf    (:)
-   real(r8), allocatable, target, save :: levdph_dn_pth_buf    (:)
+   real(r8), allocatable, target, save :: protected_wdsrf_ucat_buf  (:)
+   real(r8), allocatable, target, save :: protected_wdsrf_dn_pth_buf (:)
    real(r8), allocatable, target, save :: has_levee_dn_pth_buf (:)
    real(r8), allocatable, target, save :: storage_dn_pth_buf   (:)
    real(r8), allocatable, target, save :: pth_hflux_total_buf  (:)
@@ -49,7 +64,7 @@ MODULE MOD_Grid_RiverLakeBifurcation
    real(r8), allocatable, target, save :: limiter_out_rate_buf (:)
    real(r8), allocatable, target, save :: limiter_in_rate_buf  (:)
 
-   ! ----- B4 fix: cross-rank limiter buffers -----
+   ! ----- cross-rank limiter buffers -----
    real(r8), allocatable, target, save :: pos_pth_buf              (:)
    real(r8), allocatable, target, save :: neg_pth_buf              (:)
    real(r8), allocatable, target, save :: bif_pos_recv_buf         (:)
@@ -57,19 +72,29 @@ MODULE MOD_Grid_RiverLakeBifurcation
    real(r8), allocatable, target, save :: limiter_in_rate_pth_buf  (:)
    real(r8), allocatable, target, save :: limiter_out_rate_pth_buf (:)
 
-   ! ----- B7 fix: cross-river-system sync buffers -----
+   ! ----- per-pathway layer-2+ flux + remote influx buffers -----
+   real(r8), allocatable, target, save :: pth_lev_hflux_total_buf  (:)
+   real(r8), allocatable, target, save :: bif_lev_influx_buf       (:)
+
+   ! ----- cross-river-system sync buffers -----
    ! ucatfilter materialised as real8 so we can push it to pathway space
    ! and let source-rank pathways see whether their downstream cell is
    ! active in the current adaptive sub-step. Real-valued mask follows the
    ! same pattern as has_levee_r8.
    real(r8), allocatable, target, save :: ucatfilter_r8_buf        (:)
    real(r8), allocatable, target, save :: ucatfilter_dn_pth_buf    (:)
+   real(r8), allocatable, target, save :: is_resv_r8_buf           (:)
+   real(r8), allocatable, target, save :: is_resv_dn_pth_buf       (:)
+   real(r8), allocatable, target, save :: dt_ucat_buf              (:)
+   real(r8), allocatable, target, save :: dt_dn_pth_buf            (:)
 
    PUBLIC :: bifurcation_init
    PUBLIC :: bifurcation_calc
    PUBLIC :: read_bifurcation_restart
    PUBLIC :: write_bifurcation_restart
    PUBLIC :: bifurcation_final
+   PUBLIC :: bif_lev_hflux_sum
+   PUBLIC :: bif_path_active
 
 CONTAINS
 
@@ -85,9 +110,7 @@ CONTAINS
 
    IMPLICIT NONE
 
-      IF (.not. p_is_worker) RETURN
-
-      ! H1 fix: bifurcation_init is contractually one-shot per run, but the
+      ! bifurcation_init is contractually one-shot per run, but the
       ! allocates below will blow up with a runtime error if the module is
       ! ever re-initialised (e.g. during a future restart-in-place refactor).
       ! A single allocated() check on the first state array is enough to
@@ -95,50 +118,84 @@ CONTAINS
       ! below are allocated as a group.
       IF (allocated(pth_veloc)) RETURN
 
-      allocate (pth_veloc     (npthlev_bif, npthout_local))
-      allocate (pth_momen     (npthlev_bif, npthout_local))
-      allocate (bif_hflux_lev (npthlev_bif, npthout_local))
-      allocate (bif_hflux_sum (numucat))
+      IF (.not. p_is_worker) THEN
+         CALL allocate_bifurcation_arrays (0, 0, 0)
+         RETURN
+      ENDIF
+
+      CALL allocate_bifurcation_arrays (numucat, npthlev_bif, npthout_local)
+
+   END SUBROUTINE bifurcation_init
+
+
+   SUBROUTINE allocate_bifurcation_arrays (nucat, nlev, npth)
+   ! =========================================================================
+   !
+   ! Allocate all persistent bifurcation buffers. Zero-length dimensions are
+   ! intentional on non-worker ranks so module state is always allocated safely.
+   !
+   ! =========================================================================
+
+   IMPLICIT NONE
+
+   integer, intent(in) :: nucat
+   integer, intent(in) :: nlev
+   integer, intent(in) :: npth
+
+      allocate (pth_veloc     (nlev, npth))
+      allocate (pth_momen     (nlev, npth))
+      allocate (bif_hflux_lev (nlev, npth))
+      allocate (bif_hflux_sum (nucat))
+      allocate (bif_path_active (npth))
+      allocate (bif_lev_hflux_sum (nucat))
 
       pth_veloc     (:,:) = 0._r8
       pth_momen     (:,:) = 0._r8
       bif_hflux_lev (:,:) = 0._r8
       bif_hflux_sum (:)   = 0._r8
+      bif_path_active(:)  = .false.
+      bif_lev_hflux_sum(:) = 0._r8
 
       ! Persistent scratch buffers used by bifurcation_calc. Sized once here
       ! using the network-fixed dimensions; zero-length is valid.
-      allocate (wdsrf_dn_pth_buf     (npthout_local))
-      allocate (rivelv_dn_pth_buf    (npthout_local))
-      allocate (levdph_dn_pth_buf    (npthout_local))
-      allocate (has_levee_dn_pth_buf (npthout_local))
-      allocate (storage_dn_pth_buf   (npthout_local))
-      allocate (pth_hflux_total_buf  (npthout_local))
-      allocate (pth_limiter_rate_buf (npthout_local))
-      allocate (bif_influx_buf       (numucat))
-      allocate (has_levee_r8_buf     (numucat))
-      allocate (storage_ucat_buf     (numucat))
-      allocate (limiter_outgoing_buf (numucat))
-      allocate (limiter_incoming_buf (numucat))
-      allocate (limiter_out_rate_buf (numucat))
-      allocate (limiter_in_rate_buf  (numucat))
+      allocate (wdsrf_dn_pth_buf     (npth))
+      allocate (rivelv_dn_pth_buf    (npth))
+      allocate (protected_wdsrf_ucat_buf   (nucat))
+      allocate (protected_wdsrf_dn_pth_buf (npth))
+      allocate (has_levee_dn_pth_buf (npth))
+      allocate (storage_dn_pth_buf   (npth))
+      allocate (pth_hflux_total_buf  (npth))
+      allocate (pth_limiter_rate_buf (npth))
+      allocate (bif_influx_buf       (nucat))
+      allocate (has_levee_r8_buf     (nucat))
+      allocate (storage_ucat_buf     (nucat))
+      allocate (limiter_outgoing_buf (nucat))
+      allocate (limiter_incoming_buf (nucat))
+      allocate (limiter_out_rate_buf (nucat))
+      allocate (limiter_in_rate_buf  (nucat))
 
-      ! B4 fix: cross-rank limiter buffers
-      allocate (pos_pth_buf              (npthout_local))
-      allocate (neg_pth_buf              (npthout_local))
-      allocate (bif_pos_recv_buf         (numucat))
-      allocate (bif_neg_recv_buf         (numucat))
-      allocate (limiter_in_rate_pth_buf  (npthout_local))
-      allocate (limiter_out_rate_pth_buf (npthout_local))
+      allocate (pos_pth_buf              (npth))
+      allocate (neg_pth_buf              (npth))
+      allocate (bif_pos_recv_buf         (nucat))
+      allocate (bif_neg_recv_buf         (nucat))
+      allocate (limiter_in_rate_pth_buf  (npth))
+      allocate (limiter_out_rate_pth_buf (npth))
 
-      ! B7 fix: cross-river-system sync buffers
-      allocate (ucatfilter_r8_buf        (numucat))
-      allocate (ucatfilter_dn_pth_buf    (npthout_local))
+      allocate (ucatfilter_r8_buf        (nucat))
+      allocate (ucatfilter_dn_pth_buf    (npth))
+      allocate (is_resv_r8_buf           (nucat))
+      allocate (is_resv_dn_pth_buf       (npth))
+      allocate (dt_ucat_buf              (nucat))
+      allocate (dt_dn_pth_buf            (npth))
 
-   END SUBROUTINE bifurcation_init
+      allocate (pth_lev_hflux_total_buf  (npth))
+      allocate (bif_lev_influx_buf       (nucat))
+
+   END SUBROUTINE allocate_bifurcation_arrays
 
 
    ! =========================================================================
-   SUBROUTINE bifurcation_calc (wdsrf_ucat, volresv, is_built_resv, dt_all, irivsys, ucatfilter)
+   SUBROUTINE bifurcation_calc (wdsrf_ucat, volresv, is_built_resv, dt_all, irivsys, ucatfilter, update_state)
    ! =========================================================================
    !
    ! Compute bifurcation fluxes for one sub-timestep using a two-rarefaction
@@ -164,11 +221,13 @@ CONTAINS
    real(r8), intent(in) :: dt_all     (:)   ! timestep per ucat [s]
    integer,  intent(in) :: irivsys    (:)   ! river system id per ucat
    logical,  intent(in) :: ucatfilter (:)   ! active ucat filter
+   logical,  intent(in), optional :: update_state ! true: advance pathway momentum state
 
    ! Pointer aliases to persistent module-level buffers (no per-call alloc).
    real(r8), pointer :: wdsrf_dn_pth     (:) => null()
    real(r8), pointer :: rivelv_dn_pth    (:) => null()
-   real(r8), pointer :: levdph_dn_pth    (:) => null()
+   real(r8), pointer :: protected_wdsrf_ucat  (:) => null()
+   real(r8), pointer :: protected_wdsrf_dn_pth (:) => null()
    real(r8), pointer :: has_levee_dn_pth (:) => null()
    real(r8), pointer :: storage_dn_pth   (:) => null()
    real(r8), pointer :: storage_ucat     (:) => null()
@@ -180,16 +239,20 @@ CONTAINS
    real(r8), pointer :: limiter_out_rate (:) => null()
    real(r8), pointer :: limiter_in_rate  (:) => null()
    real(r8), pointer :: pth_limiter_rate (:) => null()
-   ! B4 fix: cross-rank limiter aliases
    real(r8), pointer :: pos_pth              (:) => null()
    real(r8), pointer :: neg_pth              (:) => null()
    real(r8), pointer :: bif_pos_recv         (:) => null()
    real(r8), pointer :: bif_neg_recv         (:) => null()
    real(r8), pointer :: limiter_in_rate_pth  (:) => null()
    real(r8), pointer :: limiter_out_rate_pth (:) => null()
-   ! B7 fix: cross-system sync aliases
    real(r8), pointer :: ucatfilter_r8        (:) => null()
    real(r8), pointer :: ucatfilter_dn_pth    (:) => null()
+   real(r8), pointer :: is_resv_r8           (:) => null()
+   real(r8), pointer :: is_resv_dn_pth       (:) => null()
+   real(r8), pointer :: dt_ucat              (:) => null()
+   real(r8), pointer :: dt_dn_pth            (:) => null()
+   real(r8), pointer :: pth_lev_hflux_total  (:) => null()
+   real(r8), pointer :: bif_lev_influx       (:) => null()
 
    real(r8) :: rivelv_up, rivelv_dn, wdsrf_up, wdsrf_dn, wdsrf_up_eff, wdsrf_dn_eff
    real(r8) :: bedelv_pth, height_up, height_dn
@@ -200,9 +263,11 @@ CONTAINS
    real(r8) :: hflux_lev, mflux_lev  ! flux for this layer
    real(r8) :: width_pth, pth_are
    real(r8) :: friction
-   real(r8) :: dt, dt_cell, storage_up, storage_dn, storage_ref, rate
+   real(r8) :: dt, dt_dn, dt_cell, storage_up, storage_dn, storage_ref, rate
    real(r8) :: path_transfer
    integer  :: ipth, ilev, i_up, i_dn, i_ucat
+   integer  :: n_dt_mismatch_skip, n_dt_mismatch_skip_glb
+   logical  :: do_update_state
 
       IF (.not. p_is_worker) RETURN
 
@@ -215,15 +280,23 @@ CONTAINS
          CALL CoLM_stop ()
       ENDIF
 
+      do_update_state = .true.
+      IF (present(update_state)) do_update_state = update_state
+      n_dt_mismatch_skip = 0
+      n_dt_mismatch_skip_glb = 0
+
       ! Reset net flux accumulator
       bif_hflux_sum(:) = 0._r8
       bif_hflux_lev(:,:) = 0._r8
+      IF (allocated(bif_path_active)) bif_path_active(:) = .false.
+      IF (allocated(bif_lev_hflux_sum)) bif_lev_hflux_sum(:) = 0._r8
 
       ! Alias persistent module-level buffers (allocated once in
       ! bifurcation_init). Zero-length buffers are still valid targets.
       wdsrf_dn_pth     => wdsrf_dn_pth_buf
       rivelv_dn_pth    => rivelv_dn_pth_buf
-      levdph_dn_pth    => levdph_dn_pth_buf
+      protected_wdsrf_ucat   => protected_wdsrf_ucat_buf
+      protected_wdsrf_dn_pth => protected_wdsrf_dn_pth_buf
       has_levee_dn_pth => has_levee_dn_pth_buf
       storage_dn_pth   => storage_dn_pth_buf
       pth_hflux_total  => pth_hflux_total_buf
@@ -235,20 +308,25 @@ CONTAINS
       limiter_incoming => limiter_incoming_buf
       limiter_out_rate => limiter_out_rate_buf
       limiter_in_rate  => limiter_in_rate_buf
-      ! B4 fix
       pos_pth              => pos_pth_buf
       neg_pth              => neg_pth_buf
       bif_pos_recv         => bif_pos_recv_buf
       bif_neg_recv         => bif_neg_recv_buf
       limiter_in_rate_pth  => limiter_in_rate_pth_buf
       limiter_out_rate_pth => limiter_out_rate_pth_buf
-      ! B7 fix
       ucatfilter_r8        => ucatfilter_r8_buf
       ucatfilter_dn_pth    => ucatfilter_dn_pth_buf
+      is_resv_r8           => is_resv_r8_buf
+      is_resv_dn_pth       => is_resv_dn_pth_buf
+      dt_ucat              => dt_ucat_buf
+      dt_dn_pth            => dt_dn_pth_buf
+      pth_lev_hflux_total  => pth_lev_hflux_total_buf
+      bif_lev_influx       => bif_lev_influx_buf
 
       wdsrf_dn_pth     (:) = 0._r8
       rivelv_dn_pth    (:) = 0._r8
-      levdph_dn_pth    (:) = 0._r8
+      protected_wdsrf_ucat  (:) = 0._r8
+      protected_wdsrf_dn_pth(:) = 0._r8
       has_levee_dn_pth (:) = 0._r8
       storage_dn_pth   (:) = 0._r8
       pth_hflux_total(:) = 0._r8
@@ -259,24 +337,35 @@ CONTAINS
       limiter_out_rate(:) = 1._r8
       limiter_in_rate (:) = 1._r8
       pth_limiter_rate(:) = 1._r8
+      pth_lev_hflux_total(:) = 0._r8
+      bif_lev_influx     (:) = 0._r8
       ! has_levee_r8 is referenced only under DEF_USE_LEVEE guards, but
       ! zero it unconditionally so a future refactor that decouples the
       ! guards can't read uninitialised values.
       has_levee_r8(:) = 0._r8
-      ! B4 fix
       pos_pth             (:) = 0._r8
       neg_pth             (:) = 0._r8
       bif_pos_recv        (:) = 0._r8
       bif_neg_recv        (:) = 0._r8
       limiter_in_rate_pth (:) = 1._r8
       limiter_out_rate_pth(:) = 1._r8
-      ! B7 fix: materialise ucatfilter as r8 so the push machinery can ship
+      ! materialise ucatfilter as r8 so the push machinery can ship
       ! it to each pathway's destination cell. The dn_pth view is filled by
       ! the Step 2 push below.
       ucatfilter_r8    (:) = 0._r8
       ucatfilter_dn_pth(:) = 0._r8
+      is_resv_r8       (:) = 0._r8
+      is_resv_dn_pth   (:) = 0._r8
+      dt_ucat          (:) = 0._r8
+      dt_dn_pth        (:) = 0._r8
       IF (numucat > 0) THEN
          WHERE (ucatfilter) ucatfilter_r8 = 1._r8
+         WHERE (is_built_resv) is_resv_r8 = 1._r8
+         DO i_ucat = 1, numucat
+            IF (irivsys(i_ucat) > 0 .and. irivsys(i_ucat) <= size(dt_all)) THEN
+               dt_ucat(i_ucat) = dt_all(irivsys(i_ucat))
+            ENDIF
+         ENDDO
       ENDIF
 
       IF (DEF_USE_LEVEE) THEN
@@ -284,6 +373,13 @@ CONTAINS
             WHERE (has_levee)
                has_levee_r8 = 1._r8
             END WHERE
+            DO i_ucat = 1, numucat
+               IF (has_levee(i_ucat)) THEN
+                  protected_wdsrf_ucat(i_ucat) = floodplain_curve(i_ucat)%rivhgt + levdph(i_ucat)
+               ELSE
+                  protected_wdsrf_ucat(i_ucat) = wdsrf_ucat(i_ucat)
+               ENDIF
+            ENDDO
          ENDIF
       ENDIF
 
@@ -299,11 +395,13 @@ CONTAINS
       CALL worker_push_data (push_bif_dn2pth, wdsrf_ucat,  wdsrf_dn_pth,  fillvalue = -9999._r8)
       CALL worker_push_data (push_bif_dn2pth, topo_rivelv, rivelv_dn_pth, fillvalue = -9999._r8)
       IF (DEF_USE_LEVEE) THEN
-         CALL worker_push_data (push_bif_dn2pth, levdph,        levdph_dn_pth,    fillvalue = 0._r8)
-         CALL worker_push_data (push_bif_dn2pth, has_levee_r8,  has_levee_dn_pth, fillvalue = 0._r8)
+         CALL worker_push_data (push_bif_dn2pth, protected_wdsrf_ucat, protected_wdsrf_dn_pth, fillvalue = 0._r8)
+         CALL worker_push_data (push_bif_dn2pth, has_levee_r8,         has_levee_dn_pth,       fillvalue = 0._r8)
       ENDIF
       CALL worker_push_data (push_bif_dn2pth, storage_ucat, storage_dn_pth, fillvalue = -9999._r8)
-      ! B7 fix: push destination ucat active-mask so the source rank can
+      CALL worker_push_data (push_bif_dn2pth, is_resv_r8, is_resv_dn_pth, fillvalue = 0._r8)
+      CALL worker_push_data (push_bif_dn2pth, dt_ucat, dt_dn_pth, fillvalue = 0._r8)
+      ! push destination ucat active-mask so the source rank can
       ! skip pathways whose downstream cell lives in a river system that
       ! has already exhausted its adaptive sub-step. Fillvalue = 0 means
       ! unresolved remote/boundary destinations are treated as inactive
@@ -319,6 +417,7 @@ CONTAINS
          ! Skip if upstream ucat is not active
          IF (i_up < 1 .or. i_up > numucat) CYCLE
          IF (.not. ucatfilter(i_up)) CYCLE
+         IF (i_up <= size(is_built_resv) .and. is_built_resv(i_up)) CYCLE
 
          ! Skip if downstream cell is outside domain (CaMa: CYCLE when JSEQP<=0)
          IF (wdsrf_dn_pth(ipth) < -9000._r8 .or. rivelv_dn_pth(ipth) < -9000._r8) CYCLE
@@ -327,13 +426,13 @@ CONTAINS
          wdsrf_up  = wdsrf_ucat(i_up)
          rivelv_dn = rivelv_dn_pth(ipth)
          wdsrf_dn  = wdsrf_dn_pth(ipth)
-         dt        = dt_all(irivsys(i_up))
+         dt        = dt_ucat(i_up)
 
          pth_hflux_total(ipth) = 0._r8
 
          i_dn = pth_down_local(ipth)
 
-         ! B7 fix: skip pathway when destination cell is in a river system
+         ! skip pathway when destination cell is in a river system
          ! that has exhausted its adaptive sub-step (dt = 0). Applying the
          ! flux would update bif_hflux_sum(i_up) on the source side, but
          ! the destination contribution is dropped by WHERE(ucatfilter) in
@@ -344,24 +443,40 @@ CONTAINS
          ! routing step.
          IF (i_dn > 0 .and. i_dn <= numucat) THEN
             IF (.not. ucatfilter(i_dn)) CYCLE
+            IF (i_dn <= size(is_built_resv) .and. is_built_resv(i_dn)) CYCLE
+            dt_dn = dt_ucat(i_dn)
          ELSE
             IF (ucatfilter_dn_pth(ipth) < 0.5_r8) CYCLE
+            IF (is_resv_dn_pth(ipth) > 0.5_r8) CYCLE
+            dt_dn = dt_dn_pth(ipth)
+         ENDIF
+
+         IF (dt <= 0._r8 .or. dt_dn <= 0._r8) CYCLE
+         IF (abs(dt - dt_dn) > max(1.e-9_r8, 1.e-12_r8 * max(abs(dt), abs(dt_dn)))) THEN
+            n_dt_mismatch_skip = n_dt_mismatch_skip + 1
+            CYCLE
          ENDIF
 
          ! Zero-length pathways have no physical length scale for the
          ! momentum update; clear all layer states and skip this pathway.
          IF (pth_dst(ipth) <= 0._r8) THEN
-            pth_momen(:, ipth) = 0._r8
-            pth_veloc(:, ipth) = 0._r8
+            IF (do_update_state) THEN
+               pth_momen(:, ipth) = 0._r8
+               pth_veloc(:, ipth) = 0._r8
+            ENDIF
             CYCLE
          ENDIF
+
+         IF (allocated(bif_path_active)) bif_path_active(ipth) = .true.
 
          DO ilev = 1, npthlev_bif
 
             width_pth = pth_wth(ilev, ipth)
             IF (width_pth <= 0._r8) THEN
-               pth_momen(ilev, ipth) = 0._r8
-               pth_veloc(ilev, ipth) = 0._r8
+               IF (do_update_state) THEN
+                  pth_momen(ilev, ipth) = 0._r8
+                  pth_veloc(ilev, ipth) = 0._r8
+               ENDIF
                CYCLE
             ENDIF
 
@@ -369,7 +484,7 @@ CONTAINS
                wdsrf_up_eff = wdsrf_up
             ELSE
                IF (DEF_USE_LEVEE .and. allocated(has_levee) .and. has_levee(i_up)) THEN
-                  wdsrf_up_eff = levdph(i_up)
+                  wdsrf_up_eff = protected_wdsrf_ucat(i_up)
                ELSE
                   wdsrf_up_eff = wdsrf_up
                ENDIF
@@ -380,12 +495,12 @@ CONTAINS
             ELSE
                IF (i_dn > 0 .and. i_dn <= numucat) THEN
                   IF (DEF_USE_LEVEE .and. allocated(has_levee) .and. has_levee(i_dn)) THEN
-                     wdsrf_dn_eff = levdph(i_dn)
+                     wdsrf_dn_eff = protected_wdsrf_ucat(i_dn)
                   ELSE
                      wdsrf_dn_eff = wdsrf_dn
                   ENDIF
                ELSEIF (DEF_USE_LEVEE .and. has_levee_dn_pth(ipth) > 0.5_r8) THEN
-                  wdsrf_dn_eff = levdph_dn_pth(ipth)
+                  wdsrf_dn_eff = protected_wdsrf_dn_pth(ipth)
                ELSE
                   wdsrf_dn_eff = wdsrf_dn
                ENDIF
@@ -403,8 +518,10 @@ CONTAINS
             ! Skip if both ends are dry
             IF (height_up < BIFMIN .and. height_dn < BIFMIN) THEN
                hflux_lev = 0._r8
-               pth_momen(ilev, ipth) = 0._r8
-               pth_veloc(ilev, ipth) = 0._r8
+               IF (do_update_state) THEN
+                  pth_momen(ilev, ipth) = 0._r8
+                  pth_veloc(ilev, ipth) = 0._r8
+               ENDIF
                CYCLE
             ENDIF
 
@@ -454,29 +571,31 @@ CONTAINS
                   + vwave_up*vwave_dn*(hflux_dn - hflux_up)) / (vwave_dn - vwave_up)
             ENDIF
 
-            ! --- Update pathway momentum (semi-implicit friction, same as main channel) ---
-            ! pth_are = pathway top area (width * pathway length)
-            ! Momentum equation: d(h*v)/dt = -d(h*v^2 + gh^2/2)/dx - friction
-            ! Discrete: momen_new = (momen_old - mflux/are*dt) / (1 + friction*dt)
-            pth_are = width_pth * pth_dst(ipth)
+            IF (do_update_state) THEN
+               ! --- Update pathway momentum (semi-implicit friction, same as main channel) ---
+               ! pth_are = pathway top area (width * pathway length)
+               ! Momentum equation: d(h*v)/dt = -d(h*v^2 + gh^2/2)/dx - friction
+               ! Discrete: momen_new = (momen_old - mflux/are*dt) / (1 + friction*dt)
+               pth_are = width_pth * pth_dst(ipth)
 
-            ! Both ends < BIFMIN was already CYCLE'd above, so max(...) >= BIFMIN
-            ! holds here unconditionally.
-            friction = grav * pth_man(ilev)**2 &
-               / max(height_up, height_dn)**(7._r8/3._r8) * abs(pth_momen(ilev, ipth))
-            pth_momen(ilev, ipth) = (pth_momen(ilev, ipth) &
-               - mflux_lev / pth_are * dt) &
-               / (1._r8 + friction * dt)
-            pth_veloc(ilev, ipth) = pth_momen(ilev, ipth) / max(height_up, height_dn)
+               ! Both ends < BIFMIN was already CYCLE'd above, so max(...) >= BIFMIN
+               ! holds here unconditionally.
+               friction = grav * pth_man(ilev)**2 &
+                  / max(height_up, height_dn)**(7._r8/3._r8) * abs(pth_momen(ilev, ipth))
+               pth_momen(ilev, ipth) = (pth_momen(ilev, ipth) &
+                  - mflux_lev / pth_are * dt) &
+                  / (1._r8 + friction * dt)
+               pth_veloc(ilev, ipth) = pth_momen(ilev, ipth) / max(height_up, height_dn)
 
-            ! Clamp velocity and keep momentum in sync so the next substep
-            ! reads a consistent (v_up, pth_momen) pair: v_up comes from
-            ! pth_veloc and friction reads abs(pth_momen). Without the
-            ! re-sync, a clamp-only update leaves |pth_momen|/max_h larger
-            ! than the clamped |pth_veloc|, over-estimating friction on the
-            ! next step.
-            pth_veloc(ilev, ipth) = max(-20._r8, min(20._r8, pth_veloc(ilev, ipth)))
-            pth_momen(ilev, ipth) = pth_veloc(ilev, ipth) * max(height_up, height_dn)
+               ! Clamp velocity and keep momentum in sync so the next substep
+               ! reads a consistent (v_up, pth_momen) pair: v_up comes from
+               ! pth_veloc and friction reads abs(pth_momen). Without the
+               ! re-sync, a clamp-only update leaves |pth_momen|/max_h larger
+               ! than the clamped |pth_veloc|, over-estimating friction on the
+               ! next step.
+               pth_veloc(ilev, ipth) = max(-20._r8, min(20._r8, pth_veloc(ilev, ipth)))
+               pth_momen(ilev, ipth) = pth_veloc(ilev, ipth) * max(height_up, height_dn)
+            ENDIF
 
             ! Accumulate total flux for this pathway [m^3/s]
             pth_hflux_total(ipth) = pth_hflux_total(ipth) + hflux_lev
@@ -488,8 +607,11 @@ CONTAINS
          IF (abs(pth_hflux_total(ipth)) > 1.e-10_r8 .and. dt > 0._r8) THEN
             storage_up = storage_ucat(i_up)
             storage_dn = storage_dn_pth(ipth)
+            ! Do not promote nearly dry pathway endpoints to an artificial
+            ! 1 m3 storage. With a globally synchronized routing DT, that
+            ! floor lets dry bifurcation paths force pathological tiny DTs.
             storage_ref = min(storage_up, storage_dn)
-            storage_ref = max(storage_ref, 1._r8)
+            storage_ref = max(storage_ref, BIF_STORAGE_EPS)
             pth_limiter_rate(ipth) = min(1._r8, 0.05_r8 * storage_ref / (abs(pth_hflux_total(ipth)) * dt))
          ENDIF
 
@@ -507,7 +629,16 @@ CONTAINS
 
       ENDDO  ! ipth
 
-      ! ----- B4 fix: cross-rank destination accumulation -----
+      n_dt_mismatch_skip_glb = n_dt_mismatch_skip
+#ifdef USEMPI
+      CALL mpi_allreduce (n_dt_mismatch_skip, n_dt_mismatch_skip_glb, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
+#endif
+      IF (p_iam_worker == p_root .and. n_dt_mismatch_skip_glb > 0 .and. n_dt_mismatch_warn_count < 5) THEN
+         write(*,'(A,I0,A)') 'WARNING bifurcation_calc: skipped ', n_dt_mismatch_skip_glb, &
+            ' pathway(s) because source/destination routing dt differ; cross-river-system bifurcation may be inactive.'
+         n_dt_mismatch_warn_count = n_dt_mismatch_warn_count + 1
+      ENDIF
+      ! ----- cross-rank destination accumulation -----
       ! Push pos/neg pathway flux components to their destination cells.
       ! sum mode collects contributions from all ranks owning the source.
       CALL worker_push_data (push_bif_influx, pos_pth, bif_pos_recv, &
@@ -523,8 +654,8 @@ CONTAINS
       ENDDO
 
       DO i_ucat = 1, numucat
-         dt_cell = dt_all(irivsys(i_ucat))
-         storage_ref = max(storage_ucat(i_ucat), 1._r8)
+         dt_cell = dt_ucat(i_ucat)
+         storage_ref = max(storage_ucat(i_ucat), BIF_STORAGE_EPS)
          IF (limiter_outgoing(i_ucat) > 1.e-10_r8 .and. dt_cell > 0._r8) THEN
             limiter_out_rate(i_ucat) = min(1._r8, 0.05_r8 * storage_ref / (limiter_outgoing(i_ucat) * dt_cell))
          ENDIF
@@ -533,7 +664,7 @@ CONTAINS
          ENDIF
       ENDDO
 
-      ! ----- B4 fix: push destination cell rates back to each pathway -----
+      ! ----- push destination cell rates back to each pathway -----
       ! For pathways whose downstream cell is on a remote rank, the cell rate
       ! is computed there; we pull it via push_bif_dn2pth. For local-downstream
       ! pathways the push delivers the same value as a direct lookup.
@@ -546,21 +677,29 @@ CONTAINS
          i_up = pth_upst_local(ipth)
          IF (i_up < 1 .or. i_up > numucat) CYCLE
          IF (.not. ucatfilter(i_up)) CYCLE
+         IF (i_up <= size(is_built_resv) .and. is_built_resv(i_up)) CYCLE
          IF (wdsrf_dn_pth(ipth) < -9000._r8 .or. rivelv_dn_pth(ipth) < -9000._r8) CYCLE
          ! Zero-length pathways are skipped up in the first DO ipth loop, so
          ! pth_hflux_total(ipth) stays 0 here and this loop's scaling is a
          ! no-op. No need to re-check pth_dst.
 
          i_dn = pth_down_local(ipth)
-         ! B7 fix: mirror the first DO loop's cross-system sync guard here
+         ! mirror the first DO loop's cross-system sync guard here
          ! so we never scale pth_momen / pth_veloc by a rate that the
          ! upstream system's other pathways produced for a pathway whose
          ! destination is not participating in this sub-step.
          IF (i_dn > 0 .and. i_dn <= numucat) THEN
             IF (.not. ucatfilter(i_dn)) CYCLE
+            IF (i_dn <= size(is_built_resv) .and. is_built_resv(i_dn)) CYCLE
+            dt_dn = dt_ucat(i_dn)
          ELSE
             IF (ucatfilter_dn_pth(ipth) < 0.5_r8) CYCLE
+            IF (is_resv_dn_pth(ipth) > 0.5_r8) CYCLE
+            dt_dn = dt_dn_pth(ipth)
          ENDIF
+         dt = dt_ucat(i_up)
+         IF (dt <= 0._r8 .or. dt_dn <= 0._r8) CYCLE
+         IF (abs(dt - dt_dn) > max(1.e-9_r8, 1.e-12_r8 * max(abs(dt), abs(dt_dn)))) CYCLE
          ! Source rate is always local; destination rate comes from push above.
          IF (pth_hflux_total(ipth) >= 0._r8) THEN
             pth_limiter_rate(ipth) = min(pth_limiter_rate(ipth), limiter_out_rate(i_up))
@@ -574,17 +713,27 @@ CONTAINS
          IF (rate < 1._r8) THEN
             pth_hflux_total(ipth) = pth_hflux_total(ipth) * rate
             bif_hflux_lev(:, ipth) = bif_hflux_lev(:, ipth) * rate
-            pth_momen(:, ipth) = pth_momen(:, ipth) * rate
-            pth_veloc(:, ipth) = pth_veloc(:, ipth) * rate
+            IF (do_update_state) THEN
+               pth_momen(:, ipth) = pth_momen(:, ipth) * rate
+               pth_veloc(:, ipth) = pth_veloc(:, ipth) * rate
+            ENDIF
          ENDIF
 
          ! ----- Step 5: Accumulate to upstream ucat (local) -----
          bif_hflux_sum(i_up) = bif_hflux_sum(i_up) + pth_hflux_total(ipth)
 
+         IF (npthlev_bif >= 2) THEN
+            pth_lev_hflux_total(ipth) = sum(bif_hflux_lev(2:npthlev_bif, ipth))
+            bif_lev_hflux_sum(i_up) = bif_lev_hflux_sum(i_up) + pth_lev_hflux_total(ipth)
+         ENDIF
+
          ! Also accumulate directly to downstream ucat if local
          ! (i_dn was set above)
          IF (i_dn > 0 .and. i_dn <= numucat) THEN
             bif_hflux_sum(i_dn) = bif_hflux_sum(i_dn) - pth_hflux_total(ipth)
+            IF (npthlev_bif >= 2) THEN
+               bif_lev_hflux_sum(i_dn) = bif_lev_hflux_sum(i_dn) - pth_lev_hflux_total(ipth)
+            ENDIF
          ENDIF
 
       ENDDO  ! ipth
@@ -592,9 +741,14 @@ CONTAINS
       ! ----- Step 6: Scatter flux to remote downstream ucats -----
       IF (numucat > 0) THEN
          bif_influx(:) = 0._r8
+         bif_lev_influx(:) = 0._r8
       ENDIF
       CALL worker_push_data (push_bif_influx, pth_hflux_total, bif_influx, &
          fillvalue = 0._r8, mode = 'sum')
+      IF (npthlev_bif >= 2) THEN
+         CALL worker_push_data (push_bif_influx, pth_lev_hflux_total, bif_lev_influx, &
+            fillvalue = 0._r8, mode = 'sum')
+      ENDIF
 
       ! ----- Step 7: Subtract remote inflow, avoiding double-counting -----
       ! Remove contributions from local pathways (already counted in step 5)
@@ -602,6 +756,9 @@ CONTAINS
          i_dn = pth_down_local(ipth)
          IF (i_dn > 0 .and. i_dn <= numucat) THEN
             bif_influx(i_dn) = bif_influx(i_dn) - pth_hflux_total(ipth)
+            IF (npthlev_bif >= 2) THEN
+               bif_lev_influx(i_dn) = bif_lev_influx(i_dn) - pth_lev_hflux_total(ipth)
+            ENDIF
          ENDIF
       ENDDO
 
@@ -609,15 +766,22 @@ CONTAINS
       DO i_ucat = 1, numucat
          bif_hflux_sum(i_ucat) = bif_hflux_sum(i_ucat) - bif_influx(i_ucat)
       ENDDO
+      IF (npthlev_bif >= 2) THEN
+         DO i_ucat = 1, numucat
+            bif_lev_hflux_sum(i_ucat) = bif_lev_hflux_sum(i_ucat) - bif_lev_influx(i_ucat)
+         ENDDO
+      ENDIF
 
       ! Disassociate pointer aliases (targets remain allocated, owned by module)
-      nullify (wdsrf_dn_pth, rivelv_dn_pth, levdph_dn_pth, has_levee_dn_pth, &
+      nullify (wdsrf_dn_pth, rivelv_dn_pth, protected_wdsrf_ucat, protected_wdsrf_dn_pth, has_levee_dn_pth, &
                storage_dn_pth, pth_hflux_total, pth_limiter_rate, bif_influx, &
                has_levee_r8, storage_ucat, limiter_outgoing, limiter_incoming, &
                limiter_out_rate, limiter_in_rate, &
                pos_pth, neg_pth, bif_pos_recv, bif_neg_recv, &
                limiter_in_rate_pth, limiter_out_rate_pth, &
-               ucatfilter_r8, ucatfilter_dn_pth)
+               ucatfilter_r8, ucatfilter_dn_pth, is_resv_r8, is_resv_dn_pth, &
+               dt_ucat, dt_dn_pth, &
+               pth_lev_hflux_total, bif_lev_influx)
 
    END SUBROUTINE bifurcation_calc
 
@@ -634,9 +798,11 @@ CONTAINS
 
    integer,  intent(in) :: i
    real(r8), intent(in) :: wdsrf
-   real(r8), intent(in) :: volresv_in(:)
-   logical,  intent(in) :: is_built_resv_in(:)
-   real(r8)             :: storage
+	   real(r8), intent(in) :: volresv_in(:)
+	   logical,  intent(in) :: is_built_resv_in(:)
+	   real(r8)             :: storage
+	   logical              :: has_levee_cell
+	   real(r8), parameter  :: stage_restart_tol = 1.e-5_r8
 
       storage = 0._r8
 
@@ -655,24 +821,57 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (DEF_USE_LEVEE .and. allocated(has_levee) .and. has_levee(i)) THEN
-         IF (volwater_ucat_valid .and. allocated(volwater_ucat)) THEN
-            storage = volwater_ucat(i)
-         ELSEIF (allocated(levsto) .and. levsto(i) > 0._r8) THEN
-            IF (wdsrf <= floodplain_curve(i)%rivhgt + levee_hgt(i) + 1.e-6_r8) THEN
-               storage = levee_topsto(i)
-            ELSE
-               storage = floodplain_curve(i)%volume (wdsrf) - levsto(i)
-            ENDIF
-            storage = max(storage, 0._r8)
-         ELSE
-            storage = floodplain_curve(i)%volume (wdsrf)
-         ENDIF
-      ELSE
-         storage = floodplain_curve(i)%volume (wdsrf)
+      has_levee_cell = .false.
+      IF (DEF_USE_LEVEE .and. allocated(has_levee)) THEN
+         IF (i <= size(has_levee)) has_levee_cell = has_levee(i)
       ENDIF
 
+	      IF (volwater_ucat_valid .and. allocated(volwater_ucat)) THEN
+	         IF (i <= size(volwater_ucat)) THEN
+	            IF (volwater_ucat(i) > 0._r8 .or. wdsrf <= stage_restart_tol) THEN
+	               storage = volwater_ucat(i)
+	               IF (has_levee_cell) storage = storage + MAX(levsto(i), 0._r8)
+	            ELSEIF (has_levee_cell) THEN
+	               ! Old restart compatibility: some restarts store
+	               ! volwater_ucat as zero placeholders for wet levee cells.
+	               storage = levee_visible_volume_from_stage(i, wdsrf, levsto(i)) + MAX(levsto(i), 0._r8)
+	            ELSE
+	               storage = storage_with_river_prism(i, wdsrf)
+	            ENDIF
+	         ELSE
+	            storage = storage_with_river_prism(i, wdsrf)
+	         ENDIF
+	      ELSEIF (has_levee_cell .and. allocated(levsto)) THEN
+	         storage = levee_visible_volume_from_stage(i, wdsrf, levsto(i)) + MAX(levsto(i), 0._r8)
+	      ELSE
+	         storage = storage_with_river_prism(i, wdsrf)
+	      ENDIF
+
    END FUNCTION available_storage_ucat
+
+
+   ! =========================================================================
+   FUNCTION storage_with_river_prism (i, wdsrf) RESULT(storage)
+   ! =========================================================================
+   !
+   ! Limiter storage reference using the same above-bank river-prism convention
+   ! as levee visible/total storage.
+   !
+   ! =========================================================================
+
+   IMPLICIT NONE
+
+   integer,  intent(in) :: i
+   real(r8), intent(in) :: wdsrf
+   real(r8)             :: storage
+
+      storage = floodplain_curve(i)%volume(wdsrf)
+      IF (wdsrf > floodplain_curve(i)%rivhgt) THEN
+         storage = storage + floodplain_curve(i)%rivare * (wdsrf - floodplain_curve(i)%rivhgt)
+      ENDIF
+      storage = MAX(storage, 0._r8)
+
+   END FUNCTION storage_with_river_prism
 
 
    ! =========================================================================
@@ -784,14 +983,6 @@ CONTAINS
       IF (dbg_bif_restart_checked) RETURN
       dbg_bif_restart_checked = .true.
 
-      IF (.not. p_is_master .and. .not. p_is_worker) RETURN
-
-      IF (p_is_master) THEN
-         write(*,'(A,L1,A,L1,A,I0,A,I0)') 'DBG bifrst master has_veloc=', has_pth_veloc, &
-            ' has_momen=', has_pth_momen, ' totalnpthout=', totalnpthout, ' npthlev_bif=', npthlev_bif
-         call flush(6)
-      ENDIF
-
       IF (.not. p_is_worker) RETURN
 
       nbad_gid = 0
@@ -808,9 +999,9 @@ CONTAINS
          maxabs_momen = maxval(abs(pth_momen))
       ENDIF
 
-      IF (p_iam_worker == 0 .or. nbad_gid > 0 .or. nnan_veloc > 0 .or. nnan_momen > 0) THEN
+      IF (nbad_gid > 0 .or. nnan_veloc > 0 .or. nnan_momen > 0) THEN
          write(*,'(A,I0,A,L1,A,L1,A,I0,A,I0,A,I0,A,ES12.4,A,ES12.4)') &
-            'DBG bifrst glb=', p_iam_glb, &
+            'WARNING bifurcation restart state glb=', p_iam_glb, &
             ' has_veloc=', has_pth_veloc, &
             ' has_momen=', has_pth_momen, &
             ' bad_gid=', nbad_gid, &
@@ -919,10 +1110,13 @@ CONTAINS
       IF (allocated(pth_momen))     deallocate (pth_momen)
       IF (allocated(bif_hflux_lev)) deallocate (bif_hflux_lev)
       IF (allocated(bif_hflux_sum)) deallocate (bif_hflux_sum)
+      IF (allocated(bif_path_active)) deallocate (bif_path_active)
+      IF (allocated(bif_lev_hflux_sum)) deallocate (bif_lev_hflux_sum)
 
       IF (allocated(wdsrf_dn_pth_buf    )) deallocate (wdsrf_dn_pth_buf    )
       IF (allocated(rivelv_dn_pth_buf   )) deallocate (rivelv_dn_pth_buf   )
-      IF (allocated(levdph_dn_pth_buf   )) deallocate (levdph_dn_pth_buf   )
+      IF (allocated(protected_wdsrf_ucat_buf  )) deallocate (protected_wdsrf_ucat_buf  )
+      IF (allocated(protected_wdsrf_dn_pth_buf)) deallocate (protected_wdsrf_dn_pth_buf)
       IF (allocated(has_levee_dn_pth_buf)) deallocate (has_levee_dn_pth_buf)
       IF (allocated(storage_dn_pth_buf  )) deallocate (storage_dn_pth_buf  )
       IF (allocated(pth_hflux_total_buf )) deallocate (pth_hflux_total_buf )
@@ -944,6 +1138,13 @@ CONTAINS
 
       IF (allocated(ucatfilter_r8_buf       )) deallocate (ucatfilter_r8_buf       )
       IF (allocated(ucatfilter_dn_pth_buf   )) deallocate (ucatfilter_dn_pth_buf   )
+      IF (allocated(is_resv_r8_buf          )) deallocate (is_resv_r8_buf          )
+      IF (allocated(is_resv_dn_pth_buf      )) deallocate (is_resv_dn_pth_buf      )
+      IF (allocated(dt_ucat_buf             )) deallocate (dt_ucat_buf             )
+      IF (allocated(dt_dn_pth_buf           )) deallocate (dt_dn_pth_buf           )
+
+      IF (allocated(pth_lev_hflux_total_buf )) deallocate (pth_lev_hflux_total_buf )
+      IF (allocated(bif_lev_influx_buf      )) deallocate (bif_lev_influx_buf      )
 
    END SUBROUTINE bifurcation_final
 

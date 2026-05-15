@@ -1,5 +1,6 @@
 #include <define.h>
 
+#ifdef TRACER
 MODULE MOD_Tracer_Hist
 
    USE MOD_Precision
@@ -62,19 +63,37 @@ CONTAINS
          ENDDO
       ENDIF
 
-      ! Aquifer (wa can be negative during wetland deficit; accumulate the
-      ! signed value so the later ratio = signed_mass / signed_water stays
-      ! well-defined. When wa==0 the ratio check short-circuits in MOD_Hist.)
-      a_water_wa    (ipatch) = a_water_wa    (ipatch) + wa
-      a_water_wdsrf (ipatch) = a_water_wdsrf (ipatch) + wdsrf
-      a_water_wetwat(ipatch) = a_water_wetwat(ipatch) + wetwat
-      a_water_scv   (ipatch) = a_water_scv   (ipatch) + scv
-      DO itrc = 1, ntracers
-         a_trc_wa_mass    (itrc, ipatch) = a_trc_wa_mass    (itrc, ipatch) + trc_wa    (itrc, ipatch)
-         a_trc_wdsrf_mass (itrc, ipatch) = a_trc_wdsrf_mass (itrc, ipatch) + trc_wdsrf (itrc, ipatch)
+		      ! Aquifer: positive storage and signed debt are different diagnostics.
+		      ! wa<=0 is a wetland/aquifer debt state, not a physical concentration.
+		      ! Keep trc_wa state synchronized with wa, but filter sub-mm debt
+		      ! from concentration diagnostics to avoid tiny-denominator deltas.
+		      IF (wa > 1._r8) a_water_wa(ipatch) = a_water_wa(ipatch) + wa
+		      IF (wa < -1._r8) a_water_wa_debt(ipatch) = a_water_wa_debt(ipatch) - wa
+	      a_water_wdsrf (ipatch) = a_water_wdsrf (ipatch) + wdsrf
+	      a_water_wetwat(ipatch) = a_water_wetwat(ipatch) + wetwat
+         ! CoLM's `scv` is total snow water equivalent even after layered
+         ! snow exists, but `trc_scv` only mirrors the pre-layer thin-snow
+         ! pool. Once snl<0, tracer mass lives in trc_wliq/trc_wice snow
+         ! layers and is diagnosed via f_trc_conc_soisno_*; do not pair
+         ! that total scv water with the thin-snow tracer denominator.
+         IF (snl == 0 .and. scv > trc_tiny) THEN
+            a_water_scv(ipatch) = a_water_scv(ipatch) + scv
+         ENDIF
+	      DO itrc = 1, ntracers
+	         IF (wa > 1._r8) THEN
+	            a_trc_wa_mass(itrc, ipatch) = a_trc_wa_mass(itrc, ipatch) + trc_wa(itrc, ipatch)
+	         ENDIF
+		         IF (wa < -1._r8) THEN
+		            a_trc_wa_debt_mass(itrc, ipatch) = a_trc_wa_debt_mass(itrc, ipatch) &
+		               + max(-trc_wa(itrc, ipatch), 0._r8)
+		         ENDIF
+	         a_trc_wdsrf_mass (itrc, ipatch) = a_trc_wdsrf_mass (itrc, ipatch) + trc_wdsrf (itrc, ipatch)
          a_trc_wetwat_mass(itrc, ipatch) = a_trc_wetwat_mass(itrc, ipatch) + trc_wetwat(itrc, ipatch)
-         a_trc_scv_mass   (itrc, ipatch) = a_trc_scv_mass   (itrc, ipatch) + trc_scv   (itrc, ipatch)
+         IF (snl == 0 .and. scv > trc_tiny) THEN
+            a_trc_scv_mass(itrc, ipatch) = a_trc_scv_mass(itrc, ipatch) + trc_scv(itrc, ipatch)
+         ENDIF
       ENDDO
    END SUBROUTINE tracer_hist_accumulate
 
 END MODULE MOD_Tracer_Hist
+#endif

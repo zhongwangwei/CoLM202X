@@ -18,7 +18,9 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
+#ifdef TRACER
    USE MOD_Tracer_Vars, only: flush_Tracer_Acc
+#endif
 
    USE MOD_HistGridded
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -57,7 +59,9 @@ CONTAINS
 
       CALL allocate_acc_fluxes ()
       CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
       CALL flush_Tracer_Acc ()
+#endif
 
       HistForm = 'Gridded'
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -214,7 +218,9 @@ CONTAINS
 
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
          CALL flush_Tracer_Acc ()
+#endif
          RETURN
       ELSE
          CALL accumulate_fluxes ()
@@ -4184,198 +4190,383 @@ ENDIF
          ! DEF_USE_TRACER + DEF_hist_vars flags for consistency with
          ! the underlying water-pool outputs.
          ! ============================================================
-         IF (DEF_USE_TRACER) THEN
+#ifdef TRACER
             BLOCK
-            USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny
-            USE MOD_Tracer_Vars, only: a_trc_ldew_mass, a_water_ldew, &
-                                       a_trc_soil_mass, a_water_soil, &
-                                       a_trc_snow_mass, a_water_snow, &
-                                       a_trc_wa_mass,     a_water_wa, &
-                                       a_trc_wdsrf_mass,  a_water_wdsrf, &
-                                       a_trc_wetwat_mass, a_water_wetwat, &
-                                       a_trc_scv_mass,    a_water_scv
-            USE MOD_Vars_1DAccFluxes, only: nac
+		            USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, &
+		                                       trc_delta_sanity_max, &
+		                                       trc_flux_water_min_for_delta, &
+		                                       tracer_uses_delta_diagnostics
+	            USE MOD_Tracer_Vars, only: a_trc_ldew_mass, a_water_ldew, &
+	                                       a_trc_evap, a_water_evap_gross, &
+	                                       a_trc_soilevap, a_water_soilevap, &
+	                                       a_trc_canopyevap, a_water_canopyevap, &
+	                                       a_trc_subl, a_water_subl, &
+	                                       a_trc_wetland_evap, a_water_wetland_evap, &
+		                                       a_trc_transp, a_trc_transp_src, a_water_transp, &
+	                                       trc_leaf_delta_e, trc_leaf_delta_b, &
+	                                       trc_leaf_water_moles, &
+	                                       a_trc_soil_mass, a_water_soil, &
+	                                       a_trc_snow_mass, a_water_snow, &
+	                                       a_trc_wa_mass,     a_water_wa, &
+	                                       a_trc_wa_debt_mass, a_water_wa_debt, &
+	                                       a_trc_wdsrf_mass,  a_water_wdsrf, &
+	                                       a_trc_wetwat_mass, a_water_wetwat, &
+	                                       a_trc_scv_mass,    a_water_scv
 
-            real(r8), allocatable :: trc_ratio_ldew  (:)
-            real(r8), allocatable :: trc_ratio_soisno(:,:)
-            real(r8), allocatable :: trc_ratio_pool  (:)
+            real(r8), allocatable :: trc_mass_soisno (:,:)
+            real(r8), allocatable :: water_soisno    (:,:)
+            real(r8), allocatable :: trc_delta_flux  (:)
+            real(r8), allocatable :: snowpack_mass_pat(:)
+            real(r8), allocatable :: snowpack_water_pat(:)
             real(r8), allocatable :: ones_arr        (:)
+            ! Per-patch (pseudo_mass, pseudo_water) pair for the
+            ! leaf-water-weighted bulk delta. pseudo_water = leaf
+            ! water moles, pseudo_mass = R_b * moles. Feeding these
+            ! to write_history_tracer_delta_2d makes the gridded
+            ! result mass_to_delta(sum(area * R_b * moles),
+            ! sum(area * moles)) -- a true leaf-water-weighted mean
+            ! that obeys the sum-then-divide invariant. Reusing
+            ! trc_delta_flux for this would mix two different units
+            ! across the same buffer.
+            real(r8), allocatable :: leaf_mass_pat   (:)
+            real(r8), allocatable :: leaf_water_pat  (:)
             character(len=64)  :: trc_varname
             character(len=128) :: trc_longname
+            character(len=32)  :: trc_ratio_word, trc_ratio_units
+            real(r8) :: delta_loc, leaf_R_loc
             integer :: itrc_loc, ip_loc, j_loc, jsnow_loc
 
             IF (ntracers > 0) THEN
                IF (p_is_worker) THEN
-                  allocate (trc_ratio_ldew  (numpatch))
-                  allocate (trc_ratio_soisno(maxsnl+1:nl_soil, numpatch))
-                  allocate (trc_ratio_pool  (numpatch))
+                  allocate (trc_mass_soisno (maxsnl+1:nl_soil, numpatch))
+                  allocate (water_soisno    (maxsnl+1:nl_soil, numpatch))
+                  allocate (trc_delta_flux  (numpatch))
+                  allocate (snowpack_mass_pat (numpatch))
+                  allocate (snowpack_water_pat(numpatch))
                   allocate (ones_arr        (numpatch));  ones_arr = 1._r8
+                  allocate (leaf_mass_pat   (numpatch))
+                  allocate (leaf_water_pat  (numpatch))
                ELSE
-                  allocate (trc_ratio_ldew  (0))
-                  allocate (trc_ratio_soisno(0,0))
-                  allocate (trc_ratio_pool  (0))
+                  allocate (trc_mass_soisno (0,0))
+                  allocate (water_soisno    (0,0))
+                  allocate (trc_delta_flux  (0))
+                  allocate (snowpack_mass_pat (0))
+                  allocate (snowpack_water_pat(0))
                   allocate (ones_arr        (0))
+                  allocate (leaf_mass_pat   (0))
+                  allocate (leaf_water_pat  (0))
                ENDIF
 
                DO itrc_loc = 1, ntracers
+                  IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
+                     trc_ratio_word  = 'ratio'
+                     trc_ratio_units = 'R'
+                  ELSE
+                     trc_ratio_word  = 'concentration'
+                     trc_ratio_units = 'tracer/water'
+                  ENDIF
 
-                  ! --- Canopy ratio ---
+                  IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
+	                  ! --- Evapotranspiration flux delta ---
+	                  ! Pair a_trc_evap with gross evaporative water so the
+	                  ! denominator never goes near zero from dew/frost
+	                  ! cancellation (a_fevpa is the net flux; not valid as a
+	                  ! delta denominator). write_history_tracer_delta_2d
+	                  ! maps mass and water separately to the grid and divides
+	                  ! once at the end -- preserving the
+	                  ! mass_to_delta(sum(mass), sum(water)) invariant
+	                  ! documented in MOD_Tracer_Defs.F90.
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_evap_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'evapotranspiration tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+		                     a_trc_evap(itrc_loc, :), a_water_evap_gross(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_soilevap_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+		                     a_trc_soilevap(itrc_loc, :), a_water_soilevap(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_canopyevap_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'canopy evaporation tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+		                     a_trc_canopyevap(itrc_loc, :), a_water_canopyevap(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_subl_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'sublimation tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+		                     a_trc_subl(itrc_loc, :), a_water_subl(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_wetland_evap_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'wetland evaporation/sublimation tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+		                     a_trc_wetland_evap(itrc_loc, :), a_water_wetland_evap(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  ! --- Transpiration-only flux delta ---
+	                  ! write_history_tracer_delta_2d does sum-then-divide on
+	                  ! the grid; no per-patch delta needed here.
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_transp_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'transpiration tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
+		                     a_trc_transp(itrc_loc, :), a_water_transp(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  ! --- Transpiration source/xylem delta before NSS storage exchange ---
+	                  write(trc_varname , '(A,A)')   'f_trc_delta_transp_src_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(A,A,A)') 'transpiration source/xylem tracer delta (', &
+	                     trim(tracers(itrc_loc)%name), ')'
+		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
+		                     a_trc_transp_src(itrc_loc, :), a_water_transp(itrc_loc, :), &
+		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+		                     itime_in_file, filter, trim(trc_longname), 'permil', &
+		                     water_min_override = trc_flux_water_min_for_delta)
+
+	                  ! --- Leaf NSS state deltas ---
+                  ! e-site: NSS evaporation-site state -- there is no
+                  ! conserved per-patch water mass paired with this
+                  ! delta (the Peclet number is a mixing factor, not
+                  ! a mass), so area-weighted aggregation is the only
+                  ! defensible choice. Longname documents that this
+                  ! is a state diagnostic, not a mass-weighted bulk
+                  ! pool delta.
                   IF (p_is_worker) THEN
                      DO ip_loc = 1, numpatch
-                        IF (a_water_ldew(ip_loc) > trc_tiny) THEN
-                           trc_ratio_ldew(ip_loc) = &
-                              a_trc_ldew_mass(itrc_loc, ip_loc) / a_water_ldew(ip_loc)
+                        delta_loc = trc_leaf_delta_e(itrc_loc, ip_loc)
+                        IF (delta_loc /= spval .and. &
+                            abs(delta_loc) <= trc_delta_sanity_max) THEN
+                           trc_delta_flux(ip_loc) = delta_loc
                         ELSE
-                           trc_ratio_ldew(ip_loc) = spval
+                           trc_delta_flux(ip_loc) = spval
                         ENDIF
                      ENDDO
                   ENDIF
-                  write(trc_varname , '(A,A)')   'f_trc_conc_ldew_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(A,A,A)') 'canopy tracer ratio (', &
+                  write(trc_varname , '(A,A)')   'f_trc_leaf_delta_e_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'leaf evaporation-site NSS delta, area-weighted state (', &
                      trim(tracers(itrc_loc)%name), ')'
-                  CALL write_history_variable_2d (DEF_hist_vars%ldew, &
-                     trc_ratio_ldew, file_hist, trim(trc_varname), itime_in_file, &
-                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+                  CALL write_history_variable_2d (DEF_hist_vars%etr, &
+                     trc_delta_flux, file_hist, trim(trc_varname), itime_in_file, &
+                     sumarea, filter, trim(trc_longname), 'permil', acc_num = ones_arr)
+
+                  ! b-site: bulk leaf water has a matching per-patch
+                  ! mass scale (trc_leaf_water_moles, mol/m^2). Build
+                  ! pseudo (mass, water) = (R_b * moles, moles) and
+                  ! route through write_history_tracer_delta_2d so the
+                  ! grid result is mass_to_delta(sum(area*R_b*moles),
+                  ! sum(area*moles)) -- a leaf-water-weighted bulk
+                  ! delta consistent with the sum-then-divide
+                  ! invariant. Patches with delta_b == spval, out-of-
+                  ! sanity, or zero leaf water are spval'd in mass
+                  ! and 0'd in water so the downstream filter at
+                  ! water > trc_water_min_for_delta drops them.
+                  IF (p_is_worker) THEN
+                     DO ip_loc = 1, numpatch
+                        delta_loc = trc_leaf_delta_b(itrc_loc, ip_loc)
+                        IF (delta_loc /= spval .and. &
+                            abs(delta_loc) <= trc_delta_sanity_max .and. &
+                            trc_leaf_water_moles(itrc_loc, ip_loc) > 0._r8) THEN
+                           leaf_R_loc = (1._r8 + delta_loc * 1.0e-3_r8) * &
+                                        tracers(itrc_loc)%ref_ratio
+                           leaf_mass_pat (ip_loc) = leaf_R_loc * &
+                                                    trc_leaf_water_moles(itrc_loc, ip_loc)
+                           leaf_water_pat(ip_loc) = trc_leaf_water_moles(itrc_loc, ip_loc)
+                        ELSE
+                           leaf_mass_pat (ip_loc) = spval
+                           leaf_water_pat(ip_loc) = 0._r8
+                        ENDIF
+                     ENDDO
+                  ENDIF
+                  write(trc_varname , '(A,A)')   'f_trc_leaf_delta_b_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(A,A,A)') 'bulk leaf-water NSS delta, leaf-water-mole weighted (', &
+                     trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
+                     leaf_mass_pat, leaf_water_pat, &
+                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                     itime_in_file, filter, trim(trc_longname), 'permil')
+                  ENDIF
+
+                  ! --- Canopy ratio ---
+                  write(trc_varname , '(A,A)')   'f_trc_conc_ldew_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(5A)') 'canopy tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%ldew, &
+                     a_trc_ldew_mass(itrc_loc, :), a_water_ldew, &
+                     file_hist, trim(trc_varname), itime_in_file, &
+                     filter, trim(trc_longname), trim(trc_ratio_units))
 
                   ! --- Soil + snow combined ratio ---
-                  ! Snow accumulator is keyed by jsnow = j - maxsnl (positive).
-                  ! Soil accumulator is keyed by j (1..nl_soil). Inactive snow
-                  ! layers remain as spval so downstream plotting skips them.
+                  ! Snow accumulator is keyed by jsnow = j - maxsnl (positive);
+                  ! soil accumulator is keyed by j (1..nl_soil). Map tracer
+                  ! mass and water separately, then divide on the history grid.
+                  ! This avoids area-fraction dilution when a grid cell has
+                  ! multiple patch fractions with different tracer signatures.
                   IF (p_is_worker) THEN
+                     trc_mass_soisno = spval
+                     water_soisno    = spval
                      DO ip_loc = 1, numpatch
                         DO j_loc = maxsnl+1, 0
                            jsnow_loc = j_loc - maxsnl
                            IF (a_water_snow(jsnow_loc, ip_loc) > trc_tiny) THEN
-                              trc_ratio_soisno(j_loc, ip_loc) = &
-                                 a_trc_snow_mass(itrc_loc, jsnow_loc, ip_loc) &
-                                 / a_water_snow(jsnow_loc, ip_loc)
-                           ELSE
-                              trc_ratio_soisno(j_loc, ip_loc) = spval
+                              trc_mass_soisno(j_loc, ip_loc) = &
+                                 a_trc_snow_mass(itrc_loc, jsnow_loc, ip_loc)
+                              water_soisno(j_loc, ip_loc) = a_water_snow(jsnow_loc, ip_loc)
                            ENDIF
                         ENDDO
                         DO j_loc = 1, nl_soil
                            IF (a_water_soil(j_loc, ip_loc) > trc_tiny) THEN
-                              trc_ratio_soisno(j_loc, ip_loc) = &
-                                 a_trc_soil_mass(itrc_loc, j_loc, ip_loc) &
-                                 / a_water_soil(j_loc, ip_loc)
-                           ELSE
-                              trc_ratio_soisno(j_loc, ip_loc) = spval
+                              trc_mass_soisno(j_loc, ip_loc) = &
+                                 a_trc_soil_mass(itrc_loc, j_loc, ip_loc)
+                              water_soisno(j_loc, ip_loc) = a_water_soil(j_loc, ip_loc)
                            ENDIF
                         ENDDO
                      ENDDO
-                     ! Pre-multiply by nac so write_history_variable_3d's
-                     ! internal divide-by-nac returns the intended ratio.
-                     IF (nac > 0) THEN
-                        WHERE (trc_ratio_soisno /= spval) &
-                           trc_ratio_soisno = trc_ratio_soisno * nac
-                     ENDIF
                   ENDIF
                   write(trc_varname , '(A,A)')   'f_trc_conc_soisno_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(A,A,A)') 'soil/snow layer tracer ratio (', &
-                     trim(tracers(itrc_loc)%name), ')'
-                  CALL write_history_variable_3d (DEF_hist_vars%wliq_soisno, &
-                     trc_ratio_soisno, file_hist, trim(trc_varname), itime_in_file, &
-                     'soilsnow', maxsnl+1, nl_soil-maxsnl, sumarea, filter, &
-                     trim(trc_longname), 'R')
+                  write(trc_longname, '(5A)') 'soil/snow layer tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_tracer_ratio_3d (DEF_hist_vars%wliq_soisno, &
+                     trc_mass_soisno, water_soisno, file_hist, trim(trc_varname), itime_in_file, &
+                     'soilsnow', maxsnl+1, nl_soil-maxsnl, filter, &
+                     trim(trc_longname), trim(trc_ratio_units))
+
+                  ! --- Total snowpack ratio/delta ---
+                  ! CoLM's water-side scv is total SWE, while tracer_scv is
+                  ! only the pre-layer thin-snow pool. Build a formal snowpack
+                  ! diagnostic from the same pieces that own tracer mass:
+                  ! layered snow accumulators plus thin-snow scv accumulators.
+                  ! This keeps f_trc_conc_scv_* as a thin-snow diagnostic and
+                  ! prevents the old thin-tracer / total-SWE denominator mix.
+                  IF (p_is_worker) THEN
+                     snowpack_mass_pat(:)  = a_trc_scv_mass(itrc_loc, :)
+                     snowpack_water_pat(:) = a_water_scv(:)
+                     DO ip_loc = 1, numpatch
+                        DO jsnow_loc = 1, abs(maxsnl)
+                           snowpack_mass_pat(ip_loc) = snowpack_mass_pat(ip_loc) &
+                              + a_trc_snow_mass(itrc_loc, jsnow_loc, ip_loc)
+                           snowpack_water_pat(ip_loc) = snowpack_water_pat(ip_loc) &
+                              + a_water_snow(jsnow_loc, ip_loc)
+                        ENDDO
+                     ENDDO
+                  ENDIF
+
+                  write(trc_varname , '(A,A)')   'f_trc_conc_snowpack_', trim(tracers(itrc_loc)%name)
+                  write(trc_longname, '(5A)') 'total snowpack tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%scv, &
+                     snowpack_mass_pat, snowpack_water_pat, &
+                     file_hist, trim(trc_varname), itime_in_file, &
+                     filter, trim(trc_longname), trim(trc_ratio_units))
+
+                  IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
+                     write(trc_varname , '(A,A)')   'f_trc_delta_snowpack_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'total snowpack tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_tracer_delta_2d (DEF_hist_vars%scv, &
+                        snowpack_mass_pat, snowpack_water_pat, &
+                        tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                        itime_in_file, filter, trim(trc_longname), 'permil')
+                  ENDIF
 
                   ! --- Aquifer (wa) ratio ---
                   ! wa can be negative during wetland aquifer-debt episodes;
                   ! the tracer_wetland redistribution keeps signed arithmetic.
-                  ! Thresholding: require the signed time-mean wa over the
-                  ! history window to exceed 1 mm in magnitude (physical
-                  ! aquifer scale). Below that
-                  ! the wetland pool-ratio redistribution at tracer_wetland:1299
-                  ! (trc_wa = wa*pool_ratio) can amplify FP noise into 1000‰+
-                  ! artefacts — same cutoff as the runtime rangecheck at
-                  ! MOD_Vars_TimeVariables.F90:1768. a_water_wa is a sum over
-                  ! nac steps, so compare against |sum(wa)| > 1 mm * nac.
-                  BLOCK
-                  real(r8) :: wa_sum_min
-                  integer  :: nac_safe
-                  nac_safe = nac
-                  IF (nac_safe < 1) nac_safe = 1
-                  wa_sum_min = 1.0_r8 * real(nac_safe, r8)
-                  IF (p_is_worker) THEN
-                     DO ip_loc = 1, numpatch
-                        IF (abs(a_water_wa(ip_loc)) > wa_sum_min) THEN
-                           trc_ratio_pool(ip_loc) = &
-                              a_trc_wa_mass(itrc_loc, ip_loc) / a_water_wa(ip_loc)
-                        ELSE
-                           trc_ratio_pool(ip_loc) = spval
-                        ENDIF
-                     ENDDO
-                  ENDIF
-                  END BLOCK
                   write(trc_varname , '(A,A)')   'f_trc_conc_wa_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(A,A,A)') 'aquifer tracer ratio (', &
-                     trim(tracers(itrc_loc)%name), ')'
-                  CALL write_history_variable_2d (DEF_hist_vars%wa, &
-                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
-                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+                  write(trc_longname, '(5A)') 'aquifer tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+	                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
+	                     a_trc_wa_mass(itrc_loc, :), a_water_wa, &
+	                     file_hist, trim(trc_varname), itime_in_file, &
+	                     filter, trim(trc_longname), trim(trc_ratio_units))
+
+	                  write(trc_varname , '(A,A)')   'f_trc_conc_wa_debt_', trim(tracers(itrc_loc)%name)
+	                  write(trc_longname, '(5A)') 'aquifer debt tracer ', trim(trc_ratio_word), &
+	                     ' (', trim(tracers(itrc_loc)%name), ')'
+	                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
+	                     a_trc_wa_debt_mass(itrc_loc, :), a_water_wa_debt, &
+	                     file_hist, trim(trc_varname), itime_in_file, &
+	                     filter, trim(trc_longname), trim(trc_ratio_units))
 
                   ! --- Surface water (wdsrf) ratio ---
-                  IF (p_is_worker) THEN
-                     DO ip_loc = 1, numpatch
-                        IF (a_water_wdsrf(ip_loc) > trc_tiny) THEN
-                           trc_ratio_pool(ip_loc) = &
-                              a_trc_wdsrf_mass(itrc_loc, ip_loc) / a_water_wdsrf(ip_loc)
-                        ELSE
-                           trc_ratio_pool(ip_loc) = spval
-                        ENDIF
-                     ENDDO
-                  ENDIF
                   write(trc_varname , '(A,A)')   'f_trc_conc_wdsrf_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(A,A,A)') 'surface water tracer ratio (', &
-                     trim(tracers(itrc_loc)%name), ')'
-                  CALL write_history_variable_2d (DEF_hist_vars%wdsrf, &
-                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
-                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+                  write(trc_longname, '(5A)') 'surface water tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%wdsrf, &
+                     a_trc_wdsrf_mass(itrc_loc, :), a_water_wdsrf, &
+                     file_hist, trim(trc_varname), itime_in_file, &
+                     filter, trim(trc_longname), trim(trc_ratio_units))
 
                   ! --- Wetland pool (wetwat) ratio ---
-                  IF (p_is_worker) THEN
-                     DO ip_loc = 1, numpatch
-                        IF (a_water_wetwat(ip_loc) > trc_tiny) THEN
-                           trc_ratio_pool(ip_loc) = &
-                              a_trc_wetwat_mass(itrc_loc, ip_loc) / a_water_wetwat(ip_loc)
-                        ELSE
-                           trc_ratio_pool(ip_loc) = spval
-                        ENDIF
-                     ENDDO
-                  ENDIF
                   write(trc_varname , '(A,A)')   'f_trc_conc_wetwat_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(A,A,A)') 'wetland pool tracer ratio (', &
-                     trim(tracers(itrc_loc)%name), ')'
-                  CALL write_history_variable_2d (DEF_hist_vars%wetwat, &
-                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
-                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+                  write(trc_longname, '(5A)') 'wetland pool tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+                  IF (p_is_worker) THEN
+                     IF (numpatch > 0) THEN
+                        filter(:) = patchtype == 2
+                        IF (DEF_forcing%has_missing_value) THEN
+                           filter = filter .and. forcmask_pch
+                        ENDIF
+                        filter = filter .and. patchmask
+                     ENDIF
+                  ENDIF
+                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%wetwat, &
+                     a_trc_wetwat_mass(itrc_loc, :), a_water_wetwat, &
+                     file_hist, trim(trc_varname), itime_in_file, &
+                     filter, trim(trc_longname), trim(trc_ratio_units))
+
+                  IF (p_is_worker) THEN
+                     IF (numpatch > 0) THEN
+                        filter(:) = patchtype <= 3
+                        IF (DEF_forcing%has_missing_value) THEN
+                           filter = filter .and. forcmask_pch
+                        ENDIF
+                        filter = filter .and. patchmask
+                     ENDIF
+                  ENDIF
 
                   ! --- Pre-layer thin snow (scv) ratio ---
                   ! Only meaningful when snl==0 (accumulated snow below
-                  ! layer-creation threshold); otherwise scv==0 and ratio
-                  ! degrades to spval.
-                  IF (p_is_worker) THEN
-                     DO ip_loc = 1, numpatch
-                        IF (a_water_scv(ip_loc) > trc_tiny) THEN
-                           trc_ratio_pool(ip_loc) = &
-                              a_trc_scv_mass(itrc_loc, ip_loc) / a_water_scv(ip_loc)
-                        ELSE
-                           trc_ratio_pool(ip_loc) = spval
-                        ENDIF
-                     ENDDO
-                  ENDIF
+                  ! layer-creation threshold). CoLM's water-side scv remains
+                  ! total SWE after layered snow exists, but tracer mass then
+                  ! lives in trc_wliq/trc_wice snow layers; the accumulator
+                  ! therefore filters out snl<0 states so this ratio cannot
+                  ! divide thin-snow tracer by total layered-snow SWE.
                   write(trc_varname , '(A,A)')   'f_trc_conc_scv_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(A,A,A)') 'thin-snow (scv) tracer ratio (', &
-                     trim(tracers(itrc_loc)%name), ')'
-                  CALL write_history_variable_2d (DEF_hist_vars%scv, &
-                     trc_ratio_pool, file_hist, trim(trc_varname), itime_in_file, &
-                     sumarea, filter, trim(trc_longname), 'R', acc_num = ones_arr)
+                  write(trc_longname, '(5A)') 'thin-snow (scv) tracer ', trim(trc_ratio_word), &
+                     ' (', trim(tracers(itrc_loc)%name), ')'
+                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%scv, &
+                     a_trc_scv_mass(itrc_loc, :), a_water_scv, &
+                     file_hist, trim(trc_varname), itime_in_file, &
+                     filter, trim(trc_longname), trim(trc_ratio_units))
 
                ENDDO
 
-               deallocate (trc_ratio_ldew, trc_ratio_soisno, trc_ratio_pool, ones_arr)
+               deallocate (trc_mass_soisno, water_soisno, trc_delta_flux, &
+                           snowpack_mass_pat, snowpack_water_pat, ones_arr, &
+                           leaf_mass_pat, leaf_water_pat)
             ENDIF
             END BLOCK
-         ENDIF
+#endif
 
 #ifdef DataAssimilation
          IF (p_is_worker) THEN
@@ -4933,16 +5124,8 @@ ENDIF
 #endif
 
 #ifdef GridRiverLakeFlow
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 before hist_grid_riverlake_out'
-            call flush(6)
-         ENDIF
          CALL hist_grid_riverlake_out (file_hist, HistForm, idate, &
             itime_in_file, trim(file_hist)/=trim(file_last))
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 after hist_grid_riverlake_out'
-            call flush(6)
-         ENDIF
 
          IF (p_is_worker) THEN
             IF (numpatch > 0) THEN
@@ -4953,86 +5136,453 @@ ENDIF
 
          IF (HistForm == 'Gridded') THEN
             IF (p_is_io) CALL allocate_block_data (ghist, sumarea_one)
-            IF (p_is_io) CALL flush_block_data (sumarea_one, 1.)
+            IF (p_is_io) CALL flush_block_data (sumarea_one, 1._r8)
          ENDIF
 
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 before f_wdpth_ucat_regrid'
-            call flush(6)
-         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%riv_height, a_wdsrf_ucat_pch,   &
             file_hist, 'f_wdpth_ucat_regrid', itime_in_file, sumarea_ucat, filter_ucat, &
             'regridded deepest water depth in river and flood plain', 'm', nac_one)
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 after f_wdpth_ucat_regrid'
-            call flush(6)
-         ENDIF
 
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 before f_veloc_riv_regrid'
-            call flush(6)
-         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%riv_veloct, a_veloc_riv_pch,    &
             file_hist, 'f_veloc_riv_regrid', itime_in_file, sumarea_ucat, filter_ucat,  &
             'regridded water velocity in river', 'm/s', nac_one)
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 after f_veloc_riv_regrid'
-            call flush(6)
-         ENDIF
 
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 before f_discharge_regrid'
-            call flush(6)
-         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_discharge_pch,     &
             file_hist, 'f_discharge', itime_in_file, sumarea_one, filter_ucat,          &
             'regridded discharge in river and flood plain', 'm^3/s',                    &
             nac_one, input_mode = 'total')
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 after f_discharge_regrid'
-            call flush(6)
-         ENDIF
 
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 before f_discharge_rivermouth_regrid'
-            call flush(6)
-         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_dis_rmth_pch,      &
             file_hist, 'f_discharge_rivermouth_regrid', itime_in_file, sumarea_one,     &
             filter_ucat, 'regridded river mouth discharge into ocean', 'm^3/s',         &
             nac_one, input_mode = 'total')
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 after f_discharge_rivermouth_regrid'
-            call flush(6)
-         ENDIF
 
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 before f_floodfrc'
-            call flush(6)
-         ENDIF
          CALL write_history_variable_2d ( DEF_hist_vars%floodfrc, a_floodfrc_pch,       &
             file_hist, 'f_floodfrc', itime_in_file, sumarea_inpm, filter_inpm,          &
             'flooded area fraction', '100%', nac_one)
-         IF (p_is_io .and. p_iam_io == 0) THEN
-            write(*,'(A)') 'DBG hist_out io0 after f_floodfrc'
-            call flush(6)
-         ENDIF
 
          IF (trim(HistForm) == 'Gridded') THEN
-            IF (p_is_io .and. p_iam_io == 0) THEN
-               write(*,'(A)') 'DBG hist_out io0 before f_floodarea'
-               call flush(6)
-            ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%floodarea, a_floodfrc_pch,   &
                file_hist, 'f_floodarea', itime_in_file, sumarea_one, filter_inpm,       &
                'flooded area', 'km^2', nac_one)
-            IF (p_is_io .and. p_iam_io == 0) THEN
-               write(*,'(A)') 'DBG hist_out io0 after f_floodarea'
-               call flush(6)
-            ENDIF
          ENDIF
 
          IF (allocated(nac_one   )) deallocate (nac_one   )
+#endif
+
+#if (defined TRACER) && (defined BGC)
+         ! Emit methane diagnostics to NetCDF history. The writes
+         ! are gated by igas_ch4>0; this BLOCK is a no-op when CH4 is not
+         ! registered. Inlined here (rather than in MOD_Tracer_Methane_Hist) to
+         ! avoid a USE cycle between MOD_Tracer_Methane_Hist and MOD_Hist for
+         ! the write_history_variable_2d/_3d module procedures.
+         ! Must run BEFORE FLUSH_acc_fluxes so the accumulators still hold
+         ! their per-window sums.
+         BLOCK
+            USE MOD_Tracer_Methane_Registry, only: igas_ch4
+            USE MOD_Tracer_Methane_AccFlux,  only: &
+                 a_net_methane, a_methane_prod_depth, a_o2_decomp_depth, a_co2_decomp_depth, &
+                 a_methane_oxid_depth, a_o2_oxid_depth, a_co2_oxid_depth, &
+                 a_methane_aere_depth, a_methane_tran_depth, a_o2_aere_depth, a_co2_aere_depth, &
+                 a_methane_ebul_depth, a_o2stress, a_methane_stress, &
+                 a_methane_surf_flux_tot, a_methane_surf_aere, a_methane_surf_ebul, &
+                 a_methane_surf_diff, a_methane_ebul_tot, a_methane_prod_tot, a_methane_oxid_tot, &
+                 a_co2_decomp_tot, a_co2_oxid_tot, a_co2_aere_tot, a_co2_net_tot, &
+                 a_totcol_methane, a_grnd_methane_cond, a_conc_o2, a_conc_methane, &
+                 a_net_methane_unsat, a_net_methane_sat, &
+                 a_methane_prod_depth_unsat, a_methane_prod_depth_sat, &
+                 a_co2_decomp_depth_unsat, a_co2_decomp_depth_sat, &
+                 a_methane_oxid_depth_unsat, a_methane_oxid_depth_sat, &
+                 a_co2_oxid_depth_unsat, a_co2_oxid_depth_sat, &
+                 a_methane_surf_flux_tot_unsat, a_methane_surf_flux_tot_sat, &
+                 a_co2_decomp_tot_unsat, a_co2_decomp_tot_sat, &
+                 a_co2_oxid_tot_unsat, a_co2_oxid_tot_sat, &
+                 a_co2_net_tot_unsat, a_co2_net_tot_sat, &
+                 a_totcol_methane_unsat, a_totcol_methane_sat, &
+                 a_conc_methane_unsat, a_conc_methane_sat, &
+                 a_methane_prod_depth_lake, a_methane_oxid_depth_lake, a_methane_ebul_depth_lake, &
+                 a_co2_decomp_depth_lake, a_co2_oxid_depth_lake, &
+                 a_methane_surf_ebul_lake, a_methane_surf_diff_lake, &
+                 a_methane_prod_tot_lake, a_methane_oxid_tot_lake, a_methane_ebul_tot_lake, &
+                 a_co2_decomp_tot_lake, a_co2_oxid_tot_lake, a_co2_net_tot_lake, &
+                 a_totcol_methane_lake, a_grnd_methane_cond_lake, &
+                 a_conc_o2_lake, a_conc_methane_lake, &
+                 a_forc_pmethanem, a_layer_sat_lag, &
+                 a_annavg_agnpp, a_annavg_bgnpp, a_annavg_somhr, a_annavg_finrw, &
+                 a_methane_dfsat_tot, a_f_h2osfc, &
+                 a_B_methanogen, a_B_methanotroph, &
+                 a_B_methanogen_dormant, a_B_methanotroph_dormant, &
+                 a_f_T_methanogen, a_f_S_methanogen, a_f_O2_methanogen, a_f_T_methanotroph, &
+                 a_methanogen_growth_rate, a_methanotroph_growth_rate, &
+                 a_microbial_prod_potential, a_microbial_oxid_potential, &
+                 a_methane_acc_num, a_methane_acc_num_unsat, a_methane_acc_num_sat, &
+                 a_methane_acc_num_lake, a_methane_acc_num_extra, a_methane_acc_num_microbe
+            logical, parameter :: emit = .true.
+
+            IF (igas_ch4 > 0) THEN
+               CALL write_history_variable_2d (emit, a_net_methane, file_hist, &
+                  'f_net_methane', itime_in_file, sumarea, filter, &
+                  'average net methane correction to CO2 flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_methane_prod_depth, file_hist, &
+                  'f_methane_prod_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 production per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_o2_decomp_depth, file_hist, &
+                  'f_o2_decomp_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'O2 consumption during decomposition per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_co2_decomp_depth, file_hist, &
+                  'f_co2_decomp_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CO2 production from decomposition and methanogenesis per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_methane_oxid_depth, file_hist, &
+                  'f_methane_oxid_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 oxidation per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_o2_oxid_depth, file_hist, &
+                  'f_o2_oxid_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'O2 consumption via oxidation per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_co2_oxid_depth, file_hist, &
+                  'f_co2_oxid_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CO2 production from CH4 oxidation per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_methane_aere_depth, file_hist, &
+                  'f_methane_aere_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 loss via aerenchyma per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_methane_tran_depth, file_hist, &
+                  'f_methane_tran_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 loss via transpiration per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_o2_aere_depth, file_hist, &
+                  'f_o2_aere_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'O2 gain via aerenchyma per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_co2_aere_depth, file_hist, &
+                  'f_co2_aere_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'diagnosed CO2 aerenchyma flux per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_methane_ebul_depth, file_hist, &
+                  'f_methane_ebul_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 loss via ebullition per layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_o2stress, file_hist, &
+                  'f_o2stress', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'O2 availability/demand ratio', '-', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_methane_stress, file_hist, &
+                  'f_methane_stress', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 availability/sinks ratio', '-', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_surf_flux_tot, file_hist, &
+                  'f_methane_surf_flux_tot', itime_in_file, sumarea, filter, &
+                  'CH4 surface flux to atmosphere', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_surf_aere, file_hist, &
+                  'f_methane_surf_aere', itime_in_file, sumarea, filter, &
+                  'CH4 column aerenchyma flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_surf_ebul, file_hist, &
+                  'f_methane_surf_ebul', itime_in_file, sumarea, filter, &
+                  'CH4 surface ebullition flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_surf_diff, file_hist, &
+                  'f_methane_surf_diff', itime_in_file, sumarea, filter, &
+                  'CH4 surface diffusion flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_ebul_tot, file_hist, &
+                  'f_methane_ebul_tot', itime_in_file, sumarea, filter, &
+                  'CH4 column ebullition', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_prod_tot, file_hist, &
+                  'f_methane_prod_tot', itime_in_file, sumarea, filter, &
+                  'CH4 column production', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_methane_oxid_tot, file_hist, &
+                  'f_methane_oxid_tot', itime_in_file, sumarea, filter, &
+                  'CH4 column oxidation', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_co2_decomp_tot, file_hist, &
+                  'f_co2_decomp_tot', itime_in_file, sumarea, filter, &
+                  'CO2 column source from decomposition and methanogenesis', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_co2_oxid_tot, file_hist, &
+                  'f_co2_oxid_tot', itime_in_file, sumarea, filter, &
+                  'CO2 column source from CH4 oxidation', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_co2_aere_tot, file_hist, &
+                  'f_co2_aere_tot', itime_in_file, sumarea, filter, &
+                  'diagnosed CO2 column aerenchyma flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_co2_net_tot, file_hist, &
+                  'f_co2_net_tot', itime_in_file, sumarea, filter, &
+                  'net diagnosed CO2 source from Methane module', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_totcol_methane, file_hist, &
+                  'f_totcol_methane', itime_in_file, sumarea, filter, &
+                  'total CH4 in soil column', 'mol/m2', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (emit, a_grnd_methane_cond, file_hist, &
+                  'f_grnd_methane_cond', itime_in_file, sumarea, filter, &
+                  'boundary-layer CH4 conductance', 'm/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_conc_o2, file_hist, &
+                  'f_conc_o2', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'O2 concentration per soil layer', 'mol/m3', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_3d (emit, a_conc_methane, file_hist, &
+                  'f_conc_methane', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 concentration per soil layer', 'mol/m3', &
+                  acc_num=a_methane_acc_num)
+
+               ! optional microbial-pool diagnostics (default spval unless enabled)
+               CALL write_history_variable_3d (emit, a_B_methanogen, file_hist, &
+                  'f_methane_B_methanogen', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'active methanogen biomass', 'gC/m3', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_B_methanotroph, file_hist, &
+                  'f_methane_B_methanotroph', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'active methanotroph biomass', 'gC/m3', &
+                  acc_num=a_methane_acc_num_microbe)
+	               CALL write_history_variable_3d (emit, a_B_methanogen_dormant, file_hist, &
+	                  'f_methane_B_methanogen_dormant', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+	                  'dormant methanogen biomass; active only when use_microbial_dormancy is true', 'gC/m3', &
+                  acc_num=a_methane_acc_num_microbe)
+	               CALL write_history_variable_3d (emit, a_B_methanotroph_dormant, file_hist, &
+	                  'f_methane_B_methanotroph_dormant', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+	                  'dormant methanotroph biomass; active only when use_microbial_dormancy is true', 'gC/m3', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_f_T_methanogen, file_hist, &
+                  'f_methane_microbe_f_T_methanogen', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'methanogen microbial temperature factor', '-', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_f_S_methanogen, file_hist, &
+                  'f_methane_microbe_f_S_methanogen', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'methanogen substrate factor', '-', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_f_O2_methanogen, file_hist, &
+                  'f_methane_microbe_f_O2_methanogen', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'methanogen oxygen inhibition factor', '-', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_f_T_methanotroph, file_hist, &
+                  'f_methane_microbe_f_T_methanotroph', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'methanotroph microbial temperature factor', '-', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_methanogen_growth_rate, file_hist, &
+                  'f_methane_methanogen_growth_rate', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'methanogen active-pool growth rate', 'day-1', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_methanotroph_growth_rate, file_hist, &
+                  'f_methane_methanotroph_growth_rate', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'methanotroph active-pool growth rate', 'day-1', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_microbial_prod_potential, file_hist, &
+                  'f_methane_microbial_prod_potential', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'carbon-capped microbial CH4 production potential', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_microbe)
+               CALL write_history_variable_3d (emit, a_microbial_oxid_potential, file_hist, &
+                  'f_methane_microbial_oxid_potential', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4/O2-capped microbial CH4 oxidation potential', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_microbe)
+
+               ! unsat / sat
+               CALL write_history_variable_2d (emit, a_net_methane_unsat, file_hist, &
+                  'f_net_methane_unsat', itime_in_file, sumarea, filter, &
+                  'average net methane correction (unsaturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_2d (emit, a_net_methane_sat, file_hist, &
+                  'f_net_methane_sat', itime_in_file, sumarea, filter, &
+                  'average net methane correction (saturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_3d (emit, a_methane_prod_depth_unsat, file_hist, &
+                  'f_methane_prod_depth_unsat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 production per layer (unsaturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_3d (emit, a_methane_prod_depth_sat, file_hist, &
+                  'f_methane_prod_depth_sat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 production per layer (saturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_3d (emit, a_methane_oxid_depth_unsat, file_hist, &
+                  'f_methane_oxid_depth_unsat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 oxidation per layer (unsaturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_3d (emit, a_methane_oxid_depth_sat, file_hist, &
+                  'f_methane_oxid_depth_sat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 oxidation per layer (saturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_3d (emit, a_co2_decomp_depth_unsat, file_hist, &
+                  'f_co2_decomp_depth_unsat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CO2 decomp/methanogenesis per layer (unsaturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_3d (emit, a_co2_decomp_depth_sat, file_hist, &
+                  'f_co2_decomp_depth_sat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CO2 decomp/methanogenesis per layer (saturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_3d (emit, a_co2_oxid_depth_unsat, file_hist, &
+                  'f_co2_oxid_depth_unsat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CO2 from CH4 oxidation per layer (unsaturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_3d (emit, a_co2_oxid_depth_sat, file_hist, &
+                  'f_co2_oxid_depth_sat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CO2 from CH4 oxidation per layer (saturated)', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_2d (emit, a_co2_decomp_tot_unsat, file_hist, &
+                  'f_co2_decomp_tot_unsat', itime_in_file, sumarea, filter, &
+                  'CO2 decomp/methanogenesis column source (unsaturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_2d (emit, a_co2_decomp_tot_sat, file_hist, &
+                  'f_co2_decomp_tot_sat', itime_in_file, sumarea, filter, &
+                  'CO2 decomp/methanogenesis column source (saturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_2d (emit, a_co2_oxid_tot_unsat, file_hist, &
+                  'f_co2_oxid_tot_unsat', itime_in_file, sumarea, filter, &
+                  'CO2 oxidation column source (unsaturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_2d (emit, a_co2_oxid_tot_sat, file_hist, &
+                  'f_co2_oxid_tot_sat', itime_in_file, sumarea, filter, &
+                  'CO2 oxidation column source (saturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_2d (emit, a_co2_net_tot_unsat, file_hist, &
+                  'f_co2_net_tot_unsat', itime_in_file, sumarea, filter, &
+                  'net diagnosed CO2 source (unsaturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_2d (emit, a_co2_net_tot_sat, file_hist, &
+                  'f_co2_net_tot_sat', itime_in_file, sumarea, filter, &
+                  'net diagnosed CO2 source (saturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_2d (emit, a_methane_surf_flux_tot_unsat, file_hist, &
+                  'f_methane_surf_flux_tot_unsat', itime_in_file, sumarea, filter, &
+                  'CH4 surface flux (unsaturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_2d (emit, a_methane_surf_flux_tot_sat, file_hist, &
+                  'f_methane_surf_flux_tot_sat', itime_in_file, sumarea, filter, &
+                  'CH4 surface flux (saturated)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_2d (emit, a_totcol_methane_unsat, file_hist, &
+                  'f_totcol_methane_unsat', itime_in_file, sumarea, filter, &
+                  'total CH4 in unsaturated column', 'mol/m2', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_2d (emit, a_totcol_methane_sat, file_hist, &
+                  'f_totcol_methane_sat', itime_in_file, sumarea, filter, &
+                  'total CH4 in saturated column', 'mol/m2', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_3d (emit, a_conc_methane_unsat, file_hist, &
+                  'f_conc_methane_unsat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 concentration per layer (unsaturated)', 'mol/m3', &
+                  acc_num=a_methane_acc_num_unsat)
+               CALL write_history_variable_3d (emit, a_conc_methane_sat, file_hist, &
+                  'f_conc_methane_sat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'CH4 concentration per layer (saturated)', 'mol/m3', &
+                  acc_num=a_methane_acc_num_sat)
+
+
+               ! lake diagnostics (CTSM lake CH4 path)
+               CALL write_history_variable_3d (emit, a_methane_prod_depth_lake, file_hist, &
+                  'f_methane_prod_depth_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake CH4 production per sediment layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_3d (emit, a_methane_oxid_depth_lake, file_hist, &
+                  'f_methane_oxid_depth_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake CH4 oxidation per sediment layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_3d (emit, a_co2_decomp_depth_lake, file_hist, &
+                  'f_co2_decomp_depth_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake CO2 decomp/methanogenesis per sediment layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_3d (emit, a_co2_oxid_depth_lake, file_hist, &
+                  'f_co2_oxid_depth_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake CO2 from CH4 oxidation per sediment layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_3d (emit, a_methane_ebul_depth_lake, file_hist, &
+                  'f_methane_ebul_depth_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake CH4 ebullition loss per sediment layer', 'mol/m3/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_methane_surf_ebul_lake, file_hist, &
+                  'f_methane_surf_ebul_lake', itime_in_file, sumarea, filter, &
+                  'lake CH4 surface ebullition flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_methane_surf_diff_lake, file_hist, &
+                  'f_methane_surf_diff_lake', itime_in_file, sumarea, filter, &
+                  'lake CH4 surface diffusion flux', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_methane_prod_tot_lake, file_hist, &
+                  'f_methane_prod_tot_lake', itime_in_file, sumarea, filter, &
+                  'lake CH4 column production', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_methane_oxid_tot_lake, file_hist, &
+                  'f_methane_oxid_tot_lake', itime_in_file, sumarea, filter, &
+                  'lake CH4 column oxidation', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_methane_ebul_tot_lake, file_hist, &
+                  'f_methane_ebul_tot_lake', itime_in_file, sumarea, filter, &
+                  'lake CH4 column ebullition', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_co2_decomp_tot_lake, file_hist, &
+                  'f_co2_decomp_tot_lake', itime_in_file, sumarea, filter, &
+                  'lake CO2 decomp/methanogenesis column source', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_co2_oxid_tot_lake, file_hist, &
+                  'f_co2_oxid_tot_lake', itime_in_file, sumarea, filter, &
+                  'lake CO2 oxidation column source', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_co2_net_tot_lake, file_hist, &
+                  'f_co2_net_tot_lake', itime_in_file, sumarea, filter, &
+                  'lake net diagnosed CO2 source', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_totcol_methane_lake, file_hist, &
+                  'f_totcol_methane_lake', itime_in_file, sumarea, filter, &
+                  'total CH4 in lake sediment column', 'mol/m2', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (emit, a_grnd_methane_cond_lake, file_hist, &
+                  'f_grnd_methane_cond_lake', itime_in_file, sumarea, filter, &
+                  'lake CH4 boundary-layer conductance', 'm/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_3d (emit, a_conc_o2_lake, file_hist, &
+                  'f_conc_o2_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake O2 concentration per sediment layer', 'mol/m3', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_3d (emit, a_conc_methane_lake, file_hist, &
+                  'f_conc_methane_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'lake CH4 concentration per sediment layer', 'mol/m3', &
+                  acc_num=a_methane_acc_num_lake)
+
+               ! extras
+               CALL write_history_variable_2d (emit, a_forc_pmethanem, file_hist, &
+                  'f_forc_pmethanem', itime_in_file, sumarea, filter, &
+                  'atmospheric CH4 partial pressure forcing', 'Pa', &
+                  acc_num=a_methane_acc_num_extra)
+               CALL write_history_variable_3d (emit, a_layer_sat_lag, file_hist, &
+                  'f_layer_sat_lag', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
+                  'time-lagged saturation flag per layer', '-', &
+                  acc_num=a_methane_acc_num_sat)
+               CALL write_history_variable_2d (emit, a_annavg_agnpp, file_hist, &
+                  'f_annavg_agnpp', itime_in_file, sumarea, filter, &
+                  'annual avg above-ground NPP', 'gC/m2/s', &
+                  acc_num=a_methane_acc_num_extra)
+               CALL write_history_variable_2d (emit, a_annavg_bgnpp, file_hist, &
+                  'f_annavg_bgnpp', itime_in_file, sumarea, filter, &
+                  'annual avg below-ground NPP', 'gC/m2/s', &
+                  acc_num=a_methane_acc_num_extra)
+               CALL write_history_variable_2d (emit, a_annavg_somhr, file_hist, &
+                  'f_annavg_somhr', itime_in_file, sumarea, filter, &
+                  'annual avg SOM heterotrophic respiration', 'gC/m2/s', &
+                  acc_num=a_methane_acc_num_extra)
+               CALL write_history_variable_2d (emit, a_annavg_finrw, file_hist, &
+                  'f_annavg_finrw', itime_in_file, sumarea, filter, &
+                  'respiration-weighted annual avg inundated fraction', '-', &
+                  acc_num=a_methane_acc_num_extra)
+               CALL write_history_variable_2d (emit, a_methane_dfsat_tot, file_hist, &
+                  'f_methane_dfsat_tot', itime_in_file, sumarea, filter, &
+                  'CH4 flux from decreasing inundated fraction', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_extra)
+               CALL write_history_variable_2d (emit, a_f_h2osfc, file_hist, &
+                  'f_f_h2osfc', itime_in_file, sumarea, filter, &
+                  'fraction of surface water (CLM5 microtopography)', '-', &
+                  acc_num=a_methane_acc_num_extra)
+            ENDIF
+         END BLOCK
 #endif
 
          IF (allocated(filter    )) deallocate (filter    )
@@ -5042,7 +5592,9 @@ ENDIF
 #endif
 
          CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
          CALL flush_Tracer_Acc ()
+#endif
 
 #ifdef SinglePoint
          IF (USE_SITE_HistWriteBack .and. memory_to_disk) THEN
@@ -5055,6 +5607,292 @@ ENDIF
       ENDIF
 
    END SUBROUTINE hist_out
+
+
+#ifdef TRACER
+   SUBROUTINE write_history_tracer_ratio_2d ( is_hist, &
+         tracer_mass_acc, water_acc, file_hist, varname, itime_in_file, &
+         filter, longname, units)
+
+   USE MOD_Block
+   USE MOD_SPMD_Task, only: p_is_worker, p_is_io
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: trc_tiny
+#endif
+   USE MOD_Namelist, only: DEF_HIST_CompressLevel
+
+   IMPLICIT NONE
+
+   logical, intent(in) :: is_hist
+   real(r8), intent(in) :: tracer_mass_acc(:)
+   real(r8), intent(in) :: water_acc(:)
+   character(len=*), intent(in) :: file_hist
+   character(len=*), intent(in) :: varname
+   integer, intent(in) :: itime_in_file
+   logical, intent(in) :: filter(:)
+   character(len=*), intent(in) :: longname
+   character(len=*), intent(in) :: units
+
+   real(r8), allocatable :: tracer_map_vec(:)
+   real(r8), allocatable :: water_map_vec(:)
+   type(block_data_real8_2d) :: tracer_xy_2d
+   type(block_data_real8_2d) :: water_xy_2d
+   type(block_data_real8_2d) :: ratio_xy_2d
+   integer :: ip, iblkme, xblk, yblk, xloc, yloc
+   integer :: compress
+
+      IF (.not. is_hist) RETURN
+      IF (HistForm /= 'Gridded') RETURN
+
+      allocate(tracer_map_vec(size(tracer_mass_acc)))
+      allocate(water_map_vec(size(water_acc)))
+      tracer_map_vec = 0._r8
+      water_map_vec = 0._r8
+
+      IF (p_is_worker) THEN
+         DO ip = 1, size(water_acc)
+            IF (abs(water_acc(ip)) > trc_tiny .and. tracer_mass_acc(ip) /= spval) THEN
+               tracer_map_vec(ip) = tracer_mass_acc(ip)
+               water_map_vec(ip) = water_acc(ip)
+            ENDIF
+         ENDDO
+      ENDIF
+
+      IF (p_is_io) THEN
+         CALL allocate_block_data (ghist, tracer_xy_2d)
+         CALL allocate_block_data (ghist, water_xy_2d)
+         CALL allocate_block_data (ghist, ratio_xy_2d)
+      ENDIF
+
+      CALL mp2g_hist%pset2grid (tracer_map_vec, tracer_xy_2d, spv = spval, msk = filter)
+      CALL mp2g_hist%pset2grid (water_map_vec, water_xy_2d, spv = spval, msk = filter)
+
+      IF (p_is_io) THEN
+         DO iblkme = 1, gblock%nblkme
+            xblk = gblock%xblkme(iblkme)
+            yblk = gblock%yblkme(iblkme)
+
+            DO yloc = 1, ghist%ycnt(yblk)
+               DO xloc = 1, ghist%xcnt(xblk)
+                  IF (water_xy_2d%blk(xblk,yblk)%val(xloc,yloc) /= spval .and. &
+                      tracer_xy_2d%blk(xblk,yblk)%val(xloc,yloc) /= spval .and. &
+                      abs(water_xy_2d%blk(xblk,yblk)%val(xloc,yloc)) > trc_tiny) THEN
+                     ratio_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = &
+                        tracer_xy_2d%blk(xblk,yblk)%val(xloc,yloc) &
+                        / water_xy_2d%blk(xblk,yblk)%val(xloc,yloc)
+                  ELSE
+                     ratio_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = spval
+                  ENDIF
+               ENDDO
+            ENDDO
+         ENDDO
+      ENDIF
+
+      compress = DEF_HIST_CompressLevel
+      CALL hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, &
+         ratio_xy_2d, compress, longname, units)
+
+      deallocate(tracer_map_vec)
+      deallocate(water_map_vec)
+
+   END SUBROUTINE write_history_tracer_ratio_2d
+
+
+   SUBROUTINE write_history_tracer_ratio_3d ( is_hist, &
+         tracer_mass_acc, water_acc, file_hist, varname, itime_in_file, &
+         dim1name, lb1, ndim1, filter, longname, units)
+
+   USE MOD_Block
+   USE MOD_SPMD_Task, only: p_is_worker, p_is_io
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: trc_tiny
+#endif
+   USE MOD_Namelist, only: DEF_HIST_CompressLevel
+
+   IMPLICIT NONE
+
+   logical, intent(in) :: is_hist
+   real(r8), intent(in) :: tracer_mass_acc(:,:)
+   real(r8), intent(in) :: water_acc(:,:)
+   character(len=*), intent(in) :: file_hist
+   character(len=*), intent(in) :: varname
+   integer, intent(in) :: itime_in_file
+   character(len=*), intent(in) :: dim1name
+   integer, intent(in) :: lb1, ndim1
+   logical, intent(in) :: filter(:)
+   character(len=*), intent(in) :: longname
+   character(len=*), intent(in) :: units
+
+   real(r8), allocatable :: tracer_map_vec(:,:)
+   real(r8), allocatable :: water_map_vec(:,:)
+   type(block_data_real8_3d) :: tracer_xy_3d
+   type(block_data_real8_3d) :: water_xy_3d
+   type(block_data_real8_3d) :: ratio_xy_3d
+   integer :: ip, i1, iblkme, xblk, yblk, xloc, yloc
+   integer :: lb_vec, ub_vec
+   integer :: compress
+
+      IF (.not. is_hist) RETURN
+      IF (HistForm /= 'Gridded') RETURN
+
+      lb_vec = lbound(tracer_mass_acc, 1)
+      ub_vec = ubound(tracer_mass_acc, 1)
+      allocate(tracer_map_vec(lb_vec:ub_vec, size(tracer_mass_acc, 2)))
+      allocate(water_map_vec  (lb_vec:ub_vec, size(water_acc, 2)))
+      tracer_map_vec = spval
+      water_map_vec  = spval
+
+      IF (p_is_worker) THEN
+         DO ip = 1, size(water_acc, 2)
+            DO i1 = lb_vec, ub_vec
+               IF (water_acc(i1, ip) > trc_tiny .and. tracer_mass_acc(i1, ip) /= spval) THEN
+                  tracer_map_vec(i1, ip) = tracer_mass_acc(i1, ip)
+                  water_map_vec  (i1, ip) = water_acc(i1, ip)
+               ENDIF
+            ENDDO
+         ENDDO
+      ENDIF
+
+      IF (p_is_io) THEN
+         CALL allocate_block_data (ghist, tracer_xy_3d, ndim1, lb1)
+         CALL allocate_block_data (ghist, water_xy_3d,   ndim1, lb1)
+         CALL allocate_block_data (ghist, ratio_xy_3d,   ndim1, lb1)
+      ENDIF
+
+      CALL mp2g_hist%pset2grid (tracer_map_vec, tracer_xy_3d, spv = spval, msk = filter)
+      CALL mp2g_hist%pset2grid (water_map_vec,   water_xy_3d, spv = spval, msk = filter)
+
+      IF (p_is_io) THEN
+         DO iblkme = 1, gblock%nblkme
+            xblk = gblock%xblkme(iblkme)
+            yblk = gblock%yblkme(iblkme)
+
+            DO yloc = 1, ghist%ycnt(yblk)
+               DO xloc = 1, ghist%xcnt(xblk)
+                  DO i1 = ratio_xy_3d%lb1, ratio_xy_3d%ub1
+                     IF (water_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc) /= spval .and. &
+                         tracer_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc) /= spval .and. &
+                         water_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc) > trc_tiny) THEN
+                        ratio_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc) = &
+                           tracer_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc) &
+                           / water_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc)
+                     ELSE
+                        ratio_xy_3d%blk(xblk,yblk)%val(i1,xloc,yloc) = spval
+                     ENDIF
+                  ENDDO
+               ENDDO
+            ENDDO
+         ENDDO
+      ENDIF
+
+      compress = DEF_HIST_CompressLevel
+      CALL hist_write_var_real8_3d (file_hist, varname, dim1name, ghist, &
+         itime_in_file, ratio_xy_3d, compress, longname, units)
+
+      deallocate(tracer_map_vec)
+      deallocate(water_map_vec)
+
+   END SUBROUTINE write_history_tracer_ratio_3d
+
+
+   SUBROUTINE write_history_tracer_delta_2d ( is_hist, &
+         tracer_mass_acc, water_acc, ref_ratio, file_hist, varname, itime_in_file, &
+         filter, longname, units, water_min_override)
+
+   USE MOD_Block
+   USE MOD_SPMD_Task, only: p_is_worker, p_is_io
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_tiny, trc_water_min_for_delta, &
+                              trc_delta_sanity_max
+#endif
+   USE MOD_Namelist, only: DEF_HIST_CompressLevel
+
+   IMPLICIT NONE
+
+   logical, intent(in) :: is_hist
+   real(r8), intent(in) :: tracer_mass_acc(:)
+   real(r8), intent(in) :: water_acc(:)
+   real(r8), intent(in) :: ref_ratio
+   character(len=*), intent(in) :: file_hist
+   character(len=*), intent(in) :: varname
+   integer, intent(in) :: itime_in_file
+	   logical, intent(in) :: filter(:)
+	   character(len=*), intent(in) :: longname
+	   character(len=*), intent(in) :: units
+	   real(r8), intent(in), optional :: water_min_override
+
+	   real(r8), allocatable :: tracer_map_vec(:)
+	   real(r8), allocatable :: water_map_vec(:)
+	   type(block_data_real8_2d) :: tracer_xy_2d
+	   type(block_data_real8_2d) :: water_xy_2d
+	   type(block_data_real8_2d) :: delta_xy_2d
+	   integer :: ip, iblkme, xblk, yblk, xloc, yloc
+	   integer :: compress
+	   real(r8) :: delta_loc, water_min
+
+      IF (.not. is_hist) RETURN
+      IF (HistForm /= 'Gridded') RETURN
+
+      allocate(tracer_map_vec(size(tracer_mass_acc)))
+	      allocate(water_map_vec(size(water_acc)))
+	      tracer_map_vec = 0._r8
+	      water_map_vec = 0._r8
+	      water_min = trc_water_min_for_delta
+	      IF (present(water_min_override)) water_min = water_min_override
+
+	      IF (p_is_worker) THEN
+	         DO ip = 1, size(water_acc)
+	            IF (water_acc(ip) > water_min .and. &
+	                tracer_mass_acc(ip) /= spval) THEN
+               tracer_map_vec(ip) = tracer_mass_acc(ip)
+               water_map_vec(ip) = water_acc(ip)
+            ENDIF
+         ENDDO
+      ENDIF
+
+      IF (p_is_io) THEN
+         CALL allocate_block_data (ghist, tracer_xy_2d)
+         CALL allocate_block_data (ghist, water_xy_2d)
+         CALL allocate_block_data (ghist, delta_xy_2d)
+      ENDIF
+
+      CALL mp2g_hist%pset2grid (tracer_map_vec, tracer_xy_2d, spv = spval, msk = filter)
+      CALL mp2g_hist%pset2grid (water_map_vec, water_xy_2d, spv = spval, msk = filter)
+
+      IF (p_is_io) THEN
+         DO iblkme = 1, gblock%nblkme
+            xblk = gblock%xblkme(iblkme)
+            yblk = gblock%yblkme(iblkme)
+
+            DO yloc = 1, ghist%ycnt(yblk)
+               DO xloc = 1, ghist%xcnt(xblk)
+                  IF (water_xy_2d%blk(xblk,yblk)%val(xloc,yloc) > trc_tiny) THEN
+                     delta_loc = mass_to_delta( &
+                        tracer_xy_2d%blk(xblk,yblk)%val(xloc,yloc), &
+                        water_xy_2d%blk(xblk,yblk)%val(xloc,yloc), &
+                        ref_ratio)
+                     IF (delta_loc /= spval .and. abs(delta_loc) <= trc_delta_sanity_max) THEN
+                        delta_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = delta_loc
+                     ELSE
+                        delta_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = spval
+                     ENDIF
+                  ELSE
+                     delta_xy_2d%blk(xblk,yblk)%val(xloc,yloc) = spval
+                  ENDIF
+               ENDDO
+            ENDDO
+         ENDDO
+      ENDIF
+
+      compress = DEF_HIST_CompressLevel
+      CALL hist_write_var_real8_2d (file_hist, varname, ghist, itime_in_file, &
+         delta_xy_2d, compress, longname, units)
+
+      deallocate(tracer_map_vec)
+      deallocate(water_map_vec)
+
+   END SUBROUTINE write_history_tracer_delta_2d
+#endif
 
 
    SUBROUTINE write_history_variable_2d ( is_hist, &

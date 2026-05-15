@@ -1966,6 +1966,15 @@ CONTAINS
       CALL Flush_LakeAccVars
 #endif
 
+#if (defined TRACER) && (defined BGC)
+      ! Flush methane accumulator buffers if CH4 is registered
+      BLOCK
+         USE MOD_Tracer_Methane_Registry, only: igas_ch4
+         USE MOD_Tracer_Methane_AccFlux,  only: flush_methane_acc_fluxes
+         IF (igas_ch4 > 0) CALL flush_methane_acc_fluxes ()
+      END BLOCK
+#endif
+
    END SUBROUTINE FLUSH_acc_fluxes
 
    SUBROUTINE accumulate_fluxes
@@ -2873,6 +2882,18 @@ CONTAINS
 
 #ifdef EXTERNAL_LAKE
       CALL accumulate_LakeTimeVars
+#endif
+
+#if (defined TRACER) && (defined BGC)
+      ! Accumulate methane state into per-window buffers when CH4 is
+      ! registered as a reactive tracer. acc1d/acc2d helpers in this module
+      ! are USE'd inside accumulate_methane_fluxes; that subroutine handles
+      ! the full field list (state + unsat/sat + extras).
+      BLOCK
+         USE MOD_Tracer_Methane_Registry, only: igas_ch4
+         USE MOD_Tracer_Methane_AccFlux,  only: accumulate_methane_fluxes
+         IF (igas_ch4 > 0) CALL accumulate_methane_fluxes ()
+      END BLOCK
 #endif
 
    END SUBROUTINE accumulate_fluxes

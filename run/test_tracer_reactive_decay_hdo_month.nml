@@ -1,0 +1,73 @@
+&nl_colm
+
+   ! One-month reactive tracer diagnostic:
+   !   HDO_iso   : isotope HDO, no fractionation
+   !   HDO_cons  : conservative HDO-equivalent concentration
+   !   HDO_decay : same HDO-equivalent concentration plus first-order loss
+   DEF_CASE_NAME = 'Amazon_0p25deg_era5land_levee'
+
+   DEF_domain%edges = -15.0
+   DEF_domain%edgen =   5.0
+   DEF_domain%edgew = -72.0
+   DEF_domain%edgee = -48.0
+
+   DEF_simulation_time%greenwich     = .TRUE.
+   DEF_simulation_time%start_year    = 1995
+   DEF_simulation_time%start_month   = 1
+   DEF_simulation_time%start_day     = 1
+   DEF_simulation_time%start_sec     = 0
+   DEF_simulation_time%end_year      = 1995
+   DEF_simulation_time%end_month     = 2
+   DEF_simulation_time%end_day       = 1
+   DEF_simulation_time%end_sec       = 0
+   DEF_simulation_time%spinup_year   = 1990
+   DEF_simulation_time%spinup_month  = 1
+   DEF_simulation_time%spinup_day    = 1
+   DEF_simulation_time%spinup_sec    = 0
+   DEF_simulation_time%spinup_repeat = 0
+   DEF_simulation_time%timestep      = 1800.
+
+   DEF_dir_rawdata = '/media/zhwei/data02/zhwei/CoLMruntime/'
+   DEF_dir_runtime = '/media/zhwei/data02/zhwei/CoLMruntime/'
+   DEF_dir_output  = '/tmp/colm_tracer_hdo_reactive_decay_month_np64/'
+
+   DEF_LAI_CHANGE_YEARLY = .false.
+   DEF_Interception_scheme = 1
+   DEF_USE_OZONESTRESS = .false.
+   DEF_USE_OZONEDATA   = .false.
+
+   DEF_UnitCatchment_file = '/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc'
+   DEF_Reservoir_Method   = 1
+   DEF_ReservoirPara_file = '/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc'
+   DEF_USE_SEDIMENT       = .false.
+   DEF_USE_BIFURCATION    = .true.
+   DEF_USE_LEVEE          = .true.
+
+   ! DEF_USE_TRACER removed: TRACER is now a compile-time switch in include/define.h
+   DEF_TRACER_NUM         = 3
+   DEF_TRACER_NAMES       = "HDO_iso,HDO_cons,HDO_decay"
+   DEF_TRACER_TYPES       = "isotope,conservative,reactive"
+   DEF_TRACER_MRAT        = "19.0,19.0,19.0"
+   DEF_TRACER_REF_RATIO   = "1.5576e-4,1.5576e-4,1.5576e-4"
+   ! isotope: delta=-70 permil; conservative/reactive: equivalent HDO R = 1.5576e-4 * 0.93
+   DEF_TRACER_INIT_DELTA  = "-70.0,1.448568e-4,1.448568e-4"
+   DEF_TRACER_USE_FRACTIONATION = .false.
+   ! First-order reactive loss [s-1]; 1e-6 is about 8.3% loss per day.
+   DEF_TRACER_REACTIVE_DECAY_RATE = "0.0,0.0,1.0e-6"
+
+   DEF_USE_SoilInit  = .true.
+   DEF_file_SoilInit = '/media/zhwei/data02/zhwei/CoLMruntime/soilstate.nc'
+
+   DEF_GRIDBASED_lon_res = 0.25
+   DEF_GRIDBASED_lat_res = 0.25
+
+   DEF_forcing_namelist = '/media/zhwei/data02/zhwei/CoLM202X/run/forcing/IsoGSM_1995_linked_hdo3.nml'
+
+   DEF_hist_lon_res = 0.25
+   DEF_hist_lat_res = 0.25
+   DEF_WRST_FREQ = 'MONTHLY'
+   DEF_HIST_FREQ = 'DAILY'
+   DEF_HIST_groupby = 'DAY'
+   DEF_hist_vars_out_default = .true.
+
+/

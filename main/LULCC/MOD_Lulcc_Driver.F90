@@ -90,6 +90,16 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Lulcc_TransferTraceReadin
    USE MOD_Lulcc_MassEnergyConserve
    USE MOD_Namelist
+   USE MOD_LandPatch,          only: landpatch
+   USE MOD_Vars_TimeInvariants, only: patchclass, patchtype, lake_soilc_srf
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Methane_Const, only: DEF_METHANE
+   USE MOD_Tracer_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Methane_State, only: save_methane_lulcc_state, remap_methane_lulcc_state, &
+      initialize_methane_lake_soilc_from_surface
+   USE MOD_Tracer_Methane_AccFlux, only: deallocate_methane_acc_fluxes, allocate_methane_acc_fluxes
+   USE MOD_Tracer_Methane_Microbes, only: save_methane_microbes_lulcc_state, remap_methane_microbes_lulcc_state
+#endif
 
    IMPLICIT NONE
 
@@ -99,6 +109,10 @@ MODULE MOD_Lulcc_Driver
 
    logical, intent(in)    :: greenwich   !true: greenwich time, false: local time
    integer, intent(inout) :: jdate(3)    !year, julian day, seconds of the starting time
+#if (defined TRACER) && (defined BGC)
+   integer :: op_methane
+   real(r8), allocatable :: methane_old_patch_area(:)
+#endif
 !-----------------------------------------------------------------------
 
       ! allocate Lulcc memory
@@ -108,6 +122,12 @@ MODULE MOD_Lulcc_Driver
       ! SAVE variables
       CALL SAVE_LulccTimeInvariants
       CALL SAVE_LulccTimeVariables
+#if (defined TRACER) && (defined BGC)
+      IF (igas_ch4 > 0) THEN
+         CALL save_methane_lulcc_state ()
+         CALL save_methane_microbes_lulcc_state ()
+      ENDIF
+#endif
 
       ! =============================================================
       ! cold start for Lulcc
@@ -130,6 +150,15 @@ MODULE MOD_Lulcc_Driver
             print *, ">>> LULCC: Same Type Assignment (SAT) scheme for variable recovery..."
          ENDIF
          CALL REST_LulccTimeVariables
+#if (defined TRACER) && (defined BGC)
+         IF (igas_ch4 > 0) THEN
+            CALL deallocate_methane_acc_fluxes ()
+            CALL remap_methane_lulcc_state (patchclass, landpatch%eindex, patchclass_, landpatch_%eindex)
+            CALL remap_methane_microbes_lulcc_state (patchclass, landpatch%eindex, patchclass_, landpatch_%eindex)
+            CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, DEF_METHANE%allowlakeprod)
+            CALL allocate_methane_acc_fluxes (size(patchclass))
+         ENDIF
+#endif
       ENDIF
 
 
@@ -145,6 +174,34 @@ MODULE MOD_Lulcc_Driver
          CALL REST_LulccTimeVariables
          CALL LulccTransferTraceReadin(jdate(1))
          CALL LulccMassEnergyConserve()
+#if (defined TRACER) && (defined BGC)
+         IF (igas_ch4 > 0) THEN
+            CALL deallocate_methane_acc_fluxes ()
+            allocate(methane_old_patch_area(size(patchclass_)))
+	            methane_old_patch_area(:) = 1._r8
+	            DO op_methane = 1, size(methane_old_patch_area)
+	               IF (allocated(landpatch_%ipxstt) .and. allocated(landpatch_%ipxend) .and. &
+	                   op_methane <= size(landpatch_%ipxstt) .and. op_methane <= size(landpatch_%ipxend)) THEN
+	                  IF (landpatch_%ipxstt(op_methane) > 0 .and. &
+	                      landpatch_%ipxend(op_methane) >= landpatch_%ipxstt(op_methane)) THEN
+	                     methane_old_patch_area(op_methane) = real(landpatch_%ipxend(op_methane) - &
+	                        landpatch_%ipxstt(op_methane) + 1, r8)
+	                  ENDIF
+	               ENDIF
+	               IF (allocated(landpatch_%pctshared) .and. op_methane <= size(landpatch_%pctshared)) THEN
+	                  methane_old_patch_area(op_methane) = methane_old_patch_area(op_methane) * &
+	                     max(0._r8, landpatch_%pctshared(op_methane))
+	               ENDIF
+            ENDDO
+            CALL remap_methane_lulcc_state (patchclass, landpatch%eindex, patchclass_, &
+               landpatch_%eindex, lccpct_patches, methane_old_patch_area)
+            CALL remap_methane_microbes_lulcc_state (patchclass, landpatch%eindex, patchclass_, &
+               landpatch_%eindex, lccpct_patches, methane_old_patch_area)
+            IF (allocated(methane_old_patch_area)) deallocate(methane_old_patch_area)
+            CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, DEF_METHANE%allowlakeprod)
+            CALL allocate_methane_acc_fluxes (size(patchclass))
+         ENDIF
+#endif
       ENDIF
 
 

@@ -32,7 +32,12 @@ MODULE MOD_LeafInterception
    ! 2002.08.31  Yongjiu Dai
    USE MOD_Precision
    USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice, hfus
-   USE MOD_Namelist, only: DEF_Interception_scheme, DEF_VEG_SNOW
+   USE MOD_Namelist, only: DEF_Interception_scheme, DEF_VEG_SNOW, DEF_MATSIRO_CWCAP_SCALE, &
+                           DEF_VIC_WDMAX_SCALE, &
+                           DEF_VIC_ALPHA_RAIN, DEF_MATSIRO_ALPHA_RAIN, &
+                           DEF_JULES_ALPHA_RAIN, DEF_NOAHMP_ALPHA_RAIN, &
+                           DEF_VIC_ALPHA_SNOW, DEF_MATSIRO_ALPHA_SNOW, &
+                           DEF_JULES_ALPHA_SNOW, DEF_NOAHMP_ALPHA_SNOW
 
    IMPLICIT NONE
 
@@ -117,7 +122,8 @@ CONTAINS
                                           ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow,&
                                           gross_intr_rain,gross_intr_snow,&
                                           xsc_rain_out,xsc_snow_out,&
-                                          ldew_smelt_out,ldew_frzc_out)
+                                          ldew_smelt_out,ldew_frzc_out,&
+                                          canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    ! Calculation of  interception and drainage of precipitation
@@ -209,36 +215,41 @@ CONTAINS
    ! declared for signature uniformity with NoahMP/MATSIRO/VIC/JULES.
    real(r8), intent(out) :: ldew_smelt_out
    real(r8), intent(out) :: ldew_frzc_out
+   ! Canopy phase-change fusion heat flux [W/m^2]. Always zero for
+   ! CoLM2014 because phase change is done downstream in LeafTemperature
+   ! (which still runs its qmelt/qfrz block for schemes 1/2/3/8, gated
+   ! only by DEF_VEG_SNOW).
+   real(r8), intent(out) :: canopy_phase_heat_out
 
-   ! Audit fix M2b: per-call local clamps for precipitation inputs [mm/s].
+   ! Per-call local clamps for precipitation inputs [mm/s].
    ! MUST be declared as local scalars (not module-level) so OpenMP calls
    ! don't race on them — the rest of the module's scratch is THREADPRIVATE
    ! (L100-109) but we add these locally for clarity.
    real(r8) :: rain_clamp, snow_clamp
-   ! Audit fix C2014-A+B: NoahMP-style OLD/NEW unloading split.
+   ! NoahMP-style OLD/NEW unloading split.
    real(r8) :: tex_icedrip_total, icedrip_old, icedrip_new
-   ! Audit fix C2014-singlebucket: combined-bucket overflow for snow
+   ! Combined-bucket overflow for snow
    ! (DEF_VEG_SNOW=F default path, single satcap = dewmx*vegt).
    real(r8) :: post_ldew_int, overflow_snow
 
 !-----------------------------------------------------------------------
 
       ! CoLM2014 has no rain<->snow phase change here.
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
-         ! Audit fix clamp-hygiene: guard against restart/float-noise
-         ! negative canopy state before it propagates into (satcap-ldew)
-         ! capacity comparisons or xsc calculations. Mirrors JULES
-         ! LEAF_interception_JULES:2612-2613.
+         ! Guard against restart/float-noise negative canopy state before
+         ! it propagates into (satcap-ldew) capacity comparisons or xsc
+         ! calculations. Mirrors JULES LEAF_interception_JULES:2612-2613.
          ldew_rain = max(0._r8, ldew_rain)
          ldew_snow = max(0._r8, ldew_snow)
          satcap = dewmx*vegt
          satcap_rain = satcap
-         ! Audit fix M1: previously L184 computed satcap_snow via Niu et al. 2004
+         ! Previously L184 computed satcap_snow via Niu et al. 2004
          ! (density-dependent) but L185 unconditionally overwrote it with the
          ! simple `48.*satcap` form, making `bifall` a dead parameter on the
          ! CoLM2014 path. Keep the Niu formulation so the snow bulk density
@@ -250,11 +261,11 @@ CONTAINS
             satcap_snow = 48._r8*satcap                           ! fallback
          ENDIF
 
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry
-         ! and use the clamped rates everywhere. The original M2 only
-         ! clamped the aggregate p0/ppc/ppl but downstream tti/tex/
-         ! qintr/pg formulas still referenced raw prc_*/prl_* and
-         ! propagated the same negative noise.
+         ! Clamp precipitation inputs once at scheme entry and use the
+         ! clamped rates everywhere. The original code only clamped the
+         ! aggregate p0/ppc/ppl but downstream tti/tex/qintr/pg formulas
+         ! still referenced raw prc_*/prl_* and propagated the same
+         ! negative noise.
          rain_clamp = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          snow_clamp = MAX(0.0_r8, prc_snow + prl_snow)
          p0  = (rain_clamp + snow_clamp) * deltim
@@ -325,7 +336,7 @@ CONTAINS
             ! Ensure physical constraint: tex_rain + tti_rain <= total rain input
             tex_rain = min( tex_rain, rain_clamp*deltim - tti_rain )
 
-            ! Audit fix C2014-singlebucket: DEF_VEG_SNOW=F (default) path
+            ! DEF_VEG_SNOW=F (default) path
             ! uses a single shared bucket (satcap = dewmx*vegt, L217).
             ! Previously tex_snow was hard-coded to 0, so any step with
             ! ldew ≈ satcap and new snow intercept (snow*fpi*dt) left
@@ -379,7 +390,7 @@ CONTAINS
                qintr_snow = max (qintr_snow, 0.)
 
                ! snow unloading rate
-               ! Audit fix CoLM2014-A: align temp threshold with Niu et al.
+               ! Align temp threshold with Niu et al.
                ! (2004) original (also used by NoahMP CanopyHydrologyMod
                ! and CLM5 CanopyHydrologyMod): forcing temperature at
                ! 270.15 K (= -3°C), not the freezing point. Previously
@@ -389,14 +400,14 @@ CONTAINS
                FT = max(0.0, (tleaf - 270.15_r8) / 1.87e5_r8)
                FV = sqrt(forc_us*forc_us + forc_vs*forc_vs) / 1.56e5
 
-               ! Audit fix C2014-A+B: NoahMP-style OLD/NEW unloading split.
-               ! Previously tex_snow = ldew_snow/dt * (FV+FT) used only
+               ! NoahMP-style OLD/NEW unloading split. Previously
+               ! tex_snow = ldew_snow/dt * (FV+FT) used only
                ! the entry-time pre-existing canopy snow, with two bugs
                ! in the DEF_VEG_SNOW=T branch:
                !   A) first-step snowfall on a bare canopy (ldew_snow=0
                !      but qintr_snow>0) could NOT unload regardless of
                !      wind/warmth — FV+FT multiplied zero (same as the
-               !      NoahMP N2 bug at MOD_LeafInterception.F90:1458-1467);
+               !      NoahMP same-step new-snow bug at MOD_LeafInterception.F90:1458-1467);
                !   B) all unloaded mass routed through thru_snow without
                !      an xsc_snow split, so tracer_precip's
                !      drip = intercepted - d_ldew machinery attributed
@@ -493,34 +504,24 @@ CONTAINS
 #endif
 
       ELSE
-         ! Audit fix S3: release canopy water per phase instead of dumping
-         ! everything based on tleaf. Previous logic was a 2023-07-15 workaround
+         ! Release canopy water per phase instead of dumping everything
+         ! based on tleaf. Previous logic was a 2023-07-15 workaround
          ! that did not preserve phase conservation — liquid water could be
          ! reported as pg_snow (or vice-versa) when the canopy disappeared.
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew       = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr      = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
 
       ENDIF
 
@@ -532,7 +533,8 @@ CONTAINS
                                           qintr,qintr_rain,qintr_snow,&
                                           gross_intr_rain,gross_intr_snow,&
                                           xsc_rain_out,xsc_snow_out,&
-                                          ldew_smelt_out,ldew_frzc_out)
+                                          ldew_smelt_out,ldew_frzc_out,&
+                                          canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    ! Calculation of interception and drainage of precipitation (under development)
@@ -594,28 +596,30 @@ CONTAINS
    ! perform canopy rain<->snow phase change in this routine.
    real(r8), intent(out) :: ldew_smelt_out
    real(r8), intent(out) :: ldew_frzc_out
+   ! Canopy phase-change fusion heat flux [W/m^2]. Zero for CoLM202x.
+   real(r8), intent(out) :: canopy_phase_heat_out
 
-   ! Audit fix M2b: local clamps for precipitation inputs [mm/s]. See
-   ! CoLM2014 block for rationale.
+   ! Local clamps for precipitation inputs [mm/s]. See CoLM2014 block for rationale.
    real(r8) :: rain_clamp, snow_clamp
 
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
          satcap = dewmx*vegt
 
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry
-         ! and use the clamped rates everywhere downstream.
+         ! Clamp precipitation inputs once at scheme entry and use the
+         ! clamped rates everywhere downstream.
          rain_clamp = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          snow_clamp = MAX(0.0_r8, prc_snow + prl_snow)
          p0  = (rain_clamp + snow_clamp) * deltim
          ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
          ppl = MAX(0.0_r8, p0 - ppc)
 
-         ! Audit fix C2 + back-compat: seed components from ldew if the
+         ! C2 + back-compat: seed components from ldew if the
          ! restart/init state only populated ldew (CoLM202x before C2 did
          ! not maintain components). Otherwise trust the components and
          ! resync ldew to their sum.
@@ -633,12 +637,12 @@ CONTAINS
 
          w = ldew+p0
 
-         ! Audit fix M5b: CoLM202x uses a SINGLE combined bucket (satcap =
-         ! dewmx*vegt). The previous M5/C2 per-component comparison
-         ! allowed (ldew_rain, ldew_snow) to each sit at satcap, doubling
-         ! the effective total capacity. Compute combined excess and
-         ! split it by the current phase ratio to preserve single-bucket
-         ! semantics while keeping rain/snow components phase-consistent.
+         ! CoLM202x uses a SINGLE combined bucket (satcap = dewmx*vegt).
+         ! The previous per-component comparison allowed (ldew_rain,
+         ! ldew_snow) to each sit at satcap, doubling the effective total
+         ! capacity. Compute combined excess and split it by the current
+         ! phase ratio to preserve single-bucket semantics while keeping
+         ! rain/snow components phase-consistent.
          IF (ldew > satcap .and. ldew > 1.e-12_r8) THEN
             xsc_rain = (ldew - satcap) * ldew_rain / ldew
             xsc_snow = (ldew - satcap) * ldew_snow / ldew
@@ -713,11 +717,11 @@ CONTAINS
          pinf = p0 - (thru_rain + thru_snow)
          ldew = ldew + pinf
 
-         ! Audit fix C2: maintain rain/snow components (was missing —
-         ! only `ldew` was updated, leaving components stale). Because
-         ! CoLM202x does not separate snow drainage (tex_snow stays 0),
-         ! all rain excess goes into the rain component; snow interception
-         ! is purely absorbed into ldew_snow with no drainage out.
+         ! Maintain rain/snow components (was missing — only `ldew` was
+         ! updated, leaving components stale). Because CoLM202x does not
+         ! separate snow drainage (tex_snow stays 0), all rain excess goes
+         ! into the rain component; snow interception is purely absorbed
+         ! into ldew_snow with no drainage out.
          ldew_rain = ldew_rain + rain_clamp*deltim - thru_rain
          ldew_snow = ldew_snow + snow_clamp*deltim - thru_snow
          ldew_rain = max(0._r8, ldew_rain)
@@ -754,33 +758,23 @@ CONTAINS
 #endif
 
       ELSE
-         ! Audit fix S3: release by phase instead of tleaf-based mixing.
-         ! CoLM202x now tracks ldew_rain and ldew_snow separately (C2 fix),
-         ! so phase conservation is straightforward here.
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew  = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! Release by phase instead of tleaf-based mixing. CoLM202x now
+         ! tracks ldew_rain and ldew_snow separately, so phase conservation
+         ! is straightforward here.
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
       ENDIF
    END SUBROUTINE LEAF_interception_CoLM202x
 
@@ -790,7 +784,8 @@ CONTAINS
                                        pg_snow,qintr,qintr_rain,qintr_snow,&
                                        gross_intr_rain,gross_intr_snow,&
                                        xsc_rain_out,xsc_snow_out,&
-                                       ldew_smelt_out,ldew_frzc_out)
+                                       ldew_smelt_out,ldew_frzc_out,&
+                                       canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    ! Canopy interception following CLM4.5 official implementation
@@ -863,32 +858,35 @@ CONTAINS
    ! perform canopy rain<->snow phase change in this routine.
    real(r8), intent(out) :: ldew_smelt_out
    real(r8), intent(out) :: ldew_frzc_out
+   ! Canopy phase-change fusion heat flux [W/m^2]. Zero for CLM4.
+   real(r8), intent(out) :: canopy_phase_heat_out
 
-   ! Audit fix M2b: local clamps for precipitation inputs [mm/s].
+   ! Local clamps for precipitation inputs [mm/s].
    real(r8) :: rain_clamp, snow_clamp
-   ! Audit fix C4-singlebucket: helpers for combined rain+snow overflow.
+   ! Helpers for combined rain+snow overflow.
    real(r8) :: post_ldew_int, overflow, frac_rain_c4, frac_snow_c4
 
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
-         ! Audit fix clamp-hygiene: guard restart/float-noise negative
-         ! canopy state before (satcap-ldew) comparisons.
+         ! Guard restart/float-noise negative canopy state before
+         ! (satcap-ldew) comparisons.
          ldew_rain = max(0._r8, ldew_rain)
          ldew_snow = max(0._r8, ldew_snow)
          satcap = dewmx*vegt
 
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry.
+         ! Clamp precipitation inputs once at scheme entry.
          rain_clamp = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          snow_clamp = MAX(0.0_r8, prc_snow + prl_snow)
          p0  = (rain_clamp + snow_clamp) * deltim
          ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
          ppl = MAX(0.0_r8, p0 - ppc)
 
-         ! Audit fix C1 + back-compat: seed components from ldew if the
+         ! C1 + back-compat: seed components from ldew if the
          ! restart/init state only populated ldew (CLM4 before C1 did not
          ! maintain components). Otherwise trust the components and resync
          ! ldew to their sum.
@@ -906,12 +904,12 @@ CONTAINS
 
          w = ldew+p0
 
-         ! Audit fix M5b: CLM4 uses a SINGLE combined bucket (satcap =
-         ! dewmx*vegt). The previous M5/C1 per-component comparison
-         ! allowed (ldew_rain, ldew_snow) to each sit at satcap, doubling
-         ! the effective total capacity. Compute combined excess and
-         ! split it by the current phase ratio to preserve single-bucket
-         ! semantics while keeping rain/snow components phase-consistent.
+         ! CLM4 uses a SINGLE combined bucket (satcap = dewmx*vegt). The
+         ! previous per-component comparison allowed (ldew_rain, ldew_snow)
+         ! to each sit at satcap, doubling the effective total capacity.
+         ! Compute combined excess and split it by the current phase ratio
+         ! to preserve single-bucket semantics while keeping rain/snow
+         ! components phase-consistent.
          IF (ldew > satcap .and. ldew > 1.e-12_r8) THEN
             xsc_rain = (ldew - satcap) * ldew_rain / ldew
             xsc_snow = (ldew - satcap) * ldew_snow / ldew
@@ -932,8 +930,8 @@ CONTAINS
             tti_rain = rain_clamp*deltim * ( 1.-fpi )
             tti_snow = snow_clamp*deltim * ( 1.-fpi )
 
-            ! Audit fix C4-singlebucket: align with original CLM4
-            ! Hydrology1Mod.F90 qflx_candrip logic. CLM4 uses a single
+            ! Align with original CLM4 Hydrology1Mod.F90 qflx_candrip
+            ! logic. CLM4 uses a single
             ! shared canopy bucket (satcap = dewmx*vegt) for both rain
             ! and snow. When post-interception storage exceeds satcap,
             ! the excess drips AT THIS STEP, split between rain and
@@ -989,10 +987,10 @@ CONTAINS
          pinf = p0 - (thru_rain + thru_snow)
          ldew = ldew + pinf
 
-         ! Audit fix C1: maintain rain/snow components so ldew_rain +
-         ! ldew_snow == ldew at exit. xsc_* was already subtracted from
-         ! ldew_rain/ldew_snow before the main block, so here we only
-         ! apply the net precipitation - throughfall balance per phase.
+         ! Maintain rain/snow components so ldew_rain + ldew_snow == ldew
+         ! at exit. xsc_* was already subtracted from ldew_rain/ldew_snow
+         ! before the main block, so here we only apply the net
+         ! precipitation - throughfall balance per phase.
          ldew_rain = ldew_rain + rain_clamp*deltim - thru_rain
          ldew_snow = ldew_snow + snow_clamp*deltim - thru_snow
          ldew_rain = max(0._r8, ldew_rain)
@@ -1025,33 +1023,23 @@ CONTAINS
 #endif
 
       ELSE
-         ! Audit fix S3: release canopy water per phase. CLM4 now tracks
-         ! ldew_rain/ldew_snow separately (C1 fix), so a phase-preserving
-         ! release is correct regardless of tleaf.
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew  = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! Release canopy water per phase. CLM4 now tracks
+         ! ldew_rain/ldew_snow separately, so a phase-preserving release
+         ! is correct regardless of tleaf.
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
       ENDIF
 
    END SUBROUTINE LEAF_interception_CLM4
@@ -1062,7 +1050,8 @@ CONTAINS
                                     qintr,qintr_rain,qintr_snow,&
                                     gross_intr_rain,gross_intr_snow,&
                                     xsc_rain_out,xsc_snow_out,&
-                                    ldew_smelt_out,ldew_frzc_out)
+                                    ldew_smelt_out,ldew_frzc_out,&
+                                    canopy_phase_heat_out)
 
 !DESCRIPTION
 !===========
@@ -1148,21 +1137,24 @@ CONTAINS
    ! always reports zero.
    real(r8), intent(out) :: ldew_smelt_out
    real(r8), intent(out) :: ldew_frzc_out
+   ! Canopy phase-change fusion heat flux [W/m^2]. Zero for CLM5.
+   real(r8), intent(out) :: canopy_phase_heat_out
    real(r8) :: xsnorun, xliqrun,qflx_prec_intr_rain,qflx_prec_intr_snow
-   ! Audit fix M2b: local clamps for precipitation inputs [mm/s].
+   ! Local clamps for precipitation inputs [mm/s].
    real(r8) :: rain_clamp, snow_clamp
 
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
-         ! Audit fix clamp-hygiene: guard restart/float-noise negative
-         ! canopy state before (satcap-ldew) / fwet / xliqrun uses.
+         ! Guard restart/float-noise negative canopy state before
+         ! (satcap-ldew) / fwet / xliqrun uses.
          ldew_rain = max(0._r8, ldew_rain)
          ldew_snow = max(0._r8, ldew_snow)
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry.
+         ! Clamp precipitation inputs once at scheme entry.
          rain_clamp = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          snow_clamp = MAX(0.0_r8, prc_snow + prl_snow)
          p0  = (rain_clamp + snow_clamp) * deltim
@@ -1216,21 +1208,21 @@ CONTAINS
             tti_snow = 0._r8
          ENDIF
 
-         ! Audit fix H1-extension: bucket overflow drainage is independent
-         ! of the current precipitation step. Previously this lived inside
-         ! IF(p0 > 1.e-8), so a dry step that inherited an oversaturated
-         ! canopy (e.g. LAI shrink after a prior wet step, or restart
-         ! inconsistency) would retain ldew > satcap indefinitely. Lift
-         ! the drain out so it fires every step. On wet steps the post-
-         ! interception ldew is already capped by the earlier add + satcap
-         ! comparison, so the unconditional drain is a no-op.
+         ! Bucket overflow drainage is independent of the current precipitation
+         ! step. Previously this lived inside IF(p0 > 1.e-8), so a dry step
+         ! that inherited an oversaturated canopy (e.g. LAI shrink after a
+         ! prior wet step, or restart inconsistency) would retain ldew >
+         ! satcap indefinitely. Lift the drain out so it fires every step.
+         ! On wet steps the post-interception ldew is already capped by the
+         ! earlier add + satcap comparison, so the unconditional drain is a
+         ! no-op.
          ! Simple bucket overflow drainage - CLM5 lines 367-379.
-         ! Audit fix M3: check BOTH phases independently. Previous code
-         ! tied drainage to tleaf > tfrz (matching CLM5 original), but
-         ! that left the non-dominant phase above capacity indefinitely
-         ! during phase transitions (e.g. tleaf crosses to > tfrz but
-         ! ldew_snow still exceeds satcap_snow). Deliberate CoLM
-         ! improvement over CLM5 original L366-378.
+         ! Check BOTH phases independently. Previous code tied drainage to
+         ! tleaf > tfrz (matching CLM5 original), but that left the non-
+         ! dominant phase above capacity indefinitely during phase transitions
+         ! (e.g. tleaf crosses to > tfrz but ldew_snow still exceeds
+         ! satcap_snow). Deliberate CoLM improvement over CLM5 original
+         ! L366-378.
          xliqrun = max(0._r8, (ldew_rain - satcap_rain)/deltim)
          IF (xliqrun > 0._r8) THEN
             tex_rain  = tex_rain + xliqrun * deltim
@@ -1242,17 +1234,15 @@ CONTAINS
             ldew_snow = satcap_snow
          ENDIF
 
-         ! Audit fixes C5-A/B/C/E: snow unloading aligned with CLM5
-         ! original (CanopyHydrologyMod.F90:425-435). Previously CoLM
-         ! had:
+         ! Snow unloading aligned with CLM5 original
+         ! (CanopyHydrologyMod.F90:425-435). Previously CoLM had:
          !   1) wind factor without the 0.5 coefficient → unloaded 2× too
-         !      fast (C5-A, Ec-low bias).
+         !      fast (Ec-low bias).
          !   2) temperature factor (tleaf - tfrz)/1.87e5 instead of
          !      (forc_t - 270.15)/1.87e5 → threshold off by 3K, weaker
-         !      temp unloading (C5-B+C, Ec-high bias).
+         !      temp unloading (Ec-high bias).
          !   3) unloading nested inside IF(p0 > 1.e-8) → dry steps left
-         !      canopy snow stuck (C5-E, Ec-high bias, the dominant of
-         !      the three).
+         !      canopy snow stuck (Ec-high bias, the dominant of the three).
          ! Now matches original CLM5 exactly.
          IF (ldew_snow > 1.e-8) THEN
             U10           = sqrt(forc_us*forc_us + forc_vs*forc_vs)
@@ -1329,31 +1319,22 @@ CONTAINS
          !    pg_snow = prc_snow + prl_snow
          ! ENDIF
          !
-         ! Improved version: Release liquid and solid water separately to preserve phase states
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew       = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr      = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! Improved version: Release liquid and solid water separately to
+         ! preserve phase states.
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
       ENDIF
 
    END SUBROUTINE LEAF_interception_CLM5
@@ -1363,7 +1344,8 @@ CONTAINS
                                        ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow,&
                                        gross_intr_rain,gross_intr_snow,&
                                        xsc_rain_out,xsc_snow_out,&
-                                       ldew_smelt_out,ldew_frzc_out)
+                                       ldew_smelt_out,ldew_frzc_out,&
+                                       canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    ! Interception and drainage of precipitation
@@ -1436,25 +1418,47 @@ CONTAINS
    ! mis-reports its isotope signature after melt).
    real(r8), intent(out)   :: ldew_smelt_out  !canopy snow->rain mass transferred by melt this step [mm, >=0]
    real(r8), intent(out)   :: ldew_frzc_out   !canopy rain->snow mass transferred by freeze this step [mm, >=0]
+   ! Fusion heat flux carried by canopy rain<->snow phase change this step
+   ! [W/m^2]. Sign convention: +canopy_phase_heat means canopy GAINS energy
+   ! (freeze releases fusion heat); -canopy_phase_heat means canopy LOSES
+   ! energy (melt absorbs fusion heat). MOD_Thermal + LeafTemperature/PC
+   ! add this term to the canopy energy residual (err) and the global
+   ! errore check so energy balance closes when phase change is done here.
+   ! Without this, audit ROLLBACK NM-1 left fusion heat silently unaccounted,
+   ! biasing tleaf warm -> fwet high -> Ec/ET high.
+   real(r8), intent(out)   :: canopy_phase_heat_out   !canopy phase-change fusion heat flux [W/m^2, + heats canopy, - cools]
 
    ! Local variables
    real(r8)                :: PrecipAreaFrac !fraction of gridcell receiving precipitation [-]
    real(r8)                :: BDFALL
-   ! Audit fix M2b: local clamps for precipitation inputs [mm/s].
+   ! Local clamps for precipitation inputs [mm/s].
    real(r8)                :: rain_clamp, snow_clamp
-   ! Audit fix NM-1: local fwet_snow used to pull tleaf toward tfrz after
-   ! explicit melt/freeze (Niu et al. 2004 parameterization).
+   ! Local fwet_snow used to pull tleaf toward tfrz after explicit
+   ! melt/freeze (Niu et al. 2004 parameterization).
    real(r8)                :: fwet_snow
+   ! Optional CLM4-style free-throughfall pre-filter
+   ! (DEF_NOAHMP_ALPHA_RAIN / DEF_NOAHMP_ALPHA_SNOW).
+   real(r8)                :: fpi_pre        !rain pre-filter fraction (1.0 = disabled)
+   real(r8)                :: rain_free_tf   !rain bypass rate [mm/s] re-added to pg_rain at exit
+   real(r8)                :: fpi_pre_snow   !snow pre-filter fraction (1.0 = disabled)
+   real(r8)                :: snow_free_tf   !snow bypass rate [mm/s] re-added to pg_snow at exit
 
       ! Initialize phase-change tracer outputs (default: no phase change).
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
+
+      ! Default: pre-filter disabled (preserves upstream NoahMP behaviour).
+      fpi_pre      = 1._r8
+      rain_free_tf = 0._r8
+      fpi_pre_snow = 1._r8
+      snow_free_tf = 0._r8
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
-         ! Audit fix clamp-hygiene: guard restart/float-noise negative
-         ! canopy state before (satcap-ldew) / fwet / xsc uses.
+         ! Guard restart/float-noise negative canopy state before
+         ! (satcap-ldew) / fwet / xsc uses.
          ldew_rain = max(0._r8, ldew_rain)
          ldew_snow = max(0._r8, ldew_snow)
          ! Calculate vegetation fraction from LAI (alternative to input VegFrac)
@@ -1468,11 +1472,40 @@ CONTAINS
          satcap_snow = fvegc * 6.6*(0.27+46./BDFALL) * lsai
          satcap_snow = max(0.0,satcap_snow)
 
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry.
+         ! Clamp precipitation inputs once at scheme entry.
          rain_clamp = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          snow_clamp = MAX(0.0_r8, prc_snow + prl_snow)
+
+         ! Optional CLM4-style free-throughfall pre-filter.
+         ! When DEF_NOAHMP_ALPHA_RAIN (or _SNOW) >= 0, a Lawrence-2007 cap
+         !   fpi_pre* = alpha * (1 - exp(-0.5*LSAI))
+         ! is applied IN FRONT of NoahMP's own fvegc throughfall: only
+         ! fpi_pre* of the rain (resp. snow) enters canopy logic; the rest
+         ! bypasses to pg_rain (resp. pg_snow) directly at exit. Rain and
+         ! snow caps are independent — either may be disabled by setting
+         ! the corresponding namelist value to a negative number.
+         IF (DEF_NOAHMP_ALPHA_RAIN >= 0._r8) THEN
+            fpi_pre      = min(max(DEF_NOAHMP_ALPHA_RAIN &
+                                    * (1.0_r8 - exp(-0.5_r8*lsai)), &
+                                    0._r8), 1._r8)
+            rain_free_tf = rain_clamp * (1._r8 - fpi_pre)
+            rain_clamp   = rain_clamp * fpi_pre
+         ENDIF
+         IF (DEF_NOAHMP_ALPHA_SNOW >= 0._r8) THEN
+            fpi_pre_snow = min(max(DEF_NOAHMP_ALPHA_SNOW &
+                                    * (1.0_r8 - exp(-0.5_r8*lsai)), &
+                                    0._r8), 1._r8)
+            snow_free_tf = snow_clamp * (1._r8 - fpi_pre_snow)
+            snow_clamp   = snow_clamp * fpi_pre_snow
+         ENDIF
+
          p0  = (rain_clamp + snow_clamp) * deltim
-         ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ! ppc (convective share): scale rain and snow portions by the same
+         ! pre-filter so the convective/stratiform ratio of the post-bypass
+         ! precipitation is preserved. fpi_pre* = 1 when that phase's
+         ! pre-filter is disabled, so this collapses to the original
+         ! formula bit-for-bit.
+         ppc = MAX(0.0_r8, prc_rain * fpi_pre + prc_snow * fpi_pre_snow) * deltim
          ppl = MAX(0.0_r8, p0 - ppc)
 
          ! Estimate PrecipAreaFrac based on precipitation type - Noah-MP line 47
@@ -1496,20 +1529,20 @@ CONTAINS
          xsc_rain    = 0.0
          xsc_snow    = 0.0
 
-         ! Audit fix H1: unconditional entry-time overflow release.
-         ! Previously NoahMP only drained ldew_rain > satcap_rain inside
-         ! the phase-change block (L1307, L1317), so a step with tleaf>tfrz
-         ! but ldew_snow<=1e-8 (no melt branch) would retain canopy water
-         ! above capacity indefinitely when LAI shrank. Mirrors the entry
-         ! release already present in CoLM2014/CLM4/MATSIRO/VIC/JULES.
+         ! Unconditional entry-time overflow release. Previously NoahMP
+         ! only drained ldew_rain > satcap_rain inside the phase-change
+         ! block, so a step with tleaf>tfrz but ldew_snow<=1e-8 (no melt
+         ! branch) would retain canopy water above capacity indefinitely
+         ! when LAI shrank. Mirrors the entry release already present in
+         ! CoLM2014/CLM4/MATSIRO/VIC/JULES.
          xsc_rain  = max(0._r8, ldew_rain - satcap_rain)
          xsc_snow  = max(0._r8, ldew_snow - satcap_snow)
          ldew_rain = ldew_rain - xsc_rain
          ldew_snow = ldew_snow - xsc_snow
 
          ! phase change and excess
-         ! Audit fix NM-1: absorb fusion heat into tleaf via the
-         ! fwet_snow-weighted pull-toward-freezing.
+         ! Absorb fusion heat into tleaf via the fwet_snow-weighted
+         ! pull-toward-freezing.
          !
          ! THIS BLOCK IS FAITHFUL TO UPSTREAM NOAHMP:
          ! Original NoahMP (CanopyHydrologyMod.F90:119) does exactly
@@ -1526,13 +1559,20 @@ CONTAINS
                ldew_snow  = ldew_snow-ldew_smelt
                ldew_rain  = ldew_rain+ldew_smelt
                ldew_smelt_out = ldew_smelt_out + ldew_smelt
+               ! Fusion heat absorbed by the canopy for this melt (in [mm]
+               ! water-equivalent = kg/m^2): energy = ldew_smelt * HFUS.
+               ! Flux (W/m^2) with canopy-loses-energy sign convention:
+               canopy_phase_heat_out = canopy_phase_heat_out - HFUS * ldew_smelt / deltim
                xsc_rain   = xsc_rain + MAX(0., ldew_rain-satcap_rain)
                ldew_rain  = ldew_rain - MAX(0., ldew_rain-satcap_rain)
-               ! ROLLBACK NM-1: tleaf pull removed. dheatl in MOD_Thermal does
-               ! not track tleaf changes outside LeafTemperature iteration,
-               ! so the Niu (2004) pull leaks fusion energy and breaks the
-               ! errore < 0.5 W/m² check. Mass-only phase change here; fusion
-               ! heat handling deferred to LeafTemperature L1296-1313.
+               ! Fusion heat now exported via canopy_phase_heat_out;
+               ! LeafTemperature's qmelt/qfrz mass block is gated off for
+               ! scheme=4 (phase_change_owned_by_interception), so no
+               ! double-relocation and no silent energy loss. Previous
+               ! ROLLBACK NM-1 comment retained for archaeology: removing
+               ! the Niu (2004) in-line tl pull was correct given that
+               ! dheatl only tracks iter-internal dtl, but the fix is in
+               ! MOD_Thermal's errore term, not here.
             ENDIF
          ELSE
             IF (ldew_rain>1.e-8) THEN
@@ -1541,6 +1581,8 @@ CONTAINS
                ldew_snow  = ldew_snow+ldew_frzc
                ldew_rain  = ldew_rain-ldew_frzc
                ldew_frzc_out = ldew_frzc_out + ldew_frzc
+               ! Fusion heat released to the canopy (canopy gains energy):
+               canopy_phase_heat_out = canopy_phase_heat_out + HFUS * ldew_frzc / deltim
                xsc_snow   = xsc_snow + MAX(0., ldew_snow-satcap_snow)
                ldew_snow     = ldew_snow - MAX(0., ldew_snow-satcap_snow)
                ! ROLLBACK NM-1: same as above (melt branch).
@@ -1595,10 +1637,10 @@ CONTAINS
          IF (ldew_snow > 1.e-8 .or. int_snow > 0._r8) THEN
             FT = MAX(0.0,(tleaf - 270.15) / 1.87E5)
             FV = SQRT(forc_us*forc_us + forc_vs*forc_vs) / 1.56E5
-            ! Audit fix N2: include same-step new snow (int_snow*dt) in the
-            ! unloading source. Previously ICEDRIP used ldew_snow only, so
-            ! fresh snow falling on a bare canopy (ldew_snow=0) could not
-            ! unload same-step regardless of wind/warmth — the subsequent
+            ! Include same-step new snow (int_snow*dt) in the unloading
+            ! source. Previously ICEDRIP used ldew_snow only, so fresh snow
+            ! falling on a bare canopy (ldew_snow=0) could not unload
+            ! same-step regardless of wind/warmth — the subsequent
             ! MIN(...,ldew_snow/dt + int_snow) cap cannot resurrect a zero
             ! source. Matches Noah-MP CanopyHydrologyMod where ICEDRIP is
             ! proportional to total canopy snow after interception.
@@ -1660,33 +1702,35 @@ CONTAINS
               qintr, qintr_rain, qintr_snow)
 #endif
 
+         ! Optional CLM4-style pre-filter: add the rain/snow fractions that
+         ! bypassed the canopy (rain_free_tf / snow_free_tf) to pg_rain /
+         ! pg_snow AFTER the mass balance check. The check sees internal
+         ! pg_* balancing against the reduced p0 = (rain_clamp*fpi_pre +
+         ! snow_clamp*fpi_pre_snow)*deltim. qintr_rain/qintr_snow
+         ! intentionally exclude the bypass terms because bypassed
+         ! precipitation never entered the canopy. Both *_free_tf = 0 when
+         ! the corresponding pre-filter is disabled.
+         pg_rain = pg_rain + rain_free_tf
+         pg_snow = pg_snow + snow_free_tf
+
       ELSE
          ! 07/15/2023, Hua Yuan: bug found for ldew value reset when vegetation disappears
-         ! Release canopy water separately by phase to preserve phase conservation
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew      = 0.
-         ldew_rain = 0.
-         ldew_snow = 0.
-         qintr = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! Release canopy water separately by phase to preserve phase
+         ! conservation.
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
 
       ENDIF
 
@@ -1699,7 +1743,8 @@ CONTAINS
                                          qintr_rain,qintr_snow,&
                                          gross_intr_rain,gross_intr_snow,&
                                          xsc_rain_out,xsc_snow_out,&
-                                         ldew_smelt_out,ldew_frzc_out)
+                                         ldew_smelt_out,ldew_frzc_out,&
+                                         canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    ! Interception and drainage of precipitation
@@ -1769,35 +1814,53 @@ CONTAINS
    ! corresponding tracer mass between trc_ldew_snow and trc_ldew_rain.
    real(r8), intent(out) :: ldew_smelt_out  !canopy snow->rain mass transferred by melt this step [mm, >=0]
    real(r8), intent(out) :: ldew_frzc_out   !canopy rain->snow mass transferred by freeze this step [mm, >=0]
+   ! Canopy phase-change fusion heat flux [W/m^2]. See NoahMP block above
+   ! for sign convention (+heats canopy / -cools). Must be exported to
+   ! MOD_Thermal so the canopy energy residual closes (MATSIRO's
+   ! original cwmelt -> cflxbl path is emulated via this bulk flux).
+   real(r8), intent(out) :: canopy_phase_heat_out
    !local
    real(r8) :: fint, Ac, dewmx_MATSIRO,ldew_rain_s, ldew_snow_s,ldew_rain_n, ldew_snow_n
    real(r8) :: tex_rain_n,tex_rain_s,tex_snow_n,tex_snow_s,tti_rain_n,tti_rain_s,tti_snow_n,tti_snow_s
-   real(r8) :: fwet_snow                ! Audit fix M-Bug-B: canopy wet fraction for phase-heat tleaf pull
-   ! Audit fix M2b: local clamps for precipitation inputs [mm/s].
+   real(r8) :: fwet_snow                ! Canopy wet fraction for phase-heat tleaf pull
+   ! Local clamps for precipitation inputs [mm/s].
    ! MATSIRO separates convective and stratiform, so keep component
    ! clamps as well for storm/non-storm formulas.
    real(r8) :: rain_clamp, snow_clamp
    real(r8) :: rain_strat_clamp  ! prl_rain + irrigation (stratiform, uniform) [mm/s]
    real(r8) :: rain_conv_clamp   ! prc_rain (convective, concentrated in Ac) [mm/s]
    real(r8) :: snow_strat_clamp, snow_conv_clamp
+   ! Optional CLM4-style free-throughfall pre-filter
+   ! (DEF_MATSIRO_ALPHA_RAIN / DEF_MATSIRO_ALPHA_SNOW).
+   real(r8) :: fpi_pre          !rain pre-filter fraction (1.0 = disabled)
+   real(r8) :: rain_free_tf     !rain bypass rate [mm/s] re-added to pg_rain at exit
+   real(r8) :: fpi_pre_snow     !snow pre-filter fraction (1.0 = disabled)
+   real(r8) :: snow_free_tf     !snow bypass rate [mm/s] re-added to pg_snow at exit
 
       !the canopy water capacity per leaf area index is set to 0.2mm
-      dewmx_MATSIRO = 0.2
+      dewmx_MATSIRO = 0.2_r8 * DEF_MATSIRO_CWCAP_SCALE
       !the fraction of the convective precipitation area is assumed to be uniform (0.1)
       Ac            = 0.1
 
       ! Initialize phase-change tracer outputs (default: no phase change).
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
+
+      ! Default: pre-filter disabled (preserves upstream MATSIRO behaviour).
+      fpi_pre      = 1._r8
+      rain_free_tf = 0._r8
+      fpi_pre_snow = 1._r8
+      snow_free_tf = 0._r8
 
       IF (lai+sai > 1e-6) THEN
          lsai   = lai + sai
          vegt   = lsai
-         ! Audit fix clamp-hygiene: guard restart/float-noise negative
-         ! canopy state before single-cap xsc / phase-change / Rutter drip.
+         ! Guard restart/float-noise negative canopy state before
+         ! single-cap xsc / phase-change / Rutter drip.
          ldew_rain = max(0._r8, ldew_rain)
          ldew_snow = max(0._r8, ldew_snow)
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry.
+         ! Clamp precipitation inputs once at scheme entry.
          ! Component clamps preserved separately for the storm/non-storm
          ! split (L1533-1571 use them directly).
          rain_strat_clamp = MAX(0.0_r8, prl_rain + qflx_irrig_sprinkler)
@@ -1806,21 +1869,50 @@ CONTAINS
          snow_conv_clamp  = MAX(0.0_r8, prc_snow)
          rain_clamp = rain_strat_clamp + rain_conv_clamp
          snow_clamp = snow_strat_clamp + snow_conv_clamp
+
+         ! Optional CLM4-style free-throughfall pre-filter.
+         ! fpi_pre*  = alpha * (1 - exp(-0.5*LSAI)) diverts (1-fpi_pre*) of
+         ! the incoming rain (resp. snow) straight to pg_rain (resp.
+         ! pg_snow) at exit; the remainder flows through the MATSIRO
+         ! Rutter/storm-area logic unchanged. Both stratiform and
+         ! convective components are scaled uniformly so the storm/
+         ! non-storm partition of post-bypass precipitation is preserved.
+         ! Rain and snow are controlled independently; either is disabled
+         ! when its namelist value is negative.
+         IF (DEF_MATSIRO_ALPHA_RAIN >= 0._r8) THEN
+            fpi_pre          = min(max(DEF_MATSIRO_ALPHA_RAIN &
+                                       * (1.0_r8 - exp(-0.5_r8*lsai)), &
+                                       0._r8), 1._r8)
+            rain_free_tf     = rain_clamp * (1._r8 - fpi_pre)
+            rain_strat_clamp = rain_strat_clamp * fpi_pre
+            rain_conv_clamp  = rain_conv_clamp  * fpi_pre
+            rain_clamp       = rain_clamp       * fpi_pre
+         ENDIF
+         IF (DEF_MATSIRO_ALPHA_SNOW >= 0._r8) THEN
+            fpi_pre_snow     = min(max(DEF_MATSIRO_ALPHA_SNOW &
+                                       * (1.0_r8 - exp(-0.5_r8*lsai)), &
+                                       0._r8), 1._r8)
+            snow_free_tf     = snow_clamp * (1._r8 - fpi_pre_snow)
+            snow_strat_clamp = snow_strat_clamp * fpi_pre_snow
+            snow_conv_clamp  = snow_conv_clamp  * fpi_pre_snow
+            snow_clamp       = snow_clamp       * fpi_pre_snow
+         ENDIF
+
          p0  = (rain_clamp + snow_clamp) * deltim
-         ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ppc = MAX(0.0_r8, prc_rain * fpi_pre + prc_snow * fpi_pre_snow) * deltim
          ppl = MAX(0.0_r8, p0 - ppc)
 
          ! Storage capacity follows original MATSIRO6 (matsiro.f90 cnwcap):
          !   cwcap = cnw_wcmax * LAI, where cnw_wcmax = 0.2 mm
          ! LAI only (not LAI+SAI) — stems do not hold canopy water in MATSIRO.
          !
-         ! Audit fix M-Bug-A (single-cap semantics): original MATSIRO uses
-         ! a SINGLE cwcap shared by rain+snow (matsiro.f90:3564). Two-bucket
-         ! caps doubled the effective canopy storage (0.4*LAI instead of
-         ! 0.2*LAI), inflating Ec via more retained water. Keep both
-         ! satcap_rain and satcap_snow variables for interface continuity
-         ! but assign them the same single cwcap so every downstream
-         ! comparison implicitly enforces the shared-cap semantics.
+         ! Original MATSIRO uses a SINGLE cwcap shared by rain+snow
+         ! (matsiro.f90:3564). Two-bucket caps doubled the effective canopy
+         ! storage (0.4*LAI instead of 0.2*LAI), inflating Ec via more
+         ! retained water. Keep both satcap_rain and satcap_snow variables
+         ! for interface continuity but assign them the same single cwcap
+         ! so every downstream comparison implicitly enforces the shared-cap
+         ! semantics.
          satcap_rain = dewmx_MATSIRO*lai        ! = single cwcap
          satcap_snow = satcap_rain              ! shared cap, not independent
 
@@ -1830,11 +1922,10 @@ CONTAINS
 
          w = ldew+p0
 
-         ! Audit fix M-Bug-A: single-cap pre-mix overflow. Previously each
-         ! component was clipped to its own satcap (= dewmx*LAI), so total
-         ! ldew could sit at 2*cwcap. Now clip combined (rain+snow) vs
-         ! cwcap and split the excess by current phase ratio (same pattern
-         ! as CLM4 at L798-807).
+         ! Single-cap pre-mix overflow. Previously each component was clipped
+         ! to its own satcap (= dewmx*LAI), so total ldew could sit at
+         ! 2*cwcap. Now clip combined (rain+snow) vs cwcap and split the
+         ! excess by current phase ratio (same pattern as CLM4 at L798-807).
          IF (ldew > satcap_rain .and. ldew > 1.e-12_r8) THEN
             xsc_rain = (ldew - satcap_rain) * ldew_rain / ldew
             xsc_snow = (ldew - satcap_rain) * ldew_snow / ldew
@@ -1847,9 +1938,9 @@ CONTAINS
          ldew      = ldew_rain + ldew_snow   ! <= satcap_rain now
 
          ! phase change and excess
-         ! Audit fix M-Bug-B (NM-1 series): absorb fusion heat into tleaf
-         ! to prevent the silent energy loss that previously biased tleaf
-         ! warm (during melt) and inflated downstream Ec.
+         ! Absorb fusion heat into tleaf to prevent the silent energy loss
+         ! that previously biased tleaf warm (during melt) and inflated
+         ! downstream Ec.
          !
          ! NOTE — APPROXIMATION, NOT FAITHFUL TO UPSTREAM MATSIRO:
          ! The original MATSIRO (matsiro.f90 matcnw L3430-3431) does NOT
@@ -1878,9 +1969,12 @@ CONTAINS
                ldew_snow  = ldew_snow-ldew_smelt
                ldew_rain  = ldew_rain+ldew_smelt
                ldew_smelt_out = ldew_smelt_out + ldew_smelt
-               ! ROLLBACK NM-1: tleaf pull removed (broke MOD_Thermal errore).
-               ! MATSIRO original uses cwmelt → cflxbl path; CoLM defers fusion-
-               ! heat accounting to LeafTemperature L1296-1313.
+               canopy_phase_heat_out = canopy_phase_heat_out - HFUS * ldew_smelt / deltim
+               ! MATSIRO's cwmelt -> cflxbl fusion flux is now exported via
+               ! canopy_phase_heat_out for MOD_Thermal to consume in the
+               ! canopy energy balance. LeafTemperature's qmelt/qfrz block
+               ! is gated off for scheme=5 to prevent double-site phase
+               ! change. See MOD_Thermal.F90 errore term.
             ENDIF
          ELSE
             IF (ldew_rain>1.e-8) THEN
@@ -1889,7 +1983,8 @@ CONTAINS
                ldew_snow  = ldew_snow+ldew_frzc
                ldew_rain  = ldew_rain-ldew_frzc
                ldew_frzc_out = ldew_frzc_out + ldew_frzc
-               ! ROLLBACK NM-1: same as above (melt branch).
+               canopy_phase_heat_out = canopy_phase_heat_out + HFUS * ldew_frzc / deltim
+               ! Freeze branch (canopy gains fusion heat).
             ENDIF
          ENDIF
          ! Resync ldew with components after phase change (CoLM2014 pattern)
@@ -1912,9 +2007,9 @@ CONTAINS
             !-----------------------------------------------------------------------
             ! Storm area
             !-----------------------------------------------------------------------
-            ! Audit fix M2b: use clamped component rates (stratiform vs
-            ! convective) so negative forcing noise cannot bleed into the
-            ! storm/non-storm split of tti/ldew.
+            ! Use clamped component rates (stratiform vs convective) so
+            ! negative forcing noise cannot bleed into the storm/non-storm
+            ! split of tti/ldew.
             ldew_rain_s = ldew_rain + (rain_strat_clamp * fpi_rain + rain_conv_clamp * fpi_rain / Ac)  * deltim
             ldew_snow_s = ldew_snow + (snow_strat_clamp * fpi_snow + snow_conv_clamp * fpi_snow / Ac)  * deltim
             !
@@ -1937,11 +2032,10 @@ CONTAINS
             !
             ! Unit conversion: 1.14e-11 [m/s] × 1000 [mm/m] = 1.14e-8 [mm/s]
             !
-            ! Audit fix M-Bug-A (single-cap): rain throughfall compares
-            ! ldew_rain_s + ldew_snow_s vs cwcap (matsiro.f90:3392 `winps`).
-            ! Base Rutter drip still uses min(ldew_rain_s, cwcap) because
-            ! only the liquid pool produces continuous dripping in the
-            ! original formulation.
+            ! Rain throughfall compares ldew_rain_s + ldew_snow_s vs cwcap
+            ! (matsiro.f90:3392 `winps`). Base Rutter drip still uses
+            ! min(ldew_rain_s, cwcap) because only the liquid pool produces
+            ! continuous dripping in the original formulation.
             tex_rain_s  = max(ldew_rain_s + ldew_snow_s - satcap_rain, 0.d0) &
                         + (1.14d-11)*1000.*deltim*exp(min(50.0d0, min(ldew_rain_s,satcap_rain)/1000.* 3.7d3))
             tex_rain_s  = min(tex_rain_s, ldew_rain_s)
@@ -2001,15 +2095,15 @@ CONTAINS
 ! is performed below (w residual check with abort).
 
          ELSE
-            ! Audit fix M7: on no-precipitation steps, the original MATSIRO
-            ! design still drains pre-existing canopy water via Rutter's
-            ! exponential formula (matsiro.f90 cnwbdg does not gate drainage
-            ! on precipitation). The previous zeroing here made canopy water
+            ! On no-precipitation steps, the original MATSIRO design still
+            ! drains pre-existing canopy water via Rutter's exponential
+            ! formula (matsiro.f90 cnwbdg does not gate drainage on
+            ! precipitation). The previous zeroing here made canopy water
             ! stay put indefinitely on dry steps. Run the same Rutter formula
             ! on the stored ldew_rain/ldew_snow so drainage proceeds whether
             ! or not precipitation is falling.
-            ! Audit fix M-Bug-A (single-cap): rain drainage uses combined
-            ! ldew_rain+ldew_snow vs cwcap; snow drainage uses ldew_snow only.
+            ! Rain drainage uses combined ldew_rain+ldew_snow vs cwcap;
+            ! snow drainage uses ldew_snow only.
             tex_rain = max(ldew_rain + ldew_snow - satcap_rain, 0.0_r8) &
                      + (1.14d-11)*1000._r8*deltim &
                         * exp(min(50.0d0, min(ldew_rain, satcap_rain)/1000._r8*3.7d3))
@@ -2038,7 +2132,7 @@ CONTAINS
 
          ! Resync ldew with components following CoLM2014 pattern (line 324)
          ! In the precip case, ldew_rain/ldew_snow were updated via weighted average
-         ! In the no-precip case, tex_* drained pre-existing storage (see M7 fix)
+         ! In the no-precip case, tex_* drained pre-existing storage
          ldew = ldew_rain + ldew_snow
 
          pg_rain = (xsc_rain + thru_rain) / deltim
@@ -2071,32 +2165,32 @@ CONTAINS
               qintr, qintr_rain, qintr_snow)
 #endif
 
+         ! Optional CLM4-style pre-filter: add the rain/snow fractions
+         ! that bypassed the canopy to pg_rain / pg_snow AFTER the mass
+         ! balance check. Internal pg_* balanced against p0 with reduced
+         ! rain+snow; qintr_{rain,snow} intentionally exclude the bypass
+         ! terms (bypassed precip never entered the canopy). *_free_tf =
+         ! 0 when the corresponding pre-filter is disabled.
+         pg_rain = pg_rain + rain_free_tf
+         pg_snow = pg_snow + snow_free_tf
+
       ELSE
-         ! No vegetation: all precipitation passes through, release any stored water
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew       = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr      = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! No vegetation: all precipitation passes through, release any
+         ! stored water.
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
       ENDIF
    END SUBROUTINE LEAF_interception_MATSIRO
 
@@ -2106,7 +2200,8 @@ CONTAINS
                                        pg_snow,qintr,qintr_rain,qintr_snow,&
                                        gross_intr_rain,gross_intr_snow,&
                                        xsc_rain_out,xsc_snow_out,&
-                                       ldew_smelt_out,ldew_frzc_out)
+                                       ldew_smelt_out,ldew_frzc_out,&
+                                       canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    ! Calculation of  interception and drainage of precipitation
@@ -2178,28 +2273,47 @@ CONTAINS
    ! ldew_rain/ldew_snow themselves are rescaled at L2547+).
    real(r8), intent(out) :: ldew_smelt_out  !canopy snow->rain mass transferred by melt this step [mm, >=0, grid-scale]
    real(r8), intent(out) :: ldew_frzc_out   !canopy rain->snow mass transferred by freeze this step [mm, >=0, grid-scale]
+   ! Canopy phase-change fusion heat flux [W/m^2, grid-scale]. Accumulated
+   ! per-veg (from per-veg ldew_smelt/ldew_frzc) and scaled to grid-scale
+   ! with sigf_safe before returning. See NoahMP block for sign convention.
+   ! Emulates VIC's RefreezeEnergy / canopy energy-balance path as a bulk
+   ! flux for MOD_Thermal to consume.
+   real(r8), intent(out) :: canopy_phase_heat_out
 
    real(r8) :: Imax1,Lr,Snow,Rain,DeltaSnowInt,Wind,BlownSnow,sigf_safe
    real(r8) :: MaxInt,Overload,IntRainFract,IntSnowFract,ldew_smelt,MaxWaterInt
-   ! Audit fix M2b: local clamps for precipitation inputs [mm/s].
+   ! Local clamps for precipitation inputs [mm/s].
    real(r8) :: rain_clamp, snow_clamp
-   ! Audit fix V-B: canopy wet fraction for fusion-heat tleaf pull
+   ! Canopy wet fraction for fusion-heat tleaf pull
    real(r8) :: fwet_snow
-   ! Audit fix VIC-gross: actual per-veg mass entering mixed canopy pool
-   ! this step (DeltaSnowInt-post-BlownSnow for snow; capacity-limited
-   ! inflow for rain). Used to emit gross_intr_* that tracer_precip can
-   ! trust, instead of the earlier overcount (snow_clamp*sigf).
+   ! Actual per-veg mass entering mixed canopy pool this step
+   ! (DeltaSnowInt-post-BlownSnow for snow; capacity-limited inflow for
+   ! rain). Used to emit gross_intr_* that tracer_precip can trust,
+   ! instead of the earlier overcount (snow_clamp*sigf).
    real(r8) :: actual_rain_int, actual_snow_int
-   ! Audit fix VIC-vegsnow: DEF_VEG_SNOW=T makes the input lai already
-   ! sigf-scaled (grid-equivalent) in CoLMMAIN.F90:2083. VIC operates
-   ! on per-veg quantities (ldew/sigf), so capacities must be per-veg
-   ! too — otherwise a second sigf appears in the denominator of
-   ! wetfrac_VIC. Restore per-veg LAI by dividing back out sigf_safe.
+   ! DEF_VEG_SNOW=T makes the input lai already sigf-scaled
+   ! (grid-equivalent) in CoLMMAIN.F90:2083. VIC operates on per-veg
+   ! quantities (ldew/sigf), so capacities must be per-veg too —
+   ! otherwise a second sigf appears in the denominator of wetfrac_VIC.
+   ! Restore per-veg LAI by dividing back out sigf_safe.
    real(r8) :: lai_perveg
+   ! Optional CLM4-style free-throughfall pre-filter
+   ! (DEF_VIC_ALPHA_RAIN / DEF_VIC_ALPHA_SNOW).
+   real(r8) :: fpi_pre           !rain pre-filter fraction (1.0 = disabled)
+   real(r8) :: rain_free_tf      !rain bypass rate [mm/s] re-added to pg_rain at exit
+   real(r8) :: fpi_pre_snow      !snow pre-filter fraction (1.0 = disabled)
+   real(r8) :: snow_free_tf      !snow bypass rate [mm/s] re-added to pg_snow at exit
 
       ! Initialize phase-change tracer outputs (default: no phase change).
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
+
+      ! Default: pre-filter disabled (preserves upstream VIC behaviour).
+      fpi_pre      = 1._r8
+      rain_free_tf = 0._r8
+      fpi_pre_snow = 1._r8
+      snow_free_tf = 0._r8
 
       ! VIC works in per-vegetation coordinates (storage ÷ sigf), which fails
       ! mass balance when sigf is very small. Previously a floor sigf_safe=0.01
@@ -2209,16 +2323,36 @@ CONTAINS
       IF (lai+sai > 1e-6 .and. sigf >= 0.01_r8) THEN
          lsai   = lai + sai
          vegt   = lsai
-         ! Audit fix clamp-hygiene: guard restart/float-noise negative
-         ! canopy state BEFORE the sigf_safe division (L2158-2159) which
-         ! would otherwise amplify negative noise 1/sigf-fold into the
-         ! per-veg bucket comparisons.
+         ! Guard restart/float-noise negative canopy state BEFORE the
+         ! sigf_safe division which would otherwise amplify negative noise
+         ! 1/sigf-fold into the per-veg bucket comparisons.
          ldew_rain = max(0._r8, ldew_rain)
          ldew_snow = max(0._r8, ldew_snow)
 
-         ! Audit fix M2b: clamp precipitation inputs once at scheme entry.
+         ! Clamp precipitation inputs once at scheme entry.
          rain_clamp = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
          snow_clamp = MAX(0.0_r8, prc_snow + prl_snow)
+
+         ! Optional CLM4-style free-throughfall pre-filter.
+         ! fpi_pre*  = alpha * (1 - exp(-0.5*LSAI)) diverts (1-fpi_pre*) of
+         ! the rain (resp. snow) straight to pg_rain (resp. pg_snow) at
+         ! exit; the remaining fraction feeds VIC's capacity-based
+         ! interception logic. Rain and snow are controlled independently;
+         ! either phase is disabled when its namelist value is negative.
+         IF (DEF_VIC_ALPHA_RAIN >= 0._r8) THEN
+            fpi_pre      = min(max(DEF_VIC_ALPHA_RAIN &
+                                    * (1.0_r8 - exp(-0.5_r8*(lai+sai))), &
+                                    0._r8), 1._r8)
+            rain_free_tf = rain_clamp * (1._r8 - fpi_pre)
+            rain_clamp   = rain_clamp * fpi_pre
+         ENDIF
+         IF (DEF_VIC_ALPHA_SNOW >= 0._r8) THEN
+            fpi_pre_snow = min(max(DEF_VIC_ALPHA_SNOW &
+                                    * (1.0_r8 - exp(-0.5_r8*(lai+sai))), &
+                                    0._r8), 1._r8)
+            snow_free_tf = snow_clamp * (1._r8 - fpi_pre_snow)
+            snow_clamp   = snow_clamp * fpi_pre_snow
+         ENDIF
 
          ! Ensure ldew is consistent with components at entry (grid-scale)
          ! VIC sets ldew = ldew_rain + ldew_snow at exit; inconsistency at entry
@@ -2235,11 +2369,10 @@ CONTAINS
          ldew_rain = ldew_rain / sigf_safe
          ldew_snow = ldew_snow / sigf_safe
 
-         ! Audit fix VIC-vegsnow: bring lai into per-veg coordinates to
-         ! match the ldew/sigf_safe scaling. Default DEF_VEG_SNOW=F
-         ! leaves lai untouched (already per-veg); when =T, lai was
-         ! pre-multiplied by sigf in CoLMMAIN.F90:2083, so we divide
-         ! it back out here.
+         ! Bring lai into per-veg coordinates to match the ldew/sigf_safe
+         ! scaling. Default DEF_VEG_SNOW=F leaves lai untouched (already
+         ! per-veg); when =T, lai was pre-multiplied by sigf in
+         ! CoLMMAIN.F90:2083, so we divide it back out here.
          IF (DEF_VEG_SNOW) THEN
             lai_perveg = lai / sigf_safe
          ELSE
@@ -2249,9 +2382,10 @@ CONTAINS
          ! Capacities follow original VIC (vic_run.c:222-223, initialize_parameters.c:45):
          !   Wdmax = LAI * VEG_LAI_WATER_FACTOR,  VEG_LAI_WATER_FACTOR = 0.1 mm/LAI
          ! LAI only (not LAI+SAI) — stems do not hold canopy water in VIC.
-         ! NOTE: keep 0.1 in sync with MOD_LeafTemperature.F90 VIC branch.
+         ! NOTE: keep 0.1*DEF_VIC_WDMAX_SCALE in sync with
+         ! MOD_LeafTemperature.F90 VIC branch.
          Imax1  = 4.0 * lai_perveg * 0.0005 * 1000.0   ! Structural max (branch) capacity [mm]
-         MaxInt = 0.1 * lai_perveg                     ! Wet canopy capacity (VIC Wdmax) [mm]
+         MaxInt = 0.1 * lai_perveg * DEF_VIC_WDMAX_SCALE ! Wet canopy capacity (VIC Wdmax) [mm]
          ! VIC Lr (LAI ratio for snow capacity) temperature dependence
          ! Thresholds are in Kelvin: 272.15 K = -1°C, 270.15 K = -3°C
          ! Formula design: Lr = 4.0 at -1°C, Lr = 1.0 at -3°C, linear in between
@@ -2269,7 +2403,7 @@ CONTAINS
          ! Snow interception capacity, VIC snow_intercept.c:161
          !   MaxSnowInt = VEG_LAI_SNOW_MULTIPLIER * LAI * Lr
          ! LAI only (not LAI+SAI) — consistent with VIC original.
-         ! Audit fix VIC-vegsnow: use per-veg LAI (see above).
+         ! Use per-veg LAI (see above).
          satcap_snow = 0.0005 * Lr * lai_perveg * 1000.0  ! [mm]
          !/* Calculate total liquid water capacity on branches and in intercepted snow */
          ! VIC physical design: Total liquid water capacity includes two components:
@@ -2300,9 +2434,14 @@ CONTAINS
          satcap_rain = 0.035 * ldew_snow + MaxInt  ! in mm
 
          ! Input clamping: prevent negative precipitation (numerical noise)
-         ! from causing mass balance failures
-         p0  = MAX(0.0_r8, prc_rain + prc_snow + prl_rain + prl_snow + qflx_irrig_sprinkler) * deltim
-         ppc = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ! from causing mass balance failures.
+         ! rain_clamp / snow_clamp may already be reduced by the
+         ! DEF_VIC_ALPHA_RAIN / DEF_VIC_ALPHA_SNOW pre-filters above —
+         ! rebuild p0/ppc from them so the internal mass balance matches.
+         ! fpi_pre* = 1 when the corresponding pre-filter is disabled,
+         ! so this collapses to the original formula bit-for-bit.
+         p0  = (rain_clamp + snow_clamp) * deltim
+         ppc = MAX(0.0_r8, prc_rain * fpi_pre + prc_snow * fpi_pre_snow) * deltim
          ppl = MAX(0.0_r8, p0 - ppc)
          w = ldew+p0
 
@@ -2312,9 +2451,9 @@ CONTAINS
          ldew_rain  = ldew_rain-xsc_rain
          ldew_snow  = ldew_snow-xsc_snow
          ! phase change and excess
-         ! Audit fix V-B (NM-1 series): absorb fusion heat into tleaf to
-         ! prevent the silent energy loss that previously biased tleaf
-         ! warm (during melt) and inflated downstream Ec.
+         ! Absorb fusion heat into tleaf to prevent the silent energy loss
+         ! that previously biased tleaf warm (during melt) and inflated
+         ! downstream Ec.
          !
          ! NOTE — APPROXIMATION, NOT FAITHFUL TO UPSTREAM VIC:
          ! Original VIC (snow_intercept.c L413-498) handles canopy phase
@@ -2342,11 +2481,15 @@ CONTAINS
                ldew_rain  = ldew_rain+ldew_smelt
                ! Accumulate per-veg melt mass; converted to grid-scale below.
                ldew_smelt_out = ldew_smelt_out + ldew_smelt
+               ! Per-veg fusion heat (scaled to grid at subroutine exit):
+               canopy_phase_heat_out = canopy_phase_heat_out - HFUS * ldew_smelt / deltim
                xsc_rain   = xsc_rain  + MAX(0., ldew_rain-satcap_rain)
                ldew_rain  = ldew_rain - MAX(0., ldew_rain-satcap_rain)
-               ! ROLLBACK NM-1: tleaf pull removed (broke MOD_Thermal errore).
-               ! VIC original uses RefreezeEnergy in canopy energy balance;
-               ! CoLM defers fusion-heat accounting to LeafTemperature L1296.
+               ! VIC's RefreezeEnergy / solve_canopy_energy_bal path is
+               ! emulated by exporting the bulk fusion flux
+               ! canopy_phase_heat_out. LeafTemperature's qmelt/qfrz block
+               ! is gated off for scheme=6 to prevent double-site phase
+               ! change.
             ENDIF
          ELSE
             IF (ldew_rain>1.e-8) THEN
@@ -2356,36 +2499,35 @@ CONTAINS
                ldew_rain  = ldew_rain-ldew_frzc
                ! Accumulate per-veg freeze mass; converted to grid-scale below.
                ldew_frzc_out = ldew_frzc_out + ldew_frzc
+               canopy_phase_heat_out = canopy_phase_heat_out + HFUS * ldew_frzc / deltim
                xsc_snow   = xsc_snow  + MAX(0., ldew_snow-satcap_snow)
                ldew_snow  = ldew_snow - MAX(0., ldew_snow-satcap_snow)
                ! ROLLBACK NM-1: same as above (melt branch).
             ENDIF
          ENDIF
 
-         ! Audit fix M2: satcap_rain depends on ldew_snow (snow-matrix water
-         ! retention = 0.035 * ldew_snow + MaxInt). The initial value at
-         ! L1939 was computed from pre-phase ldew_snow; if the phase-change
-         ! block just melted or froze a significant mass, satcap_rain is
-         ! stale. Recompute and drain any new oversaturation into xsc_rain
-         ! so downstream interception (Rutter/capacity-based) sees a
-         ! consistent capacity.
+         ! satcap_rain depends on ldew_snow (snow-matrix water retention =
+         ! 0.035 * ldew_snow + MaxInt). The initial value was computed from
+         ! pre-phase ldew_snow; if the phase-change block just melted or
+         ! froze a significant mass, satcap_rain is stale. Recompute and
+         ! drain any new oversaturation into xsc_rain so downstream
+         ! interception (Rutter/capacity-based) sees a consistent capacity.
          satcap_rain = 0.035_r8 * ldew_snow + MaxInt
          IF (ldew_rain > satcap_rain) THEN
             xsc_rain  = xsc_rain + (ldew_rain - satcap_rain)
             ldew_rain = satcap_rain
          ENDIF
 
-         ! Audit fix V-A: thin-storage throughfall cutoff
-         ! (VIC snow_intercept.c L207-210, L239-242, threshold
-         ! SNOW_MIN_SWQ_EB_THRES = 0.001 m = 1.0 mm per vegetation).
-         ! Without this, micro canopy storage (< 1.0 mm) lingers for
-         ! many timesteps and keeps contributing to canopy evaporation
-         ! demand, inflating Ec. VIC explicitly drops such amounts back
-         ! as throughfall when no fresh precipitation is arriving.
-         ! Route through xsc_* (pre-mix release) to preserve tracer
-         ! semantics: these are OLD canopy waters released BEFORE new
-         ! precipitation mixes in.
-         ! ldew_* here are per-vegetation (divided by sigf_safe at L1942-1943),
+         ! Thin-storage throughfall cutoff (VIC snow_intercept.c L207-210,
+         ! L239-242, threshold SNOW_MIN_SWQ_EB_THRES = 0.001 m = 1.0 mm
+         ! per vegetation). Without this, micro canopy storage (< 1.0 mm)
+         ! lingers for many timesteps and keeps contributing to canopy
+         ! evaporation demand, inflating Ec. VIC explicitly drops such
+         ! amounts back as throughfall when no fresh precipitation is
+         ! arriving. Route through xsc_* (pre-mix release) to preserve
+         ! tracer semantics: these are OLD canopy waters released BEFORE
+         ! new precipitation mixes in.
+         ! ldew_* here are per-vegetation (divided by sigf_safe at entry),
          ! so the 1.0 mm threshold matches the original per-veg semantics.
          IF (snow_clamp < 1.e-8_r8 .AND. ldew_snow < 1.0_r8 .AND. ldew_snow > 0._r8) THEN
             xsc_snow  = xsc_snow + ldew_snow
@@ -2399,7 +2541,7 @@ CONTAINS
          ! Note: ldew will be resynced as ldew = ldew_rain + ldew_snow at output (line ~1806)
          ! No in-place ldew update needed here (CoLM2014 pattern: resync at end)
 
-         ! Audit fix VIC-gross: default to 0; the p0>1e-8 branch updates.
+         ! Default to 0; the p0>1e-8 branch updates.
          actual_rain_int = 0._r8
          actual_snow_int = 0._r8
 
@@ -2427,13 +2569,12 @@ CONTAINS
                   DeltaSnowInt = 0.0
                ENDIF
 
-               ! Audit fix V-C/V-D: BlownSnow strictly per VIC
-               ! snow_intercept.c:189-195 — acts on NEW interception
-               ! (DeltaSnowInt) only, not on historically accumulated
-               ! canopy snow (ldew_snow). Previously CoLM applied
+               ! BlownSnow strictly per VIC snow_intercept.c:189-195 — acts
+               ! on NEW interception (DeltaSnowInt) only, not on historically
+               ! accumulated canopy snow (ldew_snow). Previously CoLM applied
                ! BlownSnow to ldew_snow AFTER interception + overflow,
-               ! unphysically shedding multi-day accumulated snow in
-               ! one gust. Now matches the original sequence: compute
+               ! unphysically shedding multi-day accumulated snow in one
+               ! gust. Now matches the original sequence: compute
                ! DeltaSnowInt, subtract wind-blown fraction, then check
                ! Imax1 and update ldew_snow. Note: CoLM keeps the tair
                ! (vs Tfoliage) threshold per the existing design choice
@@ -2445,13 +2586,12 @@ CONTAINS
                   DeltaSnowInt = DeltaSnowInt - BlownSnow
                ENDIF
 
-               ! Audit fix V-C/V-D: structural Imax1 pre-rejection
-               ! (snow_intercept.c:199-201). If the canopy cannot bear
-               ! (current snow + this-step intercept), refuse ALL new
-               ! interception — all falls as throughfall this step.
-               ! This is separate from the post-interception structural
-               ! overloading check below (L~2178 originally L254-262 in
-               ! VIC) which redistributes once capacity is already hit.
+               ! Structural Imax1 pre-rejection (snow_intercept.c:199-201).
+               ! If the canopy cannot bear (current snow + this-step
+               ! intercept), refuse ALL new interception — all falls as
+               ! throughfall this step. This is separate from the post-
+               ! interception structural overloading check below which
+               ! redistributes once capacity is already hit.
                IF (ldew_snow + DeltaSnowInt > Imax1) THEN
                   DeltaSnowInt = 0._r8
                ENDIF
@@ -2469,16 +2609,16 @@ CONTAINS
             ! for state variables with raw sigf for throughfall creates small residuals
             ! in the debug mass-balance check when sigf is very small.
             !
-            ! After V-C/V-D fix: wind-blown portion has already been subtracted
+            ! After the BlownSnow split fix: wind-blown portion has already been subtracted
             ! from DeltaSnowInt, so it now correctly flows into tti_snow
             ! (gap throughfall carrying R_input signature), matching
             ! snow_intercept.c:204 semantics. Previously it flowed through
             ! tex_snow (canopy drip at R_mixed) which was tracer-inaccurate.
             tti_snow = (Snow - DeltaSnowInt) * sigf_safe + Snow * (1.0 - sigf_safe)
             ldew_snow = ldew_snow + DeltaSnowInt
-            ! Audit fix VIC-gross: DeltaSnowInt (post-BlownSnow,
-            ! post-Imax1 rejection) is the per-veg snow mass actually
-            ! admitted into the canopy mixed pool this step.
+            ! DeltaSnowInt (post-BlownSnow, post-Imax1 rejection) is the
+            ! per-veg snow mass actually admitted into the canopy mixed
+            ! pool this step.
             actual_snow_int = DeltaSnowInt
 
             ! Rain interception: Original VIC capacity-based algorithm
@@ -2489,17 +2629,17 @@ CONTAINS
             ! This differs from CLM5's empirical efficiency approach (tanh function)
             Rain = rain_clamp * deltim
 
-            ! Audit fix V-I: recompute MaxWaterInt using the POST-snow-interception
-            ! ldew_snow. Original VIC (snow_intercept.c:213 then L222) adds the
-            ! newly intercepted snow to IntSnow FIRST, then computes MaxWaterInt.
-            ! Previously CoLM used satcap_rain computed pre-snow-interception
-            ! (L2039), which undercounts the 0.035*DeltaSnowInt contribution
-            ! of the fresh snow matrix to liquid-water retention capacity.
+            ! Recompute MaxWaterInt using the POST-snow-interception ldew_snow.
+            ! Original VIC (snow_intercept.c:213 then L222) adds the newly
+            ! intercepted snow to IntSnow FIRST, then computes MaxWaterInt.
+            ! Previously CoLM used satcap_rain computed pre-snow-interception,
+            ! which undercounts the 0.035*DeltaSnowInt contribution of the
+            ! fresh snow matrix to liquid-water retention capacity.
             MaxWaterInt = 0.035_r8 * ldew_snow + MaxInt
 
-            ! Capacity-based interception (VIC original algorithm)
-            ! If there is available capacity, intercept rain; otherwise it becomes throughfall
-            ! Audit fix VIC-gross: record actual per-veg mass admitted into
+            ! Capacity-based interception (VIC original algorithm).
+            ! If there is available capacity, intercept rain; otherwise it
+            ! becomes throughfall. Record actual per-veg mass admitted into
             ! the canopy pool (used later for gross_intr_rain).
             IF (ldew_rain + Rain <= MaxWaterInt) THEN
                ! All rain can be intercepted (capacity not exceeded)
@@ -2522,12 +2662,12 @@ CONTAINS
             ldew_rain   = ldew_rain - tex_rain
             ldew_snow   = ldew_snow - tex_snow
 
-            ! Audit fix V-C/V-D: BlownSnow moved into the snow-interception
-            ! block above (snow_intercept.c:189-195 original placement).
-            ! It now reduces DeltaSnowInt BEFORE the new mass enters the
-            ! canopy pool, so historically accumulated ldew_snow is NOT
-            ! shed by a single gust. Previous location (here, post-
-            ! overflow) incorrectly used ldew_snow as the base.
+            ! BlownSnow moved into the snow-interception block above
+            ! (snow_intercept.c:189-195 original placement). It now reduces
+            ! DeltaSnowInt BEFORE the new mass enters the canopy pool, so
+            ! historically accumulated ldew_snow is NOT shed by a single
+            ! gust. Previous location (here, post-overflow) incorrectly
+            ! used ldew_snow as the base.
 
             !/* at this point we have calculated the amount of snowfall intercepted and
             !/* the amount of rainfall intercepted.  These values have been
@@ -2581,18 +2721,17 @@ CONTAINS
          ! Must drain excess water that can no longer be held
          ! Reference: VIC snow_intercept.c lines 522-526
          !
-         ! Audit fix VIC-xsc-v2 (BUG-2 repair): this safety drain happens
-         ! AFTER actual_rain_int (new rain) has been injected into
-         ! ldew_rain at L2464-2477 and AFTER Imax1 structural overflow
-         ! at L2501-2517, so ldew_rain here is a POST-MIX pool (fresh
-         ! interception + any canopy melt water already blended in).
-         ! Routing the excess through xsc_rain would make tracer_precip
-         ! tag it with R_canopy_pre (pre-mix canopy signature), but
-         ! physics says it should carry R_mixed because the pool is
-         ! already mixed. Route through thru_rain instead — tracer_precip
-         ! derives drip = max(intercepted - d_ldew, 0) from the ldew_rain
-         ! change, so the excess is automatically classified as post-mix
-         ! drip at R_mixed. Bulk pg_rain is unchanged:
+         ! This safety drain happens AFTER actual_rain_int (new rain) has
+         ! been injected into ldew_rain and AFTER Imax1 structural overflow,
+         ! so ldew_rain here is a POST-MIX pool (fresh interception + any
+         ! canopy melt water already blended in). Routing the excess through
+         ! xsc_rain would make tracer_precip tag it with R_canopy_pre
+         ! (pre-mix canopy signature), but physics says it should carry
+         ! R_mixed because the pool is already mixed. Route through
+         ! thru_rain instead — tracer_precip derives drip =
+         ! max(intercepted - d_ldew, 0) from the ldew_rain change, so the
+         ! excess is automatically classified as post-mix drip at R_mixed.
+         ! Bulk pg_rain is unchanged:
          !   OLD: pg_rain = (xsc_rain*sigf + thru_rain)/deltim
          !          with xsc_rain containing (ldew_rain - MaxInt)
          !   NEW: pg_rain = (xsc_rain*sigf + thru_rain')/deltim
@@ -2624,11 +2763,10 @@ CONTAINS
          qintr_rain = rain_clamp - (thru_rain / deltim)
          qintr_snow = snow_clamp - (thru_snow / deltim)
 
-         ! Audit fix VIC-gross: gross_intr_* must be the ACTUAL mass
-         ! entering the canopy mixed pool, otherwise tracer_precip
-         ! (MOD_Tracer_Precip.F90:170,181,182) misclassifies gap
-         ! throughfall as canopy drip at R_mixed. Snow uses
-         ! DeltaSnowInt (post-BlownSnow, post-Imax1 rejection); rain
+         ! gross_intr_* must be the ACTUAL mass entering the canopy mixed
+         ! pool, otherwise tracer_precip (MOD_Tracer_Precip.F90:170,181,182)
+         ! misclassifies gap throughfall as canopy drip at R_mixed. Snow
+         ! uses DeltaSnowInt (post-BlownSnow, post-Imax1 rejection); rain
          ! uses the capacity-limited inflow from the VIC branch above.
          ! actual_*_int are per-veg [mm]; scale to grid-scale rate.
          gross_intr_rain = actual_rain_int * sigf_safe / deltim
@@ -2648,8 +2786,10 @@ CONTAINS
          ! ldew_rain/ldew_snow were per-veg; now express them in the same
          ! grid-scale units as the ldew_*_old_trc snapshot so tracer_precip
          ! can migrate the corresponding tracer mass consistently.
-         ldew_smelt_out = ldew_smelt_out * sigf_safe
-         ldew_frzc_out  = ldew_frzc_out  * sigf_safe
+         ldew_smelt_out        = ldew_smelt_out        * sigf_safe
+         ldew_frzc_out         = ldew_frzc_out         * sigf_safe
+         ! Same per-veg -> grid-scale conversion for the fusion heat flux.
+         canopy_phase_heat_out = canopy_phase_heat_out * sigf_safe
 
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
@@ -2664,32 +2804,33 @@ CONTAINS
               qintr, qintr_rain, qintr_snow)
 #endif
 
+         ! Optional CLM4-style pre-filter: add the rain/snow fractions
+         ! that bypassed the canopy to pg_rain / pg_snow AFTER the mass
+         ! balance check. Internal pg_* balanced against p0 with reduced
+         ! rain_clamp + snow_clamp; qintr_{rain,snow} intentionally
+         ! exclude the bypass terms because bypassed precipitation never
+         ! entered the canopy pool. Both *_free_tf = 0 when the
+         ! corresponding pre-filter is disabled.
+         pg_rain = pg_rain + rain_free_tf
+         pg_snow = pg_snow + snow_free_tf
+
       ELSE
-         ! No vegetation: all precipitation passes through, release any stored water
-         ! Audit fix M2b: clamp raw precipitation to prevent negative noise
-         ! from propagating to pg_* in the no-vegetation branch, matching
-         ! the in-branch clamp and JULES's no-veg treatment.
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew       = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr      = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! No vegetation: all precipitation passes through, release any
+         ! stored water.
+         ! Clamp raw precipitation to prevent negative noise from propagating
+         ! to pg_* in the no-vegetation branch, matching the in-branch clamp
+         ! and JULES's no-veg treatment.
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
       ENDIF
    END SUBROUTINE LEAF_interception_VIC
 
@@ -2698,7 +2839,8 @@ CONTAINS
                                        ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow,&
                                        gross_intr_rain,gross_intr_snow,&
                                        xsc_rain_out,xsc_snow_out,&
-                                       ldew_smelt_out,ldew_frzc_out)
+                                       ldew_smelt_out,ldew_frzc_out,&
+                                       canopy_phase_heat_out)
    !DESCRIPTION
    !===========
       ! Official JULES canopy interception scheme
@@ -2780,6 +2922,13 @@ CONTAINS
    ! vegetated branch (mirroring how ldew_rain/ldew_snow are rescaled).
    real(r8), intent(out)   :: ldew_smelt_out  !canopy snow->rain mass transferred by melt this step [mm, >=0, grid-scale]
    real(r8), intent(out)   :: ldew_frzc_out   !canopy rain->snow mass transferred by freeze this step [mm, >=0, grid-scale]
+   ! Canopy phase-change fusion heat flux [W/m^2, grid-scale]. Accumulated
+   ! per-veg and scaled to grid-scale with sigf_safe at the end of the
+   ! vegetated branch. See NoahMP block for sign convention. JULES's
+   ! original canopysnow_mod imports melt_surft externally (computed in
+   ! surface_flux); here we instead export the bulk fusion flux so
+   ! MOD_Thermal's canopy energy balance closes at CoLM granularity.
+   real(r8), intent(out)   :: canopy_phase_heat_out
 
    ! Local variables
    real(r8)                :: snowinterceptfact    ! Snow interception efficiency (0.7)
@@ -2788,18 +2937,23 @@ CONTAINS
    real(r8)                :: unload_rate_u        ! Wind-dependent unloading rate [s⁻¹/(m/s)]
    real(r8)                :: unload_backgrnd      ! Total background unloading rate [s⁻¹]
    real(r8)                :: Wind                 ! Wind speed [m/s]
-   real(r8)                :: area                 ! Precipitation area fraction
+   real(r8)                :: area                 ! Precipitation area fraction for current event
    real(r8)                :: can_cpy_rain         ! Canopy capacity for rain [mm]
    real(r8)                :: can_cpy_snow         ! Canopy capacity for snow [mm]
-   real(r8)                :: r_rain               ! Rain rate [mm/s] (clamped, non-negative)
+   real(r8)                :: r_rain               ! Total rain rate [mm/s] (clamped, non-negative)
+   real(r8)                :: r_rain_ls            ! Large-scale rain + sprinkler [mm/s]
+   real(r8)                :: r_rain_con           ! Convective rain [mm/s]
    real(r8)                :: r_snow               ! Snow rate [mm/s] (clamped, non-negative)
    real(r8)                :: can_ratio            ! Canopy saturation ratio (can_wcnt/can_cpy)
    real(r8)                :: aexp                 ! Exponential term in Rutter model
    real(r8)                :: tfall_rain           ! Rain throughfall [mm/s]
+   real(r8)                :: tfall_rain_ls        ! Large-scale rain throughfall [mm/s]
+   real(r8)                :: tfall_rain_con       ! Convective rain throughfall [mm/s]
    real(r8)                :: tfall_snow           ! Snow throughfall [mm/s]
    real(r8)                :: intercept_rain       ! Rain interception in timestep [mm]
    real(r8)                :: intercept_snow       ! Snow interception in timestep [mm]
    real(r8)                :: unload_snow          ! Snow unloading in timestep [mm]
+   real(r8)                :: ldew_snow_pre        ! Pre-unload canopy snow store [mm]
    real(r8)                :: melt_rate            ! Canopy snow melt rate [mm/s]
    real(r8)                :: melt_factor          ! Dimensionless melt energy ratio: CICE/(DENICE*HFUS)
    real(r8)                :: frz_factor           ! Dimensionless freeze energy ratio: CWAT/(DENH2O*HFUS)
@@ -2812,15 +2966,28 @@ CONTAINS
    real(r8)                :: sigf_safe            ! safe vegetation fraction (>= 0.01)
    real(r8)                :: thru_rain, thru_snow ! grid-scale throughfall [mm]
    real(r8)                :: can_cpy_snow_pv      ! per-veg snow capacity for fwet_snow tleaf pull
-   real(r8)                :: fwet_snow            ! Audit fix NM-1: canopy wet fraction for fusion-heat tleaf pull
-   ! Audit fix J1: DEF_VEG_SNOW=T makes the input lai pre-multiplied by
-   ! sigf (CoLMMAIN.F90:2083/2099). JULES physics operates per-veg
+   real(r8)                :: fwet_snow            ! Canopy wet fraction for fusion-heat tleaf pull
+   ! DEF_VEG_SNOW=T makes the input lai pre-multiplied by sigf
+   ! (CoLMMAIN.F90:2083/2099). JULES physics operates per-veg
    ! (ldew/sigf_safe), so restore per-veg LAI for capacity formulas.
    real(r8)                :: lai_perveg_J
+   ! Optional CLM4-style free-throughfall pre-filter
+   ! (DEF_JULES_ALPHA_RAIN / DEF_JULES_ALPHA_SNOW).
+   real(r8)                :: fpi_pre       !rain pre-filter fraction (1.0 = disabled)
+   real(r8)                :: rain_free_tf  !rain bypass rate [mm/s] re-added to pg_rain at exit
+   real(r8)                :: fpi_pre_snow  !snow pre-filter fraction (1.0 = disabled)
+   real(r8)                :: snow_free_tf  !snow bypass rate [mm/s] re-added to pg_snow at exit
 
       ! Initialize phase-change tracer outputs (default: no phase change).
-      ldew_smelt_out = 0._r8
-      ldew_frzc_out  = 0._r8
+      ldew_smelt_out        = 0._r8
+      ldew_frzc_out         = 0._r8
+      canopy_phase_heat_out = 0._r8
+
+      ! Default: pre-filter disabled (preserves upstream JULES behaviour).
+      fpi_pre      = 1._r8
+      rain_free_tf = 0._r8
+      fpi_pre_snow = 1._r8
+      snow_free_tf = 0._r8
 
       ! JULES operates on per-vegetation storage. Same rationale as VIC above:
       ! sparse vegetation (0 < sigf < 0.01) would hit the sigf_safe floor and
@@ -2833,8 +3000,35 @@ CONTAINS
          !======================================================================
          ! Negative precipitation inputs (numerical noise) cause mass balance failures.
          ! Clamp all inputs to 0.0 before any calculations.
-         r_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler)
+         r_rain_ls = MAX(0.0_r8, prl_rain + qflx_irrig_sprinkler)
+         r_rain_con = MAX(0.0_r8, prc_rain)
+         r_rain = r_rain_ls + r_rain_con
          r_snow = MAX(0.0_r8, prc_snow + prl_snow)
+
+         ! Optional CLM4-style free-throughfall pre-filter.
+         ! fpi_pre*  = alpha * (1 - exp(-0.5*LSAI)) diverts (1-fpi_pre*)
+         ! of the rain (resp. snow) straight to pg_rain (resp. pg_snow)
+         ! at exit; the remainder flows through the JULES Rutter
+         ! penetration (rain) / exponential saturation + unloading (snow)
+         ! models. Rain LS/CON components are scaled uniformly so their
+         ! ratio is preserved; snow has no LS/CON split in JULES. Rain
+         ! and snow are controlled independently.
+         IF (DEF_JULES_ALPHA_RAIN >= 0._r8) THEN
+            fpi_pre      = min(max(DEF_JULES_ALPHA_RAIN &
+                                    * (1.0_r8 - exp(-0.5_r8*lsai_l)), &
+                                    0._r8), 1._r8)
+            rain_free_tf = r_rain * (1._r8 - fpi_pre)
+            r_rain_ls    = r_rain_ls  * fpi_pre
+            r_rain_con   = r_rain_con * fpi_pre
+            r_rain       = r_rain     * fpi_pre
+         ENDIF
+         IF (DEF_JULES_ALPHA_SNOW >= 0._r8) THEN
+            fpi_pre_snow = min(max(DEF_JULES_ALPHA_SNOW &
+                                    * (1.0_r8 - exp(-0.5_r8*lsai_l)), &
+                                    0._r8), 1._r8)
+            snow_free_tf = r_snow * (1._r8 - fpi_pre_snow)
+            r_snow       = r_snow     * fpi_pre_snow
+         ENDIF
 
          ! Clamp canopy state: negative values from restart or upstream bugs
          ! would be amplified by sigf division and cause mass balance abort
@@ -2854,11 +3048,10 @@ CONTAINS
          ! (rose-app.conf: catch0_io=0.5, dcatch_dlai_io=0.05, snowloadlai=4.4)
          !   rain: catch = catch0 + dcatch_dlai * LAI   (LAI only, not LAI+SAI)
          !   snow: catch = snowloadlai * LAI
-         ! Audit fix J1 (DEF_VEG_SNOW coordinate): derive per-veg LAI so
-         ! capacity matches the per-veg ldew coordinate used at L2666.
-         ! Outer guard above ensures sigf >= 0.01 here, so sigf_safe
-         ! (computed below) equals sigf; we pre-compute the ratio to keep
-         ! the declaration sequence readable.
+         ! Derive per-veg LAI so capacity matches the per-veg ldew coordinate.
+         ! DEF_VEG_SNOW=T pre-multiplied lai by sigf in CoLMMAIN.F90:2083/2099;
+         ! divide back out here. Outer guard ensures sigf >= 0.01 here, so
+         ! sigf_safe (computed below) equals sigf.
          IF (DEF_VEG_SNOW) THEN
             lai_perveg_J = lai / max(sigf, 0.01_r8)
          ELSE
@@ -2871,20 +3064,17 @@ CONTAINS
          !======================================================================
          ! Precipitation totals and mass balance reference (GRID-SCALE)
          !======================================================================
-         ! Use clamped rates for consistency
+         ! Use clamped rates for consistency. r_rain / r_snow may already
+         ! be post-pre-filter here, so p0_l reflects what actually enters
+         ! the canopy logic. ppc_l scales prc_rain by fpi_pre and prc_snow
+         ! by fpi_pre_snow so the convective/stratiform proportion of
+         ! post-bypass precipitation is preserved. fpi_pre* = 1 when the
+         ! corresponding pre-filter is disabled.
          p0_l  = (r_rain + r_snow) * deltim
-         ppc_l = MAX(0.0_r8, prc_rain + prc_snow) * deltim
+         ppc_l = MAX(0.0_r8, prc_rain * fpi_pre + prc_snow * fpi_pre_snow) * deltim
          ppl_l = p0_l - ppc_l
          ! Clamp ppl_l to avoid negative from clamping differences
          ppl_l = MAX(0.0_r8, ppl_l)
-
-         IF (p0_l > 1.e-8) THEN
-            ! Convective precip ~10% of grid, stratiform ~100% of grid
-            area = (0.1*ppc_l + 1.0*ppl_l) / p0_l
-            area = max(0.1, min(1.0, area))
-         ELSE
-            area = 1.0
-         ENDIF
 
          ! Ensure ldew is consistent with components at entry (GRID-SCALE)
          ! Must be done BEFORE sigf division to keep w_l in grid-scale units
@@ -2915,9 +3105,9 @@ CONTAINS
          melt_factor = CICE / (DENICE * HFUS)
          frz_factor  = CWAT / (DENH2O * HFUS)
 
-         ! Audit fix NM-1 series: absorb fusion heat into tleaf to prevent
-         ! the silent energy loss that previously biased tleaf warm
-         ! (during melt) and inflated downstream Ec.
+         ! Absorb fusion heat into tleaf to prevent the silent energy loss
+         ! that previously biased tleaf warm (during melt) and inflated
+         ! downstream Ec.
          !
          ! NOTE — APPROXIMATION, NOT FAITHFUL TO UPSTREAM JULES:
          ! Original JULES does NOT do canopy phase change inside the
@@ -2953,15 +3143,12 @@ CONTAINS
                ldew_rain = ldew_rain + melt_rate * deltim
                ! Accumulate per-veg melt mass; scaled to grid-scale below.
                ldew_smelt_out = ldew_smelt_out + melt_rate * deltim
-               ! ROLLBACK NM-1: tleaf pull removed. The Niu (2004) pull-toward-
-               ! freezing absorbed fusion heat OUTSIDE the LeafTemperature
-               ! iteration, but dheatl = clai/dt * dtl(it-1) (LeafTemperature
-               ! L1196) only tracks tleaf change WITHIN the iteration.
-               ! Result: clai*(tleaf_old-tleaf_new)/dt was lost from the
-               ! THERMAL energy balance, breaking errore < 0.5 W/m² check.
-               ! Defer fusion-heat accounting to the LeafTemperature
-               ! phase-change block (L1296-1313), which has the same
-               ! limitation but is bounded in single-call magnitude.
+               ! Per-veg fusion heat; grid-scale conversion below.
+               canopy_phase_heat_out = canopy_phase_heat_out - HFUS * melt_rate
+               ! The canopy fusion heat is now exported via
+               ! canopy_phase_heat_out so MOD_Thermal's energy balance
+               ! closes. LeafTemperature's qmelt/qfrz block is gated off
+               ! for scheme=7 so there is no second phase-change site.
             ELSE
                melt_rate = 0.0_r8
             ENDIF
@@ -2976,7 +3163,8 @@ CONTAINS
                ldew_rain = MAX(ldew_rain, 0.0_r8)  ! prevent -eps from FP rounding
                ! Accumulate per-veg freeze mass; scaled to grid-scale below.
                ldew_frzc_out = ldew_frzc_out + ldew_frzc
-               ! ROLLBACK NM-1: same as above (melt branch).
+               canopy_phase_heat_out = canopy_phase_heat_out + HFUS * ldew_frzc / deltim
+               ! Freeze branch (canopy gains fusion heat).
             ENDIF
             melt_rate = 0.0_r8
          ENDIF
@@ -3001,23 +3189,38 @@ CONTAINS
          ! RAIN INTERCEPTION: Rutter (1971) Penetration Model
          ! From JULES sieve_jls_mod.F90 lines 125-142
          !======================================================================
-         IF (can_cpy_rain > 0.0 .AND. r_rain > smallp) THEN
-            ! Exponential term (JULES lines 126-132)
-            aexp = exp(max(-50.0_r8, -area * can_cpy_rain / (r_rain * deltim)))
+         intercept_rain = 0.0_r8
+         tfall_rain_ls  = r_rain_ls
+         tfall_rain_con = r_rain_con
 
-            ! Canopy saturation ratio (JULES lines 134-136)
-            can_ratio = ldew_rain / can_cpy_rain
-            can_ratio = MAX(0.0, MIN(can_ratio, 1.0))
+         IF (can_cpy_rain > 0.0_r8) THEN
+            ! Upstream JULES calls sieve sequentially for condensation,
+            ! large-scale rain, then convective rain. CoLM currently has
+            ! no condensation input at this stage, but we preserve the
+            ! LS -> CON canopy-filling order so mixed rain events no
+            ! longer collapse into a single area-weighted call.
+            IF (r_rain_ls > smallp) THEN
+               area = 1.0_r8
+               aexp = exp(max(-50.0_r8, -area * can_cpy_rain / (r_rain_ls * deltim)))
+               can_ratio = ldew_rain / can_cpy_rain
+               can_ratio = MAX(0.0_r8, MIN(can_ratio, 1.0_r8))
+               tfall_rain_ls = r_rain_ls * ((1.0_r8 - can_ratio) * aexp + can_ratio)
+               intercept_rain = intercept_rain + (r_rain_ls - tfall_rain_ls) * deltim
+               ldew_rain = ldew_rain + (r_rain_ls - tfall_rain_ls) * deltim
+            ENDIF
 
-            ! Rutter throughfall formula (JULES line 137)
-            tfall_rain = r_rain * ((1.0 - can_ratio) * aexp + can_ratio)
-         ELSE
-            tfall_rain = r_rain
+            IF (r_rain_con > smallp) THEN
+               area = 0.1_r8
+               aexp = exp(max(-50.0_r8, -area * can_cpy_rain / (r_rain_con * deltim)))
+               can_ratio = ldew_rain / can_cpy_rain
+               can_ratio = MAX(0.0_r8, MIN(can_ratio, 1.0_r8))
+               tfall_rain_con = r_rain_con * ((1.0_r8 - can_ratio) * aexp + can_ratio)
+               intercept_rain = intercept_rain + (r_rain_con - tfall_rain_con) * deltim
+               ldew_rain = ldew_rain + (r_rain_con - tfall_rain_con) * deltim
+            ENDIF
          ENDIF
 
-         ! Update canopy water content (JULES line 142)
-         intercept_rain = (r_rain - tfall_rain) * deltim
-         ldew_rain = ldew_rain + intercept_rain
+         tfall_rain = tfall_rain_ls + tfall_rain_con
 
          ! Post-Rutter drainage: discrete timestep can overshoot capacity
          IF (ldew_rain > can_cpy_rain) THEN
@@ -3029,36 +3232,40 @@ CONTAINS
          ! SNOW INTERCEPTION: Exponential Saturation Model with Unloading
          ! From JULES canopysnow_mod.F90 lines 131-145
          !======================================================================
-         ! Snow unloading occurs regardless of snowfall (continuous process)
+         ! Upstream JULES computes intercept and unload from the same
+         ! pre-interception snow_can state, then applies the net update once.
+         ! Keep that parallel-update semantics here.
+         ldew_snow_pre = ldew_snow
          unload_snow = snowunloadfact * melt_rate * deltim &
-                     + unload_backgrnd * ldew_snow * deltim
-         unload_snow = MAX(MIN(unload_snow, ldew_snow), 0.0)
-         ldew_snow   = ldew_snow - unload_snow
-         ! Audit fix J4: unload_snow is OLD canopy snow shaken off by
-         ! wind/melt, released BEFORE any new snow mixes in. Route it
-         ! through xsc_snow (per-veg, pre-mix) so tracer_precip
-         ! (MOD_Tracer_Precip.F90:167) attributes it as R_canopy_pre
-         ! rather than R_mixed canopy drip. Bulk pg_snow is unchanged:
-         ! the offsetting subtraction is applied to tfall_snow below.
+                     + unload_backgrnd * ldew_snow_pre * deltim
+         unload_snow = MAX(MIN(unload_snow, ldew_snow_pre), 0.0)
+         ! unload_snow is OLD canopy snow shaken off by wind/melt, released
+         ! BEFORE any new snow mixes in. Route it through xsc_snow (per-veg,
+         ! pre-mix) so tracer_precip (MOD_Tracer_Precip.F90:167) attributes
+         ! it as R_canopy_pre rather than R_mixed canopy drip. Bulk pg_snow
+         ! is unchanged: the offsetting subtraction is applied to
+         ! tfall_snow below.
          xsc_snow = xsc_snow + unload_snow
 
          ! Guard on can_cpy_snow > smallp: with the JULES convention
          ! can_cpy_snow = 4.4*LAI, leafless patches (LAI=0, SAI>0) would
          ! trigger divide-by-zero at the EXP denominator below.
          IF (r_snow > smallp .AND. can_cpy_snow > smallp) THEN
-            ! Snow interception (JULES lines 131-132)
-            intercept_snow = snowinterceptfact * (can_cpy_snow - ldew_snow) * &
+            ! Snow interception (JULES lines 131-132), evaluated on the
+            ! same pre-unload canopy snow state as unload_snow.
+            intercept_snow = snowinterceptfact * (can_cpy_snow - ldew_snow_pre) * &
                              (1.0 - EXP(MAX(-50.0_r8, -r_snow * deltim / can_cpy_snow)))
             intercept_snow = MAX(0.0, intercept_snow)
 
-            ! Update canopy snow
-            ldew_snow = ldew_snow + intercept_snow
+            ! Apply intercept and unload together, matching upstream's
+            ! parallel update on snow_can_pre.
+            ldew_snow = ldew_snow_pre + intercept_snow - unload_snow
 
             ! Snowfall to ground = snowfall - intercepted
-            ! Audit fix J4: unloaded snow is accounted via xsc_snow (OLD
-            ! canopy release, pre-mix), not tfall_snow. tfall_snow now
-            ! holds only the R_input component (gap throughfall from
-            ! fresh snowfall minus interception).
+            ! Unloaded snow is accounted via xsc_snow (OLD canopy release,
+            ! pre-mix), not tfall_snow. tfall_snow now holds only the
+            ! R_input component (gap throughfall from fresh snowfall minus
+            ! interception).
             tfall_snow = r_snow - intercept_snow / deltim
 
             ! Post-interception drainage
@@ -3068,10 +3275,12 @@ CONTAINS
             ENDIF
          ELSE
             intercept_snow = 0.0
-            ! No snowfall; unloaded snow already routed to xsc_snow above
-            ! (Audit fix J4). tfall_snow reflects only bare-gap path.
+            ldew_snow = ldew_snow_pre - unload_snow
+            ! No snowfall; unloaded snow already routed to xsc_snow above.
+            ! tfall_snow reflects only bare-gap path.
             tfall_snow = r_snow
          ENDIF
+         ldew_snow = MAX(ldew_snow, 0.0_r8)
 
          !======================================================================
          ! Output fluxes: Per-vegetation → Grid-scale (VIC pattern)
@@ -3128,8 +3337,10 @@ CONTAINS
          ! Convert per-veg phase-change masses to grid-scale [mm] so
          ! tracer_precip can migrate the corresponding trc_ldew_* mass
          ! using the same units as the ldew_*_old_trc snapshot.
-         ldew_smelt_out = ldew_smelt_out * sigf_safe
-         ldew_frzc_out  = ldew_frzc_out  * sigf_safe
+         ldew_smelt_out        = ldew_smelt_out        * sigf_safe
+         ldew_frzc_out         = ldew_frzc_out         * sigf_safe
+         ! Same per-veg -> grid-scale conversion for the fusion heat flux.
+         canopy_phase_heat_out = canopy_phase_heat_out * sigf_safe
 
 #if (defined CoLMDEBUG)
          ! Mass balance check: w_l (grid-scale old storage + precip) should equal
@@ -3145,30 +3356,32 @@ CONTAINS
               ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &
               qintr, qintr_rain, qintr_snow)
 #endif
+
+         ! Optional CLM4-style pre-filter: add the rain/snow fractions
+         ! that bypassed the canopy to pg_rain / pg_snow AFTER the mass
+         ! balance check. Internal pg_* balanced against p0_l with
+         ! reduced r_rain + r_snow; qintr_{rain,snow} intentionally
+         ! exclude the bypass terms (bypassed precip never entered the
+         ! canopy). *_free_tf = 0 when the corresponding pre-filter is
+         ! disabled.
+         pg_rain = pg_rain + rain_free_tf
+         pg_snow = pg_snow + snow_free_tf
+
       ELSE
-         ! No vegetation: all precipitation passes through, release any stored water
-         ! Clamp raw precipitation to prevent negative pg (matching vegetated branch)
-         ! Audit fix All-M: preserve pre-existing canopy water signature
-         ! for tracer attribution. The ldew_rain / ldew_snow released here
-         ! is OLD canopy water (R_canopy_pre), not fresh throughfall
-         ! (R_input). Route it through xsc_*_out BEFORE ldew is reset so
-         ! tracer_precip classifies it correctly (otherwise it would be
-         ! lumped into throughfall and diluted by fresh precip signature).
-         xsc_rain_out = max(0._r8, ldew_rain / deltim)
-         xsc_snow_out = max(0._r8, ldew_snow / deltim)
-
-         pg_rain = MAX(0.0_r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + ldew_rain/deltim
-         pg_snow = MAX(0.0_r8, prc_snow + prl_snow) + ldew_snow/deltim
-
-         ldew       = 0.
-         ldew_rain  = 0.
-         ldew_snow  = 0.
-         qintr      = 0.
-         qintr_rain = 0.
-         qintr_snow = 0.
-         gross_intr_rain = 0._r8
-         gross_intr_snow = 0._r8
-         ! xsc_*_out already set above (Audit fix All-M)
+         ! No vegetation: all precipitation passes through, release any
+         ! stored water. Clamp raw precipitation to prevent negative pg
+         ! (matching vegetated branch).
+         ! Preserve pre-existing canopy water signature for tracer attribution.
+         ! The ldew_rain / ldew_snow released here is OLD canopy water
+         ! (R_canopy_pre), not fresh throughfall (R_input). Route it through
+         ! xsc_*_out BEFORE ldew is reset so tracer_precip classifies it
+         ! correctly (otherwise it would be lumped into throughfall and diluted
+         ! by fresh precip signature).
+         CALL release_no_vegetation_canopy_storage(deltim,tleaf, &
+              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+              ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+              qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+              xsc_rain_out,xsc_snow_out)
       ENDIF
    END SUBROUTINE LEAF_interception_JULES
 
@@ -3178,7 +3391,8 @@ CONTAINS
                                                             pg_snow,qintr,qintr_rain,qintr_snow, &
                                                             gross_intr_rain,gross_intr_snow, &
                                                             xsc_rain_out,xsc_snow_out, &
-                                                            ldew_smelt_out,ldew_frzc_out)
+                                                            ldew_smelt_out,ldew_frzc_out, &
+                                                            canopy_phase_heat_out)
 !DESCRIPTION
 !===========
    !wrapper for calculation of canopy interception using USGS or IGBP land cover classification
@@ -3235,6 +3449,10 @@ CONTAINS
    ! subroutines for when they are nonzero (NoahMP/MATSIRO/VIC/JULES only).
    real(r8), intent(out)   :: ldew_smelt_out
    real(r8), intent(out)   :: ldew_frzc_out
+   ! Canopy phase-change fusion heat flux [W/m^2]. Sign: + heats canopy,
+   ! - cools canopy. Non-zero only for NoahMP/MATSIRO/VIC/JULES; MOD_Thermal
+   ! consumes it in the canopy energy balance.
+   real(r8), intent(out)   :: canopy_phase_heat_out
 
       IF (DEF_Interception_scheme==1) THEN
          CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
@@ -3243,7 +3461,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
       ELSEIF (DEF_Interception_scheme==2) THEN
          CALL LEAF_interception_CLM4 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,&
@@ -3251,7 +3470,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
       ELSEIF (DEF_Interception_scheme==3) THEN
          CALL LEAF_interception_CLM5(deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,&
@@ -3259,7 +3479,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
       ELSEIF (DEF_Interception_scheme==4) THEN
          CALL LEAF_interception_NoahMP (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,&
@@ -3267,7 +3488,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
       ELSEIF  (DEF_Interception_scheme==5) THEN
          CALL LEAF_interception_matsiro (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
                                              prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,&
@@ -3275,7 +3497,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
 
       ELSEIF  (DEF_Interception_scheme==6) THEN
          CALL LEAF_interception_vic (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
@@ -3284,7 +3507,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
 
       ELSEIF  (DEF_Interception_scheme==7) THEN
          CALL LEAF_interception_JULES (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
@@ -3293,7 +3517,8 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
 
       ELSEIF  (DEF_Interception_scheme==8) THEN
          CALL LEAF_interception_colm202x (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tair,tleaf,&
@@ -3302,20 +3527,21 @@ CONTAINS
                                              pg_snow,qintr,qintr_rain,qintr_snow,&
                                              gross_intr_rain,gross_intr_snow,&
                                              xsc_rain_out,xsc_snow_out,&
-                                             ldew_smelt_out,ldew_frzc_out)
+                                             ldew_smelt_out,ldew_frzc_out,&
+                                             canopy_phase_heat_out)
       ELSE
-         ! Audit fix M-FAILFAST: fail early on invalid scheme IDs.
-         ! Without this, intent(out) pg_rain/pg_snow/qintr*/gross_intr*/
-         ! xsc_*_out are left undefined and consumed immediately by
-         ! CoLMMAIN.F90:867 (qdrip = pg_rain + pg_snow) and
-         ! tracer_precip. The pre-existing abort in
+         ! Fail early on invalid scheme IDs. Without this, intent(out)
+         ! pg_rain/pg_snow/qintr*/gross_intr*/xsc_*_out are left undefined
+         ! and consumed immediately by CoLMMAIN.F90:867 (qdrip = pg_rain +
+         ! pg_snow) and tracer_precip. The pre-existing abort in
          ! MOD_LeafTemperaturePC.F90:1900 is too late — it runs after
          ! THERMAL, long after interception has poisoned downstream.
          ! Ensure intent(out) phase-change outputs are defined before abort()
          ! to silence uninitialized-access diagnostics on compilers that
          ! check intent(out) contracts even on the failure path.
-         ldew_smelt_out = 0._r8
-         ldew_frzc_out  = 0._r8
+         ldew_smelt_out        = 0._r8
+         ldew_frzc_out         = 0._r8
+         canopy_phase_heat_out = 0._r8
          write(6,*) 'LEAF_interception_wrap: invalid DEF_Interception_scheme=', &
                     DEF_Interception_scheme, ' (must be 1..8)'
          CALL abort
@@ -3329,7 +3555,8 @@ CONTAINS
                                ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,qintr,qintr_rain,qintr_snow,&
                                gross_intr_rain,gross_intr_snow,&
                                xsc_rain_out,xsc_snow_out,&
-                               ldew_smelt_out,ldew_frzc_out)
+                               ldew_smelt_out,ldew_frzc_out,&
+                               canopy_phase_heat_out,canopy_phase_heat_p_out)
 
 ! -----------------------------------------------------------------
 ! !DESCRIPTION:
@@ -3382,6 +3609,11 @@ CONTAINS
    ! subroutines for when they are nonzero (NoahMP/MATSIRO/VIC/JULES only).
    real(r8), intent(out)   :: ldew_smelt_out
    real(r8), intent(out)   :: ldew_frzc_out
+   ! Canopy phase-change fusion heat flux [W/m^2]. See wrap counterpart.
+   real(r8), intent(out)   :: canopy_phase_heat_out
+   ! Per-PFT canopy phase-change fusion heat flux [W/m^2]. The scalar
+   ! canopy_phase_heat_out remains the pftfrac-weighted patch aggregate.
+   real(r8), intent(out)   :: canopy_phase_heat_p_out(:)
 
    integer i, p, ps, pe
 #ifdef CROP
@@ -3394,6 +3626,8 @@ CONTAINS
    real(r8) xsc_rain_tmp, xsc_snow_tmp                ! area-weighted aggregate
    real(r8) ldew_smelt_pft, ldew_frzc_pft             ! per-PFT phase-change mass, reused per iteration
    real(r8) ldew_smelt_tmp, ldew_frzc_tmp             ! area-weighted aggregate
+   real(r8) canopy_phase_heat_pft                     ! per-PFT fusion heat flux, reused per iteration
+   real(r8) canopy_phase_heat_tmp                     ! area-weighted aggregate [W/m^2]
 
       pg_rain_tmp = 0.
       pg_snow_tmp = 0.
@@ -3403,9 +3637,11 @@ CONTAINS
       xsc_snow_tmp = 0._r8
       ldew_smelt_tmp = 0._r8
       ldew_frzc_tmp  = 0._r8
+      canopy_phase_heat_tmp = 0._r8
 
       ps = patch_pft_s(ipatch)
       pe = patch_pft_e(ipatch)
+      canopy_phase_heat_p_out(:) = 0._r8
 
       IF (DEF_Interception_scheme==1) THEN
          DO i = ps, pe
@@ -3415,7 +3651,8 @@ CONTAINS
                                                 ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3424,6 +3661,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==2) THEN
          DO i = ps, pe
@@ -3433,7 +3672,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3442,6 +3682,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==3) THEN
          DO i = ps, pe
@@ -3451,7 +3693,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3460,6 +3703,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==4) THEN
          DO i = ps, pe
@@ -3469,7 +3714,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3478,6 +3724,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==5) THEN
          DO i = ps, pe
@@ -3487,7 +3735,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3496,6 +3745,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==6) THEN
          DO i = ps, pe
@@ -3505,7 +3756,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3514,6 +3766,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==7) THEN
          DO i = ps, pe
@@ -3523,7 +3777,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3532,6 +3787,8 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSEIF (DEF_Interception_scheme==8) THEN
          DO i = ps, pe
@@ -3541,7 +3798,8 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i),&
                                                 gross_intr_rain_pft,gross_intr_snow_pft,&
                                                 xsc_rain_pft,xsc_snow_pft,&
-                                                ldew_smelt_pft,ldew_frzc_pft)
+                                                ldew_smelt_pft,ldew_frzc_pft,&
+                                                canopy_phase_heat_pft)
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
             gross_intr_rain_tmp = gross_intr_rain_tmp + gross_intr_rain_pft*pftfrac(i)
@@ -3550,12 +3808,15 @@ CONTAINS
             xsc_snow_tmp = xsc_snow_tmp + xsc_snow_pft*pftfrac(i)
             ldew_smelt_tmp = ldew_smelt_tmp + ldew_smelt_pft*pftfrac(i)
             ldew_frzc_tmp  = ldew_frzc_tmp  + ldew_frzc_pft *pftfrac(i)
+            canopy_phase_heat_p_out(i-ps+1) = canopy_phase_heat_pft
+            canopy_phase_heat_tmp = canopy_phase_heat_tmp + canopy_phase_heat_pft*pftfrac(i)
          ENDDO
       ELSE
-         ! Audit fix M-FAILFAST: fail early on invalid scheme IDs.
+         ! Fail early on invalid scheme IDs.
          ! See wrap counterpart above for rationale.
-         ldew_smelt_out = 0._r8
-         ldew_frzc_out  = 0._r8
+         ldew_smelt_out        = 0._r8
+         ldew_frzc_out         = 0._r8
+         canopy_phase_heat_out = 0._r8
          write(6,*) 'LEAF_interception_pftwrap: invalid DEF_Interception_scheme=', &
                     DEF_Interception_scheme, ' (must be 1..8)'
          CALL abort
@@ -3575,9 +3836,57 @@ CONTAINS
       xsc_snow_out = xsc_snow_tmp
       ldew_smelt_out = ldew_smelt_tmp
       ldew_frzc_out  = ldew_frzc_tmp
+      canopy_phase_heat_out = canopy_phase_heat_tmp
+
 
    END SUBROUTINE LEAF_interception_pftwrap
 #endif
+
+   SUBROUTINE release_no_vegetation_canopy_storage(deltim,tleaf, &
+         prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler, &
+         ldew,ldew_rain,ldew_snow,pg_rain,pg_snow, &
+         qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow, &
+         xsc_rain_out,xsc_snow_out)
+
+      real(r8), intent(in) :: deltim, tleaf
+      real(r8), intent(in) :: prc_rain, prc_snow, prl_rain, prl_snow
+      real(r8), intent(in) :: qflx_irrig_sprinkler
+      real(r8), intent(inout) :: ldew, ldew_rain, ldew_snow
+      real(r8), intent(out) :: pg_rain, pg_snow
+      real(r8), intent(out) :: qintr, qintr_rain, qintr_snow
+      real(r8), intent(out) :: gross_intr_rain, gross_intr_snow
+      real(r8), intent(out) :: xsc_rain_out, xsc_snow_out
+
+      IF (ldew > 1.e-12_r8 .and. (ldew_rain + ldew_snow) < 1.e-12_r8) THEN
+         IF (tleaf > tfrz) THEN
+            ldew_rain = ldew
+            ldew_snow = 0._r8
+         ELSE
+            ldew_rain = 0._r8
+            ldew_snow = ldew
+         ENDIF
+      ENDIF
+
+      ldew_rain = max(0._r8, ldew_rain)
+      ldew_snow = max(0._r8, ldew_snow)
+      ldew      = ldew_rain + ldew_snow
+
+      xsc_rain_out = ldew_rain / deltim
+      xsc_snow_out = ldew_snow / deltim
+
+      pg_rain = max(0._r8, prc_rain + prl_rain + qflx_irrig_sprinkler) + xsc_rain_out
+      pg_snow = max(0._r8, prc_snow + prl_snow) + xsc_snow_out
+
+      ldew            = 0._r8
+      ldew_rain       = 0._r8
+      ldew_snow       = 0._r8
+      qintr           = 0._r8
+      qintr_rain      = 0._r8
+      qintr_snow      = 0._r8
+      gross_intr_rain = 0._r8
+      gross_intr_snow = 0._r8
+
+   END SUBROUTINE release_no_vegetation_canopy_storage
 
    SUBROUTINE check_interception_balance(scheme_name, &
          ldew, ldew_rain, ldew_snow, pg_rain, pg_snow, &

@@ -254,6 +254,13 @@ CONTAINS
                pushdata%addr_single(i) = &
                   find_in_sorted_list1 (ids_req(i), n_req_uniq, ids_req_uniq(1:n_req_uniq))
             ENDDO
+         ELSE
+            ! Zero-length allocation keeps the allocatable descriptor valid
+            ! so that the slice ids_req_uniq(1:0) passed to
+            ! build_worker_pushdata_uniq does not trip Intel runtime error 408
+            ! ("fetch from allocatable ... not allocated") on workers that
+            ! have no incoming requests.
+            allocate (ids_req_uniq (0))
          ENDIF
 
          pushdata%num_req_uniq = n_req_uniq
@@ -306,6 +313,11 @@ CONTAINS
                      find_in_sorted_list1 (ids_req(i,j), n_req_uniq, ids_req_uniq(1:n_req_uniq))
                ENDDO
             ENDDO
+         ELSE
+            ! Zero-length allocation keeps the descriptor valid for the
+            ! ids_req_uniq(1:0) slice passed to build_worker_pushdata_uniq
+            ! (Intel runtime error 408 guard — see single variant above).
+            allocate (ids_req_uniq (0))
          ENDIF
 
          pushdata%num_req_uniq = n_req_uniq

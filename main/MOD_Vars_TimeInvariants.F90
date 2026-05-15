@@ -190,6 +190,7 @@ MODULE MOD_Vars_TimeInvariants
 
    real(r8), allocatable :: lakedepth      (:)  !lake depth
    real(r8), allocatable :: dz_lake      (:,:)  !new lake scheme
+   real(r8), allocatable :: lake_soilc_srf(:,:)  !lake sediment organic carbon from surface data [gC/m3]
 
    real(r8), allocatable :: soil_s_v_alb   (:)  !albedo of visible of the saturated soil
    real(r8), allocatable :: soil_d_v_alb   (:)  !albedo of visible of the dry soil
@@ -327,6 +328,7 @@ CONTAINS
 
             allocate (lakedepth            (numpatch))
             allocate (dz_lake      (nl_lake,numpatch))
+            allocate (lake_soilc_srf(nl_soil,numpatch)); lake_soilc_srf(:,:) = 0._r8
 
             allocate (soil_s_v_alb         (numpatch))
             allocate (soil_d_v_alb         (numpatch))
@@ -472,6 +474,7 @@ CONTAINS
 
       CALL ncio_read_vector (file_restart, 'lakedepth',    landpatch, lakedepth)           !
       CALL ncio_read_vector (file_restart, 'dz_lake' ,     nl_lake, landpatch, dz_lake)    !
+      CALL ncio_read_vector (file_restart, 'lake_soilc_srf', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8) ! lake sediment OC [gC/m3]
 
       CALL ncio_read_vector (file_restart, 'soil_s_v_alb', landpatch, soil_s_v_alb)        ! albedo of visible of the saturated soil
       CALL ncio_read_vector (file_restart, 'soil_d_v_alb', landpatch, soil_d_v_alb)        ! albedo of visible of the dry soil
@@ -684,6 +687,7 @@ CONTAINS
 
       CALL ncio_write_vector (file_restart, 'lakedepth' , 'patch', landpatch, lakedepth , compress)                  !
       CALL ncio_write_vector (file_restart, 'dz_lake'   ,  'lake', nl_lake, 'patch', landpatch, dz_lake, compress)   !
+      CALL ncio_write_vector (file_restart, 'lake_soilc_srf', 'soil', nl_soil, 'patch', landpatch, lake_soilc_srf, compress) ! lake sediment OC [gC/m3]
 
       CALL ncio_write_vector (file_restart, 'soil_s_v_alb', 'patch', landpatch, soil_s_v_alb, compress)              ! albedo of visible of the saturated soil
       CALL ncio_write_vector (file_restart, 'soil_d_v_alb', 'patch', landpatch, soil_d_v_alb, compress)              ! albedo of visible of the dry soil
@@ -853,6 +857,7 @@ CONTAINS
 
             deallocate (lakedepth      )
             deallocate (dz_lake        )
+            deallocate (lake_soilc_srf  )
 
             deallocate (soil_s_v_alb   )
             deallocate (soil_d_v_alb   )
@@ -994,6 +999,7 @@ CONTAINS
       CALL check_vector_data ('vf_sand      [m3/m3] ', vf_sand     ) ! volumetric fraction of sand
       CALL check_vector_data ('vf_clay      [m3/m3] ', vf_clay     ) ! volumetric fraction of clay
       CALL check_vector_data ('vf_om        [m3/m3] ', vf_om       ) ! volumetric fraction of organic matter
+      CALL check_vector_data ('lake_soilc_srf [gC/m3]', lake_soilc_srf) ! lake sediment organic carbon
       CALL check_vector_data ('wf_gravels   [kg/kg] ', wf_gravels  ) ! gravimetric fraction of gravels
       CALL check_vector_data ('wf_sand      [kg/kg] ', wf_sand     ) ! gravimetric fraction of sand
       CALL check_vector_data ('wf_clay      [kg/kg] ', wf_clay     ) ! gravimetric fraction of clay

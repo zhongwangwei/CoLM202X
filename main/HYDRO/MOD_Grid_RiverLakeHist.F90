@@ -16,8 +16,10 @@ MODULE MOD_Grid_RiverLakeHist
    USE MOD_Grid_RiverLakeSediment, only: nsed, sed_hist_acctime, &
       a_sedcon, a_sedout, a_bedout, a_sedinp, a_netflw, a_layer, a_shearvel
 #endif
+#ifdef TRACER
    USE MOD_Grid_RiverLakeTracer, only: write_tracer_history, tracer_flush_acc, &
       ntracers, a_trc_conc, a_trc_out, a_trc_bifout
+#endif
 
    ! -- ACC Fluxes --
    real(r8), allocatable :: acctime_ucat     (:)
@@ -655,7 +657,7 @@ CONTAINS
 #endif
 
       ! ----- tracer variables -----
-      IF (DEF_USE_TRACER) THEN
+#ifdef TRACER
          ! Time-average tracer accumulators using per-cell acctime
          IF (p_is_worker .and. numucat > 0 .and. allocated(a_trc_conc)) THEN
             DO i = 1, numucat
@@ -668,7 +670,7 @@ CONTAINS
          ENDIF
 
          CALL write_tracer_history (file_hist_ucat, itime_in_file_ucat, 1._r8)
-      ENDIF
+#endif
 
       ! ----- reservoir variables -----
       IF (DEF_Reservoir_Method > 0) THEN
@@ -775,9 +777,9 @@ CONTAINS
             a_qresv_out  (:) = 0.
          ENDIF
 
-         IF (DEF_USE_TRACER) THEN
+#ifdef TRACER
             CALL tracer_flush_acc()
-         ENDIF
+#endif
 
 #ifdef GridRiverLakeSediment
          IF (DEF_USE_SEDIMENT .and. allocated(a_sedcon)) THEN

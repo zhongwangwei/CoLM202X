@@ -15,6 +15,7 @@ MODULE MOD_Grid_RiverLakeLevee
 ! Created by CoLM team, March 2026
 !-------------------------------------------------------------------------------------
 
+   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_nan
    USE MOD_Precision
    USE MOD_SPMD_Task
    IMPLICIT NONE
@@ -28,11 +29,16 @@ MODULE MOD_Grid_RiverLakeLevee
    real(r8), allocatable :: levee_bassto  (:)   ! storage at levee base [m^3]
    real(r8), allocatable :: levee_topsto  (:)   ! storage at levee crest, river-side [m^3]
    real(r8), allocatable :: levee_filsto  (:)   ! storage when both sides filled to crest [m^3]
+   real(r8), allocatable :: levee_fldstomax(:,:) ! total storage at each floodplain layer top [m^3]
+   real(r8), allocatable :: levee_fldgrd  (:,:) ! floodplain layer slope [m/m]
 
    ! ----- State variables -----
    real(r8), allocatable :: levsto        (:)   ! protected-side water storage [m^3]
-   real(r8), allocatable :: volwater_ucat (:)   ! non-protected-side water volume [m^3]
-   logical               :: volwater_ucat_valid = .false.  ! true after restore from restart or first routing call
+   ! Prognostic routing volume [m^3]. For ordinary cells this is the total
+   ! movable river/floodplain volume; for levee cells it is the visible
+   ! river-side volume and levsto carries the protected-side volume.
+   real(r8), allocatable :: volwater_ucat (:)
+   logical               :: volwater_ucat_valid = .false.  ! true after restart restore or first routing reconstruction
 
    ! ----- Diagnostic -----
    real(r8), allocatable :: levdph        (:)   ! protected-side water depth [m]
@@ -40,41 +46,91 @@ MODULE MOD_Grid_RiverLakeLevee
    PUBLIC :: levee_init
    PUBLIC :: read_levee_restart
    PUBLIC :: levee_fldstg
+   PUBLIC :: levee_visible_volume_from_stage
    PUBLIC :: levee_final
 
 CONTAINS
 
    ! =========================================================================
+   SUBROUTINE allocate_levee_arrays (ncell, max_nlfp)
+   ! =========================================================================
+
+   IMPLICIT NONE
+
+   integer, intent(in) :: ncell
+   integer, intent(in) :: max_nlfp
+
+      allocate (has_levee      (ncell))
+      allocate (levee_frc      (ncell))
+      allocate (levee_hgt      (ncell))
+      allocate (levee_dst      (ncell))
+      allocate (levee_bashgt   (ncell))
+      allocate (levee_bassto   (ncell))
+      allocate (levee_topsto   (ncell))
+      allocate (levee_filsto   (ncell))
+      allocate (levee_fldstomax(max_nlfp, ncell))
+      allocate (levee_fldgrd   (max_nlfp, ncell))
+      allocate (levsto         (ncell))
+      allocate (volwater_ucat  (ncell))
+      allocate (levdph         (ncell))
+
+      has_levee       = .false.
+      levee_frc       = 1._r8
+      levee_hgt       = 0._r8
+      levee_dst       = 0._r8
+      levee_bashgt    = 0._r8
+      levee_bassto    = 0._r8
+      levee_topsto    = 0._r8
+      levee_filsto    = 0._r8
+      levee_fldstomax = 0._r8
+      levee_fldgrd    = 0._r8
+      levsto          = 0._r8
+      volwater_ucat   = 0._r8
+      levdph          = 0._r8
+
+   END SUBROUTINE allocate_levee_arrays
+
+   ! =========================================================================
    SUBROUTINE levee_init ()
    ! =========================================================================
 
+   USE MOD_Namelist,              only: DEF_USE_LEVEE
    USE MOD_Grid_RiverLakeNetwork, only: numucat, topo_rivlen, topo_rivwth, &
-      topo_area, topo_rivstomax, floodplain_curve, levee_frc_data, levee_hgt_data
+      topo_area, topo_rivstomax, floodplain_curve, levee_frc_data, levee_hgt_data, lake_type
    IMPLICIT NONE
 
    ! Local variables
-   integer  :: i, j, ilev, nlfp
+   integer  :: i, j, ilev, nlfp, max_nlfp
    real(r8) :: rivlen, rivwth, catarea, dwth_inc
    real(r8) :: dhgtpre, dwth_fil, dwth_add, fldgrd, dhgtdif
    real(r8) :: dhgtnow, dsto_fil, dsto_add
+   integer  :: n_levee_resv_clash
 
       volwater_ucat_valid = .false.
 
-      IF (.not. p_is_worker) RETURN
-      IF (numucat <= 0) RETURN
+      IF (allocated(has_levee)) CALL levee_final()
 
-      ! --- Allocate arrays ---
-      allocate (has_levee    (numucat))
-      allocate (levee_frc    (numucat))
-      allocate (levee_hgt    (numucat))
-      allocate (levee_dst    (numucat))
-      allocate (levee_bashgt (numucat))
-      allocate (levee_bassto (numucat))
-      allocate (levee_topsto (numucat))
-      allocate (levee_filsto (numucat))
-      allocate (levsto        (numucat))
-      allocate (volwater_ucat (numucat))
-      allocate (levdph        (numucat))
+      IF (.not. p_is_worker) THEN
+         CALL allocate_levee_arrays (0, 0)
+         RETURN
+      ENDIF
+
+      IF (numucat <= 0) THEN
+         CALL allocate_levee_arrays (0, 0)
+         RETURN
+      ENDIF
+
+      max_nlfp = 0
+      DO i = 1, numucat
+         max_nlfp = MAX(max_nlfp, floodplain_curve(i)%nlfp)
+      ENDDO
+      CALL allocate_levee_arrays (numucat, max_nlfp)
+
+      ! When LEVEE is disabled, leave arrays at the inert default state set by
+      ! allocate_levee_arrays (has_levee=.false. everywhere). Downstream guards
+      ! `IF (DEF_USE_LEVEE .and. has_levee(i) ...)` then short-circuit logically
+      ! AND survive ifx -check bounds, since has_levee(i) is in-range and false.
+      IF (.not. DEF_USE_LEVEE) RETURN
 
       ! --- Copy from Network data ---
       levee_frc = levee_frc_data
@@ -82,26 +138,72 @@ CONTAINS
 
       ! --- Validate ---
       DO i = 1, numucat
-         IF (levee_hgt(i) <= 0. .or. levee_frc(i) >= 1. .or. levee_frc(i) < 0.) THEN
-            levee_hgt(i) = 0.
-            levee_frc(i) = 1.0
+         IF (ieee_is_nan(levee_hgt(i)) .or. ieee_is_nan(levee_frc(i)) .or. &
+             levee_hgt(i) <= 0._r8 .or. levee_frc(i) >= 1._r8 .or. levee_frc(i) < 0._r8) THEN
+            levee_hgt(i) = 0._r8
+            levee_frc(i) = 1._r8
          ENDIF
          levee_frc(i) = max(0._r8, min(1._r8, levee_frc(i)))
       ENDDO
 
       has_levee = (levee_frc < 1.0_r8)
 
-      ! --- Initialize state ---
-      levsto        = 0.
-      volwater_ucat = 0.
-      levdph        = 0.
+      ! Bug L guard: a reservoir cell (lake_type == 2) and a leveed cell are
+      ! mutually exclusive. Reservoirs use volresv as the visible-side storage
+      ! and never call levee_fldstg, so any non-zero levsto on a reservoir
+      ! cell would be a phantom pool that the conservation budget cannot see.
+      ! If the input levee_frc dataset disagrees with the reservoir mask,
+      ! force has_levee=.false. on the offending cells with a one-shot info
+      ! log so the data inconsistency is visible without crashing the run.
+      IF (allocated(lake_type)) THEN
+         n_levee_resv_clash = 0
+         DO i = 1, numucat
+            IF (i > size(lake_type)) EXIT
+            IF (lake_type(i) == 2 .and. has_levee(i)) THEN
+               has_levee(i) = .false.
+               levee_frc(i) = 1._r8
+               levee_hgt(i) = 0._r8
+               n_levee_resv_clash = n_levee_resv_clash + 1
+            ENDIF
+         ENDDO
+         IF (n_levee_resv_clash > 0) THEN
+            write(*,'(A,I0,A,I0,A)') &
+               'INFO levee_init: forced has_levee=.false. on ', &
+               n_levee_resv_clash, ' of ', numucat, &
+               ' cells where lake_type==2 (reservoir) and levee_frc<1 collide; check input levee_frc / dam_seq consistency.'
+         ENDIF
+      ENDIF
 
-      ! --- Initialize derived parameters for non-levee cells ---
-      levee_dst    = 0.
-      levee_bashgt = 0.
-      levee_bassto = 0.
-      levee_topsto = 0.
-      levee_filsto = 0.
+      ! --- Build a CaMa-compatible total storage curve.
+      ! Network flpstomax is floodplain-only; levee thresholds need river
+      ! storage plus the river-width prism above bankfull.
+      DO i = 1, numucat
+         nlfp    = floodplain_curve(i)%nlfp
+         rivlen  = topo_rivlen(i)
+         rivwth  = topo_rivwth(i)
+         catarea = topo_area(i)
+
+         IF (rivlen <= 0._r8 .or. nlfp <= 0 .or. catarea <= 0._r8) CYCLE
+
+         dwth_inc = catarea / (rivlen * nlfp)
+         dsto_fil = floodplain_curve(i)%rivstomax
+         dhgtpre  = 0._r8
+
+         DO j = 1, nlfp
+            dhgtnow = floodplain_curve(i)%flphgt(j) - dhgtpre
+            IF (dhgtnow > 0._r8 .and. dwth_inc > 0._r8) THEN
+               levee_fldgrd(j, i) = dhgtnow / dwth_inc
+            ELSE
+               levee_fldgrd(j, i) = 0._r8
+               dhgtnow = 0._r8
+            ENDIF
+
+            dsto_add = (rivwth + dwth_inc * (real(j, r8) - 0.5_r8)) * dhgtnow * rivlen
+            levee_fldstomax(j, i) = dsto_fil + dsto_add
+            dsto_fil = levee_fldstomax(j, i)
+            dhgtpre  = floodplain_curve(i)%flphgt(j)
+         ENDDO
+      ENDDO
 
       ! --- Derive parameters for levee cells ---
       DO i = 1, numucat
@@ -125,7 +227,7 @@ CONTAINS
 
          ! Which floodplain layer contains the levee
          ilev = INT(levee_frc(i) * nlfp) + 1
-         ilev = MIN(ilev, nlfp)
+         ilev = MIN(MAX(ilev, 1), nlfp)
 
          ! Levee base height: interpolate within floodplain layer
          IF (ilev >= 2) THEN
@@ -139,11 +241,7 @@ CONTAINS
          dwth_add = levee_dst(i) - dwth_fil
          dwth_add = MAX(dwth_add, 0._r8)
 
-         IF (floodplain_curve(i)%flphgt(ilev) > floodplain_curve(i)%flphgt(ilev-1)) THEN
-            fldgrd = (floodplain_curve(i)%flphgt(ilev) - floodplain_curve(i)%flphgt(ilev-1)) / dwth_inc
-         ELSE
-            fldgrd = 0.
-         ENDIF
+         fldgrd = levee_fldgrd(ilev, i)
 
          levee_bashgt(i) = dhgtpre + dwth_add * fldgrd
 
@@ -151,14 +249,15 @@ CONTAINS
          levee_hgt(i) = MAX(levee_hgt(i), levee_bashgt(i))
 
          ! Storage at levee base (river + floodplain layers up to levee position)
-         levee_bassto(i) = floodplain_curve(i)%rivstomax
-         DO j = 1, ilev-1
-            levee_bassto(i) = levee_bassto(i) &
-               + floodplain_curve(i)%flpstomax(j) - floodplain_curve(i)%flpstomax(j-1)
-         ENDDO
-         ! Partial layer contribution
-         IF (dwth_add > 0. .and. fldgrd > 0.) THEN
-            levee_bassto(i) = levee_bassto(i) &
+         IF (ilev >= 2) THEN
+            dsto_fil = levee_fldstomax(ilev-1, i)
+         ELSE
+            dsto_fil = floodplain_curve(i)%rivstomax
+         ENDIF
+         levee_bassto(i) = dsto_fil
+
+         IF (dwth_add > 0._r8 .and. fldgrd > 0._r8) THEN
+            levee_bassto(i) = dsto_fil &
                + (dwth_add*0.5 + dwth_fil + rivwth) * (dwth_add * fldgrd) * rivlen
          ENDIF
 
@@ -168,36 +267,7 @@ CONTAINS
             + (levee_dst(i) + rivwth) * dhgtdif * rivlen
 
          ! Storage when both sides are filled to the levee crest.
-         ! Follow CaMa-Flood's layer-wise integration instead of using the
-         ! aggregated volume(depth) curve directly.
-         j = 1
-         dsto_fil = floodplain_curve(i)%rivstomax
-         dwth_fil = rivwth
-         dhgtpre  = 0._r8
-
-         DO WHILE (j <= nlfp)
-            IF (levee_hgt(i) <= floodplain_curve(i)%flphgt(j)) EXIT
-            dsto_fil = floodplain_curve(i)%rivstomax + floodplain_curve(i)%flpstomax(j)
-            dwth_fil = dwth_fil + dwth_inc
-            dhgtpre  = floodplain_curve(i)%flphgt(j)
-            j = j + 1
-         ENDDO
-
-         IF (j <= nlfp) THEN
-            dhgtnow = levee_hgt(i) - dhgtpre
-            fldgrd = (floodplain_curve(i)%flphgt(j) - floodplain_curve(i)%flphgt(j-1)) / dwth_inc
-            IF (fldgrd > 0._r8) THEN
-               dwth_add = dhgtnow / fldgrd
-            ELSE
-               dwth_add = 0._r8
-            ENDIF
-            dsto_add = (dwth_add*0.5_r8 + dwth_fil) * dhgtnow * rivlen
-            levee_filsto(i) = dsto_fil + dsto_add
-         ELSE
-            dhgtnow = levee_hgt(i) - dhgtpre
-            dsto_add = dwth_fil * dhgtnow * rivlen
-            levee_filsto(i) = dsto_fil + dsto_add
-         ENDIF
+         levee_filsto(i) = levee_total_volume_from_depth(i, floodplain_curve(i)%rivhgt + levee_hgt(i))
 
          ! Ensure monotonicity: bassto <= topsto <= filsto
          levee_topsto(i) = MAX(levee_topsto(i), levee_bassto(i))
@@ -273,19 +343,18 @@ CONTAINS
          ddph_fil = 0._r8
 
          DO WHILE (j <= nlfp)
-            IF (vol_total <= floodplain_curve(i)%rivstomax + floodplain_curve(i)%flpstomax(j)) EXIT
-            dsto_fil = floodplain_curve(i)%rivstomax + floodplain_curve(i)%flpstomax(j)
+            IF (vol_total <= levee_fldstomax(j, i)) EXIT
+            dsto_fil = levee_fldstomax(j, i)
             dwth_fil = dwth_fil + dwth_inc
-            fldgrd = (floodplain_curve(i)%flphgt(j) - floodplain_curve(i)%flphgt(j-1)) / dwth_inc
-            ddph_fil = ddph_fil + fldgrd * dwth_inc
+            ddph_fil = floodplain_curve(i)%flphgt(j)
             j = j + 1
          ENDDO
 
          IF (j <= nlfp) THEN
             dsto_add = vol_total - dsto_fil
-            fldgrd = (floodplain_curve(i)%flphgt(j) - floodplain_curve(i)%flphgt(j-1)) / dwth_inc
+            fldgrd = levee_fldgrd(j, i)
             IF (fldgrd > 0._r8) THEN
-               dwth_add = -dwth_fil + SQRT(dwth_fil**2 + 2._r8*dsto_add / rivlen / fldgrd)
+               dwth_add = -dwth_fil + SQRT(MAX(dwth_fil**2 + 2._r8*dsto_add / rivlen / fldgrd, 0._r8))
             ELSE
                dwth_add = 0._r8
             ENDIF
@@ -327,6 +396,7 @@ CONTAINS
          levsto_out = MAX(vol_total - rivsto - fldsto_unprot, 0._r8)
 
          ilev = INT(levee_frc(i) * nlfp) + 1
+         ilev = MIN(MAX(ilev, 1), nlfp)
          dsto_fil = levee_topsto(i)
          dwth_fil = 0._r8
          ddph_fil = 0._r8
@@ -334,8 +404,8 @@ CONTAINS
          j = ilev
          DO WHILE (j <= nlfp)
             dsto_add = (levee_dst(i) + rivwth) * (levee_hgt(i) - floodplain_curve(i)%flphgt(j)) * rivlen
-            IF (vol_total < floodplain_curve(i)%rivstomax + floodplain_curve(i)%flpstomax(j) + dsto_add) EXIT
-            dsto_fil = floodplain_curve(i)%rivstomax + floodplain_curve(i)%flpstomax(j) + dsto_add
+            IF (vol_total < levee_fldstomax(j, i) + dsto_add) EXIT
+            dsto_fil = levee_fldstomax(j, i) + dsto_add
             dwth_fil = dwth_inc * j - levee_dst(i)
             ddph_fil = floodplain_curve(i)%flphgt(j) - levee_bashgt(i)
             j = j + 1
@@ -343,15 +413,15 @@ CONTAINS
 
          IF (j <= nlfp) THEN
             dsto_add = vol_total - dsto_fil
-            fldgrd = (floodplain_curve(i)%flphgt(j) - floodplain_curve(i)%flphgt(j-1)) / dwth_inc
+            fldgrd = levee_fldgrd(j, i)
             IF (fldgrd > 0._r8) THEN
-               dwth_add = -dwth_fil + SQRT(dwth_fil**2 + 2._r8*dsto_add / rivlen / fldgrd)
+               dwth_add = -dwth_fil + SQRT(MAX(dwth_fil**2 + 2._r8*dsto_add / rivlen / fldgrd, 0._r8))
             ELSE
                dwth_add = 0._r8
             ENDIF
             ddph_add = dwth_add * fldgrd
             levdph_out = levee_bashgt(i) + ddph_fil + ddph_add
-            fldfrc = (dwth_fil + levee_dst(i)) / (dwth_inc * nlfp)
+            fldfrc = (dwth_fil + dwth_add + levee_dst(i)) / (dwth_inc * nlfp)
             fldfrc = MAX(fldfrc, 0._r8)
             fldfrc = MIN(fldfrc, 1._r8)
          ELSE
@@ -367,7 +437,7 @@ CONTAINS
 
       ELSE
          !--- Case 4: water above levee crest, both sides fully flooded ---
-         wdsrf    = floodplain_curve(i)%depth(vol_total)
+         wdsrf    = levee_total_depth(i, vol_total)
          flddph   = wdsrf - floodplain_curve(i)%rivhgt
          levdph_out = flddph
          fldfrc = 1.0
@@ -379,6 +449,188 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE levee_fldstg
+
+
+   ! =========================================================================
+   FUNCTION levee_total_volume_from_depth (i, wdsrf) RESULT(volume)
+   ! =========================================================================
+
+   USE MOD_Grid_RiverLakeNetwork, only: topo_rivlen, topo_rivwth, topo_area, &
+      floodplain_curve
+   IMPLICIT NONE
+
+   integer,  intent(in) :: i
+   real(r8), intent(in) :: wdsrf
+   real(r8)             :: volume
+
+   integer  :: j, nlfp
+   real(r8) :: rivlen, rivwth, dwth_inc
+   real(r8) :: flddph, dhgtpre, dhgtnow, dwth_fil, dwth_add, fldgrd
+   real(r8) :: dsto_fil, dsto_add
+
+      IF (wdsrf <= 0._r8) THEN
+         volume = 0._r8
+         RETURN
+      ENDIF
+
+      IF (wdsrf <= floodplain_curve(i)%rivhgt) THEN
+         volume = wdsrf * floodplain_curve(i)%rivare
+         RETURN
+      ENDIF
+
+      rivlen = topo_rivlen(i)
+      rivwth = topo_rivwth(i)
+      nlfp   = floodplain_curve(i)%nlfp
+      IF (rivlen <= 0._r8 .or. topo_area(i) <= 0._r8 .or. nlfp <= 0) THEN
+         volume = floodplain_curve(i)%volume(wdsrf)
+         RETURN
+      ENDIF
+
+      flddph   = wdsrf - floodplain_curve(i)%rivhgt
+      dwth_inc = topo_area(i) / (rivlen * nlfp)
+
+      j         = 1
+      dsto_fil  = floodplain_curve(i)%rivstomax
+      dwth_fil  = rivwth
+      dhgtpre   = 0._r8
+
+      DO WHILE (j <= nlfp)
+         IF (flddph <= floodplain_curve(i)%flphgt(j)) EXIT
+         dsto_fil = levee_fldstomax(j, i)
+         dwth_fil = rivwth + dwth_inc * j
+         dhgtpre  = floodplain_curve(i)%flphgt(j)
+         j = j + 1
+      ENDDO
+
+      dhgtnow = MAX(flddph - dhgtpre, 0._r8)
+      IF (j <= nlfp) THEN
+         fldgrd = levee_fldgrd(j, i)
+         IF (fldgrd > 0._r8) THEN
+            dwth_add = dhgtnow / fldgrd
+         ELSE
+            dwth_add = 0._r8
+         ENDIF
+         dsto_add = (dwth_fil + 0.5_r8 * dwth_add) * dhgtnow * rivlen
+      ELSE
+         dsto_add = dwth_fil * dhgtnow * rivlen
+      ENDIF
+
+      volume = MAX(dsto_fil + dsto_add, 0._r8)
+
+   END FUNCTION levee_total_volume_from_depth
+
+
+   ! =========================================================================
+   FUNCTION levee_total_depth (i, volume) RESULT(wdsrf)
+   ! =========================================================================
+
+   USE MOD_Grid_RiverLakeNetwork, only: topo_rivlen, topo_rivwth, topo_area, &
+      floodplain_curve
+   IMPLICIT NONE
+
+   integer,  intent(in) :: i
+   real(r8), intent(in) :: volume
+   real(r8)             :: wdsrf
+
+   integer  :: j, nlfp
+   real(r8) :: rivlen, rivwth, dwth_inc
+   real(r8) :: dsto_fil, dsto_add, dwth_fil, dwth_add, ddph_fil, fldgrd
+
+      IF (volume <= 0._r8) THEN
+         wdsrf = 0._r8
+         RETURN
+      ENDIF
+
+      IF (volume <= floodplain_curve(i)%rivstomax) THEN
+         IF (floodplain_curve(i)%rivare > 0._r8) THEN
+            wdsrf = volume / floodplain_curve(i)%rivare
+         ELSE
+            wdsrf = 0._r8
+         ENDIF
+         RETURN
+      ENDIF
+
+      rivlen = topo_rivlen(i)
+      rivwth = topo_rivwth(i)
+      nlfp   = floodplain_curve(i)%nlfp
+      IF (rivlen <= 0._r8 .or. topo_area(i) <= 0._r8 .or. nlfp <= 0) THEN
+         wdsrf = floodplain_curve(i)%depth(volume)
+         RETURN
+      ENDIF
+
+      dwth_inc = topo_area(i) / (rivlen * nlfp)
+
+      j         = 1
+      dsto_fil  = floodplain_curve(i)%rivstomax
+      dwth_fil  = rivwth
+      ddph_fil  = 0._r8
+
+      DO WHILE (j <= nlfp)
+         IF (volume <= levee_fldstomax(j, i)) EXIT
+         dsto_fil = levee_fldstomax(j, i)
+         dwth_fil = rivwth + dwth_inc * j
+         ddph_fil = floodplain_curve(i)%flphgt(j)
+         j = j + 1
+      ENDDO
+
+      dsto_add = MAX(volume - dsto_fil, 0._r8)
+      IF (j <= nlfp) THEN
+         fldgrd = levee_fldgrd(j, i)
+         IF (fldgrd > 0._r8) THEN
+            dwth_add = -dwth_fil + SQRT(MAX(dwth_fil**2 + 2._r8*dsto_add / rivlen / fldgrd, 0._r8))
+            wdsrf = floodplain_curve(i)%rivhgt + ddph_fil + fldgrd * dwth_add
+         ELSE
+            wdsrf = floodplain_curve(i)%rivhgt + ddph_fil
+         ENDIF
+      ELSE
+         IF (dwth_fil > 0._r8 .and. rivlen > 0._r8) THEN
+            wdsrf = floodplain_curve(i)%rivhgt + ddph_fil + dsto_add / dwth_fil / rivlen
+         ELSE
+            wdsrf = floodplain_curve(i)%rivhgt + ddph_fil
+         ENDIF
+      ENDIF
+
+   END FUNCTION levee_total_depth
+
+
+   ! =========================================================================
+   FUNCTION levee_visible_volume_from_stage (i, wdsrf, levsto_in) RESULT(visible_volume)
+   ! =========================================================================
+
+   USE MOD_Grid_RiverLakeNetwork, only: topo_rivlen, topo_rivwth, floodplain_curve
+   IMPLICIT NONE
+
+   integer,  intent(in) :: i
+   real(r8), intent(in) :: wdsrf
+   real(r8), intent(in) :: levsto_in
+   real(r8)             :: visible_volume
+
+   real(r8) :: flddph
+
+      IF (.not. allocated(has_levee)) THEN
+         visible_volume = floodplain_curve(i)%volume(wdsrf)
+         RETURN
+      ENDIF
+
+      IF (i < 1 .or. i > size(has_levee) .or. .not. has_levee(i)) THEN
+         visible_volume = floodplain_curve(i)%volume(wdsrf)
+         RETURN
+      ENDIF
+
+      flddph = wdsrf - floodplain_curve(i)%rivhgt
+
+      IF (flddph <= levee_bashgt(i)) THEN
+         visible_volume = levee_total_volume_from_depth(i, wdsrf)
+      ELSEIF (flddph <= levee_hgt(i) + 1.e-6_r8) THEN
+         visible_volume = levee_bassto(i) + (levee_dst(i) + topo_rivwth(i)) &
+            * MAX(flddph - levee_bashgt(i), 0._r8) * topo_rivlen(i)
+      ELSE
+         visible_volume = levee_total_volume_from_depth(i, wdsrf) - MAX(levsto_in, 0._r8)
+      ENDIF
+
+      visible_volume = MAX(visible_volume, 0._r8)
+
+   END FUNCTION levee_visible_volume_from_stage
 
 
    ! =========================================================================
@@ -395,14 +647,24 @@ CONTAINS
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
+   integer :: has_restart_var(2)
 
       ! NOTE: vector_read_and_scatter contains mpi_barrier(p_comm_glb),
       ! so ALL processes must participate. Never early-return for non-workers.
-      IF (ncio_var_exist(file_restart, 'levsto')) THEN
+      has_restart_var = 0
+      IF (p_is_master) THEN
+         IF (ncio_var_exist(file_restart, 'levsto', readflag = .false.)) has_restart_var(1) = 1
+         IF (ncio_var_exist(file_restart, 'volwater_ucat', readflag = .false.)) has_restart_var(2) = 1
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (has_restart_var, 2, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+
+      IF (has_restart_var(1) == 1) THEN
          CALL vector_read_and_scatter (file_restart, levsto, numucat, 'levsto', ucat_data_address)
       ENDIF
 
-      IF (ncio_var_exist(file_restart, 'volwater_ucat')) THEN
+      IF (has_restart_var(2) == 1) THEN
          CALL vector_read_and_scatter (file_restart, volwater_ucat, numucat, 'volwater_ucat', ucat_data_address)
          volwater_ucat_valid = .true.
       ENDIF
@@ -424,6 +686,8 @@ CONTAINS
       IF (allocated(levee_bassto )) deallocate(levee_bassto )
       IF (allocated(levee_topsto )) deallocate(levee_topsto )
       IF (allocated(levee_filsto )) deallocate(levee_filsto )
+      IF (allocated(levee_fldstomax)) deallocate(levee_fldstomax)
+      IF (allocated(levee_fldgrd    )) deallocate(levee_fldgrd    )
       IF (allocated(levsto        )) deallocate(levsto        )
       IF (allocated(volwater_ucat)) deallocate(volwater_ucat)
       IF (allocated(levdph        )) deallocate(levdph        )

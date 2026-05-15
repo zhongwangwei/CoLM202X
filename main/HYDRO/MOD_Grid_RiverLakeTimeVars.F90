@@ -15,7 +15,6 @@ MODULE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_RiverLakeSediment, only: write_sediment_restart
 #endif
    USE MOD_Grid_RiverLakeBifurcation, only: write_bifurcation_restart
-   USE MOD_Grid_RiverLakeTracer,      only: write_tracer_restart
    IMPLICIT NONE
 
    ! -- state variables --
@@ -135,7 +134,7 @@ CONTAINS
    SUBROUTINE WRITE_GridRiverLakeTimeVars (file_restart)
 
    USE MOD_SPMD_Task
-   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE, DEF_USE_BIFURCATION, DEF_USE_TRACER
+   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, DEF_USE_LEVEE, DEF_USE_BIFURCATION
    USE MOD_NetCDFSerial
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address
@@ -182,10 +181,6 @@ CONTAINS
 
       IF (DEF_USE_BIFURCATION) THEN
          CALL write_bifurcation_restart(file_restart)
-      ENDIF
-
-      IF (DEF_USE_TRACER) THEN
-         CALL write_tracer_restart(file_restart)
       ENDIF
 
 #ifdef GridRiverLakeSediment

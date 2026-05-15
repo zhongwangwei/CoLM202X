@@ -1,9 +1,11 @@
 #include <define.h>
 
+#ifdef TRACER
 MODULE MOD_Tracer_Precip
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracers, delta_to_R, trc_tiny
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny
+   USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value
    USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
       trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage
 
@@ -41,7 +43,7 @@ CONTAINS
       ldew_rain_old, ldew_snow_old, qflx_irrig_sprinkler, &
       gross_intr_rain, gross_intr_snow, &
       xsc_rain_out, xsc_snow_out, &
-      ldew_smelt_mass, ldew_frzc_mass)
+      ldew_smelt_mass, ldew_frzc_mass, waterstorage_patch)
 
       IMPLICIT NONE
       integer,  intent(in) :: ipatch
@@ -89,15 +91,16 @@ CONTAINS
       ! under-report the melt signal).
       real(r8), intent(in) :: ldew_smelt_mass
       real(r8), intent(in) :: ldew_frzc_mass
+      real(r8), intent(in), optional :: waterstorage_patch
 
       integer  :: itrc
-      real(r8) :: R_input
+      real(r8) :: R_input, storage_ratio, R_rain_input
       real(r8) :: intercepted, drip, throughfall
       real(r8) :: trc_mixed, water_mixed, R_mixed
       real(r8) :: trc_throughfall, trc_drip
       real(r8) :: trc_rain_ground, trc_snow_ground
-      real(r8) :: d_ldew
       real(r8) :: rain_total           ! forc_rain + sprinkler [mm/s]
+      real(r8) :: sprinkler_rate       ! non-negative sprinkler water input [mm/s]
       real(r8) :: xsc_mass             ! pre-mix release in this step [mm]
       real(r8) :: trc_xsc              ! pre-mix release tracer mass
       real(r8) :: R_canopy_pre         ! canopy signature BEFORE mix
@@ -113,6 +116,9 @@ CONTAINS
       real(r8) :: smelt_mass, frzc_mass ! effective phase-change masses
       real(r8) :: R_snow_pre, R_rain_pre
       real(r8) :: trc_smelt, trc_frzc   ! tracer mass migrated this step
+      real(r8) :: canopy_trc_beg, canopy_trc_end, canopy_input_trc
+      real(r8) :: canopy_resid, ground_trc_total, desired_ground_total
+      real(r8) :: sprinkler_trc
 
       IF (ntracers <= 0) RETURN
 
@@ -121,10 +127,13 @@ CONTAINS
       ! so the throughfall computation matches (intercepted + throughfall
       ! ≡ rain_total*deltim) and the system-input accounting covers
       ! both natural precipitation and sprinkler irrigation.
-      rain_total = forc_rain + max(qflx_irrig_sprinkler, 0._r8)
+      sprinkler_rate = max(qflx_irrig_sprinkler, 0._r8)
+      rain_total = max(forc_rain, 0._r8) + sprinkler_rate
 
       DO itrc = 1, ntracers
-         R_input = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
+         R_input = tracer_forcing_precip_value(itrc, ipatch)
+         storage_ratio = R_input
+         canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
 
          ! Atmospheric precipitation is external input; count into the
          ! precip accumulator. Sprinkler irrigation also reaches the
@@ -138,8 +147,22 @@ CONTAINS
             + (forc_rain + forc_snow) * R_input * deltim
 
          IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
+            IF (present(waterstorage_patch)) THEN
+               IF (waterstorage_patch > trc_tiny) THEN
+                  storage_ratio = trc_waterstorage(itrc, ipatch) / max(waterstorage_patch, trc_tiny)
+               ENDIF
+            ENDIF
+            sprinkler_trc = qflx_irrig_sprinkler * storage_ratio * deltim
+            sprinkler_trc = min(max(sprinkler_trc, 0._r8), max(trc_waterstorage(itrc, ipatch), 0._r8))
             trc_waterstorage(itrc, ipatch) = trc_waterstorage(itrc, ipatch) &
-               - qflx_irrig_sprinkler * R_input * deltim
+               - sprinkler_trc
+         ELSE
+            sprinkler_trc = max(qflx_irrig_sprinkler, 0._r8) * storage_ratio * deltim
+         ENDIF
+
+         R_rain_input = R_input
+         IF (rain_total > trc_tiny) THEN
+            R_rain_input = (max(forc_rain, 0._r8) * R_input + sprinkler_rate * storage_ratio) / rain_total
          ENDIF
 
          trc_rain_ground = 0._r8
@@ -201,39 +224,41 @@ CONTAINS
          IF (ldew_rain_old_eff > trc_tiny) THEN
             R_canopy_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
          ELSE
-            R_canopy_pre = R_input
+            R_canopy_pre = R_rain_input
          ENDIF
          trc_xsc = xsc_mass * R_canopy_pre
          ldew_rain_pre_mix = ldew_rain_old_eff - xsc_mass
 
          ! Stage 2: gross rain enters the (post-release) canopy pool at
-         ! R_input. Blend to obtain R_mixed.
+         ! the mixed atmospheric+sprinkler rain signature. Blend to obtain R_mixed.
          intercepted = max(0._r8, gross_intr_rain) * deltim
          water_mixed = ldew_rain_pre_mix + intercepted
          trc_mixed = (trc_ldew_rain(itrc, ipatch) - trc_xsc) &
-                   + intercepted * R_input
+                   + intercepted * R_rain_input
          IF (water_mixed > trc_tiny) THEN
             R_mixed = trc_mixed / water_mixed
          ELSE
-            R_mixed = R_input
+            R_mixed = R_rain_input
          ENDIF
-
-         ! Post-mix drip from the blended pool. d_ldew computed against
-         ! the pre-mix (post-xsc) baseline. Clamp against numerical noise.
-         d_ldew = ldew_rain - ldew_rain_pre_mix   ! change since pre-mix
-         drip = max(intercepted - d_ldew, 0._r8)
 
          ! Pure-gap throughfall (never touched canopy).
          throughfall = max(rain_total * deltim - intercepted, 0._r8)
 
+         ! Actual post-mix drip is defined by the water-side ground flux.
+         ! This avoids relying on ldew_rain as a phase-specific final store:
+         ! scheme=1 with DEF_VEG_SNOW=false updates only the single ldew
+         ! bucket during interception.
+         drip = max(max(pg_rain, 0._r8) * deltim - xsc_mass - throughfall, 0._r8)
+         drip = min(drip, max(intercepted, 0._r8))
+
+         ! Rain tracer reaching the ground: pure-gap throughfall keeps the
+         ! input rain signature, while drip carries the mixed canopy ratio.
+         trc_throughfall = throughfall * R_rain_input
+         trc_drip = drip * R_mixed
+
          ! Canopy tracer: blended pool minus drip
          trc_ldew_rain(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
 
-         ! Tracer to ground: gap throughfall (R_input) + pre-mix xsc
-         ! (R_canopy_pre) + post-mix drip (R_mixed). Three distinct
-         ! signatures, lumped incorrectly into two before this audit fix.
-         trc_throughfall = throughfall * R_input
-         trc_drip = drip * R_mixed
          trc_rain_ground = trc_throughfall + trc_xsc + trc_drip
 
          ! ---- Snow component (same 2-stage logic) ----
@@ -259,13 +284,39 @@ CONTAINS
             R_mixed = R_input
          ENDIF
 
-         d_ldew = ldew_snow - ldew_snow_pre_mix
-         drip = max(intercepted - d_ldew, 0._r8)
          throughfall = max(forc_snow * deltim - intercepted, 0._r8)
+         drip = max(max(pg_snow, 0._r8) * deltim - xsc_mass - throughfall, 0._r8)
+         drip = min(drip, max(intercepted, 0._r8))
 
          trc_ldew_snow(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
 
          trc_snow_ground = throughfall * R_input + trc_xsc + drip * R_mixed
+
+         ! Close the combined canopy interception budget exactly:
+         !   Δ(canopy tracer) = rain/snow input tracer - ground tracer.
+         ! The phase-specific partition above follows water-side release
+         ! diagnostics, but several interception schemes expose only net
+         ! pg_* plus clamped xsc/gross terms. That can leave O(1e-8)
+         ! residuals which later show up as wetland/soil balance errors.
+         ! Preserve the prognostic canopy pools and put the tiny correction
+         ! on the internal ground flux consumed by tracer_soil_water /
+         ! tracer_wetland; atmospheric a_trc_precip remains unchanged.
+         canopy_trc_end = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+         canopy_input_trc = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_input
+         canopy_resid = canopy_trc_end - canopy_trc_beg - canopy_input_trc &
+                      + trc_rain_ground + trc_snow_ground
+         IF (abs(canopy_resid) > trc_tiny) THEN
+            ground_trc_total = trc_rain_ground + trc_snow_ground
+            desired_ground_total = max(ground_trc_total - canopy_resid, 0._r8)
+            IF (ground_trc_total > trc_tiny) THEN
+               trc_rain_ground = trc_rain_ground * desired_ground_total / ground_trc_total
+               trc_snow_ground = trc_snow_ground * desired_ground_total / ground_trc_total
+            ELSEIF (rain_total > trc_tiny) THEN
+               trc_rain_ground = desired_ground_total
+            ELSE
+               trc_snow_ground = desired_ground_total
+            ENDIF
+         ENDIF
 
         ! Store rain/snow tracer separately: rain feeds the surface mixed
         ! pool in tracer_soil_water; snow feeds trc_scv in tracer_newsnow.
@@ -277,3 +328,4 @@ CONTAINS
    END SUBROUTINE tracer_precip
 
 END MODULE MOD_Tracer_Precip
+#endif

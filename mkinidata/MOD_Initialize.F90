@@ -370,6 +370,14 @@ ENDIF
 
       CALL soil_parameters_readin (dir_landdata, lc_year)
 
+#ifndef SinglePoint
+      write(cyear,'(i4.4)') lc_year
+      lndname = trim(dir_landdata)//'/soil/'//trim(cyear)//'/lake_soilc_patches.nc'
+      CALL ncio_read_vector (lndname, 'lake_soilc_patches', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
+#else
+      IF (p_is_worker .and. numpatch > 0) lake_soilc_srf(:,:) = 0._r8
+#endif
+
 
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
       IF (p_is_worker) THEN
