@@ -334,6 +334,12 @@ MODULE MOD_Namelist
    integer  :: DEF_Reservoir_Method         = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
 
+   ! ----- levee module -----
+   logical  :: DEF_USE_LEVEE           = .false.
+
+   ! ----- bifurcation module -----
+   logical  :: DEF_USE_BIFURCATION     = .false.
+
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
    real(r8) :: DEF_SED_LAMBDA          = 0.4
@@ -1166,6 +1172,8 @@ CONTAINS
       DEF_USE_EstimatedRiverDepth,            &
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
+      DEF_USE_LEVEE,                          &
+      DEF_USE_BIFURCATION,                    &
 
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
@@ -1818,6 +1826,8 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
