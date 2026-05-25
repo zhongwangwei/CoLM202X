@@ -4,14 +4,14 @@ MODULE MOD_BGC_CNSASU
 
 !----------------------------------------------------------------------------------------------------------------------------------------
 ! !DESCRIPTION:
-! This MODULE implements an semi-analytic accerlating spin-up method (SASU) in CoLM bgc MODULE. The SASU method analytically calculates 
+! This MODULE implements an semi-analytic accerlating spin-up method (SASU) in CoLM bgc MODULE. The SASU method analytically calculates
 ! the steady state of each vegetation and soil C and N pool sizes, and replace current CN pool sizes with analytical steady state
 ! solution. So, CN pool sizes in both vegetation and soil reach steady state much faster than conventional spin up method.
 !
 ! !MODULE for CoLM-BGC matrices
 ! The vegetation matrix equation
 ! Xn+1 = Xn + I*dt + (Aph*Kph + Agm*Kgm + Afire*Kfire) * dt
-! The soil matrix equation 
+! The soil matrix equation
 ! Xn+1 = Xn + I*dt + (A*K(ksi) + Kfire + tri/dz)*Xn*dt
 ! The steady state solution for vegetation C is X = -I*B*(Aph*Kph + Agm*Kgm + Afire*Kfire)**(-1)
 ! The steady state solution for soil C       is X = -I  *(A*K(ksi) + Kfire + tri/dz)**(-1)
@@ -20,8 +20,8 @@ MODULE MOD_BGC_CNSASU
 ! The Community Land Model version 5.1 (CLM5.1) unreleased version developed by Xingjie Lu
 !
 ! !REFERENCES:
-! Lu, X., Du, Z., Huang, Y., Lawrence, D., Kluzek, E., Collier, N., Lombardozzi, D., Sobhani, N., Schuur, E.A. and Luo, Y., 2020. 
-! Full implementation of matrix approach to biogeochemistry MODULE of CLM5. Journal of Advances in Modeling Earth Systems, 12(11), e2020MS002105.  
+! Lu, X., Du, Z., Huang, Y., Lawrence, D., Kluzek, E., Collier, N., Lombardozzi, D., Sobhani, N., Schuur, E.A. and Luo, Y., 2020.
+! Full implementation of matrix approach to biogeochemistry MODULE of CLM5. Journal of Advances in Modeling Earth Systems, 12(11), e2020MS002105.
 ! Liao, C., Lu, X., Huang Y., Tao F., Lawrence, D., Koven C., Oleson, K., Wieder, W., Kluzek, E., Huang, X., Luo, Y. (in submission)
 ! Matrix Approach to Accelerate Spin-Up of CLM5
 !
@@ -33,7 +33,7 @@ MODULE MOD_BGC_CNSASU
    USE MOD_Namelist, only: DEF_USE_SASU, DEF_USE_DiagMatrix
    USE MOD_BGC_Vars_TimeInvariants, only: &
        i_met_lit, i_cel_lit, i_lig_lit, i_cwd, i_soil1, i_soil2, i_soil3, floating_cn_ratio
- 
+
    USE MOD_BGC_Vars_TimeVariables, only: &
        decomp_cpools_vr           , decomp_npools_vr           , decomp0_cpools_vr          , decomp0_npools_vr          , &
        decomp_cpools_vr_Cap       , decomp_npools_vr_Cap       , &
@@ -51,8 +51,8 @@ MODULE MOD_BGC_CNSASU
        AKX_met_exit_n_vr_acc      , AKX_cel_exit_n_vr_acc      , AKX_lig_exit_n_vr_acc      , AKX_cwd_exit_n_vr_acc      , &
        AKX_soil1_exit_n_vr_acc    , AKX_soil2_exit_n_vr_acc    , AKX_soil3_exit_n_vr_acc    , &
        diagVX_n_vr_acc            , upperVX_n_vr_acc           , lowerVX_n_vr_acc           , skip_balance_check         , &
-       cn_decomp_pools 
- 
+       cn_decomp_pools
+
    USE MOD_Vars_PFTimeInvariants, only: pftclass
    USE MOD_BGC_Vars_PFTimeVariables, only: &
        leafc_p           , leafc_storage_p      , leafc_xfer_p      , leafc0_p             , leafc0_storage_p     , leafc0_xfer_p     , &
@@ -69,14 +69,14 @@ MODULE MOD_BGC_CNSASU
        deadstemcCap_p    , deadstemc_storageCap_p  , deadstemc_xferCap_p  , &
        livecrootcCap_p   , livecrootc_storageCap_p , livecrootc_xferCap_p , &
        deadcrootcCap_p   , deadcrootc_storageCap_p , deadcrootc_xferCap_p , &
- 
+
        leafnCap_p        , leafn_storageCap_p      , leafn_xferCap_p      , &
        frootnCap_p       , frootn_storageCap_p     , frootn_xferCap_p     , &
        livestemnCap_p    , livestemn_storageCap_p  , livestemn_xferCap_p  , &
        deadstemnCap_p    , deadstemn_storageCap_p  , deadstemn_xferCap_p  , &
        livecrootnCap_p   , livecrootn_storageCap_p , livecrootn_xferCap_p , &
        deadcrootnCap_p   , deadcrootn_storageCap_p , deadcrootn_xferCap_p , &
- 
+
        leafn_p           , leafn_storage_p      , leafn_xfer_p      , leafn0_p             , leafn0_storage_p     , leafn0_xfer_p     , &
        frootn_p          , frootn_storage_p     , frootn_xfer_p     , frootn0_p            , frootn0_storage_p    , frootn0_xfer_p    , &
        livestemn_p       , livestemn_storage_p  , livestemn_xfer_p  , livestemn0_p         , livestemn0_storage_p , livestemn0_xfer_p , &
@@ -85,70 +85,70 @@ MODULE MOD_BGC_CNSASU
        deadcrootn_p      , deadcrootn_storage_p , deadcrootn_xfer_p , deadcrootn0_p        , deadcrootn0_storage_p, deadcrootn0_xfer_p, &
        grainn_p          , grainn_storage_p     , grainn_xfer_p     , grainn0_p            , grainn0_storage_p    , grainn0_xfer_p    , &
        retransn_p        , retransn0_p          , &
- 
+
        I_leafc_p_acc     , I_leafc_st_p_acc     , I_frootc_p_acc    , I_frootc_st_p_acc    , &
        I_livestemc_p_acc , I_livestemc_st_p_acc , I_deadstemc_p_acc , I_deadstemc_st_p_acc , &
        I_livecrootc_p_acc, I_livecrootc_st_p_acc, I_deadcrootc_p_acc, I_deadcrootc_st_p_acc, &
        I_grainc_p_acc    , I_grainc_st_p_acc    , &
- 
+
        I_leafn_p_acc     , I_leafn_st_p_acc     , I_frootn_p_acc    , I_frootn_st_p_acc    , &
        I_livestemn_p_acc , I_livestemn_st_p_acc , I_deadstemn_p_acc , I_deadstemn_st_p_acc , &
        I_livecrootn_p_acc, I_livecrootn_st_p_acc, I_deadcrootn_p_acc, I_deadcrootn_st_p_acc, &
        I_grainn_p_acc    , I_grainn_st_p_acc    , &
- 
+
        AKX_leafc_xf_to_leafc_p_acc           , AKX_frootc_xf_to_frootc_p_acc           , AKX_livestemc_xf_to_livestemc_p_acc     , &
        AKX_deadstemc_xf_to_deadstemc_p_acc   , AKX_livecrootc_xf_to_livecrootc_p_acc   , AKX_deadcrootc_xf_to_deadcrootc_p_acc   , &
        AKX_grainc_xf_to_grainc_p_acc         , AKX_livestemc_to_deadstemc_p_acc        , AKX_livecrootc_to_deadcrootc_p_acc      , &
-            
+
        AKX_leafc_st_to_leafc_xf_p_acc        , AKX_frootc_st_to_frootc_xf_p_acc        , AKX_livestemc_st_to_livestemc_xf_p_acc  , &
        AKX_deadstemc_st_to_deadstemc_xf_p_acc, AKX_livecrootc_st_to_livecrootc_xf_p_acc, AKX_deadcrootc_st_to_deadcrootc_xf_p_acc, &
        AKX_grainc_st_to_grainc_xf_p_acc      , &
- 
+
        AKX_leafc_exit_p_acc                  , AKX_frootc_exit_p_acc                   , AKX_livestemc_exit_p_acc                , &
        AKX_deadstemc_exit_p_acc              , AKX_livecrootc_exit_p_acc               , AKX_deadcrootc_exit_p_acc               , &
        AKX_grainc_exit_p_acc                 , &
- 
+
        AKX_leafc_st_exit_p_acc               , AKX_frootc_st_exit_p_acc                , AKX_livestemc_st_exit_p_acc             , &
        AKX_deadstemc_st_exit_p_acc           , AKX_livecrootc_st_exit_p_acc            , AKX_deadcrootc_st_exit_p_acc            , &
        AKX_grainc_st_exit_p_acc              , &
- 
+
        AKX_leafc_xf_exit_p_acc               , AKX_frootc_xf_exit_p_acc                , AKX_livestemc_xf_exit_p_acc             , &
        AKX_deadstemc_xf_exit_p_acc           , AKX_livecrootc_xf_exit_p_acc            , AKX_deadcrootc_xf_exit_p_acc            , &
        AKX_grainc_xf_exit_p_acc              , &
-            
+
        AKX_leafn_xf_to_leafn_p_acc           , AKX_frootn_xf_to_frootn_p_acc           , AKX_livestemn_xf_to_livestemn_p_acc     , &
        AKX_deadstemn_xf_to_deadstemn_p_acc   , AKX_livecrootn_xf_to_livecrootn_p_acc   , AKX_deadcrootn_xf_to_deadcrootn_p_acc   , &
        AKX_grainn_xf_to_grainn_p_acc         , AKX_livestemn_to_deadstemn_p_acc        , AKX_livecrootn_to_deadcrootn_p_acc      , &
- 
+
        AKX_leafn_st_to_leafn_xf_p_acc        , AKX_frootn_st_to_frootn_xf_p_acc        , AKX_livestemn_st_to_livestemn_xf_p_acc  , &
        AKX_deadstemn_st_to_deadstemn_xf_p_acc, AKX_livecrootn_st_to_livecrootn_xf_p_acc, AKX_deadcrootn_st_to_deadcrootn_xf_p_acc, &
        AKX_grainn_st_to_grainn_xf_p_acc      , &
- 
+
        AKX_leafn_to_retransn_p_acc           , AKX_frootn_to_retransn_p_acc            , AKX_livestemn_to_retransn_p_acc         , &
        AKX_livecrootn_to_retransn_p_acc      , &
- 
+
        AKX_retransn_to_leafn_p_acc           , AKX_retransn_to_frootn_p_acc            , AKX_retransn_to_livestemn_p_acc         , &
        AKX_retransn_to_deadstemn_p_acc       , AKX_retransn_to_livecrootn_p_acc        , AKX_retransn_to_deadcrootn_p_acc        , &
        AKX_retransn_to_grainn_p_acc          , &
- 
+
        AKX_retransn_to_leafn_st_p_acc        , AKX_retransn_to_frootn_st_p_acc         , AKX_retransn_to_livestemn_st_p_acc      , &
        AKX_retransn_to_deadstemn_st_p_acc    , AKX_retransn_to_livecrootn_st_p_acc     , AKX_retransn_to_deadcrootn_st_p_acc     , &
        AKX_retransn_to_grainn_st_p_acc       , &
- 
+
        AKX_leafn_exit_p_acc                  , AKX_frootn_exit_p_acc                   , AKX_livestemn_exit_p_acc                , &
        AKX_deadstemn_exit_p_acc              , AKX_livecrootn_exit_p_acc               , AKX_deadcrootn_exit_p_acc               , &
        AKX_grainn_exit_p_acc                 , AKX_retransn_exit_p_acc                 , &
- 
+
        AKX_leafn_st_exit_p_acc               , AKX_frootn_st_exit_p_acc                , AKX_livestemn_st_exit_p_acc             , &
        AKX_deadstemn_st_exit_p_acc           , AKX_livecrootn_st_exit_p_acc            , AKX_deadcrootn_st_exit_p_acc            , &
        AKX_grainn_st_exit_p_acc              , &
- 
+
        AKX_leafn_xf_exit_p_acc               , AKX_frootn_xf_exit_p_acc                , AKX_livestemn_xf_exit_p_acc             , &
        AKX_deadstemn_xf_exit_p_acc           , AKX_livecrootn_xf_exit_p_acc            , AKX_deadcrootn_xf_exit_p_acc            , &
        AKX_grainn_xf_exit_p_acc
 !
    IMPLICIT NONE
- 
+
    PUBLIC :: CNSASU
    PUBLIC :: inverse
 !-----------------------------------------------------------------------
@@ -165,7 +165,7 @@ CONTAINS
    real(r8),intent(in) :: deltim               ! time step in seconds
    integer ,intent(in) :: idate(3)             ! current date (year, days of the year, seconds of the day)
    integer, intent(in) :: nl_soil              ! number of total soil number
-   integer, intent(in) :: ndecomp_transitions  ! number of total litter & soil pools 
+   integer, intent(in) :: ndecomp_transitions  ! number of total litter & soil pools
    integer, intent(in) :: ndecomp_pools        ! number of total transfers between all litter & soil pools in the decomposition.
    integer, intent(in) :: ndecomp_pools_vr     ! number of total litter & soil pools times numer of soil layers (eg. 7 * 10)
 
@@ -173,7 +173,7 @@ CONTAINS
 
    integer :: k, m, j
     ! set index of vegetation CN pools
-   real(r8),parameter :: epsi          = 1.e-8_r8 
+   real(r8),parameter :: epsi          = 1.e-8_r8
    integer ,parameter :: nvegc         = 21
    integer ,parameter :: nvegn         = 22
    integer ,parameter :: ileaf         = 1
@@ -199,7 +199,7 @@ CONTAINS
    integer ,parameter :: igrain_xf     = 21
    integer ,parameter :: iretrans      = 22
 
-   
+
    real(r8),dimension(1:nvegc,1:nvegc)                       :: AK_veg_acc
    real(r8),dimension(1:nvegn,1:nvegn)                       :: AK_veg_nacc
    real(r8),dimension(1:nvegc)                               :: I_veg_acc
@@ -218,7 +218,7 @@ CONTAINS
    real(r8),dimension(1:ndecomp_pools_vr,1)                        :: soilmatrixn_cap
 
     ! Save the C and N pool size at begin of each year, which are used to calculate C and N capacity at end of each year.
-      IF (idate(2) .eq. 1 .and. idate(3) .eq. deltim)THEN  
+      IF (idate(2) .eq. 1 .and. idate(3) .eq. 1800)THEN
          DO m = ps, pe
             leafc0_p             (m) = max(leafc_p             (m),epsi)
             leafc0_storage_p     (m) = max(leafc_storage_p     (m),epsi)
@@ -271,17 +271,17 @@ CONTAINS
             ENDDO
          ENDDO
       ENDIF
-  
-      IF(idate(2) .eq. 365 .and. idate(3) .eq. 86400 - deltim)THEN
+
+      IF(idate(2) .eq. 365 .and. idate(3) .eq. 84600)THEN
          ! Copy C transfers from sparse matrix to 2D temporary variables tran_acc and tran_nacc
          ! Calculate the C and N transfer rate by dividing CN transfer by base value saved at begin of each year.
-           
+
          DO m = ps, pe
             AK_veg_acc  (1:nvegc,1:nvegc)                       = 0._r8
             AK_veg_nacc (1:nvegn,1:nvegn)                       = 0._r8
             I_veg_acc   (1:nvegc)                               = 0._r8
             I_veg_nacc  (1:nvegn)                               = 0._r8
-  
+
             AK_veg_acc  (        ileaf,     ileaf_xf) = AKX_leafc_xf_to_leafc_p_acc             (m) / leafc0_xfer_p        (m)
             AK_veg_acc  (       ifroot,    ifroot_xf) = AKX_frootc_xf_to_frootc_p_acc           (m) / frootc0_xfer_p       (m)
             AK_veg_acc  (    ilivestem, ilivestem_xf) = AKX_livestemc_xf_to_livestemc_p_acc     (m) / livestemc0_xfer_p    (m)
@@ -291,7 +291,7 @@ CONTAINS
             AK_veg_acc  (       igrain,    igrain_xf) = AKX_grainc_xf_to_grainc_p_acc           (m) / grainc0_xfer_p       (m)
             AK_veg_acc  (    ideadstem,    ilivestem) = AKX_livestemc_to_deadstemc_p_acc        (m) / livestemc0_p         (m)
             AK_veg_acc  (   ideadcroot,   ilivecroot) = AKX_livecrootc_to_deadcrootc_p_acc      (m) / livecrootc0_p        (m)
-  
+
             AK_veg_acc  (     ileaf_xf,     ileaf_st) = AKX_leafc_st_to_leafc_xf_p_acc          (m) / leafc0_storage_p     (m)
             AK_veg_acc  (    ifroot_xf,    ifroot_st) = AKX_frootc_st_to_frootc_xf_p_acc        (m) / frootc0_storage_p    (m)
             AK_veg_acc  ( ilivestem_xf, ilivestem_st) = AKX_livestemc_st_to_livestemc_xf_p_acc  (m) / livestemc0_storage_p (m)
@@ -299,7 +299,7 @@ CONTAINS
             AK_veg_acc  (ilivecroot_xf,ilivecroot_st) = AKX_livecrootc_st_to_livecrootc_xf_p_acc(m) / livecrootc0_storage_p(m)
             AK_veg_acc  (ideadcroot_xf,ideadcroot_st) = AKX_deadcrootc_st_to_deadcrootc_xf_p_acc(m) / deadcrootc0_storage_p(m)
             AK_veg_acc  (    igrain_xf,    igrain_st) = AKX_grainc_st_to_grainc_xf_p_acc        (m) / grainc0_storage_p    (m)
-  
+
             AK_veg_acc  (        ileaf,        ileaf) = - AKX_leafc_exit_p_acc                  (m) / leafc0_p             (m)
             AK_veg_acc  (     ileaf_st,     ileaf_st) = - AKX_leafc_st_exit_p_acc               (m) / leafc0_storage_p     (m)
             AK_veg_acc  (     ileaf_xf,     ileaf_xf) = - AKX_leafc_xf_exit_p_acc               (m) / leafc0_xfer_p        (m)
@@ -321,7 +321,7 @@ CONTAINS
             AK_veg_acc  (       igrain,       igrain) = - AKX_grainc_exit_p_acc                 (m) / grainc0_p            (m)
             AK_veg_acc  (    igrain_st,    igrain_st) = - AKX_grainc_st_exit_p_acc              (m) / grainc0_storage_p    (m)
             AK_veg_acc  (    igrain_xf,    igrain_xf) = - AKX_grainc_xf_exit_p_acc              (m) / grainc0_xfer_p       (m)
-  
+
             I_veg_acc   (        ileaf) = I_leafc_p_acc         (m)
             I_veg_acc   (     ileaf_st) = I_leafc_st_p_acc      (m)
             I_veg_acc   (       ifroot) = I_frootc_p_acc        (m)
@@ -336,7 +336,7 @@ CONTAINS
             I_veg_acc   (ideadcroot_st) = I_deadcrootc_st_p_acc (m)
             I_veg_acc   (       igrain) = I_grainc_p_acc        (m)
             I_veg_acc   (    igrain_st) = I_grainc_st_p_acc     (m)
-  
+
             AK_veg_nacc (        ileaf,     ileaf_xf) = AKX_leafn_xf_to_leafn_p_acc             (m) / leafn0_xfer_p        (m)
             AK_veg_nacc (       ifroot,    ifroot_xf) = AKX_frootn_xf_to_frootn_p_acc           (m) / frootn0_xfer_p       (m)
             AK_veg_nacc (    ilivestem, ilivestem_xf) = AKX_livestemn_xf_to_livestemn_p_acc     (m) / livestemn0_xfer_p    (m)
@@ -346,7 +346,7 @@ CONTAINS
             AK_veg_nacc (       igrain,    igrain_xf) = AKX_grainn_xf_to_grainn_p_acc           (m) / grainn0_xfer_p       (m)
             AK_veg_nacc (    ideadstem,    ilivestem) = AKX_livestemn_to_deadstemn_p_acc        (m) / livestemn0_p         (m)
             AK_veg_nacc (   ideadcroot,   ilivecroot) = AKX_livecrootn_to_deadcrootn_p_acc      (m) / livecrootn0_p        (m)
-  
+
             AK_veg_nacc (     ileaf_xf,     ileaf_st) = AKX_leafn_st_to_leafn_xf_p_acc          (m) / leafn0_storage_p     (m)
             AK_veg_nacc (    ifroot_xf,    ifroot_st) = AKX_frootn_st_to_frootn_xf_p_acc        (m) / frootn0_storage_p    (m)
             AK_veg_nacc ( ilivestem_xf, ilivestem_st) = AKX_livestemn_st_to_livestemn_xf_p_acc  (m) / livestemn0_storage_p (m)
@@ -354,12 +354,12 @@ CONTAINS
             AK_veg_nacc (ilivecroot_xf,ilivecroot_st) = AKX_livecrootn_st_to_livecrootn_xf_p_acc(m) / livecrootn0_storage_p(m)
             AK_veg_nacc (ideadcroot_xf,ideadcroot_st) = AKX_deadcrootn_st_to_deadcrootn_xf_p_acc(m) / deadcrootn0_storage_p(m)
             AK_veg_nacc (    igrain_xf,    igrain_st) = AKX_grainn_st_to_grainn_xf_p_acc        (m) / grainn0_storage_p    (m)
-  
+
             AK_veg_nacc (     iretrans,        ileaf) = AKX_leafn_to_retransn_p_acc             (m) / leafn0_p             (m)
             AK_veg_nacc (     iretrans,       ifroot) = AKX_frootn_to_retransn_p_acc            (m) / frootn0_p            (m)
             AK_veg_nacc (     iretrans,    ilivestem) = AKX_livestemn_to_retransn_p_acc         (m) / livestemn0_p         (m)
             AK_veg_nacc (     iretrans,   ilivecroot) = AKX_livecrootn_to_retransn_p_acc        (m) / livecrootn0_p        (m)
-  
+
             AK_veg_nacc (        ileaf,     iretrans) = AKX_retransn_to_leafn_p_acc             (m) / retransn0_p          (m)
             AK_veg_nacc (       ifroot,     iretrans) = AKX_retransn_to_frootn_p_acc            (m) / retransn0_p          (m)
             AK_veg_nacc (    ilivestem,     iretrans) = AKX_retransn_to_livestemn_p_acc         (m) / retransn0_p          (m)
@@ -367,7 +367,7 @@ CONTAINS
             AK_veg_nacc (   ilivecroot,     iretrans) = AKX_retransn_to_livecrootn_p_acc        (m) / retransn0_p          (m)
             AK_veg_nacc (   ideadcroot,     iretrans) = AKX_retransn_to_deadcrootn_p_acc        (m) / retransn0_p          (m)
             AK_veg_nacc (       igrain,     iretrans) = AKX_retransn_to_grainn_p_acc            (m) / retransn0_p          (m)
-  
+
             AK_veg_nacc (     ileaf_st,     iretrans) = AKX_retransn_to_leafn_st_p_acc          (m) / retransn0_p          (m)
             AK_veg_nacc (    ifroot_st,     iretrans) = AKX_retransn_to_frootn_st_p_acc         (m) / retransn0_p          (m)
             AK_veg_nacc ( ilivestem_st,     iretrans) = AKX_retransn_to_livestemn_st_p_acc      (m) / retransn0_p          (m)
@@ -375,7 +375,7 @@ CONTAINS
             AK_veg_nacc (ilivecroot_st,     iretrans) = AKX_retransn_to_livecrootn_st_p_acc     (m) / retransn0_p          (m)
             AK_veg_nacc (ideadcroot_st,     iretrans) = AKX_retransn_to_deadcrootn_st_p_acc     (m) / retransn0_p          (m)
             AK_veg_nacc (    igrain_st,     iretrans) = AKX_retransn_to_grainn_st_p_acc         (m) / retransn0_p          (m)
-  
+
             AK_veg_nacc (        ileaf,        ileaf) = - AKX_leafn_exit_p_acc                  (m) / leafn0_p             (m)
             AK_veg_nacc (     ileaf_st,     ileaf_st) = - AKX_leafn_st_exit_p_acc               (m) / leafn0_storage_p     (m)
             AK_veg_nacc (     ileaf_xf,     ileaf_xf) = - AKX_leafn_xf_exit_p_acc               (m) / leafn0_xfer_p        (m)
@@ -398,7 +398,7 @@ CONTAINS
             AK_veg_nacc (    igrain_st,    igrain_st) = - AKX_grainn_st_exit_p_acc              (m) / grainn0_storage_p    (m)
             AK_veg_nacc (    igrain_xf,    igrain_xf) = - AKX_grainn_xf_exit_p_acc              (m) / grainn0_xfer_p       (m)
             AK_veg_nacc (     iretrans,     iretrans) = - AKX_retransn_exit_p_acc               (m) / retransn0_p          (m)
-  
+
             I_veg_nacc  (        ileaf) = I_leafn_p_acc         (m)
             I_veg_nacc  (     ileaf_st) = I_leafn_st_p_acc      (m)
             I_veg_nacc  (       ifroot) = I_frootn_p_acc        (m)
@@ -413,7 +413,7 @@ CONTAINS
             I_veg_nacc  (ideadcroot_st) = I_deadcrootn_st_p_acc (m)
             I_veg_nacc  (       igrain) = I_grainn_p_acc        (m)
             I_veg_nacc  (    igrain_st) = I_grainn_st_p_acc     (m)
-  
+
             DO j = 1, nvegc
                IF(AK_veg_acc(j,j) .eq. 0)THEN
                   AK_veg_acc(j,j) = - 1.e+36
@@ -424,13 +424,13 @@ CONTAINS
                   AK_veg_nacc(j,j) = - 1.e+36
                ENDIF
             ENDDO
-  
+
             ! Calculate capacity
             CALL inverse(AK_veg_acc (1:nvegc,1:nvegc),AKinv_veg (1:nvegc,1:nvegc),nvegc)
             CALL inverse(AK_veg_nacc(1:nvegn,1:nvegn),AKinvn_veg(1:nvegn,1:nvegn),nvegn)
             vegmatrixc_cap(:,1) = -matmul(AKinv_veg (1:nvegc,1:nvegc),I_veg_acc (1:nvegc))
             vegmatrixn_cap(:,1) = -matmul(AKinvn_veg(1:nvegn,1:nvegn),I_veg_nacc(1:nvegn))
-    
+
             DO k = 1, nvegc
                IF(vegmatrixc_cap(k,1) .lt. 0)THEN
                   vegmatrixc_cap(k,1) = epsi
@@ -441,43 +441,43 @@ CONTAINS
                   vegmatrixn_cap(k,1) = epsi
                ENDIF
             ENDDO
-            IF(DEF_USE_DiagMatrix)THEN 
+            IF(DEF_USE_DiagMatrix)THEN
                leafcCap_p              (m) = vegmatrixc_cap(ileaf         ,1)
                leafc_storageCap_p      (m) = vegmatrixc_cap(ileaf_st      ,1)
-               leafc_xferCap_p         (m) = vegmatrixc_cap(ileaf_xf      ,1)           
+               leafc_xferCap_p         (m) = vegmatrixc_cap(ileaf_xf      ,1)
                frootcCap_p             (m) = vegmatrixc_cap(ifroot        ,1)
                frootc_storageCap_p     (m) = vegmatrixc_cap(ifroot_st     ,1)
-               frootc_xferCap_p        (m) = vegmatrixc_cap(ifroot_xf     ,1)           
+               frootc_xferCap_p        (m) = vegmatrixc_cap(ifroot_xf     ,1)
                livestemcCap_p          (m) = vegmatrixc_cap(ilivestem     ,1)
                livestemc_storageCap_p  (m) = vegmatrixc_cap(ilivestem_st  ,1)
-               livestemc_xferCap_p     (m) = vegmatrixc_cap(ilivestem_xf  ,1)           
+               livestemc_xferCap_p     (m) = vegmatrixc_cap(ilivestem_xf  ,1)
                deadstemcCap_p          (m) = vegmatrixc_cap(ideadstem     ,1)
                deadstemc_storageCap_p  (m) = vegmatrixc_cap(ideadstem_st  ,1)
-               deadstemc_xferCap_p     (m) = vegmatrixc_cap(ideadstem_xf  ,1)           
+               deadstemc_xferCap_p     (m) = vegmatrixc_cap(ideadstem_xf  ,1)
                livecrootcCap_p         (m) = vegmatrixc_cap(ilivecroot    ,1)
                livecrootc_storageCap_p (m) = vegmatrixc_cap(ilivecroot_st ,1)
-               livecrootc_xferCap_p    (m) = vegmatrixc_cap(ilivecroot_xf ,1)           
+               livecrootc_xferCap_p    (m) = vegmatrixc_cap(ilivecroot_xf ,1)
                deadcrootcCap_p         (m) = vegmatrixc_cap(ideadcroot    ,1)
                deadcrootc_storageCap_p (m) = vegmatrixc_cap(ideadcroot_st ,1)
-               deadcrootc_xferCap_p    (m) = vegmatrixc_cap(ideadcroot_xf ,1)           
+               deadcrootc_xferCap_p    (m) = vegmatrixc_cap(ideadcroot_xf ,1)
                leafnCap_p              (m) = vegmatrixn_cap(ileaf         ,1)
                leafn_storageCap_p      (m) = vegmatrixn_cap(ileaf_st      ,1)
-               leafn_xferCap_p         (m) = vegmatrixn_cap(ileaf_xf      ,1)           
+               leafn_xferCap_p         (m) = vegmatrixn_cap(ileaf_xf      ,1)
                frootnCap_p             (m) = vegmatrixn_cap(ifroot        ,1)
                frootn_storageCap_p     (m) = vegmatrixn_cap(ifroot_st     ,1)
-               frootn_xferCap_p        (m) = vegmatrixn_cap(ifroot_xf     ,1)           
+               frootn_xferCap_p        (m) = vegmatrixn_cap(ifroot_xf     ,1)
                livestemnCap_p          (m) = vegmatrixn_cap(ilivestem     ,1)
                livestemn_storageCap_p  (m) = vegmatrixn_cap(ilivestem_st  ,1)
-               livestemn_xferCap_p     (m) = vegmatrixn_cap(ilivestem_xf  ,1)           
+               livestemn_xferCap_p     (m) = vegmatrixn_cap(ilivestem_xf  ,1)
                deadstemnCap_p          (m) = vegmatrixn_cap(ideadstem     ,1)
                deadstemn_storageCap_p  (m) = vegmatrixn_cap(ideadstem_st  ,1)
-               deadstemn_xferCap_p     (m) = vegmatrixn_cap(ideadstem_xf  ,1)           
+               deadstemn_xferCap_p     (m) = vegmatrixn_cap(ideadstem_xf  ,1)
                livecrootnCap_p         (m) = vegmatrixn_cap(ilivecroot    ,1)
                livecrootn_storageCap_p (m) = vegmatrixn_cap(ilivecroot_st ,1)
-               livecrootn_xferCap_p    (m) = vegmatrixn_cap(ilivecroot_xf ,1)           
+               livecrootn_xferCap_p    (m) = vegmatrixn_cap(ilivecroot_xf ,1)
                deadcrootnCap_p         (m) = vegmatrixn_cap(ideadcroot    ,1)
                deadcrootn_storageCap_p (m) = vegmatrixn_cap(ideadcroot_st ,1)
-               deadcrootn_xferCap_p    (m) = vegmatrixn_cap(ideadcroot_xf ,1)           
+               deadcrootn_xferCap_p    (m) = vegmatrixn_cap(ideadcroot_xf ,1)
             ENDIF
             IF(DEF_USE_SASU)then
                deadstemc_p         (m) = vegmatrixc_cap(ideadstem,1)
@@ -490,7 +490,7 @@ CONTAINS
                deadcrootn_storage_p(m) = vegmatrixn_cap(ideadcroot_st,1)
             ENDIF
          ENDDO
-  
+
          AK_soil_acc (1:ndecomp_pools_vr,1:ndecomp_pools_vr) = 0._r8
          AK_soil_nacc(1:ndecomp_pools_vr,1:ndecomp_pools_vr) = 0._r8
          I_soil_acc  (1:ndecomp_pools_vr)                    = 0._r8
@@ -511,7 +511,7 @@ CONTAINS
                 = - (AKX_soil2_exit_c_vr_acc(j,i) + diagVX_c_vr_acc(j,i_soil2,i)) / decomp0_cpools_vr(j,i_soil2  ,i)
             AK_soil_acc ((i_soil3  -1)*nl_soil+j,(i_soil3  -1)*nl_soil+j) &
                 = - (AKX_soil3_exit_c_vr_acc(j,i) + diagVX_c_vr_acc(j,i_soil3,i)) / decomp0_cpools_vr(j,i_soil3  ,i)
-  
+
             ! C transfer
             AK_soil_acc ((i_soil1  -1)*nl_soil+j,(i_met_lit-1)*nl_soil+j) &
                 = AKX_met_to_soil1_c_vr_acc  (j,i) / decomp0_cpools_vr(j,i_met_lit,i)
@@ -533,13 +533,13 @@ CONTAINS
                 = AKX_soil2_to_soil3_c_vr_acc(j,i) / decomp0_cpools_vr(j,i_soil2  ,i)
             AK_soil_acc ((i_soil1  -1)*nl_soil+j,(i_soil3  -1)*nl_soil+j) &
                 = AKX_soil3_to_soil1_c_vr_acc(j,i) / decomp0_cpools_vr(j,i_soil3  ,i)
-  
+
             ! C input
             I_soil_acc((i_met_lit-1)*nl_soil+j) = I_met_c_vr_acc(j,i)
             I_soil_acc((i_cel_lit-1)*nl_soil+j) = I_cel_c_vr_acc(j,i)
             I_soil_acc((i_lig_lit-1)*nl_soil+j) = I_lig_c_vr_acc(j,i)
             I_soil_acc((i_cwd    -1)*nl_soil+j) = I_cwd_c_vr_acc(j,i)
-  
+
             ! N EXIT rate
             AK_soil_nacc((i_met_lit-1)*nl_soil+j,(i_met_lit-1)*nl_soil+j) &
                 = - (AKX_met_exit_n_vr_acc(j,i) + diagVX_n_vr_acc(j,i_met_lit,i)) / decomp0_npools_vr(j,i_met_lit,i)
@@ -555,7 +555,7 @@ CONTAINS
                 = - (AKX_soil2_exit_n_vr_acc(j,i) + diagVX_n_vr_acc(j,i_soil2,i)) / decomp0_npools_vr(j,i_soil2  ,i)
             AK_soil_nacc((i_soil3  -1)*nl_soil+j,(i_soil3  -1)*nl_soil+j) &
                 = - (AKX_soil3_exit_n_vr_acc(j,i) + diagVX_n_vr_acc(j,i_soil3,i)) / decomp0_npools_vr(j,i_soil3  ,i)
-  
+
             ! N transfer
             AK_soil_nacc((i_soil1  -1)*nl_soil+j,(i_met_lit-1)*nl_soil+j) &
                 = AKX_met_to_soil1_n_vr_acc  (j,i) / decomp0_npools_vr(j,i_met_lit,i)
@@ -577,9 +577,9 @@ CONTAINS
                 = AKX_soil2_to_soil3_n_vr_acc(j,i) / decomp0_npools_vr(j,i_soil2  ,i)
             AK_soil_nacc((i_soil1  -1)*nl_soil+j,(i_soil3  -1)*nl_soil+j) &
                 = AKX_soil3_to_soil1_n_vr_acc(j,i) / decomp0_npools_vr(j,i_soil3  ,i)
-  
+
          ENDDO
-  
+
          DO j=1,nl_soil-1
             ! upper triadiagnonal entries for C
             AK_soil_acc ((i_met_lit-1)*nl_soil+j,(i_met_lit-1)*nl_soil+j+1) &
@@ -594,7 +594,7 @@ CONTAINS
                 = upperVX_c_vr_acc(j,i_soil2  ,i) / decomp0_cpools_vr(j+1,i_soil2  ,i)
             AK_soil_acc ((i_soil3  -1)*nl_soil+j,(i_soil3  -1)*nl_soil+j+1) &
                 = upperVX_c_vr_acc(j,i_soil3  ,i) / decomp0_cpools_vr(j+1,i_soil3  ,i)
-  
+
             ! lower triadiagnonal entries for C
             AK_soil_acc ((i_met_lit-1)*nl_soil+j+1,(i_met_lit-1)*nl_soil+j) &
                 = lowerVX_c_vr_acc(j+1,i_met_lit,i) / decomp0_cpools_vr(j,i_met_lit,i)
@@ -608,22 +608,22 @@ CONTAINS
                 = lowerVX_c_vr_acc(j+1,i_soil2  ,i) / decomp0_cpools_vr(j,i_soil2  ,i)
             AK_soil_acc ((i_soil3  -1)*nl_soil+j+1,(i_soil3  -1)*nl_soil+j) &
                 = lowerVX_c_vr_acc(j+1,i_soil3  ,i) / decomp0_cpools_vr(j,i_soil3  ,i)
-  
-  
+
+
             ! upper triadiagnonal entries for N
             AK_soil_nacc((i_met_lit-1)*nl_soil+j,(i_met_lit-1)*nl_soil+j+1) &
-                = upperVX_n_vr_acc(j,i_met_lit,i) / decomp0_npools_vr(j+1,i_met_lit,i)
+                = upperVX_n_vr_acc(j,i_met_lit,i) / decomp0_cpools_vr(j+1,i_met_lit,i)
             AK_soil_nacc((i_cel_lit-1)*nl_soil+j,(i_cel_lit-1)*nl_soil+j+1) &
-                = upperVX_n_vr_acc(j,i_cel_lit,i) / decomp0_npools_vr(j+1,i_cel_lit,i)
+                = upperVX_n_vr_acc(j,i_cel_lit,i) / decomp0_cpools_vr(j+1,i_cel_lit,i)
             AK_soil_nacc((i_lig_lit-1)*nl_soil+j,(i_lig_lit-1)*nl_soil+j+1) &
-                = upperVX_n_vr_acc(j,i_lig_lit,i) / decomp0_npools_vr(j+1,i_lig_lit,i)
+                = upperVX_n_vr_acc(j,i_lig_lit,i) / decomp0_cpools_vr(j+1,i_lig_lit,i)
             AK_soil_nacc((i_soil1  -1)*nl_soil+j,(i_soil1  -1)*nl_soil+j+1) &
-                = upperVX_n_vr_acc(j,i_soil1  ,i) / decomp0_npools_vr(j+1,i_soil1  ,i)
+                = upperVX_n_vr_acc(j,i_soil1  ,i) / decomp0_cpools_vr(j+1,i_soil1  ,i)
             AK_soil_nacc((i_soil2  -1)*nl_soil+j,(i_soil2  -1)*nl_soil+j+1) &
-                = upperVX_n_vr_acc(j,i_soil2  ,i) / decomp0_npools_vr(j+1,i_soil2  ,i)
+                = upperVX_n_vr_acc(j,i_soil2  ,i) / decomp0_cpools_vr(j+1,i_soil2  ,i)
             AK_soil_nacc((i_soil3  -1)*nl_soil+j,(i_soil3  -1)*nl_soil+j+1) &
-                = upperVX_n_vr_acc(j,i_soil3  ,i) / decomp0_npools_vr(j+1,i_soil3  ,i)
-  
+                = upperVX_n_vr_acc(j,i_soil3  ,i) / decomp0_cpools_vr(j+1,i_soil3  ,i)
+
             ! lower triadiagnonal entries for N
             AK_soil_nacc((i_met_lit-1)*nl_soil+j+1,(i_met_lit-1)*nl_soil+j) &
                 = lowerVX_n_vr_acc(j+1,i_met_lit,i) / decomp0_npools_vr(j,i_met_lit,i)
@@ -637,35 +637,35 @@ CONTAINS
                 = lowerVX_n_vr_acc(j+1,i_soil2  ,i) / decomp0_npools_vr(j,i_soil2  ,i)
             AK_soil_nacc((i_soil3  -1)*nl_soil+j+1,(i_soil3  -1)*nl_soil+j) &
                 = lowerVX_n_vr_acc(j+1,i_soil3  ,i) / decomp0_npools_vr(j,i_soil3  ,i)
-  
+
             ! N input
             I_soil_nacc((i_met_lit-1)*nl_soil+j) = I_met_n_vr_acc(j,i)
             I_soil_nacc((i_cel_lit-1)*nl_soil+j) = I_cel_n_vr_acc(j,i)
             I_soil_nacc((i_lig_lit-1)*nl_soil+j) = I_lig_n_vr_acc(j,i)
             I_soil_nacc((i_cwd    -1)*nl_soil+j) = I_cwd_n_vr_acc(j,i)
-  
+
          ENDDO
-  
+
          DO k=1,ndecomp_pools_vr
             IF (abs(AK_soil_acc(k,k)) .le. epsi)THEN !avoid inversion nan
                AK_soil_acc(k,k) = - 1.e+36_r8
-            ENDIF 
+            ENDIF
          ENDDO
-  
+
          DO k=1,ndecomp_pools_vr
             IF (abs(AK_soil_nacc(k,k)) .le. epsi)THEN
                AK_soil_nacc(k,k) = - 1.e+36_r8
-            ENDIF 
+            ENDIF
          ENDDO
-  
-         ! Calculate capacity 
+
+         ! Calculate capacity
          CALL inverse(AK_soil_acc (1:ndecomp_pools_vr,1:ndecomp_pools_vr),AKinv_soil (1:ndecomp_pools_vr,1:ndecomp_pools_vr),ndecomp_pools_vr)
          CALL inverse(AK_soil_nacc(1:ndecomp_pools_vr,1:ndecomp_pools_vr),AKinvn_soil(1:ndecomp_pools_vr,1:ndecomp_pools_vr),ndecomp_pools_vr)
          soilmatrixc_cap(:,1) = -matmul(AKinv_soil(1:ndecomp_pools_vr,1:ndecomp_pools_vr), I_soil_acc (1:ndecomp_pools_vr))
          soilmatrixn_cap(:,1) = -matmul(AKinvn_soil(1:ndecomp_pools_vr,1:ndecomp_pools_vr),I_soil_nacc(1:ndecomp_pools_vr))
-  
+
          DO k = 1, ndecomp_pools
-            DO j = 1, nl_soil   
+            DO j = 1, nl_soil
                IF(soilmatrixc_cap(j+(k-1)*nl_soil,1) .lt. 0)THEN
                   soilmatrixc_cap(j+(k-1)*nl_soil,1) = 0._r8
                ENDIF
@@ -674,7 +674,7 @@ CONTAINS
                ENDIF
             ENDDO
          ENDDO
-                     
+
          IF(DEF_USE_DiagMatrix)THEN
             DO k = 1, ndecomp_pools
                DO j = 1, nl_soil
@@ -688,14 +688,14 @@ CONTAINS
                DO j = 1, nl_soil
                   IF((soilmatrixc_cap(j+(k-1)*nl_soil,1)/decomp0_cpools_vr(j,k,i) .gt. 100 .and. soilmatrixc_cap(j+(k-1)*nl_soil,1) .gt. 1.e+5_r8  &
                  .or. soilmatrixn_cap(j+(k-1)*nl_soil,1)/decomp0_npools_vr(j,k,i) .gt. 100 .and. soilmatrixn_cap(j+(k-1)*nl_soil,1) .gt. 1.e+3_r8) &
-                 .or. k .eq. i_cwd .and. (soilmatrixc_cap(j+(k-1)*nl_soil,1)/decomp0_cpools_vr(j,k,i) .gt. 100 .and. soilmatrixc_cap(j+(k-1)*nl_soil,1) .gt. 1.e+5_r8  &
+                 .or. i .eq. i_cwd .and. (soilmatrixc_cap(j+(k-1)*nl_soil,1)/decomp0_cpools_vr(j,k,i) .gt. 100 .and. soilmatrixc_cap(j+(k-1)*nl_soil,1) .gt. 1.e+5_r8  &
                  .or. soilmatrixn_cap(j+(k-1)*nl_soil,1)/decomp0_npools_vr(j,k,i) .gt. 100 .and. soilmatrixn_cap(j+(k-1)*nl_soil,1) .gt. 1.e+3_r8) )THEN
                      soilmatrixc_cap(j+(k-1)*nl_soil,1) = decomp_cpools_vr(j,k,i)
                      soilmatrixn_cap(j+(k-1)*nl_soil,1) = decomp_npools_vr(j,k,i)
                   ENDIF
                ENDDO
             ENDDO
-     
+
             IF(any(soilmatrixc_cap(:,1) .gt. 1.e+8_r8) .or. any(soilmatrixn_cap(:,1) .gt. 1.e+8_r8))THEN
                DO k = 1, ndecomp_pools
                   DO j = 1, nl_soil
@@ -704,11 +704,11 @@ CONTAINS
                   ENDDO
                ENDDO
             ENDIF
-     
+
             ! IF spin up is on, the capacity replaces the pool size with capacity.
             ! Copy the capacity into a 3D variable, and be ready to write to history files.
-     
-            DO k = 1, ndecomp_pools 
+
+            DO k = 1, ndecomp_pools
                DO j = 1, nl_soil
                   decomp_cpools_vr(j,k,i) = soilmatrixc_cap(j+(k-1)*nl_soil,1)
                   IF(floating_cn_ratio(k))THEN
@@ -718,10 +718,10 @@ CONTAINS
                   ENDIF
                ENDDO
             ENDDO
-            
+
             skip_balance_check(i) = .true.
          ENDIF
-  
+
          ! Reset to accumulation variables to 0 at END of each year
          DO m=ps, pe
             I_leafc_p_acc        (m) = 0._r8
@@ -752,7 +752,7 @@ CONTAINS
             I_deadcrootn_st_p_acc(m) = 0._r8
             I_grainn_p_acc       (m) = 0._r8
             I_grainn_st_p_acc    (m) = 0._r8
-  
+
             AKX_leafc_xf_to_leafc_p_acc             (m) = 0._r8
             AKX_frootc_xf_to_frootc_p_acc           (m) = 0._r8
             AKX_livestemc_xf_to_livestemc_p_acc     (m) = 0._r8
@@ -762,7 +762,7 @@ CONTAINS
             AKX_grainc_xf_to_grainc_p_acc           (m) = 0._r8
             AKX_livestemc_to_deadstemc_p_acc        (m) = 0._r8
             AKX_livecrootc_to_deadcrootc_p_acc      (m) = 0._r8
-             
+
             AKX_leafc_st_to_leafc_xf_p_acc          (m) = 0._r8
             AKX_frootc_st_to_frootc_xf_p_acc        (m) = 0._r8
             AKX_livestemc_st_to_livestemc_xf_p_acc  (m) = 0._r8
@@ -770,7 +770,7 @@ CONTAINS
             AKX_livecrootc_st_to_livecrootc_xf_p_acc(m) = 0._r8
             AKX_deadcrootc_st_to_deadcrootc_xf_p_acc(m) = 0._r8
             AKX_grainc_st_to_grainc_xf_p_acc        (m) = 0._r8
-  
+
             AKX_leafc_exit_p_acc                    (m) = 0._r8
             AKX_frootc_exit_p_acc                   (m) = 0._r8
             AKX_livestemc_exit_p_acc                (m) = 0._r8
@@ -778,7 +778,7 @@ CONTAINS
             AKX_livecrootc_exit_p_acc               (m) = 0._r8
             AKX_deadcrootc_exit_p_acc               (m) = 0._r8
             AKX_grainc_exit_p_acc                   (m) = 0._r8
-  
+
             AKX_leafc_st_exit_p_acc                 (m) = 0._r8
             AKX_frootc_st_exit_p_acc                (m) = 0._r8
             AKX_livestemc_st_exit_p_acc             (m) = 0._r8
@@ -786,7 +786,7 @@ CONTAINS
             AKX_livecrootc_st_exit_p_acc            (m) = 0._r8
             AKX_deadcrootc_st_exit_p_acc            (m) = 0._r8
             AKX_grainc_st_exit_p_acc                (m) = 0._r8
-  
+
             AKX_leafc_xf_exit_p_acc                 (m) = 0._r8
             AKX_frootc_xf_exit_p_acc                (m) = 0._r8
             AKX_livestemc_xf_exit_p_acc             (m) = 0._r8
@@ -794,8 +794,8 @@ CONTAINS
             AKX_livecrootc_xf_exit_p_acc            (m) = 0._r8
             AKX_deadcrootc_xf_exit_p_acc            (m) = 0._r8
             AKX_grainc_xf_exit_p_acc                (m) = 0._r8
-             
-            AKX_leafn_xf_to_leafn_p_acc             (m) = 0._r8        
+
+            AKX_leafn_xf_to_leafn_p_acc             (m) = 0._r8
             AKX_frootn_xf_to_frootn_p_acc           (m) = 0._r8
             AKX_livestemn_xf_to_livestemn_p_acc     (m) = 0._r8
             AKX_deadstemn_xf_to_deadstemn_p_acc     (m) = 0._r8
@@ -804,7 +804,7 @@ CONTAINS
             AKX_grainn_xf_to_grainn_p_acc           (m) = 0._r8
             AKX_livestemn_to_deadstemn_p_acc        (m) = 0._r8
             AKX_livecrootn_to_deadcrootn_p_acc      (m) = 0._r8
-  
+
             AKX_leafn_st_to_leafn_xf_p_acc          (m) = 0._r8
             AKX_frootn_st_to_frootn_xf_p_acc        (m) = 0._r8
             AKX_livestemn_st_to_livestemn_xf_p_acc  (m) = 0._r8
@@ -812,12 +812,12 @@ CONTAINS
             AKX_livecrootn_st_to_livecrootn_xf_p_acc(m) = 0._r8
             AKX_deadcrootn_st_to_deadcrootn_xf_p_acc(m) = 0._r8
             AKX_grainn_st_to_grainn_xf_p_acc        (m) = 0._r8
-  
+
             AKX_leafn_to_retransn_p_acc             (m) = 0._r8
             AKX_frootn_to_retransn_p_acc            (m) = 0._r8
             AKX_livestemn_to_retransn_p_acc         (m) = 0._r8
             AKX_livecrootn_to_retransn_p_acc        (m) = 0._r8
-  
+
             AKX_retransn_to_leafn_p_acc             (m) = 0._r8
             AKX_retransn_to_frootn_p_acc            (m) = 0._r8
             AKX_retransn_to_livestemn_p_acc         (m) = 0._r8
@@ -825,7 +825,7 @@ CONTAINS
             AKX_retransn_to_livecrootn_p_acc        (m) = 0._r8
             AKX_retransn_to_deadcrootn_p_acc        (m) = 0._r8
             AKX_retransn_to_grainn_p_acc            (m) = 0._r8
-  
+
             AKX_retransn_to_leafn_st_p_acc          (m) = 0._r8
             AKX_retransn_to_frootn_st_p_acc         (m) = 0._r8
             AKX_retransn_to_livestemn_st_p_acc      (m) = 0._r8
@@ -833,7 +833,7 @@ CONTAINS
             AKX_retransn_to_livecrootn_st_p_acc     (m) = 0._r8
             AKX_retransn_to_deadcrootn_st_p_acc     (m) = 0._r8
             AKX_retransn_to_grainn_st_p_acc         (m) = 0._r8
-  
+
             AKX_leafn_exit_p_acc                    (m) = 0._r8
             AKX_frootn_exit_p_acc                   (m) = 0._r8
             AKX_livestemn_exit_p_acc                (m) = 0._r8
@@ -842,7 +842,7 @@ CONTAINS
             AKX_deadcrootn_exit_p_acc               (m) = 0._r8
             AKX_grainn_exit_p_acc                   (m) = 0._r8
             AKX_retransn_exit_p_acc                 (m) = 0._r8
-  
+
             AKX_leafn_st_exit_p_acc                 (m) = 0._r8
             AKX_frootn_st_exit_p_acc                (m) = 0._r8
             AKX_livestemn_st_exit_p_acc             (m) = 0._r8
@@ -850,7 +850,7 @@ CONTAINS
             AKX_livecrootn_st_exit_p_acc            (m) = 0._r8
             AKX_deadcrootn_st_exit_p_acc            (m) = 0._r8
             AKX_grainn_st_exit_p_acc                (m) = 0._r8
-  
+
             AKX_leafn_xf_exit_p_acc                 (m) = 0._r8
             AKX_frootn_xf_exit_p_acc                (m) = 0._r8
             AKX_livestemn_xf_exit_p_acc             (m) = 0._r8
@@ -859,16 +859,16 @@ CONTAINS
             AKX_deadcrootn_xf_exit_p_acc            (m) = 0._r8
             AKX_grainn_xf_exit_p_acc                (m) = 0._r8
          ENDDO
-  
+
          DO j=1,nl_soil
-            AKX_met_exit_c_vr_acc      (j,i) = 0._r8   
-            AKX_cel_exit_c_vr_acc      (j,i) = 0._r8   
-            AKX_lig_exit_c_vr_acc      (j,i) = 0._r8   
-            AKX_cwd_exit_c_vr_acc      (j,i) = 0._r8   
-            AKX_soil1_exit_c_vr_acc    (j,i) = 0._r8   
-            AKX_soil2_exit_c_vr_acc    (j,i) = 0._r8   
-            AKX_soil3_exit_c_vr_acc    (j,i) = 0._r8   
-  
+            AKX_met_exit_c_vr_acc      (j,i) = 0._r8
+            AKX_cel_exit_c_vr_acc      (j,i) = 0._r8
+            AKX_lig_exit_c_vr_acc      (j,i) = 0._r8
+            AKX_cwd_exit_c_vr_acc      (j,i) = 0._r8
+            AKX_soil1_exit_c_vr_acc    (j,i) = 0._r8
+            AKX_soil2_exit_c_vr_acc    (j,i) = 0._r8
+            AKX_soil3_exit_c_vr_acc    (j,i) = 0._r8
+
             AKX_met_to_soil1_c_vr_acc  (j,i) = 0._r8
             AKX_cel_to_soil1_c_vr_acc  (j,i) = 0._r8
             AKX_lig_to_soil2_c_vr_acc  (j,i) = 0._r8
@@ -879,39 +879,39 @@ CONTAINS
             AKX_soil2_to_soil1_c_vr_acc(j,i) = 0._r8
             AKX_soil2_to_soil3_c_vr_acc(j,i) = 0._r8
             AKX_soil3_to_soil1_c_vr_acc(j,i) = 0._r8
-  
-            diagVX_c_vr_acc  (j,i_met_lit,i) = 0._r8   
-            diagVX_c_vr_acc  (j,i_cel_lit,i) = 0._r8   
-            diagVX_c_vr_acc  (j,i_lig_lit,i) = 0._r8   
-            diagVX_c_vr_acc  (j,i_cwd    ,i) = 0._r8   
-            diagVX_c_vr_acc  (j,i_soil1  ,i) = 0._r8   
-            diagVX_c_vr_acc  (j,i_soil2  ,i) = 0._r8   
-            diagVX_c_vr_acc  (j,i_soil3  ,i) = 0._r8   
-              
-            upperVX_c_vr_acc (j,i_met_lit,i) = 0._r8   
-            upperVX_c_vr_acc (j,i_cel_lit,i) = 0._r8   
-            upperVX_c_vr_acc (j,i_lig_lit,i) = 0._r8   
-            upperVX_c_vr_acc (j,i_cwd    ,i) = 0._r8   
-            upperVX_c_vr_acc (j,i_soil1  ,i) = 0._r8   
-            upperVX_c_vr_acc (j,i_soil2  ,i) = 0._r8   
-            upperVX_c_vr_acc (j,i_soil3  ,i) = 0._r8   
-              
-            lowerVX_c_vr_acc (j,i_met_lit,i) = 0._r8   
-            lowerVX_c_vr_acc (j,i_cel_lit,i) = 0._r8   
-            lowerVX_c_vr_acc (j,i_lig_lit,i) = 0._r8   
-            lowerVX_c_vr_acc (j,i_cwd    ,i) = 0._r8   
-            lowerVX_c_vr_acc (j,i_soil1  ,i) = 0._r8   
-            lowerVX_c_vr_acc (j,i_soil2  ,i) = 0._r8   
-            lowerVX_c_vr_acc (j,i_soil3  ,i) = 0._r8   
-              
-            AKX_met_exit_n_vr_acc      (j,i) = 0._r8   
-            AKX_cel_exit_n_vr_acc      (j,i) = 0._r8   
-            AKX_lig_exit_n_vr_acc      (j,i) = 0._r8   
-            AKX_cwd_exit_n_vr_acc      (j,i) = 0._r8   
-            AKX_soil1_exit_n_vr_acc    (j,i) = 0._r8   
-            AKX_soil2_exit_n_vr_acc    (j,i) = 0._r8   
-            AKX_soil3_exit_n_vr_acc    (j,i) = 0._r8   
-  
+
+            diagVX_c_vr_acc  (j,i_met_lit,i) = 0._r8
+            diagVX_c_vr_acc  (j,i_cel_lit,i) = 0._r8
+            diagVX_c_vr_acc  (j,i_lig_lit,i) = 0._r8
+            diagVX_c_vr_acc  (j,i_cwd    ,i) = 0._r8
+            diagVX_c_vr_acc  (j,i_soil1  ,i) = 0._r8
+            diagVX_c_vr_acc  (j,i_soil2  ,i) = 0._r8
+            diagVX_c_vr_acc  (j,i_soil3  ,i) = 0._r8
+
+            upperVX_c_vr_acc (j,i_met_lit,i) = 0._r8
+            upperVX_c_vr_acc (j,i_cel_lit,i) = 0._r8
+            upperVX_c_vr_acc (j,i_lig_lit,i) = 0._r8
+            upperVX_c_vr_acc (j,i_cwd    ,i) = 0._r8
+            upperVX_c_vr_acc (j,i_soil1  ,i) = 0._r8
+            upperVX_c_vr_acc (j,i_soil2  ,i) = 0._r8
+            upperVX_c_vr_acc (j,i_soil3  ,i) = 0._r8
+
+            lowerVX_c_vr_acc (j,i_met_lit,i) = 0._r8
+            lowerVX_c_vr_acc (j,i_cel_lit,i) = 0._r8
+            lowerVX_c_vr_acc (j,i_lig_lit,i) = 0._r8
+            lowerVX_c_vr_acc (j,i_cwd    ,i) = 0._r8
+            lowerVX_c_vr_acc (j,i_soil1  ,i) = 0._r8
+            lowerVX_c_vr_acc (j,i_soil2  ,i) = 0._r8
+            lowerVX_c_vr_acc (j,i_soil3  ,i) = 0._r8
+
+            AKX_met_exit_n_vr_acc      (j,i) = 0._r8
+            AKX_cel_exit_n_vr_acc      (j,i) = 0._r8
+            AKX_lig_exit_n_vr_acc      (j,i) = 0._r8
+            AKX_cwd_exit_n_vr_acc      (j,i) = 0._r8
+            AKX_soil1_exit_n_vr_acc    (j,i) = 0._r8
+            AKX_soil2_exit_n_vr_acc    (j,i) = 0._r8
+            AKX_soil3_exit_n_vr_acc    (j,i) = 0._r8
+
             AKX_met_to_soil1_n_vr_acc  (j,i) = 0._r8
             AKX_cel_to_soil1_n_vr_acc  (j,i) = 0._r8
             AKX_lig_to_soil2_n_vr_acc  (j,i) = 0._r8
@@ -922,36 +922,36 @@ CONTAINS
             AKX_soil2_to_soil1_n_vr_acc(j,i) = 0._r8
             AKX_soil2_to_soil3_n_vr_acc(j,i) = 0._r8
             AKX_soil3_to_soil1_n_vr_acc(j,i) = 0._r8
-  
-            diagVX_n_vr_acc  (j,i_met_lit,i) = 0._r8   
-            diagVX_n_vr_acc  (j,i_cel_lit,i) = 0._r8   
-            diagVX_n_vr_acc  (j,i_lig_lit,i) = 0._r8   
-            diagVX_n_vr_acc  (j,i_cwd    ,i) = 0._r8   
-            diagVX_n_vr_acc  (j,i_soil1  ,i) = 0._r8   
-            diagVX_n_vr_acc  (j,i_soil2  ,i) = 0._r8   
-            diagVX_n_vr_acc  (j,i_soil3  ,i) = 0._r8   
-              
-            upperVX_n_vr_acc (j,i_met_lit,i) = 0._r8   
-            upperVX_n_vr_acc (j,i_cel_lit,i) = 0._r8   
-            upperVX_n_vr_acc (j,i_lig_lit,i) = 0._r8   
-            upperVX_n_vr_acc (j,i_cwd    ,i) = 0._r8   
-            upperVX_n_vr_acc (j,i_soil1  ,i) = 0._r8   
-            upperVX_n_vr_acc (j,i_soil2  ,i) = 0._r8   
-            upperVX_n_vr_acc (j,i_soil3  ,i) = 0._r8   
-              
-            lowerVX_n_vr_acc (j,i_met_lit,i) = 0._r8   
-            lowerVX_n_vr_acc (j,i_cel_lit,i) = 0._r8   
-            lowerVX_n_vr_acc (j,i_lig_lit,i) = 0._r8   
-            lowerVX_n_vr_acc (j,i_cwd    ,i) = 0._r8   
-            lowerVX_n_vr_acc (j,i_soil1  ,i) = 0._r8   
-            lowerVX_n_vr_acc (j,i_soil2  ,i) = 0._r8   
-            lowerVX_n_vr_acc (j,i_soil3  ,i) = 0._r8   
-              
+
+            diagVX_n_vr_acc  (j,i_met_lit,i) = 0._r8
+            diagVX_n_vr_acc  (j,i_cel_lit,i) = 0._r8
+            diagVX_n_vr_acc  (j,i_lig_lit,i) = 0._r8
+            diagVX_n_vr_acc  (j,i_cwd    ,i) = 0._r8
+            diagVX_n_vr_acc  (j,i_soil1  ,i) = 0._r8
+            diagVX_n_vr_acc  (j,i_soil2  ,i) = 0._r8
+            diagVX_n_vr_acc  (j,i_soil3  ,i) = 0._r8
+
+            upperVX_n_vr_acc (j,i_met_lit,i) = 0._r8
+            upperVX_n_vr_acc (j,i_cel_lit,i) = 0._r8
+            upperVX_n_vr_acc (j,i_lig_lit,i) = 0._r8
+            upperVX_n_vr_acc (j,i_cwd    ,i) = 0._r8
+            upperVX_n_vr_acc (j,i_soil1  ,i) = 0._r8
+            upperVX_n_vr_acc (j,i_soil2  ,i) = 0._r8
+            upperVX_n_vr_acc (j,i_soil3  ,i) = 0._r8
+
+            lowerVX_n_vr_acc (j,i_met_lit,i) = 0._r8
+            lowerVX_n_vr_acc (j,i_cel_lit,i) = 0._r8
+            lowerVX_n_vr_acc (j,i_lig_lit,i) = 0._r8
+            lowerVX_n_vr_acc (j,i_cwd    ,i) = 0._r8
+            lowerVX_n_vr_acc (j,i_soil1  ,i) = 0._r8
+            lowerVX_n_vr_acc (j,i_soil2  ,i) = 0._r8
+            lowerVX_n_vr_acc (j,i_soil3  ,i) = 0._r8
+
             I_met_c_vr_acc(j,i)              = 0._r8
             I_cel_c_vr_acc(j,i)              = 0._r8
             I_lig_c_vr_acc(j,i)              = 0._r8
             I_cwd_c_vr_acc(j,i)              = 0._r8
-            
+
             I_met_n_vr_acc(j,i)              = 0._r8
             I_cel_n_vr_acc(j,i)              = 0._r8
             I_lig_n_vr_acc(j,i)              = 0._r8
@@ -960,9 +960,9 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE CNSASU
-  
+
    SUBROUTINE inverse(a,c,n)
- 
+
  ! !DESCRIPTION:
  ! Inverse matrix
  ! Method: Based on Doolittle LU factorization for Ax=b
@@ -976,7 +976,7 @@ CONTAINS
  ! comments ...
  ! the original matrix a(n,n) will be destroyed
  ! during the calculation
- 
+
    IMPLICIT NONE
    ! Arguments
    integer,intent(in) :: n           ! Size of matrix
@@ -992,7 +992,7 @@ CONTAINS
    real(r8) :: coeff    ! coefficient
    integer i, j, k      ! Indices
    character(len=*), parameter :: subname = 'inverse'
- 
+
       DO k=1,n
          IF ( a(k,k) == 0.0_r8 )THEN
             CALL abort
@@ -1005,7 +1005,7 @@ CONTAINS
       L=0.0
       U=0.0
       b=0.0
-  
+
       aa=a
      !
      ! Step 1: forward elimination
@@ -1020,7 +1020,7 @@ CONTAINS
             ENDDO
          ENDDO
       ENDDO
-  
+
      !
      ! Step 2: prepare L and U matrices
      ! L matrix is a matrix of the elimination coefficient
@@ -1066,7 +1066,7 @@ CONTAINS
          ENDDO
          b(k)=0.0
       ENDDO
- 
+
    END SUBROUTINE inverse
 
 END MODULE MOD_BGC_CNSASU

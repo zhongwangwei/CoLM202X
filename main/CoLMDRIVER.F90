@@ -1,6 +1,6 @@
 #include <define.h>
 
-SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
+SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
 
 
 !=======================================================================
@@ -25,7 +25,12 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_LandUrban, only: patch2urban
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
-   USE omp_lib
+
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Methane_Coupler, only: tracer_methane_resolve_step, &
+      tracer_methane_lake_step, tracer_methane_wetland_decomp, &
+      tracer_methane_soil_step, tracer_methane_report
+#endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
 #endif
@@ -45,17 +50,19 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    logical,  intent(in) :: dosst    ! true if time for update sst/ice/snow
 
    real(r8), intent(inout) :: oro(numpatch)  ! ocean(0)/seaice(2)/ flag
+   integer,  intent(in), optional :: istep_in  ! time-step index from CoLM.F90 (METHANE uses it; DA path may omit)
 
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
+#if (defined TRACER) && (defined BGC)
+   integer  :: istep_local      ! resolved from optional istep_in
+#endif
 
 ! ======================================================================
 
-#ifdef OPENMP
-!$OMP PARALLEL DO NUM_THREADS(OPENMP) &
-!$OMP PRIVATE(i, m, u, k, steps_in_one_deltim, deltim_phy) &
-!$OMP SCHEDULE(STATIC, 1)
+#if (defined TRACER) && (defined BGC)
+      CALL tracer_methane_resolve_step (istep_in, istep_local)
 #endif
 
       DO i = 1, numpatch
@@ -209,17 +216,30 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                ustar(i),        qstar(i),        tstar(i),                         &
                fm(i),           fh(i),           fq(i)                             )
 
+#if (defined TRACER) && (defined BGC)
+               CALL tracer_methane_lake_step (istep_local, i, idate, deltim_phy, k, steps_in_one_deltim)
+#endif
+
             ENDDO
          ENDIF
 
 
 #if (defined BGC)
+         ! Vegetated soil patches: full CN driver (vegetation + soil decomp).
          IF(patchtype(i) .eq. 0)THEN
             !
             !               ***** Call CoLM BGC model *****
             !
             CALL bgc_driver (i,idate(1:3),deltim, patchlatr(i)*180/PI,patchlonr(i)*180/PI)
          ENDIF
+
+#if (defined TRACER) && (defined BGC)
+         CALL tracer_methane_wetland_decomp (i)
+#endif
+
+#if (defined TRACER) && (defined BGC)
+         CALL tracer_methane_soil_step (istep_local, i, idate, deltim)
+#endif
 #endif
 
 
@@ -359,12 +379,16 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             ustar(i)        ,qstar(i)        ,tstar(i)        ,fm(i)           ,&
             fh(i)           ,fq(i)           ,forc_hpbl(i)                      )
             rsub(i) = rnof(i) - rsur(i)
+
          ENDIF
 
 #endif
       ENDDO
-#ifdef OPENMP
-!$OMP END PARALLEL DO
+
+      ! Surface tracer balance report is routed through TRACER so CH4
+      ! diagnostics stay behind the methane registry gate.
+#if (defined TRACER) && (defined BGC)
+      CALL tracer_methane_report ()
 #endif
 
 END SUBROUTINE CoLMDRIVER

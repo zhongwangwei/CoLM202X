@@ -18,6 +18,10 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: flush_Tracer_Acc
+   USE MOD_Tracer_Hist, only: tracer_hist_out
+#endif
 
    USE MOD_HistGridded
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -43,6 +47,9 @@ MODULE MOD_Hist
    character(len=10) :: HistForm ! 'Gridded', 'Vector', 'Single'
 
    character(len=256) :: file_last = 'null'
+#ifdef TRACER
+   character(len=256) :: file_last_tracer = 'null'
+#endif
 
 !--------------------------------------------------------------------------
 CONTAINS
@@ -56,6 +63,9 @@ CONTAINS
 
       CALL allocate_acc_fluxes ()
       CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
+      CALL flush_Tracer_Acc ()
+#endif
 
       HistForm = 'Gridded'
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -163,6 +173,10 @@ CONTAINS
    logical :: lwrite
    character(len=256) :: file_hist
    integer :: itime_in_file
+#ifdef TRACER
+   character(len=256) :: file_hist_tracer
+   integer :: itime_in_file_tracer
+#endif
 #if (defined CaMa_Flood)
    character(len=256) :: file_hist_cama
    integer :: itime_in_file_cama
@@ -212,6 +226,9 @@ CONTAINS
 
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
+         CALL flush_Tracer_Acc ()
+#endif
          RETURN
       ELSE
          CALL accumulate_fluxes ()
@@ -279,6 +296,10 @@ CONTAINS
          file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
+#ifdef TRACER
+         file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_tracer_'//trim(cdate)//'.nc'
+         CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
+#endif
 
          IF (p_is_worker) THEN
             IF (numpatch > 0) THEN
@@ -4171,6 +4192,8 @@ ENDIF
             itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
             sumarea, filter, 'ice lens in soil layers', 'kg/m2')
 
+         ! TRACER/CH4 history output is written by MOD_Tracer_Hist to
+         ! a separate *_hist_tracer_*.nc file.
 
 #ifdef DataAssimilation
          IF (p_is_worker) THEN
@@ -4691,87 +4714,9 @@ ENDIF
             a_srviln, file_hist, 'f_srviln', itime_in_file, sumarea, filter, &
             'reflected diffuse beam vis solar radiation at local noon(W/m2)','W/m2',nac_ln)
 
-         ! reflected direct beam nir solar radiation at local noon (W/m2)
-         CALL write_history_variable_2d ( DEF_hist_vars%srndln, &
-            a_srndln, file_hist, 'f_srndln', itime_in_file, sumarea, filter, &
-            'reflected direct beam nir solar radiation at local noon(W/m2)','W/m2',nac_ln)
-
-         ! reflected diffuse beam nir solar radiation at local noon(W/m2)
-         CALL write_history_variable_2d ( DEF_hist_vars%srniln, &
-            a_srniln, file_hist, 'f_srniln', itime_in_file, sumarea, filter, &
-            'reflected diffuse beam nir solar radiation at local noon(W/m2)','W/m2',nac_ln)
-
-
-         IF ((p_is_worker) .and. (numpatch > 0)) THEN
-            filter = (patchtype == 0) .and. patchmask
-            IF (DEF_forcing%has_missing_value) filter = filter .and. forcmask_pch
-         ENDIF
-         IF (HistForm == 'Gridded') THEN
-            CALL mp2g_hist%get_sumarea (sumarea, filter)
-         ENDIF
-
-         CALL write_history_variable_3d ( DEF_hist_vars%sensors, &
-            a_sensors, file_hist, 'f_sensors', itime_in_file, 'sensor', 1, nsensor, &
-            sumarea, filter, 'variable sensors','user defined')
-
-#if (defined CaMa_Flood)
-#ifdef USEMPI
-         CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-         IF (p_is_master) THEN
-            CALL hist_out_cama (file_hist_cama, itime_in_file_cama)
-         ENDIF
-#endif
-
-#ifdef CatchLateralFlow
-         CALL hist_basin_out (file_hist, idate)
-#endif
-
-#ifdef GridRiverLakeFlow
-         CALL hist_grid_riverlake_out (file_hist, HistForm, idate, &
-            itime_in_file, trim(file_hist)/=trim(file_last))
-
-         IF (p_is_worker) THEN
-            IF (numpatch > 0) THEN
-               allocate (nac_one (numpatch))
-               nac_one = 1.
-            ENDIF
-         ENDIF
-
-         IF (HistForm == 'Gridded') THEN
-            IF (p_is_io) CALL allocate_block_data (ghist, sumarea_one)
-            IF (p_is_io) CALL flush_block_data (sumarea_one, 1.)
-         ENDIF
-
-         CALL write_history_variable_2d ( DEF_hist_vars%riv_height, a_wdsrf_ucat_pch,   &
-            file_hist, 'f_wdpth_ucat_regrid', itime_in_file, sumarea_ucat, filter_ucat, &
-            'regridded deepest water depth in river and flood plain', 'm', nac_one)
-
-         CALL write_history_variable_2d ( DEF_hist_vars%riv_veloct, a_veloc_riv_pch,    &
-            file_hist, 'f_veloc_riv_regrid', itime_in_file, sumarea_ucat, filter_ucat,  &
-            'regridded water velocity in river', 'm/s', nac_one)
-
-         CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_discharge_pch,     &
-            file_hist, 'f_discharge', itime_in_file, sumarea_one, filter_ucat,          &
-            'regridded discharge in river and flood plain', 'm^3/s',                    &
-            nac_one, input_mode = 'total')
-
-         CALL write_history_variable_2d ( DEF_hist_vars%discharge, a_dis_rmth_pch,      &
-            file_hist, 'f_discharge_rivermouth_regrid', itime_in_file, sumarea_one,     &
-            filter_ucat, 'regridded river mouth discharge into ocean', 'm^3/s',         &
-            nac_one, input_mode = 'total')
-
-         CALL write_history_variable_2d ( DEF_hist_vars%floodfrc, a_floodfrc_pch,       &
-            file_hist, 'f_floodfrc', itime_in_file, sumarea_inpm, filter_inpm,          &
-            'flooded area fraction', '100%', nac_one)
-
-         IF (trim(HistForm) == 'Gridded') THEN
-            CALL write_history_variable_2d ( DEF_hist_vars%floodarea, a_floodfrc_pch,   &
-               file_hist, 'f_floodarea', itime_in_file, sumarea_one, filter_inpm,       &
-               'flooded area', 'km^2', nac_one)
-         ENDIF
-
-         IF (allocated(nac_one   )) deallocate (nac_one   )
+#ifdef TRACER
+         CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+            sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
 #endif
 
          IF (allocated(filter    )) deallocate (filter    )
@@ -4781,6 +4726,9 @@ ENDIF
 #endif
 
          CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
+         CALL flush_Tracer_Acc ()
+#endif
 
 #ifdef SinglePoint
          IF (USE_SITE_HistWriteBack .and. memory_to_disk) THEN
@@ -4789,10 +4737,15 @@ ENDIF
 #endif
 
          file_last = file_hist
+#ifdef TRACER
+         file_last_tracer = file_hist_tracer
+#endif
 
       ENDIF
 
    END SUBROUTINE hist_out
+
+
 
 
    SUBROUTINE write_history_variable_2d ( is_hist, &
@@ -4909,7 +4862,9 @@ ENDIF
 
    SUBROUTINE write_history_variable_3d ( is_hist, &
          acc_vec, file_hist, varname, itime_in_file, dim1name, lb1, ndim1, &
-         sumarea, filter, longname, units)
+         sumarea, filter, longname, units, acc_num)
+
+   USE MOD_Vars_1DAccFluxes, only: nac
 
    IMPLICIT NONE
 
@@ -4926,12 +4881,34 @@ ENDIF
    logical, intent(in) :: filter(:)
    character (len=*), intent(in) :: longname
    character (len=*), intent(in) :: units
+   real(r8), intent(in), optional :: acc_num(:)
 
    ! Local variables
    integer :: iblkme, xblk, yblk, xloc, yloc, i1
    integer :: compress
+   integer :: j
 
       IF (.not. is_hist) RETURN
+
+      ! The lower-level 3D writers (flux_map_and_write_3d, aggregate_..., single_...)
+      ! always divide acc_vec by `nac`. When a per-patch acc_num counter is supplied
+      ! (e.g. methane accumulators that only tick on wetland patches), pre-scale by
+      ! nac/acc_num so the lower-level division yields acc_vec/acc_num.
+      IF (present(acc_num)) THEN
+#ifndef SinglePoint
+         IF (p_is_worker) THEN
+            DO j = 1, size(acc_vec, 1)
+               WHERE (acc_vec(j,:) /= spval .and. acc_num > 0._r8) &
+                  acc_vec(j,:) = acc_vec(j,:) * real(nac, r8) / acc_num
+            ENDDO
+         ENDIF
+#else
+         DO j = 1, size(acc_vec, 1)
+            WHERE (acc_vec(j,:) /= spval .and. acc_num > 0._r8) &
+               acc_vec(j,:) = acc_vec(j,:) * real(nac, r8) / acc_num
+         ENDDO
+#endif
+      ENDIF
 
       select CASE (HistForm)
       CASE ('Gridded')

@@ -1081,13 +1081,28 @@ CONTAINS
    !====================================================================
 
    USE MOD_SPMD_Task
-   USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
-                           DEF_USE_IRRIGATION, DEF_USE_Dynamic_Lake, SITE_landtype
+   USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, DEF_USE_IRRIGATION, DEF_USE_Dynamic_Lake, SITE_landtype
    USE MOD_LandPatch
    USE MOD_NetCDFVector
    USE MOD_Vars_Global
    USE MOD_Vars_TimeInvariants, only: dz_lake
    USE MOD_Const_LC, only: patchtypes
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: ntracers
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Rest, only: write_land_tracer_restart
+#endif
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Methane_State,    only: write_methane_restart
+   USE MOD_Tracer_Methane_Microbes, only: write_methane_microbes_restart
+#endif
+#ifdef GridRiverLakeFlow
+#ifdef TRACER
+   USE MOD_Grid_RiverLakeTracer, only: write_tracer_restart
+#endif
+#endif
    IMPLICIT NONE
 
    integer, intent(in) :: idate(3)
@@ -1125,6 +1140,9 @@ CONTAINS
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'soilsnow', nl_soil-maxsnl)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'soil',     nl_soil)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'lake',     nl_lake)
+#ifdef TRACER
+         CALL ncio_define_dimension_vector (file_restart, landpatch, 'tracer', ntracers)
+#endif
 
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'vegnodes', nvegwcs)
@@ -1228,6 +1246,21 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fm   ', 'patch', landpatch, fm   , compress) ! integral of profile FUNCTION for momentum
       CALL ncio_write_vector (file_restart, 'fh   ', 'patch', landpatch, fh   , compress) ! integral of profile FUNCTION for heat
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
+#ifdef TRACER
+         IF (allocated(waterstorage)) THEN
+            CALL write_land_tracer_restart(file_restart, maxsnl, nl_soil, numpatch, &
+               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, waterstorage)
+         ELSE
+            CALL write_land_tracer_restart(file_restart, maxsnl, nl_soil, numpatch, &
+               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv)
+         ENDIF
+#endif
+#if (defined TRACER) && (defined BGC)
+         IF (igas_ch4 > 0) THEN
+            CALL write_methane_restart (file_restart, compress)
+            CALL write_methane_microbes_restart (file_restart, compress)
+         ENDIF
+#endif
 
 IF (DEF_USE_IRRIGATION) THEN
       CALL ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
@@ -1274,6 +1307,9 @@ ENDIF
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
+#ifdef TRACER
+         CALL write_tracer_restart(file_restart)
+#endif
 #endif
 
 #if (defined URBAN_MODEL)
@@ -1489,7 +1525,10 @@ ENDIF
 #endif
 
 #ifdef RangeCheck
-      CALL check_TimeVariables
+      ! Restart load: skip the flux-side tracer delta diagnostic — the a_*
+      ! accumulators are zero here and MOD_Forcing/MOD_Vars_1DAccFluxes are
+      ! MAIN-layer modules we deliberately don't pull into this BASIC layer.
+      CALL check_TimeVariables ()
 #endif
 
       IF (p_is_master) THEN
@@ -1500,16 +1539,32 @@ ENDIF
 
 
 #ifdef RangeCheck
-   SUBROUTINE check_TimeVariables ()
+   SUBROUTINE check_TimeVariables (deltim_int_opt, a_rsur_opt, a_rsub_opt, &
+                                   a_rnof_opt, a_qinfl_opt, a_qcharge_opt)
 
    USE MOD_SPMD_Task
    USE MOD_RangeCheck
-   USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, DEF_USE_IRRIGATION, &
-                           DEF_USE_SNICAR, DEF_USE_Dynamic_Lake
+   USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, DEF_USE_IRRIGATION, DEF_USE_SNICAR, DEF_USE_Dynamic_Lake
    USE MOD_Vars_TimeInvariants, only: dz_lake
+#if (defined GridRiverLakeFlow)
+#ifdef TRACER
+   USE MOD_Grid_RiverLakeTracer, only: check_tracer_state
+#endif
+#endif
 
    IMPLICIT NONE
 
+   ! Optional flux-side arguments — let CoLM.F90 inject MOD_Forcing /
+   ! MOD_Vars_1DAccFluxes data without making this BASIC-layer module
+   ! depend on those MAIN-layer modules. READ_TimeVariables's restart-load
+   ! caller passes nothing (a_* are zero at restart load anyway).
+   ! ALLOCATABLE dummy lets CoLM.F90 pass master/IO's unallocated a_* safely
+   ! — assumed-shape-optional actual would be undefined behaviour on those
+   ! ranks and caused an ifort MPI_Recv Message-truncated crash here.
+   integer,  intent(in), optional :: deltim_int_opt
+   real(r8), intent(in), optional, allocatable :: a_rsur_opt(:), a_rsub_opt(:), &
+                                                  a_rnof_opt(:), a_qinfl_opt(:), &
+                                                  a_qcharge_opt(:)
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
@@ -1628,8 +1683,27 @@ ENDIF
       CALL CHECK_LakeTimeVars
 #endif
 
+#ifdef TRACER
+         IF (present(deltim_int_opt) .and. present(a_rsur_opt) .and. &
+             present(a_rsub_opt)     .and. present(a_rnof_opt) .and. &
+             present(a_qinfl_opt)    .and. present(a_qcharge_opt)) THEN
+            CALL check_tracer_delta_land (deltim_int_opt, a_rsur_opt, a_rsub_opt, &
+                                          a_rnof_opt, a_qinfl_opt, a_qcharge_opt)
+         ELSE
+            CALL check_tracer_delta_land ()
+         ENDIF
+#endif
+
 #ifdef DataAssimilation
-      IF (DEF_DA_ENS_NUM > 1) CALL check_DATimeVariables
+      IF (DEF_DA_ENS_NUM > 1) THEN
+         CALL check_DATimeVariables
+      ENDIF
+#endif
+
+#if (defined GridRiverLakeFlow)
+#ifdef TRACER
+         CALL check_tracer_state ()
+#endif
 #endif
 
 #ifdef USEMPI
@@ -1637,6 +1711,680 @@ ENDIF
 #endif
 
   END SUBROUTINE check_TimeVariables
+
+#ifdef TRACER
+   SUBROUTINE check_tracer_delta_land (deltim_int_opt, a_rsur_opt, a_rsub_opt, &
+                                       a_rnof_opt, a_qinfl_opt, a_qcharge_opt)
+
+   USE MOD_SPMD_Task
+   USE MOD_RangeCheck
+   USE MOD_Vars_Global, only: spval, nl_soil, maxsnl
+   USE MOD_LandPatch, only: numpatch
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_uses_delta_diagnostics
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, trc_wdsrf, trc_wetwat, trc_wa, &
+                              a_trc_rsur, a_trc_rsub, a_trc_rnof, a_trc_qinfl, a_trc_qcharge
+#endif
+
+   IMPLICIT NONE
+
+   ! Flux-side inputs are optional so READ_TimeVariables (called during restart
+   ! load before MOD_Forcing/MOD_Vars_1DAccFluxes are populated) can skip the
+   ! flux-delta diagnostic and the BASIC layer doesn't need to USE the MAIN-
+   ! layer modules where these arrays live.
+   ! ALLOCATABLE matches caller — a_* are unallocated on master/IO (and on
+   ! workers with numpatch==0); assumed-shape would hit UB for those ranks.
+   integer,  intent(in), optional :: deltim_int_opt
+   real(r8), intent(in), optional, allocatable :: a_rsur_opt(:), a_rsub_opt(:), &
+                                                  a_rnof_opt(:), a_qinfl_opt(:), &
+                                                  a_qcharge_opt(:)
+
+   integer :: itrc
+   character(len=64) :: label
+   real(r8), allocatable :: tmp(:)
+   ! Zero-size dummy passed to log_aggregate_* on ranks where the
+   ! per-patch tracer arrays are unallocated (master/IO, or worker
+   ! with numpatch==0). The aggregator is collective on the worker
+   ! comm, so every worker rank must reach it; size-0 input just
+   ! contributes a zero pair to the MPI_SUM.
+   real(r8), allocatable :: empty_pat(:)
+   logical :: has_trc, has_flux
+
+      IF (ntracers <= 0) RETURN
+
+      ! master/IO ranks reach this routine (via check_TimeVariables) but
+      ! never allocate trc_* patches because allocate_Tracer_Vars short-
+      ! circuits when numpatch<=0. We must still call check_vector_data
+      ! on every rank: its worker_root→master send/recv is posted on
+      ! p_comm_glb (MOD_RangeCheck.F90:276,286), so a master early-return
+      ! would leave the worker send unmatched and hang check_TimeVariables.
+      ! Only the state/flux/layer/snowpack helpers dereference trc_* and
+      ! patch-level water slices; guard those with has_trc, and let the
+      ! size-0 tmp feed check_vector_data (its allocated() and any()
+      ! paths already tolerate empty input).
+      has_trc = allocated(trc_ldew_rain)
+      ! has_flux: only compute flux delta when CoLM.F90 injected the
+      ! accumulator arrays + deltim. Restart-load callers omit them.
+      has_flux = present(deltim_int_opt) .and. present(a_rsur_opt) .and. &
+                 present(a_rsub_opt)     .and. present(a_rnof_opt) .and. &
+                 present(a_qinfl_opt)    .and. present(a_qcharge_opt)
+
+      IF (p_is_worker .and. numpatch > 0) THEN
+         allocate(tmp(numpatch))
+      ELSE
+         allocate(tmp(0))
+      ENDIF
+      allocate(empty_pat(0))
+
+      ! Each pool emits two log entries:
+      !   (1) Aggregate delta:trc_delta_<pool>_<tr>  -- formal δ from
+      !       sum-then-divide across all worker patches (mirrors river
+      !       tracer log convention; respects MOD_Tracer_Defs invariant).
+      !   (2) Check vector data:patch_trc_delta_<pool>_<tr>_range
+      !       -- per-patch δ min/max as an audit channel for sign or
+      !       small-water-FP anomalies. Renamed from the previous
+      !       'trc_delta_*' label so callers can no longer read the
+      !       patch range as the formal pool δ.
+      ! NOTE on collective safety: log_aggregate_* helpers contain a
+      ! mpi_reduce on p_comm_worker. Every worker rank must enter the
+      ! call -- including workers with numpatch==0 (where trc_ldew_*,
+      ! trc_wa, etc. are unallocated). For state pools we route those
+      ! ranks to the size-0 empty_pat slice so the slice expression
+      ! stays well-defined. The soil_layer / snowpack / flux helpers
+      ! gate their own loop bounds by p_is_worker .and. numpatch>0,
+      ! so they are inherently safe to call unconditionally.
+      DO itrc = 1, ntracers
+         IF (.not. tracer_uses_delta_diagnostics(itrc)) CYCLE
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_ldew_rain_', trim(tracers(itrc)%name)
+         IF (has_trc) THEN
+            CALL log_aggregate_delta(label, trc_ldew_rain(itrc,:), ldew_rain, tracers(itrc)%ref_ratio)
+         ELSE
+            CALL log_aggregate_delta(label, empty_pat, empty_pat, tracers(itrc)%ref_ratio)
+         ENDIF
+         IF (has_trc) CALL state_to_delta_patch(trc_ldew_rain(itrc,:), ldew_rain, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_ldew_rain_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_ldew_snow_', trim(tracers(itrc)%name)
+         IF (has_trc) THEN
+            CALL log_aggregate_delta(label, trc_ldew_snow(itrc,:), ldew_snow, tracers(itrc)%ref_ratio)
+         ELSE
+            CALL log_aggregate_delta(label, empty_pat, empty_pat, tracers(itrc)%ref_ratio)
+         ENDIF
+         IF (has_trc) CALL state_to_delta_patch(trc_ldew_snow(itrc,:), ldew_snow, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_ldew_snow_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_ldew_', trim(tracers(itrc)%name)
+         IF (has_trc) THEN
+            CALL log_aggregate_delta(label, trc_ldew_rain(itrc,:) + trc_ldew_snow(itrc,:), ldew, tracers(itrc)%ref_ratio)
+         ELSE
+            CALL log_aggregate_delta(label, empty_pat, empty_pat, tracers(itrc)%ref_ratio)
+         ENDIF
+         IF (has_trc) CALL state_to_delta_patch(trc_ldew_rain(itrc,:) + trc_ldew_snow(itrc,:), ldew, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_ldew_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_wdsrf_', trim(tracers(itrc)%name)
+         IF (has_trc) THEN
+            CALL log_aggregate_delta(label, trc_wdsrf(itrc,:), wdsrf, tracers(itrc)%ref_ratio)
+         ELSE
+            CALL log_aggregate_delta(label, empty_pat, empty_pat, tracers(itrc)%ref_ratio)
+         ENDIF
+         IF (has_trc) CALL state_to_delta_patch(trc_wdsrf(itrc,:), wdsrf, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_wdsrf_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_wetwat_', trim(tracers(itrc)%name)
+         IF (has_trc) THEN
+            CALL log_aggregate_delta(label, trc_wetwat(itrc,:), wetwat, tracers(itrc)%ref_ratio)
+         ELSE
+            CALL log_aggregate_delta(label, empty_pat, empty_pat, tracers(itrc)%ref_ratio)
+         ENDIF
+         IF (has_trc) CALL state_to_delta_patch(trc_wetwat(itrc,:), wetwat, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_wetwat_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         ! Aquifer wa: physical scale is 100–1000 mm when the pool is
+         ! hydrologically active. Use a stricter 1 mm |wa| floor so the
+         ! wetland-merge redistribution at small |wa| (tracer_wetland:1299,
+         ! trc_wa = wa*pool_ratio) doesn't leak 1000‰+ artefacts into the
+         ! δ_wa display. Patches with |wa| < 1 mm simply emit spval — the
+         ! tracer state is preserved, only the diagnostic is filtered.
+         write(label,'(A,A)') 'patch_eq_trc_delta_wa_', trim(tracers(itrc)%name)
+         IF (has_trc) THEN
+            CALL log_aggregate_delta(label, trc_wa(itrc,:), wa, tracers(itrc)%ref_ratio, water_min = 1.0_r8)
+         ELSE
+            CALL log_aggregate_delta(label, empty_pat, empty_pat, tracers(itrc)%ref_ratio, water_min = 1.0_r8)
+         ENDIF
+         IF (has_trc) CALL state_to_delta_patch(trc_wa(itrc,:), wa, tracers(itrc)%ref_ratio, tmp, &
+                                                water_min_override = 1.0_r8)
+         write(label,'(A,A,A)') 'patch_trc_delta_wa_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_soil_top_', trim(tracers(itrc)%name)
+         CALL log_aggregate_soil_layer_delta(label, itrc, 1, tracers(itrc)%ref_ratio)
+         IF (has_trc) CALL soil_layer_to_delta_patch(itrc, 1, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_soil_top_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_soil_bot_', trim(tracers(itrc)%name)
+         CALL log_aggregate_soil_layer_delta(label, itrc, nl_soil, tracers(itrc)%ref_ratio)
+         IF (has_trc) CALL soil_layer_to_delta_patch(itrc, nl_soil, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_soil_bot_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         write(label,'(A,A)') 'patch_eq_trc_delta_snow_', trim(tracers(itrc)%name)
+         CALL log_aggregate_snowpack_delta(label, itrc, tracers(itrc)%ref_ratio)
+         IF (has_trc) CALL snowpack_to_delta_patch(itrc, tracers(itrc)%ref_ratio, tmp)
+         write(label,'(A,A,A)') 'patch_trc_delta_snow_', trim(tracers(itrc)%name), '_range'
+         CALL check_vector_data(label, tmp)
+
+         IF (has_flux) THEN
+            write(label,'(A,A)') 'patch_eq_trc_delta_rsur_', trim(tracers(itrc)%name)
+            IF (has_trc) THEN
+               CALL log_aggregate_flux_delta(label, a_trc_rsur(itrc,:), a_rsur_opt, deltim_int_opt, tracers(itrc)%ref_ratio)
+            ELSE
+               CALL log_aggregate_flux_delta(label, empty_pat, empty_pat, deltim_int_opt, tracers(itrc)%ref_ratio)
+            ENDIF
+         ENDIF
+         IF (has_trc .and. has_flux) CALL flux_to_delta_patch(a_trc_rsur(itrc,:), a_rsur_opt, deltim_int_opt, tracers(itrc)%ref_ratio, tmp)
+         IF (has_flux) THEN
+            write(label,'(A,A,A)') 'patch_trc_delta_rsur_', trim(tracers(itrc)%name), '_range'
+            CALL check_vector_data(label, tmp)
+         ENDIF
+
+         IF (has_flux) THEN
+            write(label,'(A,A)') 'patch_eq_trc_delta_rsub_', trim(tracers(itrc)%name)
+            IF (has_trc) THEN
+               CALL log_aggregate_flux_delta(label, a_trc_rsub(itrc,:), a_rsub_opt, deltim_int_opt, tracers(itrc)%ref_ratio)
+            ELSE
+               CALL log_aggregate_flux_delta(label, empty_pat, empty_pat, deltim_int_opt, tracers(itrc)%ref_ratio)
+            ENDIF
+         ENDIF
+         IF (has_trc .and. has_flux) CALL flux_to_delta_patch(a_trc_rsub(itrc,:), a_rsub_opt, deltim_int_opt, tracers(itrc)%ref_ratio, tmp)
+         IF (has_flux) THEN
+            write(label,'(A,A,A)') 'patch_trc_delta_rsub_', trim(tracers(itrc)%name), '_range'
+            CALL check_vector_data(label, tmp)
+         ENDIF
+
+         IF (has_flux) THEN
+            write(label,'(A,A)') 'patch_eq_trc_delta_rnof_', trim(tracers(itrc)%name)
+            IF (has_trc) THEN
+               CALL log_aggregate_flux_delta(label, a_trc_rnof(itrc,:), a_rnof_opt, deltim_int_opt, tracers(itrc)%ref_ratio)
+            ELSE
+               CALL log_aggregate_flux_delta(label, empty_pat, empty_pat, deltim_int_opt, tracers(itrc)%ref_ratio)
+            ENDIF
+         ENDIF
+         IF (has_trc .and. has_flux) CALL flux_to_delta_patch(a_trc_rnof(itrc,:), a_rnof_opt, deltim_int_opt, tracers(itrc)%ref_ratio, tmp)
+         IF (has_flux) THEN
+            write(label,'(A,A,A)') 'patch_trc_delta_rnof_', trim(tracers(itrc)%name), '_range'
+            CALL check_vector_data(label, tmp)
+         ENDIF
+
+         IF (has_flux) THEN
+            write(label,'(A,A)') 'patch_eq_trc_delta_qinfl_', trim(tracers(itrc)%name)
+            IF (has_trc) THEN
+               CALL log_aggregate_flux_delta(label, a_trc_qinfl(itrc,:), a_qinfl_opt, deltim_int_opt, &
+                                             tracers(itrc)%ref_ratio, water_min = 1.0_r8)
+            ELSE
+               CALL log_aggregate_flux_delta(label, empty_pat, empty_pat, deltim_int_opt, &
+                                             tracers(itrc)%ref_ratio, water_min = 1.0_r8)
+            ENDIF
+         ENDIF
+         IF (has_trc .and. has_flux) CALL flux_to_delta_patch(a_trc_qinfl(itrc,:), a_qinfl_opt, deltim_int_opt, &
+                                                              tracers(itrc)%ref_ratio, tmp, water_mass_min_override = 1.0_r8)
+         IF (has_flux) THEN
+            write(label,'(A,A,A)') 'patch_trc_delta_qinfl_', trim(tracers(itrc)%name), '_range'
+            CALL check_vector_data(label, tmp)
+         ENDIF
+
+         IF (has_flux) THEN
+            write(label,'(A,A)') 'patch_eq_trc_delta_qcharge_', trim(tracers(itrc)%name)
+            IF (has_trc) THEN
+               CALL log_aggregate_flux_delta(label, a_trc_qcharge(itrc,:), a_qcharge_opt, deltim_int_opt, &
+                                             tracers(itrc)%ref_ratio, signed_in = .true.)
+            ELSE
+               CALL log_aggregate_flux_delta(label, empty_pat, empty_pat, deltim_int_opt, &
+                                             tracers(itrc)%ref_ratio, signed_in = .true.)
+            ENDIF
+         ENDIF
+         IF (has_trc .and. has_flux) CALL signed_flux_to_delta_patch(a_trc_qcharge(itrc,:), a_qcharge_opt, deltim_int_opt, tracers(itrc)%ref_ratio, tmp)
+         IF (has_flux) THEN
+            write(label,'(A,A,A)') 'patch_trc_delta_qcharge_', trim(tracers(itrc)%name), '_range'
+            CALL check_vector_data(label, tmp)
+         ENDIF
+      ENDDO
+
+      deallocate(tmp)
+      deallocate(empty_pat)
+
+   END SUBROUTINE check_tracer_delta_land
+
+   SUBROUTINE state_to_delta_patch (trc_mass, water, ref_ratio, delta, water_min_override)
+
+   USE MOD_Vars_Global, only: spval
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_tiny, trc_water_min_for_delta, trc_delta_sanity_max
+#endif
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: trc_mass(:), water(:), ref_ratio
+   real(r8), allocatable, intent(inout) :: delta(:)
+   ! Pool-specific minimum |water| for delta computation. Defaults to
+   ! trc_water_min_for_delta (1 μm ≈ FP dust in canopy pools). Pools
+   ! whose physical scale is much larger (aquifer `wa` is ~100–1000 mm
+   ! when meaningful) should pass a stricter cutoff so pool-ratio
+   ! redistribution artefacts near |pool|≈0 don't leak into δ display.
+   ! Example: wetland merge writes trc_wa = wa*pool_ratio; when wa
+   ! shrinks to 0.01 mm in a recovery step, |trc_wa/wa| amplifies any
+   ! FP noise in pool_ratio into 1000‰+ spikes.
+   real(r8), intent(in), optional :: water_min_override
+   integer :: i
+   real(r8) :: water_min
+
+      IF (.not. allocated(delta)) RETURN
+      delta = spval
+      water_min = trc_water_min_for_delta
+      IF (present(water_min_override)) water_min = water_min_override
+      DO i = 1, size(delta)
+         ! abs(water) guard so aquifer-debt patches (wa<0, after a wetland
+         ! deficit) still produce a visible delta. trc_delta_sanity_max catches
+         ! residual tracer/water sign-mismatch cases that slip through
+         ! (e.g. trc_wa retained a large magnitude while wa shrank
+         ! mid-step) — those would otherwise poison the min/max range
+         ! with ±10^4-10^10 permil spikes.
+         IF (water(i) /= spval .and. abs(water(i)) > trc_tiny .and. abs(water(i)) > water_min) THEN
+            delta(i) = mass_to_delta(trc_mass(i), water(i), ref_ratio)
+            IF (delta(i) /= spval .and. abs(delta(i)) > trc_delta_sanity_max) THEN
+               delta(i) = spval
+            ENDIF
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE state_to_delta_patch
+
+   SUBROUTINE flux_to_delta_patch (trc_flux, water, deltim_int_in, ref_ratio, delta, water_mass_min_override)
+
+   USE MOD_Vars_Global, only: spval
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_water_min_for_delta, trc_delta_sanity_max
+#endif
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: trc_flux(:), water(:), ref_ratio
+   integer,  intent(in) :: deltim_int_in
+   real(r8), allocatable, intent(inout) :: delta(:)
+   real(r8), intent(in), optional :: water_mass_min_override
+   integer :: i
+   real(r8) :: water_mass, water_mass_min
+
+      IF (.not. allocated(delta)) RETURN
+      delta = spval
+      water_mass_min = trc_water_min_for_delta
+      IF (present(water_mass_min_override)) water_mass_min = water_mass_min_override
+      DO i = 1, size(delta)
+         IF (water(i) /= spval) THEN
+            water_mass = water(i) * real(deltim_int_in, r8)
+            IF (water_mass > water_mass_min) THEN
+               delta(i) = mass_to_delta(trc_flux(i), water_mass, ref_ratio)
+               IF (delta(i) /= spval .and. abs(delta(i)) > trc_delta_sanity_max) THEN
+                  delta(i) = spval
+               ENDIF
+            ENDIF
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE flux_to_delta_patch
+
+   SUBROUTINE signed_flux_to_delta_patch (trc_flux, water, deltim_int_in, ref_ratio, delta)
+
+   USE MOD_Vars_Global, only: spval
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_tiny, trc_water_min_for_delta, trc_delta_sanity_max
+#endif
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: trc_flux(:), water(:), ref_ratio
+   integer,  intent(in) :: deltim_int_in
+   real(r8), allocatable, intent(inout) :: delta(:)
+   integer :: i
+   real(r8) :: water_mass
+
+      IF (.not. allocated(delta)) RETURN
+      delta = spval
+      DO i = 1, size(delta)
+         IF (water(i) /= spval) THEN
+            water_mass = water(i) * real(deltim_int_in, r8)
+            ! Signed fluxes such as upward qcharge can carry negative water
+            ! and tracer mass consistently. Only feed mass_to_delta when the
+            ! magnitudes are meaningful and the signs agree; otherwise leave
+            ! spval to avoid R_sample<0 warnings from mixed-sign residuals.
+            IF (abs(water_mass) > trc_water_min_for_delta) THEN
+               IF (abs(trc_flux(i)) <= trc_tiny .or. trc_flux(i) * water_mass > 0._r8) THEN
+                  delta(i) = mass_to_delta(trc_flux(i), water_mass, ref_ratio)
+                  IF (delta(i) /= spval .and. abs(delta(i)) > trc_delta_sanity_max) THEN
+                     delta(i) = spval
+                  ENDIF
+               ENDIF
+            ENDIF
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE signed_flux_to_delta_patch
+
+   SUBROUTINE soil_layer_to_delta_patch (itrc, jlayer, ref_ratio, delta)
+
+   USE MOD_Vars_Global, only: spval
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_water_min_for_delta, trc_delta_sanity_max
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
+#endif
+
+   IMPLICIT NONE
+
+   integer, intent(in) :: itrc, jlayer
+   real(r8), intent(in) :: ref_ratio
+   real(r8), allocatable, intent(inout) :: delta(:)
+   integer :: i
+   real(r8) :: water_mass, trc_mass
+
+      IF (.not. allocated(delta)) RETURN
+      delta = spval
+      DO i = 1, size(delta)
+         water_mass = wliq_soisno(jlayer, i) + wice_soisno(jlayer, i)
+         trc_mass = trc_wliq_soisno(itrc, jlayer, i) + trc_wice_soisno(itrc, jlayer, i)
+         IF (water_mass > trc_water_min_for_delta) THEN
+            delta(i) = mass_to_delta(trc_mass, water_mass, ref_ratio)
+            IF (delta(i) /= spval .and. abs(delta(i)) > trc_delta_sanity_max) THEN
+               delta(i) = spval
+            ENDIF
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE soil_layer_to_delta_patch
+
+   SUBROUTINE snowpack_to_delta_patch (itrc, ref_ratio, delta)
+
+   USE MOD_Vars_Global, only: spval, maxsnl
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_water_min_for_delta, trc_delta_sanity_max
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
+#endif
+
+   IMPLICIT NONE
+
+   integer, intent(in) :: itrc
+   real(r8), intent(in) :: ref_ratio
+   real(r8), allocatable, intent(inout) :: delta(:)
+   integer :: i, j
+   real(r8) :: water_mass, trc_mass
+
+      IF (.not. allocated(delta)) RETURN
+      delta = spval
+      IF (maxsnl >= 0) RETURN
+
+      DO i = 1, size(delta)
+         water_mass = 0._r8
+         trc_mass = 0._r8
+         DO j = maxsnl + 1, 0
+            water_mass = water_mass + wliq_soisno(j, i) + wice_soisno(j, i)
+            trc_mass = trc_mass + trc_wliq_soisno(itrc, j, i) + trc_wice_soisno(itrc, j, i)
+         ENDDO
+         IF (water_mass > trc_water_min_for_delta) THEN
+            delta(i) = mass_to_delta(trc_mass, water_mass, ref_ratio)
+            IF (delta(i) /= spval .and. abs(delta(i)) > trc_delta_sanity_max) THEN
+               delta(i) = spval
+            ENDIF
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE snowpack_to_delta_patch
+
+   ! ----------------------------------------------------------------
+   ! Patch-equal aggregate-delta diagnostics. The *_to_delta_patch
+   ! helpers above compute per-patch δ -- useful for spotting one
+   ! broken patch (sign mismatch, FP-blown ratio at low water) but
+   ! their min/max range cannot be read as the formal pool δ. The
+   ! sum-then-divide invariant in MOD_Tracer_Defs.F90:30-41 says
+   ! the formal δ is mass_to_delta(sum(trc_mass), sum(water)).
+   !
+   ! IMPORTANT: the patch-level state/flux variables here (ldew,
+   ! wdsrf, wliq_soisno, ...) are area densities (kg/m^2), not
+   ! gridcell totals. Summing them over patches without an area
+   ! weight gives a *patch-equal* aggregate -- every patch
+   ! contributes equally regardless of its area share. This is
+   ! still useful as a quick "what is the unweighted δ across all
+   ! the patches the run actually touched" check, but it is NOT
+   ! the formal domain-area-weighted δ. For that, read
+   ! f_trc_delta_*/f_trc_conc_* in the history file -- those go
+   ! through pset2grid which applies the proper areapart weights.
+   !
+   ! The labels emitted here are deliberately prefixed
+   ! 'patch_eq_trc_delta_*' so log readers cannot confuse them
+   ! with the formal area-weighted aggregate in the history file.
+   ! ----------------------------------------------------------------
+
+   SUBROUTINE log_aggregate_delta (label, trc_mass_pat, water_pat, ref_ratio, water_min)
+
+   USE MOD_Vars_Global, only: spval
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: mass_to_delta, trc_water_min_for_delta, trc_delta_sanity_max
+#endif
+   USE MOD_SPMD_Task, only: p_is_worker, p_iam_worker
+#ifdef USEMPI
+   USE MOD_SPMD_Task, only: p_comm_worker, p_err
+#endif
+   IMPLICIT NONE
+#ifdef USEMPI
+   include 'mpif.h'
+#endif
+
+   character(len=*), intent(in) :: label
+   real(r8), intent(in) :: trc_mass_pat(:), water_pat(:), ref_ratio
+   real(r8), intent(in), optional :: water_min
+
+   real(r8) :: water_th
+   real(r8) :: local_pair(2), global_pair(2)
+   real(r8) :: agg_delta
+   integer  :: i
+   logical  :: print_me
+
+      water_th = trc_water_min_for_delta
+      IF (present(water_min)) water_th = water_min
+
+      local_pair = 0._r8
+      DO i = 1, size(trc_mass_pat)
+         ! Skip patches missing either side: trc==spval (e.g. dry
+         ! patch where the upstream flagged the tracer slot) must
+         ! not contribute its corresponding water_pat amount, or
+         ! the aggregate denominator overstates valid water and
+         ! pulls δ toward zero. Mirrors the (water_acc>min .and.
+         ! tracer_mass_acc/=spval) gate in
+         ! write_history_tracer_delta_2d.
+         IF (water_pat(i) /= spval .and. trc_mass_pat(i) /= spval .and. &
+             abs(water_pat(i)) > water_th) THEN
+            local_pair(1) = local_pair(1) + trc_mass_pat(i)
+            local_pair(2) = local_pair(2) + water_pat(i)
+         ENDIF
+      ENDDO
+
+#ifdef USEMPI
+      global_pair = local_pair
+      IF (p_is_worker) THEN
+         CALL mpi_reduce(local_pair, global_pair, 2, MPI_REAL8, MPI_SUM, &
+                         0, p_comm_worker, p_err)
+      ENDIF
+      print_me = (p_is_worker .and. p_iam_worker == 0)
+#else
+      global_pair = local_pair
+      print_me = .true.
+#endif
+
+      IF (print_me) THEN
+         IF (abs(global_pair(2)) > water_th) THEN
+            agg_delta = mass_to_delta(global_pair(1), global_pair(2), ref_ratio)
+            IF (agg_delta /= spval .and. abs(agg_delta) > trc_delta_sanity_max) THEN
+               agg_delta = spval
+            ENDIF
+         ELSE
+            agg_delta = spval
+         ENDIF
+         IF (agg_delta /= spval) THEN
+            write(*,"('Patch-eq sum:', A32, ' = ', e20.10)") label, agg_delta
+         ELSE
+            write(*,"('Patch-eq sum:', A32, ' = ', A20)") label, '       (skipped)'
+         ENDIF
+      ENDIF
+
+   END SUBROUTINE log_aggregate_delta
+
+   SUBROUTINE log_aggregate_flux_delta (label, trc_flux_pat, water_rate_pat, &
+                                        deltim_int_in, ref_ratio, water_min, signed_in)
+
+   USE MOD_Vars_Global, only: spval
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: trc_water_min_for_delta, trc_tiny
+#endif
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: label
+   real(r8), intent(in) :: trc_flux_pat(:), water_rate_pat(:), ref_ratio
+   integer,  intent(in) :: deltim_int_in
+   real(r8), intent(in), optional :: water_min
+   logical,  intent(in), optional :: signed_in
+
+   real(r8), allocatable :: trc_mass_pat(:), water_pat(:)
+   real(r8) :: water_th, water_mass
+   integer  :: i, n
+   logical  :: signed_flux
+
+      water_th = trc_water_min_for_delta
+      IF (present(water_min)) water_th = water_min
+      signed_flux = .false.
+      IF (present(signed_in)) signed_flux = signed_in
+
+      n = size(trc_flux_pat)
+      allocate(trc_mass_pat(n), water_pat(n))
+      ! Convert rate -> mass over the diagnostic window. spval-out a
+      ! patch when its sign-paired flux/water disagree (signed_flux
+      ! mode) so a residual mixed-sign cell does not poison the sum;
+      ! mirrors signed_flux_to_delta_patch's per-patch guard but at
+      ! the aggregator input stage. Use trc_tiny rather than zero
+      ! when checking "tracer flux is essentially zero": a 1e-30
+      ! residual can still flip the sign-product test and would
+      ! otherwise trigger a spurious mass_to_delta on noise.
+      DO i = 1, n
+         IF (water_rate_pat(i) == spval) THEN
+            trc_mass_pat(i) = 0._r8
+            water_pat(i)    = spval
+            CYCLE
+         ENDIF
+         water_mass = water_rate_pat(i) * real(deltim_int_in, r8)
+         IF (signed_flux) THEN
+            IF (abs(water_mass) > water_th .and. &
+                (abs(trc_flux_pat(i)) <= trc_tiny .or. trc_flux_pat(i) * water_mass > 0._r8)) THEN
+               trc_mass_pat(i) = trc_flux_pat(i)
+               water_pat(i)    = water_mass
+            ELSE
+               trc_mass_pat(i) = 0._r8
+               water_pat(i)    = spval
+            ENDIF
+         ELSE
+            IF (water_mass > water_th) THEN
+               trc_mass_pat(i) = trc_flux_pat(i)
+               water_pat(i)    = water_mass
+            ELSE
+               trc_mass_pat(i) = 0._r8
+               water_pat(i)    = spval
+            ENDIF
+         ENDIF
+      ENDDO
+
+      CALL log_aggregate_delta(label, trc_mass_pat, water_pat, ref_ratio, water_th)
+
+      deallocate(trc_mass_pat, water_pat)
+
+   END SUBROUTINE log_aggregate_flux_delta
+
+   SUBROUTINE log_aggregate_soil_layer_delta (label, itrc, jlayer, ref_ratio)
+
+   USE MOD_Vars_Global, only: spval
+   USE MOD_LandPatch, only: numpatch
+   USE MOD_SPMD_Task, only: p_is_worker
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
+#endif
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: label
+   integer,  intent(in) :: itrc, jlayer
+   real(r8), intent(in) :: ref_ratio
+
+   real(r8), allocatable :: trc_mass_pat(:), water_pat(:)
+   integer :: i, n
+
+      n = 0
+      IF (p_is_worker) n = numpatch
+      allocate(trc_mass_pat(n), water_pat(n))
+      DO i = 1, n
+         water_pat(i)    = wliq_soisno(jlayer, i) + wice_soisno(jlayer, i)
+         trc_mass_pat(i) = trc_wliq_soisno(itrc, jlayer, i) + trc_wice_soisno(itrc, jlayer, i)
+      ENDDO
+
+      CALL log_aggregate_delta(label, trc_mass_pat, water_pat, ref_ratio)
+
+      deallocate(trc_mass_pat, water_pat)
+
+   END SUBROUTINE log_aggregate_soil_layer_delta
+
+   SUBROUTINE log_aggregate_snowpack_delta (label, itrc, ref_ratio)
+
+   USE MOD_Vars_Global, only: spval, maxsnl
+   USE MOD_LandPatch, only: numpatch
+   USE MOD_SPMD_Task, only: p_is_worker
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
+#endif
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: label
+   integer,  intent(in) :: itrc
+   real(r8), intent(in) :: ref_ratio
+
+   real(r8), allocatable :: trc_mass_pat(:), water_pat(:)
+   integer :: i, j, n
+
+      IF (maxsnl >= 0) RETURN
+
+      n = 0
+      IF (p_is_worker) n = numpatch
+      allocate(trc_mass_pat(n), water_pat(n))
+      DO i = 1, n
+         water_pat(i)    = 0._r8
+         trc_mass_pat(i) = 0._r8
+         DO j = maxsnl + 1, 0
+            water_pat(i)    = water_pat(i)    + wliq_soisno(j, i)        + wice_soisno(j, i)
+            trc_mass_pat(i) = trc_mass_pat(i) + trc_wliq_soisno(itrc, j, i) + trc_wice_soisno(itrc, j, i)
+         ENDDO
+      ENDDO
+
+      CALL log_aggregate_delta(label, trc_mass_pat, water_pat, ref_ratio)
+
+      deallocate(trc_mass_pat, water_pat)
+
+   END SUBROUTINE log_aggregate_snowpack_delta
+#endif
 #endif
 
 

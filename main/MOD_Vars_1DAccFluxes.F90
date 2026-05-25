@@ -11,6 +11,10 @@ MODULE MOD_Vars_1DAccFluxes
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_1DAccVars
 #endif
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Methane_AccFlux,  only: flush_methane_acc_fluxes, accumulate_methane_fluxes
+#endif
 
    real(r8) :: nac ! number of accumulation
    real(r8), allocatable :: nac_ln      (:)
@@ -1966,6 +1970,10 @@ CONTAINS
       CALL Flush_LakeAccVars
 #endif
 
+#if (defined TRACER) && (defined BGC)
+      IF (igas_ch4 > 0) CALL flush_methane_acc_fluxes ()
+#endif
+
    END SUBROUTINE FLUSH_acc_fluxes
 
    SUBROUTINE accumulate_fluxes
@@ -2873,6 +2881,10 @@ CONTAINS
 
 #ifdef EXTERNAL_LAKE
       CALL accumulate_LakeTimeVars
+#endif
+
+#if (defined TRACER) && (defined BGC)
+      IF (igas_ch4 > 0) CALL accumulate_methane_fluxes ()
 #endif
 
    END SUBROUTINE accumulate_fluxes

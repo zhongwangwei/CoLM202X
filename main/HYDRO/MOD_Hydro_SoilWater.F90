@@ -164,7 +164,8 @@ CONTAINS
          vl_r,       psi_s,      hksat,  nprm,     prms,          porsl_wa, &
          qgtop,      etr,        rootr,  rootflux, rsubst,        qinfl,    &
          ss_dp,      zwt,        wa,     ss_vliq,  smp,           hk,       &
-         qlayer,     tolerance,  wblc)
+         qlayer,     etroot_out, etroot_actual_out, etroot_aquifer_out,     &
+         tolerance,  wblc)
 
    !=======================================================================
    ! this is the main subroutine to execute the calculation of
@@ -213,6 +214,29 @@ CONTAINS
 
    real(r8), intent(out) :: qlayer(0:nlev) ! water flux at interface of soil layers (mm/s)
 
+   ! Per-layer transpiration demand actually applied to ss_vliq (mm/s). This is
+   ! the local `etroot` used at L296 to reduce ss_vliq before Richards_solver,
+   ! exposed so the tracer path can subtract the matching tracer mass. Note
+   ! that this is the DEMAND; the deficit-shift cascade below can move
+   ! unfulfilled uptake between layers — use etroot_actual_out for the
+   ! cascade-aware accounting.
+   real(r8), intent(out) :: etroot_out(1:nlev)
+
+   ! Per-layer transpiration water actually removed from ss_vliq (mm, not
+   ! mm/s). Captures the full deficit cascade: a layer that starts dry
+   ! reports 0 here while the shortfall is re-issued to a deeper layer
+   ! (or absorbed by the aquifer via etroot_aquifer_out). Tracer path
+   ! uses this to pull the matching trc_wliq from the layer that actually
+   ! gave up the water, instead of the layer that just demanded it.
+   real(r8), intent(out) :: etroot_actual_out(1:nlev)
+
+   ! Transpiration water absorbed by the aquifer to close the total ET
+   ! mass balance (mm). Corresponds to the `deficit` remainder passed
+   ! into soilwater_aquifer_exchange below. Tracer path subtracts the
+   ! matching trc_wa mass at the aquifer ratio so deep ET does not
+   ! silently leave its tracer behind in the aquifer pool.
+   real(r8), intent(out) :: etroot_aquifer_out
+
    real(r8), intent(in)  :: tolerance
 
    real(r8), intent(out) :: wblc
@@ -220,6 +244,7 @@ CONTAINS
    ! Local variables
    integer  :: lb, ub, ilev, izwt
    real(r8) :: sumroot, deficit, etrdef, wexchange
+   real(r8) :: attempted, ss_vliq_pre, residual_mm
    real(r8) :: dp_m1, psi, vliq, zwtp, air
    logical  :: is_sat
 
@@ -287,23 +312,44 @@ CONTAINS
          etroot(:) = rootflux
       ENDIF
 
+      ! Expose per-layer transpiration demand for downstream tracer accounting.
+      etroot_out(1:nlev) = etroot(1:nlev)
+      etroot_actual_out(1:nlev) = 0._r8
+      etroot_aquifer_out        = 0._r8
+
       deficit = etrdef
 
       DO ilev = 1, izwt-1
          IF (is_permeable(ilev)) THEN
 
-            ss_vliq(ilev) = (ss_vliq(ilev) * sp_dz(ilev) &
-               - etroot(ilev)*dt - deficit) / sp_dz(ilev)
+            ! Track the cascade-aware actual removal for tracer bookkeeping:
+            !   attempted = etroot(ilev)*dt + incoming deficit
+            !   ss_vliq_pre = ss_vliq(ilev)*sp_dz(ilev)   (mm of water available)
+            ! If the layer saturates the demand, actual = attempted; if it
+            ! runs dry, only the water that was there leaves and the
+            ! shortfall becomes the next layer's deficit; if it overfills
+            ! (rare: upstream pushed back excess), the excess slides down
+            ! and the positive portion of attempted counts as ET leaving
+            ! this layer (negative portion represents water arriving, not
+            ! ET — ignore for tracer).
+               attempted   = etroot(ilev)*dt + deficit
+               ss_vliq_pre = ss_vliq(ilev) * sp_dz(ilev)
 
-            IF (ss_vliq(ilev) < 0) THEN
-               deficit = ( - ss_vliq(ilev)) * sp_dz(ilev)
-               ss_vliq(ilev) = 0
-            ELSEIF (ss_vliq(ilev) > porsl(ilev)) THEN
-               deficit = - (ss_vliq(ilev) - porsl(ilev)) * sp_dz(ilev)
-               ss_vliq(ilev) = porsl(ilev)
-            ELSE
-               deficit = 0.
-            ENDIF
+               ss_vliq(ilev) = (ss_vliq_pre - attempted) / sp_dz(ilev)
+
+               IF (ss_vliq(ilev) < 0) THEN
+                  residual_mm  = -ss_vliq(ilev) * sp_dz(ilev)
+                  etroot_actual_out(ilev) = max(ss_vliq_pre, 0._r8)
+                  deficit = residual_mm
+                  ss_vliq(ilev) = 0
+               ELSEIF (ss_vliq(ilev) > porsl(ilev)) THEN
+                  etroot_actual_out(ilev) = max(attempted, 0._r8)
+                  deficit = -(ss_vliq(ilev) - porsl(ilev)) * sp_dz(ilev)
+                  ss_vliq(ilev) = porsl(ilev)
+               ELSE
+                  etroot_actual_out(ilev) = max(attempted, 0._r8)
+                  deficit = 0.
+               ENDIF
          ELSE
             deficit = deficit + etroot(ilev)*dt
          ENDIF
@@ -312,6 +358,11 @@ CONTAINS
       DO ilev = izwt, nlev
          deficit = deficit + etroot(ilev)*dt
       ENDDO
+
+      ! Remaining deficit is absorbed by the aquifer alongside rsubst.
+      ! Expose the ET-only share so the tracer path can remove the matching
+      ! trc_wa mass (rsubst tracer is handled separately in tracer_soil_water).
+      etroot_aquifer_out = max(deficit, 0._r8)
 
       ! Exchange water with aquifer
       wexchange = rsubst * dt + deficit
@@ -2213,7 +2264,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, ubc_val, psi_s(ub), qlc, &
-                  flux_btm = 0.0)
+                  flux_btm = 0._r8)
             ENDIF
          ENDIF
 
@@ -2225,7 +2276,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, wdsrf, psi_s(ub), qlc, &
-                  flux_btm = 0.0)
+                  flux_btm = 0._r8)
             ENDIF
 
          ENDIF
@@ -2239,7 +2290,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, psi_s(lb), psi_s(ub), qlc, &
-                  flux_top = ubc_val, flux_btm = 0.0)
+                  flux_top = ubc_val, flux_btm = 0._r8)
             ENDIF
          ENDIF
       ENDIF
@@ -2336,7 +2387,7 @@ CONTAINS
                   dz_us_top, psi_us(i_stt), hk_us(i_stt), &
                   nlev_sat, dz_sat, psi_sat, hk_sat, psi_s(ub), &
                   qq_wt(i_stt), qlc, tol_q, tol_z, tol_p, &
-                  flux_btm = 0.0)
+                  flux_btm = 0._r8)
             ENDIF
 
          ENDSELECT
@@ -2390,7 +2441,7 @@ CONTAINS
             ELSE
                CALL flux_sat_zone_fixed_bc (nlev_sat, &
                   dz_sat, psi_sat, hk_sat, psi_s(i_stt), psi_s(ub), &
-                  qlc, flux_btm = 0.0)
+                  qlc, flux_btm = 0._r8)
             ENDIF
 
          ENDSELECT

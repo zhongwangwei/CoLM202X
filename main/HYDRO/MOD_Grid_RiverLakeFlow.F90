@@ -1003,7 +1003,8 @@ CONTAINS
                   ELSE
                      dt_after_sync = 0._r8
                   ENDIF
-                  IF (abs(dt_after_sync - dt_before_sync) > max(1.e-9_r8, 1.e-12_r8 * max(abs(dt_before_sync), abs(dt_after_sync)))) THEN
+                  IF (abs(dt_after_sync - dt_before_sync) > &
+                      max(1.e-9_r8, 1.e-12_r8 * max(abs(dt_before_sync), abs(dt_after_sync)))) THEN
                      dt_changed = .true.
                   ENDIF
                   IF (.not. dt_changed) EXIT

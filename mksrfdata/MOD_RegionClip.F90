@@ -338,7 +338,26 @@ CONTAINS
                ! soil
                CALL system('mkdir -p ' // trim(dir_landdata_out) // '/soil')
 
-               file_in  = trim(dir_landdata_in)  // '/soil/soil_s_v_alb_patches.nc'
+               ! Per-patch soil products written by Aggregation_LakeSoilC /
+               ! Aggregation_MethanePH live under soil/<lc_year>/ (see
+               ! mksrfdata/Aggregation_LakeSoilC.F90:159 and
+               ! mksrfdata/Aggregation_MethanePH.F90:139); the runtime reader in
+               ! main/TRACER/MOD_Tracer_Methane_pH.F90 expects the same layout.
+               ! Without the lc_year subdir the clipped landdata silently loses
+               ! these files and the runtime falls back to default pH /
+               ! lake_soilc.
+               write(cyear,'(i4.4)') DEF_LC_YEAR
+               CALL system('mkdir -p ' // trim(dir_landdata_out) // '/soil/' // trim(cyear))
+
+	               file_in  = trim(dir_landdata_in)  // '/soil/' // trim(cyear) // '/lake_soilc_patches.nc'
+	               file_out = trim(dir_landdata_out) // '/soil/' // trim(cyear) // '/lake_soilc_patches.nc'
+	               CALL clip_vector (file_in, file_out, iblk, jblk, 'lake_soilc_patches', patchmask)
+
+	               file_in  = trim(dir_landdata_in)  // '/soil/' // trim(cyear) // '/methane_ph_patches.nc'
+	               file_out = trim(dir_landdata_out) // '/soil/' // trim(cyear) // '/methane_ph_patches.nc'
+	               CALL clip_vector (file_in, file_out, iblk, jblk, 'methane_ph_patches', patchmask)
+
+	               file_in  = trim(dir_landdata_in)  // '/soil/soil_s_v_alb_patches.nc'
                file_out = trim(dir_landdata_out) // '/soil/soil_s_v_alb_patches.nc'
                CALL clip_vector (file_in, file_out, iblk, jblk, 'soil_s_v_alb', patchmask)
 
