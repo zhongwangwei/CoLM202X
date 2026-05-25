@@ -678,6 +678,12 @@
         qsatl                 ,&! leaf specific humidity [kg/kg]
         qsatldT                 ! derivative of "qsatl" on "tlef"
 
+   ! Extra LEAF_interception_CoLM2014 outputs are unused by URBAN.
+   real(r8) :: gross_intr_rain_u, gross_intr_snow_u
+   real(r8) :: xsc_rain_out_u,    xsc_snow_out_u
+   real(r8) :: ldew_smelt_out_u,  ldew_frzc_out_u
+   real(r8) :: canopy_phase_heat_out_u
+
    integer :: &
         snlr                  ,&! number of snow layers
         snli                  ,&! number of snow layers
@@ -882,7 +888,11 @@
       CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tref,tleaf,&
                               prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                               ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pgper_rain,pgper_snow,&
-                              qintr,qintr_rain,qintr_snow)
+                              qintr,qintr_rain,qintr_snow,&
+                              gross_intr_rain_u,gross_intr_snow_u,&
+                              xsc_rain_out_u,xsc_snow_out_u,&
+                              ldew_smelt_out_u,ldew_frzc_out_u,&
+                              canopy_phase_heat_out_u)
 
       ! for output, patch scale
       qintr = qintr * fveg * (1-flake)

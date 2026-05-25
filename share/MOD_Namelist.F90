@@ -237,7 +237,8 @@ MODULE MOD_Namelist
 ! ----- Part 11: parameterization schemes -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   integer :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES
+   integer :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES; 8:CoLM202x
+   real(r8) :: DEF_MATSIRO_CWCAP_SCALE = 1.0_r8
 
    ! ----- SOIL parameters and supercool water setting ------
    integer :: DEF_THERMAL_CONDUCTIVITY_SCHEME = 4  ! Options for soil thermal conductivity schemes
@@ -1091,6 +1092,7 @@ CONTAINS
       DEF_LAI_MONTHLY,                        & !add by zhongwang wei @ sysu 2021/12/23
       DEF_NDEP_FREQUENCY,                     & !add by Fang Shang    @ pku  2023/08
       DEF_Interception_scheme,                & !add by zhongwang wei @ sysu 2022/05/23
+      DEF_MATSIRO_CWCAP_SCALE,               &
       DEF_SSP,                                & !add by zhongwang wei @ sysu 2023/02/07
 
       DEF_LAI_START_YEAR,                     &
@@ -1739,6 +1741,7 @@ CONTAINS
       CALL mpi_bcast (DEF_LAI_MONTHLY                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_NDEP_FREQUENCY                     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Interception_scheme                ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MATSIRO_CWCAP_SCALE               ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SSP                                ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_CBL_HEIGHT                     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
