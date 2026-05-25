@@ -270,30 +270,17 @@ CONTAINS
    real(r8), intent(in) :: &
        sabg_snow_lyr(lb:1)        ! snow layer absorption
 
-   ! Canopy rain<->snow fusion heat flux exported by LEAF_INTERCEPTION
-   ! [W/m^2; +heats canopy, -cools canopy]. Scheme 4/5/6/7 perform the
-   ! canopy phase change inside interception (ROLLBACK NM-1-v2 design);
-   ! without this term the canopy energy balance would omit the fusion
-   ! heat, tleaf would bias warm, and Ec/ET would be systematically too
-   ! high. Schemes 1/2/3/8 report 0 here and let LeafTemperature's own
-   ! qmelt/qfrz block (gated by DEF_VEG_SNOW) handle phase change.
+   ! Canopy rain<->snow fusion heat from LEAF_INTERCEPTION [W/m2].
    real(r8), intent(in) :: &
        canopy_phase_heat          ! canopy fusion heat flux [W/m^2]
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    real(r8), intent(in) :: canopy_phase_heat_p(:)
 #endif
 
-   ! Optional patch-level canopy phase-change MASS exports [mm water-equivalent
-   ! over deltim]. Sourced from LeafTemperature (non-PC) directly, or from
-   ! per-PFT LeafTemperaturePC values aggregated by pftfrac. Forwarded to
-   ! MOD_Tracer_Evapo so it can attribute canopy melt / freeze tracer mass
-   ! without falling back on the d_rain/d_snow sign-pattern heuristic.
+   ! Optional canopy phase-change mass exports for TRACER [mm].
    real(r8), intent(out), optional :: canopy_smelt_mass_th, canopy_frzc_mass_th
 
-   ! Per-layer phase-change mass exports from GroundTemperature/meltf,
-   ! forwarded into MOD_Tracer_Evapo. Replaces the d_wice/d_wliq net-change
-   ! heuristic in CoLMMAIN that conflates phase change with sublimation/dew
-   ! on the snow surface layer.
+   ! Optional soil/snow phase-change mass exports for TRACER [mm].
    real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil)
    real(r8), intent(out), optional :: qphs_frzc_lay_th(lb:nl_soil)
 
@@ -512,11 +499,6 @@ CONTAINS
    real(r8), allocatable :: lfevpl_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
    real(r8), allocatable :: canopy_phase_heat_p_local(:)
-   ! Per-PFT canopy phase-change mass buffers and patch-level aggregates.
-   ! The PC LeafTemperaturePC variant fills the per-PFT slots; the non-PC
-   ! LeafTemperature path on PFT-tile patches fills one slot at a time.
-   ! Both paths are aggregated via pftfrac and surfaced through the optional
-   ! output args canopy_smelt_mass_th / canopy_frzc_mass_th.
    real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:)
    real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local
 
@@ -529,8 +511,7 @@ CONTAINS
       emg = 0.96
       IF (scv>0. .or. patchtype==3) emg = 0.97
 
-      ! Zero canopy phase-change accumulators up front so a non-vegetated
-      ! branch (no LeafTemperature call) returns 0.
+      ! Defaults for branches without LeafTemperature calls.
       canopy_smelt_mass_local = 0._r8
       canopy_frzc_mass_local  = 0._r8
 
@@ -1123,9 +1104,7 @@ ENDIF
       tleaf         = sum( tleaf_p     (ps:pe)*pftfrac(ps:pe) )
       ldew_rain     = sum( ldew_rain_p (ps:pe)*pftfrac(ps:pe) )
       ldew_snow     = sum( ldew_snow_p (ps:pe)*pftfrac(ps:pe) )
-      ! Aggregate per-PFT canopy phase-change mass via the same pftfrac
-      ! weighting as ldew_rain / ldew_snow so the patch sum is consistent
-      ! with the bulk pool change MOD_Tracer_Evapo sees.
+      ! Aggregate per-PFT canopy phase-change mass to patch scale.
       canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe) * pftfrac(ps:pe) )
       canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe) * pftfrac(ps:pe) )
       fwet_snow     = sum( fwet_snow_p (ps:pe)*pftfrac(ps:pe) )
@@ -1383,10 +1362,7 @@ ENDIF
 ! total fluxes to atmosphere
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
-      ! Consume the canopy latent-energy term exported by LeafTemperature /
-      ! LeafTemperaturePC directly. The canopy solver may adjust tleaf after
-      ! solving fevpl, so re-inferring hvap vs hsub here from final tleaf can
-      ! misclassify the same flux and break energy closure.
+      ! Use the latent heat term solved by LeafTemperature/LeafTemperaturePC.
       lfevpa = lfevpl + htvp*fevpg
 
 ! ground heat flux
@@ -1445,12 +1421,7 @@ ENDIF
 ! [7] energy balance error
 !=======================================================================
 
-      ! canopy_phase_heat is the fusion heat flux exported by LEAF_interception
-      ! (schemes 4-7) when canopy ice melts or canopy water freezes inside the
-      ! interception routine. It has to appear on the same side as hprl / -dheatl
-      ! in the global energy balance — melt (negative canopy_phase_heat) removes
-      ! energy from the canopy system, freeze (positive) adds it — so the column
-      ! errore stays near zero. Schemes 1/2/3/8 report 0 and the sum is unchanged.
+      ! Include canopy fusion heat exported by LEAF_interception.
       ! one way to check energy balance
       errore = sabv + sabg + frl - olrg - fsena - lfevpa - fgrnd - dheatl + hprl &
              + canopy_phase_heat &
@@ -1475,10 +1446,7 @@ ENDIF
 100   format(10(f15.3))
 #endif
 
-      ! Surface canopy phase-change masses (zeroed above, accumulated by
-      ! LeafTemperature / LeafTemperaturePC) forwarded so the caller can
-      ! pass the actual qmelt*dt and qfrz*dt to tracer_evapo. Non-vegetated
-      ! branches that never call LeafTemperature return 0, matching their physics.
+      ! Forward canopy phase-change masses to the optional TRACER path.
       IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
       IF (present(canopy_frzc_mass_th)) canopy_frzc_mass_th  = canopy_frzc_mass_local
 

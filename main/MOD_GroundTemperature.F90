@@ -34,7 +34,8 @@ CONTAINS
                          t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                          frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                          fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-                         imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip)
+                         imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip, &
+                         qphs_thaw_lay,qphs_frzc_lay)
 
 !=======================================================================
 !  Snow and soil temperatures
@@ -158,6 +159,12 @@ CONTAINS
    integer,  intent(out) :: imelt(lb:nl_soil) !flag for melting or freezing [-]
 
    real(r8), intent(out) :: snofrz(lb:0)      !snow freezing rate (lyr) [kg m-2 s-1]
+
+   ! Per-layer phase-change mass exports forwarded from meltf / meltf_snicar
+   ! into the tracer subsystem. Zero on layers where imelt(j) == 0 or no
+   ! mass actually transferred. See MOD_PhaseChange::meltf for semantics.
+   real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
+   real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
 
 !-------------------------- Local Variables ----------------------------
    real(r8) cv (lb:nl_soil)          !heat capacity [J/(m2 K)]
@@ -416,7 +423,9 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-                  dz_soisno(1:nl_soil))
+                  dz_soisno(1:nl_soil), &
+                  qphs_thaw_lay = qphs_thaw_lay, &
+                  qphs_frzc_lay = qphs_frzc_lay)
 
          ! layer freezing mass flux (positive):
          DO j = lb, 0
@@ -437,7 +446,9 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-                  dz_soisno(1:nl_soil))
+                  dz_soisno(1:nl_soil), &
+                  qphs_thaw_lay = qphs_thaw_lay, &
+                  qphs_frzc_lay = qphs_frzc_lay)
       ENDIF
 
 !-----------------------------------------------------------------------

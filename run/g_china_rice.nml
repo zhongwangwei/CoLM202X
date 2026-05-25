@@ -1,0 +1,94 @@
+&nl_colm
+
+   DEF_CASE_NAME = 'g_china_rice'
+
+   ! ----- China 2-deg domain (lat 18-54, lon 73-135) -----
+   DEF_domain%edges = 18.0
+   DEF_domain%edgen = 54.0
+   DEF_domain%edgew = 73.0
+   DEF_domain%edgee = 135.0
+
+   DEF_nx_blocks = 18
+   DEF_ny_blocks = 9
+   DEF_PIO_groupsize = 15
+
+   ! ----- January 1995 smoke test -----
+   DEF_simulation_time%greenwich     = .TRUE.
+   DEF_simulation_time%start_year    = 1995
+   DEF_simulation_time%start_month   = 1
+   DEF_simulation_time%start_day     = 1
+   DEF_simulation_time%start_sec     = 0
+   DEF_simulation_time%end_year      = 1995
+   DEF_simulation_time%end_month     = 1
+   DEF_simulation_time%end_day       = 31
+   DEF_simulation_time%end_sec       = 86400
+   DEF_simulation_time%spinup_year   = 1940
+   DEF_simulation_time%spinup_month  = 1
+   DEF_simulation_time%spinup_day    = 1
+   DEF_simulation_time%spinup_sec    = 0
+   DEF_simulation_time%spinup_repeat = 0
+
+   DEF_simulation_time%timestep      = 1800.
+
+   DEF_dir_rawdata = '${COLM_RAWDATA}/'
+   DEF_dir_runtime = '${COLM_RUNTIME}/'
+   DEF_dir_output  = '${COLM_CASES}/'
+
+   ! ----- GRIDBASED 2 deg -----
+   DEF_GRIDBASED_lon_res = 2
+   DEF_GRIDBASED_lat_res = 2
+
+   ! ----- soil + CN init -----
+   DEF_USE_SoilInit  = .true.
+   DEF_file_SoilInit = '${COLM_DATA_ROOT}/soilstate/soilstate.nc'
+
+   DEF_USE_CN_INIT   = .true.
+   DEF_file_cn_init  = '${COLM_RUNTIME}/cnsteadystate.nc'
+   DEF_USE_NITRIF    = .true.
+
+   ! ----- LAI -----
+   DEF_LAI_MONTHLY       = .true.
+   DEF_LAI_CHANGE_YEARLY = .false.
+
+   ! ----- Methane: enable rice paddy CH4 (R1) -----
+   DEF_METHANE_enable_rice_paddy  = .true.     ! R1 rice paddy CH4 enabled
+   DEF_METHANE_only_wetland       = .false.    ! allow rice-paddy CH4 on cropland patches
+   DEF_USE_METHANE_para           = .true.
+   DEF_file_METHANE_para          = './standard_ch4_parameter.nml'
+   DEF_TRACER_REACTIVE_PARAM_FILES = 'METHANE:./standard_ch4_parameter.nml'
+   DEF_METHANE_inundation_mode = 'wetwat'
+   DEF_TRACER_REACTIVE_OPTIONS = 'METHANE:inundation_mode=wetwat'
+   ! No spatial pH file generated for China-only mksrf; fall back to neutral 6.2.
+   DEF_USE_SpatialpH              = .false.
+
+   ! ----- Register CH4 reactive tracer -----
+   DEF_TRACER_NUM                 = 1
+   DEF_TRACER_NAMES               = "CH4"
+   DEF_TRACER_TYPES               = "reactive"
+   DEF_TRACER_MRAT                = "16.04"
+   DEF_TRACER_REF_RATIO           = "1.0"
+   DEF_TRACER_INIT_DELTA          = "0.0"
+   DEF_TRACER_REACTIVE_DECAY_RATE = "0.0"
+
+   ! ----- Hydrology -----
+   DEF_USE_VariablySaturatedFlow = .true.
+   DEF_Runoff_SCHEME             = 0
+   DEF_UnitCatchment_file = '${COLM_RUNTIME}/unitcatchment/grid_routing_data_15min.nc'
+
+   ! ----- Forcing (local CRUJRA copy) -----
+   DEF_forcing_namelist = './forcing/CRUJRA_local.nml'
+
+   ! ----- History -----
+   DEF_HIST_lon_res       = 2
+   DEF_HIST_lat_res       = 2
+   DEF_WRST_FREQ          = 'YEARLY'
+   DEF_HIST_FREQ          = 'MONTHLY'
+   DEF_HIST_groupby       = 'YEAR'
+   DEF_HIST_mode          = 'one'
+   DEF_REST_CompressLevel = 1
+   DEF_HIST_CompressLevel = 1
+
+   DEF_HIST_WriteBack         = .false.
+   DEF_hist_vars_out_default  = .true.
+
+/

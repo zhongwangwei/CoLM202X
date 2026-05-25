@@ -190,6 +190,9 @@ MODULE MOD_Vars_TimeInvariants
 
    real(r8), allocatable :: lakedepth      (:)  !lake depth
    real(r8), allocatable :: dz_lake      (:,:)  !new lake scheme
+#if (defined TRACER) && (defined BGC)
+   real(r8), allocatable :: lake_soilc_srf(:,:) !lake sediment organic carbon [gC/m3]
+#endif
 
    real(r8), allocatable :: soil_s_v_alb   (:)  !albedo of visible of the saturated soil
    real(r8), allocatable :: soil_d_v_alb   (:)  !albedo of visible of the dry soil
@@ -327,6 +330,10 @@ CONTAINS
 
             allocate (lakedepth            (numpatch))
             allocate (dz_lake      (nl_lake,numpatch))
+#if (defined TRACER) && (defined BGC)
+            allocate (lake_soilc_srf(nl_soil,numpatch))
+            lake_soilc_srf(:,:) = 0._r8
+#endif
 
             allocate (soil_s_v_alb         (numpatch))
             allocate (soil_d_v_alb         (numpatch))
@@ -853,6 +860,9 @@ CONTAINS
 
             deallocate (lakedepth      )
             deallocate (dz_lake        )
+#if (defined TRACER) && (defined BGC)
+            deallocate (lake_soilc_srf )
+#endif
 
             deallocate (soil_s_v_alb   )
             deallocate (soil_d_v_alb   )

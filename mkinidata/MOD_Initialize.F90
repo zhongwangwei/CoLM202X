@@ -71,6 +71,7 @@ CONTAINS
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
+   USE MOD_Grid_RiverLakeLevee,   only : levee_init
    USE MOD_Grid_Reservoir
 #endif
 #ifdef CROP
@@ -111,6 +112,11 @@ CONTAINS
 
    ! ------------------------ local variables -----------------------------
    real(r8) :: rlon, rlat
+#if (defined TRACER) && (defined BGC)
+   real(r8) :: wetland_tot_c
+   real(r8) :: wetland_existing_c
+   real(r8), parameter :: wetland_cn_ratio = 15._r8
+#endif
 
    ! for SOIL INIT of water, temperature, snow depth
    logical :: use_soilini
@@ -275,6 +281,10 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          CALL reservoir_init ()
       ENDIF
+
+      IF (DEF_USE_LEVEE) THEN
+         CALL levee_init ()
+      ENDIF
 #endif
 
 ! --------------------------------------------------------------------
@@ -365,6 +375,15 @@ ENDIF
 
       CALL soil_parameters_readin (dir_landdata, lc_year)
 
+#if (defined TRACER) && (defined BGC)
+#ifndef SinglePoint
+      write(cyear,'(i4.4)') lc_year
+      lndname = trim(dir_landdata)//'/soil/'//trim(cyear)//'/lake_soilc_patches.nc'
+      CALL ncio_read_vector (lndname, 'lake_soilc_patches', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
+#else
+      IF (p_is_worker .and. numpatch > 0) lake_soilc_srf(:,:) = 0._r8
+#endif
+#endif
 
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
       IF (p_is_worker) THEN
@@ -1007,7 +1026,11 @@ ENDIF
 
             IF (p_is_worker) THEN
                DO i = 1, numpatch
+#ifdef TRACER
+                  IF (patchtype(i) == 0 .or. patchtype(i) == 2)THEN
+#else
                   IF (patchtype(i) == 0)THEN
+#endif
                      ps = patch_pft_s(i)
                      pe = patch_pft_e(i)
                      DO nsl = 1, nl_soil
@@ -1030,6 +1053,47 @@ ENDIF
                         sminn_vr        (nsl, i)            = min_nh4_vr(nsl,i)+min_no3_vr(nsl,i)
                      ENDDO
                   ENDIF
+
+#ifdef TRACER
+                  IF (patchtype(i) == 2) THEN
+                     DO nsl = 1, nl_soil
+                        wetland_existing_c = 0._r8
+                        IF (litr1c_vr(nsl, i) > 0._r8 .and. litr1c_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + litr1c_vr(nsl, i)
+                        IF (litr2c_vr(nsl, i) > 0._r8 .and. litr2c_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + litr2c_vr(nsl, i)
+                        IF (litr3c_vr(nsl, i) > 0._r8 .and. litr3c_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + litr3c_vr(nsl, i)
+                        IF (cwdc_vr(nsl, i) > 0._r8 .and. cwdc_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + cwdc_vr(nsl, i)
+                        IF (soil1c_vr(nsl, i) > 0._r8 .and. soil1c_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + soil1c_vr(nsl, i)
+                        IF (soil2c_vr(nsl, i) > 0._r8 .and. soil2c_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + soil2c_vr(nsl, i)
+                        IF (soil3c_vr(nsl, i) > 0._r8 .and. soil3c_vr(nsl, i) < 1.e30_r8) &
+                           wetland_existing_c = wetland_existing_c + soil3c_vr(nsl, i)
+                        IF (OM_density(nsl, i) > 0._r8 .and. &
+                            OM_density(nsl, i) < 1.e30_r8 .and. &
+                            wetland_existing_c <= 1.e-12_r8) THEN
+                           wetland_tot_c = OM_density(nsl, i) * 580._r8
+                           decomp_cpools_vr(nsl, i_met_lit, i) = 0.05_r8 * wetland_tot_c
+                           decomp_cpools_vr(nsl, i_cel_lit, i) = 0.10_r8 * wetland_tot_c
+                           decomp_cpools_vr(nsl, i_lig_lit, i) = 0.05_r8 * wetland_tot_c
+                           decomp_cpools_vr(nsl, i_cwd    , i) = 0._r8
+                           decomp_cpools_vr(nsl, i_soil1  , i) = 0.05_r8 * wetland_tot_c
+                           decomp_cpools_vr(nsl, i_soil2  , i) = 0.25_r8 * wetland_tot_c
+                           decomp_cpools_vr(nsl, i_soil3  , i) = 0.50_r8 * wetland_tot_c
+                           decomp_npools_vr(nsl, i_met_lit, i) = 0.05_r8 * wetland_tot_c / wetland_cn_ratio
+                           decomp_npools_vr(nsl, i_cel_lit, i) = 0.10_r8 * wetland_tot_c / wetland_cn_ratio
+                           decomp_npools_vr(nsl, i_lig_lit, i) = 0.05_r8 * wetland_tot_c / wetland_cn_ratio
+                           decomp_npools_vr(nsl, i_cwd    , i) = 0._r8
+                           decomp_npools_vr(nsl, i_soil1  , i) = 0.05_r8 * wetland_tot_c / wetland_cn_ratio
+                           decomp_npools_vr(nsl, i_soil2  , i) = 0.25_r8 * wetland_tot_c / wetland_cn_ratio
+                           decomp_npools_vr(nsl, i_soil3  , i) = 0.50_r8 * wetland_tot_c / wetland_cn_ratio
+                        ENDIF
+                     ENDDO
+                  ENDIF
+#endif
                   IF (patchtype(i) == 0)THEN
                      DO m = ps, pe
                         ivt = pftclass(m)

@@ -11,6 +11,9 @@ MODULE MOD_Vars_1DAccFluxes
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_1DAccVars
 #endif
+#ifdef TRACER
+   USE MOD_Tracer_Main, only: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
+#endif
 
    real(r8) :: nac ! number of accumulation
    real(r8), allocatable :: nac_ln      (:)
@@ -1966,6 +1969,10 @@ CONTAINS
       CALL Flush_LakeAccVars
 #endif
 
+#ifdef TRACER
+      CALL tracer_flush_acc_fluxes ()
+#endif
+
    END SUBROUTINE FLUSH_acc_fluxes
 
    SUBROUTINE accumulate_fluxes
@@ -2873,6 +2880,10 @@ CONTAINS
 
 #ifdef EXTERNAL_LAKE
       CALL accumulate_LakeTimeVars
+#endif
+
+#ifdef TRACER
+      CALL tracer_accumulate_fluxes ()
 #endif
 
    END SUBROUTINE accumulate_fluxes

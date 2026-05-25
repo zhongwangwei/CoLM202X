@@ -340,6 +340,34 @@ MODULE MOD_Namelist
    ! ----- bifurcation module -----
    logical  :: DEF_USE_BIFURCATION     = .false.
 
+   ! ----- tracer module -----
+   logical  :: DEF_TRACER_USE_FRACTIONATION = .false.
+   real(r8) :: DEF_TRACER_NSS_LEAF_WATER_PER_LAI = 0.12_r8
+   real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
+   real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
+   integer  :: DEF_TRACER_NUM          = 2
+   character(len=256) :: DEF_TRACER_NAMES     = "H2_18O,HDO"
+   character(len=256) :: DEF_TRACER_TYPES     = "isotope,isotope"
+   character(len=256) :: DEF_TRACER_MRAT      = "20.0,19.0"
+   character(len=256) :: DEF_TRACER_REF_RATIO = "2.0052e-3,1.5576e-4"
+   character(len=256) :: DEF_TRACER_INIT_DELTA = "-10.0,-70.0"
+   character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = "0.0,0.0"
+   logical  :: DEF_TRACER_USE_SOIL_INIT = .false.
+   character(len=256) :: DEF_TRACER_SOIL_INIT_FILE = 'null'
+   character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = 'soilwat_O18,soilwat_H2'
+   character(len=512) :: DEF_TRACER_REACTIVE_PARAM_FILES = 'null'
+   character(len=512) :: DEF_TRACER_REACTIVE_OPTIONS = 'null'
+#if (defined TRACER) && (defined BGC)
+   ! ----- TRACER reactive methane controls -----
+   logical :: DEF_METHANE_only_wetland = .false.
+   logical :: DEF_METHANE_enable_rice_paddy = .false.
+   logical :: DEF_USE_METHANE_para = .false.
+   character(len=256) :: DEF_file_METHANE_para = 'null'
+   character(len=256) :: DEF_file_GIEMS = 'null'
+   logical :: DEF_USE_SpatialpH = .false.
+   character(len=32) :: DEF_METHANE_inundation_mode = 'hybrid'
+   integer :: DEF_wetland_finundation_scheme = 1
+#endif
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
    real(r8) :: DEF_SED_LAMBDA          = 0.4
@@ -457,6 +485,39 @@ MODULE MOD_Namelist
       character(len=256) :: CBL_tintalgo       = 'linear'
       integer            :: CBL_dtime          = 21600
       integer            :: CBL_offset         = 10800
+
+      character(len=256) :: precipitation_O18_fprefix = 'null'
+      character(len=256) :: precipitation_O18_vname   = 'null'
+      character(len=256) :: precipitation_O18_tintalgo = 'linear'
+      integer            :: precipitation_O18_dtime   = 21600
+      integer            :: precipitation_O18_offset  = 10800
+      character(len=256) :: precipitation_H2_fprefix  = 'null'
+      character(len=256) :: precipitation_H2_vname    = 'null'
+      character(len=256) :: precipitation_H2_tintalgo = 'linear'
+      integer            :: precipitation_H2_dtime    = 21600
+      integer            :: precipitation_H2_offset   = 10800
+      character(len=256) :: water_vapor_O18_fprefix   = 'null'
+      character(len=256) :: water_vapor_O18_vname     = 'null'
+      character(len=256) :: water_vapor_O18_tintalgo  = 'linear'
+      integer            :: water_vapor_O18_dtime     = 21600
+      integer            :: water_vapor_O18_offset    = 10800
+      character(len=256) :: water_vapor_H2_fprefix    = 'null'
+      character(len=256) :: water_vapor_H2_vname      = 'null'
+      character(len=256) :: water_vapor_H2_tintalgo   = 'linear'
+      integer            :: water_vapor_H2_dtime      = 21600
+      integer            :: water_vapor_H2_offset     = 10800
+      character(len=1024) :: tracer_precip_fprefix    = 'null'
+      character(len=1024) :: tracer_precip_vname      = 'null'
+      character(len=1024) :: tracer_precip_tintalgo   = 'linear'
+      character(len=1024) :: tracer_precip_dtime      = '21600'
+      character(len=1024) :: tracer_precip_offset     = '10800'
+      character(len=1024) :: tracer_precip_input_mode = 'value'
+      character(len=1024) :: tracer_vapor_fprefix     = 'null'
+      character(len=1024) :: tracer_vapor_vname       = 'null'
+      character(len=1024) :: tracer_vapor_tintalgo    = 'linear'
+      character(len=1024) :: tracer_vapor_dtime       = '21600'
+      character(len=1024) :: tracer_vapor_offset      = '10800'
+      character(len=1024) :: tracer_vapor_input_mode  = 'value'
    END type nl_forcing_type
 
    type (nl_forcing_type) :: DEF_forcing
@@ -1172,9 +1233,34 @@ CONTAINS
       DEF_USE_EstimatedRiverDepth,            &
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
+
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
-
+      DEF_TRACER_USE_FRACTIONATION,           &
+      DEF_TRACER_NSS_LEAF_WATER_PER_LAI,      &
+      DEF_TRACER_NSS_LEAF_PATH_LENGTH,        &
+      DEF_TRACER_NSS_LEAF_RB,                 &
+      DEF_TRACER_NUM,                         &
+      DEF_TRACER_NAMES,                       &
+      DEF_TRACER_TYPES,                       &
+      DEF_TRACER_MRAT,                        &
+      DEF_TRACER_REF_RATIO,                   &
+      DEF_TRACER_INIT_DELTA,                  &
+      DEF_TRACER_REACTIVE_DECAY_RATE,         &
+      DEF_TRACER_USE_SOIL_INIT,               &
+      DEF_TRACER_SOIL_INIT_FILE,              &
+      DEF_TRACER_SOIL_INIT_VARS,              &
+      DEF_TRACER_REACTIVE_PARAM_FILES,        &
+      DEF_TRACER_REACTIVE_OPTIONS,            &
+#if (defined TRACER) && (defined BGC)
+      DEF_METHANE_only_wetland,               &
+      DEF_METHANE_enable_rice_paddy,          &
+      DEF_USE_METHANE_para,                   &
+      DEF_file_METHANE_para,                  &
+      DEF_file_GIEMS,                         &
+      DEF_METHANE_inundation_mode,            &
+      DEF_USE_SpatialpH,                      &
+#endif
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
       DEF_SED_LYRDPH,                         &
@@ -1826,9 +1912,35 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+
       CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-
+      CALL mpi_bcast (DEF_TRACER_USE_FRACTIONATION           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_WATER_PER_LAI      ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH        ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                 ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NAMES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_TYPES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_MRAT                        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REF_RATIO                   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_INIT_DELTA                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REACTIVE_DECAY_RATE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_USE_SOIL_INIT               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_INIT_FILE              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_INIT_VARS              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REACTIVE_PARAM_FILES        ,512 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REACTIVE_OPTIONS            ,512 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+#if (defined TRACER) && (defined BGC)
+      CALL mpi_bcast (DEF_METHANE_only_wetland               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_METHANE_enable_rice_paddy          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_METHANE_para                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_METHANE_para                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_file_GIEMS                         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_METHANE_inundation_mode            ,32  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_SpatialpH                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+#endif
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
@@ -1907,6 +2019,38 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%CBL_tintalgo               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset                 ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_fprefix  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_vname    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_tintalgo ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_dtime    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_O18_offset   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_fprefix   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_vname     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_tintalgo  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_dtime     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%precipitation_H2_offset    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_fprefix    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_vname      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_tintalgo   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_dtime      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_O18_offset     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_fprefix     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_vname       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_tintalgo    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_dtime       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%water_vapor_H2_offset      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_fprefix      ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_vname        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_tintalgo     ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_dtime        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_offset       ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_precip_input_mode   ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_fprefix       ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_vname         ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_tintalgo      ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_dtime         ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_offset        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_forcing%tracer_vapor_input_mode    ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 #endif
 
       CALL sync_hist_vars (set_defaults = .true.)

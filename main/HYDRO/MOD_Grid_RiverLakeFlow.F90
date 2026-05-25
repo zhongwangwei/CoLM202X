@@ -157,7 +157,7 @@ CONTAINS
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
 #ifdef TRACER
-   USE MOD_Tracer_Defs,    only: ntracers, tracers, delta_to_R
+   USE MOD_Tracer_Defs,    only: ntracers
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Vars,    only: trc_rnof_step
@@ -231,14 +231,6 @@ CONTAINS
    real(r8), allocatable :: total_flooddepth(:)  ! floodplain water depth flddph [m], per ucat
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
-   real(r8),  allocatable :: hflux_avg_trc(:)
-   logical,   allocatable :: trc_filter(:)
-   real(r8),  allocatable :: volresv_trc(:)
-   integer,   allocatable :: ucat2resv_trc(:)
-   real(r8),  allocatable :: trc_acc_discharge(:) ! Per-routing-period discharge accumulator for tracer
-   real(r8),  allocatable :: trc_acctime(:)       ! Per-routing-period time accumulator for tracer
-   real(r8),  allocatable :: trc_acc_bifflw_lev(:,:) ! Per-routing-period bif pathway flux for tracer
-   real(r8),  allocatable :: trc_acc_bifflw_time(:)  ! Per-routing-period bif pathway time for tracer
    logical :: loop_active, dt_changed
    integer :: ibif_iter
    real(r8) :: dt_before_sync, dt_after_sync
@@ -248,11 +240,6 @@ CONTAINS
    real(r8), allocatable :: trc_mass_inp(:), trc_mass_dis(:), trc_mass_reactive(:)
    real(r8) :: bif_flux_sum_total, bif_flux_sum_max
    integer  :: itrc_dbg
-#ifdef TRACER
-   integer :: num_levtrc_resid
-   real(r8) :: max_levtrc_resid
-   real(r8), parameter :: trc_v_dry_off_dbg = 1.e-6_r8
-#endif
 #endif
 
 #ifdef CoLMDEBUG
@@ -436,23 +423,6 @@ CONTAINS
 
             allocate (dt_res (numrivsys))
             allocate (dt_all (numrivsys))
-
-#ifdef TRACER
-               allocate (trc_acc_discharge (numucat))
-               allocate (trc_acctime       (numucat))
-               trc_acc_discharge = 0._r8
-               trc_acctime       = 0._r8
-               ! Always allocate (zero-length if no bifurcation) for safe passing
-               IF (DEF_USE_BIFURCATION) THEN
-                  allocate (trc_acc_bifflw_lev  (npthlev_bif, npthout_local))
-                  allocate (trc_acc_bifflw_time (npthout_local))
-               ELSE
-                  allocate (trc_acc_bifflw_lev  (0, 0))
-                  allocate (trc_acc_bifflw_time (0))
-               ENDIF
-               trc_acc_bifflw_lev  = 0._r8
-               trc_acc_bifflw_time = 0._r8
-#endif
 
          ENDIF
 
@@ -919,9 +889,6 @@ CONTAINS
             ! If bifurcation instability is observed, re-adding a CFL
             ! constraint based on pth_dst is the first thing to try.
 
-            IF (.false.) write(*,'(A)') &
-               'CALL mpi_allreduce (MPI_IN_PLACE, dt_all, 1, MPI_REAL8, MPI_MIN, p_comm_rivsys, p_err)'
-
             CALL sync_global_routing_dt(dt_res, dt_all)
 
             IF (DEF_USE_BIFURCATION .and. numucat > 0) THEN
@@ -1003,7 +970,8 @@ CONTAINS
                   ELSE
                      dt_after_sync = 0._r8
                   ENDIF
-                  IF (abs(dt_after_sync - dt_before_sync) > max(1.e-9_r8, 1.e-12_r8 * max(abs(dt_before_sync), abs(dt_after_sync)))) THEN
+                  IF (abs(dt_after_sync - dt_before_sync) > &
+                      max(1.e-9_r8, 1.e-12_r8 * max(abs(dt_before_sync), abs(dt_after_sync)))) THEN
                      dt_changed = .true.
                   ENDIF
                   IF (.not. dt_changed) EXIT
@@ -1037,11 +1005,6 @@ CONTAINS
                      a_bifflw_lev(:, ipth) = a_bifflw_lev(:, ipth) &
                         + bif_hflux_lev(:, ipth) * dt_all(irivsys(i_up))
                      a_bifflw_acctime(ipth) = a_bifflw_acctime(ipth) + dt_all(irivsys(i_up))
-#ifdef TRACER
-                        trc_acc_bifflw_lev(:, ipth) = trc_acc_bifflw_lev(:, ipth) &
-                           + bif_hflux_lev(:, ipth) * dt_all(irivsys(i_up))
-                        trc_acc_bifflw_time(ipth) = trc_acc_bifflw_time(ipth) + dt_all(irivsys(i_up))
-#endif
                   ENDDO
                ENDIF
 
@@ -1265,11 +1228,6 @@ CONTAINS
                   a_veloc_riv (i) = a_veloc_riv (i) + veloc_riv (i) * dt_all(irivsys(i))
                   a_discharge (i) = a_discharge (i) + hflux_fc  (i) * dt_all(irivsys(i))
 
-#ifdef TRACER
-                     trc_acc_discharge(i) = trc_acc_discharge(i) + hflux_fc(i) * dt_all(irivsys(i))
-                     trc_acctime(i) = trc_acctime(i) + dt_all(irivsys(i))
-#endif
-
                   IF (DEF_USE_LEVEE .and. levee_floodarea(i) > 0.) THEN
                      floodarea = levee_floodarea(i)
                   ELSE
@@ -1362,33 +1320,6 @@ CONTAINS
 
 		         ! Keep restart-visible state consistent after the substep loop.
 		         volwater_ucat_valid = .true.
-
-#ifdef CoLMDEBUG
-#ifdef TRACER
-         IF (p_is_worker .and. DEF_USE_LEVEE .and. ntracers > 0 .and. allocated(trc_levsto)) THEN
-            num_levtrc_resid = 0
-            max_levtrc_resid = 0._r8
-            DO i = 1, numucat
-               IF (i <= size(has_levee) .and. i <= size(levsto) .and. i <= size(volwater_ucat)) THEN
-                  IF (has_levee(i) .and. (.not. is_built_resv(i)) .and. &
-                      volwater_ucat(i) <= trc_v_dry_off_dbg .and. levsto(i) > trc_v_dry_off_dbg .and. &
-                      abs(trc_mass(1, i)) > 1.e-9_r8) THEN
-                     num_levtrc_resid = num_levtrc_resid + 1
-                     max_levtrc_resid = max(max_levtrc_resid, abs(trc_mass(1, i)))
-                  ENDIF
-               ENDIF
-            ENDDO
-#ifdef USEMPI
-            CALL mpi_allreduce (MPI_IN_PLACE, num_levtrc_resid, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
-            CALL mpi_allreduce (MPI_IN_PLACE, max_levtrc_resid, 1, MPI_REAL8, MPI_MAX, p_comm_worker, p_err)
-#endif
-            IF (num_levtrc_resid > 0) THEN
-               write(*,'(A,I0,A,ES12.4)') 'DBG_LEVTRC: visible-side tracer residual on dry+levsto cell count=', &
-                  num_levtrc_resid, ' max=', max_levtrc_resid
-            ENDIF
-         ENDIF
-#endif
-#endif
 
 #ifdef CoLMDEBUG
          totalvol_aft = 0.
@@ -1520,55 +1451,13 @@ CONTAINS
       ENDIF
 #endif
 
-      ! ----- Tracer transport -----
-      ! All workers must participate (MPI point-to-point inside worker_push_data).
 #ifdef TRACER
       IF (p_is_worker) THEN
-         ! Allocate on all workers (zero-length if numucat=0)
-         allocate (hflux_avg_trc (numucat))
-         allocate (trc_filter    (numucat))
-
-         IF (numucat > 0) THEN
-            ! Use per-routing-period accumulators (not history-window ones)
-            WHERE (trc_acctime > 0._r8)
-               hflux_avg_trc = trc_acc_discharge / trc_acctime
-            ELSE WHERE
-               hflux_avg_trc = 0._r8
-            END WHERE
-            trc_filter = trc_acctime > 0._r8
-         ENDIF
-
-         ! Safe wrappers: volresv/ucat2resv may not be allocated on reservoir-free workers
-         IF (allocated(volresv)) THEN
-            allocate (volresv_trc(size(volresv)));  volresv_trc = volresv
-         ELSE
-            allocate (volresv_trc(0))
-         ENDIF
-         IF (allocated(ucat2resv)) THEN
-            allocate (ucat2resv_trc(size(ucat2resv)));  ucat2resv_trc = ucat2resv
-         ELSE
-            allocate (ucat2resv_trc(0))
-         ENDIF
-
-         ! tracer_calc is now replaced by per-sub-step tracer_substep
-         ! calls inside the DO WHILE loop above. The old single-step
-         ! tracer_calc used time-averaged flux which decoupled tracer
-         ! from water, causing unphysical behaviour for signed tracers.
-
          IF (numucat > 0) THEN
             acc_trc_inp = 0._r8
             acc_rnof_ref = 0._r8
             trc_dry_drain = 0._r8
          ENDIF
-
-         deallocate (hflux_avg_trc)
-         deallocate (trc_filter)
-         deallocate (volresv_trc)
-         deallocate (ucat2resv_trc)
-         IF (allocated(trc_acc_discharge  )) deallocate(trc_acc_discharge  )
-         IF (allocated(trc_acctime        )) deallocate(trc_acctime        )
-         IF (allocated(trc_acc_bifflw_lev )) deallocate(trc_acc_bifflw_lev )
-         IF (allocated(trc_acc_bifflw_time)) deallocate(trc_acc_bifflw_time)
       END IF
 #endif
 
@@ -1793,47 +1682,6 @@ CONTAINS
       IF (allocated(filter_rnof)) deallocate(filter_rnof)
 
    END SUBROUTINE grid_riverlake_flow_final
-
-
-!#ifdef TRACER
-!   SUBROUTINE debug_static_river_tracer_contract_markers ()
-!      write(*,'(A)') 'trc_mass_bef = sum(trc_mass(1,:)) + sum(trc_inp_buf(1,:))'
-!      write(*,'(A)') 'trc_mass_aft = sum(trc_mass(1,:)) + sum(trc_inp_buf(1,:))'
-!      write(*,'(A)') 'trc_mass_dis = trc_mass_dis + sum(trc_dry_drain(1,:))'
-!      write(*,'(A)') 'DBG_MAXCONC: ucat='
-!      write(*,'(A)') 'DBG_DRYTRC: dry_mass_total='
-!      write(*,'(A)') "' num_dry_with_mass=', num_dry_with_mass"
-!      write(*,'(A)') "' dry_mass_max=', dry_mass_max"
-!      write(*,'(A)') 'inp_rnof_ratio = acc_trc_inp(1,imax) / max(acc_rnof_ref(imax), 1.e-30_r8)'
-!      write(*,'(A)') "' inp=', acc_trc_inp(1,imax)"
-!      write(*,'(A)') 'inp_mass_ratio = acc_trc_inp(1,imax) / max(abs(trc_mass(1,imax)), 1.e-30_r8)'
-!      write(*,'(A)') 'inp_out_ratio = acc_trc_inp(1,imax) / max(abs(trc_flux_out(1,imax)), 1.e-30_r8)'
-!      write(*,'(A)') "' inp_rnof=', inp_rnof_ratio"
-!      write(*,'(A)') "' inp_mass=', inp_mass_ratio"
-!      write(*,'(A)') "' inp_out=', inp_out_ratio"
-!      write(*,'(A)') "' out=', trc_flux_out(1,imax)"
-!      write(*,'(A)') "' hflux=', hflux_fc(imax)"
-!      write(*,'(A)') "' wdsrf=', wdsrf_ucat(imax)"
-!      write(*,'(A)') 'DBG_TRCRMAP_GD: gdid='
-!      write(*,'(A)') 'DBG_TRCRMAP_UC: ucat='
-!      write(*,'(A)') 'ratio_gd_max = 0._r8'
-!      write(*,'(A)') 'ratio_uc_max = 0._r8'
-!      write(*,'(A)') 'ratio_gd = trc_rnof_gd(1, i) / max(rnof_gd(i) * deltime, 1.e-30_r8)'
-!      write(*,'(A)') 'ratio_uc = trc_rnof_uc(1, i) / max(rnof_uc(i) * deltime, 1.e-30_r8)'
-!      write(*,'(A)') "' DBG_TRCRMAP_GD: gdid='"
-!      write(*,'(A)') "' rnof='"
-!      write(*,'(A)') "' trc_rnof='"
-!      write(*,'(A)') "' ratio='"
-!      write(*,'(A)') "' DBG_TRCRMAP_UC: ucat='"
-!      write(*,'(A)') "' next='"
-!      write(*,'(A)') 'volresv(ucat2resv(imax))'
-!      write(*,'(A)') 'is_built_resv(imax)'
-!      write(*,'(A)') 'DBG_LEVTRC:'
-!      write(*,'(A)') 'visible-side tracer residual on dry+levsto cell'
-!      write(*,'(A)') 'has_levee dry-visible/protected-storage debug predicate'
-!      write(*,'(A)') 'abs(trc_mass(1, i)) > 1.e-9_r8'
-!   END SUBROUTINE debug_static_river_tracer_contract_markers
-!#endif
 
 END MODULE MOD_Grid_RiverLakeFlow
 #endif

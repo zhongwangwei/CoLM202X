@@ -250,7 +250,8 @@ CONTAINS
 
    !-----------------------------------------------------------------------
    SUBROUTINE snowlayerscombine (lb,snl, &
-              z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno,scv,snowdp)
+              z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno,scv,snowdp, &
+              trc_wliq, trc_wice, trc_scv)
 
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
@@ -261,6 +262,7 @@ CONTAINS
 !  with, and executes the combination of mass and energy in
 !  clm_combo.f90
 !
+!  Optional TRACER arrays follow the same layer topology updates.
 !=======================================================================
 
    USE MOD_Precision
@@ -280,6 +282,11 @@ CONTAINS
    real(r8), intent(inout) :: scv                 ! snow mass - water equivalent [kg/m2]
    integer, intent(inout) :: snl                  ! Number of snow
 
+   ! Optional TRACER mass arrays aligned with wliq/wice/scv.
+   real(r8), intent(inout), optional :: trc_wliq(:, lb:)
+   real(r8), intent(inout), optional :: trc_wice(:, lb:)
+   real(r8), intent(inout), optional :: trc_scv(:)
+
 !-------------------------- Local Variables ----------------------------
    real(r8) :: drr           ! thickness of the combined [m]
    real(r8) :: dzmin(5)      ! minimum of snow layer 1 (top) to msn0 (bottom)
@@ -294,9 +301,24 @@ CONTAINS
    integer :: mssi           ! node index
    integer :: neibor         ! adjacent node selected for combination
 
+   ! TRACER aggregates for the snowdp<0.01 collapse branch
+   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:)
+   integer :: ntr            ! number of tracers (inferred from trc_wliq shape)
+   integer :: itrc
+   logical :: has_trc
+
    data dzmin /0.010, 0.015, 0.025, 0.055, 0.115/
 
 !-----------------------------------------------------------------------
+      has_trc = present(trc_wliq) .and. present(trc_wice)
+      IF (has_trc) THEN
+         ntr = size(trc_wliq, 1)
+         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr))
+         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8
+      ELSE
+         ntr = 0
+      ENDIF
+
 ! check the mass of ice lens of snow, when the total less than a small value,
 ! combine it with the underlying neighbor
       msn_old = snl
@@ -304,6 +326,12 @@ CONTAINS
          IF(wice_soisno(j) <= .1)THEN
             wliq_soisno(j+1) = wliq_soisno(j+1) + wliq_soisno(j)
             wice_soisno(j+1) = wice_soisno(j+1) + wice_soisno(j)
+            IF (has_trc) THEN
+               DO itrc = 1, ntr
+                  trc_wliq(itrc, j+1) = trc_wliq(itrc, j+1) + trc_wliq(itrc, j)
+                  trc_wice(itrc, j+1) = trc_wice(itrc, j+1) + trc_wice(itrc, j)
+               ENDDO
+            ENDIF
 
 ! shift all elements above this down one.
             IF(j > snl+1 .and. snl < -1)THEN
@@ -312,7 +340,17 @@ CONTAINS
                   wliq_soisno(i) = wliq_soisno(i-1)
                   wice_soisno(i) = wice_soisno(i-1)
                   dz_soisno(i) = dz_soisno(i-1)
+                  IF (has_trc) THEN
+                     DO itrc = 1, ntr
+                        trc_wliq(itrc, i) = trc_wliq(itrc, i-1)
+                        trc_wice(itrc, i) = trc_wice(itrc, i-1)
+                     ENDDO
+                  ENDIF
                ENDDO
+               IF (has_trc) THEN
+                  trc_wliq(:, snl+1) = 0._r8
+                  trc_wice(:, snl+1) = 0._r8
+               ENDIF
             ENDIF
 
             snl = snl + 1
@@ -326,6 +364,7 @@ CONTAINS
          scv = 0.
          snowdp = 0.
 !*       write(6,*) 'all snow has gone'
+         IF (has_trc) deallocate(zwtrc_ice, zwtrc_liq)
          RETURN
       ELSE
          scv = 0.
@@ -337,6 +376,12 @@ CONTAINS
             snowdp = snowdp + dz_soisno(j)
             zwice = zwice + wice_soisno(j)
             zwliq = zwliq + wliq_soisno(j)
+            IF (has_trc) THEN
+               DO itrc = 1, ntr
+                  zwtrc_ice(itrc) = zwtrc_ice(itrc) + trc_wice(itrc, j)
+                  zwtrc_liq(itrc) = zwtrc_liq(itrc) + trc_wliq(itrc, j)
+               ENDDO
+            ENDIF
          ENDDO
       ENDIF
 !-----------------------------------------------------------------------
@@ -351,6 +396,15 @@ CONTAINS
 ! the liquid water assumed ponding on soil surface
          wliq_soisno(1) = wliq_soisno(1) + zwliq
 !*       write(6,'(17h all snow is gone)')
+         IF (has_trc) THEN
+            IF (present(trc_scv)) trc_scv(:) = zwtrc_ice(:)
+            DO itrc = 1, ntr
+               trc_wliq(itrc, 1) = trc_wliq(itrc, 1) + zwtrc_liq(itrc)
+            ENDDO
+            trc_wliq(:, lb:0) = 0._r8
+            trc_wice(:, lb:0) = 0._r8
+            deallocate(zwtrc_ice, zwtrc_liq)
+         ENDIF
          RETURN
 
       ELSE                        !!! snow layers combined
@@ -388,6 +442,12 @@ CONTAINS
                   ENDIF
                   CALL combo ( dz_soisno(j), wliq_soisno(j), wice_soisno(j), t_soisno(j),&
                                dz_soisno(l), wliq_soisno(l), wice_soisno(l), t_soisno(l) )
+                  IF (has_trc) THEN
+                     DO itrc = 1, ntr
+                        trc_wliq(itrc, j) = trc_wliq(itrc, j) + trc_wliq(itrc, l)
+                        trc_wice(itrc, j) = trc_wice(itrc, j) + trc_wice(itrc, l)
+                     ENDDO
+                  ENDIF
 
 ! Now shift all elements above this down one.
 
@@ -397,7 +457,17 @@ CONTAINS
                         wice_soisno(k) = wice_soisno(k-1)
                         wliq_soisno(k) = wliq_soisno(k-1)
                         dz_soisno(k) = dz_soisno(k-1)
+                        IF (has_trc) THEN
+                           DO itrc = 1, ntr
+                              trc_wliq(itrc, k) = trc_wliq(itrc, k-1)
+                              trc_wice(itrc, k) = trc_wice(itrc, k-1)
+                           ENDDO
+                        ENDIF
                      ENDDO
+                     IF (has_trc) THEN
+                        trc_wliq(:, snl+2) = 0._r8
+                        trc_wice(:, snl+2) = 0._r8
+                     ENDIF
                   ENDIF
 
                   snl = snl + 1
@@ -425,16 +495,21 @@ CONTAINS
 
       ENDIF                       !!! snow layers combined
 
+      IF (has_trc) deallocate(zwtrc_ice, zwtrc_liq)
+
    END SUBROUTINE snowlayerscombine
 
 
 
-   SUBROUTINE snowlayersdivide(lb,snl,z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno)
+   SUBROUTINE snowlayersdivide(lb,snl,z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno, &
+                               trc_wliq, trc_wice)
 
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
 !
 !  subdivides snow layer when its thickness exceed the prescribed maximum
+!
+!  Optional TRACER arrays follow the same layer split operations.
 !=======================================================================
 
    USE MOD_Precision
@@ -451,6 +526,9 @@ CONTAINS
    real(r8), intent(inout) :: z_soisno   (lb:0)   ! Node depth [m]
    real(r8), intent(inout) :: zi_soisno  (lb-1:0) ! Depth of layer interface [m]
 
+   real(r8), intent(inout), optional :: trc_wliq(:, lb:)  ! (ntracers, lb:0)
+   real(r8), intent(inout), optional :: trc_wice(:, lb:)
+
 !-------------------------- Local Variables ----------------------------
 
 ! numbering from 1 (surface) msno (bottom)
@@ -465,7 +543,24 @@ CONTAINS
 
    real(r8) zwice,zwliq,propor
 
+   ! TRACER locals mirror swice/swliq/zwice/zwliq.
+   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:)
+   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:)
+   integer :: ntr, itrc
+   logical :: has_trc
+
 !-----------------------------------------------------------------------
+
+      has_trc = present(trc_wliq) .and. present(trc_wice)
+      IF (has_trc) THEN
+         ntr = size(trc_wliq, 1)
+         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5))
+         allocate(z_strc_wice(ntr), z_strc_wliq(ntr))
+         strc_wice = 0._r8; strc_wliq = 0._r8
+         z_strc_wice = 0._r8; z_strc_wliq = 0._r8
+      ELSE
+         ntr = 0
+      ENDIF
 
       msno = abs(snl)
       DO k = 1, msno
@@ -473,6 +568,12 @@ CONTAINS
          swice(k) = wice_soisno(k + snl)
          swliq(k) = wliq_soisno(k + snl)
          tsno(k)  = t_soisno (k + snl)
+         IF (has_trc) THEN
+            DO itrc = 1, ntr
+               strc_wice(itrc, k) = trc_wice(itrc, k + snl)
+               strc_wliq(itrc, k) = trc_wliq(itrc, k + snl)
+            ENDDO
+         ENDIF
       ENDDO
 
       IF(msno == 1)THEN
@@ -482,11 +583,19 @@ CONTAINS
          dzsno(1) = dzsno(1)/2.
          swice(1) = swice(1)/2.
          swliq(1) = swliq(1)/2.
+         IF (has_trc) THEN
+            strc_wice(:, 1) = strc_wice(:, 1) / 2._r8
+            strc_wliq(:, 1) = strc_wliq(:, 1) / 2._r8
+         ENDIF
 
          dzsno(2) = dzsno(1)
          swice(2) = swice(1)
          swliq(2) = swliq(1)
          tsno(2)  = tsno(1)
+         IF (has_trc) THEN
+            strc_wice(:, 2) = strc_wice(:, 1)
+            strc_wliq(:, 2) = strc_wliq(:, 1)
+         ENDIF
 !        write(6,*)'Subdivided Top Node into two layer (1/2)'
          ENDIF
       ENDIF
@@ -497,14 +606,26 @@ CONTAINS
          propor = drr/dzsno(1)
          zwice = propor*swice(1)
          zwliq = propor*swliq(1)
+         IF (has_trc) THEN
+            z_strc_wice(:) = propor * strc_wice(:, 1)
+            z_strc_wliq(:) = propor * strc_wliq(:, 1)
+         ENDIF
 
          propor = 0.02/dzsno(1)
          swice(1) = propor*swice(1)
          swliq(1) = propor*swliq(1)
+         IF (has_trc) THEN
+            strc_wice(:, 1) = propor * strc_wice(:, 1)
+            strc_wliq(:, 1) = propor * strc_wliq(:, 1)
+         ENDIF
          dzsno(1) = 0.02
 
          CALL combo(dzsno(2),swliq(2),swice(2),tsno(2), &
                     drr,zwliq,zwice,tsno(1))
+         IF (has_trc) THEN
+            strc_wice(:, 2) = strc_wice(:, 2) + z_strc_wice(:)
+            strc_wliq(:, 2) = strc_wliq(:, 2) + z_strc_wliq(:)
+         ENDIF
 
 !        write(6,*) 'Subdivided Top Node &
 !                    20 mm combined into underlying neighbor'
@@ -515,11 +636,19 @@ CONTAINS
             dzsno(2) = dzsno(2)/2.
             swice(2) = swice(2)/2.
             swliq(2) = swliq(2)/2.
+            IF (has_trc) THEN
+               strc_wice(:, 2) = strc_wice(:, 2) / 2._r8
+               strc_wliq(:, 2) = strc_wliq(:, 2) / 2._r8
+            ENDIF
 
             dzsno(3) = dzsno(2)
             swice(3) = swice(2)
             swliq(3) = swliq(2)
             tsno(3)  = tsno(2)
+            IF (has_trc) THEN
+               strc_wice(:, 3) = strc_wice(:, 2)
+               strc_wliq(:, 3) = strc_wliq(:, 2)
+            ENDIF
          ENDIF
          ENDIF
       ENDIF
@@ -530,14 +659,26 @@ CONTAINS
          propor = drr/dzsno(2)
          zwice = propor*swice(2)
          zwliq = propor*swliq(2)
+         IF (has_trc) THEN
+            z_strc_wice(:) = propor * strc_wice(:, 2)
+            z_strc_wliq(:) = propor * strc_wliq(:, 2)
+         ENDIF
 
          propor = 0.05/dzsno(2)
          swice(2) = propor*swice(2)
          swliq(2) = propor*swliq(2)
+         IF (has_trc) THEN
+            strc_wice(:, 2) = propor * strc_wice(:, 2)
+            strc_wliq(:, 2) = propor * strc_wliq(:, 2)
+         ENDIF
          dzsno(2) = 0.05
 
          CALL combo(dzsno(3),swliq(3),swice(3),tsno(3), &
                     drr,     zwliq,   zwice,   tsno(2))
+         IF (has_trc) THEN
+            strc_wice(:, 3) = strc_wice(:, 3) + z_strc_wice(:)
+            strc_wliq(:, 3) = strc_wliq(:, 3) + z_strc_wliq(:)
+         ENDIF
 
 !        write(6,*)'Subdivided 50 mm from the subsurface layer &
 !                   &and combined into underlying neighbor'
@@ -548,11 +689,19 @@ CONTAINS
             dzsno(3) = dzsno(3)/2.
             swice(3) = swice(3)/2.
             swliq(3) = swliq(3)/2.
+            IF (has_trc) THEN
+               strc_wice(:, 3) = strc_wice(:, 3) / 2._r8
+               strc_wliq(:, 3) = strc_wliq(:, 3) / 2._r8
+            ENDIF
 
             dzsno(4) = dzsno(3)
             swice(4) = swice(3)
             swliq(4) = swliq(3)
             tsno(4)  = tsno(3)
+            IF (has_trc) THEN
+               strc_wice(:, 4) = strc_wice(:, 3)
+               strc_wliq(:, 4) = strc_wliq(:, 3)
+            ENDIF
          ENDIF
          ENDIF
       ENDIF
@@ -563,14 +712,26 @@ CONTAINS
          propor = drr/dzsno(3)
          zwice = propor*swice(3)
          zwliq = propor*swliq(3)
+         IF (has_trc) THEN
+            z_strc_wice(:) = propor * strc_wice(:, 3)
+            z_strc_wliq(:) = propor * strc_wliq(:, 3)
+         ENDIF
 
          propor = 0.11/dzsno(3)
          swice(3) = propor*swice(3)
          swliq(3) = propor*swliq(3)
+         IF (has_trc) THEN
+            strc_wice(:, 3) = propor * strc_wice(:, 3)
+            strc_wliq(:, 3) = propor * strc_wliq(:, 3)
+         ENDIF
          dzsno(3) = 0.11
 
          CALL combo(dzsno(4),swliq(4),swice(4),tsno(4), &
                     drr,     zwliq,   zwice,   tsno(3))
+         IF (has_trc) THEN
+            strc_wice(:, 4) = strc_wice(:, 4) + z_strc_wice(:)
+            strc_wliq(:, 4) = strc_wliq(:, 4) + z_strc_wliq(:)
+         ENDIF
 
 !        write(6,*)'Subdivided 110 mm from the third Node &
 !                   &and combined into underlying neighbor'
@@ -581,11 +742,19 @@ CONTAINS
             dzsno(4) = dzsno(4)/2.
             swice(4) = swice(4)/2.
             swliq(4) = swliq(4)/2.
+            IF (has_trc) THEN
+               strc_wice(:, 4) = strc_wice(:, 4) / 2._r8
+               strc_wliq(:, 4) = strc_wliq(:, 4) / 2._r8
+            ENDIF
 
             dzsno(5) = dzsno(4)
             swice(5) = swice(4)
             swliq(5) = swliq(4)
             tsno(5)  = tsno(4)
+            IF (has_trc) THEN
+               strc_wice(:, 5) = strc_wice(:, 4)
+               strc_wliq(:, 5) = strc_wliq(:, 4)
+            ENDIF
          ENDIF
          ENDIF
       ENDIF
@@ -596,14 +765,26 @@ CONTAINS
          propor = drr/dzsno(4)
          zwice = propor*swice(4)
          zwliq = propor*swliq(4)
+         IF (has_trc) THEN
+            z_strc_wice(:) = propor * strc_wice(:, 4)
+            z_strc_wliq(:) = propor * strc_wliq(:, 4)
+         ENDIF
 
          propor = 0.23/dzsno(4)
          swice(4) = propor*swice(4)
          swliq(4) = propor*swliq(4)
+         IF (has_trc) THEN
+            strc_wice(:, 4) = propor * strc_wice(:, 4)
+            strc_wliq(:, 4) = propor * strc_wliq(:, 4)
+         ENDIF
          dzsno(4) = 0.23
 
          CALL combo(dzsno(5),swliq(5),swice(5),tsno(5), &
                     drr,     zwliq,   zwice,   tsno(4))
+         IF (has_trc) THEN
+            strc_wice(:, 5) = strc_wice(:, 5) + z_strc_wice(:)
+            strc_wliq(:, 5) = strc_wliq(:, 5) + z_strc_wliq(:)
+         ENDIF
 
 !        write(6,*)'Subdivided 230 mm from the fourth Node &
 !                   'and combined into underlying neighbor'
@@ -617,6 +798,12 @@ CONTAINS
          wice_soisno(k) = swice(k - snl)
          wliq_soisno(k) = swliq(k - snl)
          t_soisno(k)  = tsno (k - snl)
+         IF (has_trc) THEN
+            DO itrc = 1, ntr
+               trc_wice(itrc, k) = strc_wice(itrc, k - snl)
+               trc_wliq(itrc, k) = strc_wliq(itrc, k - snl)
+            ENDDO
+         ENDIF
       ENDDO
 
       zi_soisno(0) = 0.
@@ -624,6 +811,10 @@ CONTAINS
          z_soisno(k)    = zi_soisno(k) - 0.5*dz_soisno(k)
          zi_soisno(k-1) = zi_soisno(k) - dz_soisno(k)
       ENDDO
+
+      IF (has_trc) THEN
+         deallocate(strc_wice, strc_wliq, z_strc_wice, z_strc_wliq)
+      ENDIF
 
    END SUBROUTINE snowlayersdivide
 
@@ -698,8 +889,9 @@ CONTAINS
 
 ! Aerosol Fluxes (Jan. 07, 2023)
               mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi,&
-              mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 )
+              mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 ,&
 ! Aerosol Fluxes (Jan. 07, 2023)
+              trc_wliq, trc_wice, trc_scv)
 
 
 !=======================================================================
@@ -742,6 +934,11 @@ CONTAINS
         mss_dst4  (lb:0)   ! mass of dust species 4 in snow  (col,lyr) [kg]
 ! Aerosol Fluxes (Jan. 07, 2023)
 
+   ! Optional TRACER arrays aligned with wliq/wice/scv.
+   real(r8), intent(inout), optional :: trc_wliq(:, lb:)
+   real(r8), intent(inout), optional :: trc_wice(:, lb:)
+   real(r8), intent(inout), optional :: trc_scv(:)
+
 !-------------------------- Local Variables ----------------------------
    real(r8) :: drr          ! thickness of the combined [m]
    real(r8) :: dzmin(5)     ! minimum of snow layer 1 (top) to msn0 (bottom)
@@ -756,9 +953,23 @@ CONTAINS
    integer :: mssi          ! node index
    integer :: neibor        ! adjacent node selected for combination
 
+   ! TRACER aggregates for the snowdp<0.01 collapse branch
+   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:)
+   integer :: ntr, itrc
+   logical :: has_trc
+
    data dzmin /0.010, 0.015, 0.025, 0.055, 0.115/
 
 !-----------------------------------------------------------------------
+      has_trc = present(trc_wliq) .and. present(trc_wice)
+      IF (has_trc) THEN
+         ntr = size(trc_wliq, 1)
+         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr))
+         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8
+      ELSE
+         ntr = 0
+      ENDIF
+
 ! check the mass of ice lens of snow, when the total less than a small value,
 ! combine it with the underlying neighbor
       msn_old = snl
@@ -766,6 +977,12 @@ CONTAINS
          IF(wice_soisno(j) <= .1)THEN
             wliq_soisno(j+1) = wliq_soisno(j+1) + wliq_soisno(j)
             wice_soisno(j+1) = wice_soisno(j+1) + wice_soisno(j)
+            IF (has_trc) THEN
+               DO itrc = 1, ntr
+                  trc_wliq(itrc, j+1) = trc_wliq(itrc, j+1) + trc_wliq(itrc, j)
+                  trc_wice(itrc, j+1) = trc_wice(itrc, j+1) + trc_wice(itrc, j)
+               ENDDO
+            ENDIF
 
 !Aerosol Fluxes (January 07, 2023)
             IF (j < 0) THEN  ! 01/11/2023, yuan: add j < 0
@@ -788,6 +1005,12 @@ CONTAINS
                   wliq_soisno(i) = wliq_soisno(i-1)
                   wice_soisno(i) = wice_soisno(i-1)
                   dz_soisno(i) = dz_soisno(i-1)
+                  IF (has_trc) THEN
+                     DO itrc = 1, ntr
+                        trc_wliq(itrc, i) = trc_wliq(itrc, i-1)
+                        trc_wice(itrc, i) = trc_wice(itrc, i-1)
+                     ENDDO
+                  ENDIF
 
 !Aerosol Fluxes (January 07, 2023)
                   mss_bcphi(i) = mss_bcphi(i-1)
@@ -800,6 +1023,10 @@ CONTAINS
                   mss_dst4 (i) = mss_dst4 (i-1)
 !Aerosol Fluxes (January 07, 2023)
                ENDDO
+               IF (has_trc) THEN
+                  trc_wliq(:, snl+1) = 0._r8
+                  trc_wice(:, snl+1) = 0._r8
+               ENDIF
             ENDIF
 
             snl = snl + 1
@@ -825,6 +1052,7 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 
 !*       write(6,*) 'all snow has gone'
+         IF (has_trc) deallocate(zwtrc_ice, zwtrc_liq)
          RETURN
       ELSE
          scv = 0._r8
@@ -836,6 +1064,12 @@ CONTAINS
             snowdp = snowdp + dz_soisno(j)
             zwice = zwice + wice_soisno(j)
             zwliq = zwliq + wliq_soisno(j)
+            IF (has_trc) THEN
+               DO itrc = 1, ntr
+                  zwtrc_ice(itrc) = zwtrc_ice(itrc) + trc_wice(itrc, j)
+                  zwtrc_liq(itrc) = zwtrc_liq(itrc) + trc_wliq(itrc, j)
+               ENDDO
+            ENDIF
          ENDDO
       ENDIF
 !-----------------------------------------------------------------------
@@ -861,6 +1095,15 @@ CONTAINS
 ! the liquid water assumed ponding on soil surface
          wliq_soisno(1) = wliq_soisno(1) + zwliq
 !*       write(6,'(17h all snow is gone)')
+         IF (has_trc) THEN
+            IF (present(trc_scv)) trc_scv(:) = zwtrc_ice(:)
+            DO itrc = 1, ntr
+               trc_wliq(itrc, 1) = trc_wliq(itrc, 1) + zwtrc_liq(itrc)
+            ENDDO
+            trc_wliq(:, lb:0) = 0._r8
+            trc_wice(:, lb:0) = 0._r8
+            deallocate(zwtrc_ice, zwtrc_liq)
+         ENDIF
          RETURN
 
       ELSE                        !!! snow layers combined
@@ -898,6 +1141,12 @@ CONTAINS
                   ENDIF
                   CALL combo ( dz_soisno(j), wliq_soisno(j), wice_soisno(j), t_soisno(j),&
                                dz_soisno(l), wliq_soisno(l), wice_soisno(l), t_soisno(l) )
+                  IF (has_trc) THEN
+                     DO itrc = 1, ntr
+                        trc_wliq(itrc, j) = trc_wliq(itrc, j) + trc_wliq(itrc, l)
+                        trc_wice(itrc, j) = trc_wice(itrc, j) + trc_wice(itrc, l)
+                     ENDDO
+                  ENDIF
 
 !Aerosol Fluxes (January 07, 2023)
                   mss_bcphi(j) = mss_bcphi(j)  + mss_bcphi(l)
@@ -919,6 +1168,12 @@ CONTAINS
                         wice_soisno(k) = wice_soisno(k-1)
                         wliq_soisno(k) = wliq_soisno(k-1)
                         dz_soisno(k) = dz_soisno(k-1)
+                        IF (has_trc) THEN
+                           DO itrc = 1, ntr
+                              trc_wliq(itrc, k) = trc_wliq(itrc, k-1)
+                              trc_wice(itrc, k) = trc_wice(itrc, k-1)
+                           ENDDO
+                        ENDIF
 
 !Aerosol Fluxes (January 07, 2023)
                         mss_bcphi(k) = mss_bcphi(k-1)
@@ -931,6 +1186,10 @@ CONTAINS
                         mss_dst4 (k) = mss_dst4 (k-1)
 !Aerosol Fluxes (January 07, 2023)
                      ENDDO
+                     IF (has_trc) THEN
+                        trc_wliq(:, snl+2) = 0._r8
+                        trc_wice(:, snl+2) = 0._r8
+                     ENDIF
                   ENDIF
 
                   snl = snl + 1
@@ -958,6 +1217,8 @@ CONTAINS
 
       ENDIF                       !!! snow layers combined
 
+      IF (has_trc) deallocate(zwtrc_ice, zwtrc_liq)
+
    END SUBROUTINE SnowLayersCombine_snicar
 !-----------------------------------------------------------------------
 
@@ -967,8 +1228,9 @@ CONTAINS
 
 ! Aerosol Fluxes (Jan. 07, 2023)
                                        mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi,&
-                                       mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 )
+                                       mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 ,&
 ! Aerosol Fluxes (Jan. 07, 2023)
+                                       trc_wliq, trc_wice)
 
 
 !=======================================================================
@@ -1005,6 +1267,9 @@ CONTAINS
         mss_dst4  (lb:0)   ! mass of dust species 4 in snow  (col,lyr) [kg]
 ! Aerosol Fluxes (Jan. 07, 2023)
 
+   real(r8), intent(inout), optional :: trc_wliq(:, lb:)
+   real(r8), intent(inout), optional :: trc_wice(:, lb:)
+
 !-------------------------- Local Variables ----------------------------
 
 ! numbering from 1 (surface) msno (bottom)
@@ -1024,7 +1289,23 @@ CONTAINS
    real(r8) z_mss_aerosol(8)
 !Aerosol Fluxes (January 07, 2023)
 
+   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:)
+   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:)
+   integer :: ntr, itrc
+   logical :: has_trc
+
 !-----------------------------------------------------------------------
+
+      has_trc = present(trc_wliq) .and. present(trc_wice)
+      IF (has_trc) THEN
+         ntr = size(trc_wliq, 1)
+         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5))
+         allocate(z_strc_wice(ntr), z_strc_wliq(ntr))
+         strc_wice = 0._r8; strc_wliq = 0._r8
+         z_strc_wice = 0._r8; z_strc_wliq = 0._r8
+      ELSE
+         ntr = 0
+      ENDIF
 
       msno = abs(snl)
       DO k = 1, msno
@@ -1044,6 +1325,13 @@ CONTAINS
          mss_aerosol(k, 8) = mss_dst4 (k+snl)
 !Aerosol Fluxes (January 07, 2023)
 
+         IF (has_trc) THEN
+            DO itrc = 1, ntr
+               strc_wice(itrc, k) = trc_wice(itrc, k + snl)
+               strc_wliq(itrc, k) = trc_wliq(itrc, k + snl)
+            ENDDO
+         ENDIF
+
       ENDDO
 
       IF(msno == 1)THEN
@@ -1056,6 +1344,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(1,:) = mss_aerosol(1,:)/2.
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 1) = strc_wice(:, 1) / 2._r8
+               strc_wliq(:, 1) = strc_wliq(:, 1) / 2._r8
+            ENDIF
 
             dzsno(2) = dzsno(1)
             swice(2) = swice(1)
@@ -1063,6 +1355,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(2,:) = mss_aerosol(1,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 2) = strc_wice(:, 1)
+               strc_wliq(:, 2) = strc_wliq(:, 1)
+            ENDIF
 
             tsno(2)  = tsno(1)
 
@@ -1079,6 +1375,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             z_mss_aerosol(:) = propor*mss_aerosol(1,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               z_strc_wice(:) = propor * strc_wice(:, 1)
+               z_strc_wliq(:) = propor * strc_wliq(:, 1)
+            ENDIF
 
             propor = 0.02/dzsno(1)
             swice(1) = propor*swice(1)
@@ -1086,6 +1386,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(1,:) = propor*mss_aerosol(1,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 1) = propor * strc_wice(:, 1)
+               strc_wliq(:, 1) = propor * strc_wliq(:, 1)
+            ENDIF
 
             dzsno(1) = 0.02
 
@@ -1095,6 +1399,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(2,:) = z_mss_aerosol(:) + mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 2) = strc_wice(:, 2) + z_strc_wice(:)
+               strc_wliq(:, 2) = strc_wliq(:, 2) + z_strc_wliq(:)
+            ENDIF
 
 !           write(6,*) 'Subdivided Top Node &
 !                       20 mm combined into underlying neighbor'
@@ -1108,6 +1416,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                mss_aerosol(2,:) = mss_aerosol(2,:)/2.
 !Aerosol Fluxes (January 07, 2023)
+               IF (has_trc) THEN
+                  strc_wice(:, 2) = strc_wice(:, 2) / 2._r8
+                  strc_wliq(:, 2) = strc_wliq(:, 2) / 2._r8
+               ENDIF
 
                dzsno(3) = dzsno(2)
                swice(3) = swice(2)
@@ -1115,6 +1427,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                mss_aerosol(3,:) = mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
+               IF (has_trc) THEN
+                  strc_wice(:, 3) = strc_wice(:, 2)
+                  strc_wliq(:, 3) = strc_wliq(:, 2)
+               ENDIF
 
                tsno(3)  = tsno(2)
             ENDIF
@@ -1130,6 +1446,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             z_mss_aerosol(:) = propor*mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               z_strc_wice(:) = propor * strc_wice(:, 2)
+               z_strc_wliq(:) = propor * strc_wliq(:, 2)
+            ENDIF
 
             propor = 0.05/dzsno(2)
             swice(2) = propor*swice(2)
@@ -1137,6 +1457,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(2,:) = propor*mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 2) = propor * strc_wice(:, 2)
+               strc_wliq(:, 2) = propor * strc_wliq(:, 2)
+            ENDIF
 
             dzsno(2) = 0.05
 
@@ -1146,6 +1470,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(3,:) = z_mss_aerosol(:) + mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 3) = strc_wice(:, 3) + z_strc_wice(:)
+               strc_wliq(:, 3) = strc_wliq(:, 3) + z_strc_wliq(:)
+            ENDIF
 
 !           write(6,*)'Subdivided 50 mm from the subsurface layer &
 !                      &and combined into underlying neighbor'
@@ -1159,6 +1487,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                mss_aerosol(3,:) = mss_aerosol(3,:)/2.
 !Aerosol Fluxes (January 07, 2023)
+               IF (has_trc) THEN
+                  strc_wice(:, 3) = strc_wice(:, 3) / 2._r8
+                  strc_wliq(:, 3) = strc_wliq(:, 3) / 2._r8
+               ENDIF
 
                dzsno(4) = dzsno(3)
                swice(4) = swice(3)
@@ -1166,6 +1498,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                mss_aerosol(4,:) = mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
+               IF (has_trc) THEN
+                  strc_wice(:, 4) = strc_wice(:, 3)
+                  strc_wliq(:, 4) = strc_wliq(:, 3)
+               ENDIF
 
                tsno(4)  = tsno(3)
 
@@ -1182,6 +1518,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             z_mss_aerosol(:) = propor*mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               z_strc_wice(:) = propor * strc_wice(:, 3)
+               z_strc_wliq(:) = propor * strc_wliq(:, 3)
+            ENDIF
 
             propor = 0.11/dzsno(3)
             swice(3) = propor*swice(3)
@@ -1189,6 +1529,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(3,:) = propor*mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 3) = propor * strc_wice(:, 3)
+               strc_wliq(:, 3) = propor * strc_wliq(:, 3)
+            ENDIF
 
             dzsno(3) = 0.11
 
@@ -1198,6 +1542,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(4,:) = z_mss_aerosol(:) + mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 4) = strc_wice(:, 4) + z_strc_wice(:)
+               strc_wliq(:, 4) = strc_wliq(:, 4) + z_strc_wliq(:)
+            ENDIF
 
 !           write(6,*)'Subdivided 110 mm from the third Node &
 !                      &and combined into underlying neighbor'
@@ -1211,6 +1559,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                mss_aerosol(4,:) = mss_aerosol(4,:)/2.
 !Aerosol Fluxes (January 07, 2023)
+               IF (has_trc) THEN
+                  strc_wice(:, 4) = strc_wice(:, 4) / 2._r8
+                  strc_wliq(:, 4) = strc_wliq(:, 4) / 2._r8
+               ENDIF
 
                dzsno(5) = dzsno(4)
                swice(5) = swice(4)
@@ -1218,6 +1570,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                mss_aerosol(5,:) = mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
+               IF (has_trc) THEN
+                  strc_wice(:, 5) = strc_wice(:, 4)
+                  strc_wliq(:, 5) = strc_wliq(:, 4)
+               ENDIF
 
                tsno(5)  = tsno(4)
 
@@ -1234,6 +1590,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             z_mss_aerosol(:) = propor*mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               z_strc_wice(:) = propor * strc_wice(:, 4)
+               z_strc_wliq(:) = propor * strc_wliq(:, 4)
+            ENDIF
 
             propor = 0.23/dzsno(4)
             swice(4) = propor*swice(4)
@@ -1241,6 +1601,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(4,:) = propor*mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 4) = propor * strc_wice(:, 4)
+               strc_wliq(:, 4) = propor * strc_wliq(:, 4)
+            ENDIF
 
             dzsno(4) = 0.23
 
@@ -1250,6 +1614,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
             mss_aerosol(5,:) = z_mss_aerosol(:) + mss_aerosol(5,:)
 !Aerosol Fluxes (January 07, 2023)
+            IF (has_trc) THEN
+               strc_wice(:, 5) = strc_wice(:, 5) + z_strc_wice(:)
+               strc_wliq(:, 5) = strc_wliq(:, 5) + z_strc_wliq(:)
+            ENDIF
 
 !           write(6,*)'Subdivided 230 mm from the fourth Node &
 !                     'and combined into underlying neighbor'
@@ -1276,6 +1644,13 @@ CONTAINS
 
          t_soisno(k)  = tsno (k - snl)
 
+         IF (has_trc) THEN
+            DO itrc = 1, ntr
+               trc_wice(itrc, k) = strc_wice(itrc, k - snl)
+               trc_wliq(itrc, k) = strc_wliq(itrc, k - snl)
+            ENDDO
+         ENDIF
+
       ENDDO
 
       zi_soisno(0) = 0.
@@ -1283,6 +1658,10 @@ CONTAINS
          z_soisno(k)    = zi_soisno(k) - 0.5*dz_soisno(k)
          zi_soisno(k-1) = zi_soisno(k) - dz_soisno(k)
       ENDDO
+
+      IF (has_trc) THEN
+         deallocate(strc_wice, strc_wliq, z_strc_wice, z_strc_wliq)
+      ENDIF
 
    END SUBROUTINE SnowLayersDivide_snicar
 

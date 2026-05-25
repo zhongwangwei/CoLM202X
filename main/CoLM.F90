@@ -101,6 +101,14 @@ PROGRAM CoLM
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
    USE MOD_ParameterOptimization
+#ifdef TRACER
+   USE MOD_Tracer_Main, only: land_tracer_init => tracer_init, &
+                              land_tracer_final => tracer_final
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &
+                                 tracer_forcing_reset, tracer_forcing_final
+#endif
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -127,7 +135,6 @@ PROGRAM CoLM
    character(len=256) :: dir_hist
    character(len=256) :: dir_restart
    character(len=256) :: fsrfdata
-
    real(r8) :: deltim       ! time step (seconds)
    integer  :: sdate(3)     ! calendar (year, julian day, seconds)
    integer  :: idate(3)     ! calendar (year, julian day, seconds)
@@ -314,6 +321,14 @@ PROGRAM CoLM
       CALL allocate_TimeVariables  ()
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
+      ! land_tracer_init is the single TRACER lifecycle entry. It also
+      ! initializes CH4 when CH4 is registered as a reactive tracer.
+#ifdef TRACER
+      CALL land_tracer_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
+         casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
+         wice_soisno, wa, wdsrf, wetwat, scv, waterstorage)
+#endif
+
       ! Read in SNICAR optical and aging parameters
       IF (DEF_USE_SNICAR) THEN
          CALL SnowOptics_init( DEF_file_snowoptics ) ! SNICAR optical parameters
@@ -337,6 +352,9 @@ PROGRAM CoLM
       ! Initialize meteorological forcing data module
       CALL allocate_1D_Forcing ()
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
+#ifdef TRACER
+      CALL tracer_forcing_init (gforc, numpatch)
+#endif
       CALL allocate_2D_Forcing (gforc)
 
       ! Initialize history data module
@@ -432,6 +450,9 @@ PROGRAM CoLM
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing, is_spinup)
+#ifdef TRACER
+         CALL read_tracer_forcing (jdate, dir_forcing)
+#endif
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -490,7 +511,7 @@ PROGRAM CoLM
          ! Call CoLM driver
          ! ----------------------------------------------------------------------
          IF (p_is_worker) THEN
-            CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
+            CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag,istep)
          ENDIF
 
 #if (defined CatchLateralFlow)
@@ -532,15 +553,22 @@ PROGRAM CoLM
             CALL deallocate_1D_Forcing
             CALL deallocate_1D_Fluxes
 
+#ifdef TRACER
+            CALL tracer_forcing_final ()
+#endif
             CALL forcing_final ()
             CALL hist_final    ()
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
 
+
             ! Allocate Forcing and Fluxes variable of next year
             CALL allocate_1D_Forcing
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
+#ifdef TRACER
+            CALL tracer_forcing_init (gforc, numpatch)
+#endif
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
             CALL allocate_1D_Fluxes
@@ -647,6 +675,9 @@ PROGRAM CoLM
                   itstamp = ststamp
                   CALL adj2begin(jdate)
                   CALL forcing_reset ()
+#ifdef TRACER
+                  CALL tracer_forcing_reset ()
+#endif
                ELSE
                   is_spinup = .false.
                ENDIF
@@ -662,6 +693,11 @@ PROGRAM CoLM
          istep = istep + 1
 
       ENDDO TIMELOOP
+
+#ifdef TRACER
+         CALL tracer_forcing_final ()
+         CALL land_tracer_final ()
+#endif
 
       CALL deallocate_TimeInvariants ()
       CALL deallocate_TimeVariables  ()

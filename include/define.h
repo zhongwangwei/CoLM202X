@@ -104,3 +104,26 @@
 
 ! 12. Hyperspectral scheme.
 #define HYPERSPECTRAL
+
+! 13. If defined, water tracer module is enabled (e.g. delta-18O, delta-D).
+#undef TRACER
+!    Conflicts: TRACER requires VariablySaturatedFlow soil hydrology
+!    (vanGenuchten_Mualem_SOIL_MODEL). Disable when running with
+!    Campbell_SOIL_MODEL.
+#ifdef Campbell_SOIL_MODEL
+#undef TRACER
+#endif
+
+! 13b. Methane reactive tracer.
+!     Activation is runtime: register a tracer named "CH4" or "METHANE"
+!     with category="reactive" in the &nl_colm DEF_TRACER_NAMES /
+!     DEF_TRACER_TYPES namelist. The methane module is compiled whenever
+!     both TRACER and BGC are defined; the registry resolves igas_ch4 at
+!     run time and switches all methane logic on/off accordingly.
+!     Additional dependency: requires LULC_IGBP_PFT or LULC_IGBP_PC for
+!     pftfrac access (per-PFT NPP and root-respiration aggregation).
+#if (defined TRACER) && (defined BGC)
+#if (!defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
+#error "Methane (TRACER+BGC) requires LULC_IGBP_PFT or LULC_IGBP_PC for pftfrac access."
+#endif
+#endif
