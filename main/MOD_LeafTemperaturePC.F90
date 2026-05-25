@@ -23,8 +23,8 @@ MODULE MOD_LeafTemperaturePC
 !-----------------------------------------------------------------------
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
-                           DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
-                           DEF_VEG_SNOW
+                           DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_MATSIRO_CWCAP_SCALE, &
+                           DEF_VIC_WDMAX_SCALE, DEF_SPLIT_SOILSNOW, DEF_VEG_SNOW
    IMPLICIT NONE
    SAVE
 
@@ -33,6 +33,7 @@ MODULE MOD_LeafTemperaturePC
 
 ! PRIVATE MEMBER FUNCTIONS:
    PRIVATE :: dewfraction
+   PRIVATE :: effective_canopy_area
 
 
 !-----------------------------------------------------------------------
@@ -64,9 +65,10 @@ CONTAINS
                lai_old    ,o3uptakesun,o3uptakesha,forc_ozone ,&
 !End ozone stress variables
                hpbl, &
-               qintr_rain ,qintr_snow ,t_precip   ,hprl       ,&
+               qintr_rain ,qintr_snow ,t_precip   ,lfevpl     ,hprl       ,&
                dheatl     ,smp        ,hk         ,hksati     ,&
-               rootflux    )
+               rootflux   ,canopy_phase_heat                  ,&
+               canopy_smelt_mass_p_out, canopy_frzc_mass_p_out)
 
 !=======================================================================
 !
@@ -256,6 +258,19 @@ CONTAINS
         qref,          &! 2 m height air specific humidity
         rootflux(nl_soil,ps:pe)    ! root water uptake from different layers
 
+   ! Per-PFT canopy fusion heat flux imported from
+   ! LEAF_interception [W/m^2]. Non-zero only when the active interception
+   ! scheme (NoahMP/MATSIRO/VIC/JULES) owned the canopy phase change.
+   real(r8), dimension(ps:pe), intent(in) :: canopy_phase_heat
+
+   ! Per-PFT canopy phase-change mass exports (mm of
+   ! water-equivalent over deltim). qmelt(i) drives ldew_snow(i)→
+   ! ldew_rain(i) at lines 2134-2141; qfrz(i) drives ldew_rain(i)→
+   ! ldew_snow(i) at lines 2143-2150. THERMAL aggregates these via
+   ! pftfrac and forwards the patch sum to MOD_Tracer_Evapo.
+   real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out
+   real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out
+
    real(r8), dimension(ps:pe), intent(out) :: &
         z0mpc,         &! z0m for individual PFT
         rst,           &! stomatal resistance
@@ -263,6 +278,7 @@ CONTAINS
         respc,         &! rate of respiration
         fsenl,         &! sensible heat from leaves [W/m2]
         fevpl,         &! evaporation+transpiration from leaves [mm/s]
+        lfevpl,        &! latent heat flux from leaves [W/m2]
         etr,           &! transpiration rate [mm/s]
         hprl,          &! precipitation sensible heat from canopy
         dheatl          ! vegetation heat change [W/m2]
@@ -420,6 +436,31 @@ CONTAINS
    real(r8),dimension(ps:pe)   :: evplwet, evplwet_dtl, etr_dtl
    real(r8),dimension(ps:pe)   :: fevpl_bef, fevpl_noadj, dtl_noadj, htvpl, erre
    real(r8),dimension(ps:pe)   :: qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
+   real(r8) tl_pre_phase   ! snapshot of tl before Niu (2004) pull (PFT-loop scalar)
+   real(r8) :: flux_deficit                 ! C4b: component-level evap deficit [mm]
+   real(r8) :: phase_flux_deficit           ! Bug 3: unmet same-phase latent demand [mm/s]
+   real(r8) :: catch_JULES !JULES liquid canopy capacity [mm] (catch0 + dcatch_dlai*LAI)
+   real(r8) :: catch_JULES_snow !JULES snow canopy capacity [mm] (snowloadlai*LAI)
+   real(r8) :: epot_JULES  !JULES potential evap [kg/m2/s]
+   real(r8) :: epdt_JULES  !JULES potential evap × dt [mm]
+   real(r8) :: fraca_JULES !JULES supply-limited wet fraction [-]
+   real(r8) :: fraca_JULES_rain !JULES liquid-only fraca using ldew_rain [-]
+   real(r8) :: fraca_JULES_snow !JULES snow-only fraca using ldew_snow [-]
+   real(r8) :: lai_perveg_JULES !per-veg LAI for DEF_VEG_SNOW coordinate fix [-]
+   real(r8) :: wet_area    ! scheme-specific wet-canopy evaporating area [m2/m2]
+   real(r8) :: wet_area_cfw ! scheme-specific canopy area used in cfw [m2/m2]
+   real(r8) :: wet_cond    ! scheme-specific wet-canopy conductance [m/s]
+   real(r8) :: wet_cond_cfw ! scheme-specific wet conductance used in cfw [m/s]
+   real(r8) :: MaxInt_VIC  !VIC wet canopy capacity [mm] = 0.1*LAI*scale (Wdmax)
+   real(r8) :: wetfrac_VIC !VIC (S/Wmax)^(2/3) [-]
+   real(r8) :: ec_pot_VIC  !VIC potential wet-canopy evap [kg/m2/s]
+   real(r8) :: f_VIC       !VIC supply-limit factor [-]
+   logical  :: phase_change_owned_by_interception  ! NM-1-v2 gate
+   real(r8) :: evp_weight  !Scheme-specific weight replacing (1-delta*(1-fwet)) [-]
+   real(r8) :: dry_factor  !Scheme-specific (1 - wet fraction) for transpiration [-]
+   ! sigf floors used to convert grid-scale ldew to
+   ! per-vegetation before comparing with per-vegetation canopy capacity.
+   real(r8) :: sigf_safe_VIC, sigf_safe_JULES
    real(r8),dimension(ps:pe)   :: gb_mol_sun,gb_mol_sha
    real(r8),dimension(nl_soil) :: k_soil_root    ! radial root and soil conductance
    real(r8),dimension(nl_soil) :: k_ax_root      ! axial root conductance
@@ -517,6 +558,15 @@ CONTAINS
 !-----------------------------------------------------------------------
 
 ! only process with vegetated patches
+
+      ! Zero the optional canopy phase-change exports up
+      ! front so PFT slots that skip the qmelt/qfrz block (interception-
+      ! owned schemes 4-7, or non-vegetated PFTs) return a deterministic
+      ! 0 rather than uninitialised memory. The aggregator in MOD_Thermal
+      ! sums these via pftfrac; an undefined value would propagate to
+      ! the patch sum and corrupt tracer_evapo's phase-change input.
+      IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(:) = 0._r8
+      IF (present(canopy_frzc_mass_p_out)) canopy_frzc_mass_p_out(:) = 0._r8
 
       lsai(:) = lai(:) + sai(:)
       is_vegetated_patch = .false.
@@ -624,7 +674,7 @@ CONTAINS
          ENDIF
 
          IF (fcover(i)>0 .and. lsai(i)>1.e-6) THEN
-            CALL dewfraction (sigf(i),lai(i),sai(i),dewmx,&
+            CALL dewfraction (sigf(i),lai(i),sai(i),dewmx,tl(i),&
                               ldew(i),ldew_rain(i),ldew_snow(i),fwet(i),fdry(i))
             CALL qsadv(tl(i),psrf,ei(i),deiDT(i),qsatl(i),qsatlDT(i))
          ENDIF
@@ -686,7 +736,7 @@ CONTAINS
 !-----------------------------------------------------------------------
       DO i = ps, pe
          IF (lsai(i) > 1.e-6) THEN
-            CALL cal_z0_displa(lsai(i), htop(i), 1., z0mpc(i), displa)
+            CALL cal_z0_displa(lsai(i), htop(i), 1._r8, z0mpc(i), displa)
          ELSE
             z0mpc(i) = z0mg
          ENDIF
@@ -703,7 +753,7 @@ CONTAINS
 
       DO i = 1, nlay
          IF (fcover_lay(i)>0 .and. lsai_lay(i)>0) THEN
-            CALL cal_z0_displa(lsai_lay(i), htop_lay(i), 1., z0m_lay(i), displa_lay(i))
+            CALL cal_z0_displa(lsai_lay(i), htop_lay(i), 1._r8, z0m_lay(i), displa_lay(i))
             CALL cal_z0_displa(lsai_lay(i), htop_lay(i), fcover_lay(i), z0m_lays(i), displa_lays(i))
          ENDIF
       ENDDO
@@ -1041,11 +1091,11 @@ CONTAINS
                   ktop_lay(i) = ktop
                ELSE
                   ! calculate utop of this layer
-                  utop_lay(i) = uprofile(ubot_lay(upplay), fcover_lays(upplay), bee, 0., &
+                  utop_lay(i) = uprofile(ubot_lay(upplay), fcover_lays(upplay), bee, 0._r8, &
                                 z0mg, hbot_lay(upplay), htop_lay(i), htop_lay(i))
 
                   ! calculate ktop of this layer
-                  ktop_lay(i) = kprofile(kbot_lay(upplay), fcover_lays(upplay), bee, 0., &
+                  ktop_lay(i) = kprofile(kbot_lay(upplay), fcover_lays(upplay), bee, 0._r8, &
                                 displa_lays(toplay)/htop_lay(toplay), &
                                 hbot_lay(upplay), htop_lay(i), obug, ustarg, htop_lay(i))
 
@@ -1055,7 +1105,7 @@ CONTAINS
                   rd(upplay) = rd(upplay) + frd(kbot_lay(upplay), hbot_lay(upplay), htop_lay(i), &
                                hbot_lay(upplay), htop_lay(i), &
                                displa_lays(toplay)/htop_lay(toplay), &
-                               z0h_g, obug, ustarg, z0mg, 0., bee, fcover_lays(upplay))
+                               z0h_g, obug, ustarg, z0mg, 0._r8, bee, fcover_lays(upplay))
 
                ENDIF
 
@@ -1067,7 +1117,7 @@ CONTAINS
                              z0mg, htop_lay(i), hbot_lay(i), hbot_lay(i))
 
                IF (it == 1) THEN
-                  ueff_lay_norm(i) = ueffect(1., htop_lay(i), hbot_lay(i), &
+                  ueff_lay_norm(i) = ueffect(1._r8, htop_lay(i), hbot_lay(i), &
                                      z0mg, a_lay(i), bee, fcover_lay(i))
                ENDIF
                ueff_lay(i) = utop_lay(i)*ueff_lay_norm(i)
@@ -1107,7 +1157,7 @@ CONTAINS
 
          rd(botlay) = rd(botlay) + frd(kbot_lay(botlay), hbot_lay(botlay), z0qg, &
                       hbot_lay(botlay), z0qg, displa_lays(toplay)/htop_lay(toplay), &
-                      z0h_g, obug, ustarg, z0mg, 0., bee, fcover_lays(botlay))
+                      z0h_g, obug, ustarg, z0mg, 0._r8, bee, fcover_lays(botlay))
 
 ! ......................................................................
 ! Bulk boundary layer resistance of leaves
@@ -1195,6 +1245,63 @@ CONTAINS
                   gs0sun(i) = min( 1.e6, 1./(rssun(i)*tl(i)/tprcor) )/ laisun(i) * 1.e6 * o3coefg_sun(i)
                   gs0sha(i) = min( 1.e6, 1./(rssha(i)*tl(i)/tprcor) )/ laisha(i) * 1.e6 * o3coefg_sha(i)
 
+                  IF (DEF_Interception_scheme == 6) THEN
+                     sigf_safe_VIC = max(sigf(i), 0.01_r8)
+                     ! See MOD_LeafTemperature.F90
+                     ! VIC branch. DEF_VEG_SNOW=T pre-scales lai by sigf
+                     ! upstream, so divide back out here for per-veg.
+                     IF (DEF_VEG_SNOW) THEN
+                        MaxInt_VIC = max(0.1_r8 * lai(i) * DEF_VIC_WDMAX_SCALE / sigf_safe_VIC, 1.e-10_r8)
+                     ELSE
+                        MaxInt_VIC = max(0.1_r8 * lai(i) * DEF_VIC_WDMAX_SCALE, 1.e-10_r8)
+                     ENDIF
+                     wetfrac_VIC = min( ((ldew(i)/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8), 1.0_r8 )
+                     wet_area = 1._r8
+                     ec_pot_VIC  = rhoair * wetfrac_VIC * wet_area / rb(i) &
+                                 * max(0._r8, qsatl(i) - qaf(clev))
+                     IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew(i) > 0._r8) THEN
+                        f_VIC = min(1.0_r8, ldew(i) / (ec_pot_VIC * deltim))
+                     ELSE
+                        f_VIC = 1.0_r8
+                     ENDIF
+                     fwet(i) = f_VIC * wetfrac_VIC
+                  ELSEIF (DEF_Interception_scheme == 7) THEN
+                     ! Keep JULES wet-canopy suppression consistent between
+                     ! the thermal Ec branch and the existing single-fwet PHS path.
+                     sigf_safe_JULES = max(sigf(i), 0.01_r8)
+                     ! Mirror MOD_LeafTemperature.F90
+                     ! JULES branch — restore per-veg LAI under DEF_VEG_SNOW
+                     ! and split fraca into rain/snow using the respective
+                     ! JULES capacities (catch0/dcatch_dlai vs snowloadlai).
+                     IF (DEF_VEG_SNOW) THEN
+                        lai_perveg_JULES = lai(i) / sigf_safe_JULES
+                     ELSE
+                        lai_perveg_JULES = lai(i)
+                     ENDIF
+                     catch_JULES      = 0.5_r8 + 0.05_r8 * lai_perveg_JULES
+                     catch_JULES_snow = 4.4_r8 * lai_perveg_JULES
+                     epot_JULES  = rhoair / max(raw, 1.e-10_r8) * (qsatl(i) - qaf(clev))
+                     IF (epot_JULES > 0._r8) THEN
+                        epdt_JULES = epot_JULES * deltim
+                        IF (ldew_rain(i) > 0._r8 .AND. (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
+                           fraca_JULES_rain = min((ldew_rain(i) / sigf_safe_JULES) / (epdt_JULES + catch_JULES), 1.0_r8)
+                        ELSE
+                           fraca_JULES_rain = 0.0_r8
+                        ENDIF
+                        IF (ldew_snow(i) > 0._r8 .AND. (epdt_JULES + catch_JULES_snow) > 1.e-10_r8) THEN
+                           fraca_JULES_snow = min((ldew_snow(i) / sigf_safe_JULES) / (epdt_JULES + catch_JULES_snow), 1.0_r8)
+                        ELSE
+                           fraca_JULES_snow = 0.0_r8
+                        ENDIF
+                     ELSE
+                        fraca_JULES_rain = 1.0_r8
+                        fraca_JULES_snow = 1.0_r8
+                     ENDIF
+                     fraca_JULES = fraca_JULES_rain + fraca_JULES_snow &
+                                 - fraca_JULES_rain * fraca_JULES_snow
+                     fwet(i) = fraca_JULES
+                  ENDIF
+
                   CALL PlantHydraulicStress_twoleaf (nl_soil     ,nvegwcs      ,z_soi        ,&
                         dz_soi       ,rootfr(:,i)  ,psrf         ,qsatl(i)     ,qaf(clev)    ,&
                         tl(i)        ,rbsun        ,rss          ,raw        ,sum(rd(1:clev)),&
@@ -1258,7 +1365,24 @@ CONTAINS
 
 ! note: combine sunlit and shaded leaves
 !-----------------------------------------------------------------------
-               cfw(i) = (1.-delta(i)*(1.-fwet(i)))*lsai(i)/rb(i) + &
+               wet_area_cfw = lsai(i)
+               IF (DEF_Interception_scheme == 4) THEN
+                  wet_area_cfw = min(6._r8, max(lsai(i), 0._r8))
+               ELSEIF (DEF_Interception_scheme == 5) THEN
+                  wet_area_cfw = min(1._r8, max(lai(i), 0._r8))
+               ELSEIF (DEF_Interception_scheme == 6) THEN
+                  wet_area_cfw = 1._r8
+               ELSEIF (DEF_Interception_scheme == 7) THEN
+                  wet_area_cfw = 1._r8
+               ENDIF
+               wet_cond_cfw = wet_area_cfw / rb(i)
+               IF (DEF_Interception_scheme == 7) THEN
+                  wet_cond_cfw = 1._r8 / max(raw, 1.e-10_r8)
+               ENDIF
+
+               ! cfw uses the same scheme-specific wet conductance semantics
+               ! as the wet-canopy flux itself so the qaf solve stays aligned.
+               cfw(i) = (1.-delta(i)*(1.-fwet(i)))*wet_cond_cfw + &
                         (1.-fwet(i))*delta(i)* &
                         ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) )
             ENDIF
@@ -1492,24 +1616,123 @@ ENDIF
 
 ! latent heat fluxes and their derivatives
 
-               etr(i) = rhoair * (1.-fwet(i)) * delta(i) &
+               ! -----------------------------------------------------------
+               ! Compute scheme-specific evp_weight / dry_factor BEFORE etr
+               ! (VIC requires dryFrac coupling; see canopy_evap.c:76-103).
+               ! JULES keeps (1-fwet) for dry side per user design choice.
+               ! -----------------------------------------------------------
+               wet_area_cfw = lsai(i)
+
+               IF (DEF_Interception_scheme == 6) THEN
+                  ! Upstream VIC wet-canopy evaporation is a bulk Penman flux:
+                  ! no extra LAI area multiplier beyond Wdmax = 0.1*LAI*scale.
+                  wet_area = 1._r8
+                  wet_area_cfw = wet_area
+                  wet_cond = wet_area / rb(i)
+                  IF (DEF_USE_PLANTHYDRAULICS) THEN
+                     evp_weight = fwet(i)
+                  ELSE
+                     sigf_safe_VIC = max(sigf(i), 0.01_r8)
+                     ! See VIC branch above for rationale.
+                     IF (DEF_VEG_SNOW) THEN
+                        MaxInt_VIC = max(0.1_r8 * lai(i) * DEF_VIC_WDMAX_SCALE / sigf_safe_VIC, 1.e-10_r8)
+                     ELSE
+                        MaxInt_VIC = max(0.1_r8 * lai(i) * DEF_VIC_WDMAX_SCALE, 1.e-10_r8)
+                     ENDIF
+                     wetfrac_VIC = min( ((ldew(i)/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8), 1.0_r8 )
+                     ec_pot_VIC  = rhoair * wetfrac_VIC * wet_area / rb(i) &
+                                 * max(0._r8, qsatl(i) - qaf(clev))
+                     IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew(i) > 0._r8) THEN
+                        f_VIC = min(1.0_r8, ldew(i) / (ec_pot_VIC * deltim))
+                     ELSE
+                        f_VIC = 1.0_r8
+                     ENDIF
+                     evp_weight = f_VIC * wetfrac_VIC
+                     fwet(i) = evp_weight
+                  ENDIF
+                  dry_factor = 1._r8 - fwet(i)                   ! PHS-compatible
+
+               ELSEIF (DEF_Interception_scheme == 7) THEN
+                  ! Upstream JULES uses bulk fraca/ecan with aerodynamic
+                  ! exchange, not a leaf-boundary wet conductance based on rb.
+                  wet_area = 1._r8
+                  wet_area_cfw = wet_area
+                  wet_cond = 1._r8 / max(raw, 1.e-10_r8)
+                  IF (DEF_USE_PLANTHYDRAULICS) THEN
+                     evp_weight = fwet(i)
+                  ELSE
+                     sigf_safe_JULES = max(sigf(i), 0.01_r8)
+                     ! See PHS branch above for rationale.
+                     IF (DEF_VEG_SNOW) THEN
+                        lai_perveg_JULES = lai(i) / sigf_safe_JULES
+                     ELSE
+                        lai_perveg_JULES = lai(i)
+                     ENDIF
+                     catch_JULES      = 0.5_r8 + 0.05_r8 * lai_perveg_JULES
+                     catch_JULES_snow = 4.4_r8 * lai_perveg_JULES
+                     epot_JULES  = rhoair * wet_cond * (qsatl(i) - qaf(clev))
+                     IF (epot_JULES > 0._r8) THEN
+                        epdt_JULES = epot_JULES * deltim
+                        IF (ldew_rain(i) > 0._r8 .AND. (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
+                           fraca_JULES_rain = min((ldew_rain(i) / sigf_safe_JULES) / (epdt_JULES + catch_JULES), 1.0_r8)
+                        ELSE
+                           fraca_JULES_rain = 0.0_r8
+                        ENDIF
+                        IF (ldew_snow(i) > 0._r8 .AND. (epdt_JULES + catch_JULES_snow) > 1.e-10_r8) THEN
+                           fraca_JULES_snow = min((ldew_snow(i) / sigf_safe_JULES) / (epdt_JULES + catch_JULES_snow), 1.0_r8)
+                        ELSE
+                           fraca_JULES_snow = 0.0_r8
+                        ENDIF
+                     ELSE
+                        fraca_JULES_rain = 1.0_r8
+                        fraca_JULES_snow = 1.0_r8
+                     ENDIF
+                     fraca_JULES = fraca_JULES_rain + fraca_JULES_snow &
+                                 - fraca_JULES_rain * fraca_JULES_snow
+                     evp_weight = fraca_JULES
+                     fwet(i) = evp_weight
+                  ENDIF
+                  dry_factor = 1._r8 - fwet(i)                    ! JULES: Ec/Et independent
+
+               ELSEIF (DEF_Interception_scheme == 4) THEN
+                  wet_area = min(6._r8, max(lsai(i), 0._r8))
+                  wet_area_cfw = wet_area
+                  wet_cond = wet_area / rb(i)
+                  evp_weight = 1._r8 - delta(i)*(1._r8 - fwet(i))
+                  dry_factor = 1._r8 - fwet(i)
+
+               ELSEIF (DEF_Interception_scheme == 5) THEN
+                  ! MATSIRO canopy water is LAI-only throughout fctint/cwcap/fcwet.
+                  evp_weight = 1._r8 - delta(i)*(1._r8 - fwet(i))
+                  wet_area   = min(1._r8, max(lai(i), 0._r8))
+                  wet_area_cfw = wet_area
+                  wet_cond = wet_area / rb(i)
+                  dry_factor = 1._r8 - fwet(i)
+               ELSE
+                  evp_weight = 1._r8 - delta(i)*(1._r8 - fwet(i))
+                  wet_area = lsai(i)
+                  wet_cond = wet_area / rb(i)
+                  dry_factor = 1._r8 - fwet(i)                    ! CoLM default
+               ENDIF
+
+               etr(i) = rhoair * dry_factor * delta(i) &
                       * ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) ) &
                       * ( qsatl(i) - qaf(clev) )
 
                ! 09/25/2017: re-written
                IF (numlay < 3 .or. clev == 2) THEN
-                  etr_dtl(i) = rhoair * (1.-fwet(i)) * delta(i) &
+                  etr_dtl(i) = rhoair * dry_factor * delta(i) &
                              * ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) ) &
                              * (1. - wlq(i)/facq)*qsatlDT(i)
                ELSE
                   IF (clev == 1) THEN
-                     etr_dtl(i) = rhoair * (1.-fwet(i)) * delta(i) &
+                     etr_dtl(i) = rhoair * dry_factor * delta(i) &
                                 * ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) ) &
                                !* (1. - (1.-waq(2)*wgq(3))*wlq(i)/facq)*qsatlDT(i) or
                                 * (1. - waq(1)*wgq(2)*wlq(i)/facq - wlq(i))*qsatlDT(i)
                   ENDIF
                   IF (clev == 3) THEN
-                     etr_dtl(i) = rhoair * (1.-fwet(i)) * delta(i) &
+                     etr_dtl(i) = rhoair * dry_factor * delta(i) &
                                 * ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) ) &
                                !* (1. - (1.-wgq(2)*waq(1))*wlq(i)/facq)*qsatlDT(i) or
                                 * (1. - wgq(3)*waq(2)*wlq(i)/facq - wlq(i))*qsatlDT(i)
@@ -1523,21 +1746,22 @@ ENDIF
                   ENDIF
                ENDIF
 
-               evplwet(i) = rhoair * (1.-delta(i)*(1.-fwet(i))) * lsai(i)/rb(i) &
+               ! evp_weight was computed above (before etr). Use it directly.
+               evplwet(i) = rhoair * evp_weight * wet_cond &
                           * ( qsatl(i) - qaf(clev) )
 
                ! 09/25/2017: re-written
                IF (numlay < 3 .or. clev == 2) THEN
-                  evplwet_dtl(i) = rhoair * (1.-delta(i)*(1.-fwet(i))) * lsai(i)/rb(i) &
+                  evplwet_dtl(i) = rhoair * evp_weight * wet_cond &
                                  * (1. - wlq(i)/facq)*qsatlDT(i)
                ELSE
                   IF (clev == 1) THEN
-                     evplwet_dtl(i) = rhoair * (1.-delta(i)*(1.-fwet(i))) * lsai(i)/rb(i) &
+                     evplwet_dtl(i) = rhoair * evp_weight * wet_cond &
                                    !* (1. - (1-waq(2)*wgq(3))*wlq(i)/facq)*qsatlDT(i) or
                                     * (1. - waq(1)*wgq(2)*wlq(i)/facq - wlq(i))*qsatlDT(i)
                   ENDIF
                   IF (clev == 3) THEN
-                     evplwet_dtl(i) = rhoair * (1.-delta(i)*(1.-fwet(i))) * lsai(i)/rb(i) &
+                     evplwet_dtl(i) = rhoair * evp_weight * wet_cond &
                                    !* (1. - (1.-wgq(2)*waq(1))*wlq(i)/facq)*qsatlDT(i) or
                                     * (1. - wgq(3)*waq(2)*wlq(i)/facq - wlq(i))*qsatlDT(i)
                   ENDIF
@@ -1566,11 +1790,17 @@ ENDIF
 ! MARK#dtl
 !-----------------------------------------------------------------------
 
-               dtl(it,i) = (sabv(i) + irab(i) - fsenl(i) - hvap*fevpl(i) &
-                         + cpliq*qintr_rain(i)*(t_precip-tl(i)) &
-                         + cpice*qintr_snow(i)*(t_precip-tl(i))) &
-                         / (clai(i)/deltim - dirab_dtl(i) + fsenl_dtl(i) + hvap*fevpl_dtl(i) &
-                         + cpliq*qintr_rain(i) + cpice*qintr_snow(i))
+               ! htvpl(i) = hvap if tl>tfrz else hsub.
+               ! Without this canopy snow sublimation latent heat is
+               ! under-counted by ~13% (hsub - hvap) / hvap.
+               ! Clamp qintr_* to max(0,·); NET flux
+               ! can go negative under VIC unloading/phase-overflow —
+               ! outgoing water leaves at tl and contributes 0 enthalpy.
+               dtl(it,i) = (sabv(i) + irab(i) - fsenl(i) - htvpl(i)*fevpl(i) + canopy_phase_heat(i) &
+                         + cpliq*max(0._r8,qintr_rain(i))*(t_precip-tl(i)) &
+                         + cpice*max(0._r8,qintr_snow(i))*(t_precip-tl(i))) &
+                         / (clai(i)/deltim - dirab_dtl(i) + fsenl_dtl(i) + htvpl(i)*fevpl_dtl(i) &
+                         + cpliq*max(0._r8,qintr_rain(i)) + cpice*max(0._r8,qintr_snow(i)))
 
                dtl_noadj(i) = dtl(it,i)
 
@@ -1598,7 +1828,7 @@ ENDIF
 
                del(i)  = sqrt( dtl(it,i)*dtl(it,i) )
                dele(i) = dtl(it,i) * dtl(it,i) * &
-                       ( dirab_dtl(i)**2 + fsenl_dtl(i)**2 + (hvap*fevpl_dtl(i))**2 )
+                       ( dirab_dtl(i)**2 + fsenl_dtl(i)**2 + (htvpl(i)*fevpl_dtl(i))**2 )   ! NM-3
                dele(i) = sqrt(dele(i))
 
 !-----------------------------------------------------------------------
@@ -1785,11 +2015,13 @@ ENDIF
 ! canopy fluxes and total assimilation and respiration
             fsenl(i) = fsenl(i) + fsenl_dtl(i)*dtl(it-1,i) &
                      ! add the imbalanced energy below due to T adjustment to sensible heat
+                     ! NM-3: htvpl(i) reflects sublim vs vap latent heat per current tl.
+                     ! VIC-qintr: must match dtl denom (max(0,qintr_*)).
                      + (dtl_noadj(i)-dtl(it-1,i)) * (clai(i)/deltim - dirab_dtl(i) &
-                     + fsenl_dtl(i) + hvap*fevpl_dtl(i) &
-                     + cpliq*qintr_rain(i) + cpice*qintr_snow(i)) &
+                     + fsenl_dtl(i) + htvpl(i)*fevpl_dtl(i) &
+                     + cpliq*max(0._r8,qintr_rain(i)) + cpice*max(0._r8,qintr_snow(i))) &
                      ! add the imbalanced energy below due to q adjustment to sensible heat
-                     + hvap*erre(i)
+                     + htvpl(i)*erre(i)
 
             etr0(i) = etr(i)
             etr (i) = etr(i) + etr_dtl(i)*dtl(it-1,i)
@@ -1827,10 +2059,12 @@ ENDIF
             evplwet(i) = min(evplwet(i), elwmax)
 
             fevpl(i) = fevpl(i) - elwdif
-            fsenl(i) = fsenl(i) + hvap*elwdif
+            fsenl(i) = fsenl(i) + htvpl(i)*elwdif   ! NM-3
 
             ! precipitation sensible heat from canopy
-            hprl (i) = cpliq*qintr_rain(i)*(t_precip-tl(i)) + cpice*qintr_snow(i)*(t_precip-tl(i))
+            ! Clamp to max(0,·) — see dtl formula above.
+            hprl (i) = cpliq*max(0._r8,qintr_rain(i))*(t_precip-tl(i)) &
+                     + cpice*max(0._r8,qintr_snow(i))*(t_precip-tl(i))
 
             ! vegetation heat change
             dheatl(i) = clai(i)/deltim*dtl(it-1,i)
@@ -1838,153 +2072,132 @@ ENDIF
 !-----------------------------------------------------------------------
 ! Update dew accumulation (kg/m2)
 !-----------------------------------------------------------------------
-            IF (DEF_Interception_scheme .eq. 1) THEN !colm2014
-
-               ldew(i) = max(0., ldew(i)-evplwet(i)*deltim)
-
-               ! account for vegetation snow and update ldew_rain, ldew_snow, ldew
-               IF ( DEF_VEG_SNOW ) THEN
-                  IF (tl(i) > tfrz) THEN
-                     qevpl(i) = max (evplwet(i), 0.)
-                     qdewl(i) = abs (min (evplwet(i), 0.) )
-                     qsubl(i) = 0.
-                     qfrol(i) = 0.
-
-                     IF (qevpl(i) > ldew_rain(i)/deltim) THEN
-                        qsubl(i) = qevpl(i) - ldew_rain(i)/deltim
-                        qevpl(i) = ldew_rain(i)/deltim
-                     ENDIF
-                  ELSE
-                     qevpl(i) = 0.
-                     qdewl(i) = 0.
-                     qsubl(i) = max (evplwet(i), 0.)
-                     qfrol(i) = abs (min (evplwet(i), 0.) )
-
-                     IF (qsubl(i) > ldew_snow(i)/deltim) THEN
-                        qevpl(i) = qsubl(i) - ldew_snow(i)/deltim
-                        qsubl(i) = ldew_snow(i)/deltim
-                     ENDIF
-                  ENDIF
-
-                  ldew_rain(i) = ldew_rain(i) + (qdewl(i)-qevpl(i))*deltim
-                  ldew_snow(i) = ldew_snow(i) + (qfrol(i)-qsubl(i))*deltim
-
-                  ldew(i) = ldew_rain(i) + ldew_snow(i)
-               ENDIF
-
-            ELSEIF (DEF_Interception_scheme .eq. 2) THEN!CLM4.5
-               ldew(i) = max(0., ldew(i)-evplwet(i)*deltim)
-            ELSEIF (DEF_Interception_scheme .eq. 3) THEN !CLM5
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSEIF (DEF_Interception_scheme .eq. 4) THEN !Noah-MP
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSEIF (DEF_Interception_scheme .eq. 5) THEN !MATSIRO
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSEIF (DEF_Interception_scheme .eq. 6) THEN !VIC
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSEIF (DEF_Interception_scheme .eq. 7) THEN !JULES
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSEIF (DEF_Interception_scheme .eq. 8) THEN !CoLM202x
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSE
+            ! Unify all 8 schemes on the same
+            ! tl-based phase split that main LeafTemperature uses. The
+            ! previous PC "drain rain first, then snow" for schemes 2-8
+            ! ignored tl and misallocated dew components under freezing
+            ! conditions (e.g. at tl < tfrz a pure evaporation demand
+            ! was taken from ldew_rain instead of ldew_snow, leaving the
+            ! wrong phase fractions for downstream interception).
+            IF (DEF_Interception_scheme < 1 .or. DEF_Interception_scheme > 8) THEN
                CALL abort
             ENDIF
 
+            ldew(i) = max(0., ldew(i)-evplwet(i)*deltim)
+
+            ! account for vegetation snow and update ldew_rain, ldew_snow, ldew
             IF ( DEF_VEG_SNOW ) THEN
-               ! update fwet_snow
-               fwet_snow(i) = 0
-               IF(ldew_snow(i) > 0.) THEN
-                  fwet_snow(i) = ((10./(48.*lsai(i)))*ldew_snow(i))**.666666666666
-                  ! Check for maximum limit of fwet_snow
-                  fwet_snow(i) = min(fwet_snow(i),1.0)
+               CALL partition_canopy_latent_flux(tl(i), tfrz, deltim, evplwet(i), ldew_rain(i), ldew_snow(i), &
+                                                 qevpl(i), qdewl(i), qsubl(i), qfrol(i), phase_flux_deficit)
+               IF (phase_flux_deficit > 0._r8) THEN
+                  evplwet(i) = evplwet(i) - phase_flux_deficit
+                  fevpl(i)   = fevpl(i) - phase_flux_deficit
+                  fsenl(i)   = fsenl(i) + htvpl(i) * phase_flux_deficit   ! NM-3
                ENDIF
+
+               ldew_rain(i) = ldew_rain(i) + (qdewl(i)-qevpl(i))*deltim
+               ldew_snow(i) = ldew_snow(i) + (qfrol(i)-qsubl(i))*deltim
+               ! Close the energy-balance loop when the
+               ! cross-phase redirect drives a component below zero.
+               ! The bulk elwmax clamp sized evplwet against total
+               ! ldew at entry, but component-level inconsistency can
+               ! still leave the flux over-committed. Convert the
+               ! deficit back from latent to sensible heat (same
+               ! pattern as elwdif) so mass and energy stay consistent.
+               IF (ldew_rain(i) < 0._r8 .or. ldew_snow(i) < 0._r8) THEN
+                  flux_deficit = max(0._r8, -ldew_rain(i)) &
+                               + max(0._r8, -ldew_snow(i))
+                  evplwet(i) = evplwet(i) - flux_deficit / deltim
+                  fevpl(i)   = fevpl(i)   - flux_deficit / deltim
+                  fsenl(i)   = fsenl(i)   + htvpl(i) * flux_deficit / deltim   ! NM-3
+               ENDIF
+               ldew_rain(i) = max(0._r8, ldew_rain(i))
+               ldew_snow(i) = max(0._r8, ldew_snow(i))
+
+               ldew(i) = ldew_rain(i) + ldew_snow(i)
+            ELSE
+               ! DEF_VEG_SNOW=off: reconcile ldew_rain/ldew_snow with the
+               ! freshly updated ldew so downstream interception sees a
+               ! consistent pair. Mirrors MOD_LeafTemperature.F90:1543-1551
+               ! (prevents the LeafT→Interception overwrite cycle).
+               IF (tl(i) > tfrz) THEN
+                  ldew_rain(i) = ldew(i)
+                  ldew_snow(i) = 0._r8
+               ELSE
+                  ldew_rain(i) = 0._r8
+                  ldew_snow(i) = ldew(i)
+               ENDIF
+            ENDIF
+
+            ! Canopy rain<->snow phase change is owned
+            ! by LEAF_interception for schemes 4/5/6/7 (fusion heat is
+            ! exported via canopy_phase_heat to the err residual below).
+            ! Skip the qmelt/qfrz + Niu-pull block here for those schemes
+            ! to avoid a second phase-change site and a double tl pull.
+            phase_change_owned_by_interception = &
+               (DEF_Interception_scheme >= 4 .and. DEF_Interception_scheme <= 7)
+
+            IF ( DEF_VEG_SNOW .and. .not. phase_change_owned_by_interception ) THEN
+               ! update fwet_snow
+               fwet_snow(i) = canopy_snow_wetfrac(sigf(i), lai(i), sai(i), dewmx, tl(i), ldew_snow(i))
 
                ! phase change
 
                qmelt(i) = 0.
                qfrz(i)  = 0.
 
+               ! Capture tl change from Niu (2004)
+               ! pull into dheatl so the canopy energy balance closes
+               ! (see MOD_LeafTemperature.F90 for full rationale).
                IF (ldew_snow(i).gt.1.e-6 .and. tl(i).gt.tfrz) THEN
                   qmelt(i) = min(ldew_snow(i)/deltim,(tl(i)-tfrz)*cpice*ldew_snow(i)/(deltim*hfus))
                   ldew_snow(i) = max(0.,ldew_snow(i) - qmelt(i)*deltim)
                   ldew_rain(i) = max(0.,ldew_rain(i) + qmelt(i)*deltim)
-                  !NOTE: There may be some problem, energy imbalance
-                  !      However, detailed treatment could be somewhat trivial
+                  tl_pre_phase = tl(i)
                   tl(i) = fwet_snow(i)*tfrz + (1.-fwet_snow(i))*tl(i) !Niu et al., 2004
+                  dheatl(i) = dheatl(i) + clai(i)/deltim * (tl(i) - tl_pre_phase)
+                  ! Export per-PFT melt mass for THERMAL to
+                  ! aggregate to patch level via pftfrac.
+                  IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(i) = qmelt(i) * deltim
                ENDIF
 
                IF (ldew_rain(i).gt.1.e-6 .and. tl(i).lt.tfrz) THEN
                   qfrz(i)  = min(ldew_rain(i)/deltim,(tfrz-tl(i))*cpliq*ldew_rain(i)/(deltim*hfus))
                   ldew_rain(i) = max(0.,ldew_rain(i) - qfrz(i)*deltim)
                   ldew_snow(i) = max(0.,ldew_snow(i) + qfrz(i)*deltim)
-                  !NOTE: There may be some problem, energy imbalance
-                  !      However, detailed treatment could be somewhat trivial
+                  tl_pre_phase = tl(i)
                   tl(i) = fwet_snow(i)*tfrz + (1.-fwet_snow(i))*tl(i) !Niu et al., 2004
+                  dheatl(i) = dheatl(i) + clai(i)/deltim * (tl(i) - tl_pre_phase)
+                  IF (present(canopy_frzc_mass_p_out)) canopy_frzc_mass_p_out(i) = qfrz(i) * deltim
                ENDIF
+            ELSEIF ( DEF_VEG_SNOW ) THEN
+               ! Interception owns the phase change; still refresh
+               ! fwet_snow for downstream fwet-based consumers.
+               fwet_snow(i) = canopy_snow_wetfrac(sigf(i), lai(i), sai(i), dewmx, tl(i), ldew_snow(i))
             ENDIF
+
+            ! Export the canopy latent-energy term exactly as solved here.
+            ! MOD_Thermal must not re-infer it from the post-adjustment tl(i).
+            lfevpl(i) = htvpl(i) * fevpl(i)
 
 !-----------------------------------------------------------------------
 ! balance check
 ! (the computational error was created by the assumed 'dtl' in MARK#dtl)
 !-----------------------------------------------------------------------
 
+            ! NM-3: htvpl(i) per current tl correctly accounts for sublim vs vap.
+            ! NM-1-v2: use the PFT-local canopy phase heat here; THERMAL keeps
+            ! the patch aggregate only for column-level errore diagnostics.
             err = sabv(i) + irab(i) + dirab_dtl(i)*dtl(it-1,i) &
-                - fsenl(i) - hvap*fevpl(i) + hprl(i) &
+                - fsenl(i) - htvpl(i)*fevpl(i) + hprl(i) &
+                + canopy_phase_heat(i) &
                 ! account for vegetation heat change
                 - dheatl(i)
 
 #if (defined CoLMDEBUG)
             IF(abs(err) .gt. .2) &
                write(6,*) 'energy imbalance in LeafTemperaturePC.F90', &
-                          i,it-1,err,sabv(i),irab(i),fsenl(i),hvap*fevpl(i),hprl(i),dheatl(i)
+                          i,it-1,err,sabv(i),irab(i),fsenl(i),htvpl(i)*fevpl(i),hprl(i),dheatl(i),canopy_phase_heat(i)
 #endif
          ENDIF
       ENDDO
@@ -2067,8 +2280,52 @@ ENDIF
    END SUBROUTINE LeafTemperaturePC
 !----------------------------------------------------------------------
 
+   SUBROUTINE partition_canopy_latent_flux(tleaf, tfrz, deltim, evplwet, ldew_rain, ldew_snow, &
+                                           qevpl, qdewl, qsubl, qfrol, phase_flux_deficit)
 
-   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in)  :: tleaf
+   real(r8), intent(in)  :: tfrz
+   real(r8), intent(in)  :: deltim
+   real(r8), intent(in)  :: evplwet
+   real(r8), intent(in)  :: ldew_rain
+   real(r8), intent(in)  :: ldew_snow
+   real(r8), intent(out) :: qevpl
+   real(r8), intent(out) :: qdewl
+   real(r8), intent(out) :: qsubl
+   real(r8), intent(out) :: qfrol
+   real(r8), intent(out) :: phase_flux_deficit
+
+      phase_flux_deficit = 0._r8
+      IF (tleaf > tfrz) THEN
+         qevpl = max(evplwet, 0._r8)
+         qdewl = abs(min(evplwet, 0._r8))
+         qsubl = 0._r8
+         qfrol = 0._r8
+
+         IF (qevpl > ldew_rain/deltim) THEN
+            phase_flux_deficit = qevpl - ldew_rain/deltim
+            qevpl = ldew_rain/deltim
+         ENDIF
+      ELSE
+         qevpl = 0._r8
+         qdewl = 0._r8
+         qsubl = max(evplwet, 0._r8)
+         qfrol = abs(min(evplwet, 0._r8))
+
+         IF (qsubl > ldew_snow/deltim) THEN
+            phase_flux_deficit = qsubl - ldew_snow/deltim
+            qsubl = ldew_snow/deltim
+         ENDIF
+      ENDIF
+
+   END SUBROUTINE partition_canopy_latent_flux
+
+
+   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,tleaf,ldew,ldew_rain,ldew_snow,fwet,fdry)
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
 !
@@ -2081,12 +2338,16 @@ ENDIF
 !=======================================================================
 
    USE MOD_Precision
+   ! dewfraction needs tfrz explicitly — host association
+   ! is shadowed by the local IMPLICIT NONE block on some compilers.
+   USE MOD_Const_Physical, only: tfrz
    IMPLICIT NONE
 
    real(r8), intent(in)  :: sigf      !fraction of veg cover, excluding snow-covered veg [-]
    real(r8), intent(in)  :: lai       !leaf area index  [-]
    real(r8), intent(in)  :: sai       !stem area index  [-]
    real(r8), intent(in)  :: dewmx     !maximum allowed dew [0.1 mm]
+   real(r8), intent(in)  :: tleaf     !canopy temperature used by scheme-specific snow capacity [K]
    real(r8), intent(in)  :: ldew      !depth of water on foliage [kg/m2/s]
    real(r8), intent(in)  :: ldew_rain !depth of rain on foliage [kg/m2/s]
    real(r8), intent(in)  :: ldew_snow !depth of snow on foliage [kg/m2/s]
@@ -2098,6 +2359,11 @@ ENDIF
    real(r8) :: vegt                   !sigf*lsai, NOTE: remove sigf
    real(r8) :: fwet_rain              !fraction of foliage covered by water [-]
    real(r8) :: fwet_snow              !fraction of foliage covered by snow [-]
+   real(r8) :: satcap_rain_eff        !scheme-specific liquid capacity used by fwet [-]
+   real(r8) :: lai_eff                !LAI clamped to avoid division by zero [-]
+   real(r8) :: fwet_max               !scheme-specific cap on fwet [-]
+   real(r8) :: dewmx_MATSIRO            ! MATSIRO canopy water capacity per LAI [mm]
+   real(r8), parameter :: fwet_max_CLM5 = 0.05_r8 ! CLM5.0 max leaf wetted fraction, Lawrence et al. 2019
 
 !-----------------------------------------------------------------------
 ! Fwet is the fraction of all vegetation surfaces which are wet
@@ -2106,34 +2372,96 @@ ENDIF
       dewmxi = 1.0/dewmx
       ! 06/2018, yuan: remove sigf, to compatible with PFT
       vegt   =  lsai
+      dewmx_MATSIRO = 0.2_r8 * DEF_MATSIRO_CWCAP_SCALE
 
-      fwet = 0
-      IF (ldew > 0.) THEN
-         fwet = ((dewmxi/vegt)*ldew)**.666666666666
-         ! Check for maximum limit of fwet
-         fwet = min(fwet,1.0)
-      ENDIF
-
-      ! account for vegetation snow
-      ! calculate fwet_rain, fwet_snow, fwet
-      IF ( DEF_VEG_SNOW ) THEN
-
-         fwet_rain = 0
-         IF(ldew_rain > 0.) THEN
-            fwet_rain = ((dewmxi/vegt)*ldew_rain)**.666666666666
-            ! Check for maximum limit of fwet_rain
-            fwet_rain = min(fwet_rain,1.0)
+      IF (DEF_Interception_scheme == 5) THEN
+         ! ----------------------------------------------------------------
+         ! MATSIRO scheme: linear fwet on TOTAL canopy water (rain+snow),
+         ! using LAI only (not LAI+SAI). Follows original MATSIRO canwet():
+         !   fcwet = glwc / (LAI * cnw_wcmax),  cnw_wcmax = 0.2 mm
+         ! Original MATSIRO does not split rain/snow in fwet — cwcap is a
+         ! single value and glwc = glwcl + glwci. So we ignore DEF_VEG_SNOW
+         ! here and always use the combined ldew to stay faithful to the
+         ! original scheme.
+         ! ----------------------------------------------------------------
+         lai_eff = max(lai, 1.e-6_r8)
+         fwet = 0
+         IF (ldew > 0.) THEN
+            fwet = ldew / (lai_eff * dewmx_MATSIRO)
+            fwet = min(fwet, 1.0)
          ENDIF
 
-         fwet_snow = 0
-         IF(ldew_snow > 0.) THEN
-            fwet_snow = ((dewmxi/(48.*vegt))*ldew_snow)**.666666666666
-            ! Check for maximum limit of fwet_snow
-            fwet_snow = min(fwet_snow,1.0)
+      ELSEIF (DEF_Interception_scheme == 4) THEN
+         ! See MOD_LeafTemperature.F90 CASE(4) for rationale.
+         ! NoahMP fwet uses fvegc-scaled capacity from helper CASE(4).
+         fwet = 0
+         IF (ldew > 0.) THEN
+            IF (tleaf > tfrz) THEN
+               satcap_rain_eff = canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx)
+               IF (satcap_rain_eff > 1.e-10_r8) THEN
+                  fwet = min((ldew / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
+               ENDIF
+            ELSE
+               satcap_rain_eff = canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf)
+               IF (satcap_rain_eff > 1.e-10_r8) THEN
+                  fwet = min((ldew / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
+               ENDIF
+            ENDIF
          ENDIF
 
-         fwet = fwet_rain + fwet_snow - fwet_rain*fwet_snow
-         fwet = min(fwet,1.0)
+      ELSE
+         ! ----------------------------------------------------------------
+         ! Default CoLM scheme: fwet = (S / Smax)^(2/3)
+         ! CLM5 (scheme=3) additionally clamps fwet to 0.05 per
+         ! CanopyHydrologyMod.F90 L722 (Lawrence et al. 2019, Fan et al. 2019)
+         ! ----------------------------------------------------------------
+         IF (DEF_Interception_scheme == 3) THEN
+            fwet_max = fwet_max_CLM5
+         ELSE
+            fwet_max = 1.0_r8
+         ENDIF
+
+         fwet = 0
+         IF (ldew > 0.) THEN
+            fwet = ((dewmxi/vegt)*ldew)**.666666666666
+            ! Check for maximum limit of fwet
+            fwet = min(fwet, fwet_max)
+         ENDIF
+
+         ! account for vegetation snow
+         ! calculate fwet_rain, fwet_snow, fwet
+         ! See MOD_LeafTemperature.F90 for
+         ! rationale. CLM4 (scheme=2) is single-bucket in interception;
+         ! skip the double-bucket union formula for scheme=2 only.
+         IF ( DEF_VEG_SNOW .and. DEF_Interception_scheme /= 2 ) THEN
+
+            fwet_rain = 0
+            IF(ldew_rain > 0.) THEN
+               satcap_rain_eff = canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx)
+               IF (satcap_rain_eff > 1.e-10_r8) THEN
+                  fwet_rain = (ldew_rain / satcap_rain_eff)**.666666666666
+                  ! Check for maximum limit of fwet_rain
+                  fwet_rain = min(fwet_rain, fwet_max)
+               ENDIF
+            ENDIF
+
+            fwet_snow = 0
+            IF(ldew_snow > 0.) THEN
+               fwet_snow = canopy_snow_wetfrac(sigf, lai, sai, dewmx, tleaf, ldew_snow)
+               fwet_snow = min(fwet_snow, fwet_max)
+            ENDIF
+
+            IF (DEF_Interception_scheme == 4) THEN
+               IF (ldew_snow > 0._r8 .AND. ldew_snow >= ldew_rain) THEN
+                  fwet = fwet_snow
+               ELSE
+                  fwet = fwet_rain
+               ENDIF
+            ELSE
+               fwet = fwet_rain + fwet_snow - fwet_rain*fwet_snow
+            ENDIF
+            fwet = min(fwet, fwet_max)
+         ENDIF
       ENDIF
 
       ! fdry is the fraction of lai which is dry because only leaves can
@@ -2141,5 +2469,146 @@ ENDIF
       fdry = (1.-fwet)*lai/lsai
 
    END SUBROUTINE dewfraction
+
+   FUNCTION canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx) RESULT(satcap_rain_eff)
+
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: sigf
+   real(r8), intent(in) :: lai
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: dewmx
+   real(r8)             :: satcap_rain_eff
+   real(r8)             :: lsai
+   real(r8)             :: fvegc
+   real(r8)             :: sigf_safe
+   real(r8)             :: lai_perveg
+
+      lsai = max(lai + sai, 0._r8)
+      sigf_safe = max(sigf, 0.01_r8)
+      lai_perveg = lai
+      IF (DEF_VEG_SNOW) lai_perveg = lai / sigf_safe
+
+      SELECT CASE (DEF_Interception_scheme)
+      CASE (4)
+         fvegc = max(0.05_r8, 1.0_r8 - exp(-0.52_r8 * lsai))
+         satcap_rain_eff = fvegc * dewmx * lsai
+      CASE (6)
+         satcap_rain_eff = sigf_safe * 0.1_r8 * max(lai_perveg, 0._r8) * DEF_VIC_WDMAX_SCALE
+      CASE (7)
+         ! Mirror MOD_LeafTemperature.F90 canopy_rain_capacity_for_fwet.
+         IF (DEF_VEG_SNOW) THEN
+            satcap_rain_eff = sigf_safe * (0.5_r8 + 0.05_r8 * max(lai / sigf_safe, 0._r8))
+         ELSE
+            satcap_rain_eff = sigf_safe * (0.5_r8 + 0.05_r8 * max(lai, 0._r8))
+         ENDIF
+      CASE DEFAULT
+         satcap_rain_eff = dewmx * lsai
+      END SELECT
+
+      satcap_rain_eff = max(satcap_rain_eff, 0._r8)
+
+   END FUNCTION canopy_rain_capacity_for_fwet
+
+   FUNCTION canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf) RESULT(satcap_snow_eff)
+
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: sigf
+   real(r8), intent(in) :: lai
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: dewmx
+   real(r8), intent(in) :: tleaf
+   real(r8)             :: satcap_snow_eff
+   real(r8)             :: lsai
+   real(r8)             :: fvegc
+   real(r8)             :: BDFALL
+   real(r8)             :: Lr
+   real(r8)             :: sigf_safe
+   real(r8)             :: dewmx_MATSIRO
+   real(r8)             :: lai_perveg
+
+      lsai = max(lai + sai, 0._r8)
+      sigf_safe = max(sigf, 0.01_r8)
+      dewmx_MATSIRO = 0.2_r8 * DEF_MATSIRO_CWCAP_SCALE
+      lai_perveg = lai
+      IF (DEF_VEG_SNOW) lai_perveg = lai / sigf_safe
+
+      SELECT CASE (DEF_Interception_scheme)
+      CASE (3)
+         satcap_snow_eff = 60._r8 * dewmx * lsai
+      CASE (4)
+         fvegc = max(0.05_r8, 1.0_r8 - exp(-0.52_r8 * lsai))
+         BDFALL = 67.92_r8 + 51.25_r8 * exp(min(2.5_r8, (tleaf - 273.15_r8)) / 2.59_r8)
+         satcap_snow_eff = fvegc * 6.6_r8*(0.27_r8 + 46._r8/BDFALL) * lsai
+      CASE (5)
+         satcap_snow_eff = dewmx_MATSIRO * max(lai, 0._r8)
+      CASE (6)
+         IF (tleaf > 272.15_r8) THEN
+            Lr = 4.0_r8
+         ELSEIF (tleaf >= 270.15_r8) THEN
+            Lr = 1.5_r8 * (tleaf - 273.15_r8) + 5.5_r8
+         ELSE
+            Lr = 1.0_r8
+         ENDIF
+         satcap_snow_eff = sigf_safe * 0.5_r8 * Lr * max(lai_perveg, 0._r8)
+      CASE (7)
+         ! See canopy_rain_capacity_for_fwet CASE(7) above.
+         IF (DEF_VEG_SNOW) THEN
+            satcap_snow_eff = sigf_safe * 4.4_r8 * max(lai / sigf_safe, 0._r8)
+         ELSE
+            satcap_snow_eff = sigf_safe * 4.4_r8 * max(lai, 0._r8)
+         ENDIF
+      CASE DEFAULT
+         satcap_snow_eff = 48._r8 * dewmx * lsai
+      END SELECT
+
+      satcap_snow_eff = max(satcap_snow_eff, 0._r8)
+
+   END FUNCTION canopy_snow_capacity_for_fwet
+
+   FUNCTION canopy_snow_wetfrac(sigf, lai, sai, dewmx, tleaf, ldew_snow) RESULT(fwet_snow)
+
+   USE MOD_Precision
+
+   IMPLICIT NONE
+
+   real(r8), intent(in) :: sigf
+   real(r8), intent(in) :: lai
+   real(r8), intent(in) :: sai
+   real(r8), intent(in) :: dewmx
+   real(r8), intent(in) :: tleaf
+   real(r8), intent(in) :: ldew_snow
+   real(r8)             :: fwet_snow
+   real(r8)             :: satcap_snow_eff
+
+      satcap_snow_eff = canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf)
+      fwet_snow = 0._r8
+      IF (ldew_snow > 0._r8 .AND. satcap_snow_eff > 1.e-10_r8) THEN
+         fwet_snow = min((ldew_snow / satcap_snow_eff)**(2.0_r8/3.0_r8), 1.0_r8)
+      ENDIF
+
+   END FUNCTION canopy_snow_wetfrac
+
+   FUNCTION effective_canopy_area(area_in) RESULT(area_eff)
+   ! Beer-Lambert saturation of the evaporating canopy area used in Ec.
+   ! k=0.5 is the standard Monteith (1965) / Campbell & Norman (1998)
+   ! random leaf angle extinction coefficient; mirrors the helper in
+   ! MOD_LeafTemperature, see that module for the full rationale.
+   USE MOD_Precision
+   IMPLICIT NONE
+   real(r8), intent(in) :: area_in
+   real(r8)             :: area_eff
+   real(r8), parameter  :: k_ext = 0.5_r8
+      IF (area_in <= 0._r8) THEN
+         area_eff = 0._r8
+      ELSE
+         area_eff = (1._r8 - exp(-k_ext * area_in)) / k_ext
+      ENDIF
+   END FUNCTION effective_canopy_area
 
 END MODULE MOD_LeafTemperaturePC

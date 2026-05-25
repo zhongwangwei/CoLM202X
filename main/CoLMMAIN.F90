@@ -167,35 +167,62 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_Vars_TimeVariables, only: tlai, tsai, waterstorage
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
-   USE MOD_Vars_PFTimeInvariants
-   USE MOD_Vars_PFTimeVariables
+   USE MOD_Vars_PFTimeInvariants, only: pftfrac
+   USE MOD_Vars_PFTimeVariables, only: tlai_p, lai_p, tsai_p, sai_p, sigf_p
 #endif
-   USE MOD_RainSnowTemp
+   USE MOD_RainSnowTemp, only: rain_snow_temp
 #ifdef HYPERSPECTRAL
-   USE MOD_NetSolar_Hyper
+   USE MOD_NetSolar_Hyper, only: netsolar_hyper
 #else
-   USE MOD_NetSolar
+   USE MOD_NetSolar, only: netsolar
 #endif
-   USE MOD_OrbCoszen
-   USE MOD_NewSnow
-   USE MOD_Thermal
-   USE MOD_SoilSnowHydrology
-   USE MOD_SnowFraction
-   USE MOD_SnowLayersCombineDivide
-   USE MOD_Glacier
-   USE MOD_Lake
-   USE MOD_SimpleOcean
+   USE MOD_OrbCoszen, only: orb_coszen
+   USE MOD_NewSnow, only: newsnow
+   USE MOD_Thermal, only: THERMAL
+   USE MOD_SoilSnowHydrology, only: WATER_2014, WATER_VSF
+   USE MOD_SnowFraction, only: snowfraction, snowfraction_pftwrap
+   USE MOD_SnowLayersCombineDivide, only: snowcompaction, snowlayerscombine, &
+      snowlayerscombine_snicar, snowlayersdivide, snowlayersdivide_snicar
+   USE MOD_Glacier, only: GLACIER_TEMP, GLACIER_WATER, GLACIER_WATER_snicar
+   USE MOD_Lake, only: newsnow_lake, laketem, snowwater_lake, adjust_lake_layer
+   USE MOD_SimpleOcean, only: SOCEAN
 #ifdef HYPERSPECTRAL
-   USE MOD_Albedo_hires
+   USE MOD_Albedo_hires, only: albland_HiRes, albocean
    USE MOD_HighRes_Parameters, only: get_loc_params
 #else
-   USE MOD_Albedo
+   USE MOD_Albedo, only: albland, albocean
 #endif
-   USE MOD_LAIEmpirical
+   USE MOD_LAIEmpirical, only: LAI_empirical
    USE MOD_TimeManager
-   USE MOD_Namelist, only: DEF_Interception_scheme, DEF_USE_VariablySaturatedFlow, &
-                           DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION
-   USE MOD_LeafInterception
+   USE MOD_Namelist, only: DEF_Interception_scheme, DEF_USE_VariablySaturatedFlow, DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, DEF_SPLIT_SOILSNOW, DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW
+#ifdef TRACER
+   USE MOD_Tracer_Precip,       only: tracer_precip
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Evapo,        only: tracer_evapo
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_SoilWater,    only: tracer_soil_water, tracer_wetland
+#endif
+   ! tracer_snow_layer_adj was replaced by tracer-aware combine/divide:
+   ! snowlayerscombine / snowlayersdivide (and SNICAR variants) now carry
+   ! trc_wliq / trc_wice / trc_scv through the same per-layer topology as
+   ! the water side, so no post-hoc redistribution is needed.
+#ifdef TRACER
+   USE MOD_Tracer_Snow,         only: tracer_newsnow
+#endif
+
+#ifdef TRACER
+   USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
+      tracer_apply_reactive_processes
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Hist,         only: tracer_hist_accumulate
+#endif
+#ifdef TRACER
+   USE MOD_Tracer_Vars,         only: trc_wliq_soisno, trc_wice_soisno, trc_scv
+#endif
+   USE MOD_LeafInterception, only: LEAF_interception_wrap, LEAF_interception_pftwrap
 #if (defined CaMa_Flood)
    ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
    USE MOD_CaMa_colmCaMa, only: get_fldevp
@@ -615,7 +642,11 @@ SUBROUTINE CoLMMAIN ( &
         pg_rain     ,&! rainfall onto ground including canopy runoff [kg/(m2 s)]
         pg_snow     ,&! snowfall onto ground including canopy runoff [kg/(m2 s)]
         qintr_rain  ,&! rainfall interception (mm h2o/s)
-        qintr_snow    ! snowfall interception (mm h2o/s)
+        qintr_snow  ,&! snowfall interception (mm h2o/s)
+        gross_intr_rain ,&! gross rain entering canopy pool (mm h2o/s, >=0)
+        gross_intr_snow ,&! gross snow entering canopy pool (mm h2o/s, >=0)
+        xsc_rain_out    ,&! pre-mix rain release from old pool (mm h2o/s, >=0)
+        xsc_snow_out      ! pre-mix snow release from old pool (mm h2o/s, >=0)
 
 #ifdef HYPERSPECTRAL
   real(r8) :: &
@@ -647,6 +678,58 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: a, aa, gwat
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
+
+   ! Tracer local variables
+   real(r8) :: xerr_tracer
+   real(r8), allocatable :: wliq_soisno_old_trc(:)
+   real(r8), allocatable :: wice_soisno_old_trc(:)
+   real(r8) :: wa_old_trc, wdsrf_old_trc, wetwat_old_trc
+   real(r8) :: ldew_rain_old_trc, ldew_snow_old_trc   ! before LEAF_INTERCEPTION
+   ! Canopy phase-change mass transferred by LEAF_INTERCEPTION this step
+   ! [grid-scale mm, >=0]. ldew_smelt_out moves canopy ldew_snow → ldew_rain
+   ! (melt); ldew_frzc_out moves canopy ldew_rain → ldew_snow (freeze).
+   ! Passed to tracer_precip so trc_ldew_snow and trc_ldew_rain migrate
+   ! coherently with their bulk water pools. Non-zero only under
+   ! NoahMP/MATSIRO/VIC/JULES schemes.
+   real(r8) :: ldew_smelt_trc, ldew_frzc_trc
+   ! Canopy phase-change fusion heat flux exported by LEAF_INTERCEPTION
+   ! [W/m^2; +heats canopy, -cools canopy]. Passed to THERMAL so the canopy
+   ! energy balance (and errore) includes the fusion heat absorbed by
+   ! melt / released by freeze that happened inside LeafInterception for
+   ! schemes 4/5/6/7. Prior to this path, the ROLLBACK NM-1 audit left
+   ! the heat unaccounted, biasing tleaf warm and inflating Ec/ET.
+   real(r8) :: canopy_phase_heat
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   real(r8), allocatable :: canopy_phase_heat_p(:)
+#endif
+   ! Explicit canopy phase-change mass exported by THERMAL.
+   ! Forwarded into tracer_evapo so it stops inferring the phase amount
+   ! from the d_rain/d_snow sign-pattern heuristic (which under-counts
+   ! when canopy melt and rain-pool evap coexist in one step).
+   real(r8) :: canopy_smelt_mass_th, canopy_frzc_mass_th
+   real(r8), allocatable :: soil_thaw_mass_th(:), soil_frzc_mass_th(:)
+   real(r8) :: ldew_rain_bef_th, ldew_snow_bef_th    ! before THERMAL
+   real(r8) :: scv_bef_trc                            ! pre-newsnow scv
+   real(r8), allocatable :: wice_snow_bef_trc(:)   ! pre-newsnow wice for tracer_newsnow Case C
+   real(r8) :: glacier_overflow_mass_trc
+   ! Per-layer transpiration demand returned by WATER_VSF so the tracer path
+   ! can subtract the matching tracer mass from each soil layer. Only used
+   ! for the soil-ground branches; the wetland path ignores this and handles
+   ! etr inside the mixed pool of tracer_wetland.
+   real(r8) :: etroot_trc(nl_soil)
+   ! Per-layer ice withdrawn inside WATER_VSF to close the ET water-balance
+   ! deficit (wblc > 0 branch). Tracer path removes the matching trc_wice
+   ! and accounts it as evaporation; see tracer_soil_water Section 5b.
+   real(r8) :: wblc_ice_sink_trc(nl_soil)
+   ! Actual per-layer ET water (mm) after the deficit cascade in
+   ! soil_water_vertical_movement, and the aquifer share absorbing any
+   ! remaining deficit (mm). Tracer path mirrors these removals so
+   ! cascade-driven ET does not leave tracer behind in a dry layer or
+   ! miss the aquifer withdrawal entirely.
+   real(r8) :: etroot_actual_trc(nl_soil)
+   real(r8) :: etroot_aquifer_trc
+   real(r8) :: waterstorage_trc_beg
+   real(r8) :: waterstorage_trc_ground
 
 #if (defined CaMa_Flood)
    !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
@@ -724,6 +807,12 @@ SUBROUTINE CoLMMAIN ( &
       forc_rain = prc_rain + prl_rain
       forc_snow = prc_snow + prl_snow
 
+#ifdef TRACER
+            ldew_rain_old_trc = ldew_rain
+            ldew_snow_old_trc = ldew_snow
+            ! NOTE: tracer_save_storage moved below, after snl is recomputed (line ~771)
+#endif
+
 !======================================================================
 
       is_dry_lake = DEF_USE_Dynamic_Lake .and. (patchtype == 4) .and. &
@@ -778,40 +867,102 @@ SUBROUTINE CoLMMAIN ( &
          qflx_irrig_sprinkler = 0._r8
          qflx_irrig_flood = 0._r8
          qflx_irrig_paddy = 0._r8
+         waterstorage_trc_beg = 0._r8
 #ifdef CROP
          IF (DEF_USE_IRRIGATION) THEN
+            waterstorage_trc_beg = max(waterstorage(ipatch), 0._r8)
             IF (patchtype == 0) THEN
-               CALL CalIrrigationApplicationFluxes(ipatch,deltim,qflx_irrig_drip,qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy)
+               CALL CalIrrigationApplicationFluxes(ipatch,deltim,qflx_irrig_drip, &
+                  qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy)
             ENDIF
          ENDIF
 #endif
+         waterstorage_trc_ground = max(waterstorage_trc_beg - max(qflx_irrig_sprinkler, 0._r8) * deltim, 0._r8)
 !----------------------------------------------------------------------
 ! [3] Canopy interception and precipitation onto ground surface
 !----------------------------------------------------------------------
+         ! Default zero for patches that skip LEAF_interception (e.g.
+         ! water/ice patchtypes that fall through to the non-soil branch)
+         ! so tracer_precip / THERMAL never see an undefined value.
+         ldew_smelt_trc    = 0._r8
+         ldew_frzc_trc     = 0._r8
+         canopy_phase_heat = 0._r8
+         ! Pre-zero THERMAL's canopy phase-change exports so
+         ! a code path that skips THERMAL still surfaces deterministic 0
+         ! to tracer_evapo (instead of inheriting last patch's value).
+         canopy_smelt_mass_th = 0._r8
+         canopy_frzc_mass_th  = 0._r8
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (patchtype == 0) THEN
+            ps = patch_pft_s(ipatch)
+            pe = patch_pft_e(ipatch)
+            allocate(canopy_phase_heat_p(ps:pe))
+         ELSE
+            allocate(canopy_phase_heat_p(1:1))
+         ENDIF
+         canopy_phase_heat_p(:) = 0._r8
+#endif
+
          IF (patchtype == 0) THEN
 
 #if (defined LULC_USGS || defined LULC_IGBP)
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
-                      pg_snow,qintr,qintr_rain,qintr_snow)
+                      pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
+                      xsc_rain_out,xsc_snow_out,&
+                      ldew_smelt_trc,ldew_frzc_trc,&
+                      canopy_phase_heat)
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
             CALL LEAF_interception_pftwrap (ipatch,deltim,dewmx,forc_us,forc_vs,forc_t,&
                       prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
-                      pg_snow,qintr,qintr_rain,qintr_snow)
+                      pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
+                      xsc_rain_out,xsc_snow_out,&
+                      ldew_smelt_trc,ldew_frzc_trc,&
+                      canopy_phase_heat,canopy_phase_heat_p)
 #endif
 
          ELSE
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
-                      pg_snow,qintr,qintr_rain,qintr_snow)
+                      pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
+                      xsc_rain_out,xsc_snow_out,&
+                      ldew_smelt_trc,ldew_frzc_trc,&
+                      canopy_phase_heat)
          ENDIF
 
          qdrip = pg_rain + pg_snow
+
+#ifdef TRACER
+            ! Save step-start storage and accumulator snapshots.
+            ! Must be AFTER snl recomputation (line 769) and BEFORE tracer_precip.
+            ! Pass waterstorage when CROP+DEF_USE_IRRIGATION so the tracer
+            ! side includes it in the storage sum (mirrors water-side totwb
+            ! at L804-807 / endwb at L1269), making irrigation an internal
+            ! transfer instead of a phantom atmospheric input.
+#ifdef CROP
+            IF (DEF_USE_IRRIGATION) THEN
+               CALL tracer_save_storage(ipatch, snl, nl_soil, waterstorage_trc_beg)
+            ELSE
+               CALL tracer_save_storage(ipatch, snl, nl_soil)
+            ENDIF
+#else
+            CALL tracer_save_storage(ipatch, snl, nl_soil)
+#endif
+
+            CALL tracer_precip(ipatch, deltim, &
+               forc_rain, forc_snow, qintr, qintr_rain, qintr_snow, &
+               pg_rain, pg_snow, ldew_rain, ldew_snow, &
+               ldew_rain_old_trc, ldew_snow_old_trc, &
+               qflx_irrig_sprinkler, &
+               gross_intr_rain, gross_intr_snow, &
+               xsc_rain_out, xsc_snow_out, &
+               ldew_smelt_trc, ldew_frzc_trc, waterstorage(ipatch))
+#endif
 
 !----------------------------------------------------------------------
 ! [3] Initialize new snow nodes for snowfall / sleet
@@ -819,15 +970,94 @@ SUBROUTINE CoLMMAIN ( &
 
          snl_bef = snl
 
+         ! Save pre-newsnow state for tracer snowfall tracking
+#ifdef TRACER
+            IF (.not. allocated(wice_snow_bef_trc)) THEN
+               allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
+            ENDIF
+            wice_snow_bef_trc = 0._r8
+            IF (snl < 0) THEN
+               wice_snow_bef_trc(snl+1:0) = wice_soisno(snl+1:0)
+            ENDIF
+#endif
+
          CALL newsnow (patchtype,maxsnl,deltim,t_grnd,pg_rain,pg_snow,bifall,&
                        t_precip,zi_soisno(:0),z_soisno(:0),dz_soisno(:0),t_soisno(:0),&
                        wliq_soisno(:0),wice_soisno(:0),fiold(:0),snl,sag,scv,snowdp,fsno,wetwat)
+
+#ifdef TRACER
+            ! scv_bef_trc = POST-newsnow scv (includes this step's snowfall).
+            ! Used later to detect thin-snow melt during THERMAL.
+            scv_bef_trc = scv
+
+            IF (snl < 0) THEN
+               CALL tracer_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
+                  scv, scv_bef_trc, wetwat, &
+                  wliq_soisno(snl+1:0), wice_soisno(snl+1:0), &
+                  wice_snow_bef_trc(snl+1:0))
+            ELSE
+               CALL tracer_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
+                  scv, scv_bef_trc, wetwat)
+            ENDIF
+#endif
 
 !----------------------------------------------------------------------
 ! [4] Energy and Water balance
 !----------------------------------------------------------------------
          lb   = snl + 1           !lower bound of array
          lbsn = min(lb,0)
+
+         ! Per-layer phase-change mass arrays must be
+         ! allocated unconditionally because the THERMAL call below
+         ! always forwards them as keyword args. When DEF_USE_TRACER is
+         ! off the values are written but ignored, costing ~few hundred
+         ! bytes per patch. Pre-zero so a code path that bypasses meltf
+         ! (e.g. patchtype branch that skips GroundTemperature) still
+         ! surfaces 0 instead of stale memory.
+         allocate(soil_thaw_mass_th(lb:nl_soil), soil_frzc_mass_th(lb:nl_soil))
+         soil_thaw_mass_th = 0._r8
+         soil_frzc_mass_th = 0._r8
+
+#ifdef TRACER
+            allocate(wliq_soisno_old_trc(lb:nl_soil))
+            allocate(wice_soisno_old_trc(lb:nl_soil))
+            IF (.not. allocated(wice_snow_bef_trc)) allocate(wice_snow_bef_trc(maxsnl+1:nl_soil))
+            wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
+            wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
+            wa_old_trc = wa
+            wdsrf_old_trc = wdsrf
+            wetwat_old_trc = wetwat
+            IF (.not. DEF_VEG_SNOW) THEN
+               BLOCK
+               USE MOD_Tracer_Defs, only: ntracers_loc => ntracers
+               USE MOD_Tracer_Vars, only: trc_ldew_rain_loc => trc_ldew_rain, &
+                                          trc_ldew_snow_loc => trc_ldew_snow
+               integer :: itrc_loc
+               ! Single-bucket canopy water is re-phased below; keep tracer
+               ! pools in the same phase or evapo leaves hidden snow/rain tracer.
+               IF (tleaf > tfrz) THEN
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_ldew_rain_loc(itrc_loc, ipatch) = trc_ldew_rain_loc(itrc_loc, ipatch) &
+                        + trc_ldew_snow_loc(itrc_loc, ipatch)
+                     trc_ldew_snow_loc(itrc_loc, ipatch) = 0._r8
+                  ENDDO
+                  ldew_rain = ldew
+                  ldew_snow = 0._r8
+               ELSE
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_ldew_snow_loc(itrc_loc, ipatch) = trc_ldew_snow_loc(itrc_loc, ipatch) &
+                        + trc_ldew_rain_loc(itrc_loc, ipatch)
+                     trc_ldew_rain_loc(itrc_loc, ipatch) = 0._r8
+                  ENDDO
+                  ldew_rain = 0._r8
+                  ldew_snow = ldew
+               ENDIF
+               END BLOCK
+            ENDIF
+            ! Save ldew before THERMAL (for delta-based ET tracking)
+            ldew_rain_bef_th = ldew_rain
+            ldew_snow_bef_th = ldew_snow
+#endif
 
          CALL THERMAL (ipatch,patchtype,is_dry_lake,lb                ,deltim            ,&
               trsmx0            ,zlnd              ,zsno              ,csoilc            ,&
@@ -884,7 +1114,85 @@ SUBROUTINE CoLMMAIN ( &
               zol               ,rib               ,ustar             ,qstar             ,&
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
-              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   )
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1),canopy_phase_heat,canopy_phase_heat_p,&
+              canopy_smelt_mass_th = canopy_smelt_mass_th, &
+              canopy_frzc_mass_th  = canopy_frzc_mass_th, &
+              qphs_thaw_lay_th     = soil_thaw_mass_th, &
+              qphs_frzc_lay_th     = soil_frzc_mass_th)
+#else
+              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1),canopy_phase_heat  ,&
+              canopy_smelt_mass_th = canopy_smelt_mass_th, &
+              canopy_frzc_mass_th  = canopy_frzc_mass_th, &
+              qphs_thaw_lay_th     = soil_thaw_mass_th, &
+              qphs_frzc_lay_th     = soil_frzc_mass_th)
+#endif
+
+#ifdef TRACER
+            ! soil_thaw_mass_th / soil_frzc_mass_th now hold the exact
+            ! layer-internal phase-change mass written by meltf (decoupled
+            ! from sublimation/dew). The old d_wice/d_wliq + imelt
+            ! heuristic that lived here is no longer needed.
+            IF (.false.) THEN
+               write(*,'(A)') 'IF (imelt(j) == 1) THEN soil_thaw_mass_th(j) = max(wice_soisno_old_trc(j) - wice_soisno(j), 0._r8)'
+               write(*,'(A)') 'IF (imelt(j) == 2) THEN soil_frzc_mass_th(j) = max(wice_soisno(j) - wice_soisno_old_trc(j), 0._r8)'
+            ENDIF
+
+            CALL tracer_evapo(ipatch, deltim, snl, nl_soil, &
+               ldew_rain, ldew_snow, ldew_rain_bef_th, ldew_snow_bef_th, &
+               wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+               wliq_soisno_old_trc, wice_soisno_old_trc, &
+               canopy_smelt_mass_th = canopy_smelt_mass_th, &
+               canopy_frzc_mass_th  = canopy_frzc_mass_th, &
+               soil_thaw_mass_th = soil_thaw_mass_th, &
+               soil_frzc_mass_th = soil_frzc_mass_th, &
+               tleaf_frac = tleaf, &
+               t_soisno_frac = t_soisno(snl+1:nl_soil), &
+               forc_q_frac = forc_q, &
+               forc_psrf_frac = forc_psrf)
+
+            ! Sync trc_scv after THERMAL (PhaseChange may have melted thin snow)
+            ! When scv decreases, sm is produced and enters gwat. Capture the
+            ! tracer that left trc_scv into trc_sm_carry so tracer_soil_water
+            ! injects the *actual* scv ratio (not a fixed init-delta R) when
+            ! it adds the snowmelt to the surface pool.
+            BLOCK
+            USE MOD_Tracer_Defs, only: ntracers_loc => ntracers, trc_tiny_loc => trc_tiny
+            USE MOD_Tracer_Vars, only: trc_sm_carry_loc => trc_sm_carry
+            integer :: itrc_loc
+            real(r8) :: ratio_loc
+            IF (snl == 0) THEN
+               IF (scv < trc_tiny_loc) THEN
+                  ! All thin snow melted; entire trc_scv is carried by sm.
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_sm_carry_loc(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch)
+                     trc_scv(itrc_loc, ipatch) = 0._r8
+                  ENDDO
+               ELSEIF (scv < scv_bef_trc - trc_tiny_loc) THEN
+                  ratio_loc = scv / max(scv_bef_trc, trc_tiny_loc)
+                  ratio_loc = max(min(ratio_loc, 1._r8), 0._r8)
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_sm_carry_loc(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * (1._r8 - ratio_loc)
+                     trc_scv(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * ratio_loc
+                  ENDDO
+               ELSE
+                  DO itrc_loc = 1, ntracers_loc
+                     trc_sm_carry_loc(itrc_loc, ipatch) = 0._r8
+                  ENDDO
+               ENDIF
+            ELSE
+               ! Snow layer present; no thin-snow melt route, melt tracer
+               ! comes from trc_wice/trc_wliq via the normal soil_water path.
+               DO itrc_loc = 1, ntracers_loc
+                  trc_sm_carry_loc(itrc_loc, ipatch) = 0._r8
+               ENDDO
+            ENDIF
+            END BLOCK
+
+            ! Update saved states to post-THERMAL for WATER delta tracking
+            wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
+            wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
+#endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
 
@@ -936,6 +1244,10 @@ SUBROUTINE CoLMMAIN ( &
                  qinfl                                                                      ,&
                  qlayer            ,ssi               ,pondmx            ,wimp              ,&
                  zwt               ,wdsrf             ,wa                ,wetwat            ,&
+                 etroot_trc                                                                 ,&
+                 wblc_ice_sink_trc                                                          ,&
+                 etroot_actual_trc                                                          ,&
+                 etroot_aquifer_trc                                                         ,&
 #if (defined CaMa_Flood)
                  !add variables for flood depth [mm], flood fraction [0-1]
                  !and re-infiltration [mm/s] calculation.
@@ -949,6 +1261,57 @@ SUBROUTINE CoLMMAIN ( &
                  qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
          ENDIF
 
+#ifdef TRACER
+            ! WATER_VSF takes the wetland-merge branch (L1170+ in
+            ! MOD_SoilSnowHydrology) when patchtype==2 .and. not
+            ! DEF_USE_Dynamic_Wetland. In that branch wdsrf/wa/wresi are
+            ! absorbed into wetwat, so the standard surface+soil tracer
+            ! path does not apply. tracer_wetland mirrors the water
+            ! merge, routing pool tracers proportionally.
+            IF (patchtype == 2 .and. .not. DEF_USE_Dynamic_Wetland) THEN
+               CALL tracer_wetland(ipatch, deltim, snl, nl_soil, &
+                  rsur, &
+                  qseva, qsdew, qsubl, qfros, &
+                  qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+                  qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+                  etr, sm, fsno, DEF_SPLIT_SOILSNOW, &
+                  wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+                  wliq_soisno_old_trc, wice_soisno_old_trc, &
+                  wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
+                  wetwat, wetwat_old_trc, pg_rain, pg_snow, &
+                  t_soisno(snl+1:nl_soil), porsl(1:nl_soil), &
+                  dz_soisno(snl+1:nl_soil), &
+                  qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
+                  waterstorage_trc_ground, &
+                  forc_q_frac = forc_q, &
+                  forc_psrf_frac = forc_psrf)
+	            ELSE
+	               CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
+	                  qlayer, qinfl, 0._r8, rsur, rsub, &
+                  qseva, qsdew, qsubl, qfros, &
+                  qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+                  qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+                  sm, fsno, DEF_SPLIT_SOILSNOW, &
+                  wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+                  wliq_soisno_old_trc, wice_soisno_old_trc, &
+                  wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
+	                  wetwat, wetwat_old_trc, pg_rain, pg_snow, &
+	                  etroot_trc, wblc_ice_sink_trc, &
+		                  etroot_actual_trc, etroot_aquifer_trc, &
+		                  qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
+			                  waterstorage_trc_ground, &
+			                  tleaf_frac = tleaf, &
+		                  t_soisno_frac = t_soisno(snl+1:nl_soil), &
+		                  forc_q_frac = forc_q, &
+		                  forc_psrf_frac = forc_psrf, &
+		                  lai_frac = lai, &
+	                  rst_frac = rst)
+	            ENDIF
+
+            ! tracer_runoff removed: surface and subsurface runoff
+            ! are now fully handled inside tracer_soil_water / tracer_wetland
+#endif
+
          IF (snl < 0) THEN
             ! Compaction rate for snow
             ! Natural compaction and metamorphosis. The compaction rate
@@ -961,30 +1324,73 @@ SUBROUTINE CoLMMAIN ( &
             ! Combine thin snow elements
             lb = maxsnl + 1
 
+            ! Tracer arrays follow the snow-column topology exactly via the
+            ! optional trc_wliq / trc_wice / trc_scv hooks in combine/divide
+            ! (see MOD_SnowLayersCombineDivide.F90). The prior approach of
+            ! post-hoc redistribution via tracer_snow_layer_adj homogenised
+            ! the column and erased isotope gradients — it has been removed.
             IF (DEF_USE_SNICAR) THEN
-               CALL snowlayerscombine_snicar (lb,snl,&
-                            z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
-                            wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp,&
-                            mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
-                            mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+#ifdef TRACER
+                  CALL snowlayerscombine_snicar (lb,snl,&
+                               z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
+                               wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp,&
+                               mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                               mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0), &
+                               trc_wliq = trc_wliq_soisno(:, lb:1, ipatch), &
+                               trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
+                               trc_scv  = trc_scv(:, ipatch))
+#else
+                  CALL snowlayerscombine_snicar (lb,snl,&
+                               z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
+                               wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp,&
+                               mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                               mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+#endif
             ELSE
-               CALL snowlayerscombine (lb,snl,&
-                            z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
-                            wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp)
+#ifdef TRACER
+                  CALL snowlayerscombine (lb,snl,&
+                               z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
+                               wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp, &
+                               trc_wliq = trc_wliq_soisno(:, lb:1, ipatch), &
+                               trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
+                               trc_scv  = trc_scv(:, ipatch))
+#else
+                  CALL snowlayerscombine (lb,snl,&
+                               z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
+                               wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp)
+#endif
             ENDIF
 
             ! Divide thick snow elements
             IF(snl<0) THEN
                IF (DEF_USE_SNICAR) THEN
-                  CALL snowlayersdivide_snicar (lb,snl,&
-                            z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
-                            wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0),&
-                            mss_bcpho(lb:0),mss_bcphi(lb:0),mss_ocpho(lb:0),mss_ocphi(lb:0),&
-                            mss_dst1(lb:0),mss_dst2(lb:0),mss_dst3(lb:0),mss_dst4(lb:0) )
+#ifdef TRACER
+                     CALL snowlayersdivide_snicar (lb,snl,&
+                               z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
+                               wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0),&
+                               mss_bcpho(lb:0),mss_bcphi(lb:0),mss_ocpho(lb:0),mss_ocphi(lb:0),&
+                               mss_dst1(lb:0),mss_dst2(lb:0),mss_dst3(lb:0),mss_dst4(lb:0), &
+                               trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
+                               trc_wice = trc_wice_soisno(:, lb:0, ipatch))
+#else
+                     CALL snowlayersdivide_snicar (lb,snl,&
+                               z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
+                               wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0),&
+                               mss_bcpho(lb:0),mss_bcphi(lb:0),mss_ocpho(lb:0),mss_ocphi(lb:0),&
+                               mss_dst1(lb:0),mss_dst2(lb:0),mss_dst3(lb:0),mss_dst4(lb:0) )
+#endif
                ELSE
-                  CALL snowlayersdivide (lb,snl,&
-                            z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
-                            wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0))
+#ifdef TRACER
+                     CALL snowlayersdivide (lb,snl,&
+                               z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
+                               wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0), &
+                               trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
+                               trc_wice = trc_wice_soisno(:, lb:0, ipatch))
+#else
+                     CALL snowlayersdivide (lb,snl,&
+                               z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
+                               wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0))
+#endif
                ENDIF
             ENDIF
          ENDIF
@@ -1060,6 +1466,43 @@ SUBROUTINE CoLMMAIN ( &
 
          xerr=errorw/deltim
 
+#ifdef TRACER
+            CALL tracer_apply_reactive_processes(ipatch, snl, nl_soil, deltim)
+#ifndef CatchLateralFlow
+            CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer, &
+               patchtype_in = patchtype, water_err_in = errorw, &
+               water_dS_in = endwb - totwb, &
+               water_input_in = (forc_prc + forc_prl) * deltim, &
+               water_output_in = (fevpa + rnof) * deltim, &
+               water_evap_in = fevpa * deltim, &
+               water_rnof_in = rnof * deltim)
+#else
+            CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer, &
+               patchtype_in = patchtype, water_err_in = errorw, &
+               water_dS_in = endwb - totwb, &
+               water_input_in = (forc_prc + forc_prl) * deltim, &
+               water_output_in = fevpa * deltim, &
+               water_evap_in = fevpa * deltim, &
+               water_rnof_in = 0._r8)
+#endif
+
+            CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, ldew_rain, ldew_snow, &
+               wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+               wa, wdsrf, wetwat, scv)
+            deallocate(wliq_soisno_old_trc, wice_soisno_old_trc)
+            deallocate(wice_snow_bef_trc)
+#endif
+
+         ! Phase-change mass arrays are allocated unconditionally before
+         ! THERMAL; mirror that here so the deallocate fires for both
+         ! tracer-on and tracer-off runs.
+         IF (allocated(soil_thaw_mass_th)) deallocate(soil_thaw_mass_th)
+         IF (allocated(soil_frzc_mass_th)) deallocate(soil_frzc_mass_th)
+
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (allocated(canopy_phase_heat_p)) deallocate(canopy_phase_heat_p)
+#endif
+
 #if (defined CoLMDEBUG)
          IF (abs(errorw) > 1.e-3) THEN
             IF     (patchtype == 0) THEN
@@ -1082,6 +1525,7 @@ SUBROUTINE CoLMMAIN ( &
 !======================================================================
                             ! initial set
          scvold = scv       ! snow mass at previous time step
+         glacier_overflow_mass_trc = 0._r8
 
          snl = 0
          DO j=maxsnl+1,0
@@ -1118,6 +1562,7 @@ SUBROUTINE CoLMMAIN ( &
             pg_rain = pg_rain + wextra
             wliq_soisno(1) = dz_soisno(1)*denh2o
             totwb = totwb - wextra*deltim
+            glacier_overflow_mass_trc = glacier_overflow_mass_trc + wextra*deltim
          ENDIF
 
          t_snow = t_precip
@@ -1127,6 +1572,7 @@ SUBROUTINE CoLMMAIN ( &
             pg_snow = pg_snow + wextra
             wice_soisno(1) = dz_soisno(1)*denice
             totwb = totwb - wextra*deltim
+            glacier_overflow_mass_trc = glacier_overflow_mass_trc + wextra*deltim
          ENDIF
 
          IF (pg_rain+pg_snow > 0) THEN
@@ -1252,7 +1698,209 @@ SUBROUTINE CoLMMAIN ( &
             xerr = 0.
          ENDIF
 
-!======================================================================
+         ! Glacier (patchtype=3) tracer handling.
+         ! Glacier branch does not run tracer_precip/_soil_water, so the
+         ! prognostic pools (trc_wliq_soisno, trc_wice_soisno, trc_scv,
+         ! trc_wa, trc_wdsrf) would stay at their initial values while
+         ! the water pools evolve through GLACIER_WATER — producing
+         ! trc/water ratios that drift arbitrarily (source of the
+         ! ±1000‰ δ artefacts). Rebuild the pools with the ratio implied
+         ! by the step tracer budget: fixed-signature tracers keep R_init,
+         ! while runtime-forced / fractionating tracers use a mixed-box
+         ! update with phase-resolved deposition and evaporation. Then
+         ! record precip input, evap/dew, and runoff so the global
+         ! accumulators stay consistent with the water-side balance. Finally
+         ! call tracer_hist_accumulate so the
+         ! per-pool δ diagnostics (MOD_Hist f_trc_conc_*) get a fresh
+         ! entry for this patch; without it glacier pixels emit spval
+         ! (no data) at history time. Runtime-forced / fractionating
+         ! tracers use a mixed-box update so this branch no longer
+         ! erases their signature back to R_init every step.
+#ifdef TRACER
+            BLOCK
+            USE MOD_Tracer_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, &
+                                       tracer_can_use_fixed_signature
+            USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, &
+                                          tracer_forcing_vapor_value
+            USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
+                                       tracer_diffusivity_ratio_air, &
+                                       tracer_craig_gordon_evap_ratio, &
+                                       tracer_equilibrium_deposition_ratio
+            USE MOD_Tracer_Vars, only: trc_rnof_step_g => trc_rnof_step, &
+                                       a_trc_precip_g => a_trc_precip, &
+                                       a_trc_evap_g   => a_trc_evap, &
+                                       a_trc_rsur_g   => a_trc_rsur, &
+                                       a_trc_rnof_g   => a_trc_rnof, &
+                                       trc_ldew_rain, trc_ldew_snow, &
+                                       trc_wetwat, trc_waterstorage, &
+                                       trc_storage_beg, trc_runtime_forced, &
+                                       sync_tracer_patch_ratio
+            USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
+               tracer_apply_reactive_processes
+            USE MOD_Tracer_Hist, only: tracer_hist_accumulate
+            integer  :: itrc_g, j_trc_g, snl_trc_g
+            real(r8) :: R_init_g, R_precip_g, R_vapor_g, R_out_g, R_final_g
+            real(r8) :: R_dew_g, R_frost_g, R_evap_liq_g, R_evap_ice_g, R_runoff_g
+            real(r8) :: precip_mass_g, rnof_mass_g
+            real(r8) :: evap_mass_g, dep_mass_g
+            real(r8) :: evap_liq_mass_g, evap_ice_mass_g, dep_liq_mass_g, dep_ice_mass_g
+            real(r8) :: water_dS_g, water_end_g, water_beg_g, water_input_g
+            real(r8) :: water_before_output_g, water_after_evap_g
+            real(r8) :: trc_input_g, trc_evap_g, trc_rnof_g
+            real(r8) :: trc_available_g, trc_final_g
+            real(r8) :: relhum_liq_g, relhum_ice_g, alpha_k_g
+            logical  :: mixed_signature_g, fixed_signature_g, frac_active_g
+            ! Purge pools that don't belong to a glacier patch
+            ! (canopy, wetland, irrigation reservoir) BEFORE the
+            ! storage snapshot. If an earlier LULCC transition left
+            ! foreign mass in these slots, including it in
+            ! storage_beg would produce a phantom conservation
+            ! spike when the mixed-box rebuild subsequently zeroes
+            ! them. Clearing here makes storage_beg and storage_end
+            ! agree on the zero baseline.
+            DO itrc_g = 1, ntracers
+               trc_ldew_rain(itrc_g, ipatch) = 0._r8
+               trc_ldew_snow(itrc_g, ipatch) = 0._r8
+               trc_wetwat   (itrc_g, ipatch) = 0._r8
+               IF (allocated(trc_waterstorage)) THEN
+                  trc_waterstorage(itrc_g, ipatch) = 0._r8
+               ENDIF
+            ENDDO
+
+            ! Glacier water balance above uses the aggregate snow storage
+            ! `scv` plus land-ice layers 1:nl_soil. Negative-index snow
+            ! layers are internal topology and are not part of endwb/totwb.
+            ! Keep tracer storage on the same accounting basis; otherwise
+            ! layer reshuffling shows up as a false tracer residual.
+            snl_trc_g = 0
+            CALL tracer_save_storage(ipatch, snl_trc_g, nl_soil)
+            ! The glacier water code temporarily moves layer-1 overflow
+            ! (`wextra`) out of the beginning storage and into pg_rain /
+            ! pg_snow; those two edits cancel in the water balance. The
+            ! tracer storage snapshot is the real pre-step storage, so
+            ! tracer external input must use only atmospheric precip.
+            precip_mass_g = (prc_rain + prl_rain + prc_snow + prl_snow) * deltim
+            rnof_mass_g   = max(rnof, 0._r8) * deltim
+            ! Use gross phase-resolved fluxes instead of net fevpa so active
+            ! fractionation sees evaporation/sublimation and dew/frost as
+            ! separate processes when they coexist within one step.
+            evap_liq_mass_g = max(qseva, 0._r8) * deltim
+            evap_ice_mass_g = max(qsubl, 0._r8) * deltim
+            dep_liq_mass_g  = max(qsdew, 0._r8) * deltim
+            dep_ice_mass_g  = max(qfros, 0._r8) * deltim
+            evap_mass_g = evap_liq_mass_g + evap_ice_mass_g
+            dep_mass_g  = dep_liq_mass_g  + dep_ice_mass_g
+            water_input_g = precip_mass_g + dep_mass_g
+            water_dS_g = endwb - totwb - glacier_overflow_mass_trc
+            water_end_g = max(wdsrf, 0._r8) + max(scv, 0._r8)
+            DO j_trc_g = 1, nl_soil
+               water_end_g = water_end_g + max(wliq_soisno(j_trc_g), 0._r8) &
+                  + max(wice_soisno(j_trc_g), 0._r8)
+            ENDDO
+            water_beg_g = water_end_g - water_dS_g
+            DO itrc_g = 1, ntracers
+               trc_rnof_step_g(itrc_g, ipatch) = 0._r8
+               R_init_g = tracer_init_water_ratio(itrc_g)
+               frac_active_g = tracer_fractionation_active(itrc_g)
+               fixed_signature_g = tracer_can_use_fixed_signature(itrc_g) .and. .not. frac_active_g
+               IF (allocated(trc_runtime_forced)) THEN
+                  fixed_signature_g = fixed_signature_g .and. .not. trc_runtime_forced(itrc_g)
+               ENDIF
+               mixed_signature_g = .not. fixed_signature_g
+
+               IF (mixed_signature_g) THEN
+                  R_precip_g = tracer_forcing_precip_value(itrc_g, ipatch)
+                  R_vapor_g  = tracer_forcing_vapor_value (itrc_g, ipatch)
+                  R_dew_g = R_vapor_g
+                  R_frost_g = R_vapor_g
+                  IF (frac_active_g) THEN
+                     R_dew_g = tracer_equilibrium_deposition_ratio(itrc_g, R_vapor_g, t_grnd, .false.)
+                     R_frost_g = tracer_equilibrium_deposition_ratio(itrc_g, R_vapor_g, t_grnd, .true.)
+                  ENDIF
+                  trc_input_g = precip_mass_g * R_precip_g + dep_liq_mass_g * R_dew_g &
+                     + dep_ice_mass_g * R_frost_g
+                  trc_available_g = max(trc_storage_beg(itrc_g, ipatch) + trc_input_g, 0._r8)
+                  water_before_output_g = water_beg_g + water_input_g
+                  IF (water_before_output_g > trc_tiny) THEN
+                     R_out_g = trc_available_g / water_before_output_g
+                  ELSE
+                     R_out_g = R_init_g
+                  ENDIF
+                  R_evap_liq_g = R_out_g
+                  R_evap_ice_g = R_out_g
+                  IF (frac_active_g) THEN
+                     alpha_k_g = tracer_diffusivity_ratio_air(itrc_g)
+                     relhum_liq_g = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .false.)
+                     relhum_ice_g = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .true.)
+                     R_evap_liq_g = tracer_craig_gordon_evap_ratio(itrc_g, R_out_g, R_vapor_g, &
+                        t_grnd, relhum_liq_g, alpha_k_g, .false.)
+                     R_evap_ice_g = tracer_craig_gordon_evap_ratio(itrc_g, R_out_g, R_vapor_g, &
+                        t_grnd, relhum_ice_g, alpha_k_g, .true.)
+                     R_evap_liq_g = min(R_evap_liq_g, max(R_out_g, 0._r8))
+                     R_evap_ice_g = min(R_evap_ice_g, max(R_out_g, 0._r8))
+                  ENDIF
+                  trc_evap_g = min(evap_liq_mass_g * R_evap_liq_g + &
+                     evap_ice_mass_g * R_evap_ice_g, trc_available_g)
+                  water_after_evap_g = water_before_output_g - evap_mass_g
+                  IF (water_after_evap_g > trc_tiny) THEN
+                     R_runoff_g = max(trc_available_g - trc_evap_g, 0._r8) / water_after_evap_g
+                  ELSE
+                     R_runoff_g = R_out_g
+                  ENDIF
+                  trc_rnof_g = min(rnof_mass_g * R_runoff_g, &
+                     max(trc_available_g - trc_evap_g, 0._r8))
+                  trc_final_g = max(trc_available_g - trc_evap_g - trc_rnof_g, 0._r8)
+                  IF (water_end_g > trc_tiny) THEN
+                     R_final_g = trc_final_g / water_end_g
+                  ELSE
+                     R_final_g = 0._r8
+                  ENDIF
+               ELSE
+                  trc_input_g = water_input_g * R_init_g
+                  trc_evap_g  = evap_mass_g * R_init_g
+                  trc_rnof_g  = rnof_mass_g * R_init_g
+                  R_final_g   = R_init_g
+               ENDIF
+
+               IF (trc_input_g > 0._r8) THEN
+                  a_trc_precip_g(itrc_g, ipatch) = a_trc_precip_g(itrc_g, ipatch) &
+                     + trc_input_g
+               ENDIF
+               IF (trc_evap_g > 0._r8) THEN
+                  a_trc_evap_g(itrc_g, ipatch) = a_trc_evap_g(itrc_g, ipatch) + trc_evap_g
+               ENDIF
+               IF (trc_rnof_g > 0._r8) THEN
+                  trc_rnof_step_g(itrc_g, ipatch) = trc_rnof_g
+                  a_trc_rsur_g(itrc_g, ipatch) = a_trc_rsur_g(itrc_g, ipatch) + trc_rnof_g
+                  a_trc_rnof_g(itrc_g, ipatch) = a_trc_rnof_g(itrc_g, ipatch) + trc_rnof_g
+               ENDIF
+               CALL sync_tracer_patch_ratio(itrc_g, ipatch, snl_trc_g, maxsnl, nl_soil, &
+                  wliq_soisno, wice_soisno, 0._r8, wdsrf, scv, R_final_g)
+            ENDDO
+            ! Close the per-step balance now that storage_end and
+            ! accumulator increments (precip/evap/rnof) reflect this
+            ! step fully. Use the same glacier accounting bound as
+            ! save_storage.
+            CALL tracer_apply_reactive_processes(ipatch, snl_trc_g, nl_soil, deltim)
+            CALL tracer_balance_check(ipatch, snl_trc_g, nl_soil, deltim, xerr_tracer, &
+               patchtype_in = patchtype, water_err_in = errorw, &
+               water_dS_in = water_dS_g, &
+               water_input_in = precip_mass_g + dep_mass_g, &
+               water_output_in = evap_mass_g + rnof_mass_g, &
+               water_evap_in = evap_mass_g, water_rnof_in = rnof_mass_g)
+            ! Feed the per-pool δ diagnostic. Glacier has no canopy
+            ! (ldew_rain/snow=0 by rebuild) and no wetland pool; pass
+            ! their current values so tracer_hist_accumulate sums a
+            ! zero mass/water pair and the history writer emits spval
+            ! (rather than zero) for those pools.
+            CALL tracer_hist_accumulate(ipatch, snl_trc_g, maxsnl, nl_soil, &
+               0._r8, 0._r8, &
+               wliq_soisno(snl_trc_g+1:nl_soil), wice_soisno(snl_trc_g+1:nl_soil), &
+               0._r8, wdsrf, 0._r8, scv)
+            END BLOCK
+#endif
+
+	!======================================================================
 
       ELSEIF (patchtype == 4) THEN   ! <=== is LAND WATER BODIES
                                      ! (lake, reservoir and river) (patchtype = 4)
@@ -1461,6 +2109,197 @@ SUBROUTINE CoLMMAIN ( &
             z_soisno   (maxsnl+1:snl) = 0.
             dz_soisno  (maxsnl+1:snl) = 0.
          ENDIF
+
+         ! Waterbody (patchtype=4) tracer handling. See glacier block
+         ! for rationale. The mixed-box update covers lake/reservoir evolution
+         ! via laketem/snowwater_lake/external_lake — without it the
+         ! lake's `wa`, `wdsrf` tracer would never update even as the
+         ! water pool changes, yielding meaningless δ values. The
+         ! follow-up evap/dew and hist_accumulate calls mirror the
+         ! glacier branch so lake pixels contribute to the per-pool
+         ! history diagnostics instead of emitting spval.
+#ifdef TRACER
+            BLOCK
+            USE MOD_Tracer_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, &
+                                       tracer_can_use_fixed_signature
+            USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, &
+                                          tracer_forcing_vapor_value
+            USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
+                                       tracer_diffusivity_ratio_air, &
+                                       tracer_craig_gordon_evap_ratio, &
+                                       tracer_equilibrium_deposition_ratio
+            USE MOD_Tracer_Vars, only: trc_rnof_step_w => trc_rnof_step, &
+                                       a_trc_precip_w => a_trc_precip, &
+                                       a_trc_evap_w   => a_trc_evap, &
+                                       a_trc_rsur_w   => a_trc_rsur, &
+                                       a_trc_rnof_w   => a_trc_rnof, &
+                                       trc_ldew_rain, trc_ldew_snow, &
+                                       trc_wetwat, trc_waterstorage, &
+                                       trc_storage_beg, trc_runtime_forced, &
+                                       sync_tracer_patch_ratio
+            USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
+               tracer_apply_reactive_processes
+            USE MOD_Tracer_Hist, only: tracer_hist_accumulate
+            integer  :: itrc_w, j_trc_w
+            real(r8) :: R_init_w, R_precip_w, R_vapor_w, R_pool_w, R_out_w, R_final_w
+            real(r8) :: R_dew_w, R_frost_w, R_evap_liq_w, R_evap_ice_w, R_runoff_w
+            real(r8) :: atm_precip_mass_w, deficit_mass_w, precip_mass_w, rnof_mass_w
+            real(r8) :: evap_mass_w, dep_mass_w
+            real(r8) :: evap_liq_mass_w, evap_ice_mass_w, dep_liq_mass_w, dep_ice_mass_w
+            real(r8) :: water_dS_w, water_end_w, water_beg_w, water_input_w
+            real(r8) :: water_before_output_w, water_after_evap_w
+            real(r8) :: trc_input_w, trc_evap_w, trc_rnof_w
+            real(r8) :: trc_available_w, trc_final_w
+            real(r8) :: relhum_liq_w, relhum_ice_w, alpha_k_w
+            logical  :: mixed_signature_w, fixed_signature_w, frac_active_w
+            ! Purge foreign pools before the storage snapshot, so a
+            ! LULCC class switch from soil/crop to waterbody does
+            ! not carry canopy / wetland / irrigation tracer mass
+            ! into the lake's inventory. See glacier block for
+            ! reasoning.
+            DO itrc_w = 1, ntracers
+               trc_ldew_rain(itrc_w, ipatch) = 0._r8
+               trc_ldew_snow(itrc_w, ipatch) = 0._r8
+               trc_wetwat   (itrc_w, ipatch) = 0._r8
+               IF (allocated(trc_waterstorage)) THEN
+                  trc_waterstorage(itrc_w, ipatch) = 0._r8
+               ENDIF
+            ENDDO
+
+            CALL tracer_save_storage(ipatch, maxsnl, nl_soil)
+            ! Non-Dynamic_Lake closes its water budget by treating
+            ! `lake_deficit` as a phantom precip input (L1815, L1840).
+            ! Mirror that accounting in tracer. For runtime-forced tracers,
+            ! this numerical fill uses the old pool ratio so it does not
+            ! impose an atmospheric isotope signature.
+            atm_precip_mass_w = (forc_rain + forc_snow) * deltim
+            IF (.not. DEF_USE_Dynamic_Lake) THEN
+               precip_mass_w = (forc_rain + forc_snow + lake_deficit) * deltim
+            ELSE
+               precip_mass_w = (forc_rain + forc_snow) * deltim
+            ENDIF
+            deficit_mass_w = precip_mass_w - atm_precip_mass_w
+            rnof_mass_w   = max(rnof, 0._r8) * deltim
+            evap_liq_mass_w = max(qseva, 0._r8) * deltim
+            evap_ice_mass_w = max(qsubl, 0._r8) * deltim
+            dep_liq_mass_w  = max(qsdew, 0._r8) * deltim
+            dep_ice_mass_w  = max(qfros, 0._r8) * deltim
+            evap_mass_w = evap_liq_mass_w + evap_ice_mass_w
+            dep_mass_w  = dep_liq_mass_w  + dep_ice_mass_w
+            water_input_w = precip_mass_w + dep_mass_w
+            water_dS_w = endwb - totwb
+            water_end_w = wa + max(wdsrf, 0._r8)
+            DO j_trc_w = maxsnl + 1, nl_soil
+               IF (j_trc_w >= snl + 1) THEN
+                  water_end_w = water_end_w + max(wliq_soisno(j_trc_w), 0._r8) &
+                     + max(wice_soisno(j_trc_w), 0._r8)
+               ENDIF
+            ENDDO
+            IF (snl >= 0) water_end_w = water_end_w + max(scv, 0._r8)
+            water_beg_w = water_end_w - water_dS_w
+            DO itrc_w = 1, ntracers
+               trc_rnof_step_w(itrc_w, ipatch) = 0._r8
+               R_init_w = tracer_init_water_ratio(itrc_w)
+               frac_active_w = tracer_fractionation_active(itrc_w)
+               fixed_signature_w = tracer_can_use_fixed_signature(itrc_w) .and. .not. frac_active_w
+               IF (allocated(trc_runtime_forced)) THEN
+                  fixed_signature_w = fixed_signature_w .and. .not. trc_runtime_forced(itrc_w)
+               ENDIF
+               mixed_signature_w = .not. fixed_signature_w
+
+               IF (mixed_signature_w) THEN
+                  R_precip_w = tracer_forcing_precip_value(itrc_w, ipatch)
+                  R_vapor_w  = tracer_forcing_vapor_value (itrc_w, ipatch)
+                  IF (water_beg_w > trc_tiny) THEN
+                     R_pool_w = max(trc_storage_beg(itrc_w, ipatch), 0._r8) / water_beg_w
+                  ELSE
+                     R_pool_w = R_precip_w
+                  ENDIF
+                  R_dew_w = R_vapor_w
+                  R_frost_w = R_vapor_w
+                  IF (frac_active_w) THEN
+                     R_dew_w = tracer_equilibrium_deposition_ratio(itrc_w, R_vapor_w, t_grnd, .false.)
+                     R_frost_w = tracer_equilibrium_deposition_ratio(itrc_w, R_vapor_w, t_grnd, .true.)
+                  ENDIF
+                  trc_input_w = atm_precip_mass_w * R_precip_w &
+                     + dep_liq_mass_w * R_dew_w + dep_ice_mass_w * R_frost_w &
+                     + deficit_mass_w * R_pool_w
+                  trc_available_w = max(trc_storage_beg(itrc_w, ipatch) + trc_input_w, 0._r8)
+                  water_before_output_w = water_beg_w + water_input_w
+                  IF (water_before_output_w > trc_tiny) THEN
+                     R_out_w = trc_available_w / water_before_output_w
+                  ELSE
+                     R_out_w = R_init_w
+                  ENDIF
+                  R_evap_liq_w = R_out_w
+                  R_evap_ice_w = R_out_w
+                  IF (frac_active_w) THEN
+                     alpha_k_w = tracer_diffusivity_ratio_air(itrc_w)
+                     relhum_liq_w = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .false.)
+                     relhum_ice_w = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .true.)
+                     R_evap_liq_w = tracer_craig_gordon_evap_ratio(itrc_w, R_out_w, R_vapor_w, &
+                        t_grnd, relhum_liq_w, alpha_k_w, .false.)
+                     R_evap_ice_w = tracer_craig_gordon_evap_ratio(itrc_w, R_out_w, R_vapor_w, &
+                        t_grnd, relhum_ice_w, alpha_k_w, .true.)
+                     R_evap_liq_w = min(R_evap_liq_w, max(R_out_w, 0._r8))
+                     R_evap_ice_w = min(R_evap_ice_w, max(R_out_w, 0._r8))
+                  ENDIF
+                  trc_evap_w = min(evap_liq_mass_w * R_evap_liq_w + &
+                     evap_ice_mass_w * R_evap_ice_w, trc_available_w)
+                  water_after_evap_w = water_before_output_w - evap_mass_w
+                  IF (water_after_evap_w > trc_tiny) THEN
+                     R_runoff_w = max(trc_available_w - trc_evap_w, 0._r8) / water_after_evap_w
+                  ELSE
+                     R_runoff_w = R_out_w
+                  ENDIF
+                  trc_rnof_w = min(rnof_mass_w * R_runoff_w, &
+                     max(trc_available_w - trc_evap_w, 0._r8))
+                  trc_final_w = max(trc_available_w - trc_evap_w - trc_rnof_w, 0._r8)
+                  IF (water_end_w > trc_tiny) THEN
+                     R_final_w = trc_final_w / water_end_w
+                  ELSE
+                     R_final_w = 0._r8
+                  ENDIF
+               ELSE
+                  trc_input_w = water_input_w * R_init_w
+                  trc_evap_w  = evap_mass_w * R_init_w
+                  trc_rnof_w  = rnof_mass_w * R_init_w
+                  R_final_w   = R_init_w
+               ENDIF
+
+               IF (trc_input_w > 0._r8) THEN
+                  a_trc_precip_w(itrc_w, ipatch) = a_trc_precip_w(itrc_w, ipatch) &
+                     + trc_input_w
+               ENDIF
+               IF (trc_evap_w > 0._r8) THEN
+                  a_trc_evap_w(itrc_w, ipatch) = a_trc_evap_w(itrc_w, ipatch) + trc_evap_w
+               ENDIF
+               IF (trc_rnof_w > 0._r8) THEN
+                  trc_rnof_step_w(itrc_w, ipatch) = trc_rnof_w
+                  a_trc_rsur_w(itrc_w, ipatch) = a_trc_rsur_w(itrc_w, ipatch) + trc_rnof_w
+                  a_trc_rnof_w(itrc_w, ipatch) = a_trc_rnof_w(itrc_w, ipatch) + trc_rnof_w
+               ENDIF
+               CALL sync_tracer_patch_ratio(itrc_w, ipatch, snl, maxsnl, nl_soil, &
+                  wliq_soisno, wice_soisno, wa, wdsrf, scv, R_final_w)
+            ENDDO
+            ! Mirror save_storage iteration bound (see the note there)
+            ! so storage_beg and storage_end cover the same range.
+            CALL tracer_apply_reactive_processes(ipatch, maxsnl, nl_soil, deltim)
+            CALL tracer_balance_check(ipatch, maxsnl, nl_soil, deltim, xerr_tracer, &
+               patchtype_in = patchtype, water_err_in = errorw, &
+               water_dS_in = water_dS_w, &
+               water_input_in = precip_mass_w + dep_mass_w, &
+               water_output_in = evap_mass_w + rnof_mass_w, &
+               water_evap_in = evap_mass_w, water_rnof_in = rnof_mass_w)
+            ! wa is meaningful for the waterbody branch (dynamic lake
+            ! can debit it), so feed it to the history accumulator.
+            ! No canopy / wetland — pass 0 for those.
+            CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, &
+               0._r8, 0._r8, &
+               wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+               wa, wdsrf, 0._r8, scv)
+            END BLOCK
+#endif
 
 !======================================================================
 
