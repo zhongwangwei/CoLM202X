@@ -7,19 +7,16 @@ MODULE MOD_Tracer_Frac
    USE MOD_Namelist, only: DEF_TRACER_USE_FRACTIONATION, &
       DEF_TRACER_NSS_LEAF_WATER_PER_LAI, DEF_TRACER_NSS_LEAF_PATH_LENGTH, &
       DEF_TRACER_NSS_LEAF_RB
-   USE MOD_Tracer_Defs, only: tracers, ntracers, tracer_is_isotope, &
-      Rsmow_18O, Rsmow_D, trc_tiny
+   USE MOD_Tracer_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
+   USE MOD_Tracer_Isotope_Registry, only: isotope_fractionation_registered, &
+      isotope_alpha_liq_vap, isotope_alpha_ice_vap, isotope_diffusivity_ratio_air, &
+      isotope_leaf_kinetic_epsilon, isotope_leaf_liquid_diffusivity
+   USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
 
    IMPLICIT NONE
    SAVE
 
-   integer, parameter :: iso_none = 0
-   integer, parameter :: iso_o18  = 1
-   integer, parameter :: iso_d    = 2
-
    real(r8), parameter :: tfrz = 273.15_r8
-   real(r8), parameter :: eps_h2o_over_h218o_air = 1.03189_r8
-   real(r8), parameter :: eps_h2o_over_hdo_air   = 1.01636_r8
    real(r8), parameter :: water_moles_per_mm = 1000._r8 / 18.01528_r8
    real(r8), parameter :: liquid_water_molar_density = 55.5e3_r8
    real(r8), parameter :: universal_gas_constant = 8.31446261815324_r8
@@ -45,41 +42,24 @@ CONTAINS
       tracer_fractionation_active = .false.
       IF (.not. DEF_TRACER_USE_FRACTIONATION) RETURN
       IF (.not. tracer_is_isotope(itrc)) RETURN
-      tracer_fractionation_active = tracer_isotope_kind(itrc) /= iso_none
+      CALL ensure_isotope_physics_registered ()
+      tracer_fractionation_active = isotope_fractionation_registered(itrc)
    END FUNCTION tracer_fractionation_active
 
    real(r8) FUNCTION tracer_alpha_liq_vap (itrc, temp_k)
       integer,  intent(in) :: itrc
       real(r8), intent(in) :: temp_k
-      real(r8) :: tk
 
-      tracer_alpha_liq_vap = 1._r8
-      tk = max(temp_k, 150._r8)
-
-      SELECT CASE (tracer_isotope_kind(itrc))
-      CASE (iso_o18)
-         ! Majoube liquid-vapor equilibrium, alpha = R_liquid / R_vapor.
-         tracer_alpha_liq_vap = exp(1137._r8 / (tk * tk) - 0.4156_r8 / tk - 0.0020667_r8)
-      CASE (iso_d)
-         tracer_alpha_liq_vap = exp(24844._r8 / (tk * tk) - 76.248_r8 / tk + 0.052612_r8)
-      END SELECT
+      CALL ensure_isotope_physics_registered ()
+      tracer_alpha_liq_vap = isotope_alpha_liq_vap(itrc, temp_k)
    END FUNCTION tracer_alpha_liq_vap
 
    real(r8) FUNCTION tracer_alpha_ice_vap (itrc, temp_k)
       integer,  intent(in) :: itrc
       real(r8), intent(in) :: temp_k
-      real(r8) :: tk
 
-      tracer_alpha_ice_vap = 1._r8
-      tk = max(temp_k, 150._r8)
-
-      SELECT CASE (tracer_isotope_kind(itrc))
-      CASE (iso_o18)
-         ! Ice-vapor form used by IsoLESC microphysics; alpha = R_ice / R_vapor.
-         tracer_alpha_ice_vap = exp(11.839_r8 / tk - 0.028224_r8)
-      CASE (iso_d)
-         tracer_alpha_ice_vap = exp(16289._r8 / (tk * tk) - 0.0945_r8)
-      END SELECT
+      CALL ensure_isotope_physics_registered ()
+      tracer_alpha_ice_vap = isotope_alpha_ice_vap(itrc, temp_k)
    END FUNCTION tracer_alpha_ice_vap
 
    real(r8) FUNCTION tracer_alpha_ice_liq (itrc, temp_k)
@@ -138,16 +118,8 @@ CONTAINS
    real(r8) FUNCTION tracer_diffusivity_ratio_air (itrc)
       integer, intent(in) :: itrc
 
-      ! Return D(H2O) / D(isotopologue) in air. The O18/D values match the
-      ! IsoLESC isotope_ET constants and are kept here instead of being
-      ! duplicated in individual process modules.
-      tracer_diffusivity_ratio_air = 1._r8
-      SELECT CASE (tracer_isotope_kind(itrc))
-      CASE (iso_o18)
-         tracer_diffusivity_ratio_air = eps_h2o_over_h218o_air
-      CASE (iso_d)
-         tracer_diffusivity_ratio_air = eps_h2o_over_hdo_air
-      END SELECT
+      CALL ensure_isotope_physics_registered ()
+      tracer_diffusivity_ratio_air = isotope_diffusivity_ratio_air(itrc)
    END FUNCTION tracer_diffusivity_ratio_air
 
    real(r8) FUNCTION tracer_alpha_kinetic_leaf (itrc, ra, rb, rc)
@@ -460,41 +432,17 @@ CONTAINS
    real(r8) FUNCTION tracer_leaf_kinetic_epsilon (itrc, ra, rb, rc)
       integer,  intent(in) :: itrc
       real(r8), intent(in) :: ra, rb, rc
-      real(r8) :: ra1, rb1, rc1, denom, eps_stomatal, eps_boundary
 
-      ra1 = max(ra, 0._r8)
-      rb1 = max(rb, 0._r8)
-      rc1 = max(rc, 0._r8)
-      denom = ra1 + rb1 + rc1
-      tracer_leaf_kinetic_epsilon = 0._r8
-      IF (denom <= trc_tiny) RETURN
-
-      SELECT CASE (tracer_isotope_kind(itrc))
-      CASE (iso_o18)
-         eps_stomatal = 28._r8
-         eps_boundary = 19._r8
-      CASE (iso_d)
-         eps_stomatal = 25._r8
-         eps_boundary = 17._r8
-      CASE DEFAULT
-         eps_stomatal = 0._r8
-         eps_boundary = 0._r8
-      END SELECT
-      tracer_leaf_kinetic_epsilon = (eps_boundary * rb1 + eps_stomatal * rc1) / denom
+      CALL ensure_isotope_physics_registered ()
+      tracer_leaf_kinetic_epsilon = isotope_leaf_kinetic_epsilon(itrc, ra, rb, rc)
    END FUNCTION tracer_leaf_kinetic_epsilon
 
    real(r8) FUNCTION tracer_leaf_liquid_diffusivity (itrc, temp_k)
       integer,  intent(in) :: itrc
       real(r8), intent(in) :: temp_k
-      real(r8) :: tk
 
-      tk = max(temp_k, 150._r8)
-      SELECT CASE (tracer_isotope_kind(itrc))
-      CASE (iso_d)
-         tracer_leaf_liquid_diffusivity = 116.e-9_r8 * exp(-626._r8 / max(tk - 139._r8, 1._r8))
-      CASE DEFAULT
-         tracer_leaf_liquid_diffusivity = 119.e-9_r8 * exp(-637._r8 / max(tk - 137._r8, 1._r8))
-      END SELECT
+      CALL ensure_isotope_physics_registered ()
+      tracer_leaf_liquid_diffusivity = isotope_leaf_liquid_diffusivity(itrc, temp_k)
    END FUNCTION tracer_leaf_liquid_diffusivity
 
    real(r8) FUNCTION tracer_ratio_to_delta (itrc, ratio)
@@ -519,42 +467,6 @@ CONTAINS
       IF (ref_ratio > trc_tiny) tracer_delta_to_ratio = ref_ratio * (1._r8 + delta / 1000._r8)
    END FUNCTION tracer_delta_to_ratio
 
-   integer FUNCTION tracer_isotope_kind (itrc)
-      integer, intent(in) :: itrc
-      character(len=32) :: lname
-
-      tracer_isotope_kind = iso_none
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (.not. allocated(tracers)) RETURN
-
-      lname = lower_string(trim(tracers(itrc)%name))
-      IF (index(lname, '18o') > 0 .or. index(lname, 'o18') > 0) THEN
-         tracer_isotope_kind = iso_o18
-      ELSEIF (index(lname, 'hdo') > 0 .or. index(lname, '2h') > 0 .or. &
-              index(lname, 'deuter') > 0) THEN
-         tracer_isotope_kind = iso_d
-      ELSEIF (tracers(itrc)%ref_ratio > 0._r8) THEN
-         IF (abs(tracers(itrc)%ref_ratio - Rsmow_18O) / Rsmow_18O < 0.1_r8) THEN
-            tracer_isotope_kind = iso_o18
-         ELSEIF (abs(tracers(itrc)%ref_ratio - Rsmow_D) / Rsmow_D < 0.1_r8) THEN
-            tracer_isotope_kind = iso_d
-         ENDIF
-      ENDIF
-   END FUNCTION tracer_isotope_kind
-
-   FUNCTION lower_string (raw) RESULT(out)
-      character(len=*), intent(in) :: raw
-      character(len=len(raw)) :: out
-      integer :: i, code
-
-      out = raw
-      DO i = 1, len(raw)
-         code = iachar(raw(i:i))
-         IF (code >= iachar('A') .and. code <= iachar('Z')) THEN
-            out(i:i) = achar(code + 32)
-         ENDIF
-      ENDDO
-   END FUNCTION lower_string
 
 END MODULE MOD_Tracer_Frac
 #endif

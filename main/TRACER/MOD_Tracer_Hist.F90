@@ -810,14 +810,23 @@ CONTAINS
          IF (p_is_worker) &
             WHERE (acc_vec /= spval) acc_vec = acc_vec / nac
       ELSE
-         IF (p_is_worker)  &
-            WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
+         IF (p_is_worker) THEN
+            WHERE (acc_vec/=spval .and. acc_num>0)
+               acc_vec = acc_vec / acc_num
+            ELSEWHERE (acc_vec/=spval .and. acc_num<=0)
+               acc_vec = spval
+            END WHERE
+         ENDIF
       ENDIF
 #else
       IF ( .not. present(acc_num) ) THEN
          WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
       ELSE
-         WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
+         WHERE (acc_vec/=spval .and. acc_num>0)
+               acc_vec = acc_vec / acc_num
+            ELSEWHERE (acc_vec/=spval .and. acc_num<=0)
+               acc_vec = spval
+            END WHERE
       ENDIF
 #endif
 
@@ -930,14 +939,20 @@ CONTAINS
 #ifndef SinglePoint
          IF (p_is_worker) THEN
             DO j = 1, size(acc_vec, 1)
-               WHERE (acc_vec(j,:) /= spval .and. acc_num > 0._r8) &
+               WHERE (acc_vec(j,:) /= spval .and. acc_num > 0._r8)
                   acc_vec(j,:) = acc_vec(j,:) * real(nac, r8) / acc_num
+               ELSEWHERE (acc_vec(j,:) /= spval .and. acc_num <= 0._r8)
+                  acc_vec(j,:) = spval
+               END WHERE
             ENDDO
          ENDIF
 #else
          DO j = 1, size(acc_vec, 1)
-            WHERE (acc_vec(j,:) /= spval .and. acc_num > 0._r8) &
+            WHERE (acc_vec(j,:) /= spval .and. acc_num > 0._r8)
                acc_vec(j,:) = acc_vec(j,:) * real(nac, r8) / acc_num
+            ELSEWHERE (acc_vec(j,:) /= spval .and. acc_num <= 0._r8)
+               acc_vec(j,:) = spval
+            END WHERE
          ENDDO
 #endif
       ENDIF

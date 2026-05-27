@@ -23,7 +23,7 @@ MODULE MOD_Tracer_Methane_Registry
 
    IMPLICIT NONE
    SAVE
-   PUBLIC
+   PRIVATE
 
    ! Sentinel value: tracer absent (or non-reactive) in the registry.
    integer, parameter :: METHANE_GAS_ABSENT = -1
@@ -33,17 +33,42 @@ MODULE MOD_Tracer_Methane_Registry
    integer :: igas_co2 = METHANE_GAS_ABSENT
 
    PUBLIC :: methane_registry_init
+   PUBLIC :: methane_registry_refresh
    PUBLIC :: methane_is_active
+   PUBLIC :: igas_ch4, igas_o2, igas_co2, METHANE_GAS_ABSENT
 
 CONTAINS
 
    !-------------------------------------------------------------------
-   ! methane_registry_init — populate igas_* from the tracer registry.
+   ! methane_registry_init — populate igas_* from the tracer registry and
+   ! report the resulting CH4 activation state.
    ! Must be called AFTER tracer_defs_init() because it reads
    ! tracers(:)%name and %category.
    !-------------------------------------------------------------------
    SUBROUTINE methane_registry_init ()
+      IMPLICIT NONE
+
+      CALL update_methane_registry (verbose=.true.)
+
+   END SUBROUTINE methane_registry_init
+
+   !-------------------------------------------------------------------
+   ! methane_registry_refresh — refresh cached tracer indices without
+   ! producing init-time status messages.  This is the callback used by
+   ! the generic reactive dispatcher before active-species gating.
+   !-------------------------------------------------------------------
+   SUBROUTINE methane_registry_refresh ()
+      IMPLICIT NONE
+
+      CALL update_methane_registry (verbose=.false.)
+
+   END SUBROUTINE methane_registry_refresh
+
+   !-------------------------------------------------------------------
+   SUBROUTINE update_methane_registry (verbose)
       USE MOD_SPMD_Task, only: p_is_master
+      IMPLICIT NONE
+      logical, intent(in) :: verbose
       integer :: i
       character(len=:), allocatable :: nm
 
@@ -59,28 +84,28 @@ CONTAINS
          IF (trim(nm) == 'CH4' .or. trim(nm) == 'METHANE') THEN
             IF (tracer_is_reactive(i)) THEN
                igas_ch4 = i
-            ELSEIF (p_is_master) THEN
+            ELSEIF (verbose .and. p_is_master) THEN
                write(*,'(A,A,A)') ' WARNING methane_registry_init: tracer "', &
                   trim(tracers(i)%name), '" found but not category="reactive"; methane disabled.'
             ENDIF
          ELSEIF (trim(nm) == 'O2') THEN
             IF (tracer_is_reactive(i)) THEN
                igas_o2 = i
-            ELSEIF (p_is_master) THEN
+            ELSEIF (verbose .and. p_is_master) THEN
                write(*,'(A,A,A)') ' WARNING methane_registry_init: tracer "', &
                   trim(tracers(i)%name), '" found but not category="reactive"; O2 channel disabled.'
             ENDIF
          ELSEIF (trim(nm) == 'CO2') THEN
             IF (tracer_is_reactive(i)) THEN
                igas_co2 = i
-            ELSEIF (p_is_master) THEN
+            ELSEIF (verbose .and. p_is_master) THEN
                write(*,'(A,A,A)') ' WARNING methane_registry_init: tracer "', &
                   trim(tracers(i)%name), '" found but not category="reactive"; CO2 channel disabled.'
             ENDIF
          ENDIF
       ENDDO
 
-      IF (p_is_master) THEN
+      IF (verbose .and. p_is_master) THEN
          IF (igas_ch4 > 0) THEN
             write(*,'(A,I0,A)') ' methane_registry_init: CH4 active at tracer index ', igas_ch4, '.'
          ELSE
@@ -88,7 +113,7 @@ CONTAINS
          ENDIF
       ENDIF
 
-   END SUBROUTINE methane_registry_init
+   END SUBROUTINE update_methane_registry
 
    !-------------------------------------------------------------------
    logical FUNCTION methane_is_active ()

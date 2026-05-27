@@ -6,7 +6,8 @@ MODULE MOD_Tracer_Defs
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_TRACER_NUM, DEF_TRACER_NAMES, DEF_TRACER_TYPES, &
       DEF_TRACER_MRAT, DEF_TRACER_REF_RATIO, DEF_TRACER_INIT_DELTA, &
-      DEF_TRACER_REACTIVE_DECAY_RATE, DEF_TRACER_USE_FRACTIONATION
+      DEF_TRACER_REACTIVE_DECAY_RATE, DEF_TRACER_PARAM_FILES, &
+      DEF_TRACER_USE_FRACTIONATION
 
    IMPLICIT NONE
    SAVE
@@ -20,6 +21,13 @@ MODULE MOD_Tracer_Defs
       real(r8)          :: reactive_decay_rate
       logical           :: has_fractionation
    end type tracer_info_type
+
+   type :: tracer_parameter_type
+      real(r8) :: mol_weight = 18.0_r8
+      real(r8) :: ref_ratio = 1.0_r8
+      real(r8) :: init_delta = 0.0_r8
+      real(r8) :: reactive_decay_rate = 0.0_r8
+   end type tracer_parameter_type
 
    integer :: ntracers = 0
    type(tracer_info_type), allocatable :: tracers(:)
@@ -69,6 +77,7 @@ MODULE MOD_Tracer_Defs
    PUBLIC :: tracer_is_isotope, tracer_is_conservative, tracer_is_reactive
    PUBLIC :: tracer_uses_delta_diagnostics, tracer_can_use_fixed_signature
    PUBLIC :: tracer_init_water_ratio, tracer_reactive_decay_fraction
+   PUBLIC :: tracer_param_file_for_index
    PUBLIC :: ntracers, tracers
    PUBLIC :: tracer_info_type
    PUBLIC :: Rsmow_18O, Rsmow_D, trc_tiny, trc_water_min_for_delta, &
@@ -163,6 +172,9 @@ CONTAINS
       CALL parse_csv_real(DEF_TRACER_INIT_DELTA, ntracers, tracers(:)%init_delta, 0.0_r8)
       CALL parse_csv_real(DEF_TRACER_REACTIVE_DECAY_RATE, ntracers, &
          tracers(:)%reactive_decay_rate, 0.0_r8)
+
+      CALL apply_tracer_param_files ()
+
       IF (DEF_TRACER_USE_FRACTIONATION .and. p_is_master) THEN
          WRITE(*,'(A)') 'WARNING tracer_defs_init: isotope fractionation is experimental; enabled paths include ' // &
             'precipitation/evaporation, phase change, transpiration, wetland, glacier, and waterbody approximations.'
@@ -189,6 +201,167 @@ CONTAINS
       ENDDO
       deallocate(tokens)
    END SUBROUTINE tracer_defs_init
+
+
+   SUBROUTINE apply_tracer_param_files ()
+      IMPLICIT NONE
+      integer :: itrc
+      character(len=512) :: file_param
+      logical :: found
+
+      IF (.not. allocated(tracers)) RETURN
+      DO itrc = 1, ntracers
+         CALL tracer_param_file_for_index (itrc, '', file_param, found)
+         IF (found) CALL read_tracer_parameter_file (itrc, file_param)
+      ENDDO
+   END SUBROUTINE apply_tracer_param_files
+
+   SUBROUTINE read_tracer_parameter_file (itrc, nlfile)
+      USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
+      IMPLICIT NONE
+      integer, intent(in) :: itrc
+      character(len=*), intent(in) :: nlfile
+
+      type(tracer_parameter_type) :: DEF_TRACER
+      logical :: fexists
+      integer :: ierr, unit_nml
+      namelist /nl_colm_tracer_parameter/ DEF_TRACER
+
+      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (len_trim(nlfile) <= 0 .or. trim(tracer_param_lower(nlfile)) == 'null') RETURN
+
+      INQUIRE (file=trim(nlfile), exist=fexists)
+      IF (.not. fexists) THEN
+         IF (p_is_master) write(*,'(A,A)') 'ERROR read_tracer_parameter_file: missing tracer parameter file: ', &
+            trim(nlfile)
+         CALL CoLM_stop()
+      ENDIF
+
+      DEF_TRACER%mol_weight          = tracers(itrc)%mol_weight
+      DEF_TRACER%ref_ratio           = tracers(itrc)%ref_ratio
+      DEF_TRACER%init_delta          = tracers(itrc)%init_delta
+      DEF_TRACER%reactive_decay_rate = tracers(itrc)%reactive_decay_rate
+
+      open(newunit=unit_nml, status='OLD', file=trim(nlfile), form='FORMATTED')
+      read(unit_nml, nml=nl_colm_tracer_parameter, iostat=ierr)
+      close(unit_nml)
+      IF (ierr /= 0) RETURN
+
+      tracers(itrc)%mol_weight          = DEF_TRACER%mol_weight
+      tracers(itrc)%ref_ratio           = DEF_TRACER%ref_ratio
+      tracers(itrc)%init_delta          = DEF_TRACER%init_delta
+      tracers(itrc)%reactive_decay_rate = DEF_TRACER%reactive_decay_rate
+   END SUBROUTINE read_tracer_parameter_file
+
+   SUBROUTINE tracer_param_file_for_index (itrc, aliases, file_param, found)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc
+      character(len=*), intent(in) :: aliases
+      character(len=*), intent(out) :: file_param
+      logical, intent(out) :: found
+
+      integer :: start_pos, end_pos, list_len, colon_pos, positional_index
+      character(len=512) :: entry, key, value
+
+      file_param = ''
+      found = .false.
+      IF (itrc < 1 .or. .not. allocated(tracers) .or. itrc > ntracers) RETURN
+
+      list_len = len_trim(DEF_TRACER_PARAM_FILES)
+      IF (list_len <= 0) RETURN
+      IF (trim(tracer_param_lower(DEF_TRACER_PARAM_FILES)) == 'null') RETURN
+
+      positional_index = 0
+      start_pos = 1
+      DO WHILE (start_pos <= list_len)
+         end_pos = tracer_param_next_entry_end(DEF_TRACER_PARAM_FILES, start_pos, list_len)
+         entry = adjustl(trim(DEF_TRACER_PARAM_FILES(start_pos:end_pos)))
+         IF (len_trim(entry) > 0) THEN
+            colon_pos = index(entry, ':')
+            IF (colon_pos > 0) THEN
+               key = adjustl(trim(entry(:colon_pos-1)))
+               value = adjustl(trim(entry(colon_pos+1:)))
+               IF (tracer_param_key_matches(itrc, key, aliases)) THEN
+                  file_param = trim(value)
+                  found = len_trim(file_param) > 0 .and. trim(tracer_param_lower(file_param)) /= 'null'
+                  RETURN
+               ENDIF
+            ELSE
+               positional_index = positional_index + 1
+               IF (positional_index == itrc) THEN
+                  file_param = trim(entry)
+                  found = len_trim(file_param) > 0 .and. trim(tracer_param_lower(file_param)) /= 'null'
+                  RETURN
+               ENDIF
+            ENDIF
+         ENDIF
+         start_pos = end_pos + 2
+      ENDDO
+   END SUBROUTINE tracer_param_file_for_index
+
+   logical FUNCTION tracer_param_key_matches (itrc, raw_key, aliases)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc
+      character(len=*), intent(in) :: raw_key, aliases
+
+      integer :: start_pos, end_pos, list_len
+      character(len=128) :: one_alias
+
+      tracer_param_key_matches = .false.
+      IF (itrc < 1 .or. .not. allocated(tracers) .or. itrc > ntracers) RETURN
+      IF (tracer_param_equal(raw_key, tracers(itrc)%name)) THEN
+         tracer_param_key_matches = .true.
+         RETURN
+      ENDIF
+
+      list_len = len_trim(aliases)
+      start_pos = 1
+      DO WHILE (start_pos <= list_len)
+         end_pos = tracer_param_next_entry_end(aliases, start_pos, list_len)
+         one_alias = adjustl(trim(aliases(start_pos:end_pos)))
+         IF (tracer_param_equal(raw_key, one_alias)) THEN
+            tracer_param_key_matches = .true.
+            RETURN
+         ENDIF
+         start_pos = end_pos + 2
+      ENDDO
+   END FUNCTION tracer_param_key_matches
+
+   logical FUNCTION tracer_param_equal (a, b)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: a, b
+      tracer_param_equal = trim(tracer_param_lower(a)) == trim(tracer_param_lower(b))
+   END FUNCTION tracer_param_equal
+
+   integer FUNCTION tracer_param_next_entry_end (raw_list, start_pos, list_len)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: raw_list
+      integer, intent(in) :: start_pos, list_len
+      integer :: i
+
+      tracer_param_next_entry_end = list_len
+      DO i = start_pos, list_len
+         IF (raw_list(i:i) == ',' .or. raw_list(i:i) == ';') THEN
+            tracer_param_next_entry_end = i - 1
+            RETURN
+         ENDIF
+      ENDDO
+   END FUNCTION tracer_param_next_entry_end
+
+   FUNCTION tracer_param_lower (raw) RESULT(out)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: raw
+      character(len=max(1,len_trim(raw))) :: out
+      integer :: i, ia
+
+      out = adjustl(trim(raw))
+      DO i = 1, len_trim(out)
+         ia = iachar(out(i:i))
+         IF (ia >= iachar('A') .and. ia <= iachar('Z')) THEN
+            out(i:i) = achar(ia + iachar('a') - iachar('A'))
+         ENDIF
+      ENDDO
+   END FUNCTION tracer_param_lower
 
    SUBROUTINE tracer_defs_final ()
       IF (allocated(tracers)) deallocate(tracers)

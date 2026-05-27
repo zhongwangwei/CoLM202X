@@ -16,6 +16,8 @@ MODULE MOD_Tracer_SoilInit
    USE MOD_Tracer_Defs, only: ntracers, tracers, delta_to_R, tracer_is_isotope, &
       trc_delta_sanity_max
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
+   USE MOD_Tracer_Isotope_Registry, only: isotope_default_soil_init_varname
+   USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
 
    IMPLICIT NONE
 
@@ -153,7 +155,7 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: itrc
       character(len=*), intent(out) :: varname
-      character(len=256) :: token, tracer_name
+      character(len=256) :: token
 
       varname = 'null'
       CALL tracer_soil_init_csv_token(DEF_TRACER_SOIL_INIT_VARS, itrc, token)
@@ -162,12 +164,8 @@ CONTAINS
          RETURN
       ENDIF
 
-      tracer_name = tracer_soil_init_upper(trim(tracers(itrc)%name))
-      IF (index(tracer_name, '18O') > 0 .or. index(tracer_name, 'O18') > 0) THEN
-         varname = 'soilwat_O18'
-      ELSEIF (index(tracer_name, 'HDO') > 0 .or. trim(tracer_name) == 'H2') THEN
-         varname = 'soilwat_H2'
-      ENDIF
+      CALL ensure_isotope_physics_registered ()
+      CALL isotope_default_soil_init_varname(itrc, varname)
    END SUBROUTINE tracer_soil_init_varname
 
    SUBROUTINE tracer_soil_init_csv_token (csv, idx, token)

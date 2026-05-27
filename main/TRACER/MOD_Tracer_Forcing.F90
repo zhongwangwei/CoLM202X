@@ -16,6 +16,8 @@ MODULE MOD_Tracer_Forcing
    USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_init_water_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max
    USE MOD_Tracer_Vars, only: trc_runtime_forced
+   USE MOD_Tracer_Isotope_Registry, only: isotope_legacy_forcing_kind
+   USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
 
    IMPLICIT NONE
    SAVE
@@ -927,18 +929,13 @@ CONTAINS
    integer FUNCTION tracer_forcing_tracer_kind (itrc)
       IMPLICIT NONE
       integer, intent(in) :: itrc
-      character(len=32) :: name_upper
 
       tracer_forcing_tracer_kind = TRC_FORC_NONE
       IF (.not. tracer_is_isotope(itrc)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
 
-      name_upper = tracer_forcing_upper(trim(tracers(itrc)%name))
-      IF (index(name_upper, '18O') > 0 .or. index(name_upper, 'O18') > 0) THEN
-         tracer_forcing_tracer_kind = TRC_FORC_O18
-      ELSEIF (index(name_upper, 'HDO') > 0 .or. trim(name_upper) == 'H2') THEN
-         tracer_forcing_tracer_kind = TRC_FORC_H2
-      ENDIF
+      CALL ensure_isotope_physics_registered ()
+      tracer_forcing_tracer_kind = isotope_legacy_forcing_kind(itrc)
    END FUNCTION tracer_forcing_tracer_kind
 
    real(r8) FUNCTION tracer_forcing_ratio_to_delta (ratio, ref_ratio)

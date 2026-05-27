@@ -355,17 +355,10 @@ MODULE MOD_Namelist
    logical  :: DEF_TRACER_USE_SOIL_INIT = .false.
    character(len=256) :: DEF_TRACER_SOIL_INIT_FILE = 'null'
    character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = 'soilwat_O18,soilwat_H2'
-   character(len=512) :: DEF_TRACER_REACTIVE_PARAM_FILES = 'null'
-   character(len=512) :: DEF_TRACER_REACTIVE_OPTIONS = 'null'
+   character(len=512) :: DEF_TRACER_PARAM_FILES = 'null'
 #if (defined TRACER) && (defined BGC)
-   ! ----- TRACER reactive methane controls -----
-   logical :: DEF_METHANE_only_wetland = .false.
-   logical :: DEF_METHANE_enable_rice_paddy = .false.
-   logical :: DEF_USE_METHANE_para = .false.
-   character(len=256) :: DEF_file_METHANE_para = 'null'
+   ! ----- Generic BGC/reactive-tracer shared inputs -----
    character(len=256) :: DEF_file_GIEMS = 'null'
-   logical :: DEF_USE_SpatialpH = .false.
-   character(len=32) :: DEF_METHANE_inundation_mode = 'hybrid'
    integer :: DEF_wetland_finundation_scheme = 1
 #endif
    ! ----- sediment module -----
@@ -1250,16 +1243,9 @@ CONTAINS
       DEF_TRACER_USE_SOIL_INIT,               &
       DEF_TRACER_SOIL_INIT_FILE,              &
       DEF_TRACER_SOIL_INIT_VARS,              &
-      DEF_TRACER_REACTIVE_PARAM_FILES,        &
-      DEF_TRACER_REACTIVE_OPTIONS,            &
+      DEF_TRACER_PARAM_FILES,        &
 #if (defined TRACER) && (defined BGC)
-      DEF_METHANE_only_wetland,               &
-      DEF_METHANE_enable_rice_paddy,          &
-      DEF_USE_METHANE_para,                   &
-      DEF_file_METHANE_para,                  &
       DEF_file_GIEMS,                         &
-      DEF_METHANE_inundation_mode,            &
-      DEF_USE_SpatialpH,                      &
 #endif
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
@@ -1929,17 +1915,10 @@ CONTAINS
       CALL mpi_bcast (DEF_TRACER_USE_SOIL_INIT               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_SOIL_INIT_FILE              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_SOIL_INIT_VARS              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_TRACER_REACTIVE_PARAM_FILES        ,512 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_TRACER_REACTIVE_OPTIONS            ,512 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_PARAM_FILES        ,512 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 #if (defined TRACER) && (defined BGC)
-      CALL mpi_bcast (DEF_METHANE_only_wetland               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_METHANE_enable_rice_paddy          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_USE_METHANE_para                   ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_file_METHANE_para                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_GIEMS                         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_METHANE_inundation_mode            ,32  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_USE_SpatialpH                      ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 #endif
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)

@@ -70,7 +70,6 @@ CONTAINS
 
    SUBROUTINE allocate_methane_giems(numpatch)
       integer, intent(in) :: numpatch
-      IF (numpatch <= 0) RETURN
       IF (allocated(giems_clim_wetland_frac)) THEN
          IF (size(giems_clim_wetland_frac,1) == 12 .and. size(giems_clim_wetland_frac,2) == numpatch) RETURN
          deallocate(giems_clim_wetland_frac)

@@ -27,7 +27,7 @@ MODULE MOD_Tracer_Methane_Microbes
 
    IMPLICIT NONE
    SAVE
-   PUBLIC
+   PRIVATE
 
    ! Prognostic biomass pools [gC biomass / m3 soil]
    real(r8), allocatable :: B_methanogen(:,:)
@@ -66,6 +66,11 @@ MODULE MOD_Tracer_Methane_Microbes
    PUBLIC :: write_methane_microbes_restart
    PUBLIC :: save_methane_microbes_lulcc_state
    PUBLIC :: remap_methane_microbes_lulcc_state
+   PUBLIC :: B_methanogen, B_methanotroph
+   PUBLIC :: B_methanogen_dormant, B_methanotroph_dormant
+   PUBLIC :: f_T_methanogen, f_S_methanogen, f_O2_methanogen, f_T_methanotroph
+   PUBLIC :: methanogen_growth_rate, methanotroph_growth_rate
+   PUBLIC :: microbial_prod_potential, microbial_oxid_potential
 
 CONTAINS
 
@@ -73,8 +78,9 @@ CONTAINS
 	      integer, intent(in) :: numpatch
 
 	      IF (.not. DEF_METHANE%use_microbial_pools) RETURN
-	      IF (numpatch <= 0) RETURN
 	      IF (allocated(B_methanogen)) RETURN
+	      ! Keep zero-length arrays allocated on ranks with numpatch==0 when
+	      ! microbial pools are enabled; restart/vector I/O paths are collective.
 
 	      allocate(B_methanogen(nl_soil,numpatch))
       allocate(B_methanotroph(nl_soil,numpatch))
@@ -135,6 +141,7 @@ CONTAINS
 	      real(r8) :: mu_m, mu_o, loss_m, loss_o, to_dormant, from_dormant
 	      real(r8) :: prod_pot, oxid_pot, carbon_cap, ch4_cap, o2_cap, freeze_loss
 	      real(r8) :: growth_factor, dormant_loss
+	      real(r8) :: B_cap_methanogen, B_cap_methanotroph, organic_c_layer
       real(r8), parameter :: small = 1.e-30_r8
 
       IF (.not. DEF_METHANE%use_microbial_pools) RETURN
@@ -237,6 +244,21 @@ CONTAINS
 	            to_dormant - from_dormant - dormant_loss
 	         B_methanotroph(j,ipatch) = max(B_methanotroph(j,ipatch), DEF_METHANE%B_min_methanotroph)
 	         B_methanotroph_dormant(j,ipatch) = max(B_methanotroph_dormant(j,ipatch), 0._r8)
+
+         ! Constrain microbial biomass by local organic carbon.  Without this
+         ! bound, positive net growth can compound exponentially while the
+         ! represented substrate pool is not depleted by microbial growth.
+         organic_c_layer = max(cellorg(j), 0._r8) * 580._r8
+         IF (DEF_METHANE%B_max_fraction_methanogen > 0._r8) THEN
+            B_cap_methanogen = max(DEF_METHANE%B_min_methanogen, &
+               DEF_METHANE%B_max_fraction_methanogen * organic_c_layer)
+            B_methanogen(j,ipatch) = min(B_methanogen(j,ipatch), B_cap_methanogen)
+         ENDIF
+         IF (DEF_METHANE%B_max_fraction_methanotroph > 0._r8) THEN
+            B_cap_methanotroph = max(DEF_METHANE%B_min_methanotroph, &
+               DEF_METHANE%B_max_fraction_methanotroph * organic_c_layer)
+            B_methanotroph(j,ipatch) = min(B_methanotroph(j,ipatch), B_cap_methanotroph)
+         ENDIF
 
 	         ! B_* pools are stored as [gC biomass m-3 soil].  Treat kappa_m_*
 	         ! as first-order biomass-C turnover [day-1] and convert biomass C

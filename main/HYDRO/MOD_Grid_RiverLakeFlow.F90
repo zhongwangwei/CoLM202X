@@ -31,9 +31,8 @@ MODULE MOD_Grid_RiverLakeFlow
       tracer_refresh_state, tracer_diag_accumulate_substep, &
       trc_levsto, trc_dry_drain, trc_reactive_source, levee_tracer_repartition, &
       get_cell_volume_dep => get_cell_volume, trc_conc_dep => trc_conc
-#endif
-#if (defined TRACER) && (defined BGC)
-   USE MOD_Tracer_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Reactive, only: tracer_reactive_publish_levee_flood_patch, &
+      tracer_reactive_publish_flood_patch
 #endif
    IMPLICIT NONE
 
@@ -1469,20 +1468,20 @@ CONTAINS
          ENDIF
       ENDIF
 
-	      ! ---- Publish per-ucat levee floodplain fraction to per-patch
-	      !      f_inund_levee_patch so methane scheme 7 can read the latest
-	      !      completed routing state.  Because this publish occurs at the
-	      !      end of routing, CH4 normally consumes it on the next land step.
+		      ! ---- Publish per-ucat levee/general flood diagnostics to
+	      !      reactive tracers.  Because this publish occurs at the end
+	      !      of routing, reactive land tracers normally consume it on
+	      !      the next land step.
 	      !      Flow: ucat -> inpm grid (average) -> landpatch (remap).
 	      !      Inactive when GridRiverLakeFlow is undef (this whole file
 	      !      is gated by that macro).
-#if (defined TRACER) && (defined BGC)
-      IF (igas_ch4 > 0 .and. allocated(levee_floodarea)) THEN
-         CALL publish_levee_fldfrc_to_patches (levee_floodarea)
-      ENDIF
-      IF (igas_ch4 > 0 .and. allocated(total_floodarea)) THEN
-         CALL publish_fldfrc_to_patches (total_floodarea, total_flooddepth)
-      ENDIF
+#ifdef TRACER
+	      IF (allocated(levee_floodarea)) THEN
+	         CALL publish_levee_fldfrc_to_patches (levee_floodarea)
+	      ENDIF
+	      IF (allocated(total_floodarea)) THEN
+	         CALL publish_fldfrc_to_patches (total_floodarea, total_flooddepth)
+	      ENDIF
 #endif
 
       IF (allocated(is_built_resv)) deallocate(is_built_resv)
@@ -1513,24 +1512,23 @@ CONTAINS
 
    END SUBROUTINE grid_riverlake_flow
 
-#if (defined TRACER) && (defined BGC)
-   SUBROUTINE publish_levee_fldfrc_to_patches (levee_floodarea_in)
-   !-------------------------------------------------------------------
-   ! Push the per-ucat levee floodplain fraction through the inpm grid
-   ! back to per-patch f_inund_levee_patch for methane scheme 7.
-   !-------------------------------------------------------------------
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, numinpm, topo_area, &
-                                        push_ucat2inpm, remap_patch2inpm
-   USE MOD_WorkerPushData, only: worker_push_data, worker_remap_data_grid2pset
-   USE MOD_Tracer_Methane_State, only: f_inund_levee_patch
-   USE MOD_SPMD_Task
+#ifdef TRACER
+	   SUBROUTINE publish_levee_fldfrc_to_patches (levee_floodarea_in)
+	   !-------------------------------------------------------------------
+	   ! Push the per-ucat levee floodplain fraction through the inpm grid
+	   ! back to reactive tracers as a per-patch levee flood fraction.
+	   !-------------------------------------------------------------------
+	   USE MOD_Grid_RiverLakeNetwork, only: numucat, numinpm, topo_area, &
+	                                        push_ucat2inpm, remap_patch2inpm
+	   USE MOD_WorkerPushData, only: worker_push_data, worker_remap_data_grid2pset
+	   USE MOD_LandPatch, only: numpatch
+	   USE MOD_SPMD_Task
 
-   real(r8), intent(in) :: levee_floodarea_in(:)
-   real(r8), allocatable :: fldfrc_uc(:), fldfrc_gd(:)
-   integer :: i
+	   real(r8), intent(in) :: levee_floodarea_in(:)
+	   real(r8), allocatable :: fldfrc_uc(:), fldfrc_gd(:), fldfrc_patch(:)
+	   integer :: i
 
-      IF (.not. allocated(f_inund_levee_patch)) RETURN
-      IF (.not. p_is_worker) RETURN
+	      IF (.not. p_is_worker) RETURN
 
       ! Build per-ucat fldfrc
       IF (numucat > 0) THEN
@@ -1553,36 +1551,37 @@ CONTAINS
       ELSE
          allocate (fldfrc_gd(0))
       ENDIF
-      CALL worker_push_data (push_ucat2inpm, fldfrc_uc, fldfrc_gd, &
-         fillvalue = 0._r8, mode = 'average')
+	      CALL worker_push_data (push_ucat2inpm, fldfrc_uc, fldfrc_gd, &
+	         fillvalue = 0._r8, mode = 'average')
 
-      ! inpm grid -> landpatch (area-weighted remap)
-      CALL worker_remap_data_grid2pset (remap_patch2inpm, fldfrc_gd, &
-         f_inund_levee_patch, fillvalue = 0._r8, mode = 'average')
+	      ! inpm grid -> landpatch (area-weighted remap)
+	      allocate(fldfrc_patch(max(0,numpatch)))
+	      CALL worker_remap_data_grid2pset (remap_patch2inpm, fldfrc_gd, &
+	         fldfrc_patch, fillvalue = 0._r8, mode = 'average')
+	      CALL tracer_reactive_publish_levee_flood_patch (fldfrc_patch)
 
-      deallocate(fldfrc_uc, fldfrc_gd)
+	      deallocate(fldfrc_uc, fldfrc_gd, fldfrc_patch)
 
    END SUBROUTINE publish_levee_fldfrc_to_patches
 
-   SUBROUTINE publish_fldfrc_to_patches (total_floodarea_in, total_flooddepth_in)
-   !-------------------------------------------------------------------
-   ! Publish general flood area and depth for methane scheme 7.
-   ! Pushed to per-patch f_inund_flood_patch and f_inund_flood_depth_patch.
-   !-------------------------------------------------------------------
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, numinpm, topo_area, &
-                                        push_ucat2inpm, remap_patch2inpm
-   USE MOD_WorkerPushData, only: worker_push_data, worker_remap_data_grid2pset
-   USE MOD_Tracer_Methane_State, only: f_inund_flood_patch, f_inund_flood_depth_patch
-   USE MOD_SPMD_Task
+	   SUBROUTINE publish_fldfrc_to_patches (total_floodarea_in, total_flooddepth_in)
+	   !-------------------------------------------------------------------
+	   ! Publish general flood area and depth to reactive tracers.
+	   !-------------------------------------------------------------------
+	   USE MOD_Grid_RiverLakeNetwork, only: numucat, numinpm, topo_area, &
+	                                        push_ucat2inpm, remap_patch2inpm
+	   USE MOD_WorkerPushData, only: worker_push_data, worker_remap_data_grid2pset
+	   USE MOD_LandPatch, only: numpatch
+	   USE MOD_SPMD_Task
 
-   real(r8), intent(in) :: total_floodarea_in(:)
-   real(r8), intent(in) :: total_flooddepth_in(:)
-   real(r8), allocatable :: fldfrc_uc(:), fldfrc_gd(:)
-   real(r8), allocatable :: flddph_uc(:), flddph_gd(:)
-   integer :: i
+	   real(r8), intent(in) :: total_floodarea_in(:)
+	   real(r8), intent(in) :: total_flooddepth_in(:)
+	   real(r8), allocatable :: fldfrc_uc(:), fldfrc_gd(:)
+	   real(r8), allocatable :: flddph_uc(:), flddph_gd(:)
+	   real(r8), allocatable :: fldfrc_patch(:), flddph_patch(:)
+	   integer :: i
 
-      IF (.not. allocated(f_inund_flood_patch)) RETURN
-      IF (.not. p_is_worker) RETURN
+	      IF (.not. p_is_worker) RETURN
 
       IF (numucat > 0) THEN
          allocate (fldfrc_uc(numucat), flddph_uc(numucat))
@@ -1610,20 +1609,20 @@ CONTAINS
       ELSE
          allocate (fldfrc_gd(0), flddph_gd(0))
       ENDIF
-      CALL worker_push_data (push_ucat2inpm, fldfrc_uc, fldfrc_gd, &
-         fillvalue = 0._r8, mode = 'average')
+	      CALL worker_push_data (push_ucat2inpm, fldfrc_uc, fldfrc_gd, &
+	         fillvalue = 0._r8, mode = 'average')
 
-      CALL worker_remap_data_grid2pset (remap_patch2inpm, fldfrc_gd, &
-         f_inund_flood_patch, fillvalue = 0._r8, mode = 'average')
+	      allocate(fldfrc_patch(max(0,numpatch)), flddph_patch(max(0,numpatch)))
+	      CALL worker_remap_data_grid2pset (remap_patch2inpm, fldfrc_gd, &
+	         fldfrc_patch, fillvalue = 0._r8, mode = 'average')
 
-      IF (allocated(f_inund_flood_depth_patch)) THEN
-         CALL worker_push_data (push_ucat2inpm, flddph_uc, flddph_gd, &
-            fillvalue = 0._r8, mode = 'average')
-         CALL worker_remap_data_grid2pset (remap_patch2inpm, flddph_gd, &
-            f_inund_flood_depth_patch, fillvalue = 0._r8, mode = 'average')
-      ENDIF
+	      CALL worker_push_data (push_ucat2inpm, flddph_uc, flddph_gd, &
+	         fillvalue = 0._r8, mode = 'average')
+	      CALL worker_remap_data_grid2pset (remap_patch2inpm, flddph_gd, &
+	         flddph_patch, fillvalue = 0._r8, mode = 'average')
+	      CALL tracer_reactive_publish_flood_patch (fldfrc_patch, flddph_patch)
 
-      deallocate(fldfrc_uc, fldfrc_gd, flddph_uc, flddph_gd)
+	      deallocate(fldfrc_uc, fldfrc_gd, flddph_uc, flddph_gd, fldfrc_patch, flddph_patch)
 
    END SUBROUTINE publish_fldfrc_to_patches
 #endif

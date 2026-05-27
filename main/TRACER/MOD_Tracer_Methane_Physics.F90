@@ -82,8 +82,9 @@ contains
 		methane_prod_depth, o2_decomp_depth, co2_decomp_depth, methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
 		methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, methane_ebul_depth, &
 		o2stress, methane_stress, &
-			methane_surf_flux_tot, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
-			methane_balance_residual, o2_cap_loss, o2_cap_gain, &
+			methane_surf_flux_tot, methane_surf_flux_tot_phys, &
+			methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
+			methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
 		methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
 		co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
 		totcol_methane, grnd_methane_cond, conc_o2, conc_methane, &
@@ -140,8 +141,8 @@ contains
 			snl				     ! number of snow layers (-5~-1)
 
 		real(r8), intent(in) :: &
-			dlon                    , &! latitude (degrees)
-			dlat                    , &! longitude (degrees)
+			dlon                    , &! longitude (degrees)
+			dlat                    , &! latitude (degrees)
 
 			deltim                  , &! land model time step [sec]
 			z_soisno (maxsnl+1:nl_soil)    , &! layer depth [m]
@@ -232,12 +233,14 @@ contains
 			methane_ebul_depth    (1:nl_soil)   , & ! CH4 loss rate via ebullition in each soil layer (mol/m3/s)
 			o2stress          (1:nl_soil)   , & ! Ratio of oxygen available to that demanded by roots, aerobes, & methanotrophs
 			methane_stress         (1:nl_soil)   , & ! Ratio of methane available to total per-timestep methane sinks
-			methane_surf_flux_tot               , & ! CH4 flux to atmosphere (mol/m2/s)
+			methane_surf_flux_tot               , & ! CH4 flux to atmosphere incl. numerical corrections (mol/m2/s)
+			methane_surf_flux_tot_phys          , & ! CH4 physical flux before CH4 clip/residual corrections (mol/m2/s)
 			methane_surf_aere                   , & ! CH4 surface flux via aerenchyma (mol/m2/s)
 			methane_surf_ebul                   , & ! CH4 ebullition flux (mol/m2/s)
 				methane_surf_diff                   , & ! CH4 diffusion flux plus numerical closure (mol/m2/s)
 				methane_surf_diff_phys              , & ! CH4 pure-physics diffusion flux before clip/residual (mol/m2/s)
 				methane_balance_residual            , & ! numerical closure flux credited to methane_surf_diff (mol/m2/s)
+				methane_ch4_clip_credit             , & ! negative CH4 clip credited to methane_surf_diff (mol/m2/s)
 				o2_cap_loss                        , & ! O2 removed by post-solve physical cap (mol/m2/s)
 				o2_cap_gain                        , & ! O2 added by post-solve nonnegative floor (mol/m2/s)
 			methane_ebul_tot                    , & ! Total CH4 ebullition (mol/m2/s)
@@ -399,6 +402,7 @@ contains
 		logical  :: methane_cold_start      ! true only when no valid previous CH4 inundation state exists
 		logical  :: is_rice_paddy           ! R1: rice paddy patch flag (unpacked from optional)
 		real(r8) :: rice_pft_frac           ! R1: rice fraction within patch (0..1)
+		real(r8) :: rice_substrate_boost_eff ! R2: fraction-weighted paddy substrate multiplier
 		real(r8) :: finundated_rice         ! R1: rice-overridden finundated value
 		real(r8) :: finundated_default      ! R1: scheme-computed natural-wetland finundated
 		integer  :: idpp_rice, dsh
@@ -421,6 +425,7 @@ contains
 			integer  :: atm_month, atm_mday
 			real(r8) :: atm_methane_mix
 			real(r8) :: methane_balance_residual_unsat, methane_balance_residual_sat
+			real(r8) :: methane_ch4_clip_credit_unsat, methane_ch4_clip_credit_sat
 			real(r8) :: o2_cap_loss_unsat, o2_cap_loss_sat
 			real(r8) :: o2_cap_gain_unsat, o2_cap_gain_sat
 
@@ -506,6 +511,9 @@ contains
 		real(r8) :: zwt_sat, wice_soisno_sat(maxsnl+1:nl_soil), wliq_soisno_sat(maxsnl+1:nl_soil), wdsrf_sat
 		real(r8) :: zwt_unsat, wice_soisno_unsat(maxsnl+1:nl_soil), wliq_soisno_unsat(maxsnl+1:nl_soil), wdsrf_unsat
 		real(r8) :: routing_depth_mm
+		logical  :: lake_restart_debug_print
+		real(r8) :: lake_dbg_totcol_bef, lake_dbg_ch4_l1_bef, lake_dbg_o2_l1_bef
+		real(r8) :: lake_dbg_ch4_l5_bef, lake_dbg_o2_l5_bef
 
 		!-----------------------------------------------------------------------
 		! Set parameters.  When biome lookup enabled, use per-patch redoxlag
@@ -544,8 +552,11 @@ contains
 			methane_surf_flux_tot_sat   = 0._r8
 			methane_surf_flux_tot_unsat = 0._r8
 				methane_balance_residual    = 0._r8
+				methane_ch4_clip_credit     = 0._r8
 				methane_balance_residual_unsat = 0._r8
 				methane_balance_residual_sat   = 0._r8
+				methane_ch4_clip_credit_unsat = 0._r8
+				methane_ch4_clip_credit_sat   = 0._r8
 				o2_cap_loss             = 0._r8
 				o2_cap_loss_unsat       = 0._r8
 				o2_cap_loss_sat         = 0._r8
@@ -604,6 +615,35 @@ contains
 			totcolch4_bef = totcolch4_bef_lake
 			totcolch4_bef_sat = totcolch4_bef_lake
 			totcolch4_bef_unsat = 0._r8
+		endif
+		lake_restart_debug_print = DEF_METHANE%lake_restart_debug .and. &
+			patchtype == 4 .and. DEF_METHANE%allowlakeprod .and. &
+			idate(1) == DEF_METHANE%lake_restart_debug_year .and. &
+			idate(2) >= DEF_METHANE%lake_restart_debug_start_doy .and. &
+			idate(2) <= DEF_METHANE%lake_restart_debug_end_doy .and. &
+			(DEF_METHANE%lake_restart_debug_sec < 0 .or. &
+			 idate(3) == DEF_METHANE%lake_restart_debug_sec) .and. &
+			totcolch4_bef_lake > 0._r8
+		if (lake_restart_debug_print) then
+			lake_dbg_totcol_bef = totcolch4_bef_lake
+			lake_dbg_ch4_l1_bef = conc_methane_lake(1)
+			lake_dbg_o2_l1_bef = conc_o2_lake(1)
+			lake_dbg_ch4_l5_bef = conc_methane_lake(min(5,nl_soil))
+			lake_dbg_o2_l5_bef = conc_o2_lake(min(5,nl_soil))
+			write(6,'(A,1X,I6,1X,I4,1X,I7,1X,I9,1X,2F10.3,1X,24ES14.6)') &
+				'CH4_LAKE_ENTRY_DEBUG', idate(1), idate(2), idate(3), ipatch, dlon, dlat, &
+				lakedepth, wdsrf, t_grnd, t_h2osfc, t_soisno(1), lake_icefrac(1), &
+				wliq_soisno(1), wice_soisno(1), smp(1), f_h2osfc, fsat_bef, finundated_lag, &
+				layer_sat_lag(1), layer_sat_lag(min(5,nl_soil)), totcolch4_bef_lake, &
+				conc_methane_lake(1), conc_o2_lake(1), conc_methane_lake(min(5,nl_soil)), &
+				conc_o2_lake(min(5,nl_soil)), sum(lake_soilc(1:nl_soil)), forc_t, &
+				forc_pbot, forc_po2m, forc_pmethanem
+		else
+			lake_dbg_totcol_bef = 0._r8
+			lake_dbg_ch4_l1_bef = 0._r8
+			lake_dbg_o2_l1_bef = 0._r8
+			lake_dbg_ch4_l5_bef = 0._r8
+			lake_dbg_o2_l5_bef = 0._r8
 		endif
 
 		totcol_methane = 0.
@@ -809,11 +849,14 @@ contains
 		ELSE
 		   rice_pft_frac = 0._r8
 		ENDIF
+		rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
+		rice_substrate_boost_eff = 1._r8
 		IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
 		   ! Safety clamp on caller-supplied rice fraction (multi-CFT
 		   ! aggregation occasionally exceeds 1 if pftfrac normalization
 		   ! has been touched upstream).
-		   rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
+		   rice_substrate_boost_eff = 1._r8 + rice_pft_frac * &
+		      (DEF_METHANE%rice_substrate_boost - 1._r8)
 		   finundated_default = finundated
 
 		   IF (is_paddy_rice_live(ipatch)) THEN
@@ -982,18 +1025,17 @@ contains
 
 				! R2 short-term SOC fix: lift methane substrate on rice paddy
 				! tiles to compensate for grid-mean SOC underestimate.
-				! Default rice_substrate_boost=2.0 (on, paired with midseason
-				! drying to roughly cancel for global mean while reproducing
-				! site-level paddy SOC enrichment).  Set =1.0 to disable.
+				! Default rice_substrate_boost=1.0 (off) for global budgets.
+				! Set >1.0 only for explicit paddy-SOC sensitivity tests.
 				! Only the methane production channel is scaled; o2/co2 decomp
 				! are NOT scaled because that would falsify the BGC carbon
 				! balance — this is a methane-only substrate availability proxy.
-				IF (is_rice_paddy .and. DEF_METHANE%rice_substrate_boost > 1._r8) THEN
-				   methane_prod_depth_unsat(:) = methane_prod_depth_unsat(:) * DEF_METHANE%rice_substrate_boost
+				IF (is_rice_paddy .and. rice_substrate_boost_eff > 1._r8) THEN
+				   methane_prod_depth_unsat(:) = methane_prod_depth_unsat(:) * rice_substrate_boost_eff
 				ENDIF
 
 				! Calculate CH4 oxidation in each soil layer
-				call methane_oxid ( idate, patchtype, jwt_unsat, sat, t_soisno, smp, vol_aqu_unsat, &
+				call methane_oxid ( idate, patchtype, jwt_unsat, sat, t_soisno, dz_soisno, zi_soisno, smp, vol_aqu_unsat, &
 					conc_o2_aqu_porsl_unsat, conc_ch4_aqu_porsl_unsat, &
 					microbial_oxid_potential_patch, &
 					methane_oxid_depth_unsat, o2_oxid_depth_unsat )
@@ -1010,7 +1052,7 @@ contains
 					rootfr, rootr, etr, grnd_methane_cond_unsat, c_atm, annsum_npp, &
 					annavg_agnpp, annavg_bgnpp, conc_methane_unsat, methane_prod_depth_unsat, &
 					methane_oxid_depth_unsat, methane_ebul_depth_unsat, &
-					conc_ch4_aqu_porsl_unsat, conc_ch4_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, &
+					conc_ch4_aqu_unsat, conc_ch4_aqu_porsl_unsat, conc_ch4_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, &
 					methane_aere_depth_unsat, methane_tran_depth_unsat, o2_aere_depth_unsat )
 
 				! Solve CH4 reaction/diffusion equation
@@ -1023,7 +1065,7 @@ contains
 					o2stress_unsat, methane_stress_unsat, methane_surf_aere_unsat, methane_surf_ebul_unsat, methane_surf_diff_unsat, methane_ebul_tot_unsat, &
 					methane_oxid_depth_unsat, methane_aere_depth_unsat, methane_tran_depth_unsat, methane_ebul_depth_unsat, &
 						grnd_methane_cond_unsat, o2_oxid_depth_unsat, o2_decomp_depth_unsat, &
-						conc_o2_unsat, conc_methane_unsat, methane_balance_residual_unsat, methane_surf_diff_phys_unsat, &
+						conc_o2_unsat, conc_methane_unsat, methane_balance_residual_unsat, methane_ch4_clip_credit_unsat, methane_surf_diff_phys_unsat, &
 						o2_cap_loss_unsat, o2_cap_gain_unsat )
 
 			elseif (sat==1) then ! saturated
@@ -1119,12 +1161,12 @@ contains
 					methane_prod_depth_sat, o2_decomp_depth_sat, co2_decomp_depth_sat )
 
 				! R2 short-term SOC fix: rice paddy substrate boost (sat branch).
-				IF (is_rice_paddy .and. DEF_METHANE%rice_substrate_boost > 1._r8) THEN
-				   methane_prod_depth_sat(:) = methane_prod_depth_sat(:) * DEF_METHANE%rice_substrate_boost
+				IF (is_rice_paddy .and. rice_substrate_boost_eff > 1._r8) THEN
+				   methane_prod_depth_sat(:) = methane_prod_depth_sat(:) * rice_substrate_boost_eff
 				ENDIF
 
 				! Calculate CH4 oxidation in each soil layer
-				call methane_oxid ( idate, patchtype, jwt_sat, sat, t_soisno, smp, vol_aqu_sat, &
+				call methane_oxid ( idate, patchtype, jwt_sat, sat, t_soisno, dz_soisno, zi_soisno, smp, vol_aqu_sat, &
 					conc_o2_aqu_porsl_sat, conc_ch4_aqu_porsl_sat, &
 					microbial_oxid_potential_patch, &
 					methane_oxid_depth_sat, o2_oxid_depth_sat )
@@ -1146,7 +1188,7 @@ contains
 						rootfr, rootr, etr, grnd_methane_cond_sat, c_atm, annsum_npp, &
 						annavg_agnpp, annavg_bgnpp, conc_methane_sat, methane_prod_depth_sat, &
 						methane_oxid_depth_sat, methane_ebul_depth_sat, &
-						conc_ch4_aqu_porsl_sat, conc_ch4_gas_porsl_sat, conc_o2_aqu_porsl_sat, conc_o2_gas_porsl_sat, &
+						conc_ch4_aqu_sat, conc_ch4_aqu_porsl_sat, conc_ch4_gas_porsl_sat, conc_o2_aqu_porsl_sat, conc_o2_gas_porsl_sat, &
 						methane_aere_depth_sat, methane_tran_depth_sat, o2_aere_depth_sat )
 				endif
 
@@ -1160,7 +1202,7 @@ contains
 					o2stress_sat, methane_stress_sat, methane_surf_aere_sat, methane_surf_ebul_sat, methane_surf_diff_sat, methane_ebul_tot_sat, &
 					methane_oxid_depth_sat, methane_aere_depth_sat, methane_tran_depth_sat, methane_ebul_depth_sat, &
 						grnd_methane_cond_sat, o2_oxid_depth_sat, o2_decomp_depth_sat, &
-						conc_o2_sat, conc_methane_sat, methane_balance_residual_sat, methane_surf_diff_phys_sat, &
+						conc_o2_sat, conc_methane_sat, methane_balance_residual_sat, methane_ch4_clip_credit_sat, methane_surf_diff_phys_sat, &
 						o2_cap_loss_sat, o2_cap_gain_sat )
 
 			endif
@@ -1215,6 +1257,8 @@ contains
 				methane_surf_diff_phys_unsat * (1.0_r8 - finundated)
 			methane_balance_residual = methane_balance_residual_sat * finundated + &
 				methane_balance_residual_unsat * (1.0_r8 - finundated)
+			methane_ch4_clip_credit = methane_ch4_clip_credit_sat * finundated + &
+				methane_ch4_clip_credit_unsat * (1.0_r8 - finundated)
 			o2_cap_loss = o2_cap_loss_sat * finundated + o2_cap_loss_unsat * (1.0_r8 - finundated)
 			o2_cap_gain = o2_cap_gain_sat * finundated + o2_cap_gain_unsat * (1.0_r8 - finundated)
 			methane_surf_ebul = methane_surf_ebul_sat * finundated + methane_surf_ebul_unsat * (1.0_r8 - finundated)
@@ -1227,6 +1271,8 @@ contains
 		co2_net_tot    = co2_decomp_tot + co2_oxid_tot - co2_aere_tot
 		net_methane = net_methane_sat * finundated + net_methane_unsat * (1.0_r8 - finundated)
 		methane_surf_flux_tot = methane_surf_diff + methane_surf_ebul + methane_surf_aere + &
+			sum(methane_tran_depth(1:nl_soil) * dz_soisno(1:nl_soil))
+		methane_surf_flux_tot_phys = methane_surf_diff_phys + methane_surf_ebul + methane_surf_aere + &
 			sum(methane_tran_depth(1:nl_soil) * dz_soisno(1:nl_soil))
 		totcol_methane = totcol_methane_sat * finundated + totcol_methane_unsat * (1.0_r8 - finundated)
 
@@ -1252,6 +1298,40 @@ contains
 			grnd_methane_cond_lake = grnd_methane_cond_sat
 			conc_o2_lake = conc_o2_sat
 			conc_methane_lake = conc_methane_sat
+			methane_prod_depth = methane_prod_depth_lake
+			methane_oxid_depth = methane_oxid_depth_lake
+			methane_ebul_depth = methane_ebul_depth_lake
+			co2_decomp_depth = co2_decomp_depth_lake
+			co2_oxid_depth = co2_oxid_depth_lake
+			methane_surf_ebul = methane_surf_ebul_lake
+			methane_surf_diff = methane_surf_diff_lake
+			methane_surf_aere = 0._r8
+			methane_surf_flux_tot = methane_surf_flux_tot_lake
+			methane_surf_flux_tot_phys = methane_surf_diff_phys + methane_surf_ebul
+			methane_prod_tot = methane_prod_tot_lake
+			methane_oxid_tot = methane_oxid_tot_lake
+			methane_ebul_tot = methane_ebul_tot_lake
+			co2_decomp_tot = co2_decomp_tot_lake
+			co2_oxid_tot = co2_oxid_tot_lake
+			co2_net_tot = co2_net_tot_lake
+			totcol_methane = totcol_methane_lake
+			net_methane = net_methane_sat
+			methane_balance_residual = methane_balance_residual_sat
+			methane_ch4_clip_credit = methane_ch4_clip_credit_sat
+			o2_cap_loss = o2_cap_loss_sat
+			o2_cap_gain = o2_cap_gain_sat
+			conc_o2 = conc_o2_lake
+			conc_methane = conc_methane_lake
+			if (lake_restart_debug_print) then
+				write(6,'(A,1X,I6,1X,I4,1X,I7,1X,I9,1X,2F10.3,1X,19ES14.6)') &
+					'CH4_LAKE_RESTART_DEBUG', idate(1), idate(2), idate(3), ipatch, dlon, dlat, &
+					lakedepth, wdsrf, f_h2osfc, lake_dbg_totcol_bef, totcol_methane_lake, &
+					methane_prod_tot_lake, methane_oxid_tot_lake, methane_surf_diff_lake, &
+					methane_surf_ebul_lake, methane_surf_flux_tot_lake, lake_dbg_ch4_l1_bef, &
+					lake_dbg_o2_l1_bef, conc_methane_lake(1), conc_o2_lake(1), &
+					lake_dbg_ch4_l5_bef, lake_dbg_o2_l5_bef, conc_methane_lake(min(5,nl_soil)), &
+					conc_o2_lake(min(5,nl_soil)), sum(lake_soilc(1:nl_soil))
+			endif
 			if (.not. DEF_METHANE%replenishlakec) then
 				do j = 1, nl_soil
 					lake_soilc(j) = max(0._r8, lake_soilc(j) - &
@@ -1410,11 +1490,14 @@ contains
 				annsum_counter = 0._r8
 				annavg_somhr = tempavg_somhr
 				tempavg_somhr = 0._r8
-				if (annavg_somhr > 0._r8) then
-					annavg_finrw = tempavg_finrw / annavg_somhr
-				else
-					annavg_finrw = 0._r8
-				endif
+					if (annavg_somhr > 0._r8) then
+						annavg_finrw = tempavg_finrw / annavg_somhr
+					else
+						! No respiration-weighted annual inundation estimate is available.
+						! Keep it missing so the SIF block does not treat a cold/missing
+						! annual state as a valid zero and suppress first-year CH4 production.
+						annavg_finrw = spval
+					endif
 				tempavg_finrw = 0._r8
 				annavg_agnpp = tempavg_agnpp
 				tempavg_agnpp = 0._r8
@@ -1505,11 +1588,13 @@ contains
 		real(r8) :: rr_vr(1:nl_soil) ! vertically resolved column-mean root respiration (g C/m2/s)
 
 		real(r8) :: sif              ! (unitless) ratio applied to sat. prod. to account for seasonal inundation
-		real(r8) :: q10lake_eff      ! lake Q10 for sediment carbon decomposition
-		real(r8) :: lake_ch4_fraction
-		real(r8) :: carbon_decomp_depth
-		real(r8) :: freeze_factor
-		logical  :: use_microbe_override
+			real(r8) :: q10lake_eff      ! lake Q10 for sediment carbon decomposition
+			real(r8) :: lake_ch4_fraction
+			real(r8) :: carbon_decomp_depth
+			real(r8) :: legacy_methane_prod_depth
+			real(r8) :: microbe_prod_cap
+			real(r8) :: freeze_factor
+			logical  :: use_microbe_override
 		real(r8) :: walter_renorm        ! Walter 2001 depth attenuation renormalization factor
 		real(r8) :: walter_w_raw, walter_w_atten   ! pre-pass HR weights for renorm
 		!-----------------------------------------------------------------------
@@ -1717,11 +1802,30 @@ contains
 			end if
 
 			carbon_decomp_depth = max(0._r8, base_decomp * partition_z / dz_soisno(j))
+			legacy_methane_prod_depth = 0._r8
+			if (j > jwt) then
+				legacy_methane_prod_depth = &
+					max(0._r8, f_methane_adj * base_decomp * partition_z / dz_soisno(j))
+			elseif (DEF_METHANE%anoxicmicrosites) then
+				legacy_methane_prod_depth = max(0._r8, &
+					f_methane_adj * base_decomp * partition_z / dz_soisno(j) / &
+					(1._r8 + DEF_METHANE%oxinhib * conc_o2(j)))
+			endif
+			microbe_prod_cap = 0.5_r8 * carbon_decomp_depth
+			if (legacy_methane_prod_depth > 0._r8) then
+				microbe_prod_cap = min(microbe_prod_cap, &
+					DEF_METHANE%max_microbe_prod_multiplier * legacy_methane_prod_depth)
+			elseif (use_microbe_override) then
+				! If the legacy pathway forbids production (e.g. frozen layers or
+				! above-WT layers without anoxic microsites), keep the microbial
+				! override at zero even if a stale/future potential is nonzero.
+				microbe_prod_cap = 0._r8
+			endif
 			if (use_microbe_override .and. &
 			    abs(microbial_prod_potential_layer(j)) < 0.5_r8 * abs(spval)) then
 				if (j > jwt .or. DEF_METHANE%anoxicmicrosites) then
 					methane_prod_depth(j) = min(max(0._r8, microbial_prod_potential_layer(j)), &
-						0.5_r8 * carbon_decomp_depth)
+						microbe_prod_cap)
 				else
 					methane_prod_depth(j) = 0._r8
 				endif
@@ -1748,7 +1852,7 @@ contains
 	end subroutine methane_prod
 
 	!---------------------------------------------------------------------------
-	subroutine methane_oxid (idate, patchtype, jwt,  sat, t_soisno, smp, vol_aqu, &
+	subroutine methane_oxid (idate, patchtype, jwt,  sat, t_soisno, dz_soisno, zi_soisno, smp, vol_aqu, &
 		conc_o2_aqu_porsl, conc_ch4_aqu_porsl, &
 		microbial_oxid_potential_layer, &
 		methane_oxid_depth, o2_oxid_depth)
@@ -1770,6 +1874,8 @@ contains
 
 		real(r8), intent(in) :: &
 			t_soisno (maxsnl+1:nl_soil)    , &! soil temperature (Kelvin)
+			dz_soisno(maxsnl+1:nl_soil)    , &! soil layer thickness (m)
+			zi_soisno(maxsnl:nl_soil)      , &! interface level below a "z" level (m)
 			smp      (1:nl_soil)   , &! soil matrix potential [mm]
 			vol_aqu  (1:nl_soil)   , &! liquid volumetric water content
 
@@ -1787,7 +1893,13 @@ contains
 		real(r8):: oxid_a                         ! Oxidation predicted by method A (temperature & enzyme limited) (mol CH4/m3/s)
 		real(r8):: smp_fact                       ! factor for reduction based on soil moisture (unitless)
 		real(r8):: k_m_eff                        ! effective DEF_METHANE%k_m
+		real(r8):: k_m_o2_eff                     ! effective DEF_METHANE%k_m_o2
 		real(r8):: vmax_eff                       ! effective vmax
+		real(r8):: oxid_scale                     ! optional landunit-specific oxidation multiplier
+		real(r8):: lake_oxid_layer_factor         ! fraction of layer inside lake oxic sediment cap
+		real(r8):: lake_oxid_layer_top            ! layer top depth for lake oxic cap (m)
+		real(r8):: lake_oxid_layer_bot            ! layer bottom depth for lake oxic cap (m)
+		real(r8):: lake_oxid_layer_overlap        ! layer thickness inside lake oxic cap (m)
 		logical :: use_microbe_override
 		!-----------------------------------------------------------------------
 		t0 = tfrz + 12._r8 ! Walter, for Michigan site where the 45 M/h comes from
@@ -1805,6 +1917,27 @@ contains
 				k_m_eff = DEF_METHANE%k_m_unsat
 				vmax_eff = DEF_METHANE%vmax_oxid_unsat
 			end if
+			k_m_o2_eff = DEF_METHANE%k_m_o2
+			oxid_scale = 1._r8
+			lake_oxid_layer_factor = 1._r8
+			if (patchtype == 4 .and. DEF_METHANE%allowlakeprod) then
+				if (DEF_METHANE%lake_vmax_methane_oxid >= 0._r8) &
+					vmax_eff = DEF_METHANE%lake_vmax_methane_oxid
+				if (DEF_METHANE%lake_k_m_o2 > 0._r8) k_m_o2_eff = DEF_METHANE%lake_k_m_o2
+				oxid_scale = DEF_METHANE%lake_oxid_scale
+				if (DEF_METHANE%lake_oxic_sediment_depth > 0._r8) then
+					if (j == 1) then
+						lake_oxid_layer_top = 0._r8
+					else
+						lake_oxid_layer_top = zi_soisno(j-1)
+					endif
+					lake_oxid_layer_bot = zi_soisno(j)
+					lake_oxid_layer_overlap = max(0._r8, &
+						min(DEF_METHANE%lake_oxic_sediment_depth, lake_oxid_layer_bot) - lake_oxid_layer_top)
+					lake_oxid_layer_factor = min(1._r8, &
+						lake_oxid_layer_overlap / max(dz_soisno(j), 1.e-12_r8))
+				endif
+			endif
 
 			! Continuous soil-water-potential limitation follows CLM5.
 			! Smoothly reduce oxidation under dry matrix-potential stress.
@@ -1815,10 +1948,11 @@ contains
 				smp_fact = 1._r8
 			end if
 
-			oxid_a              = vmax_eff     * vol_aqu(j)* conc_ch4_aqu_porsl(j) / (k_m_eff + conc_ch4_aqu_porsl(j)) &
+			oxid_a              = oxid_scale * vmax_eff * vol_aqu(j)* conc_ch4_aqu_porsl(j) / (k_m_eff + conc_ch4_aqu_porsl(j)) &
 			! [mol/m3/s]        = [mol/m3/s]   * [-]     [mol/m3-w]    [mol/m3-w]  [mol/m3-w]
-				* conc_o2_aqu_porsl(j) / (DEF_METHANE%k_m_o2 + conc_o2_aqu_porsl(j)) &
-				* DEF_METHANE%q10_methane_oxid ** ((t_soisno(j) - t0) / 10._r8) * smp_fact
+				* conc_o2_aqu_porsl(j) / (k_m_o2_eff + conc_o2_aqu_porsl(j)) &
+				* DEF_METHANE%q10_methane_oxid ** ((t_soisno(j) - t0) / 10._r8) * smp_fact &
+				* lake_oxid_layer_factor
 
 			! For all landunits / levels, prevent oxidation if at or below freezing
 			if (t_soisno(j) <= tfrz) oxid_a = 0._r8
@@ -1838,7 +1972,7 @@ contains
 		z_soisno, dz_soisno, zi_soisno, t_soisno,&
 		rootfr, rootr, etr, grnd_methane_cond, c_atm, annsum_npp,&
 		annavg_agnpp, annavg_bgnpp, conc_methane, methane_prod_depth, methane_oxid_depth, methane_ebul_depth, &
-		conc_ch4_aqu_porsl,conc_ch4_gas_porsl,conc_o2_aqu_porsl,conc_o2_gas_porsl,&
+		conc_ch4_aqu, conc_ch4_aqu_porsl,conc_ch4_gas_porsl,conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 		methane_aere_depth, methane_tran_depth, o2_aere_depth)
 		!-----------------------------------------------------------------------
 		! DESCRIPTION:
@@ -1885,6 +2019,7 @@ contains
 			methane_oxid_depth (1:nl_soil)  , &! oxidation of CH4 already claimed in each soil layer (mol/m3/s)
 			methane_ebul_depth (1:nl_soil)  , &! ebullition CH4 already claimed in each soil layer (mol/m3/s)
 
+			conc_ch4_aqu       (1:nl_soil) , &! aqueous phase CH4 concentration [mol/m3 water]
 			conc_ch4_aqu_porsl (1:nl_soil) , &! aqueous phase CH4 conc in each porosity [mol/m3]
 			conc_ch4_gas_porsl (1:nl_soil) , &! gas phase CH4 conc in each porosity [mol/m3]
 			conc_o2_aqu_porsl  (1:nl_soil) , &! aqueous phase O2 conc in each porosity [mol/m3]
@@ -1944,7 +2079,7 @@ contains
 
 		call SiteOxAere(ipatch, idate, jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  &
 			rootfr, rootr, grnd_methane_cond, etr, &
-			annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
+			annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 			tranloss, aere, oxaere)
 
 		do j = 1,nl_soil
@@ -1974,7 +2109,7 @@ contains
 	!---------------------------------------------------------------------------
 	subroutine SiteOxAere(ipatch, idate,jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  &
 		rootfr, rootr, grnd_methane_cond, etr, &
-		annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
+		annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 		tranloss, aere, oxaere)
 		!-----------------------------------------------------------------------
 		! DESCRIPTION:
@@ -2009,6 +2144,7 @@ contains
 
 			c_atm(3)               , &! CH4, O2, CO2 atmospheric conc  (mol/m3)
 
+			conc_ch4_aqu       (1:nl_soil) , &! aqueous phase CH4 concentration [mol/m3 water]
 			conc_ch4_aqu_porsl (1:nl_soil) , &! aqueous phase CH4 conc in each porosity [mol/m3]
 			conc_ch4_gas_porsl (1:nl_soil) , &! gas phase CH4 conc in each porosity [mol/m3]
 			conc_o2_aqu_porsl  (1:nl_soil) , &! aqueous phase O2 conc in each porosity [mol/m3]
@@ -2077,8 +2213,8 @@ contains
 		do j=1,nl_soil
 			! Calculate transpiration loss
 			if (DEF_METHANE%transpirationloss .and. lai > 0) then
-				tranloss(j) = conc_ch4_aqu_porsl(j) * rootr(j)*etr / dz_soisno(j) / 1000._r8
-				! [mol/m3/s]= [mol/m3]           * [-]     *[mm/s]/ [m]        /   [mm/m]
+				tranloss(j) = conc_ch4_aqu(j) * rootr(j)*etr / dz_soisno(j) / 1000._r8
+				! [mol/m3/s]= [mol/m3 water] * [-]     *[mm/s]/ [m]        /   [mm/m]
 				! Use rootr here for effective per-layer transpiration, which may not be the same as rootfr
 				tranloss(j) = max(tranloss(j), 0._r8) ! in case transpiration is pathological
 			else
@@ -2211,8 +2347,11 @@ contains
 				vgc = conc_ch4_gas_porsl(j) * rgasm * t_soisno(j) / pressure
 				! [-]= [mol/m3]           * [Pa*m3/K/mol]*[K]   / [Pa]
 
-					! The lower post-event target supplies hysteresis.
-					if (vgc > DEF_METHANE%vgc_max * DEF_METHANE%bubble_f) then ! CTSM trigger threshold
+					! Trigger bubbles at vgc_max, then relax the layer toward the
+					! lower post-event target vgc_max*bubble_f.  This implements
+					! the intended two-threshold release; the old single threshold
+					! vgc_max*bubble_f fired too early and had no hysteresis window.
+					if (vgc > DEF_METHANE%vgc_max) then
 						methane_ebul_depth(j) = (vgc - DEF_METHANE%vgc_max * DEF_METHANE%bubble_f) / &
 							max(vgc, smallnumber) * conc_methane(j) / ebul_timescale
 						! [mol/m3/s]      = [-]                                       * [mol/m3]    / [s]
@@ -2236,7 +2375,7 @@ contains
 		o2stress, methane_stress, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_ebul_tot, &
 		methane_oxid_depth, methane_aere_depth, methane_tran_depth, methane_ebul_depth, &
 			grnd_methane_cond, o2_oxid_depth, o2_decomp_depth, &
-			conc_o2, conc_methane, methane_balance_residual, methane_surf_diff_phys, &
+			conc_o2, conc_methane, methane_balance_residual, methane_ch4_clip_credit, methane_surf_diff_phys, &
 		o2_cap_loss, o2_cap_gain )
 		!-----------------------------------------------------------------------
 		! DESCRIPTION:
@@ -2315,6 +2454,7 @@ contains
 				methane_surf_diff                   , &! CH4 surface flux plus numerical closure (mol/m2/s)
 				methane_ebul_tot                    , &! Total column CH4 ebullition (mol/m2/s)
 				methane_balance_residual            , &! numerical closure flux credited to methane_surf_diff (mol/m2/s)
+				methane_ch4_clip_credit             , &! negative CH4 clip credited to methane_surf_diff (mol/m2/s)
 				methane_surf_diff_phys              , &! pure diffusive flux before clip/residual (mol/m2/s)
 				o2_cap_loss                        , &! O2 removed by post-solve physical cap (mol/m2/s)
 				o2_cap_gain                          ! O2 added by post-solve nonnegative floor (mol/m2/s)
@@ -2382,6 +2522,7 @@ contains
 				real(r8) :: aere_oxid_flux
 				!-----------------------------------------------------------------------
 				methane_balance_residual = 0._r8
+				methane_ch4_clip_credit = 0._r8
 				o2_cap_loss = 0._r8
 				o2_cap_gain = 0._r8
 
@@ -2532,10 +2673,9 @@ contains
 			methane_surf_aere = methane_surf_aere + methane_aere_depth(j) * dz_soisno(j)
 		enddo
 
-		! Add in ebullition to source at depth just above WT
-		if (jwt /= 0) then
-			source(jwt,1) = source(jwt,1) + methane_ebul_tot/dz_soisno(jwt)
-		endif
+		! Ebullition is a direct atmospheric pathway. It has already been
+		! removed from each source layer via methane_ebul_depth above; do
+		! not re-inject it into the layer above the water table.
 
 		! Calculate concentration relative to m^3 of air or water: needed for the diffusion
 		do j = 0,nl_soil
@@ -2653,13 +2793,13 @@ contains
 						! piston velocity k_w [m s-1] for the air-water interface,
 						! while spec_grnd_cond carries an air-side conductance.  The
 						! water-side flux F = k_w*(C_w - k_h*C_atm) must match the
-						! air-side closure F = k_air_eq*(C_atm - C_w/k_h), which
-						! requires k_air_eq = k_h*k_w.  Add k_h/k_w (i.e. 1/(k_h*k_w))
-						! to pond_resis so that after the top-layer BC multiplies the
-						! resulting (1/spec_grnd_cond) by k_h (see the j==1, jwt==0
-						! branch below), the effective interface resistance reduces
-						! to 1/k_w in water-side units.  Without the k_h factor the
-						! flux is over-estimated by 1/k_h ~ O(30) for CH4.
+						! air-side closure F = k_air_eq*(C_w/k_h - C_atm), which
+						! requires k_air_eq = k_h*k_w.  Therefore add the air-side
+						! resistance 1/(k_h*k_w) to pond_resis.  The j==1, jwt==0
+						! branch below uses k_h/spec_grnd_cond, giving the intended
+						! water-side resistance 1/k_w.  The old k_h/k_w expression
+						! made the effective water-side conductance too large by
+						! approximately 1/k_h**2.
 						if (patchtype == 4 .and. DEF_METHANE%allowlakeprod .and. &
 						    lakedepth <= 0._r8) then
 							! Lake patch enabled for production but landdata lakedepth
@@ -2700,8 +2840,8 @@ contains
 								! coefficient at the surface; converts the water-side
 								! piston velocity to its air-side equivalent so it
 								! adds correctly to grnd_methane_cond.
-								pond_resis = pond_resis + k_h_cc(0,s) / &
-									max(lake_exchange_vel, smallnumber)
+								pond_resis = pond_resis + 1._r8 / (k_h_cc(0,s) * &
+									max(lake_exchange_vel, smallnumber))
 							else
 								! Ice-covered/frozen lake surface: molecular exchange through the water column is effectively blocked.
 								pond_resis = pond_resis + 1._r8/smallnumber
@@ -2729,13 +2869,17 @@ contains
 								(om_frac * vol_gas(j)**(10._r8/3._r8) / porsl(j)**2._r8 + &
 								(1._r8-om_frac) * vol_gas(j)**2._r8 * (vol_gas(j)/porsl(j))**(3._r8 / max(bsw(j), 0.5_r8)) ) &
 								* DEF_METHANE%scale_factor_gasdiff
-				else ! Below the WT use liquid-water diffusivity; ice-filled pore space is excluded via vol_aqu.
-					diffus (j) = max(vol_aqu(j), smallnumber)**DEF_METHANE%satpow * &
-						(d_con_w(s,1) + d_con_w(s,2)*t_soisno_c + d_con_w(s,3)*t_soisno_c**2) * 1.e-9_r8 &
-						* DEF_METHANE%scale_factor_liqdiff
-				end if ! Above/below the WT
-				diffus(j) = max(diffus(j), smallnumber) ! Prevent overflow
-			enddo ! j
+					else ! Below the WT use liquid-water diffusivity; ice-filled pore space is excluded via vol_aqu.
+						diffus (j) = max(vol_aqu(j), smallnumber)**DEF_METHANE%satpow * &
+							(d_con_w(s,1) + d_con_w(s,2)*t_soisno_c + d_con_w(s,3)*t_soisno_c**2) * 1.e-9_r8 &
+							* DEF_METHANE%scale_factor_liqdiff
+					end if ! Above/below the WT
+					if (patchtype == 4 .and. DEF_METHANE%allowlakeprod .and. j > jwt) then
+						if (s == 1) diffus(j) = diffus(j) * DEF_METHANE%lake_liqdiff_scale
+						if (s == 2) diffus(j) = diffus(j) * DEF_METHANE%lake_o2_liqdiff_scale
+					end if
+					diffus(j) = max(diffus(j), smallnumber) ! Prevent overflow
+				enddo ! j
 
 			! Zero conductance arrays so end-rows that intentionally skip one
 			! direction stay at a defined value under -finit-real=nan builds.
@@ -2866,15 +3010,12 @@ contains
 				if (jwt /= 0) then ! WT not at the surface
 					methane_surf_diff = dm1_zm1(1) * ( (conc_ch4_rel(1)+conc_ch4_rel_old(1))/2._r8 &
 						- c_atm(s)) ! [mol/m2/s]
-					methane_surf_ebul = 0._r8 ! all the ebullition has already come out in the soil column (added to source)
-					! Try adding directly to atm. to prevent destabilization of diffusion
-					!methane_surf_ebul = methane_ebul_tot ! [mol/m2/s]
 				else ! WT at the surface; i.e., jwt==0
 					methane_surf_diff = dm1_zm1(1) * ( (conc_ch4_rel(1)+conc_ch4_rel_old(1))/2._r8 &
 						- c_atm(s)*k_h_cc(0,s)) ! [mol/m2/s]
 					! atmospheric concentration gets mult. by k_h_cc as above
-					methane_surf_ebul = methane_ebul_tot ! [mol/m2/s]
 				endif
+				methane_surf_ebul = methane_ebul_tot ! [mol/m2/s]
 
 				! Snapshot the raw diffusive flux BEFORE the negative-concentration
 				! clip-credit and the column-closure residual fold-in below, so
@@ -2902,6 +3043,7 @@ contains
 							endif
 							! Always clip and credit; column mass is conserved by the surface flux update.
 							methane_surf_diff = methane_surf_diff - deficit / deltim
+							methane_ch4_clip_credit = methane_ch4_clip_credit - deficit / deltim
 							conc_ch4_rel(j) = 0._r8
 					end if
 				enddo

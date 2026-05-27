@@ -13,7 +13,161 @@ MODULE MOD_Tracer_Methane_AccFlux
 
    IMPLICIT NONE
    SAVE
-   PUBLIC
+   PRIVATE
+
+   ! Explicit exports: keep module data private by default and expose
+   ! only the current cross-module methane interface/state fields.
+   PUBLIC :: a_B_methanogen
+   PUBLIC :: a_B_methanogen_dormant
+   PUBLIC :: a_B_methanotroph
+   PUBLIC :: a_B_methanotroph_dormant
+   PUBLIC :: a_annavg_agnpp
+   PUBLIC :: a_annavg_bgnpp
+   PUBLIC :: a_annavg_finrw
+   PUBLIC :: a_annavg_somhr
+   PUBLIC :: a_co2_aere_depth
+   PUBLIC :: a_co2_aere_depth_sat
+   PUBLIC :: a_co2_aere_depth_unsat
+   PUBLIC :: a_co2_aere_tot
+   PUBLIC :: a_co2_decomp_depth
+   PUBLIC :: a_co2_decomp_depth_lake
+   PUBLIC :: a_co2_decomp_depth_sat
+   PUBLIC :: a_co2_decomp_depth_unsat
+   PUBLIC :: a_co2_decomp_tot
+   PUBLIC :: a_co2_decomp_tot_lake
+   PUBLIC :: a_co2_decomp_tot_sat
+   PUBLIC :: a_co2_decomp_tot_unsat
+   PUBLIC :: a_co2_net_tot
+   PUBLIC :: a_co2_net_tot_lake
+   PUBLIC :: a_co2_net_tot_sat
+   PUBLIC :: a_co2_net_tot_unsat
+   PUBLIC :: a_co2_oxid_depth
+   PUBLIC :: a_co2_oxid_depth_lake
+   PUBLIC :: a_co2_oxid_depth_sat
+   PUBLIC :: a_co2_oxid_depth_unsat
+   PUBLIC :: a_co2_oxid_tot
+   PUBLIC :: a_co2_oxid_tot_lake
+   PUBLIC :: a_co2_oxid_tot_sat
+   PUBLIC :: a_co2_oxid_tot_unsat
+   PUBLIC :: a_conc_methane
+   PUBLIC :: a_conc_methane_lake
+   PUBLIC :: a_conc_methane_sat
+   PUBLIC :: a_conc_methane_unsat
+   PUBLIC :: a_conc_o2
+   PUBLIC :: a_conc_o2_lake
+   PUBLIC :: a_conc_o2_sat
+   PUBLIC :: a_conc_o2_unsat
+   PUBLIC :: a_f_O2_methanogen
+   PUBLIC :: a_f_S_methanogen
+   PUBLIC :: a_f_T_methanogen
+   PUBLIC :: a_f_T_methanotroph
+   PUBLIC :: a_f_h2osfc
+   PUBLIC :: a_f_inund_flood_depth_patch
+   PUBLIC :: a_f_inund_flood_patch
+   PUBLIC :: a_forc_pmethanem
+   PUBLIC :: a_grnd_methane_cond
+   PUBLIC :: a_grnd_methane_cond_lake
+   PUBLIC :: a_grnd_methane_cond_sat
+   PUBLIC :: a_grnd_methane_cond_unsat
+   PUBLIC :: a_layer_sat_lag
+   PUBLIC :: a_methane_acc_num
+   PUBLIC :: a_methane_acc_num_extra
+   PUBLIC :: a_methane_acc_num_lake
+   PUBLIC :: a_methane_acc_num_microbe
+   PUBLIC :: a_methane_acc_num_sat
+   PUBLIC :: a_methane_acc_num_unsat
+   PUBLIC :: a_methane_aere_depth
+   PUBLIC :: a_methane_aere_depth_sat
+   PUBLIC :: a_methane_aere_depth_unsat
+   PUBLIC :: a_methane_balance_residual
+   PUBLIC :: a_methane_ch4_clip_credit
+   PUBLIC :: a_methane_dfsat_tot
+   PUBLIC :: a_methane_ebul_depth
+   PUBLIC :: a_methane_ebul_depth_lake
+   PUBLIC :: a_methane_ebul_depth_sat
+   PUBLIC :: a_methane_ebul_depth_unsat
+   PUBLIC :: a_methane_ebul_tot
+   PUBLIC :: a_methane_ebul_tot_lake
+   PUBLIC :: a_methane_ebul_tot_sat
+   PUBLIC :: a_methane_ebul_tot_unsat
+   PUBLIC :: a_methane_finundated
+   PUBLIC :: a_methane_oxid_depth
+   PUBLIC :: a_methane_oxid_depth_lake
+   PUBLIC :: a_methane_oxid_depth_sat
+   PUBLIC :: a_methane_oxid_depth_unsat
+   PUBLIC :: a_methane_oxid_tot
+   PUBLIC :: a_methane_oxid_tot_lake
+   PUBLIC :: a_methane_oxid_tot_sat
+   PUBLIC :: a_methane_oxid_tot_unsat
+   PUBLIC :: a_methane_prod_depth
+   PUBLIC :: a_methane_prod_depth_lake
+   PUBLIC :: a_methane_prod_depth_sat
+   PUBLIC :: a_methane_prod_depth_unsat
+   PUBLIC :: a_methane_prod_tot
+   PUBLIC :: a_methane_prod_tot_lake
+   PUBLIC :: a_methane_prod_tot_sat
+   PUBLIC :: a_methane_prod_tot_unsat
+   PUBLIC :: a_methane_soil_finundated
+   PUBLIC :: a_methane_soil_zwt
+   PUBLIC :: a_methane_stress
+   PUBLIC :: a_methane_stress_sat
+   PUBLIC :: a_methane_stress_unsat
+   PUBLIC :: a_methane_surf_aere
+   PUBLIC :: a_methane_surf_aere_sat
+   PUBLIC :: a_methane_surf_aere_unsat
+   PUBLIC :: a_methane_surf_diff
+   PUBLIC :: a_methane_surf_diff_lake
+   PUBLIC :: a_methane_surf_diff_phys
+   PUBLIC :: a_methane_surf_diff_sat
+   PUBLIC :: a_methane_surf_diff_unsat
+   PUBLIC :: a_methane_surf_ebul
+   PUBLIC :: a_methane_surf_ebul_lake
+   PUBLIC :: a_methane_surf_ebul_sat
+   PUBLIC :: a_methane_surf_ebul_unsat
+   PUBLIC :: a_methane_surf_flux_lake
+   PUBLIC :: a_methane_surf_flux_rice
+   PUBLIC :: a_methane_surf_flux_soil
+   PUBLIC :: a_methane_surf_flux_tot
+   PUBLIC :: a_methane_surf_flux_tot_lake
+   PUBLIC :: a_methane_surf_flux_tot_phys
+   PUBLIC :: a_methane_surf_flux_tot_sat
+   PUBLIC :: a_methane_surf_flux_tot_unsat
+   PUBLIC :: a_methane_surf_flux_wetland
+   PUBLIC :: a_methane_tran_depth
+   PUBLIC :: a_methane_tran_depth_sat
+   PUBLIC :: a_methane_tran_depth_unsat
+   PUBLIC :: a_methanogen_growth_rate
+   PUBLIC :: a_methanotroph_growth_rate
+   PUBLIC :: a_microbial_oxid_potential
+   PUBLIC :: a_microbial_prod_potential
+   PUBLIC :: a_net_methane
+   PUBLIC :: a_net_methane_sat
+   PUBLIC :: a_net_methane_unsat
+   PUBLIC :: a_o2_aere_depth
+   PUBLIC :: a_o2_aere_depth_sat
+   PUBLIC :: a_o2_aere_depth_unsat
+   PUBLIC :: a_o2_cap_gain
+   PUBLIC :: a_o2_cap_loss
+   PUBLIC :: a_o2_decomp_depth
+   PUBLIC :: a_o2_decomp_depth_sat
+   PUBLIC :: a_o2_decomp_depth_unsat
+   PUBLIC :: a_o2_oxid_depth
+   PUBLIC :: a_o2_oxid_depth_sat
+   PUBLIC :: a_o2_oxid_depth_unsat
+   PUBLIC :: a_o2stress
+   PUBLIC :: a_o2stress_sat
+   PUBLIC :: a_o2stress_unsat
+   PUBLIC :: a_totcol_methane
+   PUBLIC :: a_totcol_methane_lake
+   PUBLIC :: a_totcol_methane_sat
+   PUBLIC :: a_totcol_methane_unsat
+   PUBLIC :: a_wetland_frac_per_patch
+   PUBLIC :: accumulate_methane_fluxes
+   PUBLIC :: allocate_methane_acc_fluxes
+   PUBLIC :: deallocate_methane_acc_fluxes
+   PUBLIC :: flush_methane_acc_fluxes
+   PUBLIC :: read_methane_accflux_restart
+   PUBLIC :: write_methane_accflux_restart
 
    !!!! ----------------------------------------------------------------
    !!!!                         sum data
@@ -33,11 +187,13 @@ MODULE MOD_Tracer_Methane_AccFlux
    real(r8), allocatable :: a_o2stress              (:,:)
    real(r8), allocatable :: a_methane_stress        (:,:)
    real(r8), allocatable :: a_methane_surf_flux_tot (:)
+   real(r8), allocatable :: a_methane_surf_flux_tot_phys (:)
    real(r8), allocatable :: a_methane_surf_aere     (:)
    real(r8), allocatable :: a_methane_surf_ebul     (:)
    real(r8), allocatable :: a_methane_surf_diff     (:)
    real(r8), allocatable :: a_methane_surf_diff_phys(:)
    real(r8), allocatable :: a_methane_balance_residual (:)
+   real(r8), allocatable :: a_methane_ch4_clip_credit (:)
    real(r8), allocatable :: a_o2_cap_loss              (:)
    real(r8), allocatable :: a_o2_cap_gain              (:)
    real(r8), allocatable :: a_methane_ebul_tot      (:)
@@ -183,10 +339,6 @@ MODULE MOD_Tracer_Methane_AccFlux
    real(r8), allocatable :: a_methane_acc_num_extra (:)
    real(r8), allocatable :: a_methane_acc_num_microbe (:)
 
-   PUBLIC :: allocate_methane_acc_fluxes
-   PUBLIC :: flush_methane_acc_fluxes
-   PUBLIC :: accumulate_methane_fluxes
-   PUBLIC :: deallocate_methane_acc_fluxes
 
 CONTAINS
 
@@ -210,11 +362,13 @@ CONTAINS
       allocate (a_o2stress              (nl_soil,numpatch))
       allocate (a_methane_stress        (nl_soil,numpatch))
       allocate (a_methane_surf_flux_tot (numpatch))
+      allocate (a_methane_surf_flux_tot_phys (numpatch))
       allocate (a_methane_surf_aere     (numpatch))
       allocate (a_methane_surf_ebul     (numpatch))
       allocate (a_methane_surf_diff     (numpatch))
       allocate (a_methane_surf_diff_phys(numpatch))
       allocate (a_methane_balance_residual (numpatch))
+      allocate (a_methane_ch4_clip_credit (numpatch))
       allocate (a_o2_cap_loss              (numpatch))
       allocate (a_o2_cap_gain              (numpatch))
       allocate (a_methane_ebul_tot      (numpatch))
@@ -372,11 +526,13 @@ CONTAINS
       a_o2stress              (:,:) = 0._r8
       a_methane_stress        (:,:) = 0._r8
       a_methane_surf_flux_tot (:)   = 0._r8
+      a_methane_surf_flux_tot_phys (:) = 0._r8
       a_methane_surf_aere     (:)   = 0._r8
       a_methane_surf_ebul     (:)   = 0._r8
       a_methane_surf_diff     (:)   = 0._r8
       a_methane_surf_diff_phys(:)   = 0._r8
       a_methane_balance_residual (:) = 0._r8
+      a_methane_ch4_clip_credit (:) = 0._r8
       a_o2_cap_loss              (:) = 0._r8
       a_o2_cap_gain              (:) = 0._r8
       a_methane_ebul_tot      (:)   = 0._r8
@@ -520,8 +676,8 @@ CONTAINS
 	           methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
            methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, &
            methane_ebul_depth, o2stress, methane_stress, &
-           methane_surf_flux_tot, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
-           methane_balance_residual, o2_cap_loss, o2_cap_gain, &
+           methane_surf_flux_tot, methane_surf_flux_tot_phys, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
+           methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
            methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
 	           co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
            totcol_methane, grnd_methane_cond, &
@@ -579,8 +735,6 @@ CONTAINS
            microbial_prod_potential, microbial_oxid_potential
       USE MOD_SPMD_Task, only: p_is_worker
       USE MOD_Vars_TimeInvariants, only: patchtype
-      USE MOD_Namelist,            only: DEF_METHANE_only_wetland, &
-                                           DEF_METHANE_enable_rice_paddy
       USE MOD_Tracer_Methane_BgcLink, only: methane_patch_active_mask
       ! Use private acc1d/acc2d helpers (below). Cannot USE MOD_Vars_1DAccFluxes
       ! here because MOD_Vars_1DAccFluxes itself calls back into this module
@@ -605,15 +759,15 @@ CONTAINS
 	      ! AccFlux / history filters match the driver gate (CoLMDRIVER.F90
 	      ! ~line 380) exactly, including the rice paddy override on patchtype==0
 	      ! rice tiles.
-	      ! Base wetland/soil mask: (patchtype == 2) .or. ((.not. DEF_METHANE_only_wetland) .and. patchtype == 0)
+	      ! Base wetland/soil mask: (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
 	      ! save attribute amortises allocation across CN timesteps.
 	      IF (allocated(methane_active_mask)) THEN
 	         IF (size(methane_active_mask) /= size(patchtype)) deallocate(methane_active_mask)
 	      ENDIF
 	      IF (.not. allocated(methane_active_mask)) allocate(methane_active_mask(size(patchtype)))
-	      methane_active_mask = (patchtype == 2) .or. ((.not. DEF_METHANE_only_wetland) .and. patchtype == 0)
-	      CALL methane_patch_active_mask (size(patchtype), DEF_METHANE_only_wetland, &
-	                                       DEF_METHANE_enable_rice_paddy, patchtype, &
+	      methane_active_mask = (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
+	      CALL methane_patch_active_mask (size(patchtype), DEF_METHANE%only_wetland, &
+	                                       DEF_METHANE%enable_rice_paddy, patchtype, &
 	                                       methane_active_mask)
 
       ! sum data
@@ -632,11 +786,13 @@ CONTAINS
       CALL acc2d (o2stress              , a_o2stress              )
       CALL acc2d (methane_stress        , a_methane_stress        )
       CALL acc1d (methane_surf_flux_tot , a_methane_surf_flux_tot )
+      CALL acc1d (methane_surf_flux_tot_phys, a_methane_surf_flux_tot_phys)
       CALL acc1d (methane_surf_aere     , a_methane_surf_aere     )
       CALL acc1d (methane_surf_ebul     , a_methane_surf_ebul     )
       CALL acc1d (methane_surf_diff     , a_methane_surf_diff     )
       CALL acc1d (methane_surf_diff_phys, a_methane_surf_diff_phys)
       CALL acc1d (methane_balance_residual, a_methane_balance_residual)
+      CALL acc1d (methane_ch4_clip_credit, a_methane_ch4_clip_credit)
       CALL acc1d (o2_cap_loss, a_o2_cap_loss)
       CALL acc1d (o2_cap_gain, a_o2_cap_gain)
       CALL acc1d (methane_ebul_tot      , a_methane_ebul_tot      )
@@ -790,6 +946,608 @@ CONTAINS
    END SUBROUTINE accumulate_methane_fluxes
 
    !-------------------------------------------------------------------
+   SUBROUTINE write_methane_accflux_restart (file_restart, compress)
+      USE MOD_LandPatch,    only: landpatch
+      USE MOD_NetCDFVector, only: ncio_write_vector
+      character(len=*), intent(in) :: file_restart
+      integer,          intent(in) :: compress
+
+      IF (.not. allocated(a_methane_acc_num)) RETURN
+
+      IF (allocated(a_net_methane)) CALL ncio_write_vector (file_restart, 'ch4_a_net_methane', &
+         'patch', landpatch, a_net_methane, compress)
+      IF (allocated(a_methane_prod_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_prod_depth, compress)
+      IF (allocated(a_o2_decomp_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_decomp_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_decomp_depth, compress)
+      IF (allocated(a_co2_decomp_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_decomp_depth, compress)
+      IF (allocated(a_methane_oxid_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_oxid_depth, compress)
+      IF (allocated(a_o2_oxid_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_oxid_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_oxid_depth, compress)
+      IF (allocated(a_co2_oxid_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_oxid_depth, compress)
+      IF (allocated(a_methane_aere_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_aere_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_aere_depth, compress)
+      IF (allocated(a_methane_tran_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_tran_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_tran_depth, compress)
+      IF (allocated(a_o2_aere_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_aere_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_aere_depth, compress)
+      IF (allocated(a_co2_aere_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_aere_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_aere_depth, compress)
+      IF (allocated(a_methane_ebul_depth)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_depth', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_ebul_depth, compress)
+      IF (allocated(a_o2stress)) CALL ncio_write_vector (file_restart, 'ch4_a_o2stress', &
+         'soil', nl_soil, 'patch', landpatch, a_o2stress, compress)
+      IF (allocated(a_methane_stress)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_stress', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_stress, compress)
+      IF (allocated(a_methane_surf_flux_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_tot', &
+         'patch', landpatch, a_methane_surf_flux_tot, compress)
+      IF (allocated(a_methane_surf_flux_tot_phys)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_tot_phys', &
+         'patch', landpatch, a_methane_surf_flux_tot_phys, compress)
+      IF (allocated(a_methane_surf_aere)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_aere', &
+         'patch', landpatch, a_methane_surf_aere, compress)
+      IF (allocated(a_methane_surf_ebul)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_ebul', &
+         'patch', landpatch, a_methane_surf_ebul, compress)
+      IF (allocated(a_methane_surf_diff)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff', &
+         'patch', landpatch, a_methane_surf_diff, compress)
+      IF (allocated(a_methane_surf_diff_phys)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_phys', &
+         'patch', landpatch, a_methane_surf_diff_phys, compress)
+      IF (allocated(a_methane_balance_residual)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_balance_residual', &
+         'patch', landpatch, a_methane_balance_residual, compress)
+      IF (allocated(a_methane_ch4_clip_credit)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ch4_clip_credit', &
+         'patch', landpatch, a_methane_ch4_clip_credit, compress)
+      IF (allocated(a_o2_cap_loss)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_cap_loss', &
+         'patch', landpatch, a_o2_cap_loss, compress)
+      IF (allocated(a_o2_cap_gain)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_cap_gain', &
+         'patch', landpatch, a_o2_cap_gain, compress)
+      IF (allocated(a_methane_ebul_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_tot', &
+         'patch', landpatch, a_methane_ebul_tot, compress)
+      IF (allocated(a_methane_prod_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_tot', &
+         'patch', landpatch, a_methane_prod_tot, compress)
+      IF (allocated(a_methane_oxid_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot', &
+         'patch', landpatch, a_methane_oxid_tot, compress)
+      IF (allocated(a_co2_decomp_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_tot', &
+         'patch', landpatch, a_co2_decomp_tot, compress)
+      IF (allocated(a_co2_oxid_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_tot', &
+         'patch', landpatch, a_co2_oxid_tot, compress)
+      IF (allocated(a_co2_aere_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_aere_tot', &
+         'patch', landpatch, a_co2_aere_tot, compress)
+      IF (allocated(a_co2_net_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_net_tot', &
+         'patch', landpatch, a_co2_net_tot, compress)
+      IF (allocated(a_totcol_methane)) CALL ncio_write_vector (file_restart, 'ch4_a_totcol_methane', &
+         'patch', landpatch, a_totcol_methane, compress)
+      IF (allocated(a_grnd_methane_cond)) CALL ncio_write_vector (file_restart, 'ch4_a_grnd_methane_cond', &
+         'patch', landpatch, a_grnd_methane_cond, compress)
+      IF (allocated(a_conc_o2)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_o2', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_o2, compress)
+      IF (allocated(a_conc_methane)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_methane', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_methane, compress)
+      IF (allocated(a_net_methane_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_net_methane_unsat', &
+         'patch', landpatch, a_net_methane_unsat, compress)
+      IF (allocated(a_net_methane_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_net_methane_sat', &
+         'patch', landpatch, a_net_methane_sat, compress)
+      IF (allocated(a_methane_prod_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_prod_depth_unsat, compress)
+      IF (allocated(a_methane_prod_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_prod_depth_sat, compress)
+      IF (allocated(a_o2_decomp_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_decomp_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_decomp_depth_unsat, compress)
+      IF (allocated(a_o2_decomp_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_decomp_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_decomp_depth_sat, compress)
+      IF (allocated(a_co2_decomp_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_decomp_depth_unsat, compress)
+      IF (allocated(a_co2_decomp_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_decomp_depth_sat, compress)
+      IF (allocated(a_methane_oxid_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_oxid_depth_unsat, compress)
+      IF (allocated(a_methane_oxid_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_oxid_depth_sat, compress)
+      IF (allocated(a_o2_oxid_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_oxid_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_oxid_depth_unsat, compress)
+      IF (allocated(a_o2_oxid_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_oxid_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_oxid_depth_sat, compress)
+      IF (allocated(a_co2_oxid_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_oxid_depth_unsat, compress)
+      IF (allocated(a_co2_oxid_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_oxid_depth_sat, compress)
+      IF (allocated(a_methane_aere_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_aere_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_aere_depth_unsat, compress)
+      IF (allocated(a_methane_aere_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_aere_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_aere_depth_sat, compress)
+      IF (allocated(a_methane_tran_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_tran_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_tran_depth_unsat, compress)
+      IF (allocated(a_methane_tran_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_tran_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_tran_depth_sat, compress)
+      IF (allocated(a_o2_aere_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_aere_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_aere_depth_unsat, compress)
+      IF (allocated(a_o2_aere_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2_aere_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2_aere_depth_sat, compress)
+      IF (allocated(a_co2_aere_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_aere_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_aere_depth_unsat, compress)
+      IF (allocated(a_co2_aere_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_aere_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_aere_depth_sat, compress)
+      IF (allocated(a_methane_ebul_depth_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_depth_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_ebul_depth_unsat, compress)
+      IF (allocated(a_methane_ebul_depth_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_depth_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_ebul_depth_sat, compress)
+      IF (allocated(a_o2stress_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2stress_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2stress_unsat, compress)
+      IF (allocated(a_o2stress_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_o2stress_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_o2stress_sat, compress)
+      IF (allocated(a_methane_stress_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_stress_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_stress_unsat, compress)
+      IF (allocated(a_methane_stress_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_stress_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_stress_sat, compress)
+      IF (allocated(a_methane_surf_flux_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_tot_unsat', &
+         'patch', landpatch, a_methane_surf_flux_tot_unsat, compress)
+      IF (allocated(a_methane_surf_flux_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_tot_sat', &
+         'patch', landpatch, a_methane_surf_flux_tot_sat, compress)
+      IF (allocated(a_methane_surf_aere_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_aere_unsat', &
+         'patch', landpatch, a_methane_surf_aere_unsat, compress)
+      IF (allocated(a_methane_surf_aere_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_aere_sat', &
+         'patch', landpatch, a_methane_surf_aere_sat, compress)
+      IF (allocated(a_methane_surf_ebul_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_ebul_unsat', &
+         'patch', landpatch, a_methane_surf_ebul_unsat, compress)
+      IF (allocated(a_methane_surf_ebul_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_ebul_sat', &
+         'patch', landpatch, a_methane_surf_ebul_sat, compress)
+      IF (allocated(a_methane_surf_diff_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_unsat', &
+         'patch', landpatch, a_methane_surf_diff_unsat, compress)
+      IF (allocated(a_methane_surf_diff_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_sat', &
+         'patch', landpatch, a_methane_surf_diff_sat, compress)
+      IF (allocated(a_methane_ebul_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_tot_unsat', &
+         'patch', landpatch, a_methane_ebul_tot_unsat, compress)
+      IF (allocated(a_methane_ebul_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_tot_sat', &
+         'patch', landpatch, a_methane_ebul_tot_sat, compress)
+      IF (allocated(a_methane_prod_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_tot_unsat', &
+         'patch', landpatch, a_methane_prod_tot_unsat, compress)
+      IF (allocated(a_methane_prod_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_tot_sat', &
+         'patch', landpatch, a_methane_prod_tot_sat, compress)
+      IF (allocated(a_methane_oxid_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot_unsat', &
+         'patch', landpatch, a_methane_oxid_tot_unsat, compress)
+      IF (allocated(a_methane_oxid_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot_sat', &
+         'patch', landpatch, a_methane_oxid_tot_sat, compress)
+      IF (allocated(a_co2_decomp_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_tot_unsat', &
+         'patch', landpatch, a_co2_decomp_tot_unsat, compress)
+      IF (allocated(a_co2_decomp_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_tot_sat', &
+         'patch', landpatch, a_co2_decomp_tot_sat, compress)
+      IF (allocated(a_co2_oxid_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_tot_unsat', &
+         'patch', landpatch, a_co2_oxid_tot_unsat, compress)
+      IF (allocated(a_co2_oxid_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_tot_sat', &
+         'patch', landpatch, a_co2_oxid_tot_sat, compress)
+      IF (allocated(a_co2_net_tot_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_net_tot_unsat', &
+         'patch', landpatch, a_co2_net_tot_unsat, compress)
+      IF (allocated(a_co2_net_tot_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_net_tot_sat', &
+         'patch', landpatch, a_co2_net_tot_sat, compress)
+      IF (allocated(a_totcol_methane_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_totcol_methane_unsat', &
+         'patch', landpatch, a_totcol_methane_unsat, compress)
+      IF (allocated(a_totcol_methane_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_totcol_methane_sat', &
+         'patch', landpatch, a_totcol_methane_sat, compress)
+      IF (allocated(a_grnd_methane_cond_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_grnd_methane_cond_unsat', &
+         'patch', landpatch, a_grnd_methane_cond_unsat, compress)
+      IF (allocated(a_grnd_methane_cond_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_grnd_methane_cond_sat', &
+         'patch', landpatch, a_grnd_methane_cond_sat, compress)
+      IF (allocated(a_conc_o2_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_o2_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_o2_unsat, compress)
+      IF (allocated(a_conc_o2_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_o2_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_o2_sat, compress)
+      IF (allocated(a_conc_methane_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_methane_unsat', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_methane_unsat, compress)
+      IF (allocated(a_conc_methane_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_methane_sat', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_methane_sat, compress)
+      IF (allocated(a_methane_prod_depth_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_depth_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_prod_depth_lake, compress)
+      IF (allocated(a_methane_oxid_depth_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_depth_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_oxid_depth_lake, compress)
+      IF (allocated(a_methane_ebul_depth_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_depth_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_methane_ebul_depth_lake, compress)
+      IF (allocated(a_co2_decomp_depth_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_depth_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_decomp_depth_lake, compress)
+      IF (allocated(a_co2_oxid_depth_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_depth_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_co2_oxid_depth_lake, compress)
+      IF (allocated(a_methane_surf_ebul_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_ebul_lake', &
+         'patch', landpatch, a_methane_surf_ebul_lake, compress)
+      IF (allocated(a_methane_surf_diff_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_lake', &
+         'patch', landpatch, a_methane_surf_diff_lake, compress)
+      IF (allocated(a_methane_surf_flux_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_tot_lake', &
+         'patch', landpatch, a_methane_surf_flux_tot_lake, compress)
+      IF (allocated(a_methane_prod_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_tot_lake', &
+         'patch', landpatch, a_methane_prod_tot_lake, compress)
+      IF (allocated(a_methane_oxid_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot_lake', &
+         'patch', landpatch, a_methane_oxid_tot_lake, compress)
+      IF (allocated(a_methane_ebul_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_tot_lake', &
+         'patch', landpatch, a_methane_ebul_tot_lake, compress)
+      IF (allocated(a_co2_decomp_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_tot_lake', &
+         'patch', landpatch, a_co2_decomp_tot_lake, compress)
+      IF (allocated(a_co2_oxid_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_tot_lake', &
+         'patch', landpatch, a_co2_oxid_tot_lake, compress)
+      IF (allocated(a_co2_net_tot_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_net_tot_lake', &
+         'patch', landpatch, a_co2_net_tot_lake, compress)
+      IF (allocated(a_totcol_methane_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_totcol_methane_lake', &
+         'patch', landpatch, a_totcol_methane_lake, compress)
+      IF (allocated(a_grnd_methane_cond_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_grnd_methane_cond_lake', &
+         'patch', landpatch, a_grnd_methane_cond_lake, compress)
+      IF (allocated(a_conc_o2_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_o2_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_o2_lake, compress)
+      IF (allocated(a_conc_methane_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_methane_lake', &
+         'soil', nl_soil, 'patch', landpatch, a_conc_methane_lake, compress)
+      IF (allocated(a_forc_pmethanem)) CALL ncio_write_vector (file_restart, 'ch4_a_forc_pmethanem', &
+         'patch', landpatch, a_forc_pmethanem, compress)
+      IF (allocated(a_layer_sat_lag)) CALL ncio_write_vector (file_restart, 'ch4_a_layer_sat_lag', &
+         'soil', nl_soil, 'patch', landpatch, a_layer_sat_lag, compress)
+      IF (allocated(a_annavg_agnpp)) CALL ncio_write_vector (file_restart, 'ch4_a_annavg_agnpp', &
+         'patch', landpatch, a_annavg_agnpp, compress)
+      IF (allocated(a_annavg_bgnpp)) CALL ncio_write_vector (file_restart, 'ch4_a_annavg_bgnpp', &
+         'patch', landpatch, a_annavg_bgnpp, compress)
+      IF (allocated(a_annavg_somhr)) CALL ncio_write_vector (file_restart, 'ch4_a_annavg_somhr', &
+         'patch', landpatch, a_annavg_somhr, compress)
+      IF (allocated(a_annavg_finrw)) CALL ncio_write_vector (file_restart, 'ch4_a_annavg_finrw', &
+         'patch', landpatch, a_annavg_finrw, compress)
+      IF (allocated(a_methane_dfsat_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_dfsat_tot', &
+         'patch', landpatch, a_methane_dfsat_tot, compress)
+      IF (allocated(a_f_h2osfc)) CALL ncio_write_vector (file_restart, 'ch4_a_f_h2osfc', &
+         'patch', landpatch, a_f_h2osfc, compress)
+      IF (allocated(a_methane_finundated)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_finundated', &
+         'patch', landpatch, a_methane_finundated, compress)
+      IF (allocated(a_methane_soil_finundated)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_soil_finundated', &
+         'patch', landpatch, a_methane_soil_finundated, compress)
+      IF (allocated(a_methane_soil_zwt)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_soil_zwt', &
+         'patch', landpatch, a_methane_soil_zwt, compress)
+      IF (allocated(a_f_inund_flood_patch)) CALL ncio_write_vector (file_restart, 'ch4_a_f_inund_flood_patch', &
+         'patch', landpatch, a_f_inund_flood_patch, compress)
+      IF (allocated(a_f_inund_flood_depth_patch)) CALL ncio_write_vector (file_restart, 'ch4_a_f_inund_flood_depth_patch', &
+         'patch', landpatch, a_f_inund_flood_depth_patch, compress)
+      IF (allocated(a_wetland_frac_per_patch)) CALL ncio_write_vector (file_restart, 'ch4_a_wetland_frac_per_patch', &
+         'patch', landpatch, a_wetland_frac_per_patch, compress)
+      IF (allocated(a_methane_surf_flux_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_wetland', &
+         'patch', landpatch, a_methane_surf_flux_wetland, compress)
+      IF (allocated(a_methane_surf_flux_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_soil', &
+         'patch', landpatch, a_methane_surf_flux_soil, compress)
+      IF (allocated(a_methane_surf_flux_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_lake', &
+         'patch', landpatch, a_methane_surf_flux_lake, compress)
+      IF (allocated(a_methane_surf_flux_rice)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_rice', &
+         'patch', landpatch, a_methane_surf_flux_rice, compress)
+      IF (allocated(a_B_methanogen)) CALL ncio_write_vector (file_restart, 'ch4_a_B_methanogen', &
+         'soil', nl_soil, 'patch', landpatch, a_B_methanogen, compress)
+      IF (allocated(a_B_methanotroph)) CALL ncio_write_vector (file_restart, 'ch4_a_B_methanotroph', &
+         'soil', nl_soil, 'patch', landpatch, a_B_methanotroph, compress)
+      IF (allocated(a_B_methanogen_dormant)) CALL ncio_write_vector (file_restart, 'ch4_a_B_methanogen_dormant', &
+         'soil', nl_soil, 'patch', landpatch, a_B_methanogen_dormant, compress)
+      IF (allocated(a_B_methanotroph_dormant)) CALL ncio_write_vector (file_restart, 'ch4_a_B_methanotroph_dormant', &
+         'soil', nl_soil, 'patch', landpatch, a_B_methanotroph_dormant, compress)
+      IF (allocated(a_f_T_methanogen)) CALL ncio_write_vector (file_restart, 'ch4_a_f_T_methanogen', &
+         'soil', nl_soil, 'patch', landpatch, a_f_T_methanogen, compress)
+      IF (allocated(a_f_S_methanogen)) CALL ncio_write_vector (file_restart, 'ch4_a_f_S_methanogen', &
+         'soil', nl_soil, 'patch', landpatch, a_f_S_methanogen, compress)
+      IF (allocated(a_f_O2_methanogen)) CALL ncio_write_vector (file_restart, 'ch4_a_f_O2_methanogen', &
+         'soil', nl_soil, 'patch', landpatch, a_f_O2_methanogen, compress)
+      IF (allocated(a_f_T_methanotroph)) CALL ncio_write_vector (file_restart, 'ch4_a_f_T_methanotroph', &
+         'soil', nl_soil, 'patch', landpatch, a_f_T_methanotroph, compress)
+      IF (allocated(a_methanogen_growth_rate)) CALL ncio_write_vector (file_restart, 'ch4_a_methanogen_growth_rate', &
+         'soil', nl_soil, 'patch', landpatch, a_methanogen_growth_rate, compress)
+      IF (allocated(a_methanotroph_growth_rate)) CALL ncio_write_vector (file_restart, 'ch4_a_methanotroph_growth_rate', &
+         'soil', nl_soil, 'patch', landpatch, a_methanotroph_growth_rate, compress)
+      IF (allocated(a_microbial_prod_potential)) CALL ncio_write_vector (file_restart, 'ch4_a_microbial_prod_potential', &
+         'soil', nl_soil, 'patch', landpatch, a_microbial_prod_potential, compress)
+      IF (allocated(a_microbial_oxid_potential)) CALL ncio_write_vector (file_restart, 'ch4_a_microbial_oxid_potential', &
+         'soil', nl_soil, 'patch', landpatch, a_microbial_oxid_potential, compress)
+      IF (allocated(a_methane_acc_num)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num', &
+         'patch', landpatch, a_methane_acc_num, compress)
+      IF (allocated(a_methane_acc_num_unsat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_unsat', &
+         'patch', landpatch, a_methane_acc_num_unsat, compress)
+      IF (allocated(a_methane_acc_num_sat)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_sat', &
+         'patch', landpatch, a_methane_acc_num_sat, compress)
+      IF (allocated(a_methane_acc_num_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_lake', &
+         'patch', landpatch, a_methane_acc_num_lake, compress)
+      IF (allocated(a_methane_acc_num_extra)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_extra', &
+         'patch', landpatch, a_methane_acc_num_extra, compress)
+      IF (allocated(a_methane_acc_num_microbe)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
+         'patch', landpatch, a_methane_acc_num_microbe, compress)
+   END SUBROUTINE write_methane_accflux_restart
+
+   !-------------------------------------------------------------------
+   SUBROUTINE read_methane_accflux_restart (file_restart)
+      USE MOD_LandPatch,    only: landpatch
+      USE MOD_NetCDFVector, only: ncio_read_vector
+      character(len=*), intent(in) :: file_restart
+
+      IF (.not. allocated(a_methane_acc_num)) RETURN
+
+      IF (allocated(a_net_methane)) CALL ncio_read_vector (file_restart, 'ch4_a_net_methane', &
+         landpatch, a_net_methane, defval = 0._r8)
+      IF (allocated(a_methane_prod_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_depth', &
+         nl_soil, landpatch, a_methane_prod_depth, defval = 0._r8)
+      IF (allocated(a_o2_decomp_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_decomp_depth', &
+         nl_soil, landpatch, a_o2_decomp_depth, defval = 0._r8)
+      IF (allocated(a_co2_decomp_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_depth', &
+         nl_soil, landpatch, a_co2_decomp_depth, defval = 0._r8)
+      IF (allocated(a_methane_oxid_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_depth', &
+         nl_soil, landpatch, a_methane_oxid_depth, defval = 0._r8)
+      IF (allocated(a_o2_oxid_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_oxid_depth', &
+         nl_soil, landpatch, a_o2_oxid_depth, defval = 0._r8)
+      IF (allocated(a_co2_oxid_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_depth', &
+         nl_soil, landpatch, a_co2_oxid_depth, defval = 0._r8)
+      IF (allocated(a_methane_aere_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_aere_depth', &
+         nl_soil, landpatch, a_methane_aere_depth, defval = 0._r8)
+      IF (allocated(a_methane_tran_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_tran_depth', &
+         nl_soil, landpatch, a_methane_tran_depth, defval = 0._r8)
+      IF (allocated(a_o2_aere_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_aere_depth', &
+         nl_soil, landpatch, a_o2_aere_depth, defval = 0._r8)
+      IF (allocated(a_co2_aere_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_aere_depth', &
+         nl_soil, landpatch, a_co2_aere_depth, defval = 0._r8)
+      IF (allocated(a_methane_ebul_depth)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_depth', &
+         nl_soil, landpatch, a_methane_ebul_depth, defval = 0._r8)
+      IF (allocated(a_o2stress)) CALL ncio_read_vector (file_restart, 'ch4_a_o2stress', &
+         nl_soil, landpatch, a_o2stress, defval = 0._r8)
+      IF (allocated(a_methane_stress)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_stress', &
+         nl_soil, landpatch, a_methane_stress, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_tot', &
+         landpatch, a_methane_surf_flux_tot, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_tot_phys)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_tot_phys', &
+         landpatch, a_methane_surf_flux_tot_phys, defval = 0._r8)
+      IF (allocated(a_methane_surf_aere)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_aere', &
+         landpatch, a_methane_surf_aere, defval = 0._r8)
+      IF (allocated(a_methane_surf_ebul)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_ebul', &
+         landpatch, a_methane_surf_ebul, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff', &
+         landpatch, a_methane_surf_diff, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff_phys)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_phys', &
+         landpatch, a_methane_surf_diff_phys, defval = 0._r8)
+      IF (allocated(a_methane_balance_residual)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_balance_residual', &
+         landpatch, a_methane_balance_residual, defval = 0._r8)
+      IF (allocated(a_methane_ch4_clip_credit)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ch4_clip_credit', &
+         landpatch, a_methane_ch4_clip_credit, defval = 0._r8)
+      IF (allocated(a_o2_cap_loss)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_cap_loss', &
+         landpatch, a_o2_cap_loss, defval = 0._r8)
+      IF (allocated(a_o2_cap_gain)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_cap_gain', &
+         landpatch, a_o2_cap_gain, defval = 0._r8)
+      IF (allocated(a_methane_ebul_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_tot', &
+         landpatch, a_methane_ebul_tot, defval = 0._r8)
+      IF (allocated(a_methane_prod_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_tot', &
+         landpatch, a_methane_prod_tot, defval = 0._r8)
+      IF (allocated(a_methane_oxid_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot', &
+         landpatch, a_methane_oxid_tot, defval = 0._r8)
+      IF (allocated(a_co2_decomp_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_tot', &
+         landpatch, a_co2_decomp_tot, defval = 0._r8)
+      IF (allocated(a_co2_oxid_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_tot', &
+         landpatch, a_co2_oxid_tot, defval = 0._r8)
+      IF (allocated(a_co2_aere_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_aere_tot', &
+         landpatch, a_co2_aere_tot, defval = 0._r8)
+      IF (allocated(a_co2_net_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_net_tot', &
+         landpatch, a_co2_net_tot, defval = 0._r8)
+      IF (allocated(a_totcol_methane)) CALL ncio_read_vector (file_restart, 'ch4_a_totcol_methane', &
+         landpatch, a_totcol_methane, defval = 0._r8)
+      IF (allocated(a_grnd_methane_cond)) CALL ncio_read_vector (file_restart, 'ch4_a_grnd_methane_cond', &
+         landpatch, a_grnd_methane_cond, defval = 0._r8)
+      IF (allocated(a_conc_o2)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_o2', &
+         nl_soil, landpatch, a_conc_o2, defval = 0._r8)
+      IF (allocated(a_conc_methane)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_methane', &
+         nl_soil, landpatch, a_conc_methane, defval = 0._r8)
+      IF (allocated(a_net_methane_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_net_methane_unsat', &
+         landpatch, a_net_methane_unsat, defval = 0._r8)
+      IF (allocated(a_net_methane_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_net_methane_sat', &
+         landpatch, a_net_methane_sat, defval = 0._r8)
+      IF (allocated(a_methane_prod_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_depth_unsat', &
+         nl_soil, landpatch, a_methane_prod_depth_unsat, defval = 0._r8)
+      IF (allocated(a_methane_prod_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_depth_sat', &
+         nl_soil, landpatch, a_methane_prod_depth_sat, defval = 0._r8)
+      IF (allocated(a_o2_decomp_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_decomp_depth_unsat', &
+         nl_soil, landpatch, a_o2_decomp_depth_unsat, defval = 0._r8)
+      IF (allocated(a_o2_decomp_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_decomp_depth_sat', &
+         nl_soil, landpatch, a_o2_decomp_depth_sat, defval = 0._r8)
+      IF (allocated(a_co2_decomp_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_depth_unsat', &
+         nl_soil, landpatch, a_co2_decomp_depth_unsat, defval = 0._r8)
+      IF (allocated(a_co2_decomp_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_depth_sat', &
+         nl_soil, landpatch, a_co2_decomp_depth_sat, defval = 0._r8)
+      IF (allocated(a_methane_oxid_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_depth_unsat', &
+         nl_soil, landpatch, a_methane_oxid_depth_unsat, defval = 0._r8)
+      IF (allocated(a_methane_oxid_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_depth_sat', &
+         nl_soil, landpatch, a_methane_oxid_depth_sat, defval = 0._r8)
+      IF (allocated(a_o2_oxid_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_oxid_depth_unsat', &
+         nl_soil, landpatch, a_o2_oxid_depth_unsat, defval = 0._r8)
+      IF (allocated(a_o2_oxid_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_oxid_depth_sat', &
+         nl_soil, landpatch, a_o2_oxid_depth_sat, defval = 0._r8)
+      IF (allocated(a_co2_oxid_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_depth_unsat', &
+         nl_soil, landpatch, a_co2_oxid_depth_unsat, defval = 0._r8)
+      IF (allocated(a_co2_oxid_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_depth_sat', &
+         nl_soil, landpatch, a_co2_oxid_depth_sat, defval = 0._r8)
+      IF (allocated(a_methane_aere_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_aere_depth_unsat', &
+         nl_soil, landpatch, a_methane_aere_depth_unsat, defval = 0._r8)
+      IF (allocated(a_methane_aere_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_aere_depth_sat', &
+         nl_soil, landpatch, a_methane_aere_depth_sat, defval = 0._r8)
+      IF (allocated(a_methane_tran_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_tran_depth_unsat', &
+         nl_soil, landpatch, a_methane_tran_depth_unsat, defval = 0._r8)
+      IF (allocated(a_methane_tran_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_tran_depth_sat', &
+         nl_soil, landpatch, a_methane_tran_depth_sat, defval = 0._r8)
+      IF (allocated(a_o2_aere_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_aere_depth_unsat', &
+         nl_soil, landpatch, a_o2_aere_depth_unsat, defval = 0._r8)
+      IF (allocated(a_o2_aere_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2_aere_depth_sat', &
+         nl_soil, landpatch, a_o2_aere_depth_sat, defval = 0._r8)
+      IF (allocated(a_co2_aere_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_aere_depth_unsat', &
+         nl_soil, landpatch, a_co2_aere_depth_unsat, defval = 0._r8)
+      IF (allocated(a_co2_aere_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_aere_depth_sat', &
+         nl_soil, landpatch, a_co2_aere_depth_sat, defval = 0._r8)
+      IF (allocated(a_methane_ebul_depth_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_depth_unsat', &
+         nl_soil, landpatch, a_methane_ebul_depth_unsat, defval = 0._r8)
+      IF (allocated(a_methane_ebul_depth_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_depth_sat', &
+         nl_soil, landpatch, a_methane_ebul_depth_sat, defval = 0._r8)
+      IF (allocated(a_o2stress_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2stress_unsat', &
+         nl_soil, landpatch, a_o2stress_unsat, defval = 0._r8)
+      IF (allocated(a_o2stress_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_o2stress_sat', &
+         nl_soil, landpatch, a_o2stress_sat, defval = 0._r8)
+      IF (allocated(a_methane_stress_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_stress_unsat', &
+         nl_soil, landpatch, a_methane_stress_unsat, defval = 0._r8)
+      IF (allocated(a_methane_stress_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_stress_sat', &
+         nl_soil, landpatch, a_methane_stress_sat, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_tot_unsat', &
+         landpatch, a_methane_surf_flux_tot_unsat, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_tot_sat', &
+         landpatch, a_methane_surf_flux_tot_sat, defval = 0._r8)
+      IF (allocated(a_methane_surf_aere_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_aere_unsat', &
+         landpatch, a_methane_surf_aere_unsat, defval = 0._r8)
+      IF (allocated(a_methane_surf_aere_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_aere_sat', &
+         landpatch, a_methane_surf_aere_sat, defval = 0._r8)
+      IF (allocated(a_methane_surf_ebul_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_ebul_unsat', &
+         landpatch, a_methane_surf_ebul_unsat, defval = 0._r8)
+      IF (allocated(a_methane_surf_ebul_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_ebul_sat', &
+         landpatch, a_methane_surf_ebul_sat, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_unsat', &
+         landpatch, a_methane_surf_diff_unsat, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_sat', &
+         landpatch, a_methane_surf_diff_sat, defval = 0._r8)
+      IF (allocated(a_methane_ebul_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_tot_unsat', &
+         landpatch, a_methane_ebul_tot_unsat, defval = 0._r8)
+      IF (allocated(a_methane_ebul_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_tot_sat', &
+         landpatch, a_methane_ebul_tot_sat, defval = 0._r8)
+      IF (allocated(a_methane_prod_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_tot_unsat', &
+         landpatch, a_methane_prod_tot_unsat, defval = 0._r8)
+      IF (allocated(a_methane_prod_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_tot_sat', &
+         landpatch, a_methane_prod_tot_sat, defval = 0._r8)
+      IF (allocated(a_methane_oxid_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot_unsat', &
+         landpatch, a_methane_oxid_tot_unsat, defval = 0._r8)
+      IF (allocated(a_methane_oxid_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot_sat', &
+         landpatch, a_methane_oxid_tot_sat, defval = 0._r8)
+      IF (allocated(a_co2_decomp_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_tot_unsat', &
+         landpatch, a_co2_decomp_tot_unsat, defval = 0._r8)
+      IF (allocated(a_co2_decomp_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_tot_sat', &
+         landpatch, a_co2_decomp_tot_sat, defval = 0._r8)
+      IF (allocated(a_co2_oxid_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_tot_unsat', &
+         landpatch, a_co2_oxid_tot_unsat, defval = 0._r8)
+      IF (allocated(a_co2_oxid_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_tot_sat', &
+         landpatch, a_co2_oxid_tot_sat, defval = 0._r8)
+      IF (allocated(a_co2_net_tot_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_net_tot_unsat', &
+         landpatch, a_co2_net_tot_unsat, defval = 0._r8)
+      IF (allocated(a_co2_net_tot_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_net_tot_sat', &
+         landpatch, a_co2_net_tot_sat, defval = 0._r8)
+      IF (allocated(a_totcol_methane_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_totcol_methane_unsat', &
+         landpatch, a_totcol_methane_unsat, defval = 0._r8)
+      IF (allocated(a_totcol_methane_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_totcol_methane_sat', &
+         landpatch, a_totcol_methane_sat, defval = 0._r8)
+      IF (allocated(a_grnd_methane_cond_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_grnd_methane_cond_unsat', &
+         landpatch, a_grnd_methane_cond_unsat, defval = 0._r8)
+      IF (allocated(a_grnd_methane_cond_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_grnd_methane_cond_sat', &
+         landpatch, a_grnd_methane_cond_sat, defval = 0._r8)
+      IF (allocated(a_conc_o2_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_o2_unsat', &
+         nl_soil, landpatch, a_conc_o2_unsat, defval = 0._r8)
+      IF (allocated(a_conc_o2_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_o2_sat', &
+         nl_soil, landpatch, a_conc_o2_sat, defval = 0._r8)
+      IF (allocated(a_conc_methane_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_methane_unsat', &
+         nl_soil, landpatch, a_conc_methane_unsat, defval = 0._r8)
+      IF (allocated(a_conc_methane_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_methane_sat', &
+         nl_soil, landpatch, a_conc_methane_sat, defval = 0._r8)
+      IF (allocated(a_methane_prod_depth_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_depth_lake', &
+         nl_soil, landpatch, a_methane_prod_depth_lake, defval = 0._r8)
+      IF (allocated(a_methane_oxid_depth_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_depth_lake', &
+         nl_soil, landpatch, a_methane_oxid_depth_lake, defval = 0._r8)
+      IF (allocated(a_methane_ebul_depth_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_depth_lake', &
+         nl_soil, landpatch, a_methane_ebul_depth_lake, defval = 0._r8)
+      IF (allocated(a_co2_decomp_depth_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_depth_lake', &
+         nl_soil, landpatch, a_co2_decomp_depth_lake, defval = 0._r8)
+      IF (allocated(a_co2_oxid_depth_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_depth_lake', &
+         nl_soil, landpatch, a_co2_oxid_depth_lake, defval = 0._r8)
+      IF (allocated(a_methane_surf_ebul_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_ebul_lake', &
+         landpatch, a_methane_surf_ebul_lake, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_lake', &
+         landpatch, a_methane_surf_diff_lake, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_tot_lake', &
+         landpatch, a_methane_surf_flux_tot_lake, defval = 0._r8)
+      IF (allocated(a_methane_prod_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_tot_lake', &
+         landpatch, a_methane_prod_tot_lake, defval = 0._r8)
+      IF (allocated(a_methane_oxid_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot_lake', &
+         landpatch, a_methane_oxid_tot_lake, defval = 0._r8)
+      IF (allocated(a_methane_ebul_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_tot_lake', &
+         landpatch, a_methane_ebul_tot_lake, defval = 0._r8)
+      IF (allocated(a_co2_decomp_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_tot_lake', &
+         landpatch, a_co2_decomp_tot_lake, defval = 0._r8)
+      IF (allocated(a_co2_oxid_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_tot_lake', &
+         landpatch, a_co2_oxid_tot_lake, defval = 0._r8)
+      IF (allocated(a_co2_net_tot_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_net_tot_lake', &
+         landpatch, a_co2_net_tot_lake, defval = 0._r8)
+      IF (allocated(a_totcol_methane_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_totcol_methane_lake', &
+         landpatch, a_totcol_methane_lake, defval = 0._r8)
+      IF (allocated(a_grnd_methane_cond_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_grnd_methane_cond_lake', &
+         landpatch, a_grnd_methane_cond_lake, defval = 0._r8)
+      IF (allocated(a_conc_o2_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_o2_lake', &
+         nl_soil, landpatch, a_conc_o2_lake, defval = 0._r8)
+      IF (allocated(a_conc_methane_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_methane_lake', &
+         nl_soil, landpatch, a_conc_methane_lake, defval = 0._r8)
+      IF (allocated(a_forc_pmethanem)) CALL ncio_read_vector (file_restart, 'ch4_a_forc_pmethanem', &
+         landpatch, a_forc_pmethanem, defval = 0._r8)
+      IF (allocated(a_layer_sat_lag)) CALL ncio_read_vector (file_restart, 'ch4_a_layer_sat_lag', &
+         nl_soil, landpatch, a_layer_sat_lag, defval = 0._r8)
+      IF (allocated(a_annavg_agnpp)) CALL ncio_read_vector (file_restart, 'ch4_a_annavg_agnpp', &
+         landpatch, a_annavg_agnpp, defval = 0._r8)
+      IF (allocated(a_annavg_bgnpp)) CALL ncio_read_vector (file_restart, 'ch4_a_annavg_bgnpp', &
+         landpatch, a_annavg_bgnpp, defval = 0._r8)
+      IF (allocated(a_annavg_somhr)) CALL ncio_read_vector (file_restart, 'ch4_a_annavg_somhr', &
+         landpatch, a_annavg_somhr, defval = 0._r8)
+      IF (allocated(a_annavg_finrw)) CALL ncio_read_vector (file_restart, 'ch4_a_annavg_finrw', &
+         landpatch, a_annavg_finrw, defval = 0._r8)
+      IF (allocated(a_methane_dfsat_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_dfsat_tot', &
+         landpatch, a_methane_dfsat_tot, defval = 0._r8)
+      IF (allocated(a_f_h2osfc)) CALL ncio_read_vector (file_restart, 'ch4_a_f_h2osfc', &
+         landpatch, a_f_h2osfc, defval = 0._r8)
+      IF (allocated(a_methane_finundated)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_finundated', &
+         landpatch, a_methane_finundated, defval = 0._r8)
+      IF (allocated(a_methane_soil_finundated)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_soil_finundated', &
+         landpatch, a_methane_soil_finundated, defval = 0._r8)
+      IF (allocated(a_methane_soil_zwt)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_soil_zwt', &
+         landpatch, a_methane_soil_zwt, defval = 0._r8)
+      IF (allocated(a_f_inund_flood_patch)) CALL ncio_read_vector (file_restart, 'ch4_a_f_inund_flood_patch', &
+         landpatch, a_f_inund_flood_patch, defval = 0._r8)
+      IF (allocated(a_f_inund_flood_depth_patch)) CALL ncio_read_vector (file_restart, 'ch4_a_f_inund_flood_depth_patch', &
+         landpatch, a_f_inund_flood_depth_patch, defval = 0._r8)
+      IF (allocated(a_wetland_frac_per_patch)) CALL ncio_read_vector (file_restart, 'ch4_a_wetland_frac_per_patch', &
+         landpatch, a_wetland_frac_per_patch, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_wetland', &
+         landpatch, a_methane_surf_flux_wetland, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_soil', &
+         landpatch, a_methane_surf_flux_soil, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_lake', &
+         landpatch, a_methane_surf_flux_lake, defval = 0._r8)
+      IF (allocated(a_methane_surf_flux_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_rice', &
+         landpatch, a_methane_surf_flux_rice, defval = 0._r8)
+      IF (allocated(a_B_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen', &
+         nl_soil, landpatch, a_B_methanogen, defval = 0._r8)
+      IF (allocated(a_B_methanotroph)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph', &
+         nl_soil, landpatch, a_B_methanotroph, defval = 0._r8)
+      IF (allocated(a_B_methanogen_dormant)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen_dormant', &
+         nl_soil, landpatch, a_B_methanogen_dormant, defval = 0._r8)
+      IF (allocated(a_B_methanotroph_dormant)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph_dormant', &
+         nl_soil, landpatch, a_B_methanotroph_dormant, defval = 0._r8)
+      IF (allocated(a_f_T_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanogen', &
+         nl_soil, landpatch, a_f_T_methanogen, defval = 0._r8)
+      IF (allocated(a_f_S_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_f_S_methanogen', &
+         nl_soil, landpatch, a_f_S_methanogen, defval = 0._r8)
+      IF (allocated(a_f_O2_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_f_O2_methanogen', &
+         nl_soil, landpatch, a_f_O2_methanogen, defval = 0._r8)
+      IF (allocated(a_f_T_methanotroph)) CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanotroph', &
+         nl_soil, landpatch, a_f_T_methanotroph, defval = 0._r8)
+      IF (allocated(a_methanogen_growth_rate)) CALL ncio_read_vector (file_restart, 'ch4_a_methanogen_growth_rate', &
+         nl_soil, landpatch, a_methanogen_growth_rate, defval = 0._r8)
+      IF (allocated(a_methanotroph_growth_rate)) CALL ncio_read_vector (file_restart, 'ch4_a_methanotroph_growth_rate', &
+         nl_soil, landpatch, a_methanotroph_growth_rate, defval = 0._r8)
+      IF (allocated(a_microbial_prod_potential)) CALL ncio_read_vector (file_restart, 'ch4_a_microbial_prod_potential', &
+         nl_soil, landpatch, a_microbial_prod_potential, defval = 0._r8)
+      IF (allocated(a_microbial_oxid_potential)) CALL ncio_read_vector (file_restart, 'ch4_a_microbial_oxid_potential', &
+         nl_soil, landpatch, a_microbial_oxid_potential, defval = 0._r8)
+      IF (allocated(a_methane_acc_num)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num', &
+         landpatch, a_methane_acc_num, defval = 0._r8)
+      IF (allocated(a_methane_acc_num_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_unsat', &
+         landpatch, a_methane_acc_num_unsat, defval = 0._r8)
+      IF (allocated(a_methane_acc_num_sat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_sat', &
+         landpatch, a_methane_acc_num_sat, defval = 0._r8)
+      IF (allocated(a_methane_acc_num_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_lake', &
+         landpatch, a_methane_acc_num_lake, defval = 0._r8)
+      IF (allocated(a_methane_acc_num_extra)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_extra', &
+         landpatch, a_methane_acc_num_extra, defval = 0._r8)
+      IF (allocated(a_methane_acc_num_microbe)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
+         landpatch, a_methane_acc_num_microbe, defval = 0._r8)
+   END SUBROUTINE read_methane_accflux_restart
+
+
+   !-------------------------------------------------------------------
    SUBROUTINE deallocate_methane_acc_fluxes ()
       ! sum data
       IF (allocated(a_net_methane          )) deallocate (a_net_methane          )
@@ -807,11 +1565,13 @@ CONTAINS
       IF (allocated(a_o2stress             )) deallocate (a_o2stress             )
       IF (allocated(a_methane_stress       )) deallocate (a_methane_stress       )
       IF (allocated(a_methane_surf_flux_tot)) deallocate (a_methane_surf_flux_tot)
+      IF (allocated(a_methane_surf_flux_tot_phys)) deallocate (a_methane_surf_flux_tot_phys)
       IF (allocated(a_methane_surf_aere    )) deallocate (a_methane_surf_aere    )
       IF (allocated(a_methane_surf_ebul    )) deallocate (a_methane_surf_ebul    )
       IF (allocated(a_methane_surf_diff    )) deallocate (a_methane_surf_diff    )
       IF (allocated(a_methane_surf_diff_phys)) deallocate (a_methane_surf_diff_phys)
       IF (allocated(a_methane_balance_residual)) deallocate (a_methane_balance_residual)
+      IF (allocated(a_methane_ch4_clip_credit)) deallocate (a_methane_ch4_clip_credit)
       IF (allocated(a_o2_cap_loss)) deallocate (a_o2_cap_loss)
       IF (allocated(a_o2_cap_gain)) deallocate (a_o2_cap_gain)
       IF (allocated(a_methane_ebul_tot     )) deallocate (a_methane_ebul_tot     )

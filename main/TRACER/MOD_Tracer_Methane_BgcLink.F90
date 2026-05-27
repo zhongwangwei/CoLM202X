@@ -505,7 +505,7 @@ CONTAINS
    !---------------------------------------------------------------------------
    SUBROUTINE get_rice_veg_proxy (lai_in, ipatch)
    !
-   ! Zone 6: Rice paddy aerenchyma (R4 extension; off unless DEF_METHANE_enable_rice_paddy).
+   ! Zone 6: Rice paddy aerenchyma (R4 extension; off unless DEF_METHANE%enable_rice_paddy).
    !
    ! Writes wetland_aere_* overrides for paddy-irrigated rice patches so
    ! methane_aere uses rice-tuned tiller geometry instead of the
@@ -755,7 +755,7 @@ CONTAINS
    !
    ! Active if any of:
    !   - patchtype == 2 (natural wetland)
-   !   - patchtype == 0 (soil) and DEF_METHANE_only_wetland is false
+   !   - patchtype == 0 (soil) and DEF_METHANE%only_wetland is false
    !   - patchtype == 0 (soil) and rice paddy mode enabled AND patch
    !     hosts a paddy rice tile (uses has_paddy_rice_tile NOT
    !     is_paddy_rice_live so that pre-plant and post-harvest paddy
@@ -782,7 +782,7 @@ CONTAINS
    END SUBROUTINE methane_patch_active_mask
 
    !---------------------------------------------------------------------------
-   real(r8) FUNCTION get_biome_f_methane (patchtype, dlat, cellorg_top, is_rice_paddy)
+   real(r8) FUNCTION get_biome_f_methane (patchtype, dlat, cellorg_top, is_rice_paddy, is_floodplain)
    !
    ! Biome-specific f_methane (CH4 yield ratio) lookup.
    ! Mirrors get_wetland_veg_proxy 5-zone classification so each climate
@@ -826,9 +826,11 @@ CONTAINS
    real(r8), intent(in) :: dlat
    real(r8), intent(in) :: cellorg_top
    logical,  intent(in) :: is_rice_paddy
+   logical,  intent(in), optional :: is_floodplain
 
    real(r8), parameter :: peat_om_threshold      = 150._r8
    real(r8), parameter :: tropical_peat_threshold = 80._r8
+   logical :: floodplain_active
 
    ! Legacy path: use global scalar if lookup not enabled
    IF (.not. DEF_METHANE%use_biome_f_methane) THEN
@@ -842,7 +844,14 @@ CONTAINS
       RETURN
    ENDIF
 
-   ! Non-wetland tile (when Plan A activates wetland physics on soil)
+   floodplain_active = .false.
+   IF (present(is_floodplain)) floodplain_active = is_floodplain
+   IF (floodplain_active) THEN
+      get_biome_f_methane = DEF_METHANE%f_methane_floodplain
+      RETURN
+   ENDIF
+
+   ! Non-wetland, non-floodplain tile (when Plan A activates wetland physics on soil)
    IF (patchtype /= 2) THEN
       get_biome_f_methane = DEF_METHANE%f_methane_upland_soil
       RETURN

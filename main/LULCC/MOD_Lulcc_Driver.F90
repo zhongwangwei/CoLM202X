@@ -87,9 +87,15 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Lulcc_Vars_TimeVariables
    USE MOD_Lulcc_Initialize
    USE MOD_Vars_TimeVariables
+   USE MOD_Vars_TimeInvariants, only: patchclass
+   USE MOD_LandPatch, only: landpatch
    USE MOD_Lulcc_TransferTraceReadin
    USE MOD_Lulcc_MassEnergyConserve
    USE MOD_Namelist
+#ifdef TRACER
+   USE MOD_Tracer_Reactive, only: tracer_reactive_save_lulcc_state, &
+      tracer_reactive_remap_lulcc_state
+#endif
 
    IMPLICIT NONE
 
@@ -108,6 +114,9 @@ MODULE MOD_Lulcc_Driver
       ! SAVE variables
       CALL SAVE_LulccTimeInvariants
       CALL SAVE_LulccTimeVariables
+#ifdef TRACER
+      CALL tracer_reactive_save_lulcc_state ()
+#endif
 
       ! =============================================================
       ! cold start for Lulcc
@@ -146,6 +155,19 @@ MODULE MOD_Lulcc_Driver
          CALL LulccTransferTraceReadin(jdate(1))
          CALL LulccMassEnergyConserve()
       ENDIF
+
+#ifdef TRACER
+      IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_) .and. &
+          allocated(landpatch%eindex) .and. allocated(landpatch_%eindex)) THEN
+         IF (allocated(lccpct_patches)) THEN
+            CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
+               patchclass_, landpatch_%eindex, lccpct_patches)
+         ELSE
+            CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
+               patchclass_, landpatch_%eindex)
+         ENDIF
+      ENDIF
+#endif
 
 
       ! deallocate Lulcc memory

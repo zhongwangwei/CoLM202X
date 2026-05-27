@@ -37,9 +37,9 @@ CONTAINS
 		     co2_decomp_depth, methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
 		     methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, methane_ebul_depth, &
 		     o2stress, methane_stress, &
-		     methane_surf_flux_tot, methane_surf_aere, methane_surf_ebul, methane_surf_diff, &
+		     methane_surf_flux_tot, methane_surf_flux_tot_phys, methane_surf_aere, methane_surf_ebul, methane_surf_diff, &
 		     methane_surf_diff_phys, &
-		     methane_balance_residual, o2_cap_loss, o2_cap_gain, &
+		     methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
 		     methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
 		     co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
 		     totcol_methane, grnd_methane_cond, conc_o2, conc_methane, &
@@ -81,7 +81,8 @@ CONTAINS
 		     tempavg_agnpp, tempavg_bgnpp, annsum_counter, &
 		     tempavg_somhr, tempavg_finrw, &
 		     fsat_bef, finundated_lag, methane_dfsat_tot, &
-		     biome_f_methane_patch, biome_redoxlag_patch
+		     biome_f_methane_patch, biome_redoxlag_patch, &
+		     f_inund_flood_patch
 
 		IMPLICIT NONE
 		integer ,intent(in) :: istep
@@ -140,6 +141,7 @@ CONTAINS
 		real(r8), intent(in), optional :: rice_pft_frac_in
 
 		logical  :: is_rice_paddy
+		logical  :: is_floodplain_active
 		real(r8) :: rice_pft_frac
 
 		real(r8):: &
@@ -284,8 +286,13 @@ CONTAINS
 			! the legacy DEF_METHANE%f_methane scalar (backwards compatible).
 			IF (allocated(biome_f_methane_patch) .and. &
 			    i >= 1 .and. i <= size(biome_f_methane_patch)) THEN
+				is_floodplain_active = patchtype == 0 .and. .not. is_rice_paddy .and. &
+				                       DEF_METHANE%use_routing_for_soil .and. &
+				                       allocated(f_inund_flood_patch) .and. &
+				                       i >= 1 .and. i <= size(f_inund_flood_patch) .and. &
+				                       f_inund_flood_patch(i) > DEF_METHANE%hybrid_soil_threshold
 				biome_f_methane_patch(i) = get_biome_f_methane (patchtype, dlat, cellorg(1), &
-				                                                is_rice_paddy)
+				                                                is_rice_paddy, is_floodplain_active)
 			ENDIF
 
 			! Biome-specific redoxlag lookup (Pangala 2017, Whalen 1990).
@@ -361,9 +368,9 @@ CONTAINS
 		o2_aere_depth(1:nl_soil,i), co2_aere_depth(1:nl_soil,i), &
 		methane_ebul_depth(1:nl_soil,i), &
 		o2stress(1:nl_soil,i), methane_stress(1:nl_soil,i), &
-		methane_surf_flux_tot(i), methane_surf_aere(i), methane_surf_ebul(i), methane_surf_diff(i), &
+		methane_surf_flux_tot(i), methane_surf_flux_tot_phys(i), methane_surf_aere(i), methane_surf_ebul(i), methane_surf_diff(i), &
 		methane_surf_diff_phys(i), &
-		methane_balance_residual(i), o2_cap_loss(i), o2_cap_gain(i), &
+		methane_balance_residual(i), methane_ch4_clip_credit(i), o2_cap_loss(i), o2_cap_gain(i), &
 		methane_ebul_tot(i), methane_prod_tot(i), methane_oxid_tot(i), &
 		co2_decomp_tot(i), co2_oxid_tot(i), co2_aere_tot(i), co2_net_tot(i), &
 		totcol_methane(i), grnd_methane_cond(i), conc_o2(1:nl_soil,i), conc_methane(1:nl_soil,i), &

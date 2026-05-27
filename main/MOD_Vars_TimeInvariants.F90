@@ -479,6 +479,9 @@ CONTAINS
 
       CALL ncio_read_vector (file_restart, 'lakedepth',    landpatch, lakedepth)           !
       CALL ncio_read_vector (file_restart, 'dz_lake' ,     nl_lake, landpatch, dz_lake)    !
+#if (defined TRACER) && (defined BGC)
+      CALL ncio_read_vector (file_restart, 'lake_soilc_srf', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
+#endif
 
       CALL ncio_read_vector (file_restart, 'soil_s_v_alb', landpatch, soil_s_v_alb)        ! albedo of visible of the saturated soil
       CALL ncio_read_vector (file_restart, 'soil_d_v_alb', landpatch, soil_d_v_alb)        ! albedo of visible of the dry soil
@@ -691,6 +694,9 @@ CONTAINS
 
       CALL ncio_write_vector (file_restart, 'lakedepth' , 'patch', landpatch, lakedepth , compress)                  !
       CALL ncio_write_vector (file_restart, 'dz_lake'   ,  'lake', nl_lake, 'patch', landpatch, dz_lake, compress)   !
+#if (defined TRACER) && (defined BGC)
+      CALL ncio_write_vector (file_restart, 'lake_soilc_srf', 'soil', nl_soil, 'patch', landpatch, lake_soilc_srf, compress)
+#endif
 
       CALL ncio_write_vector (file_restart, 'soil_s_v_alb', 'patch', landpatch, soil_s_v_alb, compress)              ! albedo of visible of the saturated soil
       CALL ncio_write_vector (file_restart, 'soil_d_v_alb', 'patch', landpatch, soil_d_v_alb, compress)              ! albedo of visible of the dry soil

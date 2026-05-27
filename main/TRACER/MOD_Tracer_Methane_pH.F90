@@ -73,8 +73,9 @@ CONTAINS
 
    SUBROUTINE allocate_methane_ph(numpatch)
       integer, intent(in) :: numpatch
-      IF (numpatch <= 0) RETURN
       IF (allocated(methane_ph_patch)) RETURN
+      ! Keep zero-length arrays allocated on ranks with numpatch==0.  pH
+      ! vector I/O is collective, while patch accessors are bounds-guarded.
       allocate(methane_ph_patch(numpatch))
       methane_ph_patch(:) = methane_ph_fallback
    END SUBROUTINE allocate_methane_ph

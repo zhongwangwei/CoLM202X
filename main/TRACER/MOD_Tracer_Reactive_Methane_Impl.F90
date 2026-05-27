@@ -5,27 +5,23 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
 
    USE MOD_Precision
    USE MOD_Const_Physical, only: denh2o, denice
-   USE MOD_Vars_Global
-   USE MOD_Vars_TimeInvariants
-   USE MOD_Vars_TimeVariables
-   USE MOD_Vars_1DForcing
-   USE MOD_BGC_Soil_BiogeochemDecompCascadeBGC, only: decomp_rate_constants_bgc
-   USE MOD_BGC_Soil_BiogeochemPotential,        only: SoilBiogeochemPotential
-   USE MOD_BGC_Soil_BiogeochemDecomp,           only: SoilBiogeochemDecomp
-   USE MOD_BGC_Vars_1DFluxes, only: decomp_hr_vr, decomp_ctransfer_vr, &
-      decomp_ntransfer_vr, decomp_sminn_flux_vr, sminn_to_denit_decomp_vr, &
-      pmnf_decomp, p_decomp_cpool_loss, net_nmin_vr, gross_nmin_vr, &
-      net_nmin, gross_nmin, potential_immob_vr, phr_vr, pot_f_nit_vr, &
-      decomp_hr, somc_fire, som_c_leached, som_n_leached, denit, f_n2o_nit, &
-      smin_no3_leached, smin_no3_runoff, sminn_leached, sminn_to_plant
-   USE MOD_BGC_Vars_TimeVariables, only: fpi_vr, o_scalar
-   USE MOD_Namelist, only: DEF_METHANE_only_wetland, DEF_METHANE_enable_rice_paddy
+   USE MOD_Const_LC,       only: rootfr_lc => rootfr
+   USE MOD_Vars_Global, only: maxsnl, nl_soil, nl_lake, PI, &
+      z_soi, dz_soi, zi_soi
+   USE MOD_Vars_TimeInvariants, only: patchtype, patchclass, patchlonr, patchlatr, &
+      slpratio, fsatmax, fsatdcf, lakedepth, bsw, porsl
+   USE MOD_Vars_TimeVariables, only: t_soisno, t_grnd, wliq_soisno, wice_soisno, &
+      zwt, snowdp, wat, lake_icefrac, wdsrf, wetwat, smp, lai, rootr
+   USE MOD_Vars_1DForcing, only: forc_t, forc_pbot, forc_po2m, forc_pco2m, &
+      forc_us, forc_vs
+   USE MOD_Vars_1DFluxes, only: rsur, etr, frcsat
    USE MOD_Tracer_Methane_Driver,   only: methane_driver
    USE MOD_Tracer_Methane_State,    only: f_h2osfc, compute_f_h2osfc, &
       accumulate_methane_lake_substep_diagnostics
    USE MOD_Tracer_Methane_Registry, only: igas_ch4
    USE MOD_Tracer_Methane_Const,    only: DEF_METHANE
    USE MOD_Tracer_Methane_BgcLink,  only: paddy_rice_fraction, PADDY_RICE_FRAC_MIN
+   USE MOD_Tracer_Reactive_BgcShim,  only: reactive_bgc_run_wetland_decomp
    USE MOD_Tracer_Conservation,     only: tracer_balance_report
 
    IMPLICIT NONE
@@ -70,7 +66,7 @@ CONTAINS
          t_grnd(ipatch), wliq_soisno(maxsnl+1:nl_soil,ipatch), &
          wice_soisno(maxsnl+1:nl_soil,ipatch), forc_t(ipatch), forc_pbot(ipatch), &
          forc_po2m(ipatch), forc_pco2m(ipatch), forc_us(ipatch), forc_vs(ipatch), &
-         zwt(ipatch), rootfr(1:nl_soil,patchclass(ipatch)), snowdp(ipatch), wat(ipatch), &
+         zwt(ipatch), rootfr_lc(1:nl_soil,patchclass(ipatch)), snowdp(ipatch), wat(ipatch), &
          rsur(ipatch), etr(ipatch), lakedepth(ipatch), lake_icefrac(1:nl_lake,ipatch), &
          wdsrf(ipatch), wetwat(ipatch), bsw(1:nl_soil,ipatch), smp(1:nl_soil,ipatch), &
          porsl(1:nl_soil,ipatch), lai(ipatch), rootr(1:nl_soil,ipatch), &
@@ -90,37 +86,7 @@ CONTAINS
       IF (igas_ch4 <= 0) RETURN
       IF (patchtype(ipatch) /= 2) RETURN
 
-      ! Start from the same clean per-patch flux state as the full BGC driver.
-      IF (allocated(decomp_hr_vr))              decomp_hr_vr             (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(decomp_ctransfer_vr))       decomp_ctransfer_vr      (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(decomp_ntransfer_vr))       decomp_ntransfer_vr      (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(decomp_sminn_flux_vr))      decomp_sminn_flux_vr     (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(sminn_to_denit_decomp_vr))  sminn_to_denit_decomp_vr (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(pmnf_decomp))               pmnf_decomp              (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(p_decomp_cpool_loss))       p_decomp_cpool_loss      (1:nl_soil,:,ipatch) = 0._r8
-      IF (allocated(net_nmin_vr))               net_nmin_vr              (1:nl_soil,ipatch)   = 0._r8
-      IF (allocated(gross_nmin_vr))             gross_nmin_vr            (1:nl_soil,ipatch)   = 0._r8
-      IF (allocated(potential_immob_vr))        potential_immob_vr       (1:nl_soil,ipatch)   = 0._r8
-      IF (allocated(phr_vr))                    phr_vr                   (1:nl_soil,ipatch)   = 0._r8
-      IF (allocated(pot_f_nit_vr))              pot_f_nit_vr             (1:nl_soil,ipatch)   = 0._r8
-      IF (allocated(o_scalar))                  o_scalar                 (1:nl_soil,ipatch)   = 1._r8
-      IF (allocated(fpi_vr))                    fpi_vr                   (1:nl_soil,ipatch)   = 1._r8
-      IF (allocated(net_nmin))                  net_nmin                 (ipatch)             = 0._r8
-      IF (allocated(gross_nmin))                gross_nmin               (ipatch)             = 0._r8
-      IF (allocated(decomp_hr))                 decomp_hr                (ipatch)             = 0._r8
-      IF (allocated(somc_fire))                 somc_fire                (ipatch)             = 0._r8
-      IF (allocated(som_c_leached))             som_c_leached            (ipatch)             = 0._r8
-      IF (allocated(som_n_leached))             som_n_leached            (ipatch)             = 0._r8
-      IF (allocated(denit))                     denit                    (ipatch)             = 0._r8
-      IF (allocated(f_n2o_nit))                 f_n2o_nit                (ipatch)             = 0._r8
-      IF (allocated(smin_no3_leached))          smin_no3_leached         (ipatch)             = 0._r8
-      IF (allocated(smin_no3_runoff))           smin_no3_runoff          (ipatch)             = 0._r8
-      IF (allocated(sminn_leached))             sminn_leached            (ipatch)             = 0._r8
-      IF (allocated(sminn_to_plant))            sminn_to_plant           (ipatch)             = 0._r8
-
-      CALL decomp_rate_constants_bgc (ipatch, nl_soil, z_soi)
-      CALL SoilBiogeochemPotential   (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions)
-      CALL SoilBiogeochemDecomp      (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions, dz_soi)
+      CALL reactive_bgc_run_wetland_decomp (ipatch)
 
    END SUBROUTINE ch4_reactive_wetland_decomp
 
@@ -148,7 +114,7 @@ CONTAINS
       rice_pft_frac = 0._r8
 
       IF (igas_ch4 > 0) THEN
-         IF (DEF_METHANE_only_wetland) THEN
+         IF (DEF_METHANE%only_wetland) THEN
             IF (patchtype(ipatch) == 2) run_methane = .true.
          ELSE
             IF ((patchtype(ipatch) == 2) .or. (patchtype(ipatch) == 0)) run_methane = .true.
@@ -156,7 +122,7 @@ CONTAINS
 #ifdef CROP
          ! Detect rice paddy via BgcLink helper.  Single source of truth
          ! shared with AccFlux / Hist filter and the methane() finundated blend.
-         IF (DEF_METHANE_enable_rice_paddy .and. patchtype(ipatch) == 0) THEN
+         IF (DEF_METHANE%enable_rice_paddy .and. patchtype(ipatch) == 0) THEN
             rice_pft_frac = paddy_rice_fraction(ipatch)
             IF (rice_pft_frac > PADDY_RICE_FRAC_MIN) THEN
                is_rice_paddy = .true.
@@ -179,7 +145,7 @@ CONTAINS
          t_grnd(ipatch), wliq_soisno(maxsnl+1:nl_soil,ipatch), &
          wice_soisno(maxsnl+1:nl_soil,ipatch), forc_t(ipatch), forc_pbot(ipatch), &
          forc_po2m(ipatch), forc_pco2m(ipatch), forc_us(ipatch), forc_vs(ipatch), &
-         zwt(ipatch), rootfr(1:nl_soil,patchclass(ipatch)), snowdp(ipatch), wat(ipatch), &
+         zwt(ipatch), rootfr_lc(1:nl_soil,patchclass(ipatch)), snowdp(ipatch), wat(ipatch), &
          rsur(ipatch), etr(ipatch), lakedepth(ipatch), lake_icefrac(1:nl_lake,ipatch), &
          wdsrf(ipatch), wetwat(ipatch), bsw(1:nl_soil,ipatch), smp(1:nl_soil,ipatch), &
          porsl(1:nl_soil,ipatch), lai(ipatch), rootr(1:nl_soil,ipatch), &

@@ -12,11 +12,11 @@ MODULE MOD_Tracer_Rest
    USE MOD_Namelist, only: DEF_REST_CompressLevel
    USE MOD_NetCDFSerial, only: ncio_var_exist, ncio_inquire_varsize
    USE MOD_NetCDFVector, only: ncio_read_vector, ncio_write_vector
+   USE MOD_Tracer_Reactive, only: tracer_reactive_write_restart
 
    IMPLICIT NONE
 
    PRIVATE :: tracer_dim_matches
-   external :: tracer_reactive_write_restart
 
 CONTAINS
 

@@ -38,8 +38,10 @@ CONTAINS
 
    SUBROUTINE allocate_wetland_aere_overrides(numpatch)
       integer, intent(in) :: numpatch
-      IF (numpatch <= 0) RETURN
       IF (allocated(wetland_aere_poros)) RETURN
+      ! Keep zero-length arrays allocated on ranks with numpatch==0; downstream
+      ! getters guard by bounds, and collective setup expects allocation state
+      ! to be consistent across MPI ranks.
       allocate(wetland_aere_poros  (numpatch))
       allocate(wetland_aere_radius (numpatch))
       allocate(wetland_aere_tillerC(numpatch))
