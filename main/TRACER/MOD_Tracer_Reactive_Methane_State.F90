@@ -1,7 +1,7 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_State
+MODULE MOD_Tracer_Reactive_Methane_State
 !=======================================================================
 ! Methane reactive-tracer state and restart fields.
 !=======================================================================
@@ -1168,7 +1168,7 @@ CONTAINS
    !-------------------------------------------------------------------
    SUBROUTINE compute_f_h2osfc (ipatch, slpratio_in, wdsrf_in)
       USE MOD_Vars_Global, only: PI
-      USE MOD_Tracer_Methane_Const, only: DEF_METHANE_hydrology
+      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE_hydrology
       integer,  intent(in) :: ipatch
       real(r8), intent(in) :: slpratio_in      ! slope ratio [-]
       real(r8), intent(in) :: wdsrf_in         ! surface water depth [mm]
@@ -1805,5 +1805,5 @@ CONTAINS
       invalid_restart_value = ieee_is_nan(x) .or. (abs(x) >= 0.5_r8 * abs(spval))
    END FUNCTION invalid_restart_value
 
-END MODULE MOD_Tracer_Methane_State
+END MODULE MOD_Tracer_Reactive_Methane_State
 #endif

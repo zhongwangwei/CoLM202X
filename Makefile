@@ -110,6 +110,38 @@ mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MKSRFDATA}
 	@echo ''
 # ----- End of Target 1 mksrfdata ----
 
+TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS = \
+				 MOD_Tracer_Isotope_O18.o         \
+				 MOD_Tracer_Isotope_HDO.o
+
+TRACER_ISOTOPE_MAIN_OBJS = \
+				 MOD_Tracer_Isotope_Registry.o    \
+				 $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS) \
+				 MOD_Tracer_Isotope_Registrations.o
+
+MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc
+MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
+
+TRACER_REACTIVE_METHANE_OBJ_SUFFIXES = \
+				 Const Registry GIEMS pH VegOverride State Microbes \
+				 BgcLink AccFlux Physics Driver Hist Impl
+
+TRACER_REACTIVE_METHANE_OBJS = \
+				 $(addprefix MOD_Tracer_Reactive_Methane_, \
+				   $(addsuffix .o,$(TRACER_REACTIVE_METHANE_OBJ_SUFFIXES))) \
+				 MOD_Tracer_Reactive_Methane.o
+
+TRACER_REACTIVE_REGISTERED_SPECIES_OBJS = \
+				  $(TRACER_REACTIVE_METHANE_OBJS)
+
+TRACER_REACTIVE_MAIN_OBJS = \
+				MOD_Tracer_Reactive_BgcShim.o             \
+				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
+				MOD_Tracer_Reactive_Registrations.o
+
+MOD_Tracer_Reactive_Registrations.o: include/tracer_reactive_species.inc \
+				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS)
+
 OBJS_BASIC =    \
 				 MOD_Vector_ReadWrite.o         \
 				 MOD_dataSpec_PDB.o             \
@@ -120,10 +152,12 @@ OBJS_BASIC =    \
 				 MOD_Catch_Vars_1DFluxes.o      \
 				 MOD_Grid_RiverLakeNetwork.o    \
 				 MOD_Grid_Reservoir.o           \
-				 MOD_Grid_RiverLakeLevee.o     \
+				 MOD_Grid_RiverLakeLevee.o      \
 				 MOD_Grid_RiverLakeBifurcation.o \
 				 MOD_Grid_RiverLakeSediment.o   \
+				 MOD_Grid_RiverLakeTimeVars.o   \
 				 MOD_Tracer_Defs.o              \
+				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
 				 MOD_Tracer_Frac.o              \
 				 MOD_Tracer_Vars.o              \
 				 MOD_Grid_RiverLakeTracer.o     \
@@ -136,31 +170,18 @@ OBJS_BASIC =    \
 				 MOD_Tracer_Evapo.o             \
 				 MOD_Tracer_SoilWater.o         \
 				 MOD_Tracer_Snow.o              \
-				 MOD_Tracer_Reactive.o          \
-				 MOD_Tracer_Rest.o              \
-				 MOD_Tracer_Main.o              \
-				 MOD_Grid_RiverLakeTimeVars.o   \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
 				 MOD_BGC_Vars_PFTimeVariables.o \
 				 MOD_BGC_Vars_TimeInvariants.o  \
 				 MOD_BGC_Vars_TimeVariables.o   \
-				 MOD_Tracer_Methane_Const.o                \
-				 MOD_Tracer_Methane_Registry.o             \
-				 MOD_Tracer_Methane_GIEMS.o                \
-				 MOD_Tracer_Methane_pH.o                   \
-				 MOD_Tracer_Methane_VegOverride.o          \
-				 MOD_Tracer_Methane_State.o                \
-				 MOD_Tracer_Methane_Microbes.o             \
-				 MOD_Tracer_Methane_AccFlux.o              \
 				 MOD_Urban_Vars_1DFluxes.o      \
 				 MOD_Urban_Vars_TimeVariables.o \
 				 MOD_Urban_Vars_TimeInvariants.o\
 				 MOD_DA_Vars_1DFluxes.o         \
 				 MOD_Vars_TimeInvariants.o      \
-				 MOD_Tracer_Methane_Physics.o                      \
-				 MOD_Tracer_Methane_BgcLink.o           \
-				 MOD_Tracer_Methane_Driver.o               \
+				 MOD_Tracer_Reactive.o          \
+				 MOD_Tracer_Rest.o              \
 				 MOD_DA_Vars_TimeVariables.o    \
 				 MOD_Vars_TimeVariables.o       \
 				 MOD_Vars_1DPFTFluxes.o         \
@@ -214,6 +235,7 @@ $(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
 
 OBJS_MKINIDATA = \
+				  MOD_Tracer_Reactive_Registrations_Stubs.o \
 				  CoLMINI.o
 
 $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
@@ -352,6 +374,7 @@ OBJS_MAIN = \
 				MOD_SoilSurfaceResistance.o               \
 				MOD_NewSnow.o                             \
 				MOD_Thermal.o                             \
+				MOD_Tracer_Main.o                          \
 				MOD_Vars_1DAccFluxes.o                    \
 				MOD_CaMa_Vars.o                           \
 				MOD_Irrigation.o                          \
@@ -362,12 +385,10 @@ OBJS_MAIN = \
 				MOD_HistSingle.o                          \
 				MOD_Grid_RiverLakeHist.o                  \
 				MOD_Tracer_Hist.o                         \
-				MOD_Tracer_Reactive_Methane_Hist.o        \
+				$(TRACER_REACTIVE_MAIN_OBJS)              \
 				MOD_Tracer_SpecialPatches.o               \
-				MOD_Hist.o                                \
-				MOD_Tracer_Reactive_Methane.o             \
-				MOD_Tracer_Reactive_Methane_Impl.o        \
-				MOD_CheckEquilibrium.o                    \
+					MOD_Hist.o                                \
+					MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_CaMa_colmCaMa.o                       \
 				MOD_Catch_LateralFlow.o                   \
@@ -399,89 +420,8 @@ OBJS_MAIN = \
 $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
-MOD_Urban_Thermal.o: MOD_Urban_Flux.o
-MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o MOD_Grid_Reservoir.o
-MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_Grid_RiverLakeTracer.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeTimeVars.o MOD_Tracer_Defs.o MOD_Tracer_Vars.o
-MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeTracer.o MOD_Grid_RiverLakeSediment.o
-MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeBifurcation.o
-MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeTracer.o \
-                          MOD_Tracer_Methane_Registry.o MOD_Tracer_Methane_State.o MOD_Grid_Reservoir.o
-MOD_Vars_TimeInvariants.o: MOD_Urban_Vars_TimeInvariants.o
-MOD_Vars_TimeVariables.o: MOD_Tracer_Defs.o MOD_Tracer_Rest.o MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeTracer.o
-MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 
-# Tracer module dependencies
-MOD_Tracer_Defs.o:
-MOD_Tracer_Frac.o: MOD_Tracer_Defs.o MOD_Namelist.o
-MOD_Tracer_Vars.o: MOD_Tracer_Defs.o MOD_Tracer_Frac.o
-MOD_Tracer_Conservation.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Tracer_Frac.o
-MOD_Tracer_SoilInit.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Namelist.o MOD_SpatialMapping.o MOD_LandPatch.o
-MOD_Tracer_Forcing.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Namelist.o MOD_SpatialMapping.o MOD_LandPatch.o MOD_UserSpecifiedForcing.o
-MOD_Tracer_Precip.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Tracer_Forcing.o
-MOD_Tracer_Evapo.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Tracer_Frac.o MOD_Tracer_Forcing.o
-MOD_Tracer_SoilWater.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Tracer_Forcing.o
-MOD_Tracer_Snow.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
-MOD_Tracer_Hist.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o MOD_Tracer_Reactive.o \
-                   MOD_HistGridded.o MOD_HistVector.o MOD_HistSingle.o \
-                   MOD_DataType.o MOD_NetCDFSerial.o MOD_Namelist.o \
-                   MOD_Vars_TimeInvariants.o MOD_LandPatch.o
-MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_HistGridded.o MOD_DataType.o MOD_LandPatch.o \
-                   MOD_Namelist.o MOD_Vars_TimeInvariants.o MOD_Tracer_Methane_BgcLink.o \
-                   MOD_Tracer_Methane_Registry.o MOD_Tracer_Methane_Const.o MOD_Tracer_Methane_AccFlux.o
-MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Defs.o MOD_Tracer_Methane_Registry.o MOD_Tracer_Methane_State.o \
-                   MOD_Tracer_Methane_AccFlux.o MOD_Tracer_Methane_Microbes.o MOD_Tracer_Methane_Const.o \
-                   MOD_Tracer_Methane_GIEMS.o MOD_Tracer_Methane_pH.o MOD_Tracer_Methane_VegOverride.o \
-                   MOD_Tracer_Reactive_Methane_Impl.o MOD_Namelist.o MOD_Vars_TimeInvariants.o
-MOD_Tracer_Reactive.o: MOD_Tracer_Defs.o MOD_DataType.o
-MOD_Tracer_Rest.o: MOD_Tracer_Vars.o MOD_Tracer_Defs.o
-MOD_Tracer_SpecialPatches.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o \
-                             MOD_Tracer_Conservation.o MOD_Tracer_Hist.o MOD_Tracer_Vars.o
-MOD_Tracer_Main.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Precip.o MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o MOD_Tracer_Snow.o MOD_Tracer_Conservation.o MOD_Tracer_Rest.o MOD_Tracer_SoilInit.o MOD_Tracer_Forcing.o \
-                   MOD_Tracer_Reactive.o MOD_Namelist.o
 
-# Methane reactive tracer dependencies. Registered through MOD_Tracer_Defs;
-# compiled when TRACER && BGC are both enabled and activated at runtime via
-# DEF_TRACER_NAMES = "...,CH4,..." or "...,METHANE,...".
-MOD_Tracer_Methane_Registry.o: MOD_Tracer_Defs.o
-MOD_Tracer_Methane_Const.o:    MOD_Namelist.o
-MOD_Tracer_Methane_State.o:    MOD_Precision.o MOD_Vars_Global.o MOD_Tracer_Methane_Const.o MOD_LandPatch.o MOD_NetCDFVector.o \
-                               MOD_Vars_TimeInvariants.o MOD_Mesh.o MOD_Pixel.o MOD_Utils.o MOD_SPMD_Task.o
-MOD_Tracer_Methane_Microbes.o: MOD_Precision.o MOD_Vars_Global.o MOD_Const_Physical.o MOD_Tracer_Methane_Const.o MOD_LandPatch.o MOD_NetCDFVector.o
-# AccFlux does NOT depend on MOD_Vars_1DAccFluxes — uses private acc1d/acc2d to
-# avoid the USE cycle (MOD_Vars_1DAccFluxes calls flush/accumulate from here).
-MOD_Tracer_Methane_AccFlux.o:  MOD_Tracer_Methane_State.o MOD_Tracer_Methane_Microbes.o \
-                                MOD_Vars_TimeInvariants.o MOD_Tracer_Methane_Const.o \
-                                MOD_Tracer_Methane_BgcLink.o MOD_Namelist.o
-MOD_Tracer_Methane_Physics.o:          MOD_Tracer_Methane_Const.o MOD_Tracer_Methane_State.o MOD_Tracer_Methane_GIEMS.o \
-                        MOD_Tracer_Methane_VegOverride.o MOD_Namelist.o MOD_Vars_TimeInvariants.o \
-                        MOD_BGC_Vars_TimeVariables.o MOD_BGC_Vars_1DFluxes.o \
-                        MOD_Tracer_Methane_BgcLink.o
-MOD_Tracer_Methane_BgcLink.o: MOD_BGC_Vars_TimeVariables.o MOD_BGC_Vars_1DFluxes.o MOD_BGC_Vars_1DPFTFluxes.o \
-                          MOD_BGC_Vars_PFTimeVariables.o MOD_BGC_Vars_TimeInvariants.o \
-                          MOD_Vars_TimeInvariants.o MOD_Vars_TimeVariables.o MOD_Vars_Global.o \
-                          MOD_LandPFT.o MOD_Tracer_Methane_Const.o \
-                          MOD_Tracer_Methane_pH.o MOD_Tracer_Methane_VegOverride.o
-MOD_Tracer_Methane_Driver.o:   MOD_Tracer_Methane_Physics.o MOD_Tracer_Methane_State.o MOD_Tracer_Methane_BgcLink.o \
-                          MOD_Tracer_Methane_Microbes.o MOD_Tracer_Methane_Const.o MOD_Tracer_Methane_GIEMS.o \
-                          MOD_Tracer_Methane_VegOverride.o MOD_Namelist.o MOD_Vars_TimeInvariants.o
-MOD_Tracer_Reactive_Methane_Impl.o:  MOD_Tracer_Methane_Driver.o MOD_Tracer_Methane_State.o \
-                          MOD_Tracer_Methane_Registry.o MOD_Tracer_Methane_Const.o \
-                          MOD_Tracer_Methane_BgcLink.o MOD_Tracer_Conservation.o \
-                          MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o MOD_BGC_Soil_BiogeochemPotential.o \
-                          MOD_BGC_Soil_BiogeochemDecomp.o MOD_BGC_Vars_1DFluxes.o \
-                          MOD_BGC_Vars_TimeVariables.o MOD_Vars_TimeInvariants.o MOD_Vars_TimeVariables.o \
-                          MOD_Vars_1DForcing.o MOD_Namelist.o
-CoLM.o:                  MOD_Tracer_Main.o MOD_Tracer_Defs.o MOD_Tracer_Forcing.o
-CoLMDRIVER.o:            MOD_Tracer_Main.o
-CoLMMAIN.o:              MOD_Tracer_Hist.o MOD_Tracer_SpecialPatches.o
-MOD_Lulcc_Driver.o:      MOD_Tracer_Methane_Const.o MOD_Tracer_Methane_Registry.o MOD_Tracer_Methane_State.o \
-                          MOD_Tracer_Methane_AccFlux.o MOD_Tracer_Methane_Microbes.o MOD_Tracer_Methane_GIEMS.o \
-                          MOD_Tracer_Methane_pH.o MOD_Tracer_Methane_VegOverride.o
-MOD_Vars_1DAccFluxes.o: MOD_Tracer_Main.o
-# MOD_Hist delegates TRACER/CH4 history output to MOD_Tracer_Hist.
-MOD_Hist.o:             MOD_Tracer_Hist.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 

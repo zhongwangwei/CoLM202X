@@ -1,7 +1,7 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_BgcLink
+MODULE MOD_Tracer_Reactive_Methane_BgcLink
 !=======================================================================
 ! BGC coupling bridge for the methane reactive tracer.
 !
@@ -14,8 +14,8 @@ MODULE MOD_Tracer_Methane_BgcLink
    USE MOD_Precision
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
    USE MOD_Vars_Global, only: nl_soil, dz_soi, spval
-   USE MOD_Tracer_Methane_Const, only: DEF_METHANE
-   USE MOD_Tracer_Methane_pH, only: get_ph_for_patch
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+   USE MOD_Tracer_Reactive_Methane_pH, only: get_ph_for_patch
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
    USE MOD_Vars_PFTimeInvariants,  only: pftfrac
    USE MOD_BGC_Vars_TimeInvariants, only: organic_max, &
@@ -24,7 +24,7 @@ MODULE MOD_Tracer_Methane_BgcLink
    USE MOD_BGC_Vars_1DFluxes,       only: decomp_hr_vr, pot_f_nit_vr
    USE MOD_BGC_Vars_TimeVariables,  only: decomp_cpools_vr, o_scalar
    USE MOD_BGC_Vars_PFTimeVariables, only: annsum_npp_p, cinput_rootfr_p
-   USE MOD_Tracer_Methane_VegOverride, only: wetland_aere_poros, wetland_aere_radius, &
+   USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_poros, wetland_aere_radius, &
                                               wetland_aere_tillerC, wetland_aere_scale, &
                                               wetland_aere_active
    USE MOD_BGC_Vars_1DPFTFluxes,    only: froot_mr_p, &
@@ -560,11 +560,35 @@ CONTAINS
    END SUBROUTINE get_rice_veg_proxy
 
    !---------------------------------------------------------------------------
-   ! Returns .true. if the patch contains at least one paddy-irrigated rice
-   ! (CFT nrice / nirrig_rice) tile that CN reports as alive (croplive_p).
+   ! Returns .true. for rice CFTs that CH4 should treat as paddy rice.
+   !
+   ! Important: do not require irrig_method_paddy only.  The crop input stores
+   ! rice paddy water management as irrig_method_flood (=3), and MOD_Irrigation
+   ! converts flood -> paddy only when DEF_USE_IRRIGATION is true.  CH4 rice
+   ! paddy mode is controlled by DEF_METHANE%enable_rice_paddy and must still
+   ! recognise flood-managed rice when irrigation physics is disabled.
+   !---------------------------------------------------------------------------
+   logical function ch4_rice_pft_is_paddy(pft_class, irrig_method) result(yes)
+#ifdef CROP
+      USE MOD_Vars_Global, only: nrice, nirrig_rice, irrig_method_flood, irrig_method_paddy
+#endif
+      integer, intent(in) :: pft_class, irrig_method
+
+      yes = .false.
+#ifdef CROP
+      IF (pft_class == nrice .or. pft_class == nirrig_rice) THEN
+         yes = (irrig_method == irrig_method_paddy .or. irrig_method == irrig_method_flood)
+      ENDIF
+#endif
+   END FUNCTION ch4_rice_pft_is_paddy
+
+   !---------------------------------------------------------------------------
+   ! Returns .true. if the patch contains at least one CH4 paddy rice tile
+   ! (flood/paddy-managed CFT nrice / nirrig_rice) that CN reports as alive
+   ! (croplive_p).
    ! This is the single place that touches BGC state from the methane chain,
-   ! satisfying the architectural rule that MOD_Tracer_Methane_Driver and
-   ! MOD_Tracer_Methane_Physics access BGC only through this module.
+   ! satisfying the architectural rule that MOD_Tracer_Reactive_Methane_Driver and
+   ! MOD_Tracer_Reactive_Methane_Physics access BGC only through this module.
    ! Cross-year wrap is handled by CN's state machine (croplive_p stays
    ! .true. across the Dec->Jan boundary for southern-hemisphere rice).
    !---------------------------------------------------------------------------
@@ -572,7 +596,6 @@ CONTAINS
 #ifdef CROP
       USE MOD_BGC_Vars_PFTimeVariables, only: croplive_p
       USE MOD_LandPFT,             only: patch_pft_s, patch_pft_e
-      USE MOD_Vars_Global,         only: nrice, nirrig_rice, irrig_method_paddy
       USE MOD_Vars_PFTimeVariables,  only: irrig_method_p
       USE MOD_Vars_PFTimeInvariants, only: pftclass
       integer :: m_loc, ps_loc, pe_loc, n_pft_max
@@ -591,19 +614,18 @@ CONTAINS
       n_pft_max = min(size(pftclass), size(irrig_method_p), size(croplive_p))
       IF (pe_loc > n_pft_max) RETURN
       DO m_loc = ps_loc, pe_loc
-         IF (pftclass(m_loc) == nrice .or. pftclass(m_loc) == nirrig_rice) THEN
-            IF (irrig_method_p(m_loc) == irrig_method_paddy .and. croplive_p(m_loc)) THEN
-               yes = .true.
-               RETURN
-            ENDIF
+         IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc)) .and. &
+             croplive_p(m_loc)) THEN
+            yes = .true.
+            RETURN
          ENDIF
       ENDDO
 #endif
    END FUNCTION is_paddy_rice_live
 
    !---------------------------------------------------------------------------
-   ! Returns .true. if the patch HOSTS a paddy-irrigated rice (CFT nrice /
-   ! nirrig_rice) tile, regardless of CN croplive_p.  Mirrors the driver
+   ! Returns .true. if the patch HOSTS a CH4 paddy rice (flood/paddy-managed
+   ! CFT nrice / nirrig_rice) tile, regardless of CN croplive_p.  Mirrors the driver
    ! gate at CoLMDRIVER.F90:380 (rice_pft_frac > 0.01 -> run_methane=.true.)
    ! exactly: methane() runs on any patch with a paddy rice CFT, even
    ! before plant or after harvest, so the history/AccFlux mask must
@@ -611,8 +633,8 @@ CONTAINS
    ! is used for the season-specific finundated override timing.
    !---------------------------------------------------------------------------
    !---------------------------------------------------------------------------
-   ! Sum of pftfrac over paddy-irrigated rice (CFT nrice / nirrig_rice)
-   ! tiles in this patch.  Returns 0.0 when patch is out of range, when
+   ! Sum of pftfrac over CH4 paddy rice (flood/paddy-managed CFT nrice /
+   ! nirrig_rice) tiles in this patch.  Returns 0.0 when patch is out of range, when
    ! BGC/CROP arrays are not allocated, or when no paddy rice tile is
    ! present.  Clamped to [0, 1] to guard against upstream pftfrac
    ! normalization slips.  THIS is the single source of truth for the
@@ -622,7 +644,6 @@ CONTAINS
    real(r8) function paddy_rice_fraction(ipatch) result(frac)
 #ifdef CROP
       USE MOD_LandPFT,             only: patch_pft_s, patch_pft_e
-      USE MOD_Vars_Global,         only: nrice, nirrig_rice, irrig_method_paddy
       USE MOD_Vars_PFTimeVariables,  only: irrig_method_p
       USE MOD_Vars_PFTimeInvariants, only: pftclass, pftfrac
       integer :: m_loc, ps_loc, pe_loc, n_pft_max
@@ -641,10 +662,8 @@ CONTAINS
       n_pft_max = min(size(pftclass), size(irrig_method_p), size(pftfrac))
       IF (pe_loc > n_pft_max) RETURN
       DO m_loc = ps_loc, pe_loc
-         IF (pftclass(m_loc) == nrice .or. pftclass(m_loc) == nirrig_rice) THEN
-            IF (irrig_method_p(m_loc) == irrig_method_paddy) THEN
-               frac = frac + pftfrac(m_loc)
-            ENDIF
+         IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc))) THEN
+            frac = frac + pftfrac(m_loc)
          ENDIF
       ENDDO
       frac = min(max(frac, 0._r8), 1._r8)
@@ -670,7 +689,6 @@ CONTAINS
 #ifdef CROP
       USE MOD_BGC_Vars_PFTimeVariables, only: croplive_p, idop_p
       USE MOD_LandPFT,             only: patch_pft_s, patch_pft_e
-      USE MOD_Vars_Global,         only: nrice, nirrig_rice, irrig_method_paddy
       USE MOD_Vars_PFTimeVariables,  only: irrig_method_p
       USE MOD_Vars_PFTimeInvariants, only: pftclass
       integer :: m_loc, ps_loc, pe_loc, n_pft_max
@@ -691,16 +709,15 @@ CONTAINS
                       size(croplive_p), size(idop_p))
       IF (pe_loc > n_pft_max) RETURN
       DO m_loc = ps_loc, pe_loc
-         IF (pftclass(m_loc) == nrice .or. pftclass(m_loc) == nirrig_rice) THEN
-            IF (irrig_method_p(m_loc) == irrig_method_paddy .and. croplive_p(m_loc)) THEN
-               IF (idop_p(m_loc) >= 1 .and. idop_p(m_loc) <= dayspyr) THEN
-                  IF (jday >= idop_p(m_loc)) THEN
-                     idpp = jday - idop_p(m_loc)
-                  ELSE
-                     idpp = dayspyr + jday - idop_p(m_loc)
-                  ENDIF
-                  RETURN
+         IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc)) .and. &
+             croplive_p(m_loc)) THEN
+            IF (idop_p(m_loc) >= 1 .and. idop_p(m_loc) <= dayspyr) THEN
+               IF (jday >= idop_p(m_loc)) THEN
+                  idpp = jday - idop_p(m_loc)
+               ELSE
+                  idpp = dayspyr + jday - idop_p(m_loc)
                ENDIF
+               RETURN
             ENDIF
          ENDIF
       ENDDO
@@ -711,7 +728,6 @@ CONTAINS
 #ifdef CROP
       USE MOD_BGC_Vars_PFTimeVariables, only: harvdate_p
       USE MOD_LandPFT,             only: patch_pft_s, patch_pft_e
-      USE MOD_Vars_Global,         only: nrice, nirrig_rice, irrig_method_paddy
       USE MOD_Vars_PFTimeVariables,  only: irrig_method_p
       USE MOD_Vars_PFTimeInvariants, only: pftclass
       integer :: m_loc, ps_loc, pe_loc, n_pft_max
@@ -732,16 +748,14 @@ CONTAINS
       n_pft_max = min(size(pftclass), size(irrig_method_p), size(harvdate_p))
       IF (pe_loc > n_pft_max) RETURN
       DO m_loc = ps_loc, pe_loc
-         IF (pftclass(m_loc) == nrice .or. pftclass(m_loc) == nirrig_rice) THEN
-            IF (irrig_method_p(m_loc) == irrig_method_paddy) THEN
-               IF (harvdate_p(m_loc) >= 1 .and. harvdate_p(m_loc) < NOT_Harvested) THEN
-                  IF (jday >= harvdate_p(m_loc)) THEN
-                     dsh = jday - harvdate_p(m_loc)
-                  ELSE
-                     dsh = dayspyr + jday - harvdate_p(m_loc)
-                  ENDIF
-                  RETURN
+         IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc))) THEN
+            IF (harvdate_p(m_loc) >= 1 .and. harvdate_p(m_loc) < NOT_Harvested) THEN
+               IF (jday >= harvdate_p(m_loc)) THEN
+                  dsh = jday - harvdate_p(m_loc)
+               ELSE
+                  dsh = dayspyr + jday - harvdate_p(m_loc)
                ENDIF
+               RETURN
             ENDIF
          ENDIF
       ENDDO
@@ -821,7 +835,7 @@ CONTAINS
    !     European Journal of Soil Biology, 37(1), 25-50.
    !     doi:10.1016/S1164-5563(01)01067-6
    !---------------------------------------------------------------------------
-   USE MOD_Tracer_Methane_Const, only: DEF_METHANE
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
    integer,  intent(in) :: patchtype
    real(r8), intent(in) :: dlat
    real(r8), intent(in) :: cellorg_top
@@ -905,7 +919,7 @@ CONTAINS
    !     doi:10.1111/j.1574-6968.1985.tb01605.x
    !     (rice paddy rapid response to managed flood/drain)
    !---------------------------------------------------------------------------
-   USE MOD_Tracer_Methane_Const, only: DEF_METHANE
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
    integer,  intent(in) :: patchtype
    real(r8), intent(in) :: dlat
    real(r8), intent(in) :: cellorg_top
@@ -947,5 +961,5 @@ CONTAINS
 
    END FUNCTION get_biome_redoxlag
 
-END MODULE MOD_Tracer_Methane_BgcLink
+END MODULE MOD_Tracer_Reactive_Methane_BgcLink
 #endif

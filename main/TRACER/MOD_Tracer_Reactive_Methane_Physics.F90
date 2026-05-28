@@ -1,7 +1,7 @@
 #include "define.h"
 #if (defined TRACER) && (defined BGC)
 
-module MOD_Tracer_Methane_Physics
+module MOD_Tracer_Reactive_Methane_Physics
     !=======================================================================
 	! DESCRIPTION:
 	! Module holding routines to calculate methane fluxes
@@ -28,14 +28,14 @@ module MOD_Tracer_Methane_Physics
 	use MOD_Vars_TimeInvariants, only: wetwatmax
 	use MOD_Vars_Global, only : maxsnl,nl_soil,nl_lake,spval,PI,deg2rad
 	use MOD_Const_Physical, only: denh2o, denice, tfrz, grav
-	use MOD_Tracer_Methane_Const
+	use MOD_Tracer_Reactive_Methane_Const
 	USE MOD_Namelist, only: DEF_wetland_finundation_scheme, DEF_USE_Dynamic_Wetland
-	USE MOD_Tracer_Methane_GIEMS, only: giems_finundated, giems_active
-	USE MOD_Tracer_Methane_BgcLink, only: is_paddy_rice_live, &
+	USE MOD_Tracer_Reactive_Methane_GIEMS, only: giems_finundated, giems_active
+	USE MOD_Tracer_Reactive_Methane_BgcLink, only: is_paddy_rice_live, &
 	                                       rice_days_past_planting, rice_days_since_harvest
-	USE MOD_Tracer_Methane_VegOverride, only: get_aere_poros, get_aere_tillerC, &
+	USE MOD_Tracer_Reactive_Methane_VegOverride, only: get_aere_poros, get_aere_tillerC, &
 	                                          get_aere_radius, get_aere_scale
-		USE MOD_Tracer_Methane_State, only: f_inund_levee_patch, f_inund_flood_patch, &
+		USE MOD_Tracer_Reactive_Methane_State, only: f_inund_levee_patch, f_inund_flood_patch, &
 		                                     f_inund_flood_depth_patch, wetland_frac_per_patch, &
 		                                     biome_f_methane_patch, biome_redoxlag_patch, &
 		                                     methane_finundated, methane_soil_finundated, &
@@ -54,7 +54,7 @@ module MOD_Tracer_Methane_Physics
 	private :: methane_aere
 	private :: methane_ebul
 	private :: methane_tran
-	! Rice BGC bridge functions are now public in MOD_Tracer_Methane_BgcLink
+	! Rice BGC bridge functions are now public in MOD_Tracer_Reactive_Methane_BgcLink
 	! (architectural rule: BGC state access only via BgcLink, enforced by CI):
 	!   is_paddy_rice_live, rice_days_past_planting, rice_days_since_harvest
 	private
@@ -673,7 +673,7 @@ contains
 				endif
 			elseif (DEF_wetland_finundation_scheme == 5) then
 				! GIEMS-MC monthly wetland climatology, looked up per-patch.
-				! Loaded once at init by MOD_Tracer_Methane_GIEMS (see CoLM.F90).
+				! Loaded once at init by MOD_Tracer_Reactive_Methane_GIEMS (see CoLM.F90).
 			! ipatch is passed in through methane()'s arg list and forwarded
 			! to giems_finundated() below.
 			if (.not. giems_active) then
@@ -3391,6 +3391,6 @@ contains
 
 		end do
 	end subroutine split_ch4_o2_phases
-END MODULE MOD_Tracer_Methane_Physics
+END MODULE MOD_Tracer_Reactive_Methane_Physics
 #endif
 ! --------- EOP ----------

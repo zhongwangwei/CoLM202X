@@ -1,6 +1,6 @@
 #include <define.h>
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_Driver
+MODULE MOD_Tracer_Reactive_Methane_Driver
 !=======================================================================
 ! Driver wrapper for Methane reactive-tracer physics.
 !=======================================================================
@@ -21,19 +21,19 @@ CONTAINS
 		use MOD_Precision
 		use, intrinsic :: ieee_arithmetic, only: ieee_is_nan
 		use MOD_Const_Physical, only: rgas, denh2o, denice, tfrz, grav
-		use MOD_Tracer_Methane_Const
+		use MOD_Tracer_Reactive_Methane_Const
 		use MOD_Namelist, only : DEF_USE_VariablySaturatedFlow
 		use MOD_Vars_Global, only : maxsnl,nl_soil,nl_lake,spval,PI,deg2rad,z_soi,zi_soi,dz_soi
-		use MOD_Tracer_Methane_Physics
+		use MOD_Tracer_Reactive_Methane_Physics
 		use MOD_SPMD_Task
-			USE MOD_Tracer_Methane_BgcLink, only: tracer_ch4_bgc_patch_inputs, &
+			USE MOD_Tracer_Reactive_Methane_BgcLink, only: tracer_ch4_bgc_patch_inputs, &
 			     get_wetland_veg_proxy, get_rice_veg_proxy, is_paddy_rice_live, &
 			     organic_max, get_biome_f_methane, get_biome_redoxlag
-			USE MOD_Tracer_Methane_VegOverride, only: wetland_aere_active
-		USE MOD_Tracer_Methane_Microbes, only: methane_microbes_step, &
+			USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_active
+		USE MOD_Tracer_Reactive_Methane_Microbes, only: methane_microbes_step, &
 		     microbial_prod_potential, microbial_oxid_potential
 		! ----- Methane tracer state (module-level allocatables) -----
-		USE MOD_Tracer_Methane_State, only: net_methane, methane_prod_depth, o2_decomp_depth, &
+		USE MOD_Tracer_Reactive_Methane_State, only: net_methane, methane_prod_depth, o2_decomp_depth, &
 		     co2_decomp_depth, methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
 		     methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, methane_ebul_depth, &
 		     o2stress, methane_stress, &
@@ -272,7 +272,7 @@ CONTAINS
 			! flag is set by the same any_paddy_rice_live() helper used in
 			! methane() for finundated override, keeping the two physics
 			! decisions consistent.
-			! All BGC state access goes through MOD_Tracer_Methane_BgcLink
+			! All BGC state access goes through MOD_Tracer_Reactive_Methane_BgcLink
 			! (architectural rule enforced by scripts/ci/check_methane_integration.sh).
 			IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
 			   IF (is_paddy_rice_live(i)) THEN
@@ -423,5 +423,5 @@ CONTAINS
 
 	END SUBROUTINE methane_driver
 
-END MODULE MOD_Tracer_Methane_Driver
+END MODULE MOD_Tracer_Reactive_Methane_Driver
 #endif

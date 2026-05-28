@@ -1,7 +1,7 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_Microbes
+MODULE MOD_Tracer_Reactive_Methane_Microbes
 !=======================================================================
 ! Optional microbial-pool diagnostics for the Methane tracer.
 !
@@ -23,7 +23,7 @@ MODULE MOD_Tracer_Methane_Microbes
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
    USE MOD_Vars_Global,        only: nl_soil, spval
    USE MOD_Const_Physical,     only: tfrz
-   USE MOD_Tracer_Methane_Const, only: DEF_METHANE, secspday, catomw
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, secspday, catomw
 
    IMPLICIT NONE
    SAVE
@@ -515,5 +515,5 @@ CONTAINS
       methane_microbes_lulcc_snapshot_valid = .false.
    END SUBROUTINE clear_methane_microbes_lulcc_snapshot
 
-END MODULE MOD_Tracer_Methane_Microbes
+END MODULE MOD_Tracer_Reactive_Methane_Microbes
 #endif

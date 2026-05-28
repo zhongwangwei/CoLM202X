@@ -15,12 +15,12 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
    USE MOD_Vars_1DForcing, only: forc_t, forc_pbot, forc_po2m, forc_pco2m, &
       forc_us, forc_vs
    USE MOD_Vars_1DFluxes, only: rsur, etr, frcsat
-   USE MOD_Tracer_Methane_Driver,   only: methane_driver
-   USE MOD_Tracer_Methane_State,    only: f_h2osfc, compute_f_h2osfc, &
+   USE MOD_Tracer_Reactive_Methane_Driver,   only: methane_driver
+   USE MOD_Tracer_Reactive_Methane_State,    only: f_h2osfc, compute_f_h2osfc, &
       accumulate_methane_lake_substep_diagnostics
-   USE MOD_Tracer_Methane_Registry, only: igas_ch4
-   USE MOD_Tracer_Methane_Const,    only: DEF_METHANE
-   USE MOD_Tracer_Methane_BgcLink,  only: paddy_rice_fraction, PADDY_RICE_FRAC_MIN
+   USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
+   USE MOD_Tracer_Reactive_Methane_BgcLink,  only: paddy_rice_fraction, PADDY_RICE_FRAC_MIN
    USE MOD_Tracer_Reactive_BgcShim,  only: reactive_bgc_run_wetland_decomp
    USE MOD_Tracer_Conservation,     only: tracer_balance_report
 

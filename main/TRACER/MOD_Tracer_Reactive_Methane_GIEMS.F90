@@ -1,7 +1,7 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_GIEMS
+MODULE MOD_Tracer_Reactive_Methane_GIEMS
 
 !-----------------------------------------------------------------------
 ! DESCRIPTION:
@@ -403,5 +403,5 @@ CONTAINS
       IF (ierr /= NF90_NOERR) n = 0
    END SUBROUTINE get_dim
 
-END MODULE MOD_Tracer_Methane_GIEMS
+END MODULE MOD_Tracer_Reactive_Methane_GIEMS
 #endif

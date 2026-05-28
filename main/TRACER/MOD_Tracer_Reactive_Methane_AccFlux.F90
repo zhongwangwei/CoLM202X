@@ -1,7 +1,7 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_AccFlux
+MODULE MOD_Tracer_Reactive_Methane_AccFlux
 !=======================================================================
 ! Accumulated Methane diagnostic buffers.
 !=======================================================================
@@ -9,7 +9,7 @@ MODULE MOD_Tracer_Methane_AccFlux
    USE MOD_Precision
 	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
 	   USE MOD_Vars_Global, only: nl_soil, spval
-	   USE MOD_Tracer_Methane_Const, only: DEF_METHANE
+	   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
 
    IMPLICIT NONE
    SAVE
@@ -671,7 +671,7 @@ CONTAINS
    !-------------------------------------------------------------------
    SUBROUTINE accumulate_methane_fluxes ()
       ! Accumulate Methane state into a_* via acc1d/acc2d.
-	      USE MOD_Tracer_Methane_State,    only: &
+	      USE MOD_Tracer_Reactive_Methane_State,    only: &
 	           net_methane, methane_prod_depth, o2_decomp_depth, co2_decomp_depth, &
 	           methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
            methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, &
@@ -727,15 +727,15 @@ CONTAINS
 	           f_inund_flood_patch, f_inund_flood_depth_patch, wetland_frac_per_patch, &
 	           methane_surf_flux_wetland, methane_surf_flux_soil, methane_surf_flux_lake, &
 	           methane_surf_flux_rice
-      USE MOD_Tracer_Methane_Const,    only: DEF_METHANE
-      USE MOD_Tracer_Methane_Microbes, only: &
+      USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
+      USE MOD_Tracer_Reactive_Methane_Microbes, only: &
            B_methanogen, B_methanotroph, B_methanogen_dormant, B_methanotroph_dormant, &
            f_T_methanogen, f_S_methanogen, f_O2_methanogen, f_T_methanotroph, &
            methanogen_growth_rate, methanotroph_growth_rate, &
            microbial_prod_potential, microbial_oxid_potential
       USE MOD_SPMD_Task, only: p_is_worker
       USE MOD_Vars_TimeInvariants, only: patchtype
-      USE MOD_Tracer_Methane_BgcLink, only: methane_patch_active_mask
+      USE MOD_Tracer_Reactive_Methane_BgcLink, only: methane_patch_active_mask
       ! Use private acc1d/acc2d helpers (below). Cannot USE MOD_Vars_1DAccFluxes
       ! here because MOD_Vars_1DAccFluxes itself calls back into this module
       ! (BLOCK USE in accumulate_fluxes / FLUSH_acc_fluxes), which would
@@ -1786,5 +1786,5 @@ CONTAINS
       valid_acc_value = (.not. ieee_is_nan(x)) .and. abs(x) < 0.5_r8 * abs(spval)
    END FUNCTION valid_acc_value
 
-END MODULE MOD_Tracer_Methane_AccFlux
+END MODULE MOD_Tracer_Reactive_Methane_AccFlux
 #endif

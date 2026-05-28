@@ -18,10 +18,10 @@ CONTAINS
    USE MOD_LandPatch, only: numpatch
    USE MOD_SPMD_Task, only: p_is_worker
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
-   USE MOD_Tracer_Methane_BgcLink, only: methane_patch_active_mask
-            USE MOD_Tracer_Methane_Registry, only: igas_ch4
-	            USE MOD_Tracer_Methane_Const,    only: mhist_on => methane_history_enabled, DEF_METHANE
-            USE MOD_Tracer_Methane_AccFlux,  only: &
+   USE MOD_Tracer_Reactive_Methane_BgcLink, only: methane_patch_active_mask
+            USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
+	            USE MOD_Tracer_Reactive_Methane_Const,    only: mhist_on => methane_history_enabled, DEF_METHANE
+            USE MOD_Tracer_Reactive_Methane_AccFlux,  only: &
                  a_net_methane, a_methane_prod_depth, a_o2_decomp_depth, a_co2_decomp_depth, &
                  a_methane_oxid_depth, a_o2_oxid_depth, a_co2_oxid_depth, &
                  a_methane_aere_depth, a_methane_tran_depth, a_o2_aere_depth, a_co2_aere_depth, &
@@ -109,7 +109,7 @@ CONTAINS
                IF ((p_is_worker) .and. (numpatch > 0)) THEN
                   ! Use BgcLink helper so the history filter matches the
                   ! driver gate + rice paddy override exactly.  Same call
-                  ! site pattern as MOD_Tracer_Methane_AccFlux.F90.
+                  ! site pattern as MOD_Tracer_Reactive_Methane_AccFlux.F90.
                   CALL methane_patch_active_mask (numpatch, DEF_METHANE%only_wetland, &
                                                   DEF_METHANE%enable_rice_paddy, &
                                                   patchtype, filter)
@@ -688,7 +688,7 @@ CONTAINS
                IF ((p_is_worker) .and. (numpatch > 0)) THEN
                   ! Use BgcLink helper so the history filter matches the
                   ! driver gate + rice paddy override exactly.  Same call
-                  ! site pattern as MOD_Tracer_Methane_AccFlux.F90.
+                  ! site pattern as MOD_Tracer_Reactive_Methane_AccFlux.F90.
                   CALL methane_patch_active_mask (numpatch, DEF_METHANE%only_wetland, &
                                                   DEF_METHANE%enable_rice_paddy, &
                                                   patchtype, filter)

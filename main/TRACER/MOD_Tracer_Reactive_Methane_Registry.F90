@@ -1,7 +1,7 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_Registry
+MODULE MOD_Tracer_Reactive_Methane_Registry
 !=======================================================================
 ! Methane species lookup against the TRACER registry.
 !
@@ -136,5 +136,5 @@ CONTAINS
       ENDDO
    END FUNCTION upper
 
-END MODULE MOD_Tracer_Methane_Registry
+END MODULE MOD_Tracer_Reactive_Methane_Registry
 #endif

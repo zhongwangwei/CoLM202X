@@ -1,15 +1,15 @@
 #include <define.h>
 
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_VegOverride
+MODULE MOD_Tracer_Reactive_Methane_VegOverride
 !=======================================================================
 ! Per-patch aerenchyma parameter overrides for wetland (patchtype==2).
 !
-! Written by get_wetland_veg_proxy in MOD_Tracer_Methane_BgcLink based
+! Written by get_wetland_veg_proxy in MOD_Tracer_Reactive_Methane_BgcLink based
 ! on 5-zone climate classification (tropical reed/papyrus, tropical
 ! swamp, temperate marsh, boreal fen, Sphagnum bog).
 !
-! Read by methane_aere / SiteOxAere in MOD_Tracer_Methane_Physics via
+! Read by methane_aere / SiteOxAere in MOD_Tracer_Reactive_Methane_Physics via
 ! getters that fall through to DEF_METHANE%* defaults when the
 ! per-patch override is inactive.
 !
@@ -98,5 +98,5 @@ CONTAINS
       IF (wetland_aere_active(ipatch)) get_aere_scale = wetland_aere_scale(ipatch)
    END FUNCTION get_aere_scale
 
-END MODULE MOD_Tracer_Methane_VegOverride
+END MODULE MOD_Tracer_Reactive_Methane_VegOverride
 #endif

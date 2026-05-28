@@ -1,6 +1,6 @@
 #include <define.h>
 #if (defined TRACER) && (defined BGC)
-MODULE MOD_Tracer_Methane_Const
+MODULE MOD_Tracer_Reactive_Methane_Const
 !=======================================================================
 ! methane constants
 !=======================================================================
@@ -1149,5 +1149,5 @@ CONTAINS
          ENDIF
       END SELECT
    END FUNCTION methane_atm_to_molmol
-END MODULE MOD_Tracer_Methane_Const
+END MODULE MOD_Tracer_Reactive_Methane_Const
 #endif

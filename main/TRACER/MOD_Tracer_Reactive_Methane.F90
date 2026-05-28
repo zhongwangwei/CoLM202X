@@ -11,26 +11,26 @@ MODULE MOD_Tracer_Reactive_Methane
    USE MOD_Tracer_Defs, only: tracers, tracer_param_file_for_index
    USE MOD_Namelist, only: DEF_file_GIEMS, DEF_wetland_finundation_scheme
    USE MOD_Vars_TimeInvariants, only: patchtype, lake_soilc_srf, patchlatr, patchlonr
-   USE MOD_Tracer_Methane_Registry, only: methane_registry_init, methane_registry_refresh, igas_ch4
-   USE MOD_Tracer_Methane_State,    only: allocate_methane_state, &
+   USE MOD_Tracer_Reactive_Methane_Registry, only: methane_registry_init, methane_registry_refresh, igas_ch4
+   USE MOD_Tracer_Reactive_Methane_State,    only: allocate_methane_state, &
       init_methane_wetland_fraction_cache, deallocate_methane_state, &
       read_methane_restart, write_methane_restart, initialize_methane_lake_soilc_from_surface, &
       save_methane_lulcc_state, remap_methane_lulcc_state, &
       publish_methane_levee_flood_patch, publish_methane_flood_patch
-   USE MOD_Tracer_Methane_AccFlux,  only: allocate_methane_acc_fluxes, &
+   USE MOD_Tracer_Reactive_Methane_AccFlux,  only: allocate_methane_acc_fluxes, &
       deallocate_methane_acc_fluxes, flush_methane_acc_fluxes, accumulate_methane_fluxes, &
       read_methane_accflux_restart, write_methane_accflux_restart
-   USE MOD_Tracer_Methane_Microbes, only: allocate_methane_microbes_state, &
+   USE MOD_Tracer_Reactive_Methane_Microbes, only: allocate_methane_microbes_state, &
       deallocate_methane_microbes_state, read_methane_microbes_restart, &
       write_methane_microbes_restart, save_methane_microbes_lulcc_state, &
       remap_methane_microbes_lulcc_state
-   USE MOD_Tracer_Methane_Const,    only: read_methane_namelist, &
+   USE MOD_Tracer_Reactive_Methane_Const,    only: read_methane_namelist, &
       configure_methane_inundation_mode, DEF_METHANE
-   USE MOD_Tracer_Methane_GIEMS,    only: allocate_methane_giems, &
+   USE MOD_Tracer_Reactive_Methane_GIEMS,    only: allocate_methane_giems, &
       deallocate_methane_giems, read_methane_giems, giems_active
-   USE MOD_Tracer_Methane_pH,       only: allocate_methane_ph, &
+   USE MOD_Tracer_Reactive_Methane_pH,       only: allocate_methane_ph, &
       deallocate_methane_ph, read_methane_ph_patch
-   USE MOD_Tracer_Methane_VegOverride, only: allocate_wetland_aere_overrides, &
+   USE MOD_Tracer_Reactive_Methane_VegOverride, only: allocate_wetland_aere_overrides, &
       deallocate_wetland_aere_overrides
    USE MOD_Tracer_Reactive_Methane_Impl, only: ch4_impl_lake_step => ch4_reactive_lake_step, &
       ch4_impl_wetland_decomp => ch4_reactive_wetland_decomp, &
