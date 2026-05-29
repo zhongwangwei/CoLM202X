@@ -8,7 +8,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 
    USE MOD_Precision
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
-   USE MOD_Vars_Global, only: nl_soil, spval
+   USE MOD_Vars_Global, only: nl_soil, spval, dz_soi
 
    IMPLICIT NONE
    SAVE
@@ -80,6 +80,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
    PUBLIC :: methane_aere_depth_unsat
    PUBLIC :: methane_balance_residual
    PUBLIC :: methane_ch4_clip_credit
+   PUBLIC :: restart_ch4_clip_credit_mass
    PUBLIC :: methane_dfsat_tot
    PUBLIC :: methane_ebul_depth
    PUBLIC :: methane_ebul_depth_lake
@@ -201,6 +202,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	real(r8), allocatable :: methane_surf_diff_phys    (:) ! Output: CH4 pure-physics diffusion before clip/residual (mol/m2/s)
 	real(r8), allocatable :: methane_balance_residual (:) ! numerical CH4 closure flux credited to methane_surf_diff (mol/m2/s)
 	real(r8), allocatable :: methane_ch4_clip_credit(:) ! negative CH4 clip credited to methane_surf_diff (mol/m2/s)
+	real(r8), allocatable :: restart_ch4_clip_credit_mass(:) ! restart negative CH4 sanitation credit (mol/m2 impulse)
 	real(r8), allocatable :: o2_cap_loss              (:) ! O2 removed by post-solve physical cap (mol/m2/s)
 	real(r8), allocatable :: o2_cap_gain              (:) ! O2 added by post-solve nonnegative floor (mol/m2/s)
 	real(r8), allocatable :: methane_ebul_tot        (:) ! Output: Total column CH4 ebullition (mol/m2/s)
@@ -431,7 +433,47 @@ MODULE MOD_Tracer_Reactive_Methane_State
 
    ! -------------------- API --------------------
 
+   INTERFACE credit_methane_restart_clip
+      MODULE PROCEDURE credit_methane_restart_clip_1d
+      MODULE PROCEDURE credit_methane_restart_clip_2d
+   END INTERFACE credit_methane_restart_clip
+
 CONTAINS
+
+   SUBROUTINE credit_methane_restart_clip_1d (field, credit_mass)
+      ! Accumulate positive CH4 mass introduced by restart sanitation.
+      ! The in-step clip path reports this as a negative surface-flux credit;
+      ! restart has no timestep length, so keep the boundary correction as a
+      ! mol/m2 impulse budget item and fold its sign into methane_ch4_clip_credit
+      ! for diagnostics that inspect the state immediately after restart.
+      real(r8), intent(in)    :: field(:)
+      real(r8), intent(inout) :: credit_mass(:)
+      integer :: i, n
+
+      n = min(size(field), size(credit_mass))
+      DO i = 1, n
+         IF (field(i) < 0._r8) credit_mass(i) = credit_mass(i) - field(i)
+      ENDDO
+   END SUBROUTINE credit_methane_restart_clip_1d
+
+   SUBROUTINE credit_methane_restart_clip_2d (field, credit_mass)
+      ! Convert negative concentration clips to a column impulse using the
+      ! canonical soil-layer thickness. This mirrors the in-step CH4 clip-credit
+      ! accounting while avoiding an unbudgeted restart mass insertion.
+      real(r8), intent(in)    :: field(:,:)
+      real(r8), intent(inout) :: credit_mass(:)
+      integer :: i, j, nlev, npatch
+      real(r8) :: dz
+
+      nlev = min(size(field,1), nl_soil)
+      npatch = min(size(field,2), size(credit_mass))
+      DO i = 1, npatch
+         DO j = 1, nlev
+            dz = max(dz_soi(j), 0._r8)
+            IF (field(j,i) < 0._r8) credit_mass(i) = credit_mass(i) - field(j,i) * dz
+         ENDDO
+      ENDDO
+   END SUBROUTINE credit_methane_restart_clip_2d
 
    SUBROUTINE allocate_methane_state (numpatch)
       integer, intent(in) :: numpatch
@@ -462,6 +504,7 @@ CONTAINS
       allocate (methane_surf_diff_phys          (numpatch)); methane_surf_diff_phys     (:) = 0._r8
       allocate (methane_balance_residual       (numpatch)); methane_balance_residual  (:) = 0._r8
       allocate (methane_ch4_clip_credit        (numpatch)); methane_ch4_clip_credit   (:) = 0._r8
+      allocate (restart_ch4_clip_credit_mass (numpatch)); restart_ch4_clip_credit_mass(:) = 0._r8
       allocate (o2_cap_loss                    (numpatch)); o2_cap_loss               (:) = 0._r8
       allocate (o2_cap_gain                    (numpatch)); o2_cap_gain               (:) = 0._r8
       allocate (methane_ebul_tot                (numpatch)); methane_ebul_tot           (:) = 0._r8
@@ -753,6 +796,7 @@ CONTAINS
       IF (allocated(methane_surf_diff_phys)) deallocate (methane_surf_diff_phys)
       IF (allocated(methane_balance_residual)) deallocate (methane_balance_residual)
       IF (allocated(methane_ch4_clip_credit)) deallocate (methane_ch4_clip_credit)
+      IF (allocated(restart_ch4_clip_credit_mass)) deallocate (restart_ch4_clip_credit_mass)
       IF (allocated(o2_cap_loss)) deallocate (o2_cap_loss)
       IF (allocated(o2_cap_gain)) deallocate (o2_cap_gain)
       IF (allocated(methane_ebul_tot)) deallocate (methane_ebul_tot)
@@ -1304,10 +1348,18 @@ CONTAINS
       CALL ncio_write_vector (file_restart, 'ch4_tempavg_somhr',    'patch', landpatch, tempavg_somhr,    compress)
       CALL ncio_write_vector (file_restart, 'ch4_tempavg_finrw',    'patch', landpatch, tempavg_finrw,    compress)
       CALL ncio_write_vector (file_restart, 'ch4_fsat_bef',         'patch', landpatch, fsat_bef,         compress)
-      CALL ncio_write_vector (file_restart, 'ch4_finundated_lag',   'patch', landpatch, finundated_lag,   compress)
-      CALL ncio_write_vector (file_restart, 'ch4_methane_dfsat_tot','patch', landpatch, methane_dfsat_tot, compress)
-      CALL ncio_write_vector (file_restart, 'ch4_f_h2osfc',         'patch', landpatch, f_h2osfc,         compress)
-   END SUBROUTINE write_methane_restart
+	      CALL ncio_write_vector (file_restart, 'ch4_finundated_lag',   'patch', landpatch, finundated_lag,   compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_methane_dfsat_tot','patch', landpatch, methane_dfsat_tot, compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_f_h2osfc',         'patch', landpatch, f_h2osfc,         compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_f_inund_levee_patch',       &
+	                              'patch', landpatch, f_inund_levee_patch,       compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_f_inund_flood_patch',       &
+	                              'patch', landpatch, f_inund_flood_patch,       compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_f_inund_flood_depth_patch', &
+	                              'patch', landpatch, f_inund_flood_depth_patch, compress)
+      IF (allocated(restart_ch4_clip_credit_mass)) CALL ncio_write_vector (file_restart, &
+         'ch4_restart_ch4_clip_credit_mass', 'patch', landpatch, restart_ch4_clip_credit_mass, compress)
+	   END SUBROUTINE write_methane_restart
 
 
    SUBROUTINE read_methane_restart (file_restart)
@@ -1348,6 +1400,14 @@ CONTAINS
 	      CALL ncio_read_vector (file_restart, 'ch4_finundated_lag',   landpatch, finundated_lag,   defval = spval)
 	      CALL ncio_read_vector (file_restart, 'ch4_methane_dfsat_tot',landpatch, methane_dfsat_tot, defval = 0._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_f_h2osfc',         landpatch, f_h2osfc,         defval = 0._r8)
+	      CALL ncio_read_vector (file_restart, 'ch4_f_inund_levee_patch',       landpatch, &
+	                             f_inund_levee_patch,       defval = 0._r8)
+	      CALL ncio_read_vector (file_restart, 'ch4_f_inund_flood_patch',       landpatch, &
+	                             f_inund_flood_patch,       defval = 0._r8)
+	      CALL ncio_read_vector (file_restart, 'ch4_f_inund_flood_depth_patch', landpatch, &
+	                             f_inund_flood_depth_patch, defval = 0._r8)
+      IF (allocated(restart_ch4_clip_credit_mass)) CALL ncio_read_vector (file_restart, &
+         'ch4_restart_ch4_clip_credit_mass', landpatch, restart_ch4_clip_credit_mass, defval = 0._r8)
 
 	      WHERE (invalid_restart_value(conc_o2))           conc_o2           = 1._r8
       WHERE (invalid_restart_value(conc_o2_unsat))     conc_o2_unsat     = 1._r8
@@ -1363,13 +1423,29 @@ CONTAINS
          grnd_methane_cond_unsat = 1.e-6_r8
       WHERE (invalid_restart_value(grnd_methane_cond_sat) .or. grnd_methane_cond_sat <= 0._r8) &
          grnd_methane_cond_sat = 1.e-6_r8
-      WHERE (invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake <= 0._r8) &
-         grnd_methane_cond_lake = 1.e-6_r8
+	      WHERE (invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake <= 0._r8) &
+	         grnd_methane_cond_lake = 1.e-6_r8
+	      WHERE (invalid_restart_value(f_inund_levee_patch) .or. f_inund_levee_patch < 0._r8) &
+	         f_inund_levee_patch = 0._r8
+	      WHERE (invalid_restart_value(f_inund_flood_patch) .or. f_inund_flood_patch < 0._r8) &
+	         f_inund_flood_patch = 0._r8
+	      WHERE (invalid_restart_value(f_inund_flood_depth_patch) .or. f_inund_flood_depth_patch < 0._r8) &
+	         f_inund_flood_depth_patch = 0._r8
+	      WHERE (f_inund_levee_patch > 1._r8) f_inund_levee_patch = 1._r8
+	      WHERE (f_inund_flood_patch > 1._r8) f_inund_flood_patch = 1._r8
 
-      ! invalid_restart_value catches NaN/spval but not negatives.  A stale
+	      ! invalid_restart_value catches NaN/spval but not negatives.  A stale
       ! restart with sub-zero CH4 or O2 would feed phase-partition and
       ! Michaelis-Menten kinetics, yielding negative oxidation / production.
-      ! Clip to zero defensively.
+      ! Clip to zero defensively.  CH4 clips are credited before mutation so
+      ! restart sanitation is visible in the same budget family as in-step
+      ! negative-concentration clip credits.
+      IF (allocated(restart_ch4_clip_credit_mass)) THEN
+         CALL credit_methane_restart_clip(conc_methane,       restart_ch4_clip_credit_mass)
+         CALL credit_methane_restart_clip(conc_methane_unsat, restart_ch4_clip_credit_mass)
+         CALL credit_methane_restart_clip(conc_methane_sat,   restart_ch4_clip_credit_mass)
+         CALL credit_methane_restart_clip(conc_methane_lake,  restart_ch4_clip_credit_mass)
+      ENDIF
       WHERE (conc_o2           < 0._r8) conc_o2           = 0._r8
       WHERE (conc_o2_unsat     < 0._r8) conc_o2_unsat     = 0._r8
       WHERE (conc_o2_sat       < 0._r8) conc_o2_sat       = 0._r8
@@ -1394,6 +1470,15 @@ CONTAINS
       WHERE (invalid_restart_value(totcol_methane_unsat)) totcol_methane_unsat = 0._r8
       WHERE (invalid_restart_value(totcol_methane_sat))   totcol_methane_sat   = 0._r8
       WHERE (invalid_restart_value(totcol_methane_lake))  totcol_methane_lake  = 0._r8
+      IF (allocated(restart_ch4_clip_credit_mass)) THEN
+         CALL credit_methane_restart_clip(totcol_methane,       restart_ch4_clip_credit_mass)
+         CALL credit_methane_restart_clip(totcol_methane_unsat, restart_ch4_clip_credit_mass)
+         CALL credit_methane_restart_clip(totcol_methane_sat,   restart_ch4_clip_credit_mass)
+         CALL credit_methane_restart_clip(totcol_methane_lake,  restart_ch4_clip_credit_mass)
+         IF (allocated(methane_ch4_clip_credit)) THEN
+            methane_ch4_clip_credit(:) = methane_ch4_clip_credit(:) - restart_ch4_clip_credit_mass(:)
+         ENDIF
+      ENDIF
       WHERE (totcol_methane       < 0._r8) totcol_methane       = 0._r8
       WHERE (totcol_methane_unsat < 0._r8) totcol_methane_unsat = 0._r8
       WHERE (totcol_methane_sat   < 0._r8) totcol_methane_sat   = 0._r8

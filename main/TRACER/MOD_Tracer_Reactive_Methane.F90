@@ -32,16 +32,15 @@ MODULE MOD_Tracer_Reactive_Methane
       deallocate_methane_ph, read_methane_ph_patch
    USE MOD_Tracer_Reactive_Methane_VegOverride, only: allocate_wetland_aere_overrides, &
       deallocate_wetland_aere_overrides
-   USE MOD_Tracer_Reactive_Methane_Impl, only: ch4_impl_lake_step => ch4_reactive_lake_step, &
-      ch4_impl_wetland_decomp => ch4_reactive_wetland_decomp, &
-      ch4_impl_soil_step => ch4_reactive_soil_step, &
-      ch4_impl_report => ch4_reactive_report
+   USE MOD_Tracer_Reactive_Methane_Impl, only: ch4_impl_lake_step, &
+      ch4_impl_wetland_decomp, ch4_impl_soil_step, ch4_impl_report
    USE MOD_Tracer_Reactive_Methane_Hist, only: methane_reactive_history
 
    IMPLICIT NONE
    PRIVATE
 
    logical, save :: registry_init_reported = .false.
+   character(len=512), save :: last_methane_ph_patch_file = ''
 
    PUBLIC :: ch4_reactive_name, ch4_reactive_aliases
    PUBLIC :: ch4_reactive_has, ch4_reactive_has_name
@@ -199,10 +198,12 @@ CONTAINS
          ENDIF
       ENDIF
 
+      last_methane_ph_patch_file = ''
       CALL allocate_methane_ph (numpatch)
       IF (DEF_METHANE%use_spatial_ph) THEN
-         CALL read_methane_ph_patch (trim(dir_landdata)//'/soil/'//trim(cyear_restart)// &
-            '/methane_ph_patches.nc', numpatch)
+         last_methane_ph_patch_file = trim(dir_landdata)//'/soil/'//trim(cyear_restart)// &
+            '/methane_ph_patches.nc'
+         CALL read_methane_ph_patch (trim(last_methane_ph_patch_file), numpatch)
       ENDIF
 
       CALL allocate_wetland_aere_overrides (numpatch)
@@ -378,6 +379,8 @@ CONTAINS
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,:)
       real(r8), intent(in), optional :: old_patch_area(:)
+      integer :: nnew
+      real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
       CALL remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
@@ -386,6 +389,45 @@ CONTAINS
          CALL remap_methane_microbes_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
             lccpct_patches, old_patch_area)
       ENDIF
+
+      ! LULCC can change the worker-local patch count.  Methane state and
+      ! microbial pools are remapped above; all other patch-sized methane
+      ! buffers must be resized in the same transaction.  Leaving the old
+      ! accumulator size would make acc1d(state, accumulator) write past the
+      ! accumulator when numpatch grows, or keep stale/mis-aligned entries
+      ! when it shrinks.
+      nnew = size(patchclass_new)
+      CALL flush_methane_acc_fluxes ()
+      CALL deallocate_methane_acc_fluxes ()
+      CALL allocate_methane_acc_fluxes (nnew)
+
+      CALL deallocate_methane_giems ()
+      CALL allocate_methane_giems (nnew)
+      IF (DEF_wetland_finundation_scheme == 5) THEN
+         IF (trim(DEF_file_GIEMS) == 'null') THEN
+            CALL CoLM_stop (' ***** ERROR: DEF_wetland_finundation_scheme=5 requires DEF_file_GIEMS.')
+         ENDIF
+         IF (p_is_worker .and. allocated(patchlatr) .and. allocated(patchlonr) .and. &
+             size(patchlatr) >= nnew .and. size(patchlonr) >= nnew) THEN
+            CALL read_methane_giems (DEF_file_GIEMS, patchlatr, patchlonr, nnew)
+         ELSE
+            allocate(giems_dummy_patch(0))
+            CALL read_methane_giems (DEF_file_GIEMS, giems_dummy_patch, giems_dummy_patch, 0)
+            deallocate(giems_dummy_patch)
+         ENDIF
+         IF (.not. giems_active) THEN
+            CALL CoLM_stop (' ***** ERROR: GIEMS file could not be loaded for methane scheme 5.')
+         ENDIF
+      ENDIF
+
+      CALL deallocate_methane_ph ()
+      CALL allocate_methane_ph (nnew)
+      IF (DEF_METHANE%use_spatial_ph .and. len_trim(last_methane_ph_patch_file) > 0) THEN
+         CALL read_methane_ph_patch (trim(last_methane_ph_patch_file), nnew)
+      ENDIF
+
+      CALL deallocate_wetland_aere_overrides ()
+      CALL allocate_wetland_aere_overrides (nnew)
 
    END SUBROUTINE ch4_reactive_remap_lulcc_state
 

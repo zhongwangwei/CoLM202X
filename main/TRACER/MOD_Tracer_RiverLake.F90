@@ -2,7 +2,7 @@
 
 #ifdef GridRiverLakeFlow
 #ifdef TRACER
-MODULE MOD_Grid_RiverLakeTracer
+MODULE MOD_Tracer_RiverLake
 !-------------------------------------------------------------------------------------
 ! DESCRIPTION:
 !
@@ -25,7 +25,7 @@ MODULE MOD_Grid_RiverLakeTracer
    ! Share the single authoritative `ntracers` from MOD_Tracer_Defs to
    ! avoid the land/river tracer modules holding two independent copies
    ! that could silently diverge on re-init.
-   USE MOD_Tracer_Defs, only: ntracers
+   USE MOD_Tracer_Defs, only: ntracers, tracer_is_particle
    IMPLICIT NONE
 
    !-------------------------------------------------------------------------------------
@@ -365,6 +365,7 @@ CONTAINS
 
       n_init = 0
       DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
          do_init = .true.
          IF (present(missing_mask)) THEN
             IF (itrc <= size(missing_mask)) do_init = missing_mask(itrc)
@@ -443,6 +444,7 @@ CONTAINS
       IF (.not. present(trc_rnof_ext)) THEN
          allocate(R_default(ntracers))
          DO itrc = 1, ntracers
+            IF (tracer_is_particle(itrc)) CYCLE
             R_default(itrc) = tracer_init_water_ratio(itrc)
          ENDDO
       ENDIF
@@ -457,6 +459,7 @@ CONTAINS
       DO i = 1, numucat_in
          acc_rnof_ref(i) = acc_rnof_ref(i) + rnof_uc_depth(i)
          DO itrc = 1, ntracers
+            IF (tracer_is_particle(itrc)) CYCLE
             IF (present(trc_rnof_ext)) THEN
                acc_trc_inp(itrc, i) = acc_trc_inp(itrc, i) + trc_rnof_ext(itrc, i)
             ELSE
@@ -478,8 +481,8 @@ CONTAINS
    SUBROUTINE get_cell_volume (icell, wdsrf_cell, volresv_in, ucat2resv_in, volwater)
 
    USE MOD_Grid_RiverLakeNetwork, only: floodplain_curve, lake_type
-   USE MOD_Grid_RiverLakeLevee,   only: has_levee, volwater_ucat, &
-      volwater_ucat_valid, levsto, levee_visible_volume_from_stage
+   USE MOD_Grid_RiverLakeLevee,   only: has_levee, levsto, levee_visible_volume_from_stage
+   USE MOD_Grid_RiverLakeTimeVars, only: volwater_ucat, volwater_ucat_valid
    USE MOD_Vars_Global,           only: spval
    IMPLICIT NONE
 
@@ -596,6 +599,7 @@ CONTAINS
 
       water_factor = 0._r8
       DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
          vis_pending = 0._r8
          IF (present(pending_trc_pool)) THEN
             IF (itrc <= size(pending_trc_pool)) vis_pending = pending_trc_pool(itrc)
@@ -721,7 +725,8 @@ CONTAINS
    SUBROUTINE tracer_refresh_state (wdsrf, volresv_in, ucat2resv_in)
 
    USE MOD_Grid_RiverLakeNetwork, only: numucat, floodplain_curve, lake_type
-   USE MOD_Grid_RiverLakeLevee,   only: has_levee, volwater_ucat
+   USE MOD_Grid_RiverLakeLevee,   only: has_levee
+   USE MOD_Grid_RiverLakeTimeVars, only: volwater_ucat
    IMPLICIT NONE
 
    real(r8), intent(in) :: wdsrf(:)
@@ -737,6 +742,7 @@ CONTAINS
       DO i = 1, numucat
          CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, volwater)
          DO itrc = 1, ntracers
+            IF (tracer_is_particle(itrc)) CYCLE
             CALL update_tracer_concentration(itrc, i, volwater)
          ENDDO
       ENDDO
@@ -775,6 +781,7 @@ CONTAINS
          IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
          IF (volwater <= trc_v_dry_off) THEN
             DO itrc = 1, ntracers
+               IF (tracer_is_particle(itrc)) CYCLE
                dry_drain = trc_mass(itrc, i) + trc_inp_buf(itrc, i)
                IF (abs(dry_drain) > trc_tiny) THEN
                   IF (dt_i > 0._r8) trc_flux_out(itrc, i) = trc_flux_out(itrc, i) + dry_drain / dt_i
@@ -785,6 +792,7 @@ CONTAINS
             ENDDO
          ENDIF
          DO itrc = 1, ntracers
+            IF (tracer_is_particle(itrc)) CYCLE
             CALL update_tracer_concentration(itrc, i, volwater)
          ENDDO
          IF (.not. ucatfilter(i)) CYCLE
@@ -802,6 +810,7 @@ CONTAINS
 		      ENDIF
 
 		      DO itrc = 1, ntracers
+		         IF (tracer_is_particle(itrc)) CYCLE
 		         a_trc_conc  (itrc, i) = a_trc_conc  (itrc, i) + trc_conc(itrc, i) * dt_i
 		         IF (volwater > trc_v_dry_off .and. allocated(a_trc_storage_mass)) THEN
 		            a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) &
@@ -947,7 +956,8 @@ CONTAINS
       floodplain_curve, lake_type, push_ups2ucat, push_next2ucat, &
       npthlev_bif, pth_upst_local, pth_down_local, &
       push_bif_influx, push_bif_dn2pth
-   USE MOD_Grid_RiverLakeLevee, only: has_levee, volwater_ucat, levsto
+   USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto
+   USE MOD_Grid_RiverLakeTimeVars, only: volwater_ucat
 	   USE MOD_WorkerPushData
 	   USE MOD_Tracer_Defs, only: trc_tiny, tracers, delta_to_R, &
 	      tracer_init_water_ratio, tracer_can_use_fixed_signature, &
@@ -1013,6 +1023,7 @@ CONTAINS
       ENDIF
 
 	      DO itrc = 1, ntracers
+	         IF (tracer_is_particle(itrc)) CYCLE
 	         R_fill = tracer_init_water_ratio(itrc)
 	         fixed_signature_transport = tracer_can_use_fixed_signature(itrc) .and. &
 	            .not. tracer_fractionation_active(itrc)
@@ -1594,6 +1605,7 @@ CONTAINS
       DO i = 1, numucat
          CALL get_cell_volume(i, wdsrf(i), volresv, ucat2resv, volwater)
          DO itrc = 1, ntracers
+            IF (tracer_is_particle(itrc)) CYCLE
             CALL update_tracer_concentration(itrc, i, volwater)
          ENDDO
       ENDDO
@@ -1698,6 +1710,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
          write(varname, '(A,A)') 'trc_mass_', trim(tracer_names(itrc))
 
          ! Master-only file probe + broadcast to avoid concurrent opens.
@@ -1956,6 +1969,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = trc_mass(itrc, :)
          ENDIF
@@ -2048,6 +2062,7 @@ CONTAINS
       ! remain visible via the WARNING watchdog); only this display
       ! slice hides the noise floor.
       DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
          IF (tracer_uses_delta_diagnostics(itrc)) THEN
             conc_word  = 'ratio'
             conc_units = 'R'
@@ -2275,6 +2290,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
          IF (tracer_uses_delta_diagnostics(itrc)) THEN
             trc_mass_units = 'R*m3'
             trc_conc_units = 'R'
@@ -2426,6 +2442,6 @@ CONTAINS
 
    END SUBROUTINE tracer_final
 
-END MODULE MOD_Grid_RiverLakeTracer
+END MODULE MOD_Tracer_RiverLake
 #endif
 #endif

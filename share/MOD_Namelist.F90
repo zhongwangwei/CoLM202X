@@ -361,25 +361,6 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_file_GIEMS = 'null'
    integer :: DEF_wetland_finundation_scheme = 1
 #endif
-   ! ----- sediment module -----
-   logical  :: DEF_USE_SEDIMENT        = .false.
-   real(r8) :: DEF_SED_LAMBDA          = 0.4
-   real(r8) :: DEF_SED_LYRDPH          = 0.00005
-   real(r8) :: DEF_SED_DENSITY         = 2.65
-   real(r8) :: DEF_SED_WATER_DENSITY   = 1.0
-   real(r8) :: DEF_SED_VISKIN          = 1.0e-6
-   real(r8) :: DEF_SED_VONKAR          = 0.4
-   real(r8) :: DEF_SED_PSET            = 1.0
-   integer  :: DEF_SED_TOTLYRNUM       = 5
-   real(r8) :: DEF_SED_CFL_ADV         = 0.5
-   real(r8) :: DEF_SED_IGNORE_DPH      = 0.05
-   real(r8) :: DEF_SED_DT_MAX          = 3600.
-   character(len=256) :: DEF_SED_DIAMETER = "0.0002,0.002,0.02"
-   real(r8) :: DEF_SED_PYLD            = 0.01
-   real(r8) :: DEF_SED_PYLDC           = 2.0
-   real(r8) :: DEF_SED_PYLDPC          = 2.0
-   real(r8) :: DEF_SED_DSYLUNIT        = 1.0e-6
-
    ! ----- others -----
    character(len=5)   :: DEF_precip_phase_discrimination_scheme = 'II'
 
@@ -479,38 +460,13 @@ MODULE MOD_Namelist
       integer            :: CBL_dtime          = 21600
       integer            :: CBL_offset         = 10800
 
-      character(len=256) :: precipitation_O18_fprefix = 'null'
-      character(len=256) :: precipitation_O18_vname   = 'null'
-      character(len=256) :: precipitation_O18_tintalgo = 'linear'
-      integer            :: precipitation_O18_dtime   = 21600
-      integer            :: precipitation_O18_offset  = 10800
-      character(len=256) :: precipitation_H2_fprefix  = 'null'
-      character(len=256) :: precipitation_H2_vname    = 'null'
-      character(len=256) :: precipitation_H2_tintalgo = 'linear'
-      integer            :: precipitation_H2_dtime    = 21600
-      integer            :: precipitation_H2_offset   = 10800
-      character(len=256) :: water_vapor_O18_fprefix   = 'null'
-      character(len=256) :: water_vapor_O18_vname     = 'null'
-      character(len=256) :: water_vapor_O18_tintalgo  = 'linear'
-      integer            :: water_vapor_O18_dtime     = 21600
-      integer            :: water_vapor_O18_offset    = 10800
-      character(len=256) :: water_vapor_H2_fprefix    = 'null'
-      character(len=256) :: water_vapor_H2_vname      = 'null'
-      character(len=256) :: water_vapor_H2_tintalgo   = 'linear'
-      integer            :: water_vapor_H2_dtime      = 21600
-      integer            :: water_vapor_H2_offset     = 10800
-      character(len=1024) :: tracer_precip_fprefix    = 'null'
-      character(len=1024) :: tracer_precip_vname      = 'null'
-      character(len=1024) :: tracer_precip_tintalgo   = 'linear'
-      character(len=1024) :: tracer_precip_dtime      = '21600'
-      character(len=1024) :: tracer_precip_offset     = '10800'
-      character(len=1024) :: tracer_precip_input_mode = 'value'
-      character(len=1024) :: tracer_vapor_fprefix     = 'null'
-      character(len=1024) :: tracer_vapor_vname       = 'null'
-      character(len=1024) :: tracer_vapor_tintalgo    = 'linear'
-      character(len=1024) :: tracer_vapor_dtime       = '21600'
-      character(len=1024) :: tracer_vapor_offset      = '10800'
-      character(len=1024) :: tracer_vapor_input_mode  = 'value'
+      ! NOTE: per-tracer forcing (precip/vapor fprefix/vname/dtime/offset/...)
+      ! is no longer carried in DEF_forcing. Each tracer declares its OWN
+      ! forcing in its parameter file via &nl_colm_tracer_forcing, read by
+      ! main/TRACER/MOD_Tracer_ForcingInput.F90. The former global CSV fields
+      ! (tracer_precip_*/tracer_vapor_*) and legacy per-species shortcuts
+      ! (precipitation_O18_*/_H2_*, water_vapor_O18_*/_H2_*) were removed in
+      ! the per-species forcing refactor (2026-05-29).
    END type nl_forcing_type
 
    type (nl_forcing_type) :: DEF_forcing
@@ -1247,23 +1203,6 @@ CONTAINS
 #if (defined TRACER) && (defined BGC)
       DEF_file_GIEMS,                         &
 #endif
-      DEF_USE_SEDIMENT,                       &
-      DEF_SED_LAMBDA,                         &
-      DEF_SED_LYRDPH,                         &
-      DEF_SED_DENSITY,                        &
-      DEF_SED_WATER_DENSITY,                  &
-      DEF_SED_VISKIN,                         &
-      DEF_SED_VONKAR,                         &
-      DEF_SED_PSET,                           &
-      DEF_SED_TOTLYRNUM,                      &
-      DEF_SED_CFL_ADV,                        &
-      DEF_SED_IGNORE_DPH,                     &
-      DEF_SED_DT_MAX,                         &
-      DEF_SED_DIAMETER,                       &
-      DEF_SED_PYLD,                           &
-      DEF_SED_PYLDC,                          &
-      DEF_SED_PYLDPC,                         &
-      DEF_SED_DSYLUNIT,                       &
 
       DEF_precip_phase_discrimination_scheme, &
 
@@ -1920,23 +1859,6 @@ CONTAINS
       CALL mpi_bcast (DEF_file_GIEMS                         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
 #endif
-      CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DENSITY                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_WATER_DENSITY                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_VISKIN                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_VONKAR                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PSET                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_TOTLYRNUM                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_CFL_ADV                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_IGNORE_DPH                     ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DT_MAX                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DIAMETER                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLD                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLDC                          ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLDPC                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DSYLUNIT                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_HISTORY_IN_VECTOR                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1998,38 +1920,7 @@ CONTAINS
       CALL mpi_bcast (DEF_forcing%CBL_tintalgo               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_dtime                  ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_forcing%CBL_offset                 ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_O18_fprefix  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_O18_vname    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_O18_tintalgo ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_O18_dtime    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_O18_offset   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_H2_fprefix   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_H2_vname     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_H2_tintalgo  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_H2_dtime     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%precipitation_H2_offset    ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_O18_fprefix    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_O18_vname      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_O18_tintalgo   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_O18_dtime      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_O18_offset     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_H2_fprefix     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_H2_vname       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_H2_tintalgo    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_H2_dtime       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%water_vapor_H2_offset      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_precip_fprefix      ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_precip_vname        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_precip_tintalgo     ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_precip_dtime        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_precip_offset       ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_precip_input_mode   ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_vapor_fprefix       ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_vapor_vname         ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_vapor_tintalgo      ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_vapor_dtime         ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_vapor_offset        ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_forcing%tracer_vapor_input_mode    ,1024,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      ! (per-tracer forcing fields removed; now per-species via MOD_Tracer_ForcingInput)
 #endif
 
       CALL sync_hist_vars (set_defaults = .true.)

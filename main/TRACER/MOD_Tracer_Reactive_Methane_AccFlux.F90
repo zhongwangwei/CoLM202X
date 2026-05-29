@@ -754,6 +754,15 @@ CONTAINS
             size(patchtype), size(totcol_methane)
          CALL abort
       ENDIF
+      IF (.not. allocated(a_totcol_methane)) THEN
+         write(6,*) 'accumulate_methane_fluxes: methane accumulator is not allocated.'
+         CALL abort
+      ENDIF
+      IF (size(a_totcol_methane) /= size(totcol_methane)) THEN
+         write(6,*) 'accumulate_methane_fluxes: worker state/accumulator size mismatch=', &
+            size(totcol_methane), size(a_totcol_methane)
+         CALL abort
+      ENDIF
 
 	      ! Build the methane-active patch mask once via BgcLink helper so
 	      ! AccFlux / history filters match the driver gate (CoLMDRIVER.F90

@@ -15,7 +15,7 @@ MODULE MOD_Tracer_Hist
 #endif
    USE MOD_Tracer_Defs, only: ntracers, tracers, mass_to_delta, trc_tiny, &
       trc_delta_sanity_max, trc_flux_water_min_for_delta, trc_water_min_for_delta, &
-      tracer_uses_delta_diagnostics
+      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport
    USE MOD_Tracer_Vars
 
    IMPLICIT NONE
@@ -47,6 +47,7 @@ CONTAINS
       ! Canopy water
       a_water_ldew(ipatch) = a_water_ldew(ipatch) + (ldew_rain + ldew_snow)
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          a_trc_ldew_mass(itrc, ipatch) = a_trc_ldew_mass(itrc, ipatch) &
             + trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
       ENDDO
@@ -55,6 +56,7 @@ CONTAINS
       DO j = 1, nl_soil
          a_water_soil(j, ipatch) = a_water_soil(j, ipatch) + wliq_soisno(j) + wice_soisno(j)
          DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             a_trc_soil_mass(itrc, j, ipatch) = a_trc_soil_mass(itrc, j, ipatch) &
                + trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
          ENDDO
@@ -70,6 +72,7 @@ CONTAINS
             a_water_snow(jsnow, ipatch) = a_water_snow(jsnow, ipatch) &
                + wliq_soisno(j) + wice_soisno(j)
             DO itrc = 1, ntracers
+               IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
                a_trc_snow_mass(itrc, jsnow, ipatch) = a_trc_snow_mass(itrc, jsnow, ipatch) &
                   + trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
             ENDDO
@@ -93,6 +96,7 @@ CONTAINS
             a_water_scv(ipatch) = a_water_scv(ipatch) + scv
          ENDIF
 	      DO itrc = 1, ntracers
+	         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
 	         IF (wa > 1._r8) THEN
 	            a_trc_wa_mass(itrc, ipatch) = a_trc_wa_mass(itrc, ipatch) + trc_wa(itrc, ipatch)
 	         ENDIF
@@ -183,6 +187,7 @@ CONTAINS
                ENDIF
 
                DO itrc_loc = 1, ntracers
+                  IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
                      trc_ratio_word  = 'ratio'
                      trc_ratio_units = 'R'

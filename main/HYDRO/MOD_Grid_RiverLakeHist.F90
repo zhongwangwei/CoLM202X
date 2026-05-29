@@ -12,12 +12,11 @@ MODULE MOD_Grid_RiverLakeHist
 
    USE MOD_Precision
    USE MOD_DataType
-#ifdef GridRiverLakeSediment
-   USE MOD_Grid_RiverLakeSediment, only: nsed, sed_hist_acctime, &
-      a_sedcon, a_sedout, a_bedout, a_sedinp, a_netflw, a_layer, a_shearvel
+#ifdef TRACER
+   USE MOD_Tracer_Particle, only: tracer_particle_write_history, tracer_particle_flush_history
 #endif
 #ifdef TRACER
-   USE MOD_Grid_RiverLakeTracer, only: write_tracer_history, tracer_flush_acc
+   USE MOD_Tracer_RiverLake, only: write_tracer_history, tracer_flush_acc
 #endif
 
    ! -- ACC Fluxes --
@@ -651,8 +650,8 @@ CONTAINS
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
       IF (allocated (bifflw_wdata   )) deallocate (bifflw_wdata   )
 
-#ifdef GridRiverLakeSediment
-      CALL write_sediment_history (file_hist_ucat, itime_in_file_ucat)
+#ifdef TRACER
+      CALL tracer_particle_write_history (file_hist_ucat, itime_in_file_ucat)
 #endif
 
       ! ----- tracer variables -----
@@ -769,17 +768,8 @@ CONTAINS
             CALL tracer_flush_acc()
 #endif
 
-#ifdef GridRiverLakeSediment
-         IF (DEF_USE_SEDIMENT .and. allocated(a_sedcon)) THEN
-            a_sedcon   = 0.
-            a_sedout   = 0.
-            a_bedout   = 0.
-            a_sedinp   = 0.
-            a_netflw   = 0.
-            a_layer    = 0.
-            a_shearvel = 0.
-            sed_hist_acctime = 0.
-         ENDIF
+#ifdef TRACER
+            CALL tracer_particle_flush_history()
 #endif
 
       ENDIF
@@ -830,151 +820,6 @@ CONTAINS
       IF (allocated(allups_mask_pch )) deallocate (allups_mask_pch )
 
    END SUBROUTINE hist_grid_riverlake_final
-
-#ifdef GridRiverLakeSediment
-   !---------------------------------------
-   SUBROUTINE write_sediment_history (file_hist_ucat, itime_in_file_ucat)
-
-   USE MOD_SPMD_Task
-   USE MOD_Namelist
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
-                                         x_ucat, y_ucat, griducat
-   USE MOD_Vector_ReadWrite
-   IMPLICIT NONE
-
-   character(len=*), intent(in) :: file_hist_ucat
-   integer, intent(in) :: itime_in_file_ucat
-
-   real(r8), allocatable :: a_sedcon_avg(:,:)
-   real(r8), allocatable :: a_sedout_avg(:,:)
-   real(r8), allocatable :: a_bedout_avg(:,:)
-   real(r8), allocatable :: a_sedinp_avg(:,:)
-   real(r8), allocatable :: a_netflw_avg(:,:)
-   real(r8), allocatable :: a_layer_avg(:,:)
-   real(r8), allocatable :: a_shearvel_avg(:)
-   integer :: ised
-   character(len=16) :: cised
-
-      IF (.not. DEF_USE_SEDIMENT) RETURN
-
-      ! Allocate on ALL processes (zero-size on non-workers) to avoid
-      ! passing unallocated arrays to vector_gather_map2grid_and_write
-      IF (p_is_worker .and. numucat > 0) THEN
-         allocate (a_sedcon_avg  (nsed, numucat))
-         allocate (a_sedout_avg  (nsed, numucat))
-         allocate (a_bedout_avg  (nsed, numucat))
-         allocate (a_sedinp_avg  (nsed, numucat))
-         allocate (a_netflw_avg  (nsed, numucat))
-         allocate (a_layer_avg   (nsed, numucat))
-         allocate (a_shearvel_avg(numucat))
-
-         IF (sed_hist_acctime > 0._r8) THEN
-            a_shearvel_avg = a_shearvel / sed_hist_acctime
-            DO ised = 1, nsed
-               a_sedcon_avg(ised,:) = a_sedcon(ised,:) / sed_hist_acctime
-               a_sedout_avg(ised,:) = a_sedout(ised,:) / sed_hist_acctime
-               a_bedout_avg(ised,:) = a_bedout(ised,:) / sed_hist_acctime
-               a_sedinp_avg(ised,:) = a_sedinp(ised,:) / sed_hist_acctime
-               a_netflw_avg(ised,:) = a_netflw(ised,:) / sed_hist_acctime
-               a_layer_avg(ised,:)  = a_layer(ised,:)  / sed_hist_acctime
-            ENDDO
-         ELSE
-            a_shearvel_avg = 0.
-            a_sedcon_avg   = 0.
-            a_sedout_avg   = 0.
-            a_bedout_avg   = 0.
-            a_sedinp_avg   = 0.
-            a_netflw_avg   = 0.
-            a_layer_avg    = 0.
-         ENDIF
-      ELSE
-         ! Allocate with nsed in first dim so a_xxx_avg(ised,:) is a valid zero-length slice
-         allocate (a_sedcon_avg  (nsed, 0))
-         allocate (a_sedout_avg  (nsed, 0))
-         allocate (a_bedout_avg  (nsed, 0))
-         allocate (a_sedinp_avg  (nsed, 0))
-         allocate (a_netflw_avg  (nsed, 0))
-         allocate (a_layer_avg   (nsed, 0))
-         allocate (a_shearvel_avg(0))
-      ENDIF
-
-      IF (DEF_hist_vars%sedcon) THEN
-         DO ised = 1, nsed
-            WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_sedcon_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_sedcon_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'suspended sediment concentration, size class ' // trim(cised), 'm^3/m^3')
-         ENDDO
-      ENDIF
-
-      IF (DEF_hist_vars%sedout) THEN
-         DO ised = 1, nsed
-            WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_sedout_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_sedout_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'suspended sediment flux, size class ' // trim(cised), 'm^3/s')
-         ENDDO
-      ENDIF
-
-      IF (DEF_hist_vars%bedout) THEN
-         DO ised = 1, nsed
-            WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_bedout_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_bedout_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'bedload flux, size class ' // trim(cised), 'm^3/s')
-         ENDDO
-      ENDIF
-
-      IF (DEF_hist_vars%sedinp) THEN
-         DO ised = 1, nsed
-            WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_sedinp_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_sedinp_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'sediment erosion input, size class ' // trim(cised), 'm^3/s')
-         ENDDO
-      ENDIF
-
-      IF (DEF_hist_vars%netflw) THEN
-         DO ised = 1, nsed
-            WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_netflw_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_netflw_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'net bed-water exchange flux (incl. shallow deposit), size class ' // trim(cised), 'm^3/s')
-         ENDDO
-      ENDIF
-
-      IF (DEF_hist_vars%sedlayer) THEN
-         DO ised = 1, nsed
-            WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_layer_avg(ised,:), numucat,      &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_layer_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'active layer storage, size class ' // trim(cised), 'm^3')
-         ENDDO
-      ENDIF
-
-      IF (DEF_hist_vars%shearvel) THEN
-         CALL vector_gather_map2grid_and_write ( a_shearvel_avg, numucat,              &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_shearvel', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,  &
-            'shear velocity', 'm/s')
-      ENDIF
-
-      IF (allocated(a_sedcon_avg  )) deallocate (a_sedcon_avg  )
-      IF (allocated(a_sedout_avg  )) deallocate (a_sedout_avg  )
-      IF (allocated(a_bedout_avg  )) deallocate (a_bedout_avg  )
-      IF (allocated(a_sedinp_avg  )) deallocate (a_sedinp_avg  )
-      IF (allocated(a_netflw_avg  )) deallocate (a_netflw_avg  )
-      IF (allocated(a_layer_avg   )) deallocate (a_layer_avg   )
-      IF (allocated(a_shearvel_avg)) deallocate (a_shearvel_avg)
-
-   END SUBROUTINE write_sediment_history
-#endif
 
 END MODULE MOD_Grid_RiverLakeHist
 #endif

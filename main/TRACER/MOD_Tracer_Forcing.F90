@@ -14,17 +14,18 @@ MODULE MOD_Tracer_Forcing
    USE MOD_TimeManager
    USE MOD_UserSpecifiedForcing, only: metfilename
    USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_init_water_ratio, &
-      tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max
+      tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
+      tracer_uses_land_water_transport
    USE MOD_Tracer_Vars, only: trc_runtime_forced
    USE MOD_Tracer_Isotope_Registry, only: isotope_legacy_forcing_kind
    USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
+   USE MOD_Tracer_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
+      tracer_forcing_input_get, tracer_forcing_input_find
 
    IMPLICIT NONE
    SAVE
 
-   integer, parameter, public :: TRC_FORC_NONE = 0
-   integer, parameter, public :: TRC_FORC_O18  = 1
-   integer, parameter, public :: TRC_FORC_H2   = 2
+   integer, parameter :: TRC_FORC_NONE = 0
 
    integer, parameter :: STREAM_PRECIP = 1
    integer, parameter :: STREAM_VAPOR  = 2
@@ -196,10 +197,15 @@ CONTAINS
 
    SUBROUTINE tracer_forcing_configure ()
       IMPLICIT NONE
-      integer :: itrc, mode, dtime, offset, nold
+      integer :: itrc, mode, dtime, offset, nold, k
       character(len=256) :: fprefix, vname, tintalgo, token
       logical, allocatable :: has_precip(:), has_vapor(:)
+      type(tracer_forcing_spec_type) :: spec
 
+      ! Load each tracer's OWN forcing specs from its parameter file
+      ! (&nl_colm_tracer_forcing). This replaces the former global
+      ! DEF_forcing%tracer_* / legacy DEF_forcing%precipitation_O18_* path.
+      CALL tracer_forcing_input_load()
       CALL tracer_forcing_deallocate_config()
       allocate(trc_var_stream(2*ntracers + 6))
       allocate(trc_var_itrc(2*ntracers + 6))
@@ -222,74 +228,29 @@ CONTAINS
       trc_tstamp_LB(:) = timestamp(-1, -1, -1)
       trc_tstamp_UB(:) = timestamp(-1, -1, -1)
 
+      ! Per-species forcing: each tracer declares its own precip/vapor inputs
+      ! in &nl_colm_tracer_forcing (loaded above by MOD_Tracer_ForcingInput).
+      ! Roles other than precip/vapor (e.g. CH4 'inundation'/'atm') are stored
+      ! for the owning species' module to consume and are ignored here.
       DO itrc = 1, ntracers
-         CALL tracer_forcing_csv_token(DEF_forcing%tracer_precip_vname, itrc, vname)
-         IF (tracer_forcing_token_present(vname)) THEN
-            CALL tracer_forcing_csv_token(DEF_forcing%tracer_precip_fprefix, itrc, fprefix)
-            IF (.not. tracer_forcing_token_present(fprefix)) fprefix = DEF_forcing%fprefix(4)
-            CALL tracer_forcing_csv_token(DEF_forcing%tracer_precip_tintalgo, itrc, tintalgo)
-            IF (.not. tracer_forcing_token_present(tintalgo)) tintalgo = DEF_forcing%tintalgo(4)
-            CALL tracer_forcing_csv_token(DEF_forcing%tracer_precip_input_mode, itrc, token)
-            mode = tracer_forcing_parse_mode(token)
-            dtime = tracer_forcing_csv_int(DEF_forcing%tracer_precip_dtime, itrc, DEF_forcing%dtime(4))
-            offset = tracer_forcing_csv_int(DEF_forcing%tracer_precip_offset, itrc, DEF_forcing%offset(4))
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+         k = tracer_forcing_input_find(itrc, 'precip')
+         IF (k > 0) THEN
+            spec = tracer_forcing_input_get(itrc, k)
+            mode = tracer_forcing_parse_mode(spec%input_mode)
             nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_PRECIP, itrc, mode, fprefix, vname, tintalgo, dtime, offset)
+            CALL tracer_forcing_add_var(STREAM_PRECIP, itrc, mode, &
+               spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
             has_precip(itrc) = n_trc_forc_vars > nold
          ENDIF
 
-         CALL tracer_forcing_csv_token(DEF_forcing%tracer_vapor_vname, itrc, vname)
-         IF (tracer_forcing_token_present(vname)) THEN
-            CALL tracer_forcing_csv_token(DEF_forcing%tracer_vapor_fprefix, itrc, fprefix)
-            IF (.not. tracer_forcing_token_present(fprefix)) fprefix = DEF_forcing%fprefix(2)
-            CALL tracer_forcing_csv_token(DEF_forcing%tracer_vapor_tintalgo, itrc, tintalgo)
-            IF (.not. tracer_forcing_token_present(tintalgo)) tintalgo = DEF_forcing%tintalgo(2)
-            CALL tracer_forcing_csv_token(DEF_forcing%tracer_vapor_input_mode, itrc, token)
-            mode = tracer_forcing_parse_mode(token)
-            dtime = tracer_forcing_csv_int(DEF_forcing%tracer_vapor_dtime, itrc, DEF_forcing%dtime(2))
-            offset = tracer_forcing_csv_int(DEF_forcing%tracer_vapor_offset, itrc, DEF_forcing%offset(2))
+         k = tracer_forcing_input_find(itrc, 'vapor')
+         IF (k > 0) THEN
+            spec = tracer_forcing_input_get(itrc, k)
+            mode = tracer_forcing_parse_mode(spec%input_mode)
             nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_VAPOR, itrc, mode, fprefix, vname, tintalgo, dtime, offset)
-            has_vapor(itrc) = n_trc_forc_vars > nold
-         ENDIF
-      ENDDO
-
-      ! Backward-compatible IsoGSM isotope shortcuts. Generic per-tracer CSV
-      ! entries above take precedence when both are present.
-      DO itrc = 1, ntracers
-         IF (.not. has_precip(itrc) .and. tracer_forcing_tracer_kind(itrc) == TRC_FORC_O18 .and. &
-             tracer_forcing_pair_present(DEF_forcing%precipitation_O18_fprefix, DEF_forcing%precipitation_O18_vname)) THEN
-            nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_PRECIP, itrc, MODE_NORMALIZED_OVER_TOTAL, &
-               DEF_forcing%precipitation_O18_fprefix, DEF_forcing%precipitation_O18_vname, &
-               DEF_forcing%precipitation_O18_tintalgo, DEF_forcing%precipitation_O18_dtime, &
-               DEF_forcing%precipitation_O18_offset)
-            has_precip(itrc) = n_trc_forc_vars > nold
-         ELSEIF (.not. has_precip(itrc) .and. tracer_forcing_tracer_kind(itrc) == TRC_FORC_H2 .and. &
-             tracer_forcing_pair_present(DEF_forcing%precipitation_H2_fprefix, DEF_forcing%precipitation_H2_vname)) THEN
-            nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_PRECIP, itrc, MODE_NORMALIZED_OVER_TOTAL, &
-               DEF_forcing%precipitation_H2_fprefix, DEF_forcing%precipitation_H2_vname, &
-               DEF_forcing%precipitation_H2_tintalgo, DEF_forcing%precipitation_H2_dtime, &
-               DEF_forcing%precipitation_H2_offset)
-            has_precip(itrc) = n_trc_forc_vars > nold
-         ENDIF
-
-         IF (.not. has_vapor(itrc) .and. tracer_forcing_tracer_kind(itrc) == TRC_FORC_O18 .and. &
-             tracer_forcing_pair_present(DEF_forcing%water_vapor_O18_fprefix, DEF_forcing%water_vapor_O18_vname)) THEN
-            nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_VAPOR, itrc, MODE_NORMALIZED_OVER_TOTAL, &
-               DEF_forcing%water_vapor_O18_fprefix, DEF_forcing%water_vapor_O18_vname, &
-               DEF_forcing%water_vapor_O18_tintalgo, DEF_forcing%water_vapor_O18_dtime, &
-               DEF_forcing%water_vapor_O18_offset)
-            has_vapor(itrc) = n_trc_forc_vars > nold
-         ELSEIF (.not. has_vapor(itrc) .and. tracer_forcing_tracer_kind(itrc) == TRC_FORC_H2 .and. &
-             tracer_forcing_pair_present(DEF_forcing%water_vapor_H2_fprefix, DEF_forcing%water_vapor_H2_vname)) THEN
-            nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_VAPOR, itrc, MODE_NORMALIZED_OVER_TOTAL, &
-               DEF_forcing%water_vapor_H2_fprefix, DEF_forcing%water_vapor_H2_vname, &
-               DEF_forcing%water_vapor_H2_tintalgo, DEF_forcing%water_vapor_H2_dtime, &
-               DEF_forcing%water_vapor_H2_offset)
+            CALL tracer_forcing_add_var(STREAM_VAPOR, itrc, mode, &
+               spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
             has_vapor(itrc) = n_trc_forc_vars > nold
          ENDIF
       ENDDO
@@ -971,6 +932,7 @@ CONTAINS
 
       IF (p_is_worker) THEN
          DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             DO ip = 1, size(trc_forc_precip_value, 2)
                IF (trc_forc_has_precip(itrc, ip)) THEN
                   outval = tracer_forcing_diag_value(itrc, trc_forc_precip_value(itrc, ip))
@@ -1000,6 +962,7 @@ CONTAINS
       IF (p_is_master) THEN
          WRITE(*,'(/,A,I4.4,A,I3.3,A,I5.5)') 'Checking tracer forcing at ', idate(1), '-', idate(2), '-', idate(3)
          DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             IF (pcnt(itrc) > 0) THEN
                WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  precip ', trim(tracers(itrc)%name), &
                   ' n=', pcnt(itrc), ' min=', pmin(itrc), ' max=', pmax(itrc)

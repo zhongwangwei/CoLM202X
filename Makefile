@@ -3,6 +3,7 @@
 include include/Makeoptions
 LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
+TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | tail -n 1)
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -119,9 +120,6 @@ TRACER_ISOTOPE_MAIN_OBJS = \
 				 $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS) \
 				 MOD_Tracer_Isotope_Registrations.o
 
-MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc
-MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
-
 TRACER_REACTIVE_METHANE_OBJ_SUFFIXES = \
 				 Const Registry GIEMS pH VegOverride State Microbes \
 				 BgcLink AccFlux Physics Driver Hist Impl
@@ -138,9 +136,78 @@ TRACER_REACTIVE_MAIN_OBJS = \
 				MOD_Tracer_Reactive_BgcShim.o             \
 				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				MOD_Tracer_Reactive_Registrations.o
+TRACER_PARTICLE_REGISTERED_SPECIES_OBJS = \
+				  MOD_Tracer_Particle_Sediment.o
 
+TRACER_PARTICLE_MAIN_OBJS = \
+				MOD_Tracer_Particle.o             \
+				$(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS) \
+				MOD_Tracer_Particle_Registrations.o
+ifeq (${TRACER_ENABLED},YES)
+TRACER_BASIC_OBJS = \
+				 MOD_Tracer_Defs.o              \
+				 $(TRACER_PARTICLE_MAIN_OBJS)    \
+				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
+				 MOD_Tracer_Frac.o              \
+				 MOD_Tracer_EvapLimit.o         \
+				 MOD_Tracer_Vars.o              \
+				 MOD_Tracer_RiverLake.o     \
+				 MOD_Tracer_Conservation.o      \
+				 MOD_Tracer_SoilInit.o          \
+				 MOD_Tracer_ForcingInput.o      \
+				 MOD_Tracer_Forcing.o           \
+				 MOD_Tracer_Precip.o            \
+				 MOD_Tracer_Evapo.o             \
+				 MOD_Tracer_SoilWater.o         \
+				 MOD_Tracer_Snow.o              \
+				 MOD_Tracer_Reactive.o          \
+				 MOD_Tracer_Rest.o
+
+TRACER_MAIN_OBJS = \
+				MOD_Tracer_Main.o                          \
+				MOD_Tracer_Hist.o                         \
+				$(TRACER_REACTIVE_MAIN_OBJS)              \
+				MOD_Tracer_SpecialPatches.o
+
+TRACER_MKINIDATA_OBJS = \
+				  MOD_Tracer_Reactive_Registrations_Stubs.o
+
+MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc
+MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
+MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_EvapLimit.o
+MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_Impl.o MOD_Tracer_Reactive_Methane_Hist.o \
+				     MOD_Tracer_Reactive_Methane_AccFlux.o MOD_Tracer_Reactive_Methane_Microbes.o \
+				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_GIEMS.o \
+				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
+MOD_Tracer_Reactive_Methane_Impl.o: MOD_Tracer_Reactive_Methane_Driver.o \
+				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_Registry.o \
+				     MOD_Tracer_Reactive_Methane_Const.o MOD_Tracer_Reactive_Methane_BgcLink.o \
+				     MOD_Tracer_Reactive_BgcShim.o MOD_Tracer_Conservation.o
+MOD_Tracer_Reactive_Methane_Driver.o: MOD_Tracer_Reactive_Methane_Physics.o \
+				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_BgcLink.o \
+				     MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_Microbes.o
+MOD_Tracer_Reactive_Methane_Physics.o: MOD_Tracer_Reactive_Methane_Const.o \
+				     MOD_Tracer_Reactive_Methane_GIEMS.o MOD_Tracer_Reactive_Methane_BgcLink.o \
+				     MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_State.o
+MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_Const.o \
+				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
+MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_Const.o \
+				     MOD_Tracer_Reactive_Methane_Microbes.o MOD_Tracer_Reactive_Methane_BgcLink.o
+MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o
+MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Reactive_Methane_BgcLink.o \
+				     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o
 MOD_Tracer_Reactive_Registrations.o: include/tracer_reactive_species.inc \
 				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS)
+MOD_Tracer_Particle_Registrations.o: include/tracer_particle_species.inc \
+				     $(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS)
+MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Particle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_Grid_RiverLakeFlow.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Particle.o
+MOD_Tracer_RiverLake.o MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o
+else
+TRACER_BASIC_OBJS =
+TRACER_MAIN_OBJS =
+TRACER_MKINIDATA_OBJS =
+endif
 
 OBJS_BASIC =    \
 				 MOD_Vector_ReadWrite.o         \
@@ -154,22 +221,10 @@ OBJS_BASIC =    \
 				 MOD_Grid_Reservoir.o           \
 				 MOD_Grid_RiverLakeLevee.o      \
 				 MOD_Grid_RiverLakeBifurcation.o \
-				 MOD_Grid_RiverLakeSediment.o   \
+				 $(TRACER_BASIC_OBJS)           \
 				 MOD_Grid_RiverLakeTimeVars.o   \
-				 MOD_Tracer_Defs.o              \
-				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
-				 MOD_Tracer_Frac.o              \
-				 MOD_Tracer_Vars.o              \
-				 MOD_Grid_RiverLakeTracer.o     \
-				 MOD_Tracer_Conservation.o      \
-				 MOD_Tracer_SoilInit.o          \
 				 MOD_Qsadv.o                    \
 				 MOD_UserSpecifiedForcing.o     \
-				 MOD_Tracer_Forcing.o           \
-				 MOD_Tracer_Precip.o            \
-				 MOD_Tracer_Evapo.o             \
-				 MOD_Tracer_SoilWater.o         \
-				 MOD_Tracer_Snow.o              \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
 				 MOD_BGC_Vars_PFTimeVariables.o \
@@ -180,8 +235,6 @@ OBJS_BASIC =    \
 				 MOD_Urban_Vars_TimeInvariants.o\
 				 MOD_DA_Vars_1DFluxes.o         \
 				 MOD_Vars_TimeInvariants.o      \
-				 MOD_Tracer_Reactive.o          \
-				 MOD_Tracer_Rest.o              \
 				 MOD_DA_Vars_TimeVariables.o    \
 				 MOD_Vars_TimeVariables.o       \
 				 MOD_Vars_1DPFTFluxes.o         \
@@ -235,7 +288,7 @@ $(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
 
 OBJS_MKINIDATA = \
-				  MOD_Tracer_Reactive_Registrations_Stubs.o \
+				  $(TRACER_MKINIDATA_OBJS) \
 				  CoLMINI.o
 
 $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
@@ -374,7 +427,7 @@ OBJS_MAIN = \
 				MOD_SoilSurfaceResistance.o               \
 				MOD_NewSnow.o                             \
 				MOD_Thermal.o                             \
-				MOD_Tracer_Main.o                          \
+				$(TRACER_MAIN_OBJS)                       \
 				MOD_Vars_1DAccFluxes.o                    \
 				MOD_CaMa_Vars.o                           \
 				MOD_Irrigation.o                          \
@@ -384,9 +437,6 @@ OBJS_MAIN = \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
 				MOD_Grid_RiverLakeHist.o                  \
-				MOD_Tracer_Hist.o                         \
-				$(TRACER_REACTIVE_MAIN_OBJS)              \
-				MOD_Tracer_SpecialPatches.o               \
 					MOD_Hist.o                                \
 					MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
@@ -498,7 +548,7 @@ endif
 
 # ------ Target 5: static libs --------
 .PHONY: lib
-lib :
+lib : mksrfdata.x mkinidata.x colm.x postprocess.x
 	@echo ''
 	@echo 'making CoLM static library >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	mkdir -p lib

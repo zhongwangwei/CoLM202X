@@ -5,7 +5,7 @@ MODULE MOD_Tracer_SpecialPatches
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
-      tracer_can_use_fixed_signature
+      tracer_can_use_fixed_signature, tracer_uses_land_water_transport
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_diffusivity_ratio_air, tracer_craig_gordon_evap_ratio, &
@@ -54,6 +54,7 @@ CONTAINS
       logical  :: mixed_signature, fixed_signature, frac_active
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          trc_ldew_rain(itrc, ipatch) = 0._r8
          trc_ldew_snow(itrc, ipatch) = 0._r8
          trc_wetwat   (itrc, ipatch) = 0._r8
@@ -79,6 +80,7 @@ CONTAINS
       water_beg = water_end - water_dS
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          trc_rnof_step(itrc, ipatch) = 0._r8
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
@@ -188,6 +190,7 @@ CONTAINS
       logical  :: mixed_signature, fixed_signature, frac_active
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          trc_ldew_rain(itrc, ipatch) = 0._r8
          trc_ldew_snow(itrc, ipatch) = 0._r8
          trc_wetwat   (itrc, ipatch) = 0._r8
@@ -221,6 +224,7 @@ CONTAINS
       water_beg = water_end - water_dS
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          trc_rnof_step(itrc, ipatch) = 0._r8
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)

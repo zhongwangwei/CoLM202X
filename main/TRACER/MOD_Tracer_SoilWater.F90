@@ -6,13 +6,14 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Precision
    USE MOD_Vars_Global, only: spval
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, trc_delta_sanity_max, &
-      tracer_init_water_ratio
+      tracer_init_water_ratio, tracer_uses_land_water_transport
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value, &
       tracer_forcing_has_vapor
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_transpiration_nss_ratio, tracer_diffusivity_ratio_air, &
       tracer_craig_gordon_evap_ratio, tracer_alpha_liq_vap, &
       tracer_rayleigh_freezing_loss, tracer_equilibrium_deposition_ratio
+   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss
 	   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
 	      trc_wa, trc_wdsrf, trc_wetwat, trc_waterstorage, &
 		      a_trc_precip, a_trc_transp_src, tracer_book_evap_loss, &
@@ -202,6 +203,7 @@ CONTAINS
       IF (abs(qcharge_eff) > 0.5_r8 * abs(spval)) qcharge_eff = 0._r8
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_precip = tracer_forcing_precip_value(itrc, ipatch)
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          soil_resid_trc = 0._r8
@@ -1101,46 +1103,9 @@ CONTAINS
          real(r8), intent(in) :: water_loss
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
-         real(r8), parameter :: max_evap_frac_step = 0.05_r8
-         real(r8) :: source_ratio, flux_ratio
-         real(r8) :: remaining_water, remaining_trc, loss_left, loss_step, trc_loss_step
 
-         atmospheric_loss_tracer = 0._r8
-         IF (pool_water <= trc_tiny .or. water_loss <= trc_tiny) RETURN
-         IF (pool_trc <= trc_tiny) RETURN
-
-         IF (water_loss >= pool_water * (1._r8 - 1.e-12_r8)) THEN
-            atmospheric_loss_tracer = max(pool_trc, 0._r8)
-            RETURN
-         ENDIF
-
-         source_ratio = max(pool_trc, 0._r8) / pool_water
-         flux_ratio = evap_ratio_for(source_ratio, temp_k, from_ice)
-         IF (water_loss <= max_evap_frac_step * pool_water .or. &
-             abs(flux_ratio - source_ratio) <= 1.e-12_r8 * max(source_ratio, trc_tiny)) THEN
-            atmospheric_loss_tracer = min(water_loss * flux_ratio, max(pool_trc, 0._r8))
-            RETURN
-         ENDIF
-
-         ! Finite-pool evaporation can remove nearly all water in one land step.
-         ! Integrating the loss prevents a single light vapor ratio from leaving
-         ! an unrealistically enriched trace residual.
-         remaining_water = pool_water
-         remaining_trc = max(pool_trc, 0._r8)
-         loss_left = water_loss
-         DO WHILE (loss_left > trc_tiny .and. remaining_water > trc_tiny .and. &
-                   remaining_trc > trc_tiny)
-            loss_step = min(loss_left, max_evap_frac_step * remaining_water)
-            source_ratio = remaining_trc / remaining_water
-            flux_ratio = evap_ratio_for(source_ratio, temp_k, from_ice)
-            trc_loss_step = min(loss_step * flux_ratio, remaining_trc)
-            remaining_trc = remaining_trc - trc_loss_step
-            remaining_water = remaining_water - loss_step
-            loss_left = loss_left - loss_step
-         ENDDO
-
-         atmospheric_loss_tracer = min(max(pool_trc, 0._r8), &
-            max(pool_trc, 0._r8) - max(remaining_trc, 0._r8))
+         atmospheric_loss_tracer = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
+            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny)
       END FUNCTION atmospheric_loss_tracer
 
       real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)
@@ -1264,6 +1229,7 @@ CONTAINS
       lb = snl + 1
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
 
          !--------------------------------------------------------
@@ -1741,46 +1707,9 @@ CONTAINS
          real(r8), intent(in) :: water_loss
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
-         real(r8), parameter :: max_evap_frac_step = 0.05_r8
-         real(r8) :: source_ratio, flux_ratio
-         real(r8) :: remaining_water, remaining_trc, loss_left, loss_step, trc_loss_step
 
-         atmospheric_loss_tracer = 0._r8
-         IF (pool_water <= trc_tiny .or. water_loss <= trc_tiny) RETURN
-         IF (pool_trc <= trc_tiny) RETURN
-
-         IF (water_loss >= pool_water * (1._r8 - 1.e-12_r8)) THEN
-            atmospheric_loss_tracer = max(pool_trc, 0._r8)
-            RETURN
-         ENDIF
-
-         source_ratio = max(pool_trc, 0._r8) / pool_water
-         flux_ratio = evap_ratio_for(source_ratio, temp_k, from_ice)
-         IF (water_loss <= max_evap_frac_step * pool_water .or. &
-             abs(flux_ratio - source_ratio) <= 1.e-12_r8 * max(source_ratio, trc_tiny)) THEN
-            atmospheric_loss_tracer = min(water_loss * flux_ratio, max(pool_trc, 0._r8))
-            RETURN
-         ENDIF
-
-         ! Finite-pool evaporation can remove nearly all water in one land step.
-         ! Integrating the loss prevents a single light vapor ratio from leaving
-         ! an unrealistically enriched trace residual.
-         remaining_water = pool_water
-         remaining_trc = max(pool_trc, 0._r8)
-         loss_left = water_loss
-         DO WHILE (loss_left > trc_tiny .and. remaining_water > trc_tiny .and. &
-                   remaining_trc > trc_tiny)
-            loss_step = min(loss_left, max_evap_frac_step * remaining_water)
-            source_ratio = remaining_trc / remaining_water
-            flux_ratio = evap_ratio_for(source_ratio, temp_k, from_ice)
-            trc_loss_step = min(loss_step * flux_ratio, remaining_trc)
-            remaining_trc = remaining_trc - trc_loss_step
-            remaining_water = remaining_water - loss_step
-            loss_left = loss_left - loss_step
-         ENDDO
-
-         atmospheric_loss_tracer = min(max(pool_trc, 0._r8), &
-            max(pool_trc, 0._r8) - max(remaining_trc, 0._r8))
+         atmospheric_loss_tracer = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
+            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny)
       END FUNCTION atmospheric_loss_tracer
 
       real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)

@@ -64,3 +64,35 @@ Species-specific isotope fractionation physics is registered separately:
 - Do not add placeholder isotope species. Add a new isotope only when its
   physics module exists, then add one manifest line and one Makefile object
   entry under `TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS`.
+
+## Particle tracers
+
+Particle tracers use the same flat TRACER-owned pattern. `MOD_Tracer_Particle`
+is the generic HYDRO-facing dispatcher; it does not name sediment or any other
+concrete particle species. Implemented species register callbacks through
+`register_particle_callbacks`, and `include/tracer_particle_species.inc` is the
+single implemented-particle manifest.
+
+Suspended sediment is currently the only particle species. Its implementation,
+restart, history, and accumulator flushing live in
+`MOD_Tracer_Particle_Sediment`. HYDRO modules should call only the generic
+`tracer_particle_*` APIs so species-private sediment state does not leak back
+into `main/HYDRO`.
+
+Sediment is enabled exactly like any other tracer species: by listing it in
+the generic tracer registry as a particle. There is no top-level sediment
+``USE`` switch.
+
+```fortran
+DEF_TRACER_NAMES = '...,SEDIMENT'
+DEF_TRACER_TYPES = '...,particle'
+DEF_TRACER_PARAM_FILES = 'SEDIMENT:./standard_sediment_parameter.nml'
+```
+
+The optional sediment parameter file is read by `MOD_Tracer_Particle_Sediment`
+from `&nl_colm_sediment_parameter`; generic tracer metadata in the same file is
+read by `MOD_Tracer_Defs`.
+
+For a future particle tracer, add its species-owned module, one manifest line,
+and one Makefile object entry under `TRACER_PARTICLE_REGISTERED_SPECIES_OBJS`.
+Do not add placeholder particle species.

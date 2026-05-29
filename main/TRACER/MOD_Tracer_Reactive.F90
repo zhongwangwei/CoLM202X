@@ -133,7 +133,6 @@ MODULE MOD_Tracer_Reactive
    logical, save :: reactive_callbacks_ready = .false.
    logical, save :: reactive_refresh_dirty = .true.
 
-   PUBLIC :: tracer_reactive_has
    PUBLIC :: tracer_reactive_init, tracer_reactive_final
    PUBLIC :: tracer_reactive_resolve_step, tracer_reactive_lake_step
    PUBLIC :: tracer_reactive_wetland_decomp, tracer_reactive_soil_step
@@ -143,6 +142,7 @@ MODULE MOD_Tracer_Reactive
    PUBLIC :: tracer_reactive_flush_acc_fluxes, tracer_reactive_accumulate_fluxes
    PUBLIC :: tracer_reactive_save_lulcc_state, tracer_reactive_remap_lulcc_state
    PUBLIC :: tracer_reactive_publish_levee_flood_patch, tracer_reactive_publish_flood_patch
+   PUBLIC :: tracer_reactive_has_levee_flood_publisher, tracer_reactive_has_flood_publisher
    PUBLIC :: register_reactive_callbacks
 
 CONTAINS
@@ -407,36 +407,6 @@ CONTAINS
 
    END FUNCTION find_reactive_callback
 
-   logical FUNCTION tracer_reactive_has (tracer_name)
-
-      IMPLICIT NONE
-      character(len=*), intent(in) :: tracer_name
-
-      integer :: i
-      character(len=32) :: target
-
-      CALL prepare_reactive_dispatch ()
-
-      tracer_reactive_has = .false.
-      target = upper_name(tracer_name)
-
-      DO i = 1, n_reactive_callbacks
-         IF (reactive_callback_matches(i, target)) THEN
-            tracer_reactive_has = reactive_callback_active(i, tracer_name)
-            RETURN
-         ENDIF
-      ENDDO
-
-      IF (.not. allocated(tracers)) RETURN
-      DO i = 1, ntracers
-         IF (upper_name(tracers(i)%name) == target .and. tracer_is_reactive(i)) THEN
-            tracer_reactive_has = .true.
-            RETURN
-         ENDIF
-      ENDDO
-
-   END FUNCTION tracer_reactive_has
-
    SUBROUTINE tracer_reactive_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
 
       IMPLICIT NONE
@@ -668,6 +638,40 @@ CONTAINS
       CALL mark_reactive_callbacks_dirty ()
 
    END SUBROUTINE tracer_reactive_remap_lulcc_state
+
+   logical FUNCTION tracer_reactive_has_levee_flood_publisher ()
+
+      IMPLICIT NONE
+      integer :: i
+
+      tracer_reactive_has_levee_flood_publisher = .false.
+      CALL prepare_reactive_dispatch ()
+      DO i = 1, n_reactive_callbacks
+         IF (reactive_callback_enabled(i) .and. &
+             associated(reactive_callbacks(i)%publish_levee_flood)) THEN
+            tracer_reactive_has_levee_flood_publisher = .true.
+            RETURN
+         ENDIF
+      ENDDO
+
+   END FUNCTION tracer_reactive_has_levee_flood_publisher
+
+   logical FUNCTION tracer_reactive_has_flood_publisher ()
+
+      IMPLICIT NONE
+      integer :: i
+
+      tracer_reactive_has_flood_publisher = .false.
+      CALL prepare_reactive_dispatch ()
+      DO i = 1, n_reactive_callbacks
+         IF (reactive_callback_enabled(i) .and. &
+             associated(reactive_callbacks(i)%publish_flood)) THEN
+            tracer_reactive_has_flood_publisher = .true.
+            RETURN
+         ENDIF
+      ENDDO
+
+   END FUNCTION tracer_reactive_has_flood_publisher
 
    SUBROUTINE tracer_reactive_publish_levee_flood_patch (fldfrc_patch)
 

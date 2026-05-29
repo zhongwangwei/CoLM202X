@@ -14,7 +14,7 @@ MODULE MOD_Tracer_SoilInit
    USE MOD_NetCDFSerial, only: ncio_read_bcast_serial, ncio_var_exist
    USE MOD_NetCDFBlock, only: ncio_read_block_time
    USE MOD_Tracer_Defs, only: ntracers, tracers, delta_to_R, tracer_is_isotope, &
-      trc_delta_sanity_max
+      trc_delta_sanity_max, tracer_uses_land_water_transport
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno
    USE MOD_Tracer_Isotope_Registry, only: isotope_default_soil_init_varname
    USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
@@ -105,6 +105,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          CALL tracer_soil_init_varname(itrc, varname)
          IF (.not. tracer_is_isotope(itrc)) THEN
             IF (len_trim(varname) > 0 .and. trim(varname) /= 'null' .and. p_is_master) THEN

@@ -4,7 +4,7 @@
 MODULE MOD_Tracer_Precip
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value
    USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
       trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage
@@ -131,6 +131,7 @@ CONTAINS
       rain_total = max(forc_rain, 0._r8) + sprinkler_rate
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_input = tracer_forcing_precip_value(itrc, ipatch)
          storage_ratio = R_input
          canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)

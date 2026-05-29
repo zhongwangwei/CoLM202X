@@ -4,11 +4,12 @@
 MODULE MOD_Tracer_Evapo
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
    USE MOD_Tracer_Forcing, only: tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_diffusivity_ratio_air, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
       tracer_rayleigh_freezing_loss, tracer_surface_relhum
+   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss
 	   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
 	      trc_wliq_soisno, trc_wice_soisno, &
 	      a_trc_precip, tracer_book_evap_loss, &
@@ -83,6 +84,7 @@ CONTAINS
       lb = snl + 1
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          R_vapor = R_atm
 
@@ -265,10 +267,14 @@ CONTAINS
 	                     TRC_EVAP_KIND_SOILEVAP)
 	               ENDIF
             ELSEIF (trc_flux > trc_tiny) THEN
-               ! Net liquid gain = dew deposition
-               ratio = deposition_ratio_for(layer_temp(j), .false.)
-               trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux * ratio
-               a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+               ! Net liquid gain = dew deposition, only on the exposed soil
+               ! surface. Deeper positive residuals are internal storage
+               ! redistribution and must not be recoloured as atmospheric dew.
+               IF (j == 1) THEN
+                  ratio = deposition_ratio_for(layer_temp(j), .false.)
+                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux * ratio
+                  a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+               ENDIF
             ENDIF
 
             ! --- Net ice change beyond thaw/freeze = sublimation/frost ---
@@ -284,10 +290,14 @@ CONTAINS
 	                     TRC_EVAP_KIND_SUBL)
 	               ENDIF
             ELSEIF (trc_flux > trc_tiny) THEN
-               ! Net ice gain = frost deposition
-               ratio = deposition_ratio_for(layer_temp(j), .true.)
-               trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux * ratio
-               a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+               ! Net ice gain = frost deposition, only on the exposed soil
+               ! surface. Deeper positive residuals are internal storage
+               ! redistribution and must not be recoloured as atmospheric frost.
+               IF (j == 1) THEN
+                  ratio = deposition_ratio_for(layer_temp(j), .true.)
+                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux * ratio
+                  a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+               ENDIF
             ENDIF
          ENDDO
       ENDDO
@@ -295,63 +305,14 @@ CONTAINS
       CONTAINS
 
       real(r8) FUNCTION evaporative_tracer_loss (pool_trc, pool_water, water_loss, temp_k, from_ice)
-         real(r8), parameter :: max_loss_fraction_substep = 0.10_r8
-         real(r8), parameter :: max_substep_pool_water = 5.0_r8
-         integer,  parameter :: max_evap_substeps = 80
          real(r8), intent(in) :: pool_trc
          real(r8), intent(in) :: pool_water
          real(r8), intent(in) :: water_loss
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
-         integer  :: isub
-         real(r8) :: source_ratio, flux_ratio
-         real(r8) :: remaining_trc, remaining_water, loss_left, step_loss
 
-         evaporative_tracer_loss = 0._r8
-         IF (pool_water <= trc_tiny .or. water_loss <= trc_tiny) RETURN
-         IF (pool_trc <= trc_tiny) RETURN
-
-         ! If the water-side update dries the finite pool, no tracer can
-         ! remain in zero water. This keeps restart ratios finite after
-         ! complete canopy/soil evaporation within one model step.
-         IF (water_loss >= pool_water * (1._r8 - 1.e-12_r8)) THEN
-            evaporative_tracer_loss = max(pool_trc, 0._r8)
-            RETURN
-         ENDIF
-
-         source_ratio = max(pool_trc, 0._r8) / pool_water
-         IF (.not. tracer_fractionation_active(itrc) .or. &
-             pool_water > max_substep_pool_water .or. &
-             water_loss <= max_loss_fraction_substep * pool_water) THEN
-            flux_ratio = evap_ratio_for(source_ratio, temp_k, from_ice)
-            evaporative_tracer_loss = min(water_loss * flux_ratio, max(pool_trc, 0._r8))
-            RETURN
-         ENDIF
-
-         ! Large fractional drying of tiny canopy/surface pools is stiff:
-         ! using the step-start isotope ratio for the full water loss can
-         ! over-enrich the residual pool. Substep the same water loss and
-         ! recompute the Craig-Gordon ratio from the updated mixed pool.
-         remaining_trc = max(pool_trc, 0._r8)
-         remaining_water = pool_water
-         loss_left = water_loss
-         DO isub = 1, max_evap_substeps
-            IF (loss_left <= trc_tiny) EXIT
-            IF (remaining_water <= trc_tiny .or. remaining_trc <= trc_tiny) EXIT
-
-            step_loss = min(loss_left, max_loss_fraction_substep * remaining_water)
-            IF (isub == max_evap_substeps) step_loss = loss_left
-            step_loss = min(step_loss, remaining_water)
-            IF (step_loss <= trc_tiny) EXIT
-
-            source_ratio = remaining_trc / remaining_water
-            flux_ratio = evap_ratio_for(source_ratio, temp_k, from_ice)
-            remaining_trc = remaining_trc - min(step_loss * flux_ratio, remaining_trc)
-            remaining_water = remaining_water - step_loss
-            loss_left = loss_left - step_loss
-         ENDDO
-
-         evaporative_tracer_loss = min(max(pool_trc - remaining_trc, 0._r8), max(pool_trc, 0._r8))
+         evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
+            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny)
       END FUNCTION evaporative_tracer_loss
 
       real(r8) FUNCTION canopy_temp ()

@@ -2,6 +2,10 @@
 
 #if (defined TRACER) && (defined BGC)
 MODULE MOD_Tracer_Reactive_Methane_Impl
+! METHANE_IMPL_GLUE_POINT: this module is the single glue/adaptor point
+! between CoLM global patch state and the argument-driven methane_driver.
+! Keep direct USEs of MOD_Vars_* concentrated here; lower methane physics
+! should remain parameterized through explicit arguments.
 
    USE MOD_Precision
    USE MOD_Const_Physical, only: denh2o, denice
@@ -27,14 +31,14 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
    IMPLICIT NONE
    PRIVATE
 
-   PUBLIC :: ch4_reactive_lake_step
-   PUBLIC :: ch4_reactive_wetland_decomp
-   PUBLIC :: ch4_reactive_soil_step
-   PUBLIC :: ch4_reactive_report
+   PUBLIC :: ch4_impl_lake_step
+   PUBLIC :: ch4_impl_wetland_decomp
+   PUBLIC :: ch4_impl_soil_step
+   PUBLIC :: ch4_impl_report
 
 CONTAINS
 
-   SUBROUTINE ch4_reactive_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
+   SUBROUTINE ch4_impl_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
 
       IMPLICIT NONE
       integer,  intent(in) :: istep_local
@@ -74,9 +78,9 @@ CONTAINS
 
       CALL accumulate_methane_lake_substep_diagnostics(ipatch, deltim_phy, isub, nsub)
 
-   END SUBROUTINE ch4_reactive_lake_step
+   END SUBROUTINE ch4_impl_lake_step
 
-   SUBROUTINE ch4_reactive_wetland_decomp (ipatch)
+   SUBROUTINE ch4_impl_wetland_decomp (ipatch)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
@@ -88,9 +92,9 @@ CONTAINS
 
       CALL reactive_bgc_run_wetland_decomp (ipatch)
 
-   END SUBROUTINE ch4_reactive_wetland_decomp
+   END SUBROUTINE ch4_impl_wetland_decomp
 
-   SUBROUTINE ch4_reactive_soil_step (istep_local, ipatch, idate, deltim)
+   SUBROUTINE ch4_impl_soil_step (istep_local, ipatch, idate, deltim)
 
       IMPLICIT NONE
       integer,  intent(in) :: istep_local
@@ -152,15 +156,15 @@ CONTAINS
          fsatmax(ipatch), fsatdcf(ipatch), frcsat(ipatch), f_h2osfc(ipatch), &
          is_rice_paddy_in=is_rice_paddy, rice_pft_frac_in=rice_pft_frac)
 
-   END SUBROUTINE ch4_reactive_soil_step
+   END SUBROUTINE ch4_impl_soil_step
 
-   SUBROUTINE ch4_reactive_report ()
+   SUBROUTINE ch4_impl_report ()
 
       IMPLICIT NONE
 
       IF (igas_ch4 > 0) CALL tracer_balance_report()
 
-   END SUBROUTINE ch4_reactive_report
+   END SUBROUTINE ch4_impl_report
 
    SUBROUTINE methane_soisno_geometry (ipatch, lb, snl_loc, z_soisno_m, dz_soisno_m, zi_soisno_m)
 

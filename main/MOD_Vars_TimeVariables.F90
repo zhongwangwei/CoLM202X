@@ -1096,7 +1096,7 @@ CONTAINS
 #endif
 #ifdef GridRiverLakeFlow
 #ifdef TRACER
-   USE MOD_Grid_RiverLakeTracer, only: write_tracer_restart
+   USE MOD_Tracer_RiverLake, only: write_tracer_restart
 #endif
 #endif
    IMPLICIT NONE

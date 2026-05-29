@@ -5,7 +5,7 @@ MODULE MOD_Tracer_Rest
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, tracers, &
-      tracer_uses_delta_diagnostics
+      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport
    USE MOD_Tracer_Vars
    USE MOD_LandPatch, only: landpatch
    USE MOD_Block, only: get_filename_block
@@ -112,6 +112,7 @@ CONTAINS
       real(r8) :: R_init
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             trc_ldew_rain(itrc, ip) = ldew_rain(ip) * R_init
@@ -164,6 +165,7 @@ CONTAINS
             ENDIF
          ENDDO
       ENDDO
+      CALL zero_particle_land_tracer_state()
    END SUBROUTINE tracer_init_from_water
 
    SUBROUTINE read_land_tracer_restart (file_restart, maxsnl, nl_soil, found_restart, &
@@ -252,6 +254,7 @@ CONTAINS
 
       IF (allocated(trc_leaf_delta_e)) THEN
          DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             IF (tracer_uses_delta_diagnostics(itrc)) THEN
                trc_leaf_delta_e(itrc, :) = tracers(itrc)%init_delta
             ELSE
@@ -261,6 +264,7 @@ CONTAINS
       ENDIF
       IF (allocated(trc_leaf_delta_b)) THEN
          DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             IF (tracer_uses_delta_diagnostics(itrc)) THEN
                trc_leaf_delta_b(itrc, :) = tracers(itrc)%init_delta
             ELSE
@@ -288,6 +292,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          IF (.not. tracer_uses_delta_diagnostics(itrc)) THEN
             IF (allocated(trc_leaf_delta_e)) trc_leaf_delta_e(itrc, :) = 0._r8
             IF (allocated(trc_leaf_delta_b)) trc_leaf_delta_b(itrc, :) = 0._r8
@@ -311,6 +316,7 @@ CONTAINS
                itrc, ' to init_delta=', tracers(itrc)%init_delta
          ENDIF
       ENDDO
+      CALL zero_particle_land_tracer_state()
       found_restart = .true.
    END SUBROUTINE read_land_tracer_restart
 
@@ -335,6 +341,7 @@ CONTAINS
       IF (ntracers <= 0) RETURN
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             snl_local = 0
@@ -376,6 +383,7 @@ CONTAINS
       IF (.not. allocated(trc_waterstorage)) RETURN
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             snl_local = 0
@@ -434,6 +442,8 @@ CONTAINS
       logical :: have_patch_data
 
       IF (ntracers <= 0) RETURN
+
+      CALL zero_particle_land_tracer_state()
 
       have_patch_data = p_is_worker .and. numpatch > 0
 

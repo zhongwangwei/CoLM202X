@@ -75,6 +75,7 @@ MODULE MOD_Tracer_Defs
    PUBLIC :: tracer_defs_init, tracer_defs_final
    PUBLIC :: mass_to_delta, delta_to_R, R_to_mass
    PUBLIC :: tracer_is_isotope, tracer_is_conservative, tracer_is_reactive
+   PUBLIC :: tracer_is_particle, tracer_uses_land_water_transport
    PUBLIC :: tracer_uses_delta_diagnostics, tracer_can_use_fixed_signature
    PUBLIC :: tracer_init_water_ratio, tracer_reactive_decay_fraction
    PUBLIC :: tracer_param_file_for_index
@@ -136,7 +137,7 @@ CONTAINS
       ! only by illegal characters (e.g. 'H2O-16' vs 'H2O_16') collapse
       ! to the same clean token; MOD_Hist would then emit duplicate
       ! NetCDF variable names and crash. Mirrors the river-side
-      ! dedup loop in MOD_Grid_RiverLakeTracer:tracer_init.
+      ! dedup loop in MOD_Tracer_RiverLake:tracer_init.
          DO i = 1, ntracers
             DO j = 1, i - 1
                IF (trim(tracers(i)%name) == trim(tracers(j)%name)) THEN
@@ -182,7 +183,7 @@ CONTAINS
 
       DO i = 1, ntracers
          IF (.not. tracer_is_isotope(i) .and. .not. tracer_is_conservative(i) .and. &
-             .not. tracer_is_reactive(i)) THEN
+             .not. tracer_is_reactive(i) .and. .not. tracer_is_particle(i)) THEN
             IF (p_is_master) THEN
                write(*,'(A,A,A,A)') ' WARNING tracer_defs_init: unknown tracer category "', &
                   trim(tracers(i)%category), '" for ', trim(tracers(i)%name)
@@ -410,6 +411,28 @@ CONTAINS
          trim(tracers(itrc)%category) == 'reactive'
    END FUNCTION tracer_is_reactive
 
+   logical FUNCTION tracer_is_particle (itrc)
+      ! Particle tracers (e.g. suspended sediment) carry concentration per
+      ! unit water like conservative tracers, but additionally settle and
+      ! exchange mass with a non-water bed pool. Diagnostics are concentration
+      ! / bed-change, never delta, so they share the non-isotope branches of
+      ! tracer_uses_delta_diagnostics / tracer_can_use_fixed_signature.
+      integer, intent(in) :: itrc
+      tracer_is_particle = allocated(tracers) .and. itrc >= 1 .and. itrc <= ntracers .and. &
+         trim(tracers(itrc)%category) == 'particle'
+   END FUNCTION tracer_is_particle
+
+   logical FUNCTION tracer_uses_land_water_transport (itrc)
+      ! Generic land-water tracer modules transport scalar signatures tied to
+      ! canopy/soil/snow/aquifer water pools. Particle tracers own separate
+      ! species-specific state and must not be initialized, transported,
+      ! diagnosed, or restarted through those land-water pools.
+      integer, intent(in) :: itrc
+      tracer_uses_land_water_transport = allocated(tracers) .and. &
+         itrc >= 1 .and. itrc <= ntracers .and. &
+         .not. tracer_is_particle(itrc)
+   END FUNCTION tracer_uses_land_water_transport
+
    logical FUNCTION tracer_uses_delta_diagnostics (itrc)
       integer, intent(in) :: itrc
       ! Delta/NSS diagnostics are isotope-specific. Conservative/reactive
@@ -503,7 +526,7 @@ CONTAINS
    !-------------------------------------------------------------------
    ! Sanitize a string for use as a NetCDF variable name component.
    ! Keeps alphanumerics, underscore and period; replaces anything else
-   ! by dropping it. Mirrors MOD_Grid_RiverLakeTracer.sanitize_ncname so
+   ! by dropping it. Mirrors MOD_Tracer_RiverLake.sanitize_ncname so
    ! land-side history/diagnostics names (which splice tracers(i)%name)
    ! stay consistent with river-side output naming.
    !-------------------------------------------------------------------

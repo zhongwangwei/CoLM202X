@@ -201,7 +201,7 @@ SUBROUTINE CoLMMAIN ( &
       DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, DEF_SPLIT_SOILSNOW, &
       DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW
 #ifdef TRACER
-   USE MOD_Tracer_Defs,         only: ntracers, trc_tiny
+   USE MOD_Tracer_Defs,         only: ntracers, trc_tiny, tracer_uses_land_water_transport
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Precip,       only: tracer_precip
@@ -743,6 +743,7 @@ SUBROUTINE CoLMMAIN ( &
    ! miss the aquifer withdrawal entirely.
    real(r8) :: etroot_actual_trc(nl_soil)
    real(r8) :: etroot_aquifer_trc
+   real(r8) :: qcharge_trc
    real(r8) :: waterstorage_trc_beg
    real(r8) :: waterstorage_trc_ground
    integer  :: itrc_loc
@@ -1042,6 +1043,7 @@ SUBROUTINE CoLMMAIN ( &
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
             wa_old_trc = wa
+            qcharge_trc = 0._r8
             wdsrf_old_trc = wdsrf
             wetwat_old_trc = wetwat
             IF (.not. DEF_VEG_SNOW) THEN
@@ -1049,6 +1051,7 @@ SUBROUTINE CoLMMAIN ( &
                ! pools in the same phase or evapo leaves hidden snow/rain tracer.
                IF (tleaf > tfrz) THEN
                   DO itrc_loc = 1, ntracers
+                     IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                      trc_ldew_rain(itrc_loc, ipatch) = trc_ldew_rain(itrc_loc, ipatch) &
                         + trc_ldew_snow(itrc_loc, ipatch)
                      trc_ldew_snow(itrc_loc, ipatch) = 0._r8
@@ -1057,6 +1060,7 @@ SUBROUTINE CoLMMAIN ( &
                   ldew_snow = 0._r8
                ELSE
                   DO itrc_loc = 1, ntracers
+                     IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                      trc_ldew_snow(itrc_loc, ipatch) = trc_ldew_snow(itrc_loc, ipatch) &
                         + trc_ldew_rain(itrc_loc, ipatch)
                      trc_ldew_rain(itrc_loc, ipatch) = 0._r8
@@ -1171,6 +1175,7 @@ SUBROUTINE CoLMMAIN ( &
                IF (scv < trc_tiny) THEN
                   ! All thin snow melted; entire trc_scv is carried by sm.
                   DO itrc_loc = 1, ntracers
+                     IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                      trc_sm_carry(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch)
                      trc_scv(itrc_loc, ipatch) = 0._r8
                   ENDDO
@@ -1178,11 +1183,13 @@ SUBROUTINE CoLMMAIN ( &
                   ratio_loc = scv / max(scv_bef_trc, trc_tiny)
                   ratio_loc = max(min(ratio_loc, 1._r8), 0._r8)
                   DO itrc_loc = 1, ntracers
+                     IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                      trc_sm_carry(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * (1._r8 - ratio_loc)
                      trc_scv(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * ratio_loc
                   ENDDO
                ELSE
                   DO itrc_loc = 1, ntracers
+                     IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                      trc_sm_carry(itrc_loc, ipatch) = 0._r8
                   ENDDO
                ENDIF
@@ -1190,6 +1197,7 @@ SUBROUTINE CoLMMAIN ( &
                ! Snow layer present; no thin-snow melt route, melt tracer
                ! comes from trc_wice/trc_wliq via the normal soil_water path.
                DO itrc_loc = 1, ntracers
+                  IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                   trc_sm_carry(itrc_loc, ipatch) = 0._r8
                ENDDO
             ENDIF
@@ -1267,6 +1275,16 @@ SUBROUTINE CoLMMAIN ( &
          ENDIF
 
 #ifdef TRACER
+            IF (DEF_USE_VariablySaturatedFlow) THEN
+               ! WATER_VSF mutates wa through soilwater_aquifer_exchange.
+               ! etroot_aquifer_trc is already removed explicitly by
+               ! tracer_soil_water, so add it back when deriving the net
+               ! soil<->aquifer exchange seen by tracer Section 3.
+               qcharge_trc = (wa - wa_old_trc + max(etroot_aquifer_trc, 0._r8)) / max(deltim, trc_tiny)
+            ELSE
+               qcharge_trc = qcharge
+            ENDIF
+
             ! WATER_VSF takes the wetland-merge branch (L1170+ in
             ! MOD_SoilSnowHydrology) when patchtype==2 .and. not
             ! DEF_USE_Dynamic_Wetland. In that branch wdsrf/wa/wresi are
@@ -1292,7 +1310,7 @@ SUBROUTINE CoLMMAIN ( &
                   forc_psrf_frac = forc_psrf)
 	            ELSE
 	               CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
-	                  qlayer, qinfl, 0._r8, rsur, rsub, &
+	                  qlayer, qinfl, qcharge_trc, rsur, rsub, &
                   qseva, qsdew, qsubl, qfros, &
                   qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
                   qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &

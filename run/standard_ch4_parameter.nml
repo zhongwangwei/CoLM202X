@@ -20,7 +20,7 @@
     !   3) The active CH4 inundation mode is DEF_METHANE%inundation_mode below.
     !      Mode presets may override some switches shown later in this file.
     !
-    ! Mode presets in MOD_Tracer_Methane_Const:configure_methane_inundation_mode
+    ! Mode presets in MOD_Tracer_Reactive_Methane_Const:configure_methane_inundation_mode
     !   wetwat:
     !      DEF_wetland_finundation_scheme = 1
     !      enable_wetwat_finundated_override = .true.
@@ -285,3 +285,28 @@
     DEF_METHANE%gamma_methanotroph   = 0.10
     DEF_METHANE%gamma_microbial_dormant = 0.005
     DEF_METHANE%gamma_microbial_freeze  = 0.001
+
+/
+
+&nl_colm_tracer_forcing
+    ! ------------------------------------------------------------------
+    ! RESERVED: CH4's own external forcing, loaded by MOD_Tracer_ForcingInput
+    ! (main/TRACER/). Today the CH4 module still reads these through its own
+    ! paths -- DEF_file_GIEMS (monthly inundated/saturated wetland fraction,
+    ! MOD_Tracer_Reactive_Methane_GIEMS) and DEF_METHANE%atm_methane_file
+    ! (atmospheric CH4 mixing ratio table, MOD_Tracer_Reactive_Methane_Const).
+    ! These entries are loaded + stored here so the CH4 module can be switched
+    ! to consume them via MOD_Tracer_ForcingInput with no further namelist
+    ! changes. The water-isotope forcing path ignores non precip/vapor roles,
+    ! so this block is inert for isotope runs.
+    ! Replace fprefix/vname with the real GIEMS / atmospheric-CH4 datasets.
+    ! ------------------------------------------------------------------
+    forcing_num        = 2
+    forcing_role       = 'inundation', 'atm'
+    forcing_fprefix    = 'GIEMS_MC_v1.1', 'atm_ch4_global'
+    forcing_vname      = 'wetland_frac', 'ch4_molmol'
+    forcing_tintalgo   = 'nearest', 'linear'
+    forcing_dtime      = 2592000, 2592000
+    forcing_offset     = 0, 0
+    forcing_input_mode = 'direct', 'direct'
+/

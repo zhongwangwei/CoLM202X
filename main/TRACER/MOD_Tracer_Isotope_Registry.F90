@@ -5,6 +5,7 @@ MODULE MOD_Tracer_Isotope_Registry
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
+   USE MOD_SPMD_Task, only: CoLM_stop
 
    IMPLICIT NONE
    SAVE
@@ -78,8 +79,12 @@ CONTAINS
       procedure(isotope_alpha_temp_if), optional :: leaf_liquid_diffusivity_fn
       integer :: idx
 
-      IF (len_trim(name) <= 0) RETURN
-      IF (find_registered_isotope_by_name(name) > 0) RETURN
+      IF (len_trim(name) <= 0) THEN
+         CALL CoLM_stop ('MOD_Tracer_Isotope_Registry: cannot register isotope physics with empty name')
+      ENDIF
+      IF (find_registered_isotope_by_name(name) > 0) THEN
+         CALL CoLM_stop ('MOD_Tracer_Isotope_Registry: duplicate isotope physics registration')
+      ENDIF
 
       CALL ensure_isotope_physics_capacity(n_isotope_physics + 1)
       n_isotope_physics = n_isotope_physics + 1

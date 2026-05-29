@@ -4,7 +4,7 @@
 MODULE MOD_Tracer_Snow
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
 	   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
 	      trc_scv, trc_wetwat
 
@@ -29,10 +29,13 @@ CONTAINS
 
       integer  :: itrc, j
       real(r8) :: R_snow_step, R_layer, d_wice, snow_mass_step
+      real(r8) :: total_tracer, layer_water, ice_water, liq_water
+      real(r8) :: ice_tracer, liq_tracer
 
       IF (ntracers <= 0) RETURN
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          snow_mass_step = max(pg_snow, 0._r8) * deltim
          IF (snow_mass_step > trc_tiny) THEN
             R_snow_step = trc_pg_snow_ground(itrc, ipatch) / snow_mass_step
@@ -58,21 +61,28 @@ CONTAINS
 
          IF (snl_old == 0 .and. snl < 0) THEN
             ! Case A: First snow layer just created from accumulated scv.
-            ! wice_soisno(0) = scv (accumulated over multiple steps).
-            ! Transfer trc_scv (accumulated tracer) to the new layer.
-            trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
+            ! Partition the accumulated snow tracer across the new layer's
+            ! ice/liquid pools.  Do not put all trc_scv into ice and then add
+            ! liquid tracer again; that duplicates tracer mass when the first
+            ! layer is born with liquid water.
+            total_tracer = trc_scv(itrc, ipatch) + trc_pg_snow_ground(itrc, ipatch)
             j = snl + 1  ! = 0
-            trc_wice_soisno(itrc, j, ipatch) = trc_scv(itrc, ipatch)
-            IF (present(wliq_soisno)) THEN
-               IF (size(wliq_soisno) > 0) THEN
-                  IF (scv > trc_tiny) THEN
-                     R_layer = trc_scv(itrc, ipatch) / scv
-                  ELSE
-                     R_layer = R_snow_step
-                  ENDIF
-                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_layer
-               ENDIF
+            ice_water = 0._r8
+            liq_water = 0._r8
+            IF (present(wice_soisno)) THEN
+               IF (size(wice_soisno) > 0) ice_water = max(wice_soisno(1), 0._r8)
             ENDIF
+            IF (present(wliq_soisno)) THEN
+               IF (size(wliq_soisno) > 0) liq_water = max(wliq_soisno(1), 0._r8)
+            ENDIF
+            layer_water = ice_water + liq_water
+            IF (layer_water <= trc_tiny) layer_water = max(scv, trc_tiny)
+            R_layer = total_tracer / layer_water
+            ice_tracer = min(max(ice_water * R_layer, 0._r8), max(total_tracer, 0._r8))
+            liq_tracer = min(max(liq_water * R_layer, 0._r8), max(total_tracer - ice_tracer, 0._r8))
+            IF (ice_water <= trc_tiny .and. liq_water <= trc_tiny) ice_tracer = max(total_tracer, 0._r8)
+            trc_wice_soisno(itrc, j, ipatch) = ice_tracer
+            trc_wliq_soisno(itrc, j, ipatch) = liq_tracer
             ! Clear trc_scv: all transferred to the snow layer
             trc_scv(itrc, ipatch) = 0._r8
 

@@ -5,13 +5,14 @@ MODULE MOD_Tracer_Conservation
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
-      tracer_reactive_decay_fraction, tracer_can_use_fixed_signature
+      tracer_reactive_decay_fraction, tracer_can_use_fixed_signature, tracer_uses_land_water_transport
    USE MOD_Tracer_Frac, only: tracer_fractionation_active
    USE MOD_Tracer_Vars
 
    IMPLICIT NONE
 
    real(r8), parameter :: trc_balance_tol = 1.0e-10_r8
+   integer,  parameter :: trc_balance_abort_nbad = 0
    integer, parameter :: n_storage_diag = 9
    integer, parameter :: n_flux_diag = 7
 
@@ -101,6 +102,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
 	         trc_rnof_step(itrc, ipatch) = 0._r8
 	         IF (allocated(trc_reactive_source_step)) trc_reactive_source_step(itrc, ipatch) = 0._r8
 	         IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
@@ -165,6 +167,7 @@ CONTAINS
 	      lb_store = lbound(trc_wliq_soisno, 2)
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          decay_fraction = tracer_reactive_decay_fraction(itrc, deltim)
          IF (decay_fraction <= 0._r8) CYCLE
 
@@ -246,6 +249,7 @@ CONTAINS
 	      lb_store = lbound(trc_wliq_soisno, 2)
 
       DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          ! Current storage split by component; keep this in the same
          ! component order as tracer_save_storage.
          storage_comp_end = 0._r8
@@ -420,6 +424,7 @@ CONTAINS
    ! summary (not p_is_master, which lives on a different comm).
    !---------------------------------------------------------------
    SUBROUTINE tracer_balance_report ()
+      USE MOD_SPMD_Task, only: CoLM_stop
 #ifdef USEMPI
       USE MOD_SPMD_Task, only: p_comm_worker, p_iam_worker, p_err, p_is_worker, &
                                p_np_worker
@@ -571,6 +576,10 @@ CONTAINS
             ' scv=', balance_worst_send(7), &
             ' waterstorage=', balance_worst_send(8), &
             ' leaf_iso=', balance_worst_send(9)
+      ENDIF
+
+      IF (print_me .and. nbad_total > trc_balance_abort_nbad) THEN
+         CALL CoLM_stop ('TRC_BAL hard failure: tracer balance error exceeds aggregate threshold')
       ENDIF
 
       balance_worst_err    = 0._r8
