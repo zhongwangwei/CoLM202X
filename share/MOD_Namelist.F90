@@ -1338,6 +1338,15 @@ CONTAINS
          write(*,*) 'when defined CatchLateralFlow. '
          DEF_USE_VariablySaturatedFlow = .true.
 #endif
+#ifdef TRACER
+         IF (.not. DEF_USE_VariablySaturatedFlow) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
+            write(*,*) 'tracer_soil_water is VSF-diagnostic driven; WATER_2014 does not provide'
+            write(*,*) 'the required qlayer/etroot_actual/aquifer-exchange tracer diagnostics.'
+            CALL CoLM_stop ()
+         ENDIF
+#endif
 #ifdef SinglePoint
          IF (DEF_Runoff_SCHEME == 0) THEN
             write(*,*) 'Note: DEF_TOPMOD_method is set to 0 in SinglePoint.'

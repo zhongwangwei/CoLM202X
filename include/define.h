@@ -24,9 +24,9 @@
 #endif
 
 ! 3. If defined, debug information is output.
-#undef CoLMDEBUG
+#define CoLMDEBUG
 ! 3.1 If defined, range of variables is checked.
-#undef RangeCheck
+#define RangeCheck
 ! 3.1 If defined, surface data in vector is mapped to gridded data for checking.
 #undef SrfdataDiag
 
@@ -63,9 +63,7 @@
 #undef GridRiverLakeFlow
 #endif
 
-! NOTE: the former GridRiverLakeSediment macro has been retired. Sediment is
-! now a TRACER 'particle' species (MOD_Tracer_Particle_Sediment) and is
-! compiled/activated under #ifdef TRACER together with GridRiverLakeFlow.
+
 
 ! 7. If defined, BGC model is used.
 #undef BGC
@@ -104,16 +102,31 @@
 ! 12. Hyperspectral scheme.
 #undef HYPERSPECTRAL
 
-! 13. If defined, water tracer module is enabled.
-#define TRACER
+! 13. If defined, water tracer module is enabled (e.g. delta-18O, delta-D).
+!     Default is OFF for production-safe builds; change to #define TRACER
+!     only when water tracers / particle tracer species are explicitly needed.
+#undef TRACER
+!    Conflicts: TRACER requires VariablySaturatedFlow soil hydrology
+!    (vanGenuchten_Mualem_SOIL_MODEL). Disable when running with
+!    Campbell_SOIL_MODEL.
 #ifdef Campbell_SOIL_MODEL
 #undef TRACER
 #endif
+!    Dependency: the TRACER subsystem (water isotopes + the sediment particle
+!    species) routes through grid river/lake flow. Enabling TRACER REQUIRES
+!    GridRiverLakeFlow.
 #if (defined TRACER) && (!defined GridRiverLakeFlow)
 #error "TRACER requires GridRiverLakeFlow to be defined in include/define.h"
 #endif
 
 ! 13b. Methane reactive tracer.
+!     Activation is runtime: register a tracer named "CH4" or "METHANE"
+!     with category="reactive" in the &nl_colm DEF_TRACER_NAMES /
+!     DEF_TRACER_TYPES namelist. The methane module is compiled whenever
+!     both TRACER and BGC are defined; the registry resolves igas_ch4 at
+!     run time and switches all methane logic on/off accordingly.
+!     Additional dependency: requires LULC_IGBP_PFT or LULC_IGBP_PC for
+!     pftfrac access (per-PFT NPP and root-respiration aggregation).
 #if (defined TRACER) && (defined BGC)
 #if (!defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
 #error "Methane (TRACER+BGC) requires LULC_IGBP_PFT or LULC_IGBP_PC for pftfrac access."

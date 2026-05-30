@@ -180,10 +180,7 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_NewSnow, only: newsnow
    USE MOD_Thermal, only: THERMAL
    USE MOD_SoilSnowHydrology, only: WATER_2014, WATER_VSF
-   USE MOD_SnowFraction, only: snowfraction
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-   USE MOD_SnowFraction, only: snowfraction_pftwrap
-#endif
+   USE MOD_SnowFraction, only: snowfraction, snowfraction_pftwrap
    USE MOD_SnowLayersCombineDivide, only: snowcompaction, snowlayerscombine, &
       snowlayerscombine_snicar, snowlayersdivide, snowlayersdivide_snicar
    USE MOD_Glacier, only: GLACIER_TEMP, GLACIER_WATER, GLACIER_WATER_snicar
@@ -234,10 +231,7 @@ SUBROUTINE CoLMMAIN ( &
 #ifdef TRACER
    USE MOD_Tracer_SpecialPatches, only: tracer_glacier_patch, tracer_waterbody_patch
 #endif
-   USE MOD_LeafInterception, only: LEAF_interception_wrap
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-   USE MOD_LeafInterception, only: LEAF_interception_pftwrap
-#endif
+   USE MOD_LeafInterception, only: LEAF_interception_wrap, LEAF_interception_pftwrap
 #if (defined CaMa_Flood)
    ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
    USE MOD_CaMa_colmCaMa, only: get_fldevp
@@ -694,12 +688,14 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
 
+#ifdef TRACER
    ! Tracer local variables
    real(r8) :: xerr_tracer
    real(r8), allocatable :: wliq_soisno_old_trc(:)
    real(r8), allocatable :: wice_soisno_old_trc(:)
    real(r8) :: wa_old_trc, wdsrf_old_trc, wetwat_old_trc
    real(r8) :: ldew_rain_old_trc, ldew_snow_old_trc   ! before LEAF_INTERCEPTION
+#endif
    ! Canopy phase-change mass transferred by LEAF_INTERCEPTION this step
    ! [grid-scale mm, >=0]. ldew_smelt_out moves canopy ldew_snow → ldew_rain
    ! (melt); ldew_frzc_out moves canopy ldew_rain → ldew_snow (freeze).
@@ -724,9 +720,12 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: canopy_smelt_mass_th, canopy_frzc_mass_th
    real(r8), allocatable :: soil_thaw_mass_th(:), soil_frzc_mass_th(:)
    real(r8) :: ldew_rain_bef_th, ldew_snow_bef_th    ! before THERMAL
+#ifdef TRACER
    real(r8) :: scv_bef_trc                            ! pre-newsnow scv
    real(r8), allocatable :: wice_snow_bef_trc(:)   ! pre-newsnow wice for tracer_newsnow Case C
    real(r8) :: glacier_overflow_mass_trc
+#endif
+#ifdef TRACER
    ! Per-layer transpiration demand returned by WATER_VSF so the tracer path
    ! can subtract the matching tracer mass from each soil layer. Only used
    ! for the soil-ground branches; the wetland path ignores this and handles
@@ -748,6 +747,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: waterstorage_trc_ground
    integer  :: itrc_loc
    real(r8) :: ratio_loc
+#endif
 
 #if (defined CaMa_Flood)
    !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
@@ -885,17 +885,23 @@ SUBROUTINE CoLMMAIN ( &
          qflx_irrig_sprinkler = 0._r8
          qflx_irrig_flood = 0._r8
          qflx_irrig_paddy = 0._r8
+#ifdef TRACER
          waterstorage_trc_beg = 0._r8
+#endif
 #ifdef CROP
          IF (DEF_USE_IRRIGATION) THEN
+#ifdef TRACER
             waterstorage_trc_beg = max(waterstorage(ipatch), 0._r8)
+#endif
             IF (patchtype == 0) THEN
                CALL CalIrrigationApplicationFluxes(ipatch,deltim,qflx_irrig_drip, &
                   qflx_irrig_sprinkler,qflx_irrig_flood,qflx_irrig_paddy)
             ENDIF
          ENDIF
 #endif
+#ifdef TRACER
          waterstorage_trc_ground = max(waterstorage_trc_beg - max(qflx_irrig_sprinkler, 0._r8) * deltim, 0._r8)
+#endif
 !----------------------------------------------------------------------
 ! [3] Canopy interception and precipitation onto ground surface
 !----------------------------------------------------------------------
@@ -1256,18 +1262,20 @@ SUBROUTINE CoLMMAIN ( &
                  rsur_se           ,rsur_ie           ,rsub              ,rnof              ,&
                  qinfl                                                                      ,&
                  qlayer            ,ssi               ,pondmx            ,wimp              ,&
-                 zwt               ,wdsrf             ,wa                ,wetwat            ,&
-                 etroot_trc                                                                 ,&
-                 wblc_ice_sink_trc                                                          ,&
-                 etroot_actual_trc                                                          ,&
-                 etroot_aquifer_trc                                                         ,&
+                 zwt               ,wdsrf             ,wa                ,wetwat            &
+#ifdef TRACER
+                ,etroot_trc                                                                 &
+                ,wblc_ice_sink_trc                                                          &
+                ,etroot_actual_trc                                                          &
+                ,etroot_aquifer_trc                                                         &
+#endif
 #if (defined CaMa_Flood)
                  !add variables for flood depth [mm], flood fraction [0-1]
                  !and re-infiltration [mm/s] calculation.
-                 flddepth          ,fldfrc            ,qinfl_fld         ,&
+                ,flddepth          ,fldfrc            ,qinfl_fld         &
 #endif
 ! SNICAR model variables
-                 forc_aer          ,&
+                ,forc_aer          ,&
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
                  mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)  ,&
 !  irrigation variables
@@ -1548,7 +1556,9 @@ SUBROUTINE CoLMMAIN ( &
 !======================================================================
                             ! initial set
          scvold = scv       ! snow mass at previous time step
+#ifdef TRACER
          glacier_overflow_mass_trc = 0._r8
+#endif
 
          snl = 0
          DO j=maxsnl+1,0
@@ -1585,7 +1595,9 @@ SUBROUTINE CoLMMAIN ( &
             pg_rain = pg_rain + wextra
             wliq_soisno(1) = dz_soisno(1)*denh2o
             totwb = totwb - wextra*deltim
+#ifdef TRACER
             glacier_overflow_mass_trc = glacier_overflow_mass_trc + wextra*deltim
+#endif
          ENDIF
 
          t_snow = t_precip
@@ -1595,7 +1607,9 @@ SUBROUTINE CoLMMAIN ( &
             pg_snow = pg_snow + wextra
             wice_soisno(1) = dz_soisno(1)*denice
             totwb = totwb - wextra*deltim
+#ifdef TRACER
             glacier_overflow_mass_trc = glacier_overflow_mass_trc + wextra*deltim
+#endif
          ENDIF
 
          IF (pg_rain+pg_snow > 0) THEN

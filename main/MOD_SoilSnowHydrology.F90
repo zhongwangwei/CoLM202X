@@ -514,16 +514,18 @@ ENDIF
               fsno        ,frcsat      ,rsur        ,rsur_se     ,rsur_ie     ,&
               rsubst      ,rnof        ,qinfl       ,qlayer      ,ssi         ,&
               pondmx      ,wimp        ,zwt         ,wdsrf       ,wa          ,&
-              wetwat                                                          ,&
-              etroot                                                          ,&
-              wblc_ice_sink                                                   ,&
-              etroot_actual                                                   ,&
-              etroot_aquifer                                                  ,&
+              wetwat                                                          &
+#ifdef TRACER
+             ,etroot                                                          &
+             ,wblc_ice_sink                                                   &
+             ,etroot_actual                                                   &
+             ,etroot_aquifer                                                  &
+#endif
 #if (defined CaMa_Flood)
-              flddepth    ,fldfrc      ,qinfl_fld                             ,&
+             ,flddepth    ,fldfrc      ,qinfl_fld                             &
 #endif
 ! SNICAR model variables
-              forc_aer                                                        ,&
+             ,forc_aer                                                        ,&
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
 !  irrigation variable
@@ -651,11 +653,13 @@ ENDIF
         qinfl            , &! infiltration rate (mm h2o/s)
         qlayer(0:nl_soil)   ! water flux between soil layer [mm h2o/s]
 
+#ifdef TRACER
    ! Source-water diagnostics used by the TRACER soil-water update.
    real(r8), intent(out) :: etroot(1:nl_soil)        ! layer ET demand (mm/s)
    real(r8), intent(out) :: wblc_ice_sink(1:nl_soil) ! ET deficit taken from ice (kg/m2)
    real(r8), intent(out) :: etroot_actual(1:nl_soil) ! layer ET actually removed (mm)
    real(r8), intent(out) :: etroot_aquifer           ! aquifer ET fallback (mm)
+#endif
 
 
 
@@ -736,11 +740,13 @@ ENDIF
       prms(5,1:nl_soil) = fc_vgm   (1:nl_soil)
 #endif
 
+#ifdef TRACER
       ! Defaults for branches that skip soil_water_vertical_movement / wblc.
       etroot(1:nl_soil) = 0._r8
       wblc_ice_sink(1:nl_soil) = 0._r8
       etroot_actual(1:nl_soil) = 0._r8
       etroot_aquifer           = 0._r8
+#endif
 
 !=======================================================================
 ! [1] update the liquid water within snow layer and the water onto soil
@@ -1033,7 +1039,9 @@ IF((patchtype<=1) .or. is_dry_lake &
          etr,                     rootr(1:nl_soil),         rootflux(1:nl_soil), rsubst,           &
          qinfl,                   wdsrf,                    zwtmm,               wa,               &
          vol_liq(1:nl_soil),      smp(1:nl_soil),           hk(1:nl_soil),       qlayer(0:nl_soil),&
+#ifdef TRACER
          etroot(1:nl_soil),       etroot_actual(1:nl_soil), etroot_aquifer,                       &
+#endif
          1.e-3,                   wblc)
 
       ! update the mass of liquid water
@@ -1072,12 +1080,16 @@ ENDIF
       IF (wblc > 0.) THEN
          DO j = 1, nl_soil
             IF (wice_soisno(j) > wblc) THEN
+#ifdef TRACER
                wblc_ice_sink(j) = wblc
+#endif
                wice_soisno(j) = wice_soisno(j) - wblc
                wblc = 0.
                EXIT
             ELSE
+#ifdef TRACER
                wblc_ice_sink(j) = wice_soisno(j)
+#endif
                wblc = wblc - wice_soisno(j)
                wice_soisno(j) = 0.
             ENDIF

@@ -164,8 +164,11 @@ CONTAINS
          vl_r,       psi_s,      hksat,  nprm,     prms,          porsl_wa, &
          qgtop,      etr,        rootr,  rootflux, rsubst,        qinfl,    &
          ss_dp,      zwt,        wa,     ss_vliq,  smp,           hk,       &
-         qlayer,     etroot_out, etroot_actual_out, etroot_aquifer_out,     &
-         tolerance,  wblc)
+         qlayer                                                          &
+#ifdef TRACER
+        ,etroot_out, etroot_actual_out, etroot_aquifer_out              &
+#endif
+        ,tolerance,  wblc)
 
    !=======================================================================
    ! this is the main subroutine to execute the calculation of
@@ -214,10 +217,12 @@ CONTAINS
 
    real(r8), intent(out) :: qlayer(0:nlev) ! water flux at interface of soil layers (mm/s)
 
+#ifdef TRACER
    ! Expose transpiration demand and actual source water for tracer accounting.
    real(r8), intent(out) :: etroot_out(1:nlev)           ! demand by layer (mm/s)
    real(r8), intent(out) :: etroot_actual_out(1:nlev)    ! removed from layers (mm)
    real(r8), intent(out) :: etroot_aquifer_out           ! removed from aquifer (mm)
+#endif
 
    real(r8), intent(in)  :: tolerance
 
@@ -294,10 +299,12 @@ CONTAINS
          etroot(:) = rootflux
       ENDIF
 
+#ifdef TRACER
       ! Expose per-layer transpiration demand for downstream tracer accounting.
       etroot_out(1:nlev) = etroot(1:nlev)
       etroot_actual_out(1:nlev) = 0._r8
       etroot_aquifer_out        = 0._r8
+#endif
 
       deficit = etrdef
 
@@ -312,15 +319,21 @@ CONTAINS
 
             IF (ss_vliq(ilev) < 0) THEN
                residual_mm  = -ss_vliq(ilev) * sp_dz(ilev)
+#ifdef TRACER
                etroot_actual_out(ilev) = max(ss_vliq_pre, 0._r8)
+#endif
                deficit = residual_mm
                ss_vliq(ilev) = 0
             ELSEIF (ss_vliq(ilev) > porsl(ilev)) THEN
+#ifdef TRACER
                etroot_actual_out(ilev) = max(attempted, 0._r8)
+#endif
                deficit = -(ss_vliq(ilev) - porsl(ilev)) * sp_dz(ilev)
                ss_vliq(ilev) = porsl(ilev)
             ELSE
+#ifdef TRACER
                etroot_actual_out(ilev) = max(attempted, 0._r8)
+#endif
                deficit = 0.
             ENDIF
          ELSE
@@ -332,8 +345,10 @@ CONTAINS
          deficit = deficit + etroot(ilev)*dt
       ENDDO
 
+#ifdef TRACER
       ! Remaining ET deficit is absorbed by the aquifer alongside rsubst.
       etroot_aquifer_out = max(deficit, 0._r8)
+#endif
 
       ! Exchange water with aquifer
       wexchange = rsubst * dt + deficit
