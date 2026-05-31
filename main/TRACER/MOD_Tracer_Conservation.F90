@@ -41,6 +41,15 @@ MODULE MOD_Tracer_Conservation
    integer,  save :: balance_worst_itrc   = 0
    integer,  save :: balance_worst_ptype  = -1
    integer,  save :: balance_nbad         = 0
+   ! P1 diagnostic: the per-layer trc_wliq<->wliq_soisno reconciliation
+   ! (MOD_Tracer_SoilWater) injects/removes tracer booked as numerical_source_sink,
+   ! which is subtracted out of the balance error below. A genuine flux-tracking
+   ! gap that lands in a storage mismatch is therefore invisible to the tol check.
+   ! Track the residual magnitude separately so it is surfaced, not silently
+   ! absorbed. Warn fraction is relative to tracer storage; tune as needed.
+   real(r8), parameter :: trc_resid_warn_frac = 1.0e-6_r8
+   real(r8), save :: resid_worst_abs      = 0._r8
+   integer,  save :: resid_nbad           = 0
 
    PUBLIC :: deallocate_tracer_conservation
    PUBLIC :: tracer_apply_reactive_processes
@@ -155,6 +164,12 @@ CONTAINS
       ENDDO
    END SUBROUTINE tracer_save_storage
 
+   ! Contract: this routine applies only generic land-water reactive pools
+   ! that live in MOD_Tracer_Vars and share the ordinary water-transport
+   ! storage/flux budget.  species-owned reactive state (for example CH4's
+   ! conc_methane* prognostic pools) must keep its own source/sink accounting
+   ! and restart callbacks; it must not be double-booked here through
+   ! trc_reactive_source_step.
    SUBROUTINE tracer_apply_reactive_processes (ipatch, snl, nl_soil, deltim)
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, nl_soil
@@ -406,6 +421,14 @@ CONTAINS
             balance_nbad = balance_nbad + 1
          ENDIF
 
+         ! P1: surface a non-trivial numerical residual the tol check cannot see
+         ! (it subtracts numerical_source_sink). Diagnostic only; does not abort.
+         IF (abs(numerical_source_sink) > trc_resid_warn_frac * &
+                max(abs(storage_end), abs(trc_storage_beg(itrc, ipatch)))) THEN
+            resid_nbad = resid_nbad + 1
+            resid_worst_abs = max(resid_worst_abs, abs(numerical_source_sink))
+         ENDIF
+
          xerr_tracer = max(xerr_tracer, abs(check_err) / deltim)
       ENDDO
    END SUBROUTINE tracer_balance_check
@@ -432,6 +455,8 @@ CONTAINS
       IMPLICIT NONE
       real(r8) :: worst_abs, reduced_abs
       integer  :: nbad_total
+      real(r8) :: resid_abs_total
+      integer  :: resid_nbad_total
       integer  :: winner_rank, local_winner
       logical  :: print_me
       ! MAXLOC reduction: pair |err| with rank so we can ship ipatch/itrc
@@ -444,6 +469,8 @@ CONTAINS
 
       worst_abs = abs(balance_worst_err)
       nbad_total  = balance_nbad
+      resid_abs_total  = resid_worst_abs
+      resid_nbad_total = resid_nbad
       winner_rank = 0
 
 #ifdef USEMPI
@@ -451,6 +478,8 @@ CONTAINS
       IF (p_is_worker) THEN
          CALL mpi_reduce(worst_abs,    reduced_abs, 1, MPI_REAL8,   MPI_MAX, 0, p_comm_worker, p_err)
          CALL mpi_reduce(balance_nbad, nbad_total,  1, MPI_INTEGER, MPI_SUM, 0, p_comm_worker, p_err)
+         CALL mpi_reduce(resid_worst_abs, resid_abs_total,  1, MPI_REAL8,   MPI_MAX, 0, p_comm_worker, p_err)
+         CALL mpi_reduce(resid_nbad,      resid_nbad_total, 1, MPI_INTEGER, MPI_SUM, 0, p_comm_worker, p_err)
          ! Broadcast reduced_abs back so every worker can decide whether
          ! to contribute its ipatch/itrc (only the owner of worst_abs
          ! ships it via another reduce).
@@ -578,6 +607,14 @@ CONTAINS
             ' leaf_iso=', balance_worst_send(9)
       ENDIF
 
+      IF (print_me .and. resid_nbad_total > 0) THEN
+         ! Fires independently of nbad_total: by design the residual is excluded
+         ! from the tol check, so this is the only place it becomes visible.
+         WRITE(*,'(A,I8,A,E12.5)') &
+            'TRC_BAL residual note (absorbed, excluded from tol check): n_entries=', &
+            resid_nbad_total, ' worst_abs=', resid_abs_total
+      ENDIF
+
       IF (print_me .and. nbad_total > trc_balance_abort_nbad) THEN
          CALL CoLM_stop ('TRC_BAL hard failure: tracer balance error exceeds aggregate threshold')
       ENDIF
@@ -592,6 +629,8 @@ CONTAINS
       balance_worst_itrc   = 0
       balance_worst_ptype  = -1
       balance_nbad         = 0
+      resid_worst_abs      = 0._r8
+      resid_nbad           = 0
    END SUBROUTINE tracer_balance_report
 
 END MODULE MOD_Tracer_Conservation

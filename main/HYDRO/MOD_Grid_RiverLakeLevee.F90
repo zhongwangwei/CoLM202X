@@ -293,6 +293,7 @@ CONTAINS
    real(r8) :: flddph, rivsto, dsto_fil, dsto_add
    real(r8) :: dwth_inc, dwth_fil, dwth_add, ddph_fil, ddph_add
    real(r8) :: fldgrd, fldsto_unprot
+   real(r8) :: visible_volume, partition_tol
    integer  :: ilev, j, nlfp
 
       rivstomax = floodplain_curve(i)%rivstomax
@@ -435,13 +436,30 @@ CONTAINS
          wdsrf    = levee_total_depth(i, vol_total)
          flddph   = wdsrf - floodplain_curve(i)%rivhgt
          levdph_out = flddph
-         fldfrc = 1.0
+         fldfrc = levee_total_flood_fraction_from_depth(i, wdsrf)
 
          rivsto = rivstomax + rivlen * rivwth * flddph
          dsto_add = (flddph - levee_hgt(i)) * (levee_dst(i) + rivwth) * rivlen
          fldsto_unprot = MAX(levee_topsto(i) + dsto_add - rivsto, 0._r8)
          levsto_out = MAX(vol_total - rivsto - fldsto_unprot, 0._r8)
       ENDIF
+
+#if (defined CoLMDEBUG)
+      ! Debug invariant checks for the levee storage partition:
+      ! visible_volume + levsto_out == vol_total by construction, with
+      ! non-negative partitions and bounded flood fraction.
+      visible_volume = vol_total - levsto_out
+      partition_tol = max(1._r8, abs(vol_total)) * 1.e-9_r8
+      IF (visible_volume < -partition_tol .or. levsto_out < -partition_tol .or. &
+          fldfrc < -1.e-9_r8 .or. fldfrc > 1._r8 + 1.e-9_r8 .or. &
+          wdsrf < -1.e-9_r8 .or. levdph_out < -1.e-9_r8) THEN
+         write(*,'(A,I0,6(A,ES13.5))') 'ERROR levee_fldstg invariant: i=', i, &
+            ' vol_total=', vol_total, ' visible=', visible_volume, &
+            ' levsto=', levsto_out, ' wdsrf=', wdsrf, &
+            ' levdph=', levdph_out, ' fldfrc=', fldfrc
+         CALL CoLM_stop()
+      ENDIF
+#endif
 
    END SUBROUTINE levee_fldstg
 
@@ -639,6 +657,71 @@ CONTAINS
       ENDIF
 
    END FUNCTION levee_total_depth
+
+
+   ! =========================================================================
+   FUNCTION levee_total_flood_fraction_from_depth (i, wdsrf) RESULT(fldfrc)
+   ! =========================================================================
+
+   USE MOD_Grid_RiverLakeNetwork, only: topo_rivlen, topo_rivwth, topo_area, floodplain_curve
+   IMPLICIT NONE
+
+   integer,  intent(in) :: i
+   real(r8), intent(in) :: wdsrf
+   real(r8)             :: fldfrc
+
+   integer  :: j, nlfp
+   real(r8) :: rivlen, rivwth, dwth_inc
+   real(r8) :: flddph, dhgtpre, dwth_fil, dwth_add, fldgrd
+
+      IF (wdsrf <= floodplain_curve(i)%rivhgt) THEN
+         fldfrc = 0._r8
+         RETURN
+      ENDIF
+
+      rivlen = topo_rivlen(i)
+      nlfp   = floodplain_curve(i)%nlfp
+      IF (rivlen <= 0._r8 .or. topo_area(i) <= 0._r8 .or. nlfp <= 0) THEN
+         fldfrc = 0._r8
+         IF (topo_area(i) > 0._r8) fldfrc = floodplain_curve(i)%floodarea(wdsrf) / topo_area(i)
+         fldfrc = MIN(MAX(fldfrc, 0._r8), 1._r8)
+         RETURN
+      ENDIF
+
+      flddph   = wdsrf - floodplain_curve(i)%rivhgt
+      rivwth   = MAX(topo_rivwth(i), 0._r8)
+      dwth_inc = topo_area(i) / (rivlen * nlfp)
+
+      j         = 1
+      dwth_fil  = rivwth
+      dhgtpre   = 0._r8
+
+      DO WHILE (j <= nlfp)
+         IF (flddph <= floodplain_curve(i)%flphgt(j)) EXIT
+         dwth_fil = rivwth + dwth_inc * j
+         dhgtpre  = floodplain_curve(i)%flphgt(j)
+         j = j + 1
+      ENDDO
+
+      IF (j <= nlfp) THEN
+         fldgrd = levee_fldgrd(j, i)
+         IF (fldgrd > 0._r8) THEN
+            dwth_add = MAX(flddph - dhgtpre, 0._r8) / fldgrd
+         ELSE
+            dwth_add = 0._r8
+         ENDIF
+      ELSE
+         dwth_add = 0._r8
+      ENDIF
+
+      IF (dwth_inc > 0._r8) THEN
+         fldfrc = (-rivwth + dwth_fil + dwth_add) / (dwth_inc * nlfp)
+      ELSE
+         fldfrc = 0._r8
+      ENDIF
+      fldfrc = MIN(MAX(fldfrc, 0._r8), 1._r8)
+
+   END FUNCTION levee_total_flood_fraction_from_depth
 
 
    ! =========================================================================

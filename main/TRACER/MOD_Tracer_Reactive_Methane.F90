@@ -131,8 +131,6 @@ CONTAINS
       character(len=*), intent(in) :: dir_restart
       character(len=*), intent(in) :: dir_landdata
 
-      character(len=256) :: file_restart_trc
-      character(len=14)  :: cdate_restart
       character(len=256) :: cyear_restart
       character(len=256) :: file_param
       logical :: use_param
@@ -172,10 +170,6 @@ CONTAINS
       CALL allocate_methane_acc_fluxes (numpatch)
 
       write(cyear_restart,'(i4.4)') lc_year
-      write(cdate_restart,'(i4.4,"-",i3.3,"-",i5.5)') jdate(1), jdate(2), jdate(3)
-      file_restart_trc = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)// &
-                         '_restart_'//trim(cdate_restart)//'_lc'//trim(cyear_restart)//'.nc'
-      CALL ch4_reactive_read_restart (file_restart_trc)
       IF (p_is_worker .and. allocated(patchtype) .and. allocated(lake_soilc_srf)) THEN
          CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, DEF_METHANE%allowlakeprod)
       ENDIF
@@ -275,12 +269,31 @@ CONTAINS
 
    SUBROUTINE ch4_reactive_read_restart (file_restart)
 
+      USE MOD_NetCDFSerial, only: ncio_var_exist
       IMPLICIT NONE
       character(len=*), intent(in) :: file_restart
+      logical :: file_has_pools
 
       IF (.not. ch4_reactive_has()) RETURN
       CALL read_methane_restart (file_restart)
       CALL read_methane_accflux_restart (file_restart)
+
+      ! C4: warn on a microbial-pool restart<->runtime-flag mismatch. The read
+      ! below is flag-gated, so without this a restart written with pools ON but
+      ! resumed with use_microbial_pools=.false. silently drops the prognostic
+      ! biomass pools (and the reverse silently cold-starts them from B_init),
+      ! breaking restart reproducibility with no message. Master-only probe.
+      IF (p_is_master) THEN
+         file_has_pools = ncio_var_exist(file_restart, 'ch4_B_methanogen', readflag = .false.)
+         IF (file_has_pools .and. (.not. DEF_METHANE%use_microbial_pools)) THEN
+            WRITE(*,'(A)') 'WARNING: methane microbial-pool fields are present in the '// &
+               'restart but use_microbial_pools=.false.; those pools are being ignored.'
+         ELSEIF ((.not. file_has_pools) .and. DEF_METHANE%use_microbial_pools) THEN
+            WRITE(*,'(A)') 'WARNING: use_microbial_pools=.true. but the restart has no '// &
+               'microbial-pool fields; biomass cold-started from B_init (not reproducible).'
+         ENDIF
+      ENDIF
+
       IF (DEF_METHANE%use_microbial_pools) THEN
          CALL read_methane_microbes_restart (file_restart)
       ENDIF

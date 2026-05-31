@@ -520,6 +520,7 @@ ENDIF
              ,wblc_ice_sink                                                   &
              ,etroot_actual                                                   &
              ,etroot_aquifer                                                  &
+             ,snow_qout_layer                                                  &
 #endif
 #if (defined CaMa_Flood)
              ,flddepth    ,fldfrc      ,qinfl_fld                             &
@@ -659,6 +660,7 @@ ENDIF
    real(r8), intent(out) :: wblc_ice_sink(1:nl_soil) ! ET deficit taken from ice (kg/m2)
    real(r8), intent(out) :: etroot_actual(1:nl_soil) ! layer ET actually removed (mm)
    real(r8), intent(out) :: etroot_aquifer           ! aquifer ET fallback (mm)
+   real(r8), intent(out) :: snow_qout_layer(lb:0)    ! true snowwater qout by snow layer (mm/step)
 #endif
 
 
@@ -746,6 +748,7 @@ ENDIF
       wblc_ice_sink(1:nl_soil) = 0._r8
       etroot_actual(1:nl_soil) = 0._r8
       etroot_aquifer           = 0._r8
+      IF (lb <= 0) snow_qout_layer(lb:0) = 0._r8
 #endif
 
 !=======================================================================
@@ -761,14 +764,22 @@ IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
          IF ((.not.DEF_USE_SNICAR) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat&
+#ifdef TRACER
+                         ,snow_qout_layer(lb:0)&
+#endif
+                         )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0)&
+#ifdef TRACER
+                         ,qout_snow_layer=snow_qout_layer(lb:0)&
+#endif
+                         )
          ENDIF
       ENDIF
 
@@ -780,14 +791,22 @@ ELSE
          IF (.not. DEF_USE_SNICAR) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat&
+#ifdef TRACER
+                         ,snow_qout_layer(lb:0)&
+#endif
+                         )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0)&
+#ifdef TRACER
+                         ,qout_snow_layer=snow_qout_layer(lb:0)&
+#endif
+                         )
          ENDIF
          gwat = gwat + pg_rain*(1-fsno) - qseva_soil
       ENDIF
@@ -1259,7 +1278,11 @@ ENDIF
 
    SUBROUTINE snowwater (lb,deltim,ssi,wimp, &
                         pg_rain,qseva,qsdew,qsubl,qfros, &
-                        dz_soisno,wice_soisno,wliq_soisno,qout_snowb)
+                        dz_soisno,wice_soisno,wliq_soisno,qout_snowb &
+#ifdef TRACER
+                        ,qout_snow_layer &
+#endif
+                        )
 
 !-----------------------------------------------------------------------
 !  Original author: Yongjiu Dai, /09/1999; /04/2014
@@ -1300,6 +1323,10 @@ ENDIF
 
    real(r8), intent(out) :: &
         qout_snowb  ! rate of water out of snow bottom (mm/s)
+#ifdef TRACER
+   real(r8), intent(out), optional :: &
+        qout_snow_layer(lb:0) ! water flow out of each snow layer (mm/step)
+#endif
 
 !-------------------------- Local Variables ----------------------------
    integer j           ! k do loop/array indices
@@ -1347,6 +1374,9 @@ ENDIF
 ! neighbor layer.
 
       qin = 0.
+#ifdef TRACER
+      IF (present(qout_snow_layer)) qout_snow_layer(:) = 0._r8
+#endif
       DO j= lb, 0
          wliq_soisno(j) = wliq_soisno(j) + qin
 
@@ -1363,6 +1393,9 @@ ENDIF
          ENDIF
 
          qout = qout*1000.
+#ifdef TRACER
+         IF (present(qout_snow_layer)) qout_snow_layer(j) = qout
+#endif
          wliq_soisno(j) = wliq_soisno(j) - qout
          qin = qout
 
@@ -1381,7 +1414,11 @@ ENDIF
 ! Aerosol Fluxes (Jan. 07, 2023)
                         forc_aer, &
                         mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi, &
-                        mss_dst1,  mss_dst2,  mss_dst3,  mss_dst4 )
+                        mss_dst1,  mss_dst2,  mss_dst3,  mss_dst4 &
+#ifdef TRACER
+                        ,qout_snow_layer &
+#endif
+                        )
 ! Aerosol Fluxes (Jan. 07, 2023)
 
 
@@ -1427,6 +1464,10 @@ ENDIF
 
    real(r8), intent(out) :: &
         qout_snowb  ! rate of water out of snow bottom (mm/s)
+#ifdef TRACER
+   real(r8), intent(out), optional :: &
+        qout_snow_layer(lb:0) ! water flow out of each snow layer (mm/step)
+#endif
 
 !  Aerosol Fluxes (Jan. 07, 2023)
    real(r8), intent(in) :: forc_aer ( 14 )  ! aerosol deposition from atmosphere model (grd,aer) [kg m-1 s-1]
@@ -1561,6 +1602,9 @@ ENDIF
 ! 5) update mass concentration of aerosol accordingly
 
       qin        = 0._r8
+#ifdef TRACER
+      IF (present(qout_snow_layer)) qout_snow_layer(:) = 0._r8
+#endif
 
 ! Aerosol Fluxes (Jan. 07, 2023)
       qin_bc_phi = 0._r8
@@ -1602,6 +1646,9 @@ ENDIF
          ENDIF
 
          qout = qout*1000._r8
+#ifdef TRACER
+         IF (present(qout_snow_layer)) qout_snow_layer(j) = qout
+#endif
          wliq_soisno(j) = wliq_soisno(j) - qout
          qin = qout
 

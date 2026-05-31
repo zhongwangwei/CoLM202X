@@ -79,14 +79,14 @@ CONTAINS
          ENDDO
       ENDIF
 
-		      ! Aquifer: positive storage and signed debt are different diagnostics.
-		      ! wa<=0 is a wetland/aquifer debt state, not a physical concentration.
-		      ! Keep trc_wa state synchronized with wa, but filter sub-mm debt
-		      ! from concentration diagnostics to avoid tiny-denominator deltas.
-		      IF (wa > 1._r8) a_water_wa(ipatch) = a_water_wa(ipatch) + wa
-		      IF (wa < -1._r8) a_water_wa_debt(ipatch) = a_water_wa_debt(ipatch) - wa
-	      a_water_wdsrf (ipatch) = a_water_wdsrf (ipatch) + wdsrf
-	      a_water_wetwat(ipatch) = a_water_wetwat(ipatch) + wetwat
+            ! Aquifer: positive storage and signed debt are different diagnostics.
+            ! wa<=0 is a wetland/aquifer debt state, not a physical concentration.
+            ! Keep trc_wa state synchronized with wa, but filter sub-mm debt
+            ! from concentration diagnostics to avoid tiny-denominator deltas.
+            IF (wa > 1._r8) a_water_wa(ipatch) = a_water_wa(ipatch) + wa
+            IF (wa < -1._r8) a_water_wa_debt(ipatch) = a_water_wa_debt(ipatch) - wa
+         a_water_wdsrf (ipatch) = a_water_wdsrf (ipatch) + wdsrf
+         a_water_wetwat(ipatch) = a_water_wetwat(ipatch) + wetwat
          ! CoLM's `scv` is total snow water equivalent even after layered
          ! snow exists, but `trc_scv` only mirrors the pre-layer thin-snow
          ! pool. Once snl<0, tracer mass lives in trc_wliq/trc_wice snow
@@ -95,16 +95,16 @@ CONTAINS
          IF (snl == 0 .and. scv > trc_tiny) THEN
             a_water_scv(ipatch) = a_water_scv(ipatch) + scv
          ENDIF
-	      DO itrc = 1, ntracers
-	         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-	         IF (wa > 1._r8) THEN
-	            a_trc_wa_mass(itrc, ipatch) = a_trc_wa_mass(itrc, ipatch) + trc_wa(itrc, ipatch)
-	         ENDIF
-		         IF (wa < -1._r8) THEN
-		            a_trc_wa_debt_mass(itrc, ipatch) = a_trc_wa_debt_mass(itrc, ipatch) &
-		               + max(-trc_wa(itrc, ipatch), 0._r8)
-		         ENDIF
-	         a_trc_wdsrf_mass (itrc, ipatch) = a_trc_wdsrf_mass (itrc, ipatch) + trc_wdsrf (itrc, ipatch)
+         DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            IF (wa > 1._r8) THEN
+               a_trc_wa_mass(itrc, ipatch) = a_trc_wa_mass(itrc, ipatch) + trc_wa(itrc, ipatch)
+            ENDIF
+               IF (wa < -1._r8) THEN
+                  a_trc_wa_debt_mass(itrc, ipatch) = a_trc_wa_debt_mass(itrc, ipatch) &
+                     + max(-trc_wa(itrc, ipatch), 0._r8)
+               ENDIF
+            a_trc_wdsrf_mass (itrc, ipatch) = a_trc_wdsrf_mass (itrc, ipatch) + trc_wdsrf (itrc, ipatch)
          a_trc_wetwat_mass(itrc, ipatch) = a_trc_wetwat_mass(itrc, ipatch) + trc_wetwat(itrc, ipatch)
          IF (snl == 0 .and. scv > trc_tiny) THEN
             a_trc_scv_mass(itrc, ipatch) = a_trc_scv_mass(itrc, ipatch) + trc_scv(itrc, ipatch)
@@ -197,83 +197,83 @@ CONTAINS
                   ENDIF
 
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
-	                  ! --- Evapotranspiration flux delta ---
-	                  ! Pair a_trc_evap with gross evaporative water so the
-	                  ! denominator never goes near zero from dew/frost
-	                  ! cancellation (a_fevpa is the net flux; not valid as a
-	                  ! delta denominator). write_history_tracer_delta_2d
-	                  ! maps mass and water separately to the grid and divides
-	                  ! once at the end -- preserving the
-	                  ! mass_to_delta(sum(mass), sum(water)) invariant
-	                  ! documented in MOD_Tracer_Defs.F90.
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_evap_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'evapotranspiration tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
-		                     a_trc_evap(itrc_loc, :), a_water_evap_gross(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     ! --- Evapotranspiration flux delta ---
+                     ! Pair a_trc_evap with gross evaporative water so the
+                     ! denominator never goes near zero from dew/frost
+                     ! cancellation (a_fevpa is the net flux; not valid as a
+                     ! delta denominator). write_history_tracer_delta_2d
+                     ! maps mass and water separately to the grid and divides
+                     ! once at the end -- preserving the
+                     ! mass_to_delta(sum(mass), sum(water)) invariant
+                     ! documented in MOD_Tracer_Defs.F90.
+                     write(trc_varname , '(A,A)')   'f_trc_delta_evap_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'evapotranspiration tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+                           a_trc_evap(itrc_loc, :), a_water_evap_gross(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_soilevap_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
-		                     a_trc_soilevap(itrc_loc, :), a_water_soilevap(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     write(trc_varname , '(A,A)')   'f_trc_delta_soilevap_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+                           a_trc_soilevap(itrc_loc, :), a_water_soilevap(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_canopyevap_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'canopy evaporation tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
-		                     a_trc_canopyevap(itrc_loc, :), a_water_canopyevap(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     write(trc_varname , '(A,A)')   'f_trc_delta_canopyevap_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'canopy evaporation tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+                           a_trc_canopyevap(itrc_loc, :), a_water_canopyevap(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_subl_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'sublimation tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
-		                     a_trc_subl(itrc_loc, :), a_water_subl(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     write(trc_varname , '(A,A)')   'f_trc_delta_subl_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'sublimation tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+                           a_trc_subl(itrc_loc, :), a_water_subl(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_wetland_evap_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'wetland evaporation/sublimation tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
-		                     a_trc_wetland_evap(itrc_loc, :), a_water_wetland_evap(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     write(trc_varname , '(A,A)')   'f_trc_delta_wetland_evap_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'wetland evaporation/sublimation tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
+                           a_trc_wetland_evap(itrc_loc, :), a_water_wetland_evap(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  ! --- Transpiration-only flux delta ---
-	                  ! write_history_tracer_delta_2d does sum-then-divide on
-	                  ! the grid; no per-patch delta needed here.
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_transp_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'transpiration tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
-		                     a_trc_transp(itrc_loc, :), a_water_transp(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     ! --- Transpiration-only flux delta ---
+                     ! write_history_tracer_delta_2d does sum-then-divide on
+                     ! the grid; no per-patch delta needed here.
+                     write(trc_varname , '(A,A)')   'f_trc_delta_transp_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'transpiration tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
+                           a_trc_transp(itrc_loc, :), a_water_transp(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  ! --- Transpiration source/xylem delta before NSS storage exchange ---
-	                  write(trc_varname , '(A,A)')   'f_trc_delta_transp_src_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(A,A,A)') 'transpiration source/xylem tracer delta (', &
-	                     trim(tracers(itrc_loc)%name), ')'
-		                  CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
-		                     a_trc_transp_src(itrc_loc, :), a_water_transp(itrc_loc, :), &
-		                     tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
-		                     itime_in_file, filter, trim(trc_longname), 'permil', &
-		                     water_min_override = trc_flux_water_min_for_delta)
+                     ! --- Transpiration source/xylem delta before NSS storage exchange ---
+                     write(trc_varname , '(A,A)')   'f_trc_delta_transp_src_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'transpiration source/xylem tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                        CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
+                           a_trc_transp_src(itrc_loc, :), a_water_transp(itrc_loc, :), &
+                           tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                           itime_in_file, filter, trim(trc_longname), 'permil', &
+                           water_min_override = trc_flux_water_min_for_delta)
 
-	                  ! --- Leaf NSS state deltas ---
+                     ! --- Leaf NSS state deltas ---
                   ! e-site: NSS evaporation-site state -- there is no
                   ! conserved per-patch water mass paired with this
                   ! delta (the Peclet number is a mixing factor, not
@@ -424,18 +424,18 @@ CONTAINS
                   write(trc_varname , '(A,A)')   'f_trc_conc_wa_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'aquifer tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
-	                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
-	                     a_trc_wa_mass(itrc_loc, :), a_water_wa, &
-	                     file_hist, trim(trc_varname), itime_in_file, &
-	                     filter, trim(trc_longname), trim(trc_ratio_units))
+                     CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
+                        a_trc_wa_mass(itrc_loc, :), a_water_wa, &
+                        file_hist, trim(trc_varname), itime_in_file, &
+                        filter, trim(trc_longname), trim(trc_ratio_units))
 
-	                  write(trc_varname , '(A,A)')   'f_trc_conc_wa_debt_', trim(tracers(itrc_loc)%name)
-	                  write(trc_longname, '(5A)') 'aquifer debt tracer ', trim(trc_ratio_word), &
-	                     ' (', trim(tracers(itrc_loc)%name), ')'
-	                  CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
-	                     a_trc_wa_debt_mass(itrc_loc, :), a_water_wa_debt, &
-	                     file_hist, trim(trc_varname), itime_in_file, &
-	                     filter, trim(trc_longname), trim(trc_ratio_units))
+                     write(trc_varname , '(A,A)')   'f_trc_conc_wa_debt_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(5A)') 'aquifer debt tracer ', trim(trc_ratio_word), &
+                        ' (', trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
+                        a_trc_wa_debt_mass(itrc_loc, :), a_water_wa_debt, &
+                        file_hist, trim(trc_varname), itime_in_file, &
+                        filter, trim(trc_longname), trim(trc_ratio_units))
 
                   ! --- Surface water (wdsrf) ratio ---
                   write(trc_varname , '(A,A)')   'f_trc_conc_wdsrf_', trim(tracers(itrc_loc)%name)
@@ -707,34 +707,34 @@ CONTAINS
    character(len=*), intent(in) :: file_hist
    character(len=*), intent(in) :: varname
    integer, intent(in) :: itime_in_file
-	   logical, intent(in) :: filter(:)
-	   character(len=*), intent(in) :: longname
-	   character(len=*), intent(in) :: units
-	   real(r8), intent(in), optional :: water_min_override
+      logical, intent(in) :: filter(:)
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
+      real(r8), intent(in), optional :: water_min_override
 
-	   real(r8), allocatable :: tracer_map_vec(:)
-	   real(r8), allocatable :: water_map_vec(:)
-	   type(block_data_real8_2d) :: tracer_xy_2d
-	   type(block_data_real8_2d) :: water_xy_2d
-	   type(block_data_real8_2d) :: delta_xy_2d
-	   integer :: ip, iblkme, xblk, yblk, xloc, yloc
-	   integer :: compress
-	   real(r8) :: delta_loc, water_min
+      real(r8), allocatable :: tracer_map_vec(:)
+      real(r8), allocatable :: water_map_vec(:)
+      type(block_data_real8_2d) :: tracer_xy_2d
+      type(block_data_real8_2d) :: water_xy_2d
+      type(block_data_real8_2d) :: delta_xy_2d
+      integer :: ip, iblkme, xblk, yblk, xloc, yloc
+      integer :: compress
+      real(r8) :: delta_loc, water_min
 
       IF (.not. is_hist) RETURN
       IF (HistForm /= 'Gridded') RETURN
 
       allocate(tracer_map_vec(size(tracer_mass_acc)))
-	      allocate(water_map_vec(size(water_acc)))
-	      tracer_map_vec = 0._r8
-	      water_map_vec = 0._r8
-	      water_min = trc_water_min_for_delta
-	      IF (present(water_min_override)) water_min = water_min_override
+         allocate(water_map_vec(size(water_acc)))
+         tracer_map_vec = 0._r8
+         water_map_vec = 0._r8
+         water_min = trc_water_min_for_delta
+         IF (present(water_min_override)) water_min = water_min_override
 
-	      IF (p_is_worker) THEN
-	         DO ip = 1, size(water_acc)
-	            IF (water_acc(ip) > water_min .and. &
-	                tracer_mass_acc(ip) /= spval) THEN
+         IF (p_is_worker) THEN
+            DO ip = 1, size(water_acc)
+               IF (water_acc(ip) > water_min .and. &
+                   tracer_mass_acc(ip) /= spval) THEN
                tracer_map_vec(ip) = tracer_mass_acc(ip)
                water_map_vec(ip) = water_acc(ip)
             ENDIF

@@ -23,12 +23,20 @@ MODULE MOD_Tracer_Frac
    real(r8), parameter :: craig_gordon_relhum_max = 0.95_r8
    real(r8), parameter :: craig_gordon_relhum_fallback = 0.90_r8
    real(r8), parameter :: craig_gordon_min_net_ratio_frac = 0.75_r8
+   ! Craig-Gordon kinetic fractionation exponent for evaporation from a
+   ! turbulent liquid/open-water/soil surface.  The previous n=1 bare
+   ! diffusivity ratio is retained only for ice/snow sublimation, where the
+   ! stagnant diffusive limit is the safer default until a separate
+   ! snow-surface resistance parameterization is added.
+   real(r8), parameter :: craig_gordon_kinetic_exponent_liquid = 2._r8 / 3._r8
+   real(r8), parameter :: craig_gordon_kinetic_exponent_ice = 1._r8
 
    PUBLIC :: tracer_fractionation_active
    PUBLIC :: tracer_alpha_liq_vap, tracer_alpha_ice_vap, tracer_alpha_ice_liq
    PUBLIC :: tracer_rayleigh_freezing_loss
    PUBLIC :: tracer_diffusivity_ratio_air
    PUBLIC :: tracer_alpha_kinetic_leaf, tracer_alpha_kinetic_soil
+   PUBLIC :: tracer_alpha_kinetic_craig_gordon
    PUBLIC :: tracer_craig_gordon_evap_ratio
    PUBLIC :: tracer_equilibrium_deposition_ratio
    PUBLIC :: tracer_transpiration_nss_ratio
@@ -121,6 +129,19 @@ CONTAINS
       CALL ensure_isotope_physics_registered ()
       tracer_diffusivity_ratio_air = isotope_diffusivity_ratio_air(itrc)
    END FUNCTION tracer_diffusivity_ratio_air
+
+   real(r8) FUNCTION tracer_alpha_kinetic_craig_gordon (itrc, from_ice)
+      integer, intent(in) :: itrc
+      logical, intent(in) :: from_ice
+
+      IF (from_ice) THEN
+         tracer_alpha_kinetic_craig_gordon = &
+            tracer_diffusivity_ratio_air(itrc) ** craig_gordon_kinetic_exponent_ice
+      ELSE
+         tracer_alpha_kinetic_craig_gordon = &
+            tracer_diffusivity_ratio_air(itrc) ** craig_gordon_kinetic_exponent_liquid
+      ENDIF
+   END FUNCTION tracer_alpha_kinetic_craig_gordon
 
    real(r8) FUNCTION tracer_alpha_kinetic_leaf (itrc, ra, rb, rc)
       integer,  intent(in) :: itrc

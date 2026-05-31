@@ -34,8 +34,11 @@ CONTAINS
                          t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                          frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                          fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-                         imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip, &
-                         qphs_thaw_lay,qphs_frzc_lay)
+                         imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
+#ifdef TRACER
+                        ,qphs_thaw_lay,qphs_frzc_lay &
+#endif
+                         )
 
 !=======================================================================
 !  Snow and soil temperatures
@@ -163,8 +166,10 @@ CONTAINS
    ! Per-layer phase-change mass exports forwarded from meltf / meltf_snicar
    ! into the tracer subsystem. Zero on layers where imelt(j) == 0 or no
    ! mass actually transferred. See MOD_PhaseChange::meltf for semantics.
+#ifdef TRACER
    real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
    real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
+#endif
 
 !-------------------------- Local Variables ----------------------------
    real(r8) cv (lb:nl_soil)          !heat capacity [J/(m2 K)]
@@ -423,9 +428,12 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-                  dz_soisno(1:nl_soil), &
-                  qphs_thaw_lay = qphs_thaw_lay, &
-                  qphs_frzc_lay = qphs_frzc_lay)
+                  dz_soisno(1:nl_soil) &
+#ifdef TRACER
+                 ,qphs_thaw_lay = qphs_thaw_lay, &
+                  qphs_frzc_lay = qphs_frzc_lay &
+#endif
+                  )
 
          ! layer freezing mass flux (positive):
          DO j = lb, 0
@@ -446,9 +454,12 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-                  dz_soisno(1:nl_soil), &
-                  qphs_thaw_lay = qphs_thaw_lay, &
-                  qphs_frzc_lay = qphs_frzc_lay)
+                  dz_soisno(1:nl_soil) &
+#ifdef TRACER
+                 ,qphs_thaw_lay = qphs_thaw_lay, &
+                  qphs_frzc_lay = qphs_frzc_lay &
+#endif
+                  )
       ENDIF
 
 !-----------------------------------------------------------------------

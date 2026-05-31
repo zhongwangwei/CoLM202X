@@ -4,14 +4,16 @@
 MODULE MOD_Tracer_Evapo
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
+      tracer_init_water_ratio
    USE MOD_Tracer_Forcing, only: tracer_forcing_vapor_value
-   USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_diffusivity_ratio_air, &
+   USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
       tracer_rayleigh_freezing_loss, tracer_surface_relhum
    USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss
 	   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
 	      trc_wliq_soisno, trc_wice_soisno, &
+	      trc_numerical_residual_step, &
 	      a_trc_precip, tracer_book_evap_loss, &
 	      TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL
 
@@ -63,7 +65,7 @@ CONTAINS
 
       integer  :: itrc, j, lb
       real(r8) :: ratio, trc_flux, R_atm, R_vapor
-	      real(r8) :: d_rain, d_snow, d_wliq, d_wice, water_loss
+	      real(r8) :: d_rain, d_snow, d_wliq, d_wice, water_loss, trc_resid
       real(r8) :: thaw_amt, freeze_amt
       ! Post-internal-transfer pool sizes used as the denominator for
       ! evaporation / sublimation. Using *_soisno_bef would mix a post-thaw
@@ -257,14 +259,29 @@ CONTAINS
             !   (thaw adds liquid internally, freeze removes liquid internally)
 	            trc_flux = d_wliq - thaw_amt + freeze_amt
 	            IF (trc_flux < -trc_tiny) THEN
-	               ! Net liquid loss = evaporation/transpiration
-	               IF (wliq_post_phase > trc_tiny) THEN
-	                  water_loss = abs(trc_flux)
-	                  trc_flux = evaporative_tracer_loss(trc_wliq_soisno(itrc, j, ipatch), &
-	                     wliq_post_phase, water_loss, layer_temp(j), .false.)
-	                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
-	                  CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
-	                     TRC_EVAP_KIND_SOILEVAP)
+	               IF (j == 1) THEN
+	                  ! Net exposed-soil liquid loss = evaporation.
+	                  IF (wliq_post_phase > trc_tiny) THEN
+	                     water_loss = abs(trc_flux)
+	                     trc_flux = evaporative_tracer_loss(trc_wliq_soisno(itrc, j, ipatch), &
+	                        wliq_post_phase, water_loss, layer_temp(j), .false.)
+	                     trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
+	                     CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
+	                        TRC_EVAP_KIND_SOILEVAP)
+	                  ENDIF
+	               ELSE ! DEEP_STORAGE_RESIDUAL liquid loss: not atmospheric soil evaporation.
+	                  IF (wliq_post_phase > trc_tiny) THEN
+	                     ratio = trc_wliq_soisno(itrc, j, ipatch) / wliq_post_phase
+	                  ELSE
+	                     ratio = tracer_init_water_ratio(itrc)
+	                  ENDIF
+	                  trc_resid = min(abs(trc_flux) * max(ratio, 0._r8), &
+	                     max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
+	                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_resid
+	                  IF (allocated(trc_numerical_residual_step)) THEN
+	                     trc_numerical_residual_step(itrc, ipatch) = &
+	                        trc_numerical_residual_step(itrc, ipatch) - trc_resid
+	                  ENDIF
 	               ENDIF
             ELSEIF (trc_flux > trc_tiny) THEN
                ! Net liquid gain = dew deposition, only on the exposed soil
@@ -274,20 +291,47 @@ CONTAINS
                   ratio = deposition_ratio_for(layer_temp(j), .false.)
                   trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux * ratio
                   a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+               ELSE ! DEEP_STORAGE_RESIDUAL liquid gain: preserve local/fallback signature.
+                  IF (wliq_post_phase > trc_tiny) THEN
+                     ratio = trc_wliq_soisno(itrc, j, ipatch) / wliq_post_phase
+                  ELSE
+                     ratio = tracer_init_water_ratio(itrc)
+                  ENDIF
+                  trc_resid = trc_flux * max(ratio, 0._r8)
+                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_resid
+                  IF (allocated(trc_numerical_residual_step)) THEN
+                     trc_numerical_residual_step(itrc, ipatch) = &
+                        trc_numerical_residual_step(itrc, ipatch) + trc_resid
+                  ENDIF
                ENDIF
             ENDIF
 
             ! --- Net ice change beyond thaw/freeze = sublimation/frost ---
 	            trc_flux = d_wice + thaw_amt - freeze_amt
 	            IF (trc_flux < -trc_tiny) THEN
-	               ! Net ice loss = sublimation
-	               IF (wice_post_phase > trc_tiny) THEN
-	                  water_loss = abs(trc_flux)
-	                  trc_flux = evaporative_tracer_loss(trc_wice_soisno(itrc, j, ipatch), &
-	                     wice_post_phase, water_loss, layer_temp(j), .true.)
-	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
-	                  CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
-	                     TRC_EVAP_KIND_SUBL)
+	               IF (j == 1) THEN
+	                  ! Net exposed-soil ice loss = sublimation.
+	                  IF (wice_post_phase > trc_tiny) THEN
+	                     water_loss = abs(trc_flux)
+	                     trc_flux = evaporative_tracer_loss(trc_wice_soisno(itrc, j, ipatch), &
+	                        wice_post_phase, water_loss, layer_temp(j), .true.)
+	                     trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
+	                     CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
+	                        TRC_EVAP_KIND_SUBL)
+	                  ENDIF
+	               ELSE ! DEEP_STORAGE_RESIDUAL ice loss: not atmospheric sublimation.
+	                  IF (wice_post_phase > trc_tiny) THEN
+	                     ratio = trc_wice_soisno(itrc, j, ipatch) / wice_post_phase
+	                  ELSE
+	                     ratio = tracer_init_water_ratio(itrc)
+	                  ENDIF
+	                  trc_resid = min(abs(trc_flux) * max(ratio, 0._r8), &
+	                     max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
+	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_resid
+	                  IF (allocated(trc_numerical_residual_step)) THEN
+	                     trc_numerical_residual_step(itrc, ipatch) = &
+	                        trc_numerical_residual_step(itrc, ipatch) - trc_resid
+	                  ENDIF
 	               ENDIF
             ELSEIF (trc_flux > trc_tiny) THEN
                ! Net ice gain = frost deposition, only on the exposed soil
@@ -297,6 +341,18 @@ CONTAINS
                   ratio = deposition_ratio_for(layer_temp(j), .true.)
                   trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux * ratio
                   a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+               ELSE ! DEEP_STORAGE_RESIDUAL ice gain: preserve local/fallback signature.
+                  IF (wice_post_phase > trc_tiny) THEN
+                     ratio = trc_wice_soisno(itrc, j, ipatch) / wice_post_phase
+                  ELSE
+                     ratio = tracer_init_water_ratio(itrc)
+                  ENDIF
+                  trc_resid = trc_flux * max(ratio, 0._r8)
+                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_resid
+                  IF (allocated(trc_numerical_residual_step)) THEN
+                     trc_numerical_residual_step(itrc, ipatch) = &
+                        trc_numerical_residual_step(itrc, ipatch) + trc_resid
+                  ENDIF
                ENDIF
             ENDIF
          ENDDO
@@ -338,7 +394,7 @@ CONTAINS
          IF (.not. present(forc_q_frac) .or. .not. present(forc_psrf_frac)) RETURN
 
          relhum = tracer_surface_relhum(forc_q_frac, forc_psrf_frac, temp_k, from_ice)
-         alpha_k = tracer_diffusivity_ratio_air(itrc)
+         alpha_k = tracer_alpha_kinetic_craig_gordon(itrc, from_ice)
          evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
             temp_k, relhum, alpha_k, from_ice)
          ! Net evaporation/sublimation should not remove heavy isotope at

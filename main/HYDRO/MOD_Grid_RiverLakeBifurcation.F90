@@ -282,7 +282,7 @@ CONTAINS
    real(r8), pointer :: bif_lev_influx       (:) => null()
 
    real(r8) :: rivelv_up, rivelv_dn, wdsrf_up, wdsrf_dn, wdsrf_up_eff, wdsrf_dn_eff
-   real(r8) :: zsurf_up, zsurf_dn
+   real(r8) :: zsurf_up, zsurf_dn, zgrad_up, zgrad_dn
    real(r8) :: bedelv_pth, height_up, height_dn, h_face
    real(r8) :: v_up, v_dn
    real(r8) :: veloct_fc, height_fc
@@ -577,8 +577,15 @@ CONTAINS
             ! directly, which accelerates a dry-still link even when the two
             ! water surfaces are level.  Drive pathway momentum by water-surface
             ! slope instead; equal H_up/H_dn then leaves only frictional decay.
-            zsurf_up = wdsrf_up_eff + rivelv_up
-            zsurf_dn = wdsrf_dn_eff + rivelv_dn
+            ! CaMa-Flood levee alignment:
+            !   - layer depth for overland bifurcation uses the protected-side
+            !     stage (wdsrf_*_eff) when a levee exists;
+            !   - water-surface slope is still based on the river-side stage
+            !     for stability, matching CMF_LEVEE_OPT_PTHOUT.
+            zgrad_up = wdsrf_up + rivelv_up
+            zgrad_dn = wdsrf_dn + rivelv_dn
+            zsurf_up = zgrad_up
+            zsurf_dn = zgrad_dn
             h_face = max(height_up, height_dn)
 
             IF (h_face < BIFMIN) THEN
@@ -716,12 +723,13 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_allreduce (n_dt_mismatch_skip, n_dt_mismatch_skip_glb, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
 #endif
+#ifdef CoLMDEBUG
       IF (p_iam_worker == p_root .and. n_dt_mismatch_skip_glb > 0 .and. n_dt_mismatch_warn_count < 5) THEN
-         write(*,'(A,I0)') 'DBG bifdt_skip count=', n_dt_mismatch_skip_glb
          write(*,'(A,I0,A)') 'WARNING bifurcation_calc: skipped ', n_dt_mismatch_skip_glb, &
             ' pathway(s) because source/destination routing dt differ; cross-river-system bifurcation may be inactive.'
          n_dt_mismatch_warn_count = n_dt_mismatch_warn_count + 1
       ENDIF
+#endif
       ! PREDICTIVE_BIF_SKIPS_REMOTE_LIMITER_PUSHES:
       ! update_state=.false. calls are used only to predict bif_hflux_sum for
       ! the routing-dt constraint.  The path-local 5% and split-pool donor
@@ -1194,7 +1202,7 @@ CONTAINS
 
       IF (nbad_gid > 0 .or. nnan_veloc > 0 .or. nnan_momen > 0) THEN
          write(*,'(A,I0,A,L1,A,L1,A,I0,A,I0,A,I0,A,ES12.4,A,ES12.4)') &
-            'DBG bifrst glb=', p_iam_glb, &
+            'WARNING bifurcation restart state glb=', p_iam_glb, &
             ' has_veloc=', has_pth_veloc, &
             ' has_momen=', has_pth_momen, &
             ' bad_gid=', nbad_gid, &

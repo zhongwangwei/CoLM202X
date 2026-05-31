@@ -47,6 +47,8 @@ MODULE MOD_Grid_RiverLakeFlow
 
    real(r8), parameter :: RIVERMIN  = RIVERLAKE_DRY_DEPTH
    real(r8), parameter :: RIVERLAKE_FLOOD_MISSING_VALUE = -1.e30_r8
+   real(r8), parameter :: ROUTING_STORAGE_DT_EPS = 1.e-6_r8
+   real(r8), parameter :: ROUTING_MIN_ADAPTIVE_DT = 10._r8
 
    real(r8), save :: acctime_rnof_max
    integer, save :: bif_iter_total = 0
@@ -54,6 +56,7 @@ MODULE MOD_Grid_RiverLakeFlow
    integer, save :: bif_iter_cap_hits = 0
    integer, save :: bif_dt_nonmonotonic_warn_count = 0
    integer, save :: bif_protected_clip_warn_count = 0
+   integer, save :: routing_zero_dt_warn_count = 0
 
    ! acctime_rnof (scalar) and acc_rnof_uc (:) are owned by
    ! MOD_Grid_RiverLakeTimeVars (imported via the module-wide USE above)
@@ -243,7 +246,7 @@ CONTAINS
    real(r8), allocatable :: total_flooddepth(:)  ! floodplain water depth flddph [m], per ucat
    real(r8),  allocatable :: dt_res(:), dt_all(:), dt_all_before_sync(:)
    logical,   allocatable :: ucatfilter(:)
-   logical :: loop_active, dt_changed, first_bif_dt_changed
+      logical :: loop_active, dt_changed, first_bif_dt_changed, bif_dt_feedback_enabled
    integer :: ibif_iter, bif_iter_used, irivsys_iter
    real(r8) :: dt_before_sync, dt_after_sync
 #ifdef CoLMDEBUG
@@ -625,6 +628,17 @@ CONTAINS
             CALL sync_global_routing_dt(dt_res, dt_all)
 
             first_bif_dt_changed = .false.
+            ! Bifurcation fluxes are storage-limited inside
+            ! MOD_Grid_RiverLakeBifurcation and are applied once by the final
+            ! update_state=.true. call below.  Feeding near-dry pathway
+            ! predictions back into the global adaptive dt can collapse the
+            ! routing substep to the configured dt floor and make otherwise
+            ! normal BIF-only/BIF+LEVEE runs spend hours in repeated
+            ! fixed-point/push_data iterations without changing the final
+            ! water balance.  Keep the predictive feedback path compiled for
+            ! diagnostics/experiments, but default production routing to the
+            ! final flux-limited bif call only.
+            bif_dt_feedback_enabled = .false.
 
             DO i = 1, numucat
 
@@ -837,7 +851,7 @@ CONTAINS
             IF (numucat > 0) sum_hflux_base = sum_hflux_riv
 
                ! ----- Bifurcation pathways -----
-               IF (DEF_USE_BIFURCATION) THEN
+               IF (bif_dt_feedback_enabled) THEN
                      IF (allocated(volresv)) volresv_safe = volresv
                         CALL bifurcation_calc(wdsrf_ucat, volwater_ucat, volwater_ucat_valid, &
                               volresv_safe, is_built_resv, dt_all, &
@@ -874,7 +888,8 @@ CONTAINS
                ! dry visible side (and vice versa).
                visible_hflux = sum_hflux_riv(i)
                protected_hflux = 0._r8
-               IF (DEF_USE_LEVEE .and. DEF_USE_BIFURCATION .and. allocated(bif_lev_hflux_sum)) THEN
+               IF (bif_dt_feedback_enabled .and. DEF_USE_LEVEE .and. &
+                   DEF_USE_BIFURCATION .and. allocated(bif_lev_hflux_sum)) THEN
                   IF ((.not. is_built_resv(i)) .and. has_levee(i) .and. i <= size(bif_lev_hflux_sum)) THEN
                      protected_hflux = bif_lev_hflux_sum(i)
                      visible_hflux = sum_hflux_riv(i) - protected_hflux
@@ -882,19 +897,27 @@ CONTAINS
                ENDIF
                IF (.not. is_built_resv(i)) THEN
                   volwater = volwater_ucat(i)
-                  IF (visible_hflux > 0._r8) dt_this = min(dt_this, volwater / visible_hflux)
+                  IF (visible_hflux > 0._r8 .and. volwater > ROUTING_STORAGE_DT_EPS) &
+                     dt_this = min(dt_this, volwater / visible_hflux)
                   IF (protected_hflux > 0._r8) THEN
                      protected_avail = 0._r8
                      IF (DEF_USE_LEVEE .and. has_levee(i)) protected_avail = max(levsto(i), 0._r8)
-                     dt_this = min(dt_this, protected_avail / protected_hflux)
+                     ! A dry donor compartment cannot be made safe by choosing
+                     ! dt=0: that stalls the global adaptive loop with dt_res
+                     ! still positive.  Dry-side bifurcation fluxes are limited
+                     ! in MOD_Grid_RiverLakeBifurcation and, as a final guard,
+                     ! clipped/compensated by levee_apply_protected_flux below.
+                     IF (protected_avail > ROUTING_STORAGE_DT_EPS) &
+                        dt_this = min(dt_this, protected_avail / protected_hflux)
                   ENDIF
-                  IF (DEF_USE_BIFURCATION .and. allocated(bif_cfl_dt)) THEN
+                  IF (bif_dt_feedback_enabled .and. allocated(bif_cfl_dt)) THEN
                      IF (i <= size(bif_cfl_dt)) dt_this = min(dt_this, bif_cfl_dt(i))
                   ENDIF
                ELSE
                   IF (sum_hflux_riv(i) > 0._r8) THEN
                      volwater = volresv(ucat2resv(i))
-                     dt_this = min(dt_this, volwater / sum_hflux_riv(i))
+                     IF (volwater > ROUTING_STORAGE_DT_EPS) &
+                        dt_this = min(dt_this, volwater / sum_hflux_riv(i))
                   ENDIF
                ENDIF
 
@@ -909,7 +932,7 @@ CONTAINS
 
                IF (dt_this < dt_all(irivsys(i)) - max(1.e-9_r8, 1.e-12_r8 * dt_all(irivsys(i)))) THEN
                   dt_all(irivsys(i)) = dt_this
-                  IF (DEF_USE_BIFURCATION) first_bif_dt_changed = .true.
+                  IF (bif_dt_feedback_enabled) first_bif_dt_changed = .true.
                ENDIF
 
             ENDDO
@@ -919,9 +942,9 @@ CONTAINS
             ! volume constraints so short explicit links cannot run with
             ! Courant number > 1.
 
-            IF (DEF_USE_BIFURCATION) dt_all_before_sync = dt_all
+            IF (bif_dt_feedback_enabled) dt_all_before_sync = dt_all
             CALL sync_global_routing_dt(dt_res, dt_all)
-            IF (DEF_USE_BIFURCATION) THEN
+            IF (bif_dt_feedback_enabled .and. DEF_USE_BIFURCATION) THEN
                DO irivsys_iter = 1, size(dt_all)
                   IF (dt_res(irivsys_iter) <= 0._r8) CYCLE
                   IF (abs(dt_all(irivsys_iter) - dt_all_before_sync(irivsys_iter)) > &
@@ -933,13 +956,13 @@ CONTAINS
                ENDDO
             ENDIF
 
-            IF (DEF_USE_BIFURCATION .and. numucat > 0) THEN
+            IF (bif_dt_feedback_enabled .and. numucat > 0) THEN
                WHERE (ucatfilter)
                   sum_hflux_riv = sum_hflux_riv - bif_hflux_sum
                END WHERE
             ENDIF
 
-            IF (DEF_USE_BIFURCATION) THEN
+            IF (bif_dt_feedback_enabled) THEN
                ! Bifurcation's storage limiter depends on dt. The first
                ! prediction above may therefore become inconsistent after the
                ! synchronized global dt is reduced by CFL/storage constraints.
@@ -948,7 +971,7 @@ CONTAINS
                ! bifurcation momentum exactly once with that final dt.
                bif_iter_used = 0
                dt_changed = .false.
-               IF (first_bif_dt_changed) THEN
+               IF (bif_dt_feedback_enabled .and. first_bif_dt_changed) THEN
                DO ibif_iter = 1, 8
                   bif_iter_used = ibif_iter
                   IF (numucat > 0) THEN
@@ -987,19 +1010,22 @@ CONTAINS
                      ENDIF
                      dt_this = dt_all(irivsys(i))
                      IF (.not. is_built_resv(i)) THEN
-                        IF (visible_hflux > 0._r8) dt_this = min(dt_this, volwater_ucat(i) / visible_hflux)
+                        IF (visible_hflux > 0._r8 .and. volwater_ucat(i) > ROUTING_STORAGE_DT_EPS) &
+                           dt_this = min(dt_this, volwater_ucat(i) / visible_hflux)
                         IF (protected_hflux > 0._r8) THEN
                            protected_avail = 0._r8
                            IF (DEF_USE_LEVEE .and. has_levee(i)) protected_avail = max(levsto(i), 0._r8)
-                           dt_this = min(dt_this, protected_avail / protected_hflux)
+                           IF (protected_avail > ROUTING_STORAGE_DT_EPS) &
+                              dt_this = min(dt_this, protected_avail / protected_hflux)
                         ENDIF
-                        IF (DEF_USE_BIFURCATION .and. allocated(bif_cfl_dt)) THEN
+                        IF (bif_dt_feedback_enabled .and. allocated(bif_cfl_dt)) THEN
                            IF (i <= size(bif_cfl_dt)) dt_this = min(dt_this, bif_cfl_dt(i))
                         ENDIF
                         ELSE
                            IF (sum_hflux_riv(i) > 0._r8) THEN
                               volwater = volresv(ucat2resv(i))
-                              dt_this = min(dt_this, volwater / sum_hflux_riv(i))
+                              IF (volwater > ROUTING_STORAGE_DT_EPS) &
+                                 dt_this = min(dt_this, volwater / sum_hflux_riv(i))
                            ENDIF
                         ENDIF
                      IF (dt_this < dt_all(irivsys(i)) - max(1.e-9_r8, 1.e-12_r8 * dt_all(irivsys(i)))) THEN
@@ -1023,10 +1049,14 @@ CONTAINS
                            dt_before_sync, dt_after_sync
                      ENDIF
                   ENDIF
-                  IF (abs(dt_after_sync - dt_before_sync) > &
-                      max(1.e-9_r8, 1.e-12_r8 * max(abs(dt_before_sync), abs(dt_after_sync)))) THEN
-                     dt_changed = .true.
-                  ENDIF
+                  ! Only iterate again when the synchronized global dt actually
+                  ! changed.  A local constraint can be below the configured
+                  ! adaptive-dt floor, then sync_global_routing_dt raises it back
+                  ! to the same global value.  Treating that discarded local
+                  ! reduction as "changed" makes every substep burn the 8-iter
+                  ! cap in dry bif/levee cells without changing the final dt.
+                  dt_changed = abs(dt_after_sync - dt_before_sync) > &
+                      max(1.e-9_r8, 1.e-12_r8 * max(abs(dt_before_sync), abs(dt_after_sync)))
                   IF (.not. dt_changed) EXIT
                ENDDO
                ENDIF
@@ -1041,6 +1071,13 @@ CONTAINS
                   ENDIF
                ENDIF
 
+            ENDIF
+
+            IF (DEF_USE_BIFURCATION) THEN
+               ! Final BIF state update remains outside bif_dt_feedback_enabled:
+               ! the switch only disables the predictive dt-feedback path.  The
+               ! flux-limited update_state=.true. call below is the production
+               ! bifurcation transport and must still run whenever BIF is on.
                IF (numucat > 0) THEN
                   WHERE (ucatfilter)
                      sum_hflux_riv = sum_hflux_base
@@ -1140,6 +1177,7 @@ CONTAINS
                            ! visible cell storage so the fallback remains globally
                            ! conservative instead of creating water.
                            volwater = volwater - protected_clip
+#ifdef CoLMDEBUG
                            IF (p_is_worker .and. bif_protected_clip_warn_count < 5) THEN
                               bif_protected_clip_warn_count = bif_protected_clip_warn_count + 1
                               write(*,'(A,I0,A,ES12.4,A,I0)') &
@@ -1147,6 +1185,7 @@ CONTAINS
                                  ' clipped=', protected_clip, ' m3 hit=', &
                                  bif_protected_clip_warn_count
                            ENDIF
+#endif
                         ENDIF
 #ifdef CoLMDEBUG
                         bif_protected_clip_sum = bif_protected_clip_sum + protected_clip
@@ -1724,6 +1763,15 @@ CONTAINS
       CALL mpi_allreduce (MPI_IN_PLACE, dt_global, 1, MPI_REAL8, MPI_MIN, &
          p_comm_worker, p_err)
 #endif
+
+      IF (dt_global < ROUTING_MIN_ADAPTIVE_DT .and. any(dt_res > 0._r8)) THEN
+         IF (p_is_worker .and. p_iam_worker == p_root .and. routing_zero_dt_warn_count < 5) THEN
+            routing_zero_dt_warn_count = routing_zero_dt_warn_count + 1
+            write(*,'(A,ES12.4,A)') 'WARNING grid_riverlake_flow: non-positive adaptive dt or pathological tiny dt=', &
+               dt_global, '; using adaptive dt floor to avoid stalled routing loop.'
+         ENDIF
+         dt_global = min(ROUTING_MIN_ADAPTIVE_DT, minval(dt_res, mask = dt_res > 0._r8))
+      ENDIF
 
       IF (dt_global < 0.5_r8 * huge(1._r8)) THEN
          WHERE (dt_res > 0._r8)

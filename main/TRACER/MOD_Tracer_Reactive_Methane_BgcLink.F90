@@ -12,6 +12,7 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
 !=======================================================================
 
    USE MOD_Precision
+   USE MOD_SPMD_Task, only: CoLM_stop
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
    USE MOD_Vars_Global, only: nl_soil, dz_soi, spval
    USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
@@ -59,6 +60,7 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    ! cutoff via paddy_rice_fraction / has_paddy_rice_tile and never
    ! drift out of sync.
    real(r8), public, parameter :: PADDY_RICE_FRAC_MIN = 0.01_r8
+   real(r8), parameter :: O_SCALAR_CONTRACT_TOL = 1.e-8_r8
 
 CONTAINS
 
@@ -84,7 +86,7 @@ CONTAINS
 
       integer :: ps, pe, j, ipool, m, k, donor
       integer :: decomp_pool_ids(7)
-      real(r8) :: frac, profile_sum
+      real(r8) :: frac, profile_sum, unclassified_hr
       logical :: donor_soil, donor_litter_like
       logical :: have_decomp_state, have_pft_state
 
@@ -111,6 +113,7 @@ CONTAINS
       fphr(:) = 1.0_r8
       o_scalar_out(:) = 1.0_r8
       pot_f_nit_vr_out(:) = 0._r8
+      unclassified_hr = 0._r8
 
       decomp_pool_ids = (/ i_met_lit, i_cel_lit, i_lig_lit, i_cwd, &
          i_soil1, i_soil2, i_soil3 /)
@@ -204,11 +207,14 @@ CONTAINS
                      somhr = somhr + max(0._r8, decomp_hr_vr(j, k, ipatch)) * dz_soi(j)
                   ELSEIF (donor_litter_like) THEN
                      lithr = lithr + max(0._r8, decomp_hr_vr(j, k, ipatch)) * dz_soi(j)
+                  ELSE
+                     unclassified_hr = unclassified_hr + max(0._r8, decomp_hr_vr(j, k, ipatch)) * dz_soi(j)
                   ENDIF
                ENDIF
             END DO
          END DO
       ENDIF
+      CALL methane_check_hr_classification_contract (unclassified_hr)
 
       IF (allocated(o_scalar) .and. ipatch >= 1 .and. ipatch <= size(o_scalar,2)) THEN
          DO j = 1, nl_soil
@@ -217,6 +223,7 @@ CONTAINS
             ENDIF
          END DO
       ENDIF
+      CALL methane_check_anoxia_contract (o_scalar_out)
 
       IF (allocated(pot_f_nit_vr) .and. ipatch >= 1 .and. ipatch <= size(pot_f_nit_vr,2)) THEN
          DO j = 1, nl_soil
@@ -266,6 +273,40 @@ CONTAINS
       ! not expose an equivalent field, so use full HR contribution while the
       ! rest of BGC coupling remains field-for-field reconstructed above.
    END SUBROUTINE tracer_ch4_bgc_patch_inputs
+
+
+   SUBROUTINE methane_check_anoxia_contract (o_scalar_patch)
+      real(r8), intent(in) :: o_scalar_patch(1:nl_soil)
+
+      ! Contract with the BGC decomposition side:
+      ! * current CoLM202X BGC exposes a stub o_scalar==1, so CH4 applies its
+      !   own seasonal inundation factor (use_ch4_sif=.true.).
+      ! * if BGC later provides a real anoxia limiter (o_scalar<1), BGC must
+      !   own that decomp limitation and CH4 must not apply the seasonal
+      !   inundation factor a second time.
+      IF (minval(o_scalar_patch) < 1._r8 - O_SCALAR_CONTRACT_TOL) THEN
+         IF ((.not. DEF_METHANE%bgc_anoxia_limits_decomp) .or. DEF_METHANE%use_ch4_sif) THEN
+            CALL CoLM_stop (' ***** ERROR: CH4/BGC anoxia contract violation: set ' // &
+               'bgc_anoxia_limits_decomp=.true. and use_ch4_sif=.false. when BGC o_scalar<1')
+         ENDIF
+      ENDIF
+
+   END SUBROUTINE methane_check_anoxia_contract
+
+
+   SUBROUTINE methane_check_hr_classification_contract (unclassified_hr)
+      real(r8), intent(in) :: unclassified_hr
+
+      ! CH4 production partitions base_decomp=(somhr+lithr) by hr_vr. If any
+      ! positive decomp_hr_vr donor is neither litter/CWD nor soil, then hr_vr
+      ! contains carbon that is absent from somhr+lithr, making partition_z
+      ! over-normalize the classified substrate and inflate CH4 production.
+      IF (unclassified_hr > 1.e-20_r8) THEN
+         CALL CoLM_stop (' ***** ERROR: CH4/BGC HR classification contract violation: '// &
+            'positive decomp_hr_vr has donor outside soil/litter/CWD; somhr+lithr partition is unsafe')
+      ENDIF
+
+   END SUBROUTINE methane_check_hr_classification_contract
 
 
    REAL(r8) FUNCTION safe_nonnegative (x)

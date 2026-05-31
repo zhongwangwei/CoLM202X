@@ -8,7 +8,7 @@ MODULE MOD_Tracer_SpecialPatches
       tracer_can_use_fixed_signature, tracer_uses_land_water_transport
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
-      tracer_diffusivity_ratio_air, tracer_craig_gordon_evap_ratio, &
+      tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_ratio, &
       tracer_equilibrium_deposition_ratio
    USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
       tracer_apply_reactive_processes
@@ -50,7 +50,7 @@ CONTAINS
       real(r8) :: water_dS, water_end, water_beg, water_input
       real(r8) :: water_before_output, water_after_evap
       real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
-      real(r8) :: relhum_liq, relhum_ice, alpha_k, xerr_tracer
+      real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
       logical  :: mixed_signature, fixed_signature, frac_active
 
       DO itrc = 1, ntracers
@@ -110,13 +110,14 @@ CONTAINS
             R_evap_liq = R_out
             R_evap_ice = R_out
             IF (frac_active) THEN
-               alpha_k = tracer_diffusivity_ratio_air(itrc)
+               alpha_k_liq = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
+               alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
                relhum_liq = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .false.)
                relhum_ice = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .true.)
                R_evap_liq = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_liq, alpha_k, .false.)
+                  t_grnd, relhum_liq, alpha_k_liq, .false.)
                R_evap_ice = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_ice, alpha_k, .true.)
+                  t_grnd, relhum_ice, alpha_k_ice, .true.)
                R_evap_liq = min(R_evap_liq, max(R_out, 0._r8))
                R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
             ENDIF
@@ -186,7 +187,7 @@ CONTAINS
       real(r8) :: water_dS, water_end, water_beg, water_input
       real(r8) :: water_before_output, water_after_evap
       real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
-      real(r8) :: relhum_liq, relhum_ice, alpha_k, xerr_tracer
+      real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
       logical  :: mixed_signature, fixed_signature, frac_active
 
       DO itrc = 1, ntracers
@@ -260,13 +261,14 @@ CONTAINS
             R_evap_liq = R_out
             R_evap_ice = R_out
             IF (frac_active) THEN
-               alpha_k = tracer_diffusivity_ratio_air(itrc)
+               alpha_k_liq = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
+               alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
                relhum_liq = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .false.)
                relhum_ice = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .true.)
                R_evap_liq = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_liq, alpha_k, .false.)
+                  t_grnd, relhum_liq, alpha_k_liq, .false.)
                R_evap_ice = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_ice, alpha_k, .true.)
+                  t_grnd, relhum_ice, alpha_k_ice, .true.)
                R_evap_liq = min(R_evap_liq, max(R_out, 0._r8))
                R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
             ENDIF

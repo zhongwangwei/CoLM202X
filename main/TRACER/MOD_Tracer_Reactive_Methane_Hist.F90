@@ -596,7 +596,7 @@ CONTAINS
 	                  'f_methane_surf_flux_global_total_with_lake', itime_in_file, &
 	                  sumarea, filter_all_land, &
 	                  'global CH4 total surface flux including lake; land-area mean contribution', 'mol/m2/s')
-	
+
 
 	               ! lake diagnostics (CTSM lake CH4 path) — swap to lake-only filter
                IF ((p_is_worker) .and. (numpatch > 0)) THEN

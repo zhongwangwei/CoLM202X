@@ -116,6 +116,7 @@ MODULE MOD_Tracer_Particle_Sediment
    real(r8), allocatable :: sed_acc_wdsrf(:)   ! Accumulated water depth*dt [numucat]
    real(r8), allocatable :: sed_acc_rivsto(:)  ! Accumulated routed water storage*dt [m3 s]
    real(r8), allocatable :: sed_acc_rivout(:)  ! Accumulated discharge*dt [numucat]
+   real(r8), allocatable :: sed_acc_abs_rivout(:) ! Accumulated abs(discharge)*dt [numucat]
    real(r8), allocatable :: sed_acc_floodarea(:) ! Accumulated flood area*dt [numucat]
    real(r8), allocatable :: sed_precip(:)      ! Accumulated precipitation [mm, for diagnostics]
    real(r8), allocatable :: sed_precip_yield(:) ! Accumulated (rate_mm_hr)^pyldpc * dt [numucat]
@@ -477,7 +478,8 @@ CONTAINS
    real(r8), intent(in) :: deltime
 
    real(r8) :: sed_time_remaining, dt_morph, dt_adv, dt_adv_remaining
-   real(r8) :: avg_v2, avg_wdsrf, avg_rivsto, avg_rivout
+   real(r8) :: avg_v2, avg_wdsrf, avg_rivsto, avg_rivout, avg_abs_rivout
+   real(r8) :: sed_flow_cancel_ratio
    real(r8), allocatable :: rivsto(:), rivout(:), fldfrc(:)
    logical,  allocatable :: wet_seen(:), shallow_seen(:), source_seen(:)
    logical,  allocatable :: susp_seen(:), bed_seen(:), exch_pos_seen(:), exch_neg_seen(:)
@@ -504,6 +506,11 @@ CONTAINS
    real(r8) :: sum_sedout_abs_local, sum_sedout_abs_global
    real(r8) :: sum_netflw_pos_local, sum_netflw_pos_global
    real(r8) :: sum_netflw_neg_local, sum_netflw_neg_global
+   real(r8) :: sum_bed_bulk_local, sum_bed_bulk_global
+   real(r8) :: sum_bed_solid_local, sum_bed_solid_global
+   real(r8) :: sum_rivout_signed_local, sum_rivout_signed_global
+   real(r8) :: sum_rivout_abs_local, sum_rivout_abs_global
+   real(r8) :: max_flow_cancel_local, max_flow_cancel_global
    real(r8) :: sum_es_raw_local, sum_es_raw_global
    real(r8) :: sum_d_raw_local, sum_d_raw_global
    real(r8) :: max_es_raw_local, max_es_raw_global
@@ -524,6 +531,7 @@ CONTAINS
    integer  :: n_d_raw_local, n_d_raw_global
    integer  :: n_es_eff_local, n_es_eff_global
    integer  :: n_d_eff_local, n_d_eff_global
+   integer  :: n_flow_cancel_local, n_flow_cancel_global
    real(r8), parameter :: CFL_RIVOUT_EPS = 1.e-12_r8
 
       IF (.not. sediment_particle_enabled()) RETURN
@@ -561,6 +569,9 @@ CONTAINS
       sum_sedout_abs_local = 0._r8
       sum_netflw_pos_local = 0._r8
       sum_netflw_neg_local = 0._r8
+      sum_rivout_signed_local = 0._r8
+      sum_rivout_abs_local = 0._r8
+      max_flow_cancel_local = 0._r8
       sum_es_raw_local = 0._r8
       sum_d_raw_local = 0._r8
       sum_es_eff_local = 0._r8
@@ -590,6 +601,7 @@ CONTAINS
       max_d_raw_local = 0._r8
       max_es_eff_local = 0._r8
       max_d_eff_local = 0._r8
+      n_flow_cancel_local = 0
       IF (numucat > 0) THEN
          max_sed_precip_local = maxval(sed_precip)
          max_precip_rate_local = max_sed_precip_local / max(precip_time_local, 1.e-20_r8)
@@ -630,6 +642,14 @@ CONTAINS
                avg_wdsrf  = sed_acc_wdsrf(i)  / sed_acc_time(i)
                avg_rivsto = sed_acc_rivsto(i) / sed_acc_time(i)
                avg_rivout = sed_acc_rivout(i) / sed_acc_time(i)
+               avg_abs_rivout = sed_acc_abs_rivout(i) / sed_acc_time(i)
+               sum_rivout_signed_local = sum_rivout_signed_local + avg_rivout
+               sum_rivout_abs_local = sum_rivout_abs_local + avg_abs_rivout
+               IF (avg_abs_rivout > CFL_RIVOUT_EPS) THEN
+                  sed_flow_cancel_ratio = 1._r8 - min(abs(avg_rivout) / avg_abs_rivout, 1._r8)
+                  max_flow_cancel_local = max(max_flow_cancel_local, sed_flow_cancel_ratio)
+                  IF (sed_flow_cancel_ratio > 0.5_r8) n_flow_cancel_local = n_flow_cancel_local + 1
+               ENDIF
 
                ! Shear velocity from RMS velocity: u* = sqrt(g * n^2 * <v^2> * d^(-1/3))
                ! Using <v^2> (mean of squared velocity) avoids sign cancellation
@@ -662,6 +682,13 @@ CONTAINS
          dt_cfl_local = dt_morph
          DO i = 1, numucat
             IF (rivsto(i) <= 0._r8) CYCLE
+            ! Only cells above the active-transport depth threshold participate
+            ! in sediment morphology (see the same gate in calc_sediment_exchange
+            ! / apply_sediment_input). Near-dry cells do no transport, so they
+            ! must not be allowed to drive the global adaptive sediment timestep
+            ! to near-zero. This guard was present in the pre-refactor
+            ! MOD_Grid_RiverLakeSediment and was dropped in the move to TRACER.
+            IF (rivsto(i) < topo_rivwth(i) * topo_rivlen(i) * sed_ignore_dph) CYCLE
             IF (abs(rivout(i)) <= CFL_RIVOUT_EPS) CYCLE
             dt_cell = sed_cfl_adv * rivsto(i) / abs(rivout(i))
             dt_cfl_local = min(dt_cfl_local, dt_cell)
@@ -754,6 +781,7 @@ CONTAINS
       sed_acc_wdsrf(:)     = 0._r8
       sed_acc_rivsto(:)    = 0._r8
       sed_acc_rivout(:)    = 0._r8
+      sed_acc_abs_rivout(:)= 0._r8
       sed_acc_floodarea(:) = 0._r8
       sed_precip(:)        = 0._r8
       sed_precip_yield(:)  = 0._r8
@@ -776,6 +804,8 @@ CONTAINS
       sum_layer_local = 0._r8
       sum_seddep_local = 0._r8
       sum_sedsto_local = 0._r8
+      sum_bed_bulk_local = 0._r8
+      sum_bed_solid_local = 0._r8
       n_wet_local = 0
       n_shallow_local = 0
       n_source_local = 0
@@ -790,6 +820,8 @@ CONTAINS
       IF (numucat > 0) THEN
          sum_layer_local = sum(layer)
          sum_seddep_local = sum(seddep)
+         sum_bed_bulk_local = sum_layer_local + sum_seddep_local
+         sum_bed_solid_local = (1._r8 - lambda) * sum_bed_bulk_local
          sum_sedsto_local = sum(sedcon * spread(max(rivsto, 0._r8), 1, nsed))
          IF (deltime > 0._r8) THEN
             sum_sedinp_local = sum_sedinp_local / deltime
@@ -831,6 +863,11 @@ CONTAINS
       sum_sedout_abs_global = sum_sedout_abs_local
       sum_netflw_pos_global = sum_netflw_pos_local
       sum_netflw_neg_global = sum_netflw_neg_local
+      sum_bed_bulk_global = sum_bed_bulk_local
+      sum_bed_solid_global = sum_bed_solid_local
+      sum_rivout_signed_global = sum_rivout_signed_local
+      sum_rivout_abs_global = sum_rivout_abs_local
+      max_flow_cancel_global = max_flow_cancel_local
       sum_es_raw_global = sum_es_raw_local
       sum_d_raw_global = sum_d_raw_local
       sum_es_eff_global = sum_es_eff_local
@@ -846,6 +883,7 @@ CONTAINS
       n_d_raw_global = n_d_raw_local
       n_es_eff_global = n_es_eff_local
       n_d_eff_global = n_d_eff_local
+      n_flow_cancel_global = n_flow_cancel_local
       max_es_raw_global = max_es_raw_local
       max_d_raw_global = max_d_raw_local
       max_es_eff_global = max_es_eff_local
@@ -865,6 +903,11 @@ CONTAINS
       CALL mpi_allreduce(MPI_IN_PLACE, sum_sedout_abs_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, sum_netflw_pos_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, sum_netflw_neg_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, sum_bed_bulk_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, sum_bed_solid_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, sum_rivout_signed_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, sum_rivout_abs_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, max_flow_cancel_global, 1, MPI_REAL8, MPI_MAX, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, sum_es_raw_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, sum_d_raw_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, sum_es_eff_global, 1, MPI_REAL8, MPI_SUM, p_comm_worker, p_err)
@@ -880,6 +923,7 @@ CONTAINS
       CALL mpi_allreduce(MPI_IN_PLACE, n_d_raw_global, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, n_es_eff_global, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, n_d_eff_global, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, n_flow_cancel_global, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, max_es_raw_global, 1, MPI_REAL8, MPI_MAX, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, max_d_raw_global, 1, MPI_REAL8, MPI_MAX, p_comm_worker, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, max_es_eff_global, 1, MPI_REAL8, MPI_MAX, p_comm_worker, p_err)
@@ -900,6 +944,11 @@ CONTAINS
       sum_sedout_abs_global = sum_sedout_abs_local
       sum_netflw_pos_global = sum_netflw_pos_local
       sum_netflw_neg_global = sum_netflw_neg_local
+      sum_bed_bulk_global = sum_bed_bulk_local
+      sum_bed_solid_global = sum_bed_solid_local
+      sum_rivout_signed_global = sum_rivout_signed_local
+      sum_rivout_abs_global = sum_rivout_abs_local
+      max_flow_cancel_global = max_flow_cancel_local
       sum_es_raw_global = sum_es_raw_local
       sum_d_raw_global = sum_d_raw_local
       sum_es_eff_global = sum_es_eff_local
@@ -915,6 +964,7 @@ CONTAINS
       n_d_raw_global = n_d_raw_local
       n_es_eff_global = n_es_eff_local
       n_d_eff_global = n_d_eff_local
+      n_flow_cancel_global = n_flow_cancel_local
       max_es_raw_global = max_es_raw_local
       max_d_raw_global = max_d_raw_local
       max_es_eff_global = max_es_eff_local
@@ -932,6 +982,13 @@ CONTAINS
          WRITE(*,'(A,ES10.3,A,ES10.3,A,ES10.3)') &
             'Sediment diag: sum_layer=', sum_layer_global, &
             ', sum_seddep=', sum_seddep_global, ', sum_sedsto=', sum_sedsto_global
+         WRITE(*,'(A,ES10.3,A,ES10.3)') &
+            'Sediment diag: sum_bed_bulk=', sum_bed_bulk_global, &
+            ', sum_bed_solid=', sum_bed_solid_global
+         WRITE(*,'(A,ES10.3,A,ES10.3,A,ES10.3,A,I9)') &
+            'Sediment flow diag: sum_rivout_signed=', sum_rivout_signed_global, &
+            ', sum_rivout_abs=', sum_rivout_abs_global, &
+            ', max_cancel=', max_flow_cancel_global, ', n_flow_cancel=', n_flow_cancel_global
          WRITE(*,'(A,ES10.3,A,ES10.3,A,ES10.3,A,ES10.3,A,ES10.3)') &
             'Sediment diag: sum_sedinp=', sum_sedinp_global, &
             ', sum_sedout_down=', sum_sedout_down_global, ', sum_sedout_up=', sum_sedout_up_global, &
@@ -1002,12 +1059,14 @@ CONTAINS
 
       DO i = 1, numucat
          IF (.not. ucatfilter(i)) CYCLE
+         IF (irivsys(i) < 1 .or. irivsys(i) > size(dt_all)) CYCLE
          dt = dt_all(irivsys(i))
          sed_acc_time(i)      = sed_acc_time(i)      + dt
          sed_acc_v2(i)        = sed_acc_v2(i)        + veloc(i)**2    * dt
          sed_acc_wdsrf(i)     = sed_acc_wdsrf(i)     + wdsrf(i)       * dt
          sed_acc_rivsto(i)    = sed_acc_rivsto(i)    + rivsto_input(i)* dt
          sed_acc_rivout(i)    = sed_acc_rivout(i)    + rivout_fc(i)   * dt
+         sed_acc_abs_rivout(i)= sed_acc_abs_rivout(i)+ abs(rivout_fc(i)) * dt
          sed_acc_floodarea(i) = sed_acc_floodarea(i) + floodarea(i)   * dt
       ENDDO
 
@@ -1206,6 +1265,7 @@ CONTAINS
       allocate(sed_acc_wdsrf    (numucat))
       allocate(sed_acc_rivsto   (numucat))
       allocate(sed_acc_rivout   (numucat))
+      allocate(sed_acc_abs_rivout(numucat))
       allocate(sed_acc_floodarea(numucat))
       allocate(sed_precip       (numucat))
       allocate(sed_precip_yield (numucat))
@@ -1228,6 +1288,7 @@ CONTAINS
       sed_acc_time  = 0._r8;  sed_acc_v2        = 0._r8
       sed_acc_wdsrf = 0._r8;  sed_acc_rivsto    = 0._r8
       sed_acc_rivout = 0._r8
+      sed_acc_abs_rivout = 0._r8
       sed_acc_floodarea = 0._r8
       sed_precip    = 0._r8;  sed_precip_yield = 0._r8
       sed_precip_time = 0._r8
@@ -1668,7 +1729,7 @@ CONTAINS
 
    real(r8) :: Es(nsed), D(nsed), Zd(nsed)
    real(r8) :: sedsto(nsed), dTmp(nsed)
-   real(r8) :: layer_sum, area, dTmp1, sedsto_sum, shear_eff, d_raw
+   real(r8) :: layer_sum, area, dTmp1, sedsto_sum, shear_eff, d_raw, rouse_factor
    integer  :: i, ised
    real(r8), parameter :: EXCH_SHEARVEL_MIN = 1.e-4_r8
    real(r8), parameter :: EXCH_ZD_MAX = 100._r8
@@ -1701,17 +1762,22 @@ CONTAINS
          IF (all(setvel(:) <= 0._r8)) THEN
             D(:) = 0._r8
          ELSE
-            ! STATIC-WATER SETTLING: particles settle even when shear is zero;
-            ! use a small effective shear only for the vertical-profile factor.
+            ! STATIC-WATER SETTLING uses depth-mean concentration: particles
+            ! settle even when shear is zero, but the Rouse vertical-profile
+            ! factor must not amplify the depth-mean tank-settling limit.
             shear_eff = max(shearvel(i), EXCH_SHEARVEL_MIN)
             DO ised = 1, nsed
-               Zd(ised) = min(6._r8 * setvel(ised) / vonKar / shear_eff, EXCH_ZD_MAX)
-               IF (abs(Zd(ised)) < 1.0e-8_r8) THEN
-                  d_raw = setvel(ised) * area * sedcon(ised,i)
+               IF (shearvel(i) <= EXCH_SHEARVEL_MIN) THEN
+                  rouse_factor = 1._r8
                ELSE
-                  d_raw = setvel(ised) * area * sedcon(ised,i) * &
-                     Zd(ised) / (1._r8 - exp(-Zd(ised)))
+                  Zd(ised) = min(6._r8 * setvel(ised) / vonKar / shear_eff, EXCH_ZD_MAX)
+                  IF (abs(Zd(ised)) < 1.0e-8_r8) THEN
+                     rouse_factor = 1._r8
+                  ELSE
+                     rouse_factor = (1._r8 - exp(-Zd(ised))) / Zd(ised)
+                  ENDIF
                ENDIF
+               d_raw = setvel(ised) * area * sedcon(ised,i) * rouse_factor
                D(ised) = min(max(d_raw, 0._r8), sedsto(ised) / dt)
             ENDDO
          ENDIF

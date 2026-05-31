@@ -51,6 +51,10 @@ CONTAINS
       IF (pool_trc <= trc_tiny) RETURN
 
       IF (water_loss >= pool_water * (1._r8 - 1.e-12_r8)) THEN
+         ! ALL_POOL_EVAPORATION: when the water-side flux removes the whole
+         ! finite pool, the integrated outgoing tracer is the whole tracer
+         ! inventory.  Applying a last instantaneous fractionation ratio would
+         ! leave non-zero tracer in a zero-water pool and break conservation.
          tracer_evaporative_tracer_loss = max(pool_trc, 0._r8)
          RETURN
       ENDIF

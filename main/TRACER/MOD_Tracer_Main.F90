@@ -19,7 +19,7 @@ MODULE MOD_Tracer_Main
       tracer_reactive_resolve_step, tracer_reactive_lake_step, &
       tracer_reactive_wetland_decomp, tracer_reactive_soil_step, &
       tracer_reactive_report, tracer_reactive_flush_acc_fluxes, &
-      tracer_reactive_accumulate_fluxes
+      tracer_reactive_accumulate_fluxes, tracer_reactive_read_restart
 
    IMPLICIT NONE
 
@@ -201,6 +201,7 @@ CONTAINS
             CALL tracer_init_scv_from_water(numpatch, maxsnl, nl_soil, &
                wliq_soisno, wice_soisno, scv)
          ENDIF
+         CALL tracer_reactive_read_restart(file_restart)
       ENDIF
    END SUBROUTINE tracer_init_from_arrays
 

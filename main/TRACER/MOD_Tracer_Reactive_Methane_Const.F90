@@ -497,14 +497,11 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! at harvest), which slightly over-estimates substrate input; net of
       ! the two is ~ -30% to -50% on rice CH4 production.
       !
-      ! rice_substrate_boost lifts methane_prod_depth by a fraction-weighted
-      ! multiplier on rice paddy tiles, leaving non-rice patches and the BGC
-      ! carbon balance untouched.  Keep the global-budget default at 1.0
-      ! (disabled): Saunois et al. (2020) place rice cultivation at
-      ! 30 [25--38] Tg CH4 yr-1, while the global wetland+lake+rice test with
-      ! boost=2 exceeded that range.  Site-calibration experiments that need a
-      ! paddy-specific SOC proxy can explicitly set >1.  Recommended sensitivity
-      ! range remains 1.5--3.0 based on paddy/upland SOC ratio studies.
+      ! rice_substrate_boost used to lift methane_prod_depth by a fraction-
+      ! weighted multiplier on rice paddy tiles. That creates methane substrate
+      ! without debiting BGC carbon when >1, so validation below now rejects
+      ! rice_substrate_boost > 1 unless a future explicit carbon-debit path is
+      ! implemented. Keep the global-budget default at 1.0 (disabled).
       real(r8) :: rice_substrate_boost          = 1.0_r8
    END type Methane_type
 
@@ -897,6 +894,11 @@ CONTAINS
       ENDIF
       IF (DEF_METHANE%rice_substrate_boost <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: rice_substrate_boost must be > 0: ', &
+            DEF_METHANE%rice_substrate_boost
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%rice_substrate_boost > 1._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: rice_substrate_boost > 1 would create methane substrate without debiting BGC carbon: ', &
             DEF_METHANE%rice_substrate_boost
          bad = .true.
       ENDIF

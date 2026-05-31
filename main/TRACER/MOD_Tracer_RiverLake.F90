@@ -782,13 +782,19 @@ CONTAINS
          IF (volwater <= trc_v_dry_off) THEN
             DO itrc = 1, ntracers
                IF (tracer_is_particle(itrc)) CYCLE
-               dry_drain = trc_mass(itrc, i) + trc_inp_buf(itrc, i)
-               IF (abs(dry_drain) > trc_tiny) THEN
+               ! NEG_RUNOFF_DEBT: a negative pending runoff tracer is a
+               ! signed correction tied to future same-cell runoff input, not
+               ! a physical negative river outflow.  Dry-cell cleanup drains
+               ! only positive orphan mass/pending input and preserves a
+               ! negative trc_inp_buf debt so the next positive runoff can
+               ! cancel it with the correct source signature.
+               dry_drain = max(trc_mass(itrc, i), 0._r8) + max(trc_inp_buf(itrc, i), 0._r8)
+               IF (dry_drain > trc_tiny) THEN
                   IF (dt_i > 0._r8) trc_flux_out(itrc, i) = trc_flux_out(itrc, i) + dry_drain / dt_i
                   IF (allocated(trc_dry_drain)) trc_dry_drain(itrc, i) = trc_dry_drain(itrc, i) + dry_drain
-                  trc_mass(itrc, i)    = 0._r8
-                  trc_inp_buf(itrc, i) = 0._r8
                ENDIF
+               trc_mass(itrc, i)    = 0._r8
+               trc_inp_buf(itrc, i) = min(trc_inp_buf(itrc, i), 0._r8)
             ENDDO
          ENDIF
          DO itrc = 1, ntracers
@@ -1626,6 +1632,38 @@ CONTAINS
       source_sink = source_sink + pool - before
    END SUBROUTINE decay_river_pool
 
+   integer FUNCTION riverlake_tracer_count_meta ()
+      IMPLICIT NONE
+      integer :: itrc
+
+      riverlake_tracer_count_meta = 0
+      DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
+         riverlake_tracer_count_meta = riverlake_tracer_count_meta + 1
+      ENDDO
+
+   END FUNCTION riverlake_tracer_count_meta
+
+   real(r8) FUNCTION riverlake_tracer_namehash_meta ()
+      IMPLICIT NONE
+      integer :: itrc, k, jtrc
+
+      riverlake_tracer_namehash_meta = 0._r8
+      jtrc = 0
+      IF (.not. allocated(tracer_names)) RETURN
+      DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
+         jtrc = jtrc + 1
+         riverlake_tracer_namehash_meta = riverlake_tracer_namehash_meta + &
+            real(jtrc * 1000003, r8)
+         DO k = 1, len_trim(tracer_names(itrc))
+            riverlake_tracer_namehash_meta = riverlake_tracer_namehash_meta + &
+               real(jtrc * 1009 + k * 37 + iachar(tracer_names(itrc)(k:k)), r8)
+         ENDDO
+      ENDDO
+
+   END FUNCTION riverlake_tracer_namehash_meta
+
 
    !-------------------------------------------------------------------------------------
    ! Flush accumulated tracer diagnostics
@@ -1658,9 +1696,9 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE read_tracer_restart (file_restart, found_restart, missing_mask)
 
-   USE MOD_NetCDFSerial,          only: ncio_var_exist
+   USE MOD_NetCDFSerial,          only: ncio_var_exist, ncio_inquire_length
    USE MOD_Vector_ReadWrite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address, lake_type_bf => lake_type
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, lake_type_bf => lake_type
    USE MOD_Grid_RiverLakeLevee, only: has_levee_bf => has_levee, levsto_bf => levsto
    USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_bf => wdsrf_ucat, volresv_bf_in => volresv
    USE MOD_Grid_Reservoir, only: ucat2resv_bf_in => ucat2resv
@@ -1681,8 +1719,10 @@ CONTAINS
    logical, optional, intent(out) :: missing_mask(:)
 
 	   integer :: itrc, has_flag
+	   integer :: ondisk_numucat, dimchk_flag
+	   integer :: expected_trc_n
 	   integer :: ii_bf, itrc_bf
-	   logical :: has_var, has_active, has_inactive
+	   logical :: has_var, has_active, has_inactive, meta_bad
 	   logical :: all_found
 	   logical :: reported_bf
 	   logical, allocatable :: has_accinp(:)
@@ -1690,7 +1730,7 @@ CONTAINS
 	   character(len=64) :: varname
 	   real(r8), allocatable :: tmpvec(:)
 	   real(r8), allocatable :: volresv_bf(:)
-	   real(r8) :: R_bf, visvol_bf, ratio_bf
+	   real(r8) :: R_bf, visvol_bf, ratio_bf, expected_namehash
 
 	      all_found = .true.
 	      IF (present(missing_mask)) missing_mask = .false.
@@ -1707,6 +1747,94 @@ CONTAINS
          allocate (tmpvec(numucat))
       ELSE
          allocate (tmpvec(0))
+      ENDIF
+
+      ! C3: catchment-dimension guard. acc_rnof_ref is always written along the
+      ! 'ucatch' dimension (length = totalnumucat). A restart written for a
+      ! different river-network size would let the per-cell scatter below place
+      ! tracer mass into the wrong catchments with no error. Mirror the sediment
+      ! meta-guard (sed_n_meta/sed_totlyrnum_meta) and abort on mismatch. Probe
+      ! on master only (matches the per-variable probe pattern below), then bcast.
+      dimchk_flag = 0
+      IF (p_is_master) THEN
+         IF (ncio_var_exist(file_restart, 'acc_rnof_ref', readflag = .false.)) THEN
+            CALL ncio_inquire_length (file_restart, 'acc_rnof_ref', ondisk_numucat)
+            IF (ondisk_numucat /= totalnumucat) dimchk_flag = 1
+         ENDIF
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (dimchk_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (dimchk_flag /= 0) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: river/lake tracer restart catchment dimension does not match '// &
+            'current totalnumucat (probed via acc_rnof_ref); aborting to avoid '// &
+            'silent tracer-mass misalignment.'
+         CALL CoLM_stop ()
+      ENDIF
+
+      ! Strict metadata for new-format river/lake tracer restarts. These
+      ! ucatch-length vectors are written by write_tracer_restart so a file
+      ! produced on a different river network or with a different non-particle
+      ! tracer set fails before any per-tracer scatter can silently misalign
+      ! state. Older restarts without the metadata keep the legacy per-variable
+      ! fallback path above/below.
+      expected_trc_n = riverlake_tracer_count_meta()
+      expected_namehash = riverlake_tracer_namehash_meta()
+      meta_bad = .false.
+      IF (p_is_master) THEN
+         has_var = ncio_var_exist(file_restart, 'trc_numucat_meta', readflag = .false.)
+         has_flag = merge(1, 0, has_var)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (has_flag /= 0) THEN
+         IF (p_is_master) THEN
+            CALL ncio_inquire_length (file_restart, 'trc_numucat_meta', ondisk_numucat)
+            IF (ondisk_numucat /= totalnumucat) dimchk_flag = 1
+         ENDIF
+#ifdef USEMPI
+         CALL mpi_bcast (dimchk_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_numucat_meta', ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) meta_bad = any(nint(tmpvec(:)) /= totalnumucat)
+      ENDIF
+
+      IF (p_is_master) THEN
+         has_var = ncio_var_exist(file_restart, 'trc_n_meta', readflag = .false.)
+         has_flag = merge(1, 0, has_var)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (has_flag /= 0) THEN
+         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_n_meta', ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) meta_bad = meta_bad .or. any(nint(tmpvec(:)) /= expected_trc_n)
+      ENDIF
+
+      IF (p_is_master) THEN
+         has_var = ncio_var_exist(file_restart, 'trc_namehash_meta', readflag = .false.)
+         has_flag = merge(1, 0, has_var)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (has_flag /= 0) THEN
+         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_namehash_meta', ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) THEN
+            meta_bad = meta_bad .or. any(abs(tmpvec(:) - expected_namehash) > 0.5_r8)
+         ENDIF
+      ENDIF
+
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, meta_bad, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+#endif
+      IF (meta_bad .or. dimchk_flag /= 0) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: river/lake tracer restart metadata mismatch '// &
+            '(trc_numucat_meta/trc_n_meta/trc_namehash_meta); aborting.'
+         CALL CoLM_stop ()
       ENDIF
 
       DO itrc = 1, ntracers
@@ -1967,6 +2095,20 @@ CONTAINS
       ELSE
          allocate (tmpvec(0))
       ENDIF
+
+      ! Restart metadata guards. Store as ucatch vectors so the existing
+      ! vector I/O path can scatter and verify them collectively on read.
+      IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(totalnumucat, r8)
+      CALL vector_gather_and_write ( &
+         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_numucat_meta', 'ucatch')
+
+      IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(riverlake_tracer_count_meta(), r8)
+      CALL vector_gather_and_write ( &
+         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_n_meta', 'ucatch')
+
+      IF (p_is_worker .and. numucat > 0) tmpvec(:) = riverlake_tracer_namehash_meta()
+      CALL vector_gather_and_write ( &
+         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_namehash_meta', 'ucatch')
 
       DO itrc = 1, ntracers
          IF (tracer_is_particle(itrc)) CYCLE
