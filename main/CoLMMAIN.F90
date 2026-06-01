@@ -180,7 +180,10 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_NewSnow, only: newsnow
    USE MOD_Thermal, only: THERMAL
    USE MOD_SoilSnowHydrology, only: WATER_2014, WATER_VSF
-   USE MOD_SnowFraction, only: snowfraction, snowfraction_pftwrap
+   USE MOD_SnowFraction, only: snowfraction
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   USE MOD_SnowFraction, only: snowfraction_pftwrap
+#endif
    USE MOD_SnowLayersCombineDivide, only: snowcompaction, snowlayerscombine, &
       snowlayerscombine_snicar, snowlayersdivide, snowlayersdivide_snicar
    USE MOD_Glacier, only: GLACIER_TEMP, GLACIER_WATER, GLACIER_WATER_snicar
@@ -231,7 +234,10 @@ SUBROUTINE CoLMMAIN ( &
 #ifdef TRACER
    USE MOD_Tracer_SpecialPatches, only: tracer_glacier_patch, tracer_waterbody_patch
 #endif
-   USE MOD_LeafInterception, only: LEAF_interception_wrap, LEAF_interception_pftwrap
+   USE MOD_LeafInterception, only: LEAF_interception_wrap
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   USE MOD_LeafInterception, only: LEAF_interception_pftwrap
+#endif
 #if (defined CaMa_Flood)
    ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
    USE MOD_CaMa_colmCaMa, only: get_fldevp

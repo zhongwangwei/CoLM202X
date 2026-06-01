@@ -256,7 +256,7 @@ CONTAINS
       real(r8) :: storage_comp_end(n_storage_diag)
       real(r8) :: storage_comp_beg(n_storage_diag)
       real(r8) :: storage_comp_dS (n_storage_diag)
-      logical  :: fixed_signature_step
+      logical  :: fixed_signature_step, water_corrected_check
 
 	      xerr_tracer = 0._r8
 	      IF (ntracers <= 0) RETURN
@@ -287,8 +287,8 @@ CONTAINS
          storage_comp_dS = storage_comp_end - storage_comp_beg
 
          R_init = tracer_init_water_ratio(itrc)
-         fixed_signature_step = tracer_can_use_fixed_signature(itrc) .and. &
-            .not. tracer_fractionation_active(itrc)
+         water_corrected_check = tracer_can_use_fixed_signature(itrc)
+         fixed_signature_step = water_corrected_check .and. .not. tracer_fractionation_active(itrc)
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature_step = fixed_signature_step .and. .not. trc_runtime_forced(itrc)
          ENDIF
@@ -342,7 +342,13 @@ CONTAINS
          ENDIF
          water_err_R = water_err * R_init
          err_minus_water = err - water_err_R
-         IF (present(water_err_in) .and. fixed_signature_step) THEN
+         ! The hard tracer check should ignore host water-budget non-closure
+         ! for isotope tracers. Fractionation and runtime atmospheric forcing
+         ! keep their process-owned flux signatures above, but they should not
+         ! make the hard tracer check count host water non-closure as tracer
+         ! non-conservation. A real tracer accounting bug remains visible in
+         ! err_minus_water.
+         IF (present(water_err_in) .and. water_corrected_check) THEN
             check_err = err_minus_water
          ELSE
             check_err = err
