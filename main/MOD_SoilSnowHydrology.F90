@@ -520,6 +520,8 @@ ENDIF
              ,wblc_ice_sink                                                   &
              ,etroot_actual                                                   &
              ,etroot_aquifer                                                  &
+             ,imperv_evap_wdsrf                                               &
+             ,imperv_evap_soil                                                &
              ,snow_qout_layer                                                  &
 #endif
 #if (defined CaMa_Flood)
@@ -660,6 +662,8 @@ ENDIF
    real(r8), intent(out) :: wblc_ice_sink(1:nl_soil) ! ET deficit taken from ice (kg/m2)
    real(r8), intent(out) :: etroot_actual(1:nl_soil) ! layer ET actually removed (mm)
    real(r8), intent(out) :: etroot_aquifer           ! aquifer ET fallback (mm)
+   real(r8), intent(out) :: imperv_evap_wdsrf        ! qgtop<0 water removed from wdsrf (mm/step)
+   real(r8), intent(out) :: imperv_evap_soil         ! qgtop<0 water removed from soil layer 1 (mm/step)
    real(r8), intent(out) :: snow_qout_layer(lb:0)    ! true snowwater qout by snow layer (mm/step)
 #endif
 
@@ -703,6 +707,9 @@ ENDIF
 
    real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
    real(r8) :: qgtop
+#ifdef TRACER
+   real(r8) :: qgtop_deficit
+#endif
 
    real(r8) :: zwtmm
    real(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
@@ -748,6 +755,8 @@ ENDIF
       wblc_ice_sink(1:nl_soil) = 0._r8
       etroot_actual(1:nl_soil) = 0._r8
       etroot_aquifer           = 0._r8
+      imperv_evap_wdsrf        = 0._r8
+      imperv_evap_soil         = 0._r8
       IF (lb <= 0) snow_qout_layer(lb:0) = 0._r8
 #endif
 
@@ -1037,13 +1046,25 @@ IF((patchtype<=1) .or. is_dry_lake &
       wdsrf = max(0., wdsrf)
 
       IF ((.not. is_permeable(1)) .and. (qgtop < 0.)) THEN
+#ifdef TRACER
+         qgtop_deficit = -qgtop * deltim
+#endif
          IF (wdsrf > 0) THEN
+#ifdef TRACER
+            imperv_evap_wdsrf = imperv_evap_wdsrf + min(max(wdsrf, 0._r8), qgtop_deficit)
+#endif
             wdsrf = wdsrf + qgtop * deltim
             IF (wdsrf < 0) THEN
+#ifdef TRACER
+               imperv_evap_soil = imperv_evap_soil + min(max(wliq_soisno(1), 0._r8), max(-wdsrf, 0._r8))
+#endif
                wliq_soisno(1) = max(0., wliq_soisno(1) + wdsrf)
                wdsrf = 0
             ENDIF
          ELSE
+#ifdef TRACER
+            imperv_evap_soil = imperv_evap_soil + min(max(wliq_soisno(1), 0._r8), qgtop_deficit)
+#endif
             wliq_soisno(1) = max(0., wliq_soisno(1) + qgtop * deltim)
          ENDIF
 

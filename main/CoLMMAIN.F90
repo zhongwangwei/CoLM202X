@@ -199,7 +199,7 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_TimeManager
    USE MOD_Namelist, only: DEF_Interception_scheme, DEF_USE_VariablySaturatedFlow, &
       DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, DEF_SPLIT_SOILSNOW, &
-      DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW
+      DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW, DEF_URBAN_RUN
 #ifdef TRACER
    USE MOD_Tracer_Defs,         only: ntracers, trc_tiny, tracer_uses_land_water_transport
 #endif
@@ -746,6 +746,8 @@ SUBROUTINE CoLMMAIN ( &
    ! miss the aquifer withdrawal entirely.
    real(r8) :: etroot_actual_trc(nl_soil)
    real(r8) :: etroot_aquifer_trc
+   real(r8) :: imperv_evap_wdsrf_trc
+   real(r8) :: imperv_evap_soil_trc
    real(r8) :: snow_qout_layer_trc(maxsnl+1:0)
    real(r8) :: qcharge_trc
    real(r8) :: waterstorage_trc_beg
@@ -1198,6 +1200,8 @@ SUBROUTINE CoLMMAIN ( &
             ! Update saved states to post-THERMAL for WATER delta tracking
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
+            imperv_evap_wdsrf_trc = 0._r8
+            imperv_evap_soil_trc  = 0._r8
 #endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
@@ -1255,6 +1259,8 @@ SUBROUTINE CoLMMAIN ( &
                 ,wblc_ice_sink_trc                                                          &
                 ,etroot_actual_trc                                                          &
                 ,etroot_aquifer_trc                                                         &
+                ,imperv_evap_wdsrf_trc                                                      &
+                ,imperv_evap_soil_trc                                                       &
                 ,snow_qout_layer_trc(lbsn:0)                                                 &
 #endif
 #if (defined CaMa_Flood)
@@ -1334,7 +1340,7 @@ SUBROUTINE CoLMMAIN ( &
                      qseva, qsdew, qsubl, qfros, &
                      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
                      qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
-                     sm, fsno, DEF_SPLIT_SOILSNOW, &
+                     sm, fsno, DEF_SPLIT_SOILSNOW .and. .not. (patchtype == 1 .and. DEF_URBAN_RUN), &
                      wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                      wliq_soisno_old_trc, wice_soisno_old_trc, &
                      wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
@@ -1343,6 +1349,8 @@ SUBROUTINE CoLMMAIN ( &
                      etroot_actual_trc, etroot_aquifer_trc, &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
                      waterstorage_trc_ground, &
+                     imperv_evap_wdsrf = imperv_evap_wdsrf_trc, &
+                     imperv_evap_soil = imperv_evap_soil_trc, &
                      snow_qout_layer = snow_qout_layer_trc(snl+1:0), &
                      tleaf_frac = tleaf, &
                      t_soisno_frac = t_soisno(snl+1:nl_soil), &
@@ -1356,7 +1364,7 @@ SUBROUTINE CoLMMAIN ( &
                      qseva, qsdew, qsubl, qfros, &
                      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
                      qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
-                     sm, fsno, DEF_SPLIT_SOILSNOW, &
+                     sm, fsno, DEF_SPLIT_SOILSNOW .and. .not. (patchtype == 1 .and. DEF_URBAN_RUN), &
                      wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                      wliq_soisno_old_trc, wice_soisno_old_trc, &
                      wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
@@ -1365,6 +1373,8 @@ SUBROUTINE CoLMMAIN ( &
                      etroot_actual_trc, etroot_aquifer_trc, &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
                      waterstorage_trc_ground, &
+                     imperv_evap_wdsrf = imperv_evap_wdsrf_trc, &
+                     imperv_evap_soil = imperv_evap_soil_trc, &
                      tleaf_frac = tleaf, &
                      t_soisno_frac = t_soisno(snl+1:nl_soil), &
                      forc_q_frac = forc_q, &

@@ -52,6 +52,7 @@ CONTAINS
       etroot, wblc_ice_sink, &
       etroot_actual, etroot_aquifer, &
       qflx_irrig_ground, waterstorage_patch, &
+      imperv_evap_wdsrf, imperv_evap_soil, &
       snow_qout_layer, tleaf_frac, t_soisno_frac, forc_q_frac, forc_psrf_frac, lai_frac, rst_frac)
 
       IMPLICIT NONE
@@ -124,6 +125,13 @@ CONTAINS
       ! is disabled.
       real(r8), intent(in) :: qflx_irrig_ground
       real(r8), intent(in), optional :: waterstorage_patch
+      ! WATER_VSF has a special impermeable-top-layer branch where qgtop<0
+      ! evaporation is removed directly from wdsrf and then soil layer 1
+      ! before soil_water_vertical_movement. That loss never appears as
+      ! negative qinfl, so pass the exact water-side removals (mm/step)
+      ! and mirror them explicitly in tracer mass.
+      real(r8), intent(in), optional :: imperv_evap_wdsrf
+      real(r8), intent(in), optional :: imperv_evap_soil
       real(r8), intent(in), optional :: snow_qout_layer(snl+1:0)
       real(r8), intent(in), optional :: tleaf_frac
       real(r8), intent(in), optional :: t_soisno_frac(snl+1:nl_soil)
@@ -163,6 +171,8 @@ CONTAINS
       real(r8) :: top_exfil_water       ! soil-to-surface exfiltration water [mm/step]
       real(r8) :: top_boundary_out_water ! total negative qinfl water [mm/step]
       real(r8) :: top_soil_evap_water   ! negative qinfl caused by qseva deficit [mm/step]
+      real(r8) :: imperv_wdsrf_loss      ! qgtop<0 loss from surface storage [mm/step]
+      real(r8) :: imperv_soil_loss       ! qgtop<0 loss from layer-1 liquid [mm/step]
       real(r8) :: trc_gwat_snow         ! tracer leaving snow bottom [kg/m2 per step]
       real(r8) :: snow_rain_input       ! rain entering snowwater [mm]
       real(r8) :: snow_dew_input        ! dew entering top snow liquid [mm]
@@ -570,6 +580,10 @@ CONTAINS
          trc_soil_evap = 0._r8
          top_exfil_water = 0._r8
          top_soil_evap_water = 0._r8
+         imperv_wdsrf_loss = 0._r8
+         imperv_soil_loss = 0._r8
+         IF (present(imperv_evap_wdsrf)) imperv_wdsrf_loss = max(imperv_evap_wdsrf, 0._r8)
+         IF (present(imperv_evap_soil))  imperv_soil_loss  = max(imperv_evap_soil,  0._r8)
 
          ! ---- Determine effective fluxes applied to gwat / soil layer 1 ----
          !
@@ -679,7 +693,16 @@ CONTAINS
          ! Only the remaining qseva can carry the surface mixed-pool
          ! signature. Using the full qseva here double-counts water and
          ! dilutes the surface tracer flux delta.
-         gwat_evap = max(max(eff_qseva, 0._r8) * deltim - top_soil_evap_water, 0._r8)
+         gwat_evap = max(max(eff_qseva, 0._r8) * deltim - top_soil_evap_water &
+                       - imperv_wdsrf_loss - imperv_soil_loss, 0._r8)
+         IF (imperv_soil_loss > trc_tiny) THEN
+               trc_soil_evap = atmospheric_loss_tracer(trc_wliq_soisno(itrc, 1, ipatch), &
+                  max(water_shadow(1), 0._r8), imperv_soil_loss, layer_temp(1), .false.)
+               trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_soil_evap
+               CALL tracer_book_evap_loss(itrc, ipatch, trc_soil_evap, imperv_soil_loss, &
+                  TRC_EVAP_KIND_SOILEVAP)
+            water_shadow(1) = water_shadow(1) - imperv_soil_loss
+         ENDIF
          IF (gwat_evap > trc_tiny .and. trc_pool_total > trc_tiny) THEN
             ! Reconstruct pre-evap water pool
             water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim &
@@ -688,6 +711,15 @@ CONTAINS
                   gwat_evap, layer_temp(1), .false.)
                trc_pool_total = trc_pool_total - trc_gwat_evap
                CALL tracer_book_evap_loss(itrc, ipatch, trc_gwat_evap, gwat_evap, &
+                  TRC_EVAP_KIND_SOILEVAP)
+         ENDIF
+         IF (imperv_wdsrf_loss > trc_tiny .and. trc_pool_total > trc_tiny) THEN
+            water_pool_total = max(wdsrf, 0._r8) + max(rsur, 0._r8) * deltim &
+                             + top_infil_water + imperv_wdsrf_loss
+               trc_gwat_evap = atmospheric_loss_tracer(trc_pool_total, water_pool_total, &
+                  imperv_wdsrf_loss, layer_temp(1), .false.)
+               trc_pool_total = trc_pool_total - trc_gwat_evap
+               CALL tracer_book_evap_loss(itrc, ipatch, trc_gwat_evap, imperv_wdsrf_loss, &
                   TRC_EVAP_KIND_SOILEVAP)
          ENDIF
 
