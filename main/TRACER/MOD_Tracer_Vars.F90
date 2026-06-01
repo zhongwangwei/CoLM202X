@@ -62,7 +62,26 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: trc_leaf_iso_storage(:,:)  ! NSS isotope storage anomaly [R*mm]
    logical,  allocatable :: trc_runtime_forced(:)      ! tracer has runtime atmospheric forcing
 
-		   real(r8), allocatable :: a_trc_precip   (:,:)
+   ! LULCC snapshots for prognostic land-water tracer pools. These are
+   ! saved before LULCC rebuilds landpatch and remapped after the new patch
+   ! layout exists, mirroring the reactive/methane LULCC path.
+   logical, save :: land_tracer_lulcc_snapshot_valid = .false.
+   real(r8), allocatable, save :: lulcc_trc_ldew_rain_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_ldew_snow_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_wliq_soisno_old(:,:,:)
+   real(r8), allocatable, save :: lulcc_trc_wice_soisno_old(:,:,:)
+   real(r8), allocatable, save :: lulcc_trc_wa_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_wdsrf_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_wetwat_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_waterstorage_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_scv_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_leaf_delta_e_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_leaf_delta_b_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_leaf_peclet_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_leaf_water_moles_old(:,:)
+   real(r8), allocatable, save :: lulcc_trc_leaf_iso_storage_old(:,:)
+
+   real(r8), allocatable :: a_trc_precip   (:,:)
 	   integer, parameter :: TRC_EVAP_KIND_TOTAL       = 0
 	   integer, parameter :: TRC_EVAP_KIND_TRANSP      = 1
 	   integer, parameter :: TRC_EVAP_KIND_SOILEVAP    = 2
@@ -265,6 +284,211 @@ CONTAINS
       IF (allocated(a_trc_scv_mass   )) deallocate(a_trc_scv_mass   )
       IF (allocated(a_water_scv      )) deallocate(a_water_scv      )
    END SUBROUTINE deallocate_Tracer_Vars
+
+   SUBROUTINE save_land_tracer_lulcc_state ()
+      IMPLICIT NONE
+
+      IF (.not. allocated(trc_ldew_rain) .or. .not. allocated(trc_wliq_soisno)) THEN
+         land_tracer_lulcc_snapshot_valid = .false.
+         RETURN
+      ENDIF
+
+      CALL clear_land_tracer_lulcc_snapshot()
+
+      allocate(lulcc_trc_ldew_rain_old(size(trc_ldew_rain,1), size(trc_ldew_rain,2)))
+      lulcc_trc_ldew_rain_old = trc_ldew_rain
+      allocate(lulcc_trc_ldew_snow_old(size(trc_ldew_snow,1), size(trc_ldew_snow,2)))
+      lulcc_trc_ldew_snow_old = trc_ldew_snow
+      allocate(lulcc_trc_wliq_soisno_old(size(trc_wliq_soisno,1), &
+         lbound(trc_wliq_soisno,2):ubound(trc_wliq_soisno,2), size(trc_wliq_soisno,3)))
+      lulcc_trc_wliq_soisno_old = trc_wliq_soisno
+      allocate(lulcc_trc_wice_soisno_old(size(trc_wice_soisno,1), &
+         lbound(trc_wice_soisno,2):ubound(trc_wice_soisno,2), size(trc_wice_soisno,3)))
+      lulcc_trc_wice_soisno_old = trc_wice_soisno
+      allocate(lulcc_trc_wa_old(size(trc_wa,1), size(trc_wa,2)))
+      lulcc_trc_wa_old = trc_wa
+      allocate(lulcc_trc_wdsrf_old(size(trc_wdsrf,1), size(trc_wdsrf,2)))
+      lulcc_trc_wdsrf_old = trc_wdsrf
+      allocate(lulcc_trc_wetwat_old(size(trc_wetwat,1), size(trc_wetwat,2)))
+      lulcc_trc_wetwat_old = trc_wetwat
+      allocate(lulcc_trc_waterstorage_old(size(trc_waterstorage,1), size(trc_waterstorage,2)))
+      lulcc_trc_waterstorage_old = trc_waterstorage
+      allocate(lulcc_trc_scv_old(size(trc_scv,1), size(trc_scv,2)))
+      lulcc_trc_scv_old = trc_scv
+      allocate(lulcc_trc_leaf_delta_e_old(size(trc_leaf_delta_e,1), size(trc_leaf_delta_e,2)))
+      lulcc_trc_leaf_delta_e_old = trc_leaf_delta_e
+      allocate(lulcc_trc_leaf_delta_b_old(size(trc_leaf_delta_b,1), size(trc_leaf_delta_b,2)))
+      lulcc_trc_leaf_delta_b_old = trc_leaf_delta_b
+      allocate(lulcc_trc_leaf_peclet_old(size(trc_leaf_peclet,1), size(trc_leaf_peclet,2)))
+      lulcc_trc_leaf_peclet_old = trc_leaf_peclet
+      allocate(lulcc_trc_leaf_water_moles_old(size(trc_leaf_water_moles,1), size(trc_leaf_water_moles,2)))
+      lulcc_trc_leaf_water_moles_old = trc_leaf_water_moles
+      allocate(lulcc_trc_leaf_iso_storage_old(size(trc_leaf_iso_storage,1), size(trc_leaf_iso_storage,2)))
+      lulcc_trc_leaf_iso_storage_old = trc_leaf_iso_storage
+
+      land_tracer_lulcc_snapshot_valid = .true.
+   END SUBROUTINE save_land_tracer_lulcc_state
+
+   SUBROUTINE remap_land_tracer_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
+                                             lccpct_patches)
+      IMPLICIT NONE
+      integer,   intent(in) :: patchclass_new(:), patchclass_old(:)
+      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
+      real(r8),  intent(in), optional :: lccpct_patches(:,:)
+
+      integer :: nnew, maxsnl_saved, nl_soil_saved
+
+      IF (.not. land_tracer_lulcc_snapshot_valid) RETURN
+      IF (.not. allocated(lulcc_trc_wliq_soisno_old)) THEN
+         CALL clear_land_tracer_lulcc_snapshot()
+         RETURN
+      ENDIF
+
+      nnew = size(patchclass_new)
+      maxsnl_saved = lbound(lulcc_trc_wliq_soisno_old, 2) - 1
+      nl_soil_saved = ubound(lulcc_trc_wliq_soisno_old, 2)
+
+      IF (allocated(trc_ldew_rain)) CALL deallocate_Tracer_Vars()
+      IF (nnew <= 0) THEN
+         CALL clear_land_tracer_lulcc_snapshot()
+         RETURN
+      ENDIF
+
+      CALL allocate_Tracer_Vars(nnew, maxsnl_saved, nl_soil_saved)
+      IF (.not. allocated(trc_ldew_rain)) THEN
+         CALL clear_land_tracer_lulcc_snapshot()
+         RETURN
+      ENDIF
+
+      CALL remap2d(lulcc_trc_ldew_rain_old,         trc_ldew_rain)
+      CALL remap2d(lulcc_trc_ldew_snow_old,         trc_ldew_snow)
+      CALL remap3d(lulcc_trc_wliq_soisno_old,       trc_wliq_soisno)
+      CALL remap3d(lulcc_trc_wice_soisno_old,       trc_wice_soisno)
+      CALL remap2d(lulcc_trc_wa_old,                trc_wa)
+      CALL remap2d(lulcc_trc_wdsrf_old,             trc_wdsrf)
+      CALL remap2d(lulcc_trc_wetwat_old,            trc_wetwat)
+      CALL remap2d(lulcc_trc_waterstorage_old,      trc_waterstorage)
+      CALL remap2d(lulcc_trc_scv_old,               trc_scv)
+      CALL remap2d(lulcc_trc_leaf_delta_e_old,      trc_leaf_delta_e)
+      CALL remap2d(lulcc_trc_leaf_delta_b_old,      trc_leaf_delta_b)
+      CALL remap2d(lulcc_trc_leaf_peclet_old,       trc_leaf_peclet)
+      CALL remap2d(lulcc_trc_leaf_water_moles_old,  trc_leaf_water_moles)
+      CALL remap2d(lulcc_trc_leaf_iso_storage_old,  trc_leaf_iso_storage)
+
+      CALL clear_land_tracer_lulcc_snapshot()
+
+   CONTAINS
+      SUBROUTINE remap2d(old, new)
+         real(r8), intent(in)    :: old(:,:)
+         real(r8), intent(inout) :: new(:,:)
+         integer :: np, op, src, n1
+         real(r8) :: w, wsum
+         real(r8) :: default_vals(size(new,1))
+
+         n1 = min(size(new,1), size(old,1))
+         DO np = 1, min(size(new,2), nnew)
+            wsum = 0._r8
+            default_vals(:) = new(:,np)
+            IF (present(lccpct_patches)) THEN
+               new(:,np) = 0._r8
+               DO op = 1, min(size(old,2), size(patchclass_old), size(eindex_old))
+                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
+                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                  w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
+                  IF (w <= 0._r8) CYCLE
+                  new(1:n1,np) = new(1:n1,np) + w * old(1:n1,op)
+                  wsum = wsum + w
+               ENDDO
+            ENDIF
+            IF (wsum > 0._r8) THEN
+               new(:,np) = new(:,np) / wsum
+            ELSE
+               src = fallback_source(np, size(old,2))
+               IF (src > 0) THEN
+                  new(:,np) = 0._r8
+                  new(1:n1,np) = old(1:n1,src)
+               ELSE
+                  new(:,np) = default_vals(:)
+               ENDIF
+            ENDIF
+         ENDDO
+      END SUBROUTINE remap2d
+
+      SUBROUTINE remap3d(old, new)
+         real(r8), intent(in)    :: old(:,:,:)
+         real(r8), intent(inout) :: new(:,:,:)
+         integer :: np, op, src, n1, n2
+         real(r8) :: w, wsum
+         real(r8) :: default_vals(size(new,1), size(new,2))
+
+         n1 = min(size(new,1), size(old,1))
+         n2 = min(size(new,2), size(old,2))
+         DO np = 1, min(size(new,3), nnew)
+            wsum = 0._r8
+            default_vals(:,:) = new(:,:,np)
+            IF (present(lccpct_patches)) THEN
+               new(:,:,np) = 0._r8
+               DO op = 1, min(size(old,3), size(patchclass_old), size(eindex_old))
+                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
+                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                  w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
+                  IF (w <= 0._r8) CYCLE
+                  new(1:n1,1:n2,np) = new(1:n1,1:n2,np) + w * old(1:n1,1:n2,op)
+                  wsum = wsum + w
+               ENDDO
+            ENDIF
+            IF (wsum > 0._r8) THEN
+               new(:,:,np) = new(:,:,np) / wsum
+            ELSE
+               src = fallback_source(np, size(old,3))
+               IF (src > 0) THEN
+                  new(:,:,np) = 0._r8
+                  new(1:n1,1:n2,np) = old(1:n1,1:n2,src)
+               ELSE
+                  new(:,:,np) = default_vals(:,:)
+               ENDIF
+            ENDIF
+         ENDDO
+      END SUBROUTINE remap3d
+
+      integer FUNCTION fallback_source(np, old_n) RESULT(src)
+         integer, intent(in) :: np, old_n
+         integer :: op
+         src = 0
+         DO op = 1, min(old_n, size(patchclass_old), size(eindex_old))
+            IF (eindex_old(op) == eindex_new(np) .and. &
+                patchclass_old(op) == patchclass_new(np)) THEN
+               src = op
+               RETURN
+            ENDIF
+         ENDDO
+         ! Do not fall back across land-cover classes; a missing class match
+         ! should cold-start from allocation defaults instead of contaminating
+         ! a newly created patch with another surface type's tracer pools.
+      END FUNCTION fallback_source
+   END SUBROUTINE remap_land_tracer_lulcc_state
+
+   SUBROUTINE clear_land_tracer_lulcc_snapshot ()
+      IMPLICIT NONE
+
+      IF (allocated(lulcc_trc_ldew_rain_old)) deallocate(lulcc_trc_ldew_rain_old)
+      IF (allocated(lulcc_trc_ldew_snow_old)) deallocate(lulcc_trc_ldew_snow_old)
+      IF (allocated(lulcc_trc_wliq_soisno_old)) deallocate(lulcc_trc_wliq_soisno_old)
+      IF (allocated(lulcc_trc_wice_soisno_old)) deallocate(lulcc_trc_wice_soisno_old)
+      IF (allocated(lulcc_trc_wa_old)) deallocate(lulcc_trc_wa_old)
+      IF (allocated(lulcc_trc_wdsrf_old)) deallocate(lulcc_trc_wdsrf_old)
+      IF (allocated(lulcc_trc_wetwat_old)) deallocate(lulcc_trc_wetwat_old)
+      IF (allocated(lulcc_trc_waterstorage_old)) deallocate(lulcc_trc_waterstorage_old)
+      IF (allocated(lulcc_trc_scv_old)) deallocate(lulcc_trc_scv_old)
+      IF (allocated(lulcc_trc_leaf_delta_e_old)) deallocate(lulcc_trc_leaf_delta_e_old)
+      IF (allocated(lulcc_trc_leaf_delta_b_old)) deallocate(lulcc_trc_leaf_delta_b_old)
+      IF (allocated(lulcc_trc_leaf_peclet_old)) deallocate(lulcc_trc_leaf_peclet_old)
+      IF (allocated(lulcc_trc_leaf_water_moles_old)) deallocate(lulcc_trc_leaf_water_moles_old)
+      IF (allocated(lulcc_trc_leaf_iso_storage_old)) deallocate(lulcc_trc_leaf_iso_storage_old)
+      land_tracer_lulcc_snapshot_valid = .false.
+   END SUBROUTINE clear_land_tracer_lulcc_snapshot
 
    SUBROUTINE flush_Tracer_Acc ()
       IMPLICIT NONE

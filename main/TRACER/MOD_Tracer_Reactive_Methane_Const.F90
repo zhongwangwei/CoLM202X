@@ -64,6 +64,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 ! [Marani & Alvalá 2007].
 !=======================================================================
 	USE MOD_Precision
+	USE MOD_Tracer_Defs, only: tracer_lower
 
 	IMPLICIT NONE
 
@@ -567,7 +568,7 @@ CONTAINS
 
 	      character(len=32) :: mode
 
-	      mode = lower_ascii(adjustl(trim(DEF_METHANE%inundation_mode)))
+	      mode = tracer_lower(adjustl(trim(DEF_METHANE%inundation_mode)))
 
 	      SELECT CASE (trim(mode))
 	      CASE ('wetwat')
@@ -987,8 +988,8 @@ CONTAINS
       methane_history_enabled = .false.
       IF (.not. DEF_METHANE%write_ch4_history) RETURN
 
-      list = lower_ascii(adjustl(trim(DEF_METHANE%ch4_history_vars)))
-      v    = lower_ascii(adjustl(trim(varname)))
+      list = tracer_lower(adjustl(trim(DEF_METHANE%ch4_history_vars)))
+      v    = tracer_lower(adjustl(trim(varname)))
 
       SELECT CASE (trim(list))
       CASE ('all','*')
@@ -1069,22 +1070,6 @@ CONTAINS
          IF (n <= len(compact_commas)) compact_commas(n:n) = s(i:i)
       ENDDO
    END FUNCTION compact_commas
-
-   character(len=4096) FUNCTION lower_ascii (s)
-      character(len=*), intent(in) :: s
-      integer :: i, c, n
-
-      lower_ascii = ' '
-      n = min(len_trim(s), len(lower_ascii))
-      DO i = 1, n
-         c = iachar(s(i:i))
-         IF (c >= iachar('A') .and. c <= iachar('Z')) THEN
-            lower_ascii(i:i) = achar(c + 32)
-         ELSE
-            lower_ascii(i:i) = s(i:i)
-         ENDIF
-      ENDDO
-   END FUNCTION lower_ascii
 
    SUBROUTINE load_methane_atm_file ()
       character(len=512) :: line

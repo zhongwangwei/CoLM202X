@@ -3,7 +3,7 @@
 include include/Makeoptions
 LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
-TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | tail -n 1)
+TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk 'NF { last=$$0 } END { print last }')
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -137,17 +137,19 @@ TRACER_REACTIVE_MAIN_OBJS = \
 				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				MOD_Tracer_Reactive_Registrations.o
 TRACER_PARTICLE_REGISTERED_SPECIES_OBJS = \
-				  MOD_Tracer_Particle_Sediment.o
+				MOD_Tracer_Particle_Sediment.o
+
+TRACER_PARTICLE_DISPATCH_OBJS = \
+				MOD_Tracer_Particle.o
 
 TRACER_PARTICLE_MAIN_OBJS = \
-				MOD_Tracer_Particle.o             \
 				$(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS) \
 				MOD_Tracer_Particle_Registrations.o
 ifeq (${TRACER_ENABLED},YES)
 TRACER_BASIC_OBJS = \
-				 MOD_Tracer_Defs.o              \
-				 $(TRACER_PARTICLE_MAIN_OBJS)    \
-				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
+					 MOD_Tracer_Defs.o              \
+					 $(TRACER_PARTICLE_DISPATCH_OBJS) \
+					 $(TRACER_ISOTOPE_MAIN_OBJS)    \
 				 MOD_Tracer_Frac.o              \
 				 MOD_Tracer_EvapLimit.o         \
 				 MOD_Tracer_Vars.o              \
@@ -166,11 +168,13 @@ TRACER_BASIC_OBJS = \
 TRACER_MAIN_OBJS = \
 				MOD_Tracer_Main.o                          \
 				MOD_Tracer_Hist.o                         \
+				$(TRACER_PARTICLE_MAIN_OBJS)              \
 				$(TRACER_REACTIVE_MAIN_OBJS)              \
 				MOD_Tracer_SpecialPatches.o
 
 TRACER_MKINIDATA_OBJS = \
-				  MOD_Tracer_Reactive_Registrations_Stubs.o
+				MOD_Tracer_Particle_Registrations_Stubs.o \
+				MOD_Tracer_Reactive_Registrations_Stubs.o
 
 MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
@@ -198,6 +202,7 @@ MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Reactive_Methane_BgcLink.o \
 				     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o
 MOD_Tracer_Reactive_Registrations.o: include/tracer_reactive_species.inc \
 				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS)
+MOD_Tracer_Particle.o: MOD_Tracer_Defs.o
 MOD_Tracer_Particle_Registrations.o: include/tracer_particle_species.inc \
 				     $(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS)
 MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Particle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o

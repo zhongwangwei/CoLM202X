@@ -15,7 +15,7 @@ MODULE MOD_Tracer_Forcing
    USE MOD_UserSpecifiedForcing, only: metfilename
    USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_init_water_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
-      tracer_uses_land_water_transport
+      tracer_uses_land_water_transport, tracer_lower
    USE MOD_Tracer_Vars, only: trc_runtime_forced
    USE MOD_Tracer_Isotope_Registry, only: isotope_legacy_forcing_kind
    USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
@@ -1001,7 +1001,7 @@ CONTAINS
       character(len=*), intent(in) :: token
       character(len=256) :: low
 
-      low = tracer_forcing_lower(trim(token))
+      low = tracer_lower(trim(token))
       tracer_forcing_token_present = len_trim(low) > 0 .and. trim(low) /= 'null' .and. trim(low) /= 'none'
    END FUNCTION tracer_forcing_token_present
 
@@ -1010,7 +1010,7 @@ CONTAINS
       character(len=*), intent(in) :: token
       character(len=256) :: low
 
-      low = tracer_forcing_lower(trim(token))
+      low = tracer_lower(trim(token))
       IF (trim(low) == 'delta') THEN
          tracer_forcing_parse_mode = MODE_DELTA
       ELSEIF (trim(low) == 'heavy_over_total' .or. trim(low) == 'ratio_to_total' .or. &
@@ -1061,34 +1061,6 @@ CONTAINS
       read(token, *, iostat=ierr) tracer_forcing_csv_int
       IF (ierr /= 0) tracer_forcing_csv_int = default_value
    END FUNCTION tracer_forcing_csv_int
-
-   character(len=256) FUNCTION tracer_forcing_lower (raw)
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      integer :: i, ia
-
-      tracer_forcing_lower = raw
-      DO i = 1, len_trim(tracer_forcing_lower)
-         ia = iachar(tracer_forcing_lower(i:i))
-         IF (ia >= iachar('A') .and. ia <= iachar('Z')) THEN
-            tracer_forcing_lower(i:i) = achar(ia + iachar('a') - iachar('A'))
-         ENDIF
-      ENDDO
-   END FUNCTION tracer_forcing_lower
-
-   character(len=32) FUNCTION tracer_forcing_upper (raw)
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      integer :: i, ia
-
-      tracer_forcing_upper = raw
-      DO i = 1, len_trim(tracer_forcing_upper)
-         ia = iachar(tracer_forcing_upper(i:i))
-         IF (ia >= iachar('a') .and. ia <= iachar('z')) THEN
-            tracer_forcing_upper(i:i) = achar(ia - iachar('a') + iachar('A'))
-         ENDIF
-      ENDDO
-   END FUNCTION tracer_forcing_upper
 
 END MODULE MOD_Tracer_Forcing
 #endif

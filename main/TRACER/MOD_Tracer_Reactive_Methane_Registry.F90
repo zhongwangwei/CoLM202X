@@ -19,7 +19,7 @@ MODULE MOD_Tracer_Reactive_Methane_Registry
 !=======================================================================
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_reactive
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_reactive, tracer_upper
 
    IMPLICIT NONE
    SAVE
@@ -80,7 +80,7 @@ CONTAINS
       IF (ntracers <= 0) RETURN
 
       DO i = 1, ntracers
-         nm = upper(tracers(i)%name)
+         nm = tracer_upper(tracers(i)%name)
          IF (trim(nm) == 'CH4' .or. trim(nm) == 'METHANE') THEN
             IF (tracer_is_reactive(i)) THEN
                igas_ch4 = i
@@ -120,21 +120,6 @@ CONTAINS
       methane_is_active = (igas_ch4 > 0)
    END FUNCTION methane_is_active
 
-   !-------------------------------------------------------------------
-   ! Local uppercasing helper (avoids depending on a global utils module).
-   !-------------------------------------------------------------------
-   FUNCTION upper (raw) RESULT(out)
-      character(len=*), intent(in) :: raw
-      character(len=max(1,len_trim(raw))) :: out
-      integer :: i, ia
-      out = ADJUSTL(TRIM(raw))
-      DO i = 1, len_trim(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('a') .and. ia <= iachar('z')) THEN
-            out(i:i) = achar(ia - iachar('a') + iachar('A'))
-         ENDIF
-      ENDDO
-   END FUNCTION upper
 
 END MODULE MOD_Tracer_Reactive_Methane_Registry
 #endif

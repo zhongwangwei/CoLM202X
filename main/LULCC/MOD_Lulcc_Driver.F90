@@ -95,6 +95,9 @@ MODULE MOD_Lulcc_Driver
 #ifdef TRACER
    USE MOD_Tracer_Reactive, only: tracer_reactive_save_lulcc_state, &
       tracer_reactive_remap_lulcc_state
+   USE MOD_Tracer_Vars, only: save_land_tracer_lulcc_state, &
+      remap_land_tracer_lulcc_state
+   USE MOD_Tracer_Conservation, only: deallocate_tracer_conservation
 #endif
 
    IMPLICIT NONE
@@ -115,6 +118,7 @@ MODULE MOD_Lulcc_Driver
       CALL SAVE_LulccTimeInvariants
       CALL SAVE_LulccTimeVariables
 #ifdef TRACER
+      CALL save_land_tracer_lulcc_state ()
       CALL tracer_reactive_save_lulcc_state ()
 #endif
 
@@ -159,10 +163,15 @@ MODULE MOD_Lulcc_Driver
 #ifdef TRACER
       IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_) .and. &
           allocated(landpatch%eindex) .and. allocated(landpatch_%eindex)) THEN
+         CALL deallocate_tracer_conservation ()
          IF (allocated(lccpct_patches)) THEN
+            CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
+               patchclass_, landpatch_%eindex, lccpct_patches)
             CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, lccpct_patches)
          ELSE
+            CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
+               patchclass_, landpatch_%eindex)
             CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
          ENDIF

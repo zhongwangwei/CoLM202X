@@ -1258,10 +1258,26 @@ CONTAINS
    !-------------------------------------------------------------------
    SUBROUTINE read_methane_accflux_restart (file_restart)
       USE MOD_LandPatch,    only: landpatch
+      USE MOD_NetCDFSerial, only: ncio_var_exist
       USE MOD_NetCDFVector, only: ncio_read_vector
+      USE MOD_SPMD_Task,    only: p_is_master
       character(len=*), intent(in) :: file_restart
 
       IF (.not. allocated(a_methane_acc_num)) RETURN
+
+      IF (p_is_master) THEN
+         IF (DEF_METHANE%use_microbial_pools) THEN
+            IF (.not. ncio_var_exist(file_restart, 'ch4_a_methane_acc_num_microbe', .false.)) THEN
+               WRITE(*,'(A)') 'WARNING read_methane_accflux_restart: use_microbial_pools enabled, ' // &
+                  'but restart has no microbial accumulator counts; microbial history diagnostics restart from zero.'
+            ENDIF
+         ELSE
+            IF (ncio_var_exist(file_restart, 'ch4_a_methane_acc_num_microbe', .false.)) THEN
+               WRITE(*,'(A)') 'WARNING read_methane_accflux_restart: restart contains microbial accumulators, ' // &
+                  'but use_microbial_pools is disabled; microbial history diagnostics are intentionally ignored.'
+            ENDIF
+         ENDIF
+      ENDIF
 
       IF (allocated(a_net_methane)) CALL ncio_read_vector (file_restart, 'ch4_a_net_methane', &
          landpatch, a_net_methane, defval = 0._r8)

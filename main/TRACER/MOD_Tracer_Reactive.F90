@@ -13,7 +13,7 @@ MODULE MOD_Tracer_Reactive
    USE MOD_Precision
    USE MOD_DataType, only: block_data_real8_2d
    USE MOD_SPMD_Task, only: CoLM_stop
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_reactive
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_reactive, tracer_upper
    IMPLICIT NONE
 
    interface
@@ -226,7 +226,7 @@ CONTAINS
          idx = n_reactive_callbacks
       ENDIF
 
-      reactive_callbacks(idx)%name = upper_name(name)
+      reactive_callbacks(idx)%name = tracer_upper(name)
       reactive_callbacks(idx)%aliases = ''
       IF (present(aliases)) reactive_callbacks(idx)%aliases = aliases
       reactive_callbacks(idx)%has => has_fn
@@ -305,7 +305,7 @@ CONTAINS
       character(len=32) :: item, target
 
       reactive_registration_conflicts = .false.
-      target = upper_name(name)
+      target = tracer_upper(name)
 
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_matches(i, target)) THEN
@@ -325,7 +325,7 @@ CONTAINS
          ELSE
             end_pos = start_pos + end_pos - 2
          ENDIF
-         item = upper_name(adjustl(trim(aliases(start_pos:end_pos))))
+         item = tracer_upper(adjustl(trim(aliases(start_pos:end_pos))))
          IF (len_trim(item) > 0) THEN
             DO i = 1, n_reactive_callbacks
                IF (reactive_callback_matches(i, item)) THEN
@@ -353,7 +353,7 @@ CONTAINS
       alias_list_has_duplicates = .false.
       seen = ''
       nseen = 0
-      target = upper_name(name)
+      target = tracer_upper(name)
       list_len = len_trim(aliases)
       start_pos = 1
 
@@ -365,7 +365,7 @@ CONTAINS
             end_pos = start_pos + end_pos - 2
          ENDIF
 
-         item = upper_name(adjustl(trim(aliases(start_pos:end_pos))))
+         item = tracer_upper(adjustl(trim(aliases(start_pos:end_pos))))
          IF (len_trim(item) > 0) THEN
             IF (trim(item) == trim(target)) THEN
                alias_list_has_duplicates = .true.
@@ -397,7 +397,7 @@ CONTAINS
       character(len=32) :: target
 
       find_reactive_callback = 0
-      target = upper_name(name)
+      target = tracer_upper(name)
       DO i = 1, n_reactive_callbacks
          IF (trim(reactive_callbacks(i)%name) == trim(target)) THEN
             find_reactive_callback = i
@@ -760,7 +760,7 @@ CONTAINS
       reactive_callback_matches = .false.
       IF (idx < 1 .or. idx > n_reactive_callbacks) RETURN
       IF (.not. allocated(reactive_callbacks)) RETURN
-      IF (trim(upper_name(reactive_callbacks(idx)%name)) == trim(upper_name(target))) THEN
+      IF (trim(tracer_upper(reactive_callbacks(idx)%name)) == trim(tracer_upper(target))) THEN
          reactive_callback_matches = .true.
          RETURN
       ENDIF
@@ -781,7 +781,7 @@ CONTAINS
       list_len = len_trim(aliases)
       IF (list_len <= 0) RETURN
 
-      target_upper = upper_name(target)
+      target_upper = tracer_upper(target)
       start_pos = 1
       DO WHILE (start_pos <= list_len)
          end_pos = index(aliases(start_pos:list_len), ',')
@@ -790,7 +790,7 @@ CONTAINS
          ELSE
             end_pos = start_pos + end_pos - 2
          ENDIF
-         item = upper_name(adjustl(trim(aliases(start_pos:end_pos))))
+         item = tracer_upper(adjustl(trim(aliases(start_pos:end_pos))))
          IF (trim(item) == trim(target_upper)) THEN
             alias_list_contains = .true.
             RETURN
@@ -834,23 +834,6 @@ CONTAINS
       reactive_refresh_dirty = .true.
 
    END SUBROUTINE clear_reactive_callbacks
-
-   character(len=32) FUNCTION upper_name (value)
-
-      IMPLICIT NONE
-      character(len=*), intent(in) :: value
-
-      integer :: i, code
-
-      upper_name = adjustl(value)
-      DO i = 1, len_trim(upper_name)
-         code = iachar(upper_name(i:i))
-         IF (code >= iachar('a') .and. code <= iachar('z')) THEN
-            upper_name(i:i) = achar(code - iachar('a') + iachar('A'))
-         ENDIF
-      ENDDO
-
-   END FUNCTION upper_name
 
 END MODULE MOD_Tracer_Reactive
 #endif

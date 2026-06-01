@@ -194,20 +194,6 @@ CONTAINS
       ENDDO
    END SUBROUTINE tracer_soil_init_csv_token
 
-   FUNCTION tracer_soil_init_upper (raw) RESULT(out)
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      character(len=len(raw)) :: out
-      integer :: i, ia
-
-      out = raw
-      DO i = 1, len(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('a') .and. ia <= iachar('z')) THEN
-            out(i:i) = achar(ia - iachar('a') + iachar('A'))
-         ENDIF
-      ENDDO
-   END FUNCTION tracer_soil_init_upper
 
    logical FUNCTION tracer_soil_init_valid_delta (delta)
       IMPLICIT NONE

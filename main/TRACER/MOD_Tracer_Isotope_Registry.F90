@@ -4,7 +4,7 @@
 MODULE MOD_Tracer_Isotope_Registry
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
+   USE MOD_Tracer_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny, tracer_lower
    USE MOD_SPMD_Task, only: CoLM_stop
 
    IMPLICIT NONE
@@ -133,7 +133,7 @@ CONTAINS
       find_registered_isotope_by_name = 0
       IF (.not. allocated(isotope_physics)) RETURN
       DO i = 1, n_isotope_physics
-         IF (trim(lower_string(isotope_physics(i)%name)) == trim(lower_string(name))) THEN
+         IF (trim(tracer_lower(isotope_physics(i)%name)) == trim(tracer_lower(name))) THEN
             find_registered_isotope_by_name = i
             RETURN
          ENDIF
@@ -151,7 +151,7 @@ CONTAINS
       IF (.not. tracer_is_isotope(itrc)) RETURN
       IF (.not. allocated(isotope_physics)) RETURN
 
-      lname = lower_string(trim(tracers(itrc)%name))
+      lname = tracer_lower(trim(tracers(itrc)%name))
       DO i = 1, n_isotope_physics
          IF (isotope_name_matches(lname, isotope_physics(i)%name_patterns)) THEN
             find_isotope_physics = i
@@ -258,7 +258,7 @@ CONTAINS
       integer :: comma
 
       isotope_name_matches = .false.
-      rest = lower_string(trim(patterns))
+      rest = tracer_lower(trim(patterns))
       DO WHILE (len_trim(rest) > 0)
          comma = index(rest, ',')
          IF (comma > 0) THEN
@@ -282,17 +282,6 @@ CONTAINS
       ENDDO
    END FUNCTION isotope_name_matches
 
-   FUNCTION lower_string (raw) RESULT(out)
-      character(len=*), intent(in) :: raw
-      character(len=len(raw)) :: out
-      integer :: i, code
-
-      out = raw
-      DO i = 1, len(raw)
-         code = iachar(raw(i:i))
-         IF (code >= iachar('A') .and. code <= iachar('Z')) out(i:i) = achar(code + 32)
-      ENDDO
-   END FUNCTION lower_string
 
 END MODULE MOD_Tracer_Isotope_Registry
 #endif

@@ -42,11 +42,10 @@ MODULE MOD_Tracer_Conservation
    integer,  save :: balance_worst_ptype  = -1
    integer,  save :: balance_nbad         = 0
    ! P1 diagnostic: the per-layer trc_wliq<->wliq_soisno reconciliation
-   ! (MOD_Tracer_SoilWater) injects/removes tracer booked as numerical_source_sink,
-   ! which is subtracted out of the balance error below. A genuine flux-tracking
-   ! gap that lands in a storage mismatch is therefore invisible to the tol check.
-   ! Track the residual magnitude separately so it is surfaced, not silently
-   ! absorbed. Warn fraction is relative to tracer storage; tune as needed.
+   ! (MOD_Tracer_SoilWater) injects/removes tracer booked as numerical_source_sink.
+   ! Keep it visible to the hard balance tolerance; otherwise a genuine
+   ! flux-tracking gap that lands in a storage mismatch can be silently absorbed.
+   ! Track the residual magnitude separately as context for the hard report.
    real(r8), parameter :: trc_resid_warn_frac = 1.0e-6_r8
    real(r8), save :: resid_worst_abs      = 0._r8
    integer,  save :: resid_nbad           = 0
@@ -335,7 +334,7 @@ CONTAINS
 	            numerical_source_sink = trc_numerical_residual_step(itrc, ipatch)
 	         ENDIF
 		         err = storage_end - trc_storage_beg(itrc, ipatch) - step_input_check + step_output_check
-	         trc_balance_err(itrc, ipatch) = err - reactive_source_sink - numerical_source_sink
+         trc_balance_err(itrc, ipatch) = err - reactive_source_sink
          IF (present(water_err_in)) THEN
             water_err = water_err_in
          ELSE
@@ -348,7 +347,7 @@ CONTAINS
          ELSE
             check_err = err
          ENDIF
-	         check_err = check_err - reactive_source_sink - numerical_source_sink
+         check_err = check_err - reactive_source_sink
          IF (present(water_dS_in)) THEN
             water_dS = water_dS_in
          ELSE
@@ -421,8 +420,8 @@ CONTAINS
             balance_nbad = balance_nbad + 1
          ENDIF
 
-         ! P1: surface a non-trivial numerical residual the tol check cannot see
-         ! (it subtracts numerical_source_sink). Diagnostic only; does not abort.
+         ! P1: surface a non-trivial numerical residual. This is context only;
+         ! the residual remains part of check_err and can trigger the hard tol.
          IF (abs(numerical_source_sink) > trc_resid_warn_frac * &
                 max(abs(storage_end), abs(trc_storage_beg(itrc, ipatch)))) THEN
             resid_nbad = resid_nbad + 1
@@ -608,10 +607,10 @@ CONTAINS
       ENDIF
 
       IF (print_me .and. resid_nbad_total > 0) THEN
-         ! Fires independently of nbad_total: by design the residual is excluded
-         ! from the tol check, so this is the only place it becomes visible.
+         ! Fires independently of nbad_total to identify entries where the
+         ! numerical residual contributed to the hard balance accounting.
          WRITE(*,'(A,I8,A,E12.5)') &
-            'TRC_BAL residual note (absorbed, excluded from tol check): n_entries=', &
+            'TRC_BAL residual note (included in tol check): n_entries=', &
             resid_nbad_total, ' worst_abs=', resid_abs_total
       ENDIF
 

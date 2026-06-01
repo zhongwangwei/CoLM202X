@@ -254,6 +254,7 @@ CONTAINS
 
       IMPLICIT NONE
 
+      CALL tracer_balance_report ()
       CALL tracer_reactive_report ()
 
    END SUBROUTINE tracer_report

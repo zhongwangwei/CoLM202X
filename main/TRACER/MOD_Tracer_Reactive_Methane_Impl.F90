@@ -26,7 +26,6 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
    USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
    USE MOD_Tracer_Reactive_Methane_BgcLink,  only: paddy_rice_fraction, PADDY_RICE_FRAC_MIN
    USE MOD_Tracer_Reactive_BgcShim,  only: reactive_bgc_run_wetland_decomp
-   USE MOD_Tracer_Conservation,     only: tracer_balance_report
 
    IMPLICIT NONE
    PRIVATE
@@ -162,7 +161,8 @@ CONTAINS
 
       IMPLICIT NONE
 
-      IF (igas_ch4 > 0) CALL tracer_balance_report()
+      ! Generic tracer conservation is reported unconditionally from
+      ! MOD_Tracer_Main::tracer_report so non-CH4 tracer runs are covered too.
 
    END SUBROUTINE ch4_impl_report
 

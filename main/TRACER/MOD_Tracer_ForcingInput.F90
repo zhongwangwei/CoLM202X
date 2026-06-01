@@ -35,7 +35,7 @@ MODULE MOD_Tracer_ForcingInput
    ! ------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_param_file_for_index
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_param_file_for_index, tracer_lower
 
    IMPLICIT NONE
    SAVE
@@ -164,20 +164,8 @@ CONTAINS
    logical FUNCTION tracer_forcing_role_equal (a, b)
       IMPLICIT NONE
       character(len=*), intent(in) :: a, b
-      tracer_forcing_role_equal = (tracer_forcing_lower(a) == tracer_forcing_lower(b))
+      tracer_forcing_role_equal = (tracer_lower(a) == tracer_lower(b))
    END FUNCTION tracer_forcing_role_equal
-
-   FUNCTION tracer_forcing_lower (raw) RESULT(out)
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      character(len=32) :: out
-      integer :: i, ia
-      out = adjustl(trim(raw))
-      DO i = 1, len_trim(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('A') .and. ia <= iachar('Z')) out(i:i) = achar(ia + 32)
-      ENDDO
-   END FUNCTION tracer_forcing_lower
 
    SUBROUTINE tracer_forcing_input_final ()
       IMPLICIT NONE

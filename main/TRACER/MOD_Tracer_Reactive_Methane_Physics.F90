@@ -1,4 +1,4 @@
-#include "define.h"
+#include <define.h>
 #if (defined TRACER) && (defined BGC)
 
 module MOD_Tracer_Reactive_Methane_Physics

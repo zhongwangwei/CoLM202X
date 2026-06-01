@@ -12,6 +12,7 @@ MODULE MOD_Tracer_Particle
 
    USE MOD_Precision
    USE MOD_SPMD_Task, only: CoLM_stop
+   USE MOD_Tracer_Defs, only: tracer_lower
    IMPLICIT NONE
 
    interface
@@ -228,30 +229,13 @@ CONTAINS
       IF (.not. allocated(particle_callbacks)) RETURN
 
       DO i = 1, n_particle_callbacks
-         IF (trim(particle_lower(particle_callbacks(i)%name)) == trim(particle_lower(name))) THEN
+         IF (trim(tracer_lower(particle_callbacks(i)%name)) == trim(tracer_lower(name))) THEN
             particle_registration_conflicts = .true.
             RETURN
          ENDIF
       ENDDO
 
    END FUNCTION particle_registration_conflicts
-
-   FUNCTION particle_lower (raw) RESULT(out)
-
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      character(len=max(1,len_trim(raw))) :: out
-      integer :: i, ia
-
-      out = adjustl(trim(raw))
-      DO i = 1, len_trim(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('A') .and. ia <= iachar('Z')) THEN
-            out(i:i) = achar(ia + iachar('a') - iachar('A'))
-         ENDIF
-      ENDDO
-
-   END FUNCTION particle_lower
 
    logical FUNCTION particle_callback_enabled (idx)
 

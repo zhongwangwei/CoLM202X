@@ -79,6 +79,7 @@ MODULE MOD_Tracer_Defs
    PUBLIC :: tracer_uses_delta_diagnostics, tracer_can_use_fixed_signature
    PUBLIC :: tracer_init_water_ratio, tracer_reactive_decay_fraction
    PUBLIC :: tracer_param_file_for_index
+   PUBLIC :: tracer_lower, tracer_upper
    PUBLIC :: ntracers, tracers
    PUBLIC :: tracer_info_type
    PUBLIC :: Rsmow_18O, Rsmow_D, trc_tiny, trc_water_min_for_delta, &
@@ -185,11 +186,11 @@ CONTAINS
          IF (.not. tracer_is_isotope(i) .and. .not. tracer_is_conservative(i) .and. &
              .not. tracer_is_reactive(i) .and. .not. tracer_is_particle(i)) THEN
             IF (p_is_master) THEN
-               write(*,'(A,A,A,A)') ' WARNING tracer_defs_init: unknown tracer category "', &
+               write(*,'(A,A,A,A)') 'ERROR tracer_defs_init: unknown tracer category "', &
                   trim(tracers(i)%category), '" for ', trim(tracers(i)%name)
-               write(*,'(A)') '   Falling back to isotope behavior.'
+               write(*,'(A)') '   Valid categories: isotope, conservative, reactive, particle.'
             ENDIF
-            tracers(i)%category = 'isotope'
+            CALL CoLM_stop()
          ENDIF
          IF (tracers(i)%reactive_decay_rate < 0._r8) THEN
             IF (p_is_master) THEN
@@ -229,7 +230,7 @@ CONTAINS
       namelist /nl_colm_tracer_parameter/ DEF_TRACER
 
       IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (len_trim(nlfile) <= 0 .or. trim(tracer_param_lower(nlfile)) == 'null') RETURN
+      IF (len_trim(nlfile) <= 0 .or. trim(tracer_lower(nlfile)) == 'null') RETURN
 
       INQUIRE (file=trim(nlfile), exist=fexists)
       IF (.not. fexists) THEN
@@ -270,7 +271,7 @@ CONTAINS
 
       list_len = len_trim(DEF_TRACER_PARAM_FILES)
       IF (list_len <= 0) RETURN
-      IF (trim(tracer_param_lower(DEF_TRACER_PARAM_FILES)) == 'null') RETURN
+      IF (trim(tracer_lower(DEF_TRACER_PARAM_FILES)) == 'null') RETURN
 
       positional_index = 0
       start_pos = 1
@@ -284,14 +285,14 @@ CONTAINS
                value = adjustl(trim(entry(colon_pos+1:)))
                IF (tracer_param_key_matches(itrc, key, aliases)) THEN
                   file_param = trim(value)
-                  found = len_trim(file_param) > 0 .and. trim(tracer_param_lower(file_param)) /= 'null'
+                  found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
                   RETURN
                ENDIF
             ELSE
                positional_index = positional_index + 1
                IF (positional_index == itrc) THEN
                   file_param = trim(entry)
-                  found = len_trim(file_param) > 0 .and. trim(tracer_param_lower(file_param)) /= 'null'
+                  found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
                   RETURN
                ENDIF
             ENDIF
@@ -331,7 +332,7 @@ CONTAINS
    logical FUNCTION tracer_param_equal (a, b)
       IMPLICIT NONE
       character(len=*), intent(in) :: a, b
-      tracer_param_equal = trim(tracer_param_lower(a)) == trim(tracer_param_lower(b))
+      tracer_param_equal = trim(tracer_lower(a)) == trim(tracer_lower(b))
    END FUNCTION tracer_param_equal
 
    integer FUNCTION tracer_param_next_entry_end (raw_list, start_pos, list_len)
@@ -349,7 +350,7 @@ CONTAINS
       ENDDO
    END FUNCTION tracer_param_next_entry_end
 
-   FUNCTION tracer_param_lower (raw) RESULT(out)
+   FUNCTION tracer_lower (raw) RESULT(out)
       IMPLICIT NONE
       character(len=*), intent(in) :: raw
       character(len=max(1,len_trim(raw))) :: out
@@ -362,7 +363,22 @@ CONTAINS
             out(i:i) = achar(ia + iachar('a') - iachar('A'))
          ENDIF
       ENDDO
-   END FUNCTION tracer_param_lower
+   END FUNCTION tracer_lower
+
+   FUNCTION tracer_upper (raw) RESULT(out)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: raw
+      character(len=max(1,len_trim(raw))) :: out
+      integer :: i, ia
+
+      out = adjustl(trim(raw))
+      DO i = 1, len_trim(out)
+         ia = iachar(out(i:i))
+         IF (ia >= iachar('a') .and. ia <= iachar('z')) THEN
+            out(i:i) = achar(ia - iachar('a') + iachar('A'))
+         ENDIF
+      ENDDO
+   END FUNCTION tracer_upper
 
    SUBROUTINE tracer_defs_final ()
       IF (allocated(tracers)) deallocate(tracers)
@@ -382,15 +398,8 @@ CONTAINS
    FUNCTION canonical_tracer_category (raw) RESULT(category)
       character(len=*), intent(in) :: raw
       character(len=16) :: category
-      integer :: i, ia
 
-      category = ADJUSTL(TRIM(raw))
-      DO i = 1, len_trim(category)
-         ia = iachar(category(i:i))
-         IF (ia >= iachar('A') .and. ia <= iachar('Z')) THEN
-            category(i:i) = achar(ia + iachar('a') - iachar('A'))
-         ENDIF
-      ENDDO
+      category = tracer_lower(raw)
    END FUNCTION canonical_tracer_category
 
    logical FUNCTION tracer_is_isotope (itrc)

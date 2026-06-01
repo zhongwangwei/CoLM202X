@@ -8,7 +8,7 @@ MODULE MOD_Tracer_Reactive_Methane
 
    USE MOD_Precision
    USE MOD_SPMD_Task, only: p_is_worker, p_is_master, CoLM_stop
-   USE MOD_Tracer_Defs, only: tracers, tracer_param_file_for_index
+   USE MOD_Tracer_Defs, only: tracers, tracer_param_file_for_index, tracer_lower, tracer_upper
    USE MOD_Namelist, only: DEF_file_GIEMS, DEF_wetland_finundation_scheme
    USE MOD_Vars_TimeInvariants, only: patchtype, lake_soilc_srf, patchlatr, patchlonr
    USE MOD_Tracer_Reactive_Methane_Registry, only: methane_registry_init, methane_registry_refresh, igas_ch4
@@ -43,7 +43,7 @@ MODULE MOD_Tracer_Reactive_Methane
    character(len=512), save :: last_methane_ph_patch_file = ''
 
    PUBLIC :: ch4_reactive_name, ch4_reactive_aliases
-   PUBLIC :: ch4_reactive_has, ch4_reactive_has_name
+   PUBLIC :: ch4_reactive_has_name
    PUBLIC :: ch4_reactive_refresh_registry
    PUBLIC :: ch4_reactive_init, ch4_reactive_final
    PUBLIC :: ch4_reactive_lake_step, ch4_reactive_wetland_decomp
@@ -214,7 +214,7 @@ CONTAINS
       logical :: found
 
       CALL tracer_param_file_for_index (igas_ch4, ch4_reactive_aliases(), file_param, found)
-      use_param = found .and. len_trim(file_param) > 0 .and. trim(ch4_lower(file_param)) /= 'null'
+      use_param = found .and. len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
       IF (.not. use_param) THEN
          CALL CoLM_stop (' ***** ERROR: CH4 requires DEF_TRACER_PARAM_FILES to include a CH4 parameter file')
       ENDIF
@@ -228,44 +228,10 @@ CONTAINS
 
       character(len=32) :: name
 
-      name = ch4_upper(raw_name)
+      name = tracer_upper(raw_name)
       ch4_reactive_is_alias = trim(name) == 'CH4' .or. trim(name) == 'METHANE'
 
    END FUNCTION ch4_reactive_is_alias
-
-   FUNCTION ch4_upper (raw) RESULT(out)
-
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      character(len=max(1,len_trim(raw))) :: out
-      integer :: i, ia
-
-      out = adjustl(trim(raw))
-      DO i = 1, len_trim(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('a') .and. ia <= iachar('z')) THEN
-            out(i:i) = achar(ia - iachar('a') + iachar('A'))
-         ENDIF
-      ENDDO
-
-   END FUNCTION ch4_upper
-
-   FUNCTION ch4_lower (raw) RESULT(out)
-
-      IMPLICIT NONE
-      character(len=*), intent(in) :: raw
-      character(len=max(1,len_trim(raw))) :: out
-      integer :: i, ia
-
-      out = adjustl(trim(raw))
-      DO i = 1, len_trim(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('A') .and. ia <= iachar('Z')) THEN
-            out(i:i) = achar(ia - iachar('A') + iachar('a'))
-         ENDIF
-      ENDDO
-
-   END FUNCTION ch4_lower
 
    SUBROUTINE ch4_reactive_read_restart (file_restart)
 

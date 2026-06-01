@@ -176,7 +176,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    integer FUNCTION sediment_tracer_index()
    !-------------------------------------------------------------------------------------
-   USE MOD_Tracer_Defs, only: tracer_defs_init, ntracers, tracers, tracer_is_particle
+   USE MOD_Tracer_Defs, only: tracer_defs_init, ntracers, tracers, tracer_is_particle, tracer_lower
    IMPLICIT NONE
       integer :: itrc
 
@@ -185,8 +185,8 @@ CONTAINS
       CALL tracer_defs_init()
       DO itrc = 1, ntracers
          IF (tracer_is_particle(itrc) .and. &
-            (trim(sediment_lower(tracers(itrc)%name)) == 'sediment' .or. &
-             trim(sediment_lower(tracers(itrc)%name)) == 'sed')) THEN
+            (trim(tracer_lower(tracers(itrc)%name)) == 'sediment' .or. &
+             trim(tracer_lower(tracers(itrc)%name)) == 'sed')) THEN
             sediment_tracer_index = itrc
             sediment_itrc = itrc
             RETURN
@@ -194,22 +194,6 @@ CONTAINS
       ENDDO
 
    END FUNCTION sediment_tracer_index
-
-   !-------------------------------------------------------------------------------------
-   FUNCTION sediment_lower(raw) RESULT(out)
-   !-------------------------------------------------------------------------------------
-   IMPLICIT NONE
-   character(len=*), intent(in) :: raw
-   character(len=max(1,len_trim(raw))) :: out
-   integer :: i, ia
-
-      out = adjustl(trim(raw))
-      DO i = 1, len_trim(out)
-         ia = iachar(out(i:i))
-         IF (ia >= iachar('A') .and. ia <= iachar('Z')) out(i:i) = achar(ia + iachar('a') - iachar('A'))
-      ENDDO
-
-   END FUNCTION sediment_lower
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE register_sediment_particle_callbacks()
