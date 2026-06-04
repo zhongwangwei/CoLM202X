@@ -12,14 +12,17 @@ MODULE MOD_Tracer_Conservation
    IMPLICIT NONE
 
    ! Hard balance tolerance for the water-corrected per-patch tracer residual.
-   ! Keep ordinary land patches strict, but not at the old 1e-10 absolute floor:
-   ! long double-precision budget sums over many storage/flux components can
-   ! leave O(1e-8) to O(1e-5) bounded residuals even when accounting is closed.
+   ! Keep ordinary land patches strict without using an unrealistically tiny
+   ! absolute floor: double-precision budget sums over many storage/flux
+   ! components can leave bounded roundoff residuals even when accounting is
+   ! closed.  This floor is intentionally below the old 5e-5 value so stale-slot
+   ! or missing-flux errors are not hidden by a broad absolute tolerance.
    ! Urban simple patches use the same threshold as ordinary land patches;
    ! their impermeable qgtop<0 evaporation branch is mirrored explicitly in
    ! MOD_Tracer_SoilWater instead of hidden behind a local tolerance waiver.
-   real(r8), parameter :: trc_balance_abs_tol = 5.0e-5_r8
+   real(r8), parameter :: trc_balance_abs_tol = 5.0e-6_r8
    real(r8), parameter :: trc_balance_rel_tol = 1.0e-12_r8
+   ! Zero means abort on the first reported aggregate failure.
    integer,  parameter :: trc_balance_abort_nbad = 0
    integer, parameter :: n_storage_diag = 9
    integer, parameter :: n_flux_diag = 7
@@ -51,12 +54,23 @@ MODULE MOD_Tracer_Conservation
    integer,  save :: balance_nbad         = 0
    ! P1 diagnostic: the per-layer trc_wliq<->wliq_soisno reconciliation
    ! (MOD_Tracer_SoilWater) injects/removes tracer booked as numerical_source_sink.
-   ! Keep it visible to the hard balance tolerance; otherwise a genuine
-   ! flux-tracking gap that lands in a storage mismatch can be silently absorbed.
-   ! Track the residual magnitude separately as context for the hard report.
+   ! This is an explicit solver-closure term, not an unbooked transport leak, so
+   ! the hard transport-balance check subtracts it like reactive_source_sink.
+   ! It still has its own independent hard cap below; otherwise a large
+   ! near-dry collapse could be "balanced" by the residual account forever.
    real(r8), parameter :: trc_resid_warn_frac = 1.0e-6_r8
+   real(r8), parameter :: trc_resid_abs_tol   = 5.0e-5_r8
+   real(r8), parameter :: trc_resid_rel_tol   = 1.0e-6_r8
+   ! Zero means abort on the first aggregate residual-cap failure.
+   integer,  parameter :: trc_resid_abort_nbad = 0
    real(r8), save :: resid_worst_abs      = 0._r8
+   real(r8), save :: resid_hard_worst_abs = 0._r8
+   real(r8), save :: resid_hard_worst_tol = 0._r8
+   integer,  save :: resid_hard_worst_ipatch = 0
+   integer,  save :: resid_hard_worst_itrc   = 0
+   integer,  save :: resid_hard_worst_ptype  = -1
    integer,  save :: resid_nbad           = 0
+   integer,  save :: resid_hard_nbad      = 0
 
    PUBLIC :: deallocate_tracer_conservation
    PUBLIC :: tracer_apply_reactive_processes
@@ -66,7 +80,7 @@ CONTAINS
 
    !---------------------------------------------------------------
    ! Release the save-level snap_* snapshots. Must be called from
-   ! tracer_final so that a subsequent tracer_init on the same
+   ! land_tracer_final so that a subsequent land_tracer_init on the same
    ! process (regression harness, embedded driver) does not re-use
    ! stale arrays sized to the previous numpatch — the lazy
    ! `IF (.not. allocated) allocate` guard in tracer_save_storage
@@ -96,13 +110,13 @@ CONTAINS
       ! part of the column inventory (so irrigation becomes an internal
       ! transfer instead of an external atmospheric input).
       real(r8), intent(in), optional :: waterstorage
-	      integer :: itrc, j, lb_store
+         integer :: itrc, j, lb_store
       real(r8) :: R_init
       real(r8) :: storage_comp(n_storage_diag)
       logical  :: fixed_signature_storage
 
-	      IF (ntracers <= 0) RETURN
-	      lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
+         IF (ntracers <= 0) RETURN
+         lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
 
       ! Allocate snapshots on first call
       IF (.not. allocated(snap_precip)) THEN
@@ -119,9 +133,9 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-	         trc_rnof_step(itrc, ipatch) = 0._r8
-	         IF (allocated(trc_reactive_source_step)) trc_reactive_source_step(itrc, ipatch) = 0._r8
-	         IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
+            trc_rnof_step(itrc, ipatch) = 0._r8
+            IF (allocated(trc_reactive_source_step)) trc_reactive_source_step(itrc, ipatch) = 0._r8
+            IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
 
          ! Phase-1 re-sync of the irrigation reservoir tracer to current
          ! waterstorage. Under no-fractionation tests all refills arrive at
@@ -146,10 +160,10 @@ CONTAINS
          ! are not double-counted after they have been merged into soil.
          storage_comp = 0._r8
          storage_comp(1) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
-	         DO j = lb_store, nl_soil
-	            storage_comp(2) = storage_comp(2) + trc_wliq_soisno(itrc, j, ipatch)
-	            storage_comp(3) = storage_comp(3) + trc_wice_soisno(itrc, j, ipatch)
-	         ENDDO
+            DO j = lb_store, nl_soil
+               storage_comp(2) = storage_comp(2) + trc_wliq_soisno(itrc, j, ipatch)
+               storage_comp(3) = storage_comp(3) + trc_wice_soisno(itrc, j, ipatch)
+            ENDDO
          storage_comp(4) = trc_wa(itrc, ipatch)
          storage_comp(5) = trc_wdsrf(itrc, ipatch)
          storage_comp(6) = trc_wetwat(itrc, ipatch)
@@ -184,12 +198,12 @@ CONTAINS
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, nl_soil
       real(r8), intent(in) :: deltim
-	      integer :: itrc, j, lb_store
+         integer :: itrc, j, lb_store
       real(r8) :: decay_fraction, source_sink
 
-	      IF (ntracers <= 0) RETURN
-	      IF (.not. allocated(trc_reactive_source_step)) RETURN
-	      lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
+         IF (ntracers <= 0) RETURN
+         IF (.not. allocated(trc_reactive_source_step)) RETURN
+         lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
@@ -199,10 +213,10 @@ CONTAINS
          source_sink = 0._r8
          CALL decay_pool(trc_ldew_rain(itrc, ipatch), decay_fraction, source_sink)
          CALL decay_pool(trc_ldew_snow(itrc, ipatch), decay_fraction, source_sink)
-	         DO j = lb_store, nl_soil
-	            CALL decay_pool(trc_wliq_soisno(itrc, j, ipatch), decay_fraction, source_sink)
-	            CALL decay_pool(trc_wice_soisno(itrc, j, ipatch), decay_fraction, source_sink)
-	         ENDDO
+            DO j = lb_store, nl_soil
+               CALL decay_pool(trc_wliq_soisno(itrc, j, ipatch), decay_fraction, source_sink)
+               CALL decay_pool(trc_wice_soisno(itrc, j, ipatch), decay_fraction, source_sink)
+            ENDDO
          CALL decay_pool(trc_wa(itrc, ipatch), decay_fraction, source_sink)
          CALL decay_pool(trc_wdsrf(itrc, ipatch), decay_fraction, source_sink)
          CALL decay_pool(trc_wetwat(itrc, ipatch), decay_fraction, source_sink)
@@ -255,24 +269,24 @@ CONTAINS
       real(r8), intent(in), optional :: water_evap_in
       real(r8), intent(in), optional :: water_rnof_in
 
-	      integer  :: itrc, j, lb_store
-	      real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
-	      real(r8) :: step_input_check, step_evap_check, step_output_check
+      integer  :: itrc, j, lb_store
+      real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
+      real(r8) :: step_input_check, step_evap_check, step_output_check
       real(r8) :: step_rsur, step_rsub, step_qinfl, step_qcharge
       real(r8) :: R_init, water_err, water_err_R, err_minus_water, check_err
-	      real(r8) :: reactive_source_sink, numerical_source_sink
+      real(r8) :: reactive_source_sink, numerical_source_sink
       real(r8) :: water_dS, water_input, water_output, water_evap, water_rnof
       real(r8) :: dS_minus_water_R, in_minus_water_R, out_minus_water_R
       real(r8) :: evap_minus_water_R, rnof_minus_water_R
-      real(r8) :: balance_scale, balance_tol
+      real(r8) :: balance_scale, balance_tol, resid_scale, resid_tol
       real(r8) :: storage_comp_end(n_storage_diag)
       real(r8) :: storage_comp_beg(n_storage_diag)
       real(r8) :: storage_comp_dS (n_storage_diag)
       logical  :: fixed_signature_step, water_corrected_check
 
-	      xerr_tracer = 0._r8
-	      IF (ntracers <= 0) RETURN
-	      lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
+      xerr_tracer = 0._r8
+      IF (ntracers <= 0) RETURN
+      lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
@@ -280,10 +294,10 @@ CONTAINS
          ! component order as tracer_save_storage.
          storage_comp_end = 0._r8
          storage_comp_end(1) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
-	         DO j = lb_store, nl_soil
-	            storage_comp_end(2) = storage_comp_end(2) + trc_wliq_soisno(itrc, j, ipatch)
-	            storage_comp_end(3) = storage_comp_end(3) + trc_wice_soisno(itrc, j, ipatch)
-	         ENDDO
+         DO j = lb_store, nl_soil
+            storage_comp_end(2) = storage_comp_end(2) + trc_wliq_soisno(itrc, j, ipatch)
+            storage_comp_end(3) = storage_comp_end(3) + trc_wice_soisno(itrc, j, ipatch)
+         ENDDO
          storage_comp_end(4) = trc_wa(itrc, ipatch)
          storage_comp_end(5) = trc_wdsrf(itrc, ipatch)
          storage_comp_end(6) = trc_wetwat(itrc, ipatch)
@@ -309,44 +323,45 @@ CONTAINS
          ! Legacy fixed-signature tests use a constant atmospheric ratio
          ! R_init. Runtime-forced tracers must keep process-owned flux
          ! signatures even when fractionation is off.
-	         step_input  = a_trc_precip(itrc, ipatch) - snap_precip(itrc, ipatch)
-	         step_evap   = a_trc_evap(itrc, ipatch) - snap_evap(itrc, ipatch)
+         step_input  = a_trc_precip(itrc, ipatch) - snap_precip(itrc, ipatch)
+         step_evap   = a_trc_evap(itrc, ipatch) - snap_evap(itrc, ipatch)
          step_rsur   = a_trc_rsur(itrc, ipatch) - snap_rsur(itrc, ipatch)
          step_rsub   = a_trc_rsub(itrc, ipatch) - snap_rsub(itrc, ipatch)
          step_qinfl  = a_trc_qinfl(itrc, ipatch) - snap_qinfl(itrc, ipatch)
          step_qcharge = a_trc_qcharge(itrc, ipatch) - snap_qcharge(itrc, ipatch)
-	         step_rnof   = 0._r8
-	         step_output = step_evap
+         step_rnof   = 0._r8
+         step_output = step_evap
 #ifndef CatchLateralFlow
-	         step_rnof   = a_trc_rnof(itrc, ipatch) - snap_rnof(itrc, ipatch)
-	         step_output = step_output + step_rnof
+         step_rnof   = a_trc_rnof(itrc, ipatch) - snap_rnof(itrc, ipatch)
+         step_output = step_output + step_rnof
 #endif
-	         step_input_check = step_input
-	         step_evap_check  = step_evap
-	         step_output_check = step_output
-	         IF (fixed_signature_step) THEN
-	            IF (present(water_input_in)) step_input_check = water_input_in * R_init
-	            IF (present(water_evap_in))  step_evap_check  = water_evap_in  * R_init
-	            step_output_check = step_evap_check
+         step_input_check = step_input
+         step_evap_check  = step_evap
+         step_output_check = step_output
+         IF (fixed_signature_step) THEN
+            IF (present(water_input_in)) step_input_check = water_input_in * R_init
+            IF (present(water_evap_in))  step_evap_check  = water_evap_in  * R_init
+            step_output_check = step_evap_check
 #ifndef CatchLateralFlow
-	            step_output_check = step_output_check + step_rnof
+            step_output_check = step_output_check + step_rnof
 #endif
-	         ENDIF
+         ENDIF
 
          ! Conservation: Δstorage = input - output + source_sink.
-         ! Reactive source/sink is applied by tracer_apply_reactive_processes
-         ! and stored explicitly so the balance check sees the actual state
-         ! mutation rather than re-evaluating process logic.
+         ! Reactive and numerical source/sink terms are explicit state mutations
+         ! booked by their owning processes.  Subtract both from the hard check
+         ! so solver-closure residuals are reported separately instead of being
+         ! misclassified as unbooked transport leaks.
          reactive_source_sink = 0._r8
-	         IF (allocated(trc_reactive_source_step)) THEN
-	            reactive_source_sink = trc_reactive_source_step(itrc, ipatch)
-	         ENDIF
-	         numerical_source_sink = 0._r8
-	         IF (allocated(trc_numerical_residual_step)) THEN
-	            numerical_source_sink = trc_numerical_residual_step(itrc, ipatch)
-	         ENDIF
-		         err = storage_end - trc_storage_beg(itrc, ipatch) - step_input_check + step_output_check
-         trc_balance_err(itrc, ipatch) = err - reactive_source_sink
+         IF (allocated(trc_reactive_source_step)) THEN
+            reactive_source_sink = trc_reactive_source_step(itrc, ipatch)
+         ENDIF
+         numerical_source_sink = 0._r8
+         IF (allocated(trc_numerical_residual_step)) THEN
+            numerical_source_sink = trc_numerical_residual_step(itrc, ipatch)
+         ENDIF
+         err = storage_end - trc_storage_beg(itrc, ipatch) - step_input_check + step_output_check
+         trc_balance_err(itrc, ipatch) = err - reactive_source_sink - numerical_source_sink
          IF (present(water_err_in)) THEN
             water_err = water_err_in
          ELSE
@@ -365,7 +380,7 @@ CONTAINS
          ELSE
             check_err = err
          ENDIF
-         check_err = check_err - reactive_source_sink
+         check_err = check_err - reactive_source_sink - numerical_source_sink
          IF (present(water_dS_in)) THEN
             water_dS = water_dS_in
          ELSE
@@ -399,8 +414,12 @@ CONTAINS
          rnof_minus_water_R = step_rnof - water_rnof * R_init
 
          balance_scale = max(1._r8, abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
-            abs(step_input_check), abs(step_output_check), abs(reactive_source_sink))
+            abs(step_input_check), abs(step_output_check), &
+            abs(reactive_source_sink), abs(numerical_source_sink))
          balance_tol = max(trc_balance_abs_tol, trc_balance_rel_tol * balance_scale)
+         resid_scale = max(1._r8, abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
+            abs(step_input_check), abs(step_output_check), abs(reactive_source_sink))
+         resid_tol = max(trc_resid_abs_tol, trc_resid_rel_tol * resid_scale)
          IF (abs(check_err) > balance_tol) THEN
             ! Track worst-ever failure within this step (worker-local).
             ! tracer_balance_report surfaces the accumulated bulk at end of step.
@@ -442,11 +461,25 @@ CONTAINS
          ENDIF
 
          ! P1: surface a non-trivial numerical residual. This is context only;
-         ! the residual remains part of check_err and can trigger the hard tol.
+         ! the residual is explicitly booked and excluded from the hard tol.
          IF (abs(numerical_source_sink) > trc_resid_warn_frac * &
                 max(abs(storage_end), abs(trc_storage_beg(itrc, ipatch)))) THEN
             resid_nbad = resid_nbad + 1
             resid_worst_abs = max(resid_worst_abs, abs(numerical_source_sink))
+         ENDIF
+         IF (abs(numerical_source_sink) > resid_tol) THEN
+            resid_hard_nbad = resid_hard_nbad + 1
+            IF (abs(numerical_source_sink) > resid_hard_worst_abs) THEN
+               resid_hard_worst_abs = abs(numerical_source_sink)
+               resid_hard_worst_tol = resid_tol
+               resid_hard_worst_ipatch = ipatch
+               resid_hard_worst_itrc   = itrc
+               IF (present(patchtype_in)) THEN
+                  resid_hard_worst_ptype = patchtype_in
+               ELSE
+                  resid_hard_worst_ptype = -1
+               ENDIF
+            ENDIF
          ENDIF
 
          xerr_tracer = max(xerr_tracer, abs(check_err) / deltim)
@@ -476,8 +509,12 @@ CONTAINS
       real(r8) :: worst_abs, reduced_abs
       integer  :: nbad_total
       real(r8) :: resid_abs_total
+      real(r8) :: resid_hard_abs_total, resid_hard_tol_total
       integer  :: resid_nbad_total
+      integer  :: resid_hard_nbad_total
       integer  :: winner_rank, local_winner
+      integer  :: resid_winner_rank
+      integer  :: resid_hard_ipatch_total, resid_hard_itrc_total, resid_hard_ptype_total
       logical  :: print_me
       ! MAXLOC reduction: pair |err| with rank so we can ship ipatch/itrc
       ! from the rank that owns the worst patch. Standard MPI_MAXLOC on
@@ -491,7 +528,14 @@ CONTAINS
       nbad_total  = balance_nbad
       resid_abs_total  = resid_worst_abs
       resid_nbad_total = resid_nbad
+      resid_hard_abs_total  = resid_hard_worst_abs
+      resid_hard_tol_total  = resid_hard_worst_tol
+      resid_hard_nbad_total = resid_hard_nbad
+      resid_hard_ipatch_total = resid_hard_worst_ipatch
+      resid_hard_itrc_total   = resid_hard_worst_itrc
+      resid_hard_ptype_total  = resid_hard_worst_ptype
       winner_rank = 0
+      resid_winner_rank = 0
 
 #ifdef USEMPI
       reduced_abs = worst_abs
@@ -500,6 +544,34 @@ CONTAINS
          CALL mpi_reduce(balance_nbad, nbad_total,  1, MPI_INTEGER, MPI_SUM, 0, p_comm_worker, p_err)
          CALL mpi_reduce(resid_worst_abs, resid_abs_total,  1, MPI_REAL8,   MPI_MAX, 0, p_comm_worker, p_err)
          CALL mpi_reduce(resid_nbad,      resid_nbad_total, 1, MPI_INTEGER, MPI_SUM, 0, p_comm_worker, p_err)
+         CALL mpi_reduce(resid_hard_worst_abs, resid_hard_abs_total, 1, MPI_REAL8, MPI_MAX, 0, &
+            p_comm_worker, p_err)
+         CALL mpi_reduce(resid_hard_nbad, resid_hard_nbad_total, 1, MPI_INTEGER, MPI_SUM, 0, &
+            p_comm_worker, p_err)
+         in_pair(1) = resid_hard_worst_abs
+         in_pair(2) = real(p_iam_worker, r8)
+         out_pair   = in_pair
+         CALL mpi_reduce(in_pair, out_pair, 1, MPI_2DOUBLE_PRECISION, &
+                         MPI_MAXLOC, 0, p_comm_worker, p_err)
+         resid_winner_rank = nint(out_pair(2))
+         CALL mpi_bcast(resid_winner_rank, 1, MPI_INTEGER, 0, p_comm_worker, p_err)
+         IF (resid_hard_nbad_total > 0 .and. resid_winner_rank /= 0) THEN
+            IF (p_iam_worker == resid_winner_rank) THEN
+               CALL mpi_send(resid_hard_worst_ipatch, 1, MPI_INTEGER, 0, 101, p_comm_worker, p_err)
+               CALL mpi_send(resid_hard_worst_itrc,   1, MPI_INTEGER, 0, 102, p_comm_worker, p_err)
+               CALL mpi_send(resid_hard_worst_ptype,  1, MPI_INTEGER, 0, 103, p_comm_worker, p_err)
+               CALL mpi_send(resid_hard_worst_tol,    1, MPI_REAL8,   0, 104, p_comm_worker, p_err)
+            ELSEIF (p_iam_worker == 0) THEN
+               CALL mpi_recv(resid_hard_ipatch_total, 1, MPI_INTEGER, resid_winner_rank, 101, &
+                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
+               CALL mpi_recv(resid_hard_itrc_total,   1, MPI_INTEGER, resid_winner_rank, 102, &
+                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
+               CALL mpi_recv(resid_hard_ptype_total,  1, MPI_INTEGER, resid_winner_rank, 103, &
+                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
+               CALL mpi_recv(resid_hard_tol_total,    1, MPI_REAL8,   resid_winner_rank, 104, &
+                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
+            ENDIF
+         ENDIF
          ! Broadcast reduced_abs back so every worker can decide whether
          ! to contribute its ipatch/itrc (only the owner of worst_abs
          ! ships it via another reduce).
@@ -629,10 +701,22 @@ CONTAINS
 
       IF (print_me .and. resid_nbad_total > 0) THEN
          ! Fires independently of nbad_total to identify entries where the
-         ! numerical residual contributed to the hard balance accounting.
+         ! numerical residual was explicitly excluded from hard balance accounting.
          WRITE(*,'(A,I8,A,E12.5)') &
-            'TRC_BAL residual note (included in tol check): n_entries=', &
+            'TRC_BAL residual note (excluded from tol check): n_entries=', &
             resid_nbad_total, ' worst_abs=', resid_abs_total
+      ENDIF
+
+      IF (print_me .and. resid_hard_nbad_total > trc_resid_abort_nbad) THEN
+         WRITE(*,'(A,I8,A,E12.5,A,E12.5,A,I8,A,I4,A,I3,A,I4)') &
+            'TRC_BAL residual hard failure: n_entries=', resid_hard_nbad_total, &
+            ' worst_abs=', resid_hard_abs_total, &
+            ' tol=', resid_hard_tol_total, &
+            ' @ipatch=', resid_hard_ipatch_total, &
+            ' itrc=', resid_hard_itrc_total, &
+            ' ptype=', resid_hard_ptype_total, &
+            ' owner=', resid_winner_rank
+         CALL CoLM_stop ('TRC_BAL hard failure: numerical residual exceeds independent threshold')
       ENDIF
 
       IF (print_me .and. nbad_total > trc_balance_abort_nbad) THEN
@@ -651,6 +735,12 @@ CONTAINS
       balance_nbad         = 0
       resid_worst_abs      = 0._r8
       resid_nbad           = 0
+      resid_hard_worst_abs = 0._r8
+      resid_hard_worst_tol = 0._r8
+      resid_hard_worst_ipatch = 0
+      resid_hard_worst_itrc   = 0
+      resid_hard_worst_ptype  = -1
+      resid_hard_nbad      = 0
    END SUBROUTINE tracer_balance_report
 
 END MODULE MOD_Tracer_Conservation

@@ -49,12 +49,16 @@ CONTAINS
               qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow  ,fsno        ,&
               rsur        ,rnof        ,qinfl       ,pondmx      ,ssi         ,&
               wimp        ,smpmin      ,zwt         ,wdsrf       ,wa          ,&
-              qcharge                                                         ,&
+              qcharge                                                         &
+#ifdef TRACER
+             ,qlayer_trc  ,etroot_trc  ,etroot_actual_trc,etroot_aquifer_trc &
+             ,snow_qout_layer                                                &
+#endif
 #if (defined CaMa_Flood)
-              flddepth    ,fldfrc      ,qinfl_fld                             ,&
+             ,flddepth    ,fldfrc      ,qinfl_fld                             &
 #endif
 ! SNICAR model variables
-              forc_aer                                                        ,&
+             ,forc_aer                                                        ,&
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
               qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy               )
@@ -161,6 +165,15 @@ CONTAINS
         rnof                    ,&! total runoff (mm h2o/s)
         qinfl                   ,&! infiltration rate (mm h2o/s)
         qcharge                   ! groundwater recharge (positive to aquifer) [mm/s]
+#ifdef TRACER
+   real(r8), intent(out) :: &
+        qlayer_trc(0:nl_soil)       ,&! resolved WATER_2014 soil interface fluxes [mm/s]
+        etroot_trc(1:nl_soil)       ,&! per-layer transpiration demand [mm/s]
+        etroot_actual_trc(1:nl_soil),&! per-layer transpiration actually removed [mm]
+        etroot_aquifer_trc            ! aquifer ET fallback [mm]
+   real(r8), intent(out) :: &
+        snow_qout_layer(min(lb,0):0) ! true snowwater qout by snow layer [mm/step]
+#endif
 
 ! SNICAR model variables
 ! Aerosol Fluxes (Jan. 07, 2023)
@@ -214,6 +227,13 @@ CONTAINS
 ! [1] update the liquid water within snow layer and the water onto soil
 !=======================================================================
 
+#ifdef TRACER
+   qlayer_trc(:) = 0._r8
+   etroot_trc(:) = 0._r8
+   etroot_actual_trc(:) = 0._r8
+   etroot_aquifer_trc = 0._r8
+   snow_qout_layer(:) = 0._r8
+#endif
 
 IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
 
@@ -223,14 +243,22 @@ IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
          IF ((.not.DEF_USE_SNICAR) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat&
+#ifdef TRACER
+                        ,qout_snow_layer=snow_qout_layer(lb:0)&
+#endif
+                         )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0)&
+#ifdef TRACER
+                        ,qout_snow_layer=snow_qout_layer(lb:0)&
+#endif
+                         )
          ENDIF
       ENDIF
 
@@ -242,14 +270,22 @@ ELSE
          IF (.not. DEF_USE_SNICAR) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat&
+#ifdef TRACER
+                        ,qout_snow_layer=snow_qout_layer(lb:0)&
+#endif
+                         )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0)&
+#ifdef TRACER
+                        ,qout_snow_layer=snow_qout_layer(lb:0)&
+#endif
+                         )
          ENDIF
          gwat = gwat + pg_rain*(1-fsno) - qseva_soil
       ENDIF
@@ -401,7 +437,11 @@ IF(patchtype<=1)THEN   ! soil ground only
                      qinfl,etr,z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
                      t_soisno(1:),vol_liq,vol_ice,smp,hk,icefrac,eff_porosity,&
                      porsl,hksati,bsw,psi0,rootr,rootflux,&
-                     zwt,dwat,qcharge)
+                     zwt,dwat,qcharge&
+#ifdef TRACER
+                    ,qlayer_trc,etroot_trc,etroot_actual_trc,etroot_aquifer_trc&
+#endif
+                     )
 
       ! update the mass of liquid water
       DO j= 1, nl_soil
@@ -418,6 +458,9 @@ IF(patchtype<=1)THEN   ! soil ground only
                         wice_soisno(1:),wliq_soisno(1:),&
                         porsl,psi0,bsw,zwt,wa,&
                         qcharge,rsubst)
+#ifdef TRACER
+      qlayer_trc(nl_soil) = qcharge
+#endif
 
       ! total runoff (mm/s)
       rnof = rsubst + rsur
@@ -522,6 +565,7 @@ ENDIF
              ,etroot_aquifer                                                  &
              ,imperv_evap_wdsrf                                               &
              ,imperv_evap_soil                                                &
+             ,imperv_subl_soil                                                &
              ,snow_qout_layer                                                  &
 #endif
 #if (defined CaMa_Flood)
@@ -663,7 +707,8 @@ ENDIF
    real(r8), intent(out) :: etroot_actual(1:nl_soil) ! layer ET actually removed (mm)
    real(r8), intent(out) :: etroot_aquifer           ! aquifer ET fallback (mm)
    real(r8), intent(out) :: imperv_evap_wdsrf        ! qgtop<0 water removed from wdsrf (mm/step)
-   real(r8), intent(out) :: imperv_evap_soil         ! qgtop<0 water removed from soil layer 1 (mm/step)
+   real(r8), intent(out) :: imperv_evap_soil         ! qgtop<0 liquid removed from soil layer 1 (mm/step)
+   real(r8), intent(out) :: imperv_subl_soil         ! qgtop<0 ice removed from soil layer 1 (mm/step)
    real(r8), intent(out) :: snow_qout_layer(lb:0)    ! true snowwater qout by snow layer (mm/step)
 #endif
 
@@ -707,9 +752,8 @@ ENDIF
 
    real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
    real(r8) :: qgtop
-#ifdef TRACER
-   real(r8) :: qgtop_deficit
-#endif
+   real(r8) :: qgtop_deficit, imperv_surface_loss
+   real(r8) :: imperv_soil_deficit, imperv_liq_loss, imperv_ice_loss
 
    real(r8) :: zwtmm
    real(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
@@ -757,6 +801,7 @@ ENDIF
       etroot_aquifer           = 0._r8
       imperv_evap_wdsrf        = 0._r8
       imperv_evap_soil         = 0._r8
+      imperv_subl_soil         = 0._r8
       IF (lb <= 0) snow_qout_layer(lb:0) = 0._r8
 #endif
 
@@ -1046,26 +1091,42 @@ IF((patchtype<=1) .or. is_dry_lake &
       wdsrf = max(0., wdsrf)
 
       IF ((.not. is_permeable(1)) .and. (qgtop < 0.)) THEN
-#ifdef TRACER
          qgtop_deficit = -qgtop * deltim
-#endif
-         IF (wdsrf > 0) THEN
+
+         imperv_surface_loss = min(max(wdsrf, 0._r8), qgtop_deficit)
+         IF (imperv_surface_loss > 0._r8) THEN
 #ifdef TRACER
-            imperv_evap_wdsrf = imperv_evap_wdsrf + min(max(wdsrf, 0._r8), qgtop_deficit)
+            imperv_evap_wdsrf = imperv_evap_wdsrf + imperv_surface_loss
 #endif
-            wdsrf = wdsrf + qgtop * deltim
-            IF (wdsrf < 0) THEN
-#ifdef TRACER
-               imperv_evap_soil = imperv_evap_soil + min(max(wliq_soisno(1), 0._r8), max(-wdsrf, 0._r8))
-#endif
-               wliq_soisno(1) = max(0., wliq_soisno(1) + wdsrf)
-               wdsrf = 0
+            wdsrf = max(0._r8, wdsrf - imperv_surface_loss)
+         ENDIF
+
+         imperv_soil_deficit = max(qgtop_deficit - imperv_surface_loss, 0._r8)
+         IF (imperv_soil_deficit > 0._r8) THEN
+            imperv_liq_loss = 0._r8
+            imperv_ice_loss = 0._r8
+
+            IF (t_soisno(1) <= tfrz .and. wice_soisno(1) > 0._r8) THEN
+               ! A frozen impermeable top layer loses exposed ice first; any
+               ! residual demand falls back to liquid water if present.
+               imperv_ice_loss = min(max(wice_soisno(1), 0._r8), imperv_soil_deficit)
+               imperv_liq_loss = min(max(wliq_soisno(1), 0._r8), &
+                  max(imperv_soil_deficit - imperv_ice_loss, 0._r8))
+            ELSE
+               ! Unfrozen impermeable tops keep the historical liquid-water
+               ! evaporation semantics, with ice only as a final finite-pool
+               ! fallback to close the water removal.
+               imperv_liq_loss = min(max(wliq_soisno(1), 0._r8), imperv_soil_deficit)
+               imperv_ice_loss = min(max(wice_soisno(1), 0._r8), &
+                  max(imperv_soil_deficit - imperv_liq_loss, 0._r8))
             ENDIF
-         ELSE
+
+            wliq_soisno(1) = max(0._r8, wliq_soisno(1) - imperv_liq_loss)
+            wice_soisno(1) = max(0._r8, wice_soisno(1) - imperv_ice_loss)
 #ifdef TRACER
-            imperv_evap_soil = imperv_evap_soil + min(max(wliq_soisno(1), 0._r8), qgtop_deficit)
+            imperv_evap_soil = imperv_evap_soil + imperv_liq_loss
+            imperv_subl_soil = imperv_subl_soil + imperv_ice_loss
 #endif
-            wliq_soisno(1) = max(0., wliq_soisno(1) + qgtop * deltim)
          ENDIF
 
          qgtop = 0.
@@ -1894,7 +1955,11 @@ ENDIF
                         qinfl,etr,z_soisno,dz_soisno,zi_soisno,&
                         t_soisno,vol_liq,vol_ice,smp,hk,icefrac,eff_porosity,&
                         porsl,hksati,bsw,psi0,rootr,rootflux,&
-                        zwt,dwat,qcharge)
+                        zwt,dwat,qcharge&
+#ifdef TRACER
+                       ,qlayer_trc,etroot_trc,etroot_actual_trc,etroot_aquifer_trc&
+#endif
+                        )
 
 !-----------------------------------------------------------------------
 !  Original author: Yongjiu Dai, 09/1999, 04/2014, 07/2014
@@ -1999,6 +2064,12 @@ ENDIF
    real(r8), intent(out) :: qcharge           ! aquifer recharge rate (positive to aquifer) (mm/s)
    real(r8), intent(out) :: smp(1:nl_soil)    ! soil matrix potential [mm]
    real(r8), intent(out) :: hk (1:nl_soil)    ! hydraulic conductivity [mm h2o/s]
+#ifdef TRACER
+   real(r8), intent(out) :: qlayer_trc(0:nl_soil)       ! interface water fluxes (mm/s)
+   real(r8), intent(out) :: etroot_trc(1:nl_soil)       ! per-layer transpiration demand (mm/s)
+   real(r8), intent(out) :: etroot_actual_trc(1:nl_soil)! per-layer removal (mm)
+   real(r8), intent(out) :: etroot_aquifer_trc          ! aquifer ET fallback (mm)
+#endif
 
 !-------------------------- Local Variables ----------------------------
 
@@ -2031,6 +2102,19 @@ ENDIF
 
    real(r8), parameter :: e_ice=6.0      !soil ice impedance factor
 !-----------------------------------------------------------------------
+
+#ifdef TRACER
+      qlayer_trc(:) = 0._r8
+      etroot_aquifer_trc = 0._r8
+      IF(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))THEN
+         etroot_trc(:) = rootflux(:)
+      ELSE
+         etroot_trc(:) = etr * rootr(:)
+      ENDIF
+      ! WATER_2014 does not have the VSF deficit cascade/aquifer ET
+      ! fallback; the tridiagonal solve applies the full layer demand.
+      etroot_actual_trc(:) = max(etroot_trc(:), 0._r8) * deltim
+#endif
 
       !compute jwt index
       ! The layer index of the first unsaturated layer,
@@ -2248,6 +2332,17 @@ ENDIF
 
       ! Recharge rate qcharge to groundwater (positive to aquifer)
       qcharge = qout(nl_soil) + dqodw1(nl_soil)*dwat(nl_soil)
+#ifdef TRACER
+      ! Resolved Campbell/Richards interface fluxes used by TRACER when
+      ! DEF_USE_VariablySaturatedFlow is false. Positive is downward, same
+      ! convention as WATER_VSF qlayer.  qlayer_trc(0) is diagnostic only;
+      ! tracer_soil_water uses qinfl for surface -> layer-1 infiltration.
+      qlayer_trc(0) = qinfl
+      DO j = 1, nl_soil - 1
+         qlayer_trc(j) = qout(j) + dqodw1(j)*dwat(j) + dqodw2(j)*dwat(j+1)
+      ENDDO
+      qlayer_trc(nl_soil) = qcharge
+#endif
 
 
    END SUBROUTINE soilwater

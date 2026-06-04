@@ -4,11 +4,17 @@
 MODULE MOD_Tracer_Vars
 
    USE MOD_Precision
+   USE MOD_SPMD_Task, only: p_is_io, CoLM_stop
    USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_particle, &
       tracer_uses_land_water_transport
 
    IMPLICIT NONE
    SAVE
+
+   logical :: lulcc_area_fallback_warned = .false.
+   real(r8), parameter :: lulcc_mass_abs_tol = 1.e-8_r8
+   real(r8), parameter :: lulcc_mass_rel_tol = 1.e-10_r8
+   integer,  parameter :: lulcc_mass_abort_nbad = 0
 
    real(r8), allocatable :: trc_ldew_rain  (:,:)
    real(r8), allocatable :: trc_ldew_snow  (:,:)
@@ -65,21 +71,21 @@ MODULE MOD_Tracer_Vars
    ! LULCC snapshots for prognostic land-water tracer pools. These are
    ! saved before LULCC rebuilds landpatch and remapped after the new patch
    ! layout exists, mirroring the reactive/methane LULCC path.
-   logical, save :: land_tracer_lulcc_snapshot_valid = .false.
-   real(r8), allocatable, save :: lulcc_trc_ldew_rain_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_ldew_snow_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_wliq_soisno_old(:,:,:)
-   real(r8), allocatable, save :: lulcc_trc_wice_soisno_old(:,:,:)
-   real(r8), allocatable, save :: lulcc_trc_wa_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_wdsrf_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_wetwat_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_waterstorage_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_scv_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_leaf_delta_e_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_leaf_delta_b_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_leaf_peclet_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_leaf_water_moles_old(:,:)
-   real(r8), allocatable, save :: lulcc_trc_leaf_iso_storage_old(:,:)
+   logical :: land_tracer_lulcc_snapshot_valid = .false.
+   real(r8), allocatable :: lulcc_trc_ldew_rain_old(:,:)
+   real(r8), allocatable :: lulcc_trc_ldew_snow_old(:,:)
+   real(r8), allocatable :: lulcc_trc_wliq_soisno_old(:,:,:)
+   real(r8), allocatable :: lulcc_trc_wice_soisno_old(:,:,:)
+   real(r8), allocatable :: lulcc_trc_wa_old(:,:)
+   real(r8), allocatable :: lulcc_trc_wdsrf_old(:,:)
+   real(r8), allocatable :: lulcc_trc_wetwat_old(:,:)
+   real(r8), allocatable :: lulcc_trc_waterstorage_old(:,:)
+   real(r8), allocatable :: lulcc_trc_scv_old(:,:)
+   real(r8), allocatable :: lulcc_trc_leaf_delta_e_old(:,:)
+   real(r8), allocatable :: lulcc_trc_leaf_delta_b_old(:,:)
+   real(r8), allocatable :: lulcc_trc_leaf_peclet_old(:,:)
+   real(r8), allocatable :: lulcc_trc_leaf_water_moles_old(:,:)
+   real(r8), allocatable :: lulcc_trc_leaf_iso_storage_old(:,:)
 
    real(r8), allocatable :: a_trc_precip   (:,:)
 	   integer, parameter :: TRC_EVAP_KIND_TOTAL       = 0
@@ -330,13 +336,16 @@ CONTAINS
    END SUBROUTINE save_land_tracer_lulcc_state
 
    SUBROUTINE remap_land_tracer_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-                                             lccpct_patches)
+                                             lccpct_patches, new_patch_area, old_patch_area)
       IMPLICIT NONE
       integer,   intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8),  intent(in), optional :: lccpct_patches(:,:)
+      real(r8),  intent(in), optional :: new_patch_area(:), old_patch_area(:)
 
       integer :: nnew, maxsnl_saved, nl_soil_saved
+      real(r8), allocatable :: mass_before(:), mass_after(:)
+      logical :: check_lulcc_mass
 
       IF (.not. land_tracer_lulcc_snapshot_valid) RETURN
       IF (.not. allocated(lulcc_trc_wliq_soisno_old)) THEN
@@ -347,38 +356,253 @@ CONTAINS
       nnew = size(patchclass_new)
       maxsnl_saved = lbound(lulcc_trc_wliq_soisno_old, 2) - 1
       nl_soil_saved = ubound(lulcc_trc_wliq_soisno_old, 2)
+      check_lulcc_mass = present(lccpct_patches) .and. present(new_patch_area) .and. &
+         present(old_patch_area)
+      IF (check_lulcc_mass) THEN
+         allocate(mass_before(ntracers), mass_after(ntracers))
+         CALL compute_lulcc_snapshot_land_water_mass(old_patch_area, mass_before)
+      ENDIF
 
       IF (allocated(trc_ldew_rain)) CALL deallocate_Tracer_Vars()
       IF (nnew <= 0) THEN
+         IF (allocated(mass_before)) deallocate(mass_before, mass_after)
          CALL clear_land_tracer_lulcc_snapshot()
          RETURN
       ENDIF
 
       CALL allocate_Tracer_Vars(nnew, maxsnl_saved, nl_soil_saved)
       IF (.not. allocated(trc_ldew_rain)) THEN
+         IF (allocated(mass_before)) deallocate(mass_before, mass_after)
          CALL clear_land_tracer_lulcc_snapshot()
          RETURN
       ENDIF
 
-      CALL remap2d(lulcc_trc_ldew_rain_old,         trc_ldew_rain)
-      CALL remap2d(lulcc_trc_ldew_snow_old,         trc_ldew_snow)
-      CALL remap3d(lulcc_trc_wliq_soisno_old,       trc_wliq_soisno)
-      CALL remap3d(lulcc_trc_wice_soisno_old,       trc_wice_soisno)
-      CALL remap2d(lulcc_trc_wa_old,                trc_wa)
-      CALL remap2d(lulcc_trc_wdsrf_old,             trc_wdsrf)
-      CALL remap2d(lulcc_trc_wetwat_old,            trc_wetwat)
-      CALL remap2d(lulcc_trc_waterstorage_old,      trc_waterstorage)
-      CALL remap2d(lulcc_trc_scv_old,               trc_scv)
-      CALL remap2d(lulcc_trc_leaf_delta_e_old,      trc_leaf_delta_e)
-      CALL remap2d(lulcc_trc_leaf_delta_b_old,      trc_leaf_delta_b)
-      CALL remap2d(lulcc_trc_leaf_peclet_old,       trc_leaf_peclet)
-      CALL remap2d(lulcc_trc_leaf_water_moles_old,  trc_leaf_water_moles)
-      CALL remap2d(lulcc_trc_leaf_iso_storage_old,  trc_leaf_iso_storage)
+      ! Extensive tracer pools are stored per unit patch area.  When both old
+      ! and new patch areas are available, remap them by conserving area-mass:
+      ! old_pool * old_area is partitioned into the target class fractions and
+      ! divided by the new patch area.  Dimensionless/intensive diagnostics
+      ! remain area-weighted means.
+      CALL remap2d_mass(lulcc_trc_ldew_rain_old,         trc_ldew_rain)
+      CALL remap2d_mass(lulcc_trc_ldew_snow_old,         trc_ldew_snow)
+      CALL remap3d_mass(lulcc_trc_wliq_soisno_old,       trc_wliq_soisno)
+      CALL remap3d_mass(lulcc_trc_wice_soisno_old,       trc_wice_soisno)
+      CALL remap2d_mass(lulcc_trc_wa_old,                trc_wa)
+      CALL remap2d_mass(lulcc_trc_wdsrf_old,             trc_wdsrf)
+      CALL remap2d_mass(lulcc_trc_wetwat_old,            trc_wetwat)
+      CALL remap2d_mass(lulcc_trc_waterstorage_old,      trc_waterstorage)
+      CALL remap2d_mass(lulcc_trc_scv_old,               trc_scv)
+      CALL remap2d_intensive(lulcc_trc_leaf_delta_e_old,      trc_leaf_delta_e)
+      CALL remap2d_intensive(lulcc_trc_leaf_delta_b_old,      trc_leaf_delta_b)
+      CALL remap2d_intensive(lulcc_trc_leaf_peclet_old,       trc_leaf_peclet)
+      CALL remap2d_mass(lulcc_trc_leaf_water_moles_old,  trc_leaf_water_moles)
+      CALL remap2d_mass(lulcc_trc_leaf_iso_storage_old,  trc_leaf_iso_storage)
+
+      IF (check_lulcc_mass) THEN
+         CALL compute_current_lulcc_land_water_mass(new_patch_area, mass_after)
+         CALL assert_lulcc_land_water_mass_conserved(mass_before, mass_after)
+         deallocate(mass_before, mass_after)
+      ENDIF
 
       CALL clear_land_tracer_lulcc_snapshot()
 
    CONTAINS
-      SUBROUTINE remap2d(old, new)
+      SUBROUTINE compute_lulcc_snapshot_land_water_mass(area, total)
+         real(r8), intent(in)  :: area(:)
+         real(r8), intent(out) :: total(:)
+
+         total = 0._r8
+         IF (allocated(lulcc_trc_ldew_rain_old))    CALL accumulate_lulcc_mass_2d(lulcc_trc_ldew_rain_old, area, total)
+         IF (allocated(lulcc_trc_ldew_snow_old))    CALL accumulate_lulcc_mass_2d(lulcc_trc_ldew_snow_old, area, total)
+         IF (allocated(lulcc_trc_wliq_soisno_old))  CALL accumulate_lulcc_mass_3d(lulcc_trc_wliq_soisno_old, area, total)
+         IF (allocated(lulcc_trc_wice_soisno_old))  CALL accumulate_lulcc_mass_3d(lulcc_trc_wice_soisno_old, area, total)
+         IF (allocated(lulcc_trc_wa_old))           CALL accumulate_lulcc_mass_2d(lulcc_trc_wa_old, area, total)
+         IF (allocated(lulcc_trc_wdsrf_old))        CALL accumulate_lulcc_mass_2d(lulcc_trc_wdsrf_old, area, total)
+         IF (allocated(lulcc_trc_wetwat_old))       CALL accumulate_lulcc_mass_2d(lulcc_trc_wetwat_old, area, total)
+         IF (allocated(lulcc_trc_waterstorage_old)) CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_old, area, total)
+         IF (allocated(lulcc_trc_scv_old))          CALL accumulate_lulcc_mass_2d(lulcc_trc_scv_old, area, total)
+      END SUBROUTINE compute_lulcc_snapshot_land_water_mass
+
+      SUBROUTINE compute_current_lulcc_land_water_mass(area, total)
+         real(r8), intent(in)  :: area(:)
+         real(r8), intent(out) :: total(:)
+
+         total = 0._r8
+         IF (allocated(trc_ldew_rain))    CALL accumulate_lulcc_mass_2d(trc_ldew_rain, area, total)
+         IF (allocated(trc_ldew_snow))    CALL accumulate_lulcc_mass_2d(trc_ldew_snow, area, total)
+         IF (allocated(trc_wliq_soisno))  CALL accumulate_lulcc_mass_3d(trc_wliq_soisno, area, total)
+         IF (allocated(trc_wice_soisno))  CALL accumulate_lulcc_mass_3d(trc_wice_soisno, area, total)
+         IF (allocated(trc_wa))           CALL accumulate_lulcc_mass_2d(trc_wa, area, total)
+         IF (allocated(trc_wdsrf))        CALL accumulate_lulcc_mass_2d(trc_wdsrf, area, total)
+         IF (allocated(trc_wetwat))       CALL accumulate_lulcc_mass_2d(trc_wetwat, area, total)
+         IF (allocated(trc_waterstorage)) CALL accumulate_lulcc_mass_2d(trc_waterstorage, area, total)
+         IF (allocated(trc_scv))          CALL accumulate_lulcc_mass_2d(trc_scv, area, total)
+      END SUBROUTINE compute_current_lulcc_land_water_mass
+
+      SUBROUTINE accumulate_lulcc_mass_2d(pool, area, total)
+         real(r8), intent(in)    :: pool(:,:)
+         real(r8), intent(in)    :: area(:)
+         real(r8), intent(inout) :: total(:)
+         integer :: ip, itrc, n1
+         real(r8) :: patch_area
+
+         n1 = min(size(pool,1), size(total), ntracers)
+         DO ip = 1, min(size(pool,2), size(area))
+            patch_area = max(0._r8, area(ip))
+            IF (patch_area <= tiny(1._r8)) CYCLE
+            DO itrc = 1, n1
+               IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+               total(itrc) = total(itrc) + pool(itrc, ip) * patch_area
+            ENDDO
+         ENDDO
+      END SUBROUTINE accumulate_lulcc_mass_2d
+
+      SUBROUTINE accumulate_lulcc_mass_3d(pool, area, total)
+         real(r8), intent(in)    :: pool(:,:,:)
+         real(r8), intent(in)    :: area(:)
+         real(r8), intent(inout) :: total(:)
+         integer :: ip, itrc, iz, n1
+         real(r8) :: patch_area
+
+         n1 = min(size(pool,1), size(total), ntracers)
+         DO ip = 1, min(size(pool,3), size(area))
+            patch_area = max(0._r8, area(ip))
+            IF (patch_area <= tiny(1._r8)) CYCLE
+            DO iz = 1, size(pool,2)
+               DO itrc = 1, n1
+                  IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+                  total(itrc) = total(itrc) + pool(itrc, iz, ip) * patch_area
+               ENDDO
+            ENDDO
+         ENDDO
+      END SUBROUTINE accumulate_lulcc_mass_3d
+
+      SUBROUTINE assert_lulcc_land_water_mass_conserved(before, after)
+         real(r8), intent(in) :: before(:), after(:)
+         integer :: itrc, nbad, worst_itrc
+         real(r8) :: diff, scale, tol, abs_err, rel_err, worst_abs
+
+         nbad = 0
+         worst_itrc = 0
+         worst_abs = 0._r8
+         DO itrc = 1, min(size(before), size(after), ntracers)
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            diff = after(itrc) - before(itrc)
+            abs_err = abs(diff)
+            scale = max(abs(before(itrc)), abs(after(itrc)), 1._r8)
+            tol = max(lulcc_mass_abs_tol, lulcc_mass_rel_tol * scale)
+            IF (abs_err > worst_abs) THEN
+               worst_abs = abs_err
+               worst_itrc = itrc
+               rel_err = abs_err / scale
+            ENDIF
+            IF (abs_err > tol) nbad = nbad + 1
+         ENDDO
+
+         IF (nbad > lulcc_mass_abort_nbad) THEN
+            IF (p_is_io) THEN
+               WRITE(*,'(A,I0,A,E12.5,A,E12.5)') &
+                  'TRC_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
+                  ' worst_rel=', rel_err
+               IF (worst_itrc > 0) THEN
+                  WRITE(*,'(A,I0,3A,2(A,E12.5))') '  tracer=', worst_itrc, &
+                     ' name=', trim(tracers(worst_itrc)%name), ' ', &
+                     ' before=', before(worst_itrc), ' after=', after(worst_itrc)
+               ENDIF
+            ENDIF
+            CALL CoLM_stop('TRACER LULCC remap land-water mass conservation failed')
+         ENDIF
+      END SUBROUTINE assert_lulcc_land_water_mass_conserved
+
+      SUBROUTINE remap2d_mass(old, new)
+         real(r8), intent(in)    :: old(:,:)
+         real(r8), intent(inout) :: new(:,:)
+         integer :: np, op, src, n1
+         real(r8) :: w, wsum, denom
+         logical :: conserve_area_mass
+         real(r8) :: default_vals(size(new,1))
+
+         n1 = min(size(new,1), size(old,1))
+         DO np = 1, min(size(new,2), nnew)
+            wsum = 0._r8
+            default_vals(:) = new(:,np)
+            IF (present(lccpct_patches)) THEN
+               new(:,np) = 0._r8
+               conserve_area_mass = area_mass_remap_available(np)
+               DO op = 1, min(size(old,2), size(patchclass_old), size(eindex_old))
+                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
+                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                  IF (conserve_area_mass) THEN
+                     w = lulcc_mass_transfer_area(np, op)
+                  ELSE
+                     w = lulcc_source_area_weight(np, op)
+                  ENDIF
+                  IF (w <= 0._r8) CYCLE
+                  new(1:n1,np) = new(1:n1,np) + w * old(1:n1,op)
+                  wsum = wsum + w
+               ENDDO
+            ENDIF
+            IF (wsum > 0._r8) THEN
+               denom = remap_denominator(np, wsum, conserve_area_mass)
+               new(:,np) = new(:,np) / denom
+            ELSE
+               src = fallback_source(np, size(old,2))
+               IF (src > 0) THEN
+                  new(:,np) = 0._r8
+                  new(1:n1,np) = old(1:n1,src)
+               ELSE
+                  new(:,np) = default_vals(:)
+               ENDIF
+            ENDIF
+         ENDDO
+      END SUBROUTINE remap2d_mass
+
+      SUBROUTINE remap3d_mass(old, new)
+         real(r8), intent(in)    :: old(:,:,:)
+         real(r8), intent(inout) :: new(:,:,:)
+         integer :: np, op, src, n1, n2
+         real(r8) :: w, wsum, denom
+         logical :: conserve_area_mass
+         real(r8) :: default_vals(size(new,1), size(new,2))
+
+         n1 = min(size(new,1), size(old,1))
+         n2 = min(size(new,2), size(old,2))
+         DO np = 1, min(size(new,3), nnew)
+            wsum = 0._r8
+            default_vals(:,:) = new(:,:,np)
+            IF (present(lccpct_patches)) THEN
+               new(:,:,np) = 0._r8
+               conserve_area_mass = area_mass_remap_available(np)
+               DO op = 1, min(size(old,3), size(patchclass_old), size(eindex_old))
+                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
+                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                  IF (conserve_area_mass) THEN
+                     w = lulcc_mass_transfer_area(np, op)
+                  ELSE
+                     w = lulcc_source_area_weight(np, op)
+                  ENDIF
+                  IF (w <= 0._r8) CYCLE
+                  new(1:n1,1:n2,np) = new(1:n1,1:n2,np) + w * old(1:n1,1:n2,op)
+                  wsum = wsum + w
+               ENDDO
+            ENDIF
+            IF (wsum > 0._r8) THEN
+               denom = remap_denominator(np, wsum, conserve_area_mass)
+               new(:,:,np) = new(:,:,np) / denom
+            ELSE
+               src = fallback_source(np, size(old,3))
+               IF (src > 0) THEN
+                  new(:,:,np) = 0._r8
+                  new(1:n1,1:n2,np) = old(1:n1,1:n2,src)
+               ELSE
+                  new(:,:,np) = default_vals(:,:)
+               ENDIF
+            ENDIF
+         ENDDO
+      END SUBROUTINE remap3d_mass
+
+      SUBROUTINE remap2d_intensive(old, new)
          real(r8), intent(in)    :: old(:,:)
          real(r8), intent(inout) :: new(:,:)
          integer :: np, op, src, n1
@@ -395,14 +619,14 @@ CONTAINS
                   IF (eindex_old(op) /= eindex_new(np)) CYCLE
                   IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
                       patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
-                  w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
+                  w = lulcc_source_area_weight(np, op)
                   IF (w <= 0._r8) CYCLE
                   new(1:n1,np) = new(1:n1,np) + w * old(1:n1,op)
                   wsum = wsum + w
                ENDDO
             ENDIF
             IF (wsum > 0._r8) THEN
-               new(:,np) = new(:,np) / wsum
+               new(:,np) = new(:,np) / remap_denominator(np, wsum, .false.)
             ELSE
                src = fallback_source(np, size(old,2))
                IF (src > 0) THEN
@@ -413,45 +637,7 @@ CONTAINS
                ENDIF
             ENDIF
          ENDDO
-      END SUBROUTINE remap2d
-
-      SUBROUTINE remap3d(old, new)
-         real(r8), intent(in)    :: old(:,:,:)
-         real(r8), intent(inout) :: new(:,:,:)
-         integer :: np, op, src, n1, n2
-         real(r8) :: w, wsum
-         real(r8) :: default_vals(size(new,1), size(new,2))
-
-         n1 = min(size(new,1), size(old,1))
-         n2 = min(size(new,2), size(old,2))
-         DO np = 1, min(size(new,3), nnew)
-            wsum = 0._r8
-            default_vals(:,:) = new(:,:,np)
-            IF (present(lccpct_patches)) THEN
-               new(:,:,np) = 0._r8
-               DO op = 1, min(size(old,3), size(patchclass_old), size(eindex_old))
-                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
-                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
-                  w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
-                  IF (w <= 0._r8) CYCLE
-                  new(1:n1,1:n2,np) = new(1:n1,1:n2,np) + w * old(1:n1,1:n2,op)
-                  wsum = wsum + w
-               ENDDO
-            ENDIF
-            IF (wsum > 0._r8) THEN
-               new(:,:,np) = new(:,:,np) / wsum
-            ELSE
-               src = fallback_source(np, size(old,3))
-               IF (src > 0) THEN
-                  new(:,:,np) = 0._r8
-                  new(1:n1,1:n2,np) = old(1:n1,1:n2,src)
-               ELSE
-                  new(:,:,np) = default_vals(:,:)
-               ENDIF
-            ENDIF
-         ENDDO
-      END SUBROUTINE remap3d
+      END SUBROUTINE remap2d_intensive
 
       integer FUNCTION fallback_source(np, old_n) RESULT(src)
          integer, intent(in) :: np, old_n
@@ -468,6 +654,126 @@ CONTAINS
          ! should cold-start from allocation defaults instead of contaminating
          ! a newly created patch with another surface type's tracer pools.
       END FUNCTION fallback_source
+
+      REAL(r8) FUNCTION lulcc_source_area_weight(np, op) RESULT(w)
+         integer, intent(in) :: np, op
+         integer :: oq
+         real(r8) :: class_area
+
+         w = 0._r8
+         IF (.not. present(lccpct_patches)) RETURN
+         IF (np > size(lccpct_patches,1)) RETURN
+         IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+             patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
+         w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
+         IF (w <= 0._r8) RETURN
+         IF (.not. present(old_patch_area)) RETURN
+         IF (op > size(old_patch_area)) RETURN
+
+         class_area = 0._r8
+         DO oq = 1, min(size(patchclass_old), size(eindex_old), size(old_patch_area))
+            IF (eindex_old(oq) == eindex_new(np) .and. &
+                patchclass_old(oq) == patchclass_old(op)) THEN
+               class_area = class_area + max(0._r8, old_patch_area(oq))
+            ENDIF
+         ENDDO
+         IF (class_area > tiny(1._r8)) THEN
+            w = w * max(0._r8, old_patch_area(op)) / class_area
+         ENDIF
+      END FUNCTION lulcc_source_area_weight
+
+      LOGICAL FUNCTION area_mass_remap_available(np) RESULT(ok)
+         integer, intent(in) :: np
+
+         ok = present(lccpct_patches) .and. present(new_patch_area) .and. present(old_patch_area)
+         IF (.not. ok) THEN
+            CALL warn_lulcc_area_fallback('missing old/new patch area arrays')
+            RETURN
+         ENDIF
+         ok = np <= size(new_patch_area)
+         IF (.not. ok) THEN
+            CALL warn_lulcc_area_fallback('new patch index exceeds new_patch_area size')
+            RETURN
+         ENDIF
+         ok = new_patch_area(np) > tiny(1._r8)
+         IF (.not. ok) CALL warn_lulcc_area_fallback('new patch area is zero')
+      END FUNCTION area_mass_remap_available
+
+      SUBROUTINE warn_lulcc_area_fallback(reason)
+         character(len=*), intent(in) :: reason
+
+         IF (lulcc_area_fallback_warned) RETURN
+         lulcc_area_fallback_warned = .true.
+         IF (p_is_io) THEN
+            WRITE(*,'(A,A)') 'TRACER LULCC remap falling back to source-area weighting: ', &
+               trim(reason)
+            WRITE(*,'(A)') '  Land-water tracer area-mass conservation requires old and new patch areas.'
+         ENDIF
+      END SUBROUTINE warn_lulcc_area_fallback
+
+      REAL(r8) FUNCTION lulcc_mass_transfer_area(np, op) RESULT(w)
+         integer, intent(in) :: np, op
+         integer :: c, nq
+         real(r8) :: target_area, class_target_area
+
+         w = 0._r8
+         IF (.not. area_mass_remap_available(np)) RETURN
+         IF (op > size(old_patch_area)) RETURN
+         IF (op > size(patchclass_old) .or. op > size(eindex_old)) RETURN
+         c = patchclass_old(op)
+         IF (c < lbound(lccpct_patches,2) .or. c > ubound(lccpct_patches,2)) RETURN
+
+         target_area = lulcc_target_class_area(np, c)
+         IF (target_area <= tiny(1._r8)) RETURN
+
+         class_target_area = 0._r8
+         DO nq = 1, min(nnew, size(eindex_new), size(new_patch_area))
+            IF (eindex_new(nq) == eindex_new(np)) THEN
+               class_target_area = class_target_area + lulcc_target_class_area(nq, c)
+            ENDIF
+         ENDDO
+         IF (class_target_area <= tiny(1._r8)) RETURN
+
+         ! Area of old patch op that is transferred into target patch np.
+         ! Summing this weight over all target patches of the same element and
+         ! source class returns old_patch_area(op), so extensive tracer mass is
+         ! conserved when target area is non-zero.
+         w = max(0._r8, old_patch_area(op)) * target_area / class_target_area
+      END FUNCTION lulcc_mass_transfer_area
+
+      REAL(r8) FUNCTION lulcc_target_class_area(np, c) RESULT(area)
+         integer, intent(in) :: np, c
+         integer :: cc
+         real(r8) :: class_sum
+
+         area = 0._r8
+         IF (.not. present(lccpct_patches)) RETURN
+         IF (.not. present(new_patch_area)) RETURN
+         IF (np > size(new_patch_area)) RETURN
+         IF (np > size(lccpct_patches,1)) RETURN
+         IF (c < lbound(lccpct_patches,2) .or. c > ubound(lccpct_patches,2)) RETURN
+
+         class_sum = 0._r8
+         DO cc = lbound(lccpct_patches,2), ubound(lccpct_patches,2)
+            class_sum = class_sum + max(0._r8, lccpct_patches(np, cc))
+         ENDDO
+         IF (class_sum <= tiny(1._r8)) RETURN
+
+         area = max(0._r8, new_patch_area(np)) * max(0._r8, lccpct_patches(np, c)) / class_sum
+      END FUNCTION lulcc_target_class_area
+
+      REAL(r8) FUNCTION remap_denominator(np, wsum, conserve_mass) RESULT(denom)
+         integer, intent(in) :: np
+         real(r8), intent(in) :: wsum
+         logical, intent(in) :: conserve_mass
+
+         denom = max(wsum, tiny(1._r8))
+         IF (conserve_mass .and. present(new_patch_area)) THEN
+            IF (np <= size(new_patch_area) .and. new_patch_area(np) > tiny(1._r8)) THEN
+               denom = new_patch_area(np)
+            ENDIF
+         ENDIF
+      END FUNCTION remap_denominator
    END SUBROUTINE remap_land_tracer_lulcc_state
 
    SUBROUTINE clear_land_tracer_lulcc_snapshot ()

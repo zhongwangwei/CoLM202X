@@ -258,8 +258,9 @@
     ! ------------------------------------------------------------------
     ! 9. CH4 history output control
     ! ------------------------------------------------------------------
-    ! Use 'all' for legacy full diagnostics, 'core' for global production
-    ! runs, 'none' to suppress, or a comma-separated list of f_* variables.
+    ! Use 'core' for compact production output, 'diagnostic' for the
+    ! previous broad core set, 'all' for every CH4 diagnostic, 'none'
+    ! to suppress, or a comma-separated list of f_* variables.
     DEF_METHANE%write_ch4_history = .true.
     DEF_METHANE%ch4_history_vars  = 'core'
 

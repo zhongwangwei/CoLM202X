@@ -102,8 +102,7 @@ PROGRAM CoLM
 
    USE MOD_ParameterOptimization
 #ifdef TRACER
-   USE MOD_Tracer_Main, only: land_tracer_init => tracer_init, &
-                              land_tracer_final => tracer_final
+   USE MOD_Tracer_Main, only: land_tracer_init, land_tracer_final
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &

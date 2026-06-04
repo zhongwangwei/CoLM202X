@@ -1355,14 +1355,18 @@ contains
 
 				IF (patchtype == 2) THEN
 					methane_surf_flux_wetland(ipatch) = methane_surf_flux_tot
-				ELSEIF (patchtype == 0) THEN
-					methane_soil_finundated(ipatch) = finundated
-					methane_soil_zwt(ipatch) = zwt
-					IF (is_rice_paddy) THEN
-						methane_surf_flux_rice(ipatch) = methane_surf_flux_tot
-					ELSE
-						methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
-					ENDIF
+					ELSEIF (patchtype == 0) THEN
+						methane_soil_finundated(ipatch) = finundated
+						methane_soil_zwt(ipatch) = zwt
+						IF (is_rice_paddy) THEN
+							! Rice is a CFT fraction inside the soil patch.  Split the
+							! mixed-patch flux by rice area fraction for diagnostics instead
+							! of assigning the whole soil-patch flux to rice.
+							methane_surf_flux_rice(ipatch) = rice_pft_frac * methane_surf_flux_tot
+							methane_surf_flux_soil(ipatch) = (1._r8 - rice_pft_frac) * methane_surf_flux_tot
+						ELSE
+							methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
+						ENDIF
 				ELSEIF (patchtype == 4 .and. DEF_METHANE%allowlakeprod) THEN
 					methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
 				ENDIF

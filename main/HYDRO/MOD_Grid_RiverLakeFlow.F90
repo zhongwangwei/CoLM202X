@@ -32,10 +32,10 @@ MODULE MOD_Grid_RiverLakeFlow
       tracer_particle_forcing_put, tracer_particle_read_restart
 #endif
 #ifdef TRACER
-   USE MOD_Tracer_RiverLake, only: tracer_init, tracer_init_from_water, &
+   USE MOD_Tracer_RiverLake, only: river_lake_tracer_init, tracer_init_from_water, &
       tracer_input_from_runoff, &
       tracer_substep, tracer_flush_acc, &
-      read_tracer_restart, tracer_final, acc_trc_inp, acc_rnof_ref, trc_mass, trc_inp_buf, trc_flux_out, &
+      read_tracer_restart, river_lake_tracer_final, acc_trc_inp, acc_rnof_ref, trc_mass, trc_inp_buf, trc_flux_out, &
       tracer_refresh_state, tracer_diag_accumulate_substep, &
       trc_levsto, trc_dry_drain, trc_reactive_source, levee_tracer_repartition, &
       get_cell_volume_dep => get_cell_volume, trc_conc_dep => trc_conc
@@ -128,7 +128,7 @@ CONTAINS
 
 #ifdef TRACER
          trc_restart_found = .false.
-         CALL tracer_init()
+         CALL river_lake_tracer_init()
          IF (ntracers > 0) THEN
             allocate(trc_missing(ntracers))
             trc_missing = .true.   ! assume every tracer missing if no restart
@@ -1801,7 +1801,7 @@ CONTAINS
          CALL levee_final()
       CALL bifurcation_final()
 #ifdef TRACER
-      CALL tracer_final()
+      CALL river_lake_tracer_final()
 #endif
 
       ! acc_rnof_uc is owned by MOD_Grid_RiverLakeTimeVars and freed by

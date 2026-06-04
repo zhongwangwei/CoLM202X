@@ -396,10 +396,11 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! Global-run diagnostics / guard rails.
       ! write_ch4_history=false suppresses all CH4 history variables.
       ! ch4_history_vars accepts:
-      !   'core'  : compact global-run set (default; avoids writing every
-      !             depth/split/microbial diagnostic each month);
-      !   'all'   : legacy behavior, emit every CH4 diagnostic;
-      !   'none'  : suppress all CH4 diagnostics;
+      !   'core'       : compact global-run set (default): surface flux,
+      !                  production, oxidation, and total column CH4;
+      !   'diagnostic' : previous broad core set for debugging/global audits;
+      !   'all'        : legacy behavior, emit every CH4 diagnostic;
+      !   'none'       : suppress all CH4 diagnostics;
       !   comma-separated NetCDF variable names for an exact custom set.
       logical :: write_ch4_history = .true.
       character(len=4096) :: ch4_history_vars = 'core'
@@ -904,7 +905,8 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (len_trim(DEF_METHANE%ch4_history_vars) == 0) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: ch4_history_vars must be core/all/none or a comma-separated list'
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: ch4_history_vars must be core/diagnostic/all/none or a comma-separated list'
          bad = .true.
       ENDIF
       IF (DEF_METHANE%tiller_C <= 0._r8) THEN
@@ -982,6 +984,9 @@ CONTAINS
       ! Runtime per-variable gate for methane history output.
       ! See DEF_METHANE%ch4_history_vars in Methane_type.
       character(len=*), intent(in) :: varname
+      character(len=4096), save :: cached_raw = ' '
+      character(len=4096), save :: cached_list = ' '
+      integer, save :: cached_mode = -1
       character(len=4096) :: list
       character(len=256)  :: v
 
@@ -991,28 +996,69 @@ CONTAINS
       list = tracer_lower(adjustl(trim(DEF_METHANE%ch4_history_vars)))
       v    = tracer_lower(adjustl(trim(varname)))
 
-      SELECT CASE (trim(list))
-      CASE ('all','*')
+      ! History gates are queried dozens of times per history write.  Cache
+      ! the normalized selector/list so custom comma lists do not get reparsed
+      ! for every variable.  Rebuild automatically if the namelist value is
+      ! changed between calls.
+      IF (trim(list) /= trim(cached_raw)) THEN
+         cached_raw  = list
+         cached_list = compact_commas(trim(list))
+         SELECT CASE (trim(cached_list))
+         CASE ('all','*')
+            cached_mode = 1
+         CASE ('none','off','false','.false.')
+            cached_mode = 0
+         CASE ('core','default','minimal','fast')
+            cached_mode = 2
+         CASE ('diagnostic','extended','debug')
+            cached_mode = 3
+         CASE DEFAULT
+            cached_mode = 4
+         END SELECT
+      ENDIF
+
+      SELECT CASE (cached_mode)
+      CASE (1)
          methane_history_enabled = .true.
-      CASE ('none','off','false','.false.')
-         methane_history_enabled = .false.
-      CASE ('core','default')
+      CASE (2)
          methane_history_enabled = methane_history_is_core(trim(v))
+      CASE (3)
+         methane_history_enabled = methane_history_is_diagnostic(trim(v))
+      CASE (4)
+         methane_history_enabled = index(','//trim(cached_list)//',', ','//trim(v)//',') > 0
       CASE DEFAULT
-         methane_history_enabled = index(','//compact_commas(trim(list))//',', ','//trim(v)//',') > 0
+         methane_history_enabled = .false.
       END SELECT
    END FUNCTION methane_history_enabled
 
    logical FUNCTION methane_history_is_core (v)
       character(len=*), intent(in) :: v
 
+      ! Keep the default history set intentionally small for global CH4 runs.
+      ! Use ch4_history_vars='diagnostic' to recover the previous broad core.
       SELECT CASE (trim(v))
       CASE ( &
-	         'f_net_methane', &
-	         'f_methane_surf_flux_tot', &
-	         'f_methane_surf_flux_active_total_without_lake', &
-	         'f_methane_surf_flux_global_total_with_lake', &
-	         'f_methane_surf_flux_tot_phys', &
+         'f_methane_surf_flux_tot', &
+         'f_methane_prod_tot', &
+         'f_methane_oxid_tot', &
+         'f_totcol_methane')
+         methane_history_is_core = .true.
+      CASE DEFAULT
+         methane_history_is_core = .false.
+      END SELECT
+   END FUNCTION methane_history_is_core
+
+   logical FUNCTION methane_history_is_diagnostic (v)
+      character(len=*), intent(in) :: v
+
+      ! Broad diagnostic set preserved from the former 'core' selector.
+      SELECT CASE (trim(v))
+      CASE ( &
+         'f_net_methane', &
+         'f_methane_surf_flux_tot', &
+         'f_methane_surf_flux_active_total_without_lake', &
+         'f_methane_surf_flux_global_total_with_lake', &
+         'f_methane_surf_flux_tot_phys', &
          'f_methane_surf_aere', &
          'f_methane_surf_ebul', &
          'f_methane_surf_diff', &
@@ -1036,25 +1082,27 @@ CONTAINS
          'f_co2_net_tot_lake', &
          'f_totcol_methane_lake', &
          'f_forc_pmethanem', &
-	         'f_layer_sat_lag', &
-	         'f_annavg_finrw', &
-	         'f_methane_dfsat_tot', &
-	         'f_f_h2osfc', &
-	         'f_methane_finundated', &
-	         'f_methane_soil_finundated', &
-	         'f_methane_soil_zwt', &
-	         'f_inund_flood_patch', &
-	         'f_inund_flood_depth_patch', &
-	         'f_wetland_frac_patch', &
-	         'f_methane_surf_flux_wetland', &
-	         'f_methane_surf_flux_soil', &
-	         'f_methane_surf_flux_lake', &
-	         'f_methane_surf_flux_rice')
-	         methane_history_is_core = .true.
+         'f_layer_sat_lag', &
+         'f_annavg_finrw', &
+         'f_methane_dfsat_tot', &
+         'f_f_h2osfc', &
+         'f_methane_finundated', &
+         'f_methane_soil_finundated', &
+         'f_methane_soil_zwt', &
+         'f_inund_flood_patch', &
+         'f_inund_flood_depth_patch', &
+         'f_wetland_frac_patch', &
+         'f_methane_surf_flux_wetland', &
+         'f_methane_surf_flux_soil', &
+         'f_methane_surf_flux_lake', &
+         'f_methane_surf_flux_lake_intensive', &
+         'f_methane_surf_flux_rice', &
+         'f_methane_surf_flux_rice_intensive')
+         methane_history_is_diagnostic = .true.
       CASE DEFAULT
-         methane_history_is_core = .false.
+         methane_history_is_diagnostic = .false.
       END SELECT
-   END FUNCTION methane_history_is_core
+   END FUNCTION methane_history_is_diagnostic
 
    character(len=4096) FUNCTION compact_commas (s)
       ! Lower-level namelist convenience: allow users to write

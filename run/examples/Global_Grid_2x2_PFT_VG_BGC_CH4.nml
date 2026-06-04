@@ -76,12 +76,6 @@
    DEF_TRACER_REF_RATIO   = "1.0,1.0,1.0"
    DEF_TRACER_INIT_DELTA  = "0.0,0.0,0.0"
    DEF_TRACER_REACTIVE_DECAY_RATE = "0.0,0.0,0.0"
-   DEF_USE_METHANE_para     = .true.
-   DEF_METHANE_only_wetland = .false.
-   DEF_METHANE_enable_rice_paddy = .false.
-   DEF_file_METHANE_para    = "run/standard_ch4_parameter.nml"
-   DEF_TRACER_REACTIVE_PARAM_FILES = "CH4:run/standard_ch4_parameter.nml"
-   DEF_METHANE_inundation_mode = "hybrid"
-   DEF_TRACER_REACTIVE_OPTIONS = "CH4:inundation_mode=hybrid"
+   DEF_TRACER_PARAM_FILES = "CH4:run/standard_ch4_parameter.nml"
 
 /

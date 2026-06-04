@@ -32,23 +32,30 @@ MODULE MOD_Tracer_Defs
    integer :: ntracers = 0
    type(tracer_info_type), allocatable :: tracers(:)
 
-	   real(r8), parameter :: Rsmow_18O = 2.0052e-3_r8
-	   real(r8), parameter :: Rsmow_D   = 1.5576e-4_r8
-	   real(r8), parameter :: trc_tiny = 1.0e-30_r8
-	   ! ------------------------------------------------------------------
-	   ! DELTA DIAGNOSTIC INVARIANT
-	   !
-	   ! Any official isotope delta diagnostic must aggregate tracer material
-	   ! and water first, then convert once:
-	   !
-	   !    delta = mass_to_delta(sum(tracer_mass), sum(water_mass), ref_ratio)
-	   !
-	   ! Never average per-step/per-cell delta values, and do not average R
-	   ! unless that R is explicitly weighted by its matching water amount.
-	   ! Arithmetic means of delta or unweighted R bias low-water states and can
-	   ! create apparent isotope drift even when tracer mass is conserved.
-	   ! ------------------------------------------------------------------
-	   ! Physical minimum water mass (kg/m² ≈ mm) for delta diagnostics.
+      real(r8), parameter :: Rsmow_18O = 2.0052e-3_r8
+      real(r8), parameter :: Rsmow_D   = 1.5576e-4_r8
+      real(r8), parameter :: trc_tiny = 1.0e-30_r8
+      ! Numerical zero and physical denominator floors are deliberately
+      ! separate.  trc_tiny is only an arithmetic nonzero guard.  Transport
+      ! ratios from finite water pools need a larger physically resolved water
+      ! floor, otherwise near-dry pools can export arbitrarily large R =
+      ! tracer/water before downstream sanity caps see the problem.
+      ! Units follow land water storage conventions (kg/m2 ~= mm).
+      real(r8), parameter :: trc_water_min_for_ratio = 1.0e-12_r8
+      ! ------------------------------------------------------------------
+      ! DELTA DIAGNOSTIC INVARIANT
+      !
+      ! Any official isotope delta diagnostic must aggregate tracer material
+      ! and water first, then convert once:
+      !
+      !    delta = mass_to_delta(sum(tracer_mass), sum(water_mass), ref_ratio)
+      !
+      ! Never average per-step/per-cell delta values, and do not average R
+      ! unless that R is explicitly weighted by its matching water amount.
+      ! Arithmetic means of delta or unweighted R bias low-water states and can
+      ! create apparent isotope drift even when tracer mass is conserved.
+      ! ------------------------------------------------------------------
+      ! Physical minimum water mass (kg/m² ≈ mm) for delta diagnostics.
    ! Below this the water pool is floating-point noise (e.g. wa ≈ 1e-5
    ! mm in a patch that just went near zero), and R_sample = trc/water
    ! amplifies round-off into ±10000‰ deltas that are not physical.
@@ -75,15 +82,16 @@ MODULE MOD_Tracer_Defs
    PUBLIC :: tracer_defs_init, tracer_defs_final
    PUBLIC :: mass_to_delta, delta_to_R, R_to_mass
    PUBLIC :: tracer_is_isotope, tracer_is_conservative, tracer_is_reactive
-   PUBLIC :: tracer_is_particle, tracer_uses_land_water_transport
+   PUBLIC :: tracer_is_particle, tracer_is_nonvolatile_solute, tracer_uses_land_water_transport
    PUBLIC :: tracer_uses_delta_diagnostics, tracer_can_use_fixed_signature
    PUBLIC :: tracer_init_water_ratio, tracer_reactive_decay_fraction
    PUBLIC :: tracer_param_file_for_index
    PUBLIC :: tracer_lower, tracer_upper
    PUBLIC :: ntracers, tracers
    PUBLIC :: tracer_info_type
-   PUBLIC :: Rsmow_18O, Rsmow_D, trc_tiny, trc_water_min_for_delta, &
-             trc_flux_water_min_for_delta, trc_delta_sanity_max
+      PUBLIC :: Rsmow_18O, Rsmow_D, trc_tiny, trc_water_min_for_ratio, &
+                trc_water_min_for_delta, trc_flux_water_min_for_delta, &
+                trc_delta_sanity_max
 
 CONTAINS
 
@@ -118,6 +126,7 @@ CONTAINS
       allocate(tokens(tok_cap))
 
       CALL parse_csv(DEF_TRACER_NAMES, tokens, ntokens)
+      CALL warn_csv_count('DEF_TRACER_NAMES', ntokens, ntracers)
       ! parse_csv keeps counting past the tokens() capacity to
       ! report the raw comma count; only the first `size(tokens)` entries
       ! are actually populated. Use `n_stored` as the real upper bound so
@@ -138,7 +147,7 @@ CONTAINS
       ! only by illegal characters (e.g. 'H2O-16' vs 'H2O_16') collapse
       ! to the same clean token; MOD_Hist would then emit duplicate
       ! NetCDF variable names and crash. Mirrors the river-side
-      ! dedup loop in MOD_Tracer_RiverLake:tracer_init.
+      ! dedup loop in MOD_Tracer_RiverLake:river_lake_tracer_init.
          DO i = 1, ntracers
             DO j = 1, i - 1
                IF (trim(tracers(i)%name) == trim(tracers(j)%name)) THEN
@@ -158,6 +167,7 @@ CONTAINS
          ENDDO
 
       CALL parse_csv(DEF_TRACER_TYPES, tokens, ntokens)
+      CALL warn_csv_count('DEF_TRACER_TYPES', ntokens, ntracers)
       ! Same n_stored cap as the name loop above — avoids leaving
       ! tracers(size(tokens)+1 : ntokens)%category uninitialised when the
       ! TYPES CSV (or DEF_TRACER_NUM) exceeds the tokens() capacity.
@@ -169,11 +179,14 @@ CONTAINS
          tracers(i)%category = 'isotope'
       ENDDO
 
-      CALL parse_csv_real(DEF_TRACER_MRAT, ntracers, tracers(:)%mol_weight, 18.0_r8)
-      CALL parse_csv_real(DEF_TRACER_REF_RATIO, ntracers, tracers(:)%ref_ratio, 1.0_r8)
-      CALL parse_csv_real(DEF_TRACER_INIT_DELTA, ntracers, tracers(:)%init_delta, 0.0_r8)
+      CALL parse_csv_real(DEF_TRACER_MRAT, ntracers, tracers(:)%mol_weight, 18.0_r8, &
+         'DEF_TRACER_MRAT')
+      CALL parse_csv_real(DEF_TRACER_REF_RATIO, ntracers, tracers(:)%ref_ratio, 1.0_r8, &
+         'DEF_TRACER_REF_RATIO')
+      CALL parse_csv_real(DEF_TRACER_INIT_DELTA, ntracers, tracers(:)%init_delta, 0.0_r8, &
+         'DEF_TRACER_INIT_DELTA')
       CALL parse_csv_real(DEF_TRACER_REACTIVE_DECAY_RATE, ntracers, &
-         tracers(:)%reactive_decay_rate, 0.0_r8)
+         tracers(:)%reactive_decay_rate, 0.0_r8, 'DEF_TRACER_REACTIVE_DECAY_RATE')
 
       CALL apply_tracer_param_files ()
 
@@ -420,6 +433,16 @@ CONTAINS
          trim(tracers(itrc)%category) == 'reactive'
    END FUNCTION tracer_is_reactive
 
+   logical FUNCTION tracer_is_nonvolatile_solute (itrc)
+      ! Conservative solutes such as chloride are dissolved material, not
+      ! water isotopologues. They move with liquid runoff/infiltration but
+      ! atmospheric phase changes remove/add water only; evap/subl/transp
+      ! leave solute behind and dew/frost do not import it unless a separate
+      ! deposition source is provided.
+      integer, intent(in) :: itrc
+      tracer_is_nonvolatile_solute = tracer_is_conservative(itrc)
+   END FUNCTION tracer_is_nonvolatile_solute
+
    logical FUNCTION tracer_is_particle (itrc)
       ! Particle tracers (e.g. suspended sediment) carry concentration per
       ! unit water like conservative tracers, but additionally settle and
@@ -488,15 +511,15 @@ CONTAINS
       tracer_reactive_decay_fraction = 1._r8 - exp(-kdt)
    END FUNCTION tracer_reactive_decay_fraction
 
-	   real(r8) FUNCTION mass_to_delta (trc_mass, water_mass, ref_ratio)
-	      USE MOD_Vars_Global, only: spval
-	      real(r8), intent(in) :: trc_mass, water_mass, ref_ratio
-	      real(r8) :: R_sample
-	      ! Public delta conversion point. Callers should pass already-aggregated
-	      ! tracer and water amounts for the requested history/check window.
-	      ! Do not call this on per-step values and then average the returned
-	      ! delta; aggregate mass and water first, convert last.
-	      ! abs(water_mass) guard: signed wa (aquifer-debt from wetland deficit)
+      real(r8) FUNCTION mass_to_delta (trc_mass, water_mass, ref_ratio)
+         USE MOD_Vars_Global, only: spval
+         real(r8), intent(in) :: trc_mass, water_mass, ref_ratio
+         real(r8) :: R_sample
+         ! Public delta conversion point. Callers should pass already-aggregated
+         ! tracer and water amounts for the requested history/check window.
+         ! Do not call this on per-step values and then average the returned
+         ! delta; aggregate mass and water first, convert last.
+         ! abs(water_mass) guard: signed wa (aquifer-debt from wetland deficit)
       ! and its matching signed trc_wa still produce a well-defined ratio
       ! (both numerator and denominator share sign → R_sample positive).
       ! Physically non-negative pools (wliq/wice/wdsrf/wetwat/scv/ldew/flux)
@@ -608,11 +631,25 @@ CONTAINS
       ENDIF
    END SUBROUTINE parse_csv
 
-   SUBROUTINE parse_csv_real (csvstr, n, vals, default_val)
+   SUBROUTINE warn_csv_count(field_name, ntokens, expected)
+      USE MOD_SPMD_Task, only: p_is_master
+      character(len=*), intent(in) :: field_name
+      integer, intent(in) :: ntokens, expected
+
+      IF (ntokens == expected) RETURN
+      IF (p_is_master) THEN
+         WRITE(*,'(A,A,A,I0,A,I0,A)') ' WARNING: ', trim(field_name), ' has ', &
+            ntokens, ' entries but DEF_TRACER_NUM=', expected, '; defaults/fallbacks will be used.'
+      ENDIF
+   END SUBROUTINE warn_csv_count
+
+   SUBROUTINE parse_csv_real (csvstr, n, vals, default_val, field_name)
+      USE MOD_SPMD_Task, only: p_is_master
       character(len=*), intent(in)  :: csvstr
       integer, intent(in) :: n
       real(r8), intent(out) :: vals(n)
       real(r8), intent(in) :: default_val
+      character(len=*), intent(in), optional :: field_name
       character(len=32), allocatable :: tokens(:)
       integer :: ntokens, i, ios, tok_cap
       ! Match tokens capacity to the caller's requested n so a DEF_TRACER_*
@@ -622,10 +659,18 @@ CONTAINS
       tok_cap = max(n, 16)
       allocate(tokens(tok_cap))
       CALL parse_csv(csvstr, tokens, ntokens)
+      IF (present(field_name)) CALL warn_csv_count(field_name, ntokens, n)
       DO i = 1, n
          IF (i <= ntokens .and. i <= size(tokens)) THEN
             READ(tokens(i), *, iostat=ios) vals(i)
-            IF (ios /= 0) vals(i) = default_val
+            IF (ios /= 0) THEN
+               vals(i) = default_val
+               IF (present(field_name) .and. p_is_master) THEN
+                  WRITE(*,'(A,A,A,I0,A,A,A,E12.5)') ' WARNING: ', trim(field_name), &
+                     ' entry ', i, ' is not numeric ("', trim(tokens(i)), '"); using default ', &
+                     default_val
+               ENDIF
+            ENDIF
          ELSE
             vals(i) = default_val
          ENDIF

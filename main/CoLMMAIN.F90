@@ -201,39 +201,23 @@ SUBROUTINE CoLMMAIN ( &
       DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, DEF_SPLIT_SOILSNOW, &
       DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW, DEF_URBAN_RUN
 #ifdef TRACER
-   USE MOD_Tracer_Defs,         only: ntracers, trc_tiny, tracer_uses_land_water_transport
+   USE MOD_Tracer_Main, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
+      tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland, &
+      tracer_newsnow, tracer_save_storage, tracer_balance_check, &
+      tracer_apply_reactive_processes, &
+      trc_wliq_soisno, trc_wice_soisno, trc_scv, &
+      trc_ldew_rain, trc_ldew_snow, trc_sm_carry
 #endif
 #ifdef TRACER
-   USE MOD_Tracer_Precip,       only: tracer_precip
+   USE MOD_Tracer_Hist, only: tracer_hist_accumulate
 #endif
 #ifdef TRACER
-   USE MOD_Tracer_Evapo,        only: tracer_evapo
-#endif
-#ifdef TRACER
-   USE MOD_Tracer_SoilWater,    only: tracer_soil_water, tracer_wetland
+   USE MOD_Tracer_SpecialPatches, only: tracer_glacier_patch, tracer_waterbody_patch
 #endif
    ! tracer_snow_layer_adj was replaced by tracer-aware combine/divide:
    ! snowlayerscombine / snowlayersdivide (and SNICAR variants) now carry
    ! trc_wliq / trc_wice / trc_scv through the same per-layer topology as
    ! the water side, so no post-hoc redistribution is needed.
-#ifdef TRACER
-   USE MOD_Tracer_Snow,         only: tracer_newsnow
-#endif
-
-#ifdef TRACER
-   USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
-      tracer_apply_reactive_processes
-#endif
-#ifdef TRACER
-   USE MOD_Tracer_Hist,         only: tracer_hist_accumulate
-#endif
-#ifdef TRACER
-   USE MOD_Tracer_Vars,         only: trc_wliq_soisno, trc_wice_soisno, trc_scv, &
-                                      trc_ldew_rain, trc_ldew_snow, trc_sm_carry
-#endif
-#ifdef TRACER
-   USE MOD_Tracer_SpecialPatches, only: tracer_glacier_patch, tracer_waterbody_patch
-#endif
    USE MOD_LeafInterception, only: LEAF_interception_wrap
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LeafInterception, only: LEAF_interception_pftwrap
@@ -748,6 +732,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: etroot_aquifer_trc
    real(r8) :: imperv_evap_wdsrf_trc
    real(r8) :: imperv_evap_soil_trc
+   real(r8) :: imperv_subl_soil_trc
    real(r8) :: snow_qout_layer_trc(maxsnl+1:0)
    real(r8) :: qcharge_trc
    real(r8) :: waterstorage_trc_beg
@@ -1200,8 +1185,16 @@ SUBROUTINE CoLMMAIN ( &
             ! Update saved states to post-THERMAL for WATER delta tracking
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
+            ! WATER_VSF fills these TRACER diagnostics itself.  WATER_2014
+            ! has no TRACER arguments, so initialize its diagnostics here to
+            ! prevent stale stack values from being passed to tracer_soil_water.
+            etroot_trc(:) = 0._r8
+            wblc_ice_sink_trc(:) = 0._r8
+            etroot_actual_trc(:) = 0._r8
+            etroot_aquifer_trc = 0._r8
             imperv_evap_wdsrf_trc = 0._r8
             imperv_evap_soil_trc  = 0._r8
+            imperv_subl_soil_trc  = 0._r8
 #endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
@@ -1218,21 +1211,25 @@ SUBROUTINE CoLMMAIN ( &
                  qsdew_snow        ,qsubl_snow        ,qfros_snow        ,fsno              ,&
                  rsur              ,rnof              ,qinfl             ,pondmx            ,&
                  ssi               ,wimp              ,smpmin            ,zwt               ,&
-                 wdsrf             ,wa                ,qcharge           ,&
+	                 wdsrf             ,wa                ,qcharge           &
+#ifdef TRACER
+	                ,qlayer            ,etroot_trc        ,etroot_actual_trc &
+	                ,etroot_aquifer_trc,snow_qout_layer_trc(lbsn:0)          &
+#endif
 
 #if (defined CaMa_Flood)
-                 !add variables for flood depth [mm], flood fraction [0-1]
-                 !and re-infiltration [mm/s] calculation.
-                 flddepth          ,fldfrc            ,qinfl_fld         ,&
+	                 !add variables for flood depth [mm], flood fraction [0-1]
+	                 !and re-infiltration [mm/s] calculation.
+	                ,flddepth          ,fldfrc            ,qinfl_fld         &
 #endif
 ! SNICAR model variables
-                 forc_aer          ,&
+	                ,forc_aer          ,&
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
                  mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)  ,&
 !  irrigation variables
-                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
-                 rsub = rnof - rsur
-         ELSE
+	                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
+	                 rsub = rnof - rsur
+	         ELSE
 
             CALL WATER_VSF (ipatch ,patchtype,is_dry_lake,   lb          ,nl_soil           ,&
                  deltim            ,z_soisno(lb:)     ,dz_soisno(lb:)    ,zi_soisno(lb-1:)  ,&
@@ -1261,6 +1258,7 @@ SUBROUTINE CoLMMAIN ( &
                 ,etroot_aquifer_trc                                                         &
                 ,imperv_evap_wdsrf_trc                                                      &
                 ,imperv_evap_soil_trc                                                       &
+                ,imperv_subl_soil_trc                                                       &
                 ,snow_qout_layer_trc(lbsn:0)                                                 &
 #endif
 #if (defined CaMa_Flood)
@@ -1340,7 +1338,7 @@ SUBROUTINE CoLMMAIN ( &
                      qseva, qsdew, qsubl, qfros, &
                      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
                      qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
-                     sm, fsno, DEF_SPLIT_SOILSNOW .and. .not. (patchtype == 1 .and. DEF_URBAN_RUN), &
+                     sm, fsno, DEF_SPLIT_SOILSNOW, &
                      wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                      wliq_soisno_old_trc, wice_soisno_old_trc, &
                      wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
@@ -1351,6 +1349,7 @@ SUBROUTINE CoLMMAIN ( &
                      waterstorage_trc_ground, &
                      imperv_evap_wdsrf = imperv_evap_wdsrf_trc, &
                      imperv_evap_soil = imperv_evap_soil_trc, &
+                     imperv_subl_soil = imperv_subl_soil_trc, &
                      snow_qout_layer = snow_qout_layer_trc(snl+1:0), &
                      tleaf_frac = tleaf, &
                      t_soisno_frac = t_soisno(snl+1:nl_soil), &
@@ -1364,7 +1363,7 @@ SUBROUTINE CoLMMAIN ( &
                      qseva, qsdew, qsubl, qfros, &
                      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
                      qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
-                     sm, fsno, DEF_SPLIT_SOILSNOW .and. .not. (patchtype == 1 .and. DEF_URBAN_RUN), &
+                     sm, fsno, DEF_SPLIT_SOILSNOW, &
                      wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
                      wliq_soisno_old_trc, wice_soisno_old_trc, &
                      wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
@@ -1375,6 +1374,7 @@ SUBROUTINE CoLMMAIN ( &
                      waterstorage_trc_ground, &
                      imperv_evap_wdsrf = imperv_evap_wdsrf_trc, &
                      imperv_evap_soil = imperv_evap_soil_trc, &
+                     imperv_subl_soil = imperv_subl_soil_trc, &
                      tleaf_frac = tleaf, &
                      t_soisno_frac = t_soisno(snl+1:nl_soil), &
                      forc_q_frac = forc_q, &

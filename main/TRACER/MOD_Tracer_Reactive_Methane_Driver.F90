@@ -28,7 +28,8 @@ CONTAINS
 		use MOD_SPMD_Task
 			USE MOD_Tracer_Reactive_Methane_BgcLink, only: tracer_ch4_bgc_patch_inputs, &
 			     get_wetland_veg_proxy, get_rice_veg_proxy, is_paddy_rice_live, &
-			     organic_max, get_biome_f_methane, get_biome_redoxlag
+			     rice_days_since_harvest, organic_max, get_biome_f_methane, &
+			     get_biome_redoxlag
 			USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_active
 		USE MOD_Tracer_Reactive_Methane_Microbes, only: methane_microbes_step, &
 		     microbial_prod_potential, microbial_oxid_potential
@@ -141,8 +142,10 @@ CONTAINS
 		real(r8), intent(in), optional :: rice_pft_frac_in
 
 		logical  :: is_rice_paddy
+		logical  :: rice_parameter_active
 		logical  :: is_floodplain_active
 		real(r8) :: rice_pft_frac
+		integer  :: rice_dsh
 
 		real(r8):: &
 				crootfr  (1:nl_soil)     , &! fraction of roots for carbon in each soil layer
@@ -187,6 +190,13 @@ CONTAINS
 		   rice_pft_frac = rice_pft_frac_in
 		ELSE
 		   rice_pft_frac = 0._r8
+		ENDIF
+		rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
+		rice_parameter_active = is_rice_paddy .and. rice_pft_frac > 0._r8
+		IF (rice_parameter_active .and. .not. is_paddy_rice_live(i)) THEN
+		   rice_dsh = rice_days_since_harvest(i, idate(2))
+		   rice_parameter_active = rice_dsh >= 0 .and. &
+		      real(rice_dsh, r8) < DEF_METHANE%rice_drain_window_days
 		ENDIF
 
 		forc_t_eff = forc_t
@@ -276,7 +286,7 @@ CONTAINS
 			! (architectural rule enforced by scripts/ci/check_methane_integration.sh).
 			IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
 			   IF (is_paddy_rice_live(i)) THEN
-			      CALL get_rice_veg_proxy (lai, i)
+			      CALL get_rice_veg_proxy (lai, i, rice_pft_frac)
 			   ENDIF
 			ENDIF
 
@@ -286,13 +296,14 @@ CONTAINS
 			! the legacy DEF_METHANE%f_methane scalar (backwards compatible).
 			IF (allocated(biome_f_methane_patch) .and. &
 			    i >= 1 .and. i <= size(biome_f_methane_patch)) THEN
-				is_floodplain_active = patchtype == 0 .and. .not. is_rice_paddy .and. &
+				is_floodplain_active = patchtype == 0 .and. &
 				                       DEF_METHANE%use_routing_for_soil .and. &
 				                       allocated(f_inund_flood_patch) .and. &
 				                       i >= 1 .and. i <= size(f_inund_flood_patch) .and. &
 				                       f_inund_flood_patch(i) > DEF_METHANE%hybrid_soil_threshold
 				biome_f_methane_patch(i) = get_biome_f_methane (patchtype, dlat, cellorg(1), &
-				                                                is_rice_paddy, is_floodplain_active)
+				                                                is_rice_paddy, rice_pft_frac, &
+				                                                rice_parameter_active, is_floodplain_active)
 			ENDIF
 
 			! Biome-specific redoxlag lookup (Pangala 2017, Whalen 1990).
@@ -302,7 +313,8 @@ CONTAINS
 			IF (allocated(biome_redoxlag_patch) .and. &
 			    i >= 1 .and. i <= size(biome_redoxlag_patch)) THEN
 				biome_redoxlag_patch(i) = get_biome_redoxlag (patchtype, dlat, cellorg(1), &
-				                                              is_rice_paddy)
+				                                              is_rice_paddy, rice_pft_frac, &
+				                                              rice_parameter_active)
 			ENDIF
 					! f_h2osfc is maintained by the water module before methane_driver.
 					! Lake CH4 uses the CTSM-style sediment-carbon pathway, not the optional

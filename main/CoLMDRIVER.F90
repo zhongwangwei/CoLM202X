@@ -29,6 +29,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
 #ifdef TRACER
    USE MOD_Tracer_Main, only: tracer_resolve_step, tracer_lake_step, &
       tracer_wetland_decomp, tracer_soil_step, tracer_report
+   USE MOD_Tracer_Defs, only: ntracers
+   USE MOD_SPMD_Task, only: CoLM_stop
 #endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
@@ -79,6 +81,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
          ENDIF
 
          m = patchclass(i)
+
+#if (defined URBAN_MODEL) && (defined TRACER)
+         IF (DEF_URBAN_RUN .and. m.eq.URBAN .and. ntracers > 0) THEN
+            CALL CoLM_stop ('TRACER does not yet support full urban patches: ' // &
+               'CoLMMAIN_Urban has no tracer sub-surface state or runoff tracer update.')
+         ENDIF
+#endif
 
          steps_in_one_deltim = 1
          ! deltim need to be within 1800s for water body with snow in order to avoid large

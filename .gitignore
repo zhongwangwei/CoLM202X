@@ -11,3 +11,5 @@ lib
 *.a
 *.x
 *.log
+ppt_tracer/node_modules/
+/ppt_tracer

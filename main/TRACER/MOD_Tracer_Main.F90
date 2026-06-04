@@ -23,14 +23,23 @@ MODULE MOD_Tracer_Main
 
    IMPLICIT NONE
 
-   PUBLIC :: tracer_init, tracer_final
+   PUBLIC :: land_tracer_init, land_tracer_final
    PUBLIC :: tracer_resolve_step, tracer_lake_step, tracer_wetland_decomp
    PUBLIC :: tracer_soil_step, tracer_report
    PUBLIC :: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
+   ! Land TRACER facade for CoLMMAIN: keep the implementation split across
+   ! physics modules, but expose one import surface instead of making the
+   ! driver USE every low-level tracer module directly.
+   PUBLIC :: ntracers, trc_tiny, tracer_uses_land_water_transport
+   PUBLIC :: tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland
+   PUBLIC :: tracer_newsnow, tracer_save_storage, tracer_balance_check
+   PUBLIC :: tracer_apply_reactive_processes
+   PUBLIC :: trc_wliq_soisno, trc_wice_soisno, trc_scv
+   PUBLIC :: trc_ldew_rain, trc_ldew_snow, trc_sm_carry
 
 CONTAINS
 
-   SUBROUTINE tracer_init (numpatch, maxsnl, nl_soil, init_month, lc_year, jdate, &
+   SUBROUTINE land_tracer_init (numpatch, maxsnl, nl_soil, init_month, lc_year, jdate, &
       casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
       wice_soisno, wa, wdsrf, wetwat, scv, waterstorage)
 
@@ -106,7 +115,7 @@ CONTAINS
          deallocate(tracer_dummy_patch, tracer_dummy_soisno)
       ENDIF
 
-   END SUBROUTINE tracer_init
+   END SUBROUTINE land_tracer_init
 
    SUBROUTINE tracer_init_from_arrays (numpatch, maxsnl, nl_soil, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
@@ -138,9 +147,9 @@ CONTAINS
       logical :: found_restart, scv_missing, waterstorage_missing
       integer :: soil_init_month
 
-      ! Defensive: if a previous tracer_init left state behind (e.g. a
+      ! Defensive: if a previous land_tracer_init left state behind (e.g. a
       ! LULCC transition that rebuilt numpatch without an explicit
-      ! tracer_final call), release it so the re-allocation below uses
+      ! land_tracer_final call), release it so the re-allocation below uses
       ! the new numpatch. Without this the allocate() call would trip
       ! Fortran's "already allocated" runtime check, OR the save-level
       ! snap_* arrays in MOD_Tracer_Conservation would keep the old
@@ -275,12 +284,12 @@ CONTAINS
 
    END SUBROUTINE tracer_accumulate_fluxes
 
-   SUBROUTINE tracer_final ()
+   SUBROUTINE land_tracer_final ()
       CALL tracer_reactive_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
       CALL tracer_defs_final()
-   END SUBROUTINE tracer_final
+   END SUBROUTINE land_tracer_final
 
 END MODULE MOD_Tracer_Main
 #endif

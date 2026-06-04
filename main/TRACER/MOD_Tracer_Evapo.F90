@@ -5,7 +5,7 @@ MODULE MOD_Tracer_Evapo
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
-      tracer_init_water_ratio
+      tracer_init_water_ratio, tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max
    USE MOD_Tracer_Forcing, only: tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
@@ -367,8 +367,18 @@ CONTAINS
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
 
-         evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
-            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny)
+         IF (tracer_is_nonvolatile_solute(itrc)) THEN
+            evaporative_tracer_loss = 0._r8
+         ELSE
+            ! r_max ceiling only for fractionating isotope tracers; above the
+            ! ceiling, evaporation becomes non-fractionating so the pool R stops
+            ! increasing.  Nonvolatile solutes are handled above as zero
+            ! evaporative tracer loss.
+            evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
+               water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+               merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
+                     0._r8, tracer_fractionation_active(itrc)))
+         ENDIF
       END FUNCTION evaporative_tracer_loss
 
       real(r8) FUNCTION canopy_temp ()
@@ -409,6 +419,10 @@ CONTAINS
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
 
+         IF (tracer_is_nonvolatile_solute(itrc)) THEN
+            deposition_ratio_for = 0._r8
+            RETURN
+         ENDIF
          deposition_ratio_for = R_atm
          IF (.not. tracer_fractionation_active(itrc)) RETURN
          deposition_ratio_for = tracer_equilibrium_deposition_ratio(itrc, R_vapor, temp_k, from_ice)

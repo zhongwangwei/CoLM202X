@@ -66,6 +66,15 @@ MODULE MOD_Tracer_Particle
          character(len=*), intent(in) :: file_hist_ucat
          integer, intent(in) :: itime_in_file_ucat
       END SUBROUTINE particle_history_if
+
+      SUBROUTINE particle_remap_lulcc_if (patchclass_new, eindex_new, patchclass_old, eindex_old, &
+         lccpct_patches, old_patch_area)
+         USE MOD_Precision
+         integer, intent(in) :: patchclass_new(:), patchclass_old(:)
+         integer*8, intent(in) :: eindex_new(:), eindex_old(:)
+         real(r8), intent(in), optional :: lccpct_patches(:,:)
+         real(r8), intent(in), optional :: old_patch_area(:)
+      END SUBROUTINE particle_remap_lulcc_if
    end interface
 
    PRIVATE
@@ -84,6 +93,8 @@ MODULE MOD_Tracer_Particle
       procedure(particle_history_if),         pointer, nopass :: history => null()
       procedure(particle_noarg_if),           pointer, nopass :: flush_history => null()
       procedure(particle_write_restart_if),   pointer, nopass :: write_restart => null()
+      procedure(particle_noarg_if),           pointer, nopass :: save_lulcc => null()
+      procedure(particle_remap_lulcc_if),     pointer, nopass :: remap_lulcc => null()
       procedure(particle_noarg_if),           pointer, nopass :: final => null()
    end type particle_callbacks_type
 
@@ -100,6 +111,7 @@ MODULE MOD_Tracer_Particle
    PUBLIC :: tracer_particle_forcing_put, tracer_particle_diag_accumulate
    PUBLIC :: tracer_particle_calc
    PUBLIC :: tracer_particle_write_history, tracer_particle_flush_history
+   PUBLIC :: tracer_particle_save_lulcc_state, tracer_particle_remap_lulcc_state
 
 CONTAINS
 
@@ -133,7 +145,7 @@ CONTAINS
 
    SUBROUTINE register_particle_callbacks (name, has_fn, refresh_fn, init_fn, read_restart_fn, &
       forcing_put_fn, diag_accumulate_fn, calc_fn, history_fn, flush_history_fn, &
-      write_restart_fn, final_fn)
+      write_restart_fn, save_lulcc_fn, remap_lulcc_fn, final_fn)
 
       IMPLICIT NONE
       character(len=*), intent(in) :: name
@@ -147,6 +159,8 @@ CONTAINS
       procedure(particle_history_if),         optional :: history_fn
       procedure(particle_noarg_if),           optional :: flush_history_fn
       procedure(particle_write_restart_if),   optional :: write_restart_fn
+      procedure(particle_noarg_if),           optional :: save_lulcc_fn
+      procedure(particle_remap_lulcc_if),     optional :: remap_lulcc_fn
       procedure(particle_noarg_if),           optional :: final_fn
 
       integer :: idx
@@ -176,6 +190,8 @@ CONTAINS
       IF (present(history_fn))         particle_callbacks(idx)%history => history_fn
       IF (present(flush_history_fn))   particle_callbacks(idx)%flush_history => flush_history_fn
       IF (present(write_restart_fn))   particle_callbacks(idx)%write_restart => write_restart_fn
+      IF (present(save_lulcc_fn))      particle_callbacks(idx)%save_lulcc => save_lulcc_fn
+      IF (present(remap_lulcc_fn))     particle_callbacks(idx)%remap_lulcc => remap_lulcc_fn
       IF (present(final_fn))           particle_callbacks(idx)%final => final_fn
       CALL mark_particle_callbacks_dirty ()
 
@@ -218,6 +234,17 @@ CONTAINS
       CALL move_alloc(grown, particle_callbacks)
 
    END SUBROUTINE ensure_particle_callback_capacity
+
+   SUBROUTINE clear_particle_callbacks ()
+
+      IMPLICIT NONE
+
+      IF (allocated(particle_callbacks)) deallocate(particle_callbacks)
+      n_particle_callbacks = 0
+      particle_callbacks_ready = .false.
+      particle_refresh_dirty = .true.
+
+   END SUBROUTINE clear_particle_callbacks
 
    logical FUNCTION particle_registration_conflicts (name)
 
@@ -387,6 +414,40 @@ CONTAINS
 
    END SUBROUTINE tracer_particle_flush_history
 
+   SUBROUTINE tracer_particle_save_lulcc_state ()
+
+      IMPLICIT NONE
+      integer :: i
+
+      CALL prepare_particle_dispatch ()
+      DO i = 1, n_particle_callbacks
+         IF (particle_callback_enabled(i) .and. associated(particle_callbacks(i)%save_lulcc)) &
+            CALL particle_callbacks(i)%save_lulcc ()
+      ENDDO
+
+   END SUBROUTINE tracer_particle_save_lulcc_state
+
+   SUBROUTINE tracer_particle_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
+      lccpct_patches, old_patch_area)
+
+      IMPLICIT NONE
+      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
+      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
+      real(r8), intent(in), optional :: lccpct_patches(:,:)
+      real(r8), intent(in), optional :: old_patch_area(:)
+      integer :: i
+
+      CALL prepare_particle_dispatch ()
+      DO i = 1, n_particle_callbacks
+         IF (particle_callback_enabled(i) .and. associated(particle_callbacks(i)%remap_lulcc)) THEN
+            CALL particle_callbacks(i)%remap_lulcc (patchclass_new, eindex_new, patchclass_old, eindex_old, &
+               lccpct_patches, old_patch_area)
+         ENDIF
+      ENDDO
+      CALL mark_particle_callbacks_dirty ()
+
+   END SUBROUTINE tracer_particle_remap_lulcc_state
+
    SUBROUTINE tracer_particle_final ()
 
       IMPLICIT NONE
@@ -397,6 +458,7 @@ CONTAINS
          IF (particle_callback_enabled(i) .and. associated(particle_callbacks(i)%final)) &
             CALL particle_callbacks(i)%final ()
       ENDDO
+      CALL clear_particle_callbacks ()
 
    END SUBROUTINE tracer_particle_final
 

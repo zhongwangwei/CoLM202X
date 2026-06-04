@@ -95,6 +95,8 @@ MODULE MOD_Lulcc_Driver
 #ifdef TRACER
    USE MOD_Tracer_Reactive, only: tracer_reactive_save_lulcc_state, &
       tracer_reactive_remap_lulcc_state
+   USE MOD_Tracer_Particle, only: tracer_particle_save_lulcc_state, &
+      tracer_particle_remap_lulcc_state
    USE MOD_Tracer_Vars, only: save_land_tracer_lulcc_state, &
       remap_land_tracer_lulcc_state
    USE MOD_Tracer_Conservation, only: deallocate_tracer_conservation
@@ -108,6 +110,9 @@ MODULE MOD_Lulcc_Driver
 
    logical, intent(in)    :: greenwich   !true: greenwich time, false: local time
    integer, intent(inout) :: jdate(3)    !year, julian day, seconds of the starting time
+#ifdef TRACER
+   logical :: have_patch_area
+#endif
 !-----------------------------------------------------------------------
 
       ! allocate Lulcc memory
@@ -120,6 +125,7 @@ MODULE MOD_Lulcc_Driver
 #ifdef TRACER
       CALL save_land_tracer_lulcc_state ()
       CALL tracer_reactive_save_lulcc_state ()
+      CALL tracer_particle_save_lulcc_state ()
 #endif
 
       ! =============================================================
@@ -164,15 +170,31 @@ MODULE MOD_Lulcc_Driver
       IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_) .and. &
           allocated(landpatch%eindex) .and. allocated(landpatch_%eindex)) THEN
          CALL deallocate_tracer_conservation ()
+         have_patch_area = allocated(landpatch%pctshared) .and. allocated(landpatch_%pctshared)
          IF (allocated(lccpct_patches)) THEN
-            CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
-               patchclass_, landpatch_%eindex, lccpct_patches)
-            CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
-               patchclass_, landpatch_%eindex, lccpct_patches)
+            IF (have_patch_area) THEN
+               CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
+                  patchclass_, landpatch_%eindex, lccpct_patches, &
+                  landpatch%pctshared, landpatch_%pctshared)
+               CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
+                  patchclass_, landpatch_%eindex, lccpct_patches, &
+                  landpatch_%pctshared, landpatch%pctshared)
+               CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
+                  patchclass_, landpatch_%eindex, lccpct_patches, landpatch_%pctshared)
+            ELSE
+               CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
+                  patchclass_, landpatch_%eindex, lccpct_patches)
+               CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
+                  patchclass_, landpatch_%eindex, lccpct_patches)
+               CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
+                  patchclass_, landpatch_%eindex, lccpct_patches)
+            ENDIF
          ELSE
             CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
             CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
+               patchclass_, landpatch_%eindex)
+            CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
          ENDIF
       ENDIF

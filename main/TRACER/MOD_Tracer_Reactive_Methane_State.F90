@@ -1600,11 +1600,12 @@ CONTAINS
 
 
 	   SUBROUTINE remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-	      lccpct_patches, old_patch_area)
+	      lccpct_patches, old_patch_area, new_patch_area)
 	      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
 	      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
 	      real(r8), intent(in), optional :: lccpct_patches(:,:)
 	      real(r8), intent(in), optional :: old_patch_area(:)
+	      real(r8), intent(in), optional :: new_patch_area(:)
       integer :: nnew
 
 	      nnew = size(patchclass_new)
@@ -1637,23 +1638,28 @@ CONTAINS
       CALL remap2d(lulcc_lake_soilc_old,           lake_soilc)
       CALL remap2d(lulcc_c_atm_old,                c_atm)
 
-      CALL remap1d(lulcc_totcol_methane_old,       totcol_methane)
-      CALL remap1d(lulcc_co2_decomp_tot_old,       co2_decomp_tot)
-      CALL remap1d(lulcc_co2_oxid_tot_old,         co2_oxid_tot)
-      CALL remap1d(lulcc_co2_aere_tot_old,         co2_aere_tot)
-      CALL remap1d(lulcc_co2_net_tot_old,          co2_net_tot)
-      CALL remap1d(lulcc_co2_decomp_tot_unsat_old, co2_decomp_tot_unsat)
-      CALL remap1d(lulcc_co2_decomp_tot_sat_old,   co2_decomp_tot_sat)
-      CALL remap1d(lulcc_co2_oxid_tot_unsat_old,   co2_oxid_tot_unsat)
-      CALL remap1d(lulcc_co2_oxid_tot_sat_old,     co2_oxid_tot_sat)
-      CALL remap1d(lulcc_co2_net_tot_unsat_old,    co2_net_tot_unsat)
-      CALL remap1d(lulcc_co2_net_tot_sat_old,      co2_net_tot_sat)
-      CALL remap1d(lulcc_co2_decomp_tot_lake_old,  co2_decomp_tot_lake)
-      CALL remap1d(lulcc_co2_oxid_tot_lake_old,    co2_oxid_tot_lake)
-      CALL remap1d(lulcc_co2_net_tot_lake_old,     co2_net_tot_lake)
-      CALL remap1d(lulcc_totcol_methane_unsat_old, totcol_methane_unsat)
-      CALL remap1d(lulcc_totcol_methane_sat_old,   totcol_methane_sat)
-      CALL remap1d(lulcc_totcol_methane_lake_old,  totcol_methane_lake)
+      ! Concentrations, conductances, fractions, rates, and rolling diagnostics
+      ! are remapped as intensive fields.  Column stocks and total per-area
+      ! source/flux diagnostics are remapped as area-mass fields when both old
+      ! and new patch areas are available, matching land-water tracer LULCC
+      ! semantics for extensive per-area pools.
+      CALL remap1d_mass(lulcc_totcol_methane_old,       totcol_methane)
+      CALL remap1d_mass(lulcc_co2_decomp_tot_old,       co2_decomp_tot)
+      CALL remap1d_mass(lulcc_co2_oxid_tot_old,         co2_oxid_tot)
+      CALL remap1d_mass(lulcc_co2_aere_tot_old,         co2_aere_tot)
+      CALL remap1d_mass(lulcc_co2_net_tot_old,          co2_net_tot)
+      CALL remap1d_mass(lulcc_co2_decomp_tot_unsat_old, co2_decomp_tot_unsat)
+      CALL remap1d_mass(lulcc_co2_decomp_tot_sat_old,   co2_decomp_tot_sat)
+      CALL remap1d_mass(lulcc_co2_oxid_tot_unsat_old,   co2_oxid_tot_unsat)
+      CALL remap1d_mass(lulcc_co2_oxid_tot_sat_old,     co2_oxid_tot_sat)
+      CALL remap1d_mass(lulcc_co2_net_tot_unsat_old,    co2_net_tot_unsat)
+      CALL remap1d_mass(lulcc_co2_net_tot_sat_old,      co2_net_tot_sat)
+      CALL remap1d_mass(lulcc_co2_decomp_tot_lake_old,  co2_decomp_tot_lake)
+      CALL remap1d_mass(lulcc_co2_oxid_tot_lake_old,    co2_oxid_tot_lake)
+      CALL remap1d_mass(lulcc_co2_net_tot_lake_old,     co2_net_tot_lake)
+      CALL remap1d_mass(lulcc_totcol_methane_unsat_old, totcol_methane_unsat)
+      CALL remap1d_mass(lulcc_totcol_methane_sat_old,   totcol_methane_sat)
+      CALL remap1d_mass(lulcc_totcol_methane_lake_old,  totcol_methane_lake)
       CALL remap1d(lulcc_grnd_methane_cond_old,    grnd_methane_cond)
       CALL remap1d(lulcc_grnd_methane_cond_unsat_old, grnd_methane_cond_unsat)
       CALL remap1d(lulcc_grnd_methane_cond_sat_old,   grnd_methane_cond_sat)
@@ -1669,7 +1675,7 @@ CONTAINS
       CALL remap1d(lulcc_tempavg_finrw_old,        tempavg_finrw)
       CALL remap1d(lulcc_fsat_bef_old,             fsat_bef)
       CALL remap1d(lulcc_finundated_lag_old,       finundated_lag)
-      CALL remap1d(lulcc_methane_dfsat_tot_old,    methane_dfsat_tot)
+      CALL remap1d_mass(lulcc_methane_dfsat_tot_old,    methane_dfsat_tot)
       CALL remap1d(lulcc_f_h2osfc_old,             f_h2osfc)
       CALL remap1d(lulcc_forc_pmethanem_old,       forc_pmethanem)
 
@@ -1703,6 +1709,42 @@ CONTAINS
             ENDIF
          ENDDO
       END SUBROUTINE remap1d
+
+      SUBROUTINE remap1d_mass(old, new)
+         real(r8), intent(in) :: old(:)
+         real(r8), intent(inout) :: new(:)
+         integer :: np, op, src
+         real(r8) :: w, wsum, val, denom
+         logical :: conserve_area_mass
+
+         DO np = 1, min(size(new), nnew)
+            wsum = 0._r8
+            val = 0._r8
+            IF (present(lccpct_patches)) THEN
+               conserve_area_mass = area_mass_remap_available(np)
+               DO op = 1, min(size(old), size(patchclass_old), size(eindex_old))
+                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
+                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                  IF (conserve_area_mass) THEN
+                     w = lulcc_mass_transfer_area(np, op)
+                  ELSE
+                     w = lulcc_source_weight(np, op)
+                  ENDIF
+                  IF (w <= 0._r8) CYCLE
+                  val = val + w * old(op)
+                  wsum = wsum + w
+               ENDDO
+            ENDIF
+            IF (wsum > 0._r8) THEN
+               denom = remap_denominator(np, wsum, conserve_area_mass)
+               new(np) = val / denom
+            ELSE
+               src = fallback_source(np, size(old))
+               IF (src > 0) new(np) = old(src)
+            ENDIF
+         ENDDO
+      END SUBROUTINE remap1d_mass
 
       SUBROUTINE remap2d(old, new)
          real(r8), intent(in) :: old(:,:)
@@ -1764,6 +1806,7 @@ CONTAINS
 
 	         w = 0._r8
 	         IF (.not. present(lccpct_patches)) RETURN
+	         IF (np > size(lccpct_patches,1)) RETURN
 	         IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
 	             patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
 	         w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
@@ -1781,6 +1824,76 @@ CONTAINS
 	            w = w * max(0._r8, old_patch_area(op)) / class_area
 	         ENDIF
 	      END FUNCTION lulcc_source_weight
+
+	      LOGICAL FUNCTION area_mass_remap_available(np) RESULT(ok)
+	         integer, intent(in) :: np
+
+	         ok = present(lccpct_patches) .and. present(old_patch_area) .and. present(new_patch_area)
+	         IF (.not. ok) RETURN
+	         ok = np <= size(new_patch_area)
+	         IF (.not. ok) RETURN
+	         ok = new_patch_area(np) > tiny(1._r8)
+	      END FUNCTION area_mass_remap_available
+
+	      REAL(r8) FUNCTION lulcc_mass_transfer_area(np, op) RESULT(w)
+	         integer, intent(in) :: np, op
+	         integer :: c, nq
+	         real(r8) :: target_area, class_target_area
+
+	         w = 0._r8
+	         IF (.not. area_mass_remap_available(np)) RETURN
+	         IF (op > size(old_patch_area)) RETURN
+	         IF (op > size(patchclass_old) .or. op > size(eindex_old)) RETURN
+	         c = patchclass_old(op)
+	         IF (c < lbound(lccpct_patches,2) .or. c > ubound(lccpct_patches,2)) RETURN
+
+	         target_area = lulcc_target_class_area(np, c)
+	         IF (target_area <= tiny(1._r8)) RETURN
+
+	         class_target_area = 0._r8
+	         DO nq = 1, min(nnew, size(eindex_new), size(new_patch_area))
+	            IF (eindex_new(nq) == eindex_new(np)) THEN
+	               class_target_area = class_target_area + lulcc_target_class_area(nq, c)
+	            ENDIF
+	         ENDDO
+	         IF (class_target_area <= tiny(1._r8)) RETURN
+
+	         w = max(0._r8, old_patch_area(op)) * target_area / class_target_area
+	      END FUNCTION lulcc_mass_transfer_area
+
+	      REAL(r8) FUNCTION lulcc_target_class_area(np, c) RESULT(area)
+	         integer, intent(in) :: np, c
+	         integer :: cc
+	         real(r8) :: class_sum
+
+	         area = 0._r8
+	         IF (.not. present(lccpct_patches)) RETURN
+	         IF (.not. present(new_patch_area)) RETURN
+	         IF (np > size(new_patch_area)) RETURN
+	         IF (np > size(lccpct_patches,1)) RETURN
+	         IF (c < lbound(lccpct_patches,2) .or. c > ubound(lccpct_patches,2)) RETURN
+
+	         class_sum = 0._r8
+	         DO cc = lbound(lccpct_patches,2), ubound(lccpct_patches,2)
+	            class_sum = class_sum + max(0._r8, lccpct_patches(np, cc))
+	         ENDDO
+	         IF (class_sum <= tiny(1._r8)) RETURN
+
+	         area = max(0._r8, new_patch_area(np)) * max(0._r8, lccpct_patches(np, c)) / class_sum
+	      END FUNCTION lulcc_target_class_area
+
+	      REAL(r8) FUNCTION remap_denominator(np, wsum, conserve_mass) RESULT(denom)
+	         integer, intent(in) :: np
+	         real(r8), intent(in) :: wsum
+	         logical, intent(in) :: conserve_mass
+
+	         denom = max(wsum, tiny(1._r8))
+	         IF (conserve_mass .and. present(new_patch_area)) THEN
+	            IF (np <= size(new_patch_area) .and. new_patch_area(np) > tiny(1._r8)) THEN
+	               denom = new_patch_area(np)
+	            ENDIF
+	         ENDIF
+	      END FUNCTION remap_denominator
 	   END SUBROUTINE remap_methane_lulcc_state
 
 

@@ -212,9 +212,37 @@ CONTAINS
          history_fn         = write_sediment_history, &
          flush_history_fn   = flush_sediment_history, &
          write_restart_fn   = write_sediment_restart, &
+         save_lulcc_fn      = sediment_save_lulcc_noop, &
+         remap_lulcc_fn     = sediment_remap_lulcc_noop, &
          final_fn           = grid_sediment_final)
 
    END SUBROUTINE register_sediment_particle_callbacks
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE sediment_save_lulcc_noop()
+   !-------------------------------------------------------------------------------------
+      IMPLICIT NONE
+
+      ! Suspended sediment is stored and transported on the river/unit-catchment
+      ! grid, not on land patches.  Land-patch LULCC therefore has no sediment
+      ! state to snapshot; keep an explicit no-op callback so the dispatcher
+      ! contract is intentional rather than an apparent missing registration.
+
+   END SUBROUTINE sediment_save_lulcc_noop
+
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE sediment_remap_lulcc_noop(patchclass_new, eindex_new, patchclass_old, eindex_old, &
+      lccpct_patches, old_patch_area)
+   !-------------------------------------------------------------------------------------
+      IMPLICIT NONE
+      integer,   intent(in) :: patchclass_new(:), patchclass_old(:)
+      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
+      real(r8),  intent(in), optional :: lccpct_patches(:,:)
+      real(r8),  intent(in), optional :: old_patch_area(:)
+
+      ! Deliberately unused: sediment particle state is not land-patch indexed.
+
+   END SUBROUTINE sediment_remap_lulcc_noop
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE refresh_sediment_particle_registry()

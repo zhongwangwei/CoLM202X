@@ -544,7 +544,7 @@ CONTAINS
    END SUBROUTINE get_wetland_veg_proxy
 
    !---------------------------------------------------------------------------
-   SUBROUTINE get_rice_veg_proxy (lai_in, ipatch)
+   SUBROUTINE get_rice_veg_proxy (lai_in, ipatch, rice_fraction)
    !
    ! Zone 6: Rice paddy aerenchyma (R4 extension; off unless DEF_METHANE%enable_rice_paddy).
    !
@@ -564,6 +564,7 @@ CONTAINS
    !---------------------------------------------------------------------------
    real(r8), intent(in)  :: lai_in          ! input LAI from CoLM/CN [m2/m2]
    integer,  intent(in)  :: ipatch          ! patch index
+   real(r8), intent(in)  :: rice_fraction   ! paddy rice area fraction in mixed soil patch
 
    real(r8) :: aere_poros_z, aere_radius_z, aere_tillerC_z, aere_scale_z
 
@@ -588,6 +589,11 @@ CONTAINS
    ELSE
       aere_scale_z = 1.0_r8
    ENDIF
+   ! Rice is represented as a CFT fraction inside a soil patch, not as a
+   ! separate land patch.  Scale the rice aerenchyma override by the paddy
+   ! fraction so a small rice tile cannot impose rice transport geometry on
+   ! the whole mixed soil patch.
+   aere_scale_z = aere_scale_z * min(max(rice_fraction, 0._r8), 1._r8)
 
    IF (allocated(wetland_aere_active) .and. &
        ipatch >= 1 .and. ipatch <= size(wetland_aere_active)) THEN
@@ -837,7 +843,8 @@ CONTAINS
    END SUBROUTINE methane_patch_active_mask
 
    !---------------------------------------------------------------------------
-   real(r8) FUNCTION get_biome_f_methane (patchtype, dlat, cellorg_top, is_rice_paddy, is_floodplain)
+   real(r8) FUNCTION get_biome_f_methane (patchtype, dlat, cellorg_top, &
+      is_rice_paddy, rice_fraction, rice_parameter_active, is_floodplain)
    !
    ! Biome-specific f_methane (CH4 yield ratio) lookup.
    ! Mirrors get_wetland_veg_proxy 5-zone classification so each climate
@@ -881,11 +888,15 @@ CONTAINS
    real(r8), intent(in) :: dlat
    real(r8), intent(in) :: cellorg_top
    logical,  intent(in) :: is_rice_paddy
+   real(r8), intent(in) :: rice_fraction
+   logical,  intent(in) :: rice_parameter_active
    logical,  intent(in), optional :: is_floodplain
 
    real(r8), parameter :: peat_om_threshold      = 150._r8
    real(r8), parameter :: tropical_peat_threshold = 80._r8
    logical :: floodplain_active
+   real(r8) :: rice_frac
+   real(r8) :: nonrice_f_methane
 
    ! Legacy path: use global scalar if lookup not enabled
    IF (.not. DEF_METHANE%use_biome_f_methane) THEN
@@ -893,42 +904,41 @@ CONTAINS
       RETURN
    ENDIF
 
-   ! Rice paddy overrides everything (Zone 6 from get_rice_veg_proxy)
-   IF (is_rice_paddy) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_rice_paddy
-      RETURN
-   ENDIF
-
    floodplain_active = .false.
    IF (present(is_floodplain)) floodplain_active = is_floodplain
+   rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
+
+   ! First compute the non-rice background value for this patch.  Rice is a
+   ! CFT fraction inside patchtype==0, so it must blend with the non-rice
+   ! soil/floodplain value instead of replacing the whole mixed soil patch.
    IF (floodplain_active) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_floodplain
-      RETURN
-   ENDIF
-
-   ! Non-wetland, non-floodplain tile (when Plan A activates wetland physics on soil)
-   IF (patchtype /= 2) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_upland_soil
-      RETURN
-   ENDIF
-
-   ! Wetland tile (patchtype == 2): 5-zone climate-based
-   IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_tropical_peat
+      nonrice_f_methane = DEF_METHANE%f_methane_floodplain
+   ELSE IF (patchtype /= 2) THEN
+      nonrice_f_methane = DEF_METHANE%f_methane_upland_soil
+   ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
+      nonrice_f_methane = DEF_METHANE%f_methane_tropical_peat
    ELSE IF (abs(dlat) <= 23.5_r8) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_tropical_floodplain
+      nonrice_f_methane = DEF_METHANE%f_methane_tropical_floodplain
    ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_boreal_bog
+      nonrice_f_methane = DEF_METHANE%f_methane_boreal_bog
    ELSE IF (abs(dlat) > 50._r8) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane_boreal_fen
+      nonrice_f_methane = DEF_METHANE%f_methane_boreal_fen
    ELSE
-      get_biome_f_methane = DEF_METHANE%f_methane_temperate_marsh
+      nonrice_f_methane = DEF_METHANE%f_methane_temperate_marsh
+   ENDIF
+
+   IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN
+      get_biome_f_methane = (1._r8 - rice_frac) * nonrice_f_methane + &
+                            rice_frac * DEF_METHANE%f_methane_rice_paddy
+   ELSE
+      get_biome_f_methane = nonrice_f_methane
    ENDIF
 
    END FUNCTION get_biome_f_methane
 
    !---------------------------------------------------------------------------
-   real(r8) FUNCTION get_biome_redoxlag (patchtype, dlat, cellorg_top, is_rice_paddy)
+   real(r8) FUNCTION get_biome_redoxlag (patchtype, dlat, cellorg_top, &
+      is_rice_paddy, rice_fraction, rice_parameter_active)
    !
    ! Biome-specific redoxlag (microbial response time, days) lookup.
    ! Mirrors get_wetland_veg_proxy 5-zone classification.  Concept: faster
@@ -965,9 +975,13 @@ CONTAINS
    real(r8), intent(in) :: dlat
    real(r8), intent(in) :: cellorg_top
    logical,  intent(in) :: is_rice_paddy
+   real(r8), intent(in) :: rice_fraction
+   logical,  intent(in) :: rice_parameter_active
 
    real(r8), parameter :: peat_om_threshold       = 150._r8
    real(r8), parameter :: tropical_peat_threshold = 80._r8
+   real(r8) :: rice_frac
+   real(r8) :: nonrice_redoxlag
 
    ! Legacy path: use global scalar if lookup not enabled
    IF (.not. DEF_METHANE%use_biome_redoxlag) THEN
@@ -975,29 +989,29 @@ CONTAINS
       RETURN
    ENDIF
 
-   ! Rice paddy overrides everything (managed flood/drain rapid response)
-   IF (is_rice_paddy) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag_rice_paddy
-      RETURN
-   ENDIF
+   rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
 
-   ! Non-wetland tile (e.g., when Plan A activates wetland physics on soil)
+   ! Compute the non-rice background response time, then blend the paddy
+   ! rapid-response parameter by rice area fraction for mixed soil patches.
    IF (patchtype /= 2) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag_upland_soil
-      RETURN
+      nonrice_redoxlag = DEF_METHANE%redoxlag_upland_soil
+   ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
+      nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_peat
+   ELSE IF (abs(dlat) <= 23.5_r8) THEN
+      nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_floodplain
+   ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
+      nonrice_redoxlag = DEF_METHANE%redoxlag_boreal_bog
+   ELSE IF (abs(dlat) > 50._r8) THEN
+      nonrice_redoxlag = DEF_METHANE%redoxlag_boreal_fen
+   ELSE
+      nonrice_redoxlag = DEF_METHANE%redoxlag_temperate_marsh
    ENDIF
 
-   ! Wetland tile (patchtype == 2): 5-zone climate-based
-   IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag_tropical_peat
-   ELSE IF (abs(dlat) <= 23.5_r8) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag_tropical_floodplain
-   ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag_boreal_bog
-   ELSE IF (abs(dlat) > 50._r8) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag_boreal_fen
+   IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN
+      get_biome_redoxlag = (1._r8 - rice_frac) * nonrice_redoxlag + &
+                           rice_frac * DEF_METHANE%redoxlag_rice_paddy
    ELSE
-      get_biome_redoxlag = DEF_METHANE%redoxlag_temperate_marsh
+      get_biome_redoxlag = nonrice_redoxlag
    ENDIF
 
    END FUNCTION get_biome_redoxlag

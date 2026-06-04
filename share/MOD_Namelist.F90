@@ -1341,10 +1341,9 @@ CONTAINS
 #ifdef TRACER
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
             write(*,*) '                  *****                  '
-            write(*,*) 'ERROR: TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
-            write(*,*) 'tracer_soil_water is VSF-diagnostic driven; WATER_2014 does not provide'
-            write(*,*) 'the required qlayer/etroot_actual/aquifer-exchange tracer diagnostics.'
-            CALL CoLM_stop ()
+            write(*,*) 'NOTE: TRACER with WATER_2014 uses Campbell soil-water diagnostics.'
+            write(*,*) 'Layer interface fluxes are resolved from WATER_2014 soilwater;'
+            write(*,*) 'prefer DEF_USE_VariablySaturatedFlow = .true. for VSF-equivalent budgets.'
          ENDIF
 #endif
 #ifdef SinglePoint

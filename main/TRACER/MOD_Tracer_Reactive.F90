@@ -82,12 +82,13 @@ MODULE MOD_Tracer_Reactive
       END SUBROUTINE reactive_history_if
 
       SUBROUTINE reactive_remap_lulcc_if (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-         lccpct_patches, old_patch_area)
+         lccpct_patches, old_patch_area, new_patch_area)
          USE MOD_Precision
          integer, intent(in) :: patchclass_new(:), patchclass_old(:)
          integer*8, intent(in) :: eindex_new(:), eindex_old(:)
          real(r8), intent(in), optional :: lccpct_patches(:,:)
          real(r8), intent(in), optional :: old_patch_area(:)
+         real(r8), intent(in), optional :: new_patch_area(:)
       END SUBROUTINE reactive_remap_lulcc_if
 
       SUBROUTINE reactive_publish_levee_flood_if (fldfrc_patch)
@@ -617,13 +618,14 @@ CONTAINS
    END SUBROUTINE tracer_reactive_save_lulcc_state
 
    SUBROUTINE tracer_reactive_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-      lccpct_patches, old_patch_area)
+      lccpct_patches, old_patch_area, new_patch_area)
 
       IMPLICIT NONE
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,:)
       real(r8), intent(in), optional :: old_patch_area(:)
+      real(r8), intent(in), optional :: new_patch_area(:)
 
       integer :: i
 
@@ -632,7 +634,7 @@ CONTAINS
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%remap_lulcc)) THEN
             CALL reactive_callbacks(i)%remap_lulcc (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-               lccpct_patches, old_patch_area)
+               lccpct_patches, old_patch_area, new_patch_area)
          ENDIF
       ENDDO
       CALL mark_reactive_callbacks_dirty ()

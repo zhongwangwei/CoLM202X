@@ -351,19 +351,20 @@ CONTAINS
    END SUBROUTINE ch4_reactive_save_lulcc_state
 
    SUBROUTINE ch4_reactive_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-      lccpct_patches, old_patch_area)
+      lccpct_patches, old_patch_area, new_patch_area)
 
       IMPLICIT NONE
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,:)
       real(r8), intent(in), optional :: old_patch_area(:)
+      real(r8), intent(in), optional :: new_patch_area(:)
       integer :: nnew
       real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
       CALL remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-         lccpct_patches, old_patch_area)
+         lccpct_patches, old_patch_area, new_patch_area)
       IF (DEF_METHANE%use_microbial_pools) THEN
          CALL remap_methane_microbes_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
             lccpct_patches, old_patch_area)

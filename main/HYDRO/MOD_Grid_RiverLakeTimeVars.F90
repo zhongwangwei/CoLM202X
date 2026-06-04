@@ -154,7 +154,7 @@ CONTAINS
       ! arrays. Same deferred-restart pattern as levee.
 
       ! Note: tracer restart is read separately in grid_riverlake_flow_init
-      ! after tracer_init() allocates the arrays. Same pattern as others.
+      ! after river_lake_tracer_init() allocates the arrays. Same pattern as others.
 
       ! Note: particle-tracer restart is read through MOD_Tracer_Particle,
       ! called from grid_riverlake_flow_init after particle species are initialized.

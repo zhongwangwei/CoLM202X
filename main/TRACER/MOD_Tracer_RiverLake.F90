@@ -125,14 +125,14 @@ MODULE MOD_Tracer_RiverLake
    PRIVATE :: ensure_tracer_substep_workspace, release_tracer_substep_workspace
    PRIVATE :: ensure_real1_workspace, ensure_real2_workspace
 
-   PUBLIC :: tracer_init
+   PUBLIC :: river_lake_tracer_init
    PUBLIC :: tracer_init_from_water
    PUBLIC :: tracer_input_from_runoff
    PUBLIC :: tracer_flush_acc
    PUBLIC :: read_tracer_restart
    PUBLIC :: write_tracer_restart
    PUBLIC :: write_tracer_history
-   PUBLIC :: tracer_final
+   PUBLIC :: river_lake_tracer_final
    PUBLIC :: check_tracer_state
    PUBLIC :: tracer_substep
    PUBLIC :: tracer_refresh_state
@@ -244,7 +244,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    ! Initialize tracer module
    !-------------------------------------------------------------------------------------
-   SUBROUTINE tracer_init ()
+   SUBROUTINE river_lake_tracer_init ()
 
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
@@ -253,11 +253,11 @@ CONTAINS
 	   integer :: sfx_len, max_base
 	   character(len=32) :: sfx, base
 
-      CALL tracer_final()
+      CALL river_lake_tracer_final()
       IF (ntracers <= 0) RETURN
 
       ! ntracers now populated by tracer_defs_init() from CoLM.F90 before
-      ! any HYDRO tracer_init runs — no local assignment needed.
+      ! any HYDRO river_lake_tracer_init runs — no local assignment needed.
       allocate (tracer_names(ntracers))
       CALL parse_tracer_names(DEF_TRACER_NAMES, tracer_names, ntracers)
 
@@ -323,7 +323,7 @@ CONTAINS
          write(*,'(A,*(A,:,", "))') '   Names: ', (trim(tracer_names(i)), i=1, ntracers)
       ENDIF
 
-   END SUBROUTINE tracer_init
+   END SUBROUTINE river_lake_tracer_init
 
 
    !-------------------------------------------------------------------------------------
@@ -430,7 +430,7 @@ CONTAINS
       real(r8), allocatable :: R_default(:)
 
       ! TRACER may be compiled while the runtime registry intentionally
-      ! contains zero tracers (DEF_TRACER_NUM=0).  In that mode tracer_init()
+      ! contains zero tracers (DEF_TRACER_NUM=0).  In that mode river_lake_tracer_init()
       ! returns without allocating the routing buffers, so the input path must
       ! be a no-op instead of touching acc_rnof_ref / acc_trc_inp.
       IF (ntracers <= 0) RETURN
@@ -1531,7 +1531,6 @@ CONTAINS
             dt_i = 0._r8
             IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
             IF (dt_i <= 0._r8) CYCLE
-            trc_mass(itrc, i) = trc_mass(itrc, i)
 
             trc_mass_new = trc_mass(itrc, i) &
                + (- trc_flux(i) + flux_ups(i) - bif_net(i)) * dt_i
@@ -2082,7 +2081,7 @@ CONTAINS
    real(r8), allocatable :: tmpvec(:)
 
       ! Guard: tracer module may not be initialised (e.g. mkinidata).
-      ! tracer_names is allocated on ALL ranks by tracer_init (before the
+      ! tracer_names is allocated on ALL ranks by river_lake_tracer_init (before the
       ! p_is_worker guard), so this check is safe for master/IO.
       ! Do NOT check allocated(trc_mass) here — trc_mass is worker-only,
       ! but vector_gather_and_write has mpi_barrier(p_comm_glb) that
@@ -2390,7 +2389,7 @@ CONTAINS
    real(r8), parameter :: trc_mass_fp_dust  = 1.0e-12_r8
    real(r8), parameter :: trc_mass_neg_warn = -1.0e-6_r8
 
-      ! Workers that never ran tracer_init have no data to check.
+      ! Workers that never ran river_lake_tracer_init have no data to check.
       ! Master and IO ranks don't allocate trc_mass but MUST still enter
       ! this routine: master participates in check_vector_data's recv/print
       ! side, and all ranks share the same call count to avoid orphaning
@@ -2558,7 +2557,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    ! Deallocate tracer module
    !-------------------------------------------------------------------------------------
-   SUBROUTINE tracer_final ()
+   SUBROUTINE river_lake_tracer_final ()
 
    IMPLICIT NONE
 
@@ -2582,7 +2581,7 @@ CONTAINS
 	      IF (allocated(trc_levsto       )) deallocate (trc_levsto       )
       CALL release_tracer_substep_workspace()
 
-   END SUBROUTINE tracer_final
+   END SUBROUTINE river_lake_tracer_final
 
 END MODULE MOD_Tracer_RiverLake
 #endif

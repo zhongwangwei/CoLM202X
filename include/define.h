@@ -106,12 +106,9 @@
 !     Default is OFF for production-safe builds; change to #define TRACER
 !     only when water tracers / particle tracer species are explicitly needed.
 #undef TRACER
-!    Conflicts: TRACER requires VariablySaturatedFlow soil hydrology
-!    (vanGenuchten_Mualem_SOIL_MODEL). Disable when running with
-!    Campbell_SOIL_MODEL.
-#ifdef Campbell_SOIL_MODEL
-#undef TRACER
-#endif
+!    WATER_2014/Campbell soil hydrology is allowed with TRACER but has reduced
+!    soil-water transport diagnostics; VariablySaturatedFlow remains preferred
+!    for fully resolved tracer budgets.
 !    Dependency: the TRACER subsystem (water isotopes + the sediment particle
 !    species) routes through grid river/lake flow. Enabling TRACER REQUIRES
 !    GridRiverLakeFlow.

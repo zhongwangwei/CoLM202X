@@ -365,6 +365,14 @@ CONTAINS
             ENDIF
 
             snl = snl + 1
+#ifdef TRACER
+            IF (present(trc_wliq) .and. present(trc_wice)) THEN
+               IF (snl >= lb) THEN
+                  trc_wliq(:, lb:snl) = 0._r8
+                  trc_wice(:, lb:snl) = 0._r8
+               ENDIF
+            ENDIF
+#endif
 !*          write(6,*) 'one snow layer is gone'
 
          ENDIF
@@ -485,15 +493,21 @@ CONTAINS
                         ENDIF
 #endif
                      ENDDO
-#ifdef TRACER
-                     IF (present(trc_wliq) .and. present(trc_wice)) THEN
-                        trc_wliq(:, snl+2) = 0._r8
-                        trc_wice(:, snl+2) = 0._r8
-                     ENDIF
-#endif
                   ENDIF
 
                   snl = snl + 1
+#ifdef TRACER
+                  IF (present(trc_wliq) .and. present(trc_wice)) THEN
+                     ! After removing one snow layer, the active snow window is
+                     ! snl+1:0.  Clear only slots below that window; clearing
+                     ! old snl+2 here would erase the repacked bottom survivor
+                     ! for multi-layer combines such as -3 -> -2.
+                     IF (snl >= lb) THEN
+                        trc_wliq(:, lb:snl) = 0._r8
+                        trc_wice(:, lb:snl) = 0._r8
+                     ENDIF
+                  ENDIF
+#endif
 
 !*    write(6,'(7h Nodes ,i4,4h and,i4,14h combined into,i4)') l,j,j
 
@@ -1117,6 +1131,14 @@ CONTAINS
             ENDIF
 
             snl = snl + 1
+#ifdef TRACER
+            IF (present(trc_wliq) .and. present(trc_wice)) THEN
+               IF (snl >= lb) THEN
+                  trc_wliq(:, lb:snl) = 0._r8
+                  trc_wice(:, lb:snl) = 0._r8
+               ENDIF
+            ENDIF
+#endif
 !*          write(6,*) 'one snow layer is gone'
 
          ENDIF
@@ -1283,15 +1305,21 @@ CONTAINS
                         mss_dst4 (k) = mss_dst4 (k-1)
 !Aerosol Fluxes (January 07, 2023)
                      ENDDO
-#ifdef TRACER
-                     IF (present(trc_wliq) .and. present(trc_wice)) THEN
-                        trc_wliq(:, snl+2) = 0._r8
-                        trc_wice(:, snl+2) = 0._r8
-                     ENDIF
-#endif
                   ENDIF
 
                   snl = snl + 1
+#ifdef TRACER
+                  IF (present(trc_wliq) .and. present(trc_wice)) THEN
+                     ! After removing one snow layer, the active snow window is
+                     ! snl+1:0.  Clear only slots below that window; clearing
+                     ! old snl+2 here would erase the repacked bottom survivor
+                     ! for multi-layer combines such as -3 -> -2.
+                     IF (snl >= lb) THEN
+                        trc_wliq(:, lb:snl) = 0._r8
+                        trc_wice(:, lb:snl) = 0._r8
+                     ENDIF
+                  ENDIF
+#endif
 
 !*    write(6,'(7h Nodes ,i4,4h and,i4,14h combined into,i4)') l,j,j
 

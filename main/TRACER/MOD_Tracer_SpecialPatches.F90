@@ -5,7 +5,7 @@ MODULE MOD_Tracer_SpecialPatches
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
-      tracer_can_use_fixed_signature, tracer_uses_land_water_transport
+      tracer_can_use_fixed_signature, tracer_uses_land_water_transport, tracer_is_nonvolatile_solute
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_ratio, &
@@ -51,7 +51,7 @@ CONTAINS
       real(r8) :: water_before_output, water_after_evap
       real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
       real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
-      logical  :: mixed_signature, fixed_signature, frac_active
+      logical  :: mixed_signature, fixed_signature, frac_active, nonvolatile_solute
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
@@ -84,6 +84,7 @@ CONTAINS
          trc_rnof_step(itrc, ipatch) = 0._r8
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
+         nonvolatile_solute = tracer_is_nonvolatile_solute(itrc)
          fixed_signature = tracer_can_use_fixed_signature(itrc) .and. .not. frac_active
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature = fixed_signature .and. .not. trc_runtime_forced(itrc)
@@ -93,11 +94,16 @@ CONTAINS
          IF (mixed_signature) THEN
             R_precip = tracer_forcing_precip_value(itrc, ipatch)
             R_vapor  = tracer_forcing_vapor_value (itrc, ipatch)
-            R_dew = R_vapor
-            R_frost = R_vapor
-            IF (frac_active) THEN
-               R_dew = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .false.)
-               R_frost = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .true.)
+            IF (nonvolatile_solute) THEN
+               R_dew = 0._r8
+               R_frost = 0._r8
+            ELSE
+               R_dew = R_vapor
+               R_frost = R_vapor
+               IF (frac_active) THEN
+                  R_dew = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .false.)
+                  R_frost = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .true.)
+               ENDIF
             ENDIF
             trc_input = precip_mass * R_precip + dep_liq_mass * R_dew + dep_ice_mass * R_frost
             trc_available = max(trc_storage_beg(itrc, ipatch) + trc_input, 0._r8)
@@ -121,7 +127,11 @@ CONTAINS
                R_evap_liq = min(R_evap_liq, max(R_out, 0._r8))
                R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
             ENDIF
-            trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+            IF (nonvolatile_solute) THEN
+               trc_evap = 0._r8
+            ELSE
+               trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+            ENDIF
             water_after_evap = water_before_output - evap_mass
             IF (water_after_evap > trc_tiny) THEN
                R_runoff = max(trc_available - trc_evap, 0._r8) / water_after_evap
@@ -188,7 +198,7 @@ CONTAINS
       real(r8) :: water_before_output, water_after_evap
       real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
       real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
-      logical  :: mixed_signature, fixed_signature, frac_active
+      logical  :: mixed_signature, fixed_signature, frac_active, nonvolatile_solute
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
@@ -229,6 +239,7 @@ CONTAINS
          trc_rnof_step(itrc, ipatch) = 0._r8
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
+         nonvolatile_solute = tracer_is_nonvolatile_solute(itrc)
          fixed_signature = tracer_can_use_fixed_signature(itrc) .and. .not. frac_active
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature = fixed_signature .and. .not. trc_runtime_forced(itrc)
@@ -243,11 +254,16 @@ CONTAINS
             ELSE
                R_pool = R_precip
             ENDIF
-            R_dew = R_vapor
-            R_frost = R_vapor
-            IF (frac_active) THEN
-               R_dew = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .false.)
-               R_frost = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .true.)
+            IF (nonvolatile_solute) THEN
+               R_dew = 0._r8
+               R_frost = 0._r8
+            ELSE
+               R_dew = R_vapor
+               R_frost = R_vapor
+               IF (frac_active) THEN
+                  R_dew = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .false.)
+                  R_frost = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .true.)
+               ENDIF
             ENDIF
             trc_input = atm_precip_mass * R_precip + dep_liq_mass * R_dew + &
                dep_ice_mass * R_frost + deficit_mass * R_pool
@@ -272,7 +288,11 @@ CONTAINS
                R_evap_liq = min(R_evap_liq, max(R_out, 0._r8))
                R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
             ENDIF
-            trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+            IF (nonvolatile_solute) THEN
+               trc_evap = 0._r8
+            ELSE
+               trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+            ENDIF
             water_after_evap = water_before_output - evap_mass
             IF (water_after_evap > trc_tiny) THEN
                R_runoff = max(trc_available - trc_evap, 0._r8) / water_after_evap

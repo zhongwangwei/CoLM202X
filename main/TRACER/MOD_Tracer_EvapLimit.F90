@@ -32,7 +32,7 @@ MODULE MOD_Tracer_EvapLimit
 CONTAINS
 
    real(r8) FUNCTION tracer_evaporative_tracer_loss (pool_trc, pool_water, water_loss, &
-      temp_k, from_ice, evap_ratio_fn, trc_tiny)
+      temp_k, from_ice, evap_ratio_fn, trc_tiny, r_max)
 
       real(r8), intent(in) :: pool_trc
       real(r8), intent(in) :: pool_water
@@ -41,6 +41,18 @@ CONTAINS
       logical,  intent(in) :: from_ice
       procedure(tracer_evap_ratio_callback) :: evap_ratio_fn
       real(r8), intent(in) :: trc_tiny
+      ! NUMERICAL/PHYSICAL safety ceiling on the residual pool concentration R
+      ! -- this is NOT part of the Craig-Gordon fractionation itself. Evaporative
+      ! fractionation enriches the residual without bound as a pool nears
+      ! drydown; over repeated wet/dry cycles the in-pool tracer can run away to
+      ! non-physical values (delta up to ~+1e13 permil). Once source_ratio
+      ! reaches r_max, evaporation switches to NON-FRACTIONATING
+      ! (flux_ratio = source_ratio): the vapour carries water_loss*R, which is
+      ! water-matched and exactly conservative, so the residual R freezes near
+      ! r_max instead of running away -- without shedding any water-less excess.
+      ! Pass r_max<=0 to DISABLE; nonvolatile solutes should be handled by
+      ! callers as zero evaporative tracer loss.
+      real(r8), intent(in) :: r_max
 
       integer  :: isub
       real(r8) :: source_ratio, flux_ratio
@@ -61,6 +73,10 @@ CONTAINS
 
       source_ratio = max(pool_trc, 0._r8) / pool_water
       flux_ratio = evap_ratio_fn(source_ratio, temp_k, from_ice)
+      ! Stop evaporative enrichment at the physical ceiling. Above r_max the
+      ! vapour leaves with the pool's own ratio, so tracer loss remains matched
+      ! to water loss and the residual pool R stops increasing.
+      IF (r_max > 0._r8 .and. source_ratio > r_max) flux_ratio = source_ratio
       IF (pool_water > evaplimit_default_max_pool_water .or. &
           water_loss <= evaplimit_default_max_loss_fraction * pool_water .or. &
           abs(flux_ratio - source_ratio) <= 1.e-12_r8 * max(source_ratio, trc_tiny)) THEN
@@ -81,6 +97,9 @@ CONTAINS
 
          source_ratio = remaining_trc / remaining_water
          flux_ratio = evap_ratio_fn(source_ratio, temp_k, from_ice)
+         ! Stop enrichment at the ceiling: non-fractionating evap above r_max
+         ! freezes the residual R near r_max while preserving water-matched loss.
+         IF (r_max > 0._r8 .and. source_ratio > r_max) flux_ratio = source_ratio
          trc_loss_step = min(step_loss * flux_ratio, remaining_trc)
          remaining_trc = remaining_trc - trc_loss_step
          remaining_water = remaining_water - step_loss

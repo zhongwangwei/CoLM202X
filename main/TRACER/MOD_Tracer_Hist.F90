@@ -15,7 +15,7 @@ MODULE MOD_Tracer_Hist
 #endif
    USE MOD_Tracer_Defs, only: ntracers, tracers, mass_to_delta, trc_tiny, &
       trc_delta_sanity_max, trc_flux_water_min_for_delta, trc_water_min_for_delta, &
-      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport
+      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport, tracer_is_reactive
    USE MOD_Tracer_Vars
 
    IMPLICIT NONE
@@ -336,6 +336,15 @@ CONTAINS
                      itime_in_file, filter, trim(trc_longname), 'permil')
                   ENDIF
 
+                  ! Reactive species (for example CH4) own their physical
+                  ! history through species-specific callbacks below.  The
+                  ! generic water-pool concentration fields are meaningful for
+                  ! isotope/conservative water tracers, but for reactive gases
+                  ! they are transport bookkeeping and can dominate history I/O
+                  ! even when the reactive namelist requests only a small
+                  ! species-specific history set.
+                  IF (tracer_is_reactive(itrc_loc)) CYCLE
+
                   ! --- Canopy ratio ---
                   write(trc_varname , '(A,A)')   'f_trc_conc_ldew_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'canopy tracer ', trim(trc_ratio_word), &
@@ -529,6 +538,7 @@ CONTAINS
 
    real(r8), allocatable :: tracer_map_vec(:)
    real(r8), allocatable :: water_map_vec(:)
+   real(r8), allocatable :: ratio_vec(:)
    type(block_data_real8_2d) :: tracer_xy_2d
    type(block_data_real8_2d) :: water_xy_2d
    type(block_data_real8_2d) :: ratio_xy_2d
@@ -536,6 +546,28 @@ CONTAINS
    integer :: compress
 
       IF (.not. is_hist) RETURN
+#ifdef SinglePoint
+      IF (HistForm == 'Single') THEN
+         allocate(ratio_vec(size(water_acc)))
+         ratio_vec = spval
+         DO ip = 1, size(water_acc)
+            IF (abs(water_acc(ip)) > trc_tiny .and. tracer_mass_acc(ip) /= spval) THEN
+               ratio_vec(ip) = tracer_mass_acc(ip) / water_acc(ip)
+            ENDIF
+         ENDDO
+         CALL single_write_2d (ratio_vec, file_hist, varname, itime_in_file, &
+            longname, units)
+         deallocate(ratio_vec)
+         RETURN
+      ENDIF
+#endif
+#if (defined UNSTRUCTURED || defined CATCHMENT)
+      IF (HistForm == 'Vector') THEN
+         CALL write_history_tracer_ratio_vector_2d (tracer_mass_acc, water_acc, &
+            file_hist, varname, itime_in_file, filter, longname, units)
+         RETURN
+      ENDIF
+#endif
       IF (HistForm /= 'Gridded') RETURN
 
       allocate(tracer_map_vec(size(tracer_mass_acc)))
@@ -598,6 +630,7 @@ CONTAINS
 
    USE MOD_Block
    USE MOD_SPMD_Task, only: p_is_worker, p_is_io
+   USE MOD_Vars_1DAccFluxes, only: nac
 #ifdef TRACER
 #endif
    USE MOD_Namelist, only: DEF_HIST_CompressLevel
@@ -624,8 +657,39 @@ CONTAINS
    integer :: ip, i1, iblkme, xblk, yblk, xloc, yloc
    integer :: lb_vec, ub_vec
    integer :: compress
+   real(r8), allocatable :: ratio_vec(:,:)
 
       IF (.not. is_hist) RETURN
+#ifdef SinglePoint
+      IF (HistForm == 'Single') THEN
+         lb_vec = lbound(tracer_mass_acc, 1)
+         ub_vec = ubound(tracer_mass_acc, 1)
+         allocate(ratio_vec(lb_vec:ub_vec, size(water_acc, 2)))
+         ratio_vec = spval
+         DO ip = 1, size(water_acc, 2)
+            DO i1 = lb_vec, ub_vec
+               IF (abs(water_acc(i1, ip)) > trc_tiny .and. tracer_mass_acc(i1, ip) /= spval) THEN
+                  ! single_write_3d divides by nac internally like ordinary
+                  ! accumulated variables. Ratio is already a final diagnostic,
+                  ! so pre-scale here to leave the written value unchanged.
+                  ratio_vec(i1, ip) = tracer_mass_acc(i1, ip) / water_acc(i1, ip) * real(nac, r8)
+               ENDIF
+            ENDDO
+         ENDDO
+         CALL single_write_3d (ratio_vec, file_hist, varname, itime_in_file, &
+            dim1name, ndim1, longname, units)
+         deallocate(ratio_vec)
+         RETURN
+      ENDIF
+#endif
+#if (defined UNSTRUCTURED || defined CATCHMENT)
+      IF (HistForm == 'Vector') THEN
+         CALL write_history_tracer_ratio_vector_3d (tracer_mass_acc, water_acc, &
+            file_hist, varname, itime_in_file, dim1name, lb1, ndim1, filter, &
+            longname, units)
+         RETURN
+      ENDIF
+#endif
       IF (HistForm /= 'Gridded') RETURN
 
       lb_vec = lbound(tracer_mass_acc, 1)
@@ -714,6 +778,7 @@ CONTAINS
 
       real(r8), allocatable :: tracer_map_vec(:)
       real(r8), allocatable :: water_map_vec(:)
+      real(r8), allocatable :: delta_vec(:)
       type(block_data_real8_2d) :: tracer_xy_2d
       type(block_data_real8_2d) :: water_xy_2d
       type(block_data_real8_2d) :: delta_xy_2d
@@ -722,14 +787,39 @@ CONTAINS
       real(r8) :: delta_loc, water_min
 
       IF (.not. is_hist) RETURN
+      water_min = trc_water_min_for_delta
+      IF (present(water_min_override)) water_min = water_min_override
+#ifdef SinglePoint
+      IF (HistForm == 'Single') THEN
+         allocate(delta_vec(size(water_acc)))
+         delta_vec = spval
+         DO ip = 1, size(water_acc)
+            IF (water_acc(ip) > water_min .and. tracer_mass_acc(ip) /= spval) THEN
+               delta_loc = mass_to_delta(tracer_mass_acc(ip), water_acc(ip), ref_ratio)
+               IF (delta_loc /= spval .and. abs(delta_loc) <= trc_delta_sanity_max) THEN
+                  delta_vec(ip) = delta_loc
+               ENDIF
+            ENDIF
+         ENDDO
+         CALL single_write_2d (delta_vec, file_hist, varname, itime_in_file, &
+            longname, units)
+         deallocate(delta_vec)
+         RETURN
+      ENDIF
+#endif
+#if (defined UNSTRUCTURED || defined CATCHMENT)
+      IF (HistForm == 'Vector') THEN
+         CALL write_history_tracer_delta_vector_2d (tracer_mass_acc, water_acc, ref_ratio, &
+            file_hist, varname, itime_in_file, filter, longname, units, water_min)
+         RETURN
+      ENDIF
+#endif
       IF (HistForm /= 'Gridded') RETURN
 
       allocate(tracer_map_vec(size(tracer_mass_acc)))
          allocate(water_map_vec(size(water_acc)))
          tracer_map_vec = 0._r8
          water_map_vec = 0._r8
-         water_min = trc_water_min_for_delta
-         IF (present(water_min_override)) water_min = water_min_override
 
          IF (p_is_worker) THEN
             DO ip = 1, size(water_acc)
@@ -783,6 +873,415 @@ CONTAINS
       deallocate(water_map_vec)
 
    END SUBROUTINE write_history_tracer_delta_2d
+
+#if (defined UNSTRUCTURED || defined CATCHMENT)
+   SUBROUTINE write_history_tracer_ratio_vector_2d (tracer_mass_acc, water_acc, &
+      file_hist, varname, itime_in_file, filter, longname, units)
+
+      IMPLICIT NONE
+      real(r8), intent(in) :: tracer_mass_acc(:)
+      real(r8), intent(in) :: water_acc(:)
+      character(len=*), intent(in) :: file_hist
+      character(len=*), intent(in) :: varname
+      integer, intent(in) :: itime_in_file
+      logical, intent(in) :: filter(:)
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
+
+      CALL write_history_tracer_vector_2d (tracer_mass_acc, water_acc, 0._r8, &
+         .false., trc_tiny, file_hist, varname, itime_in_file, filter, &
+         longname, units)
+   END SUBROUTINE write_history_tracer_ratio_vector_2d
+
+   SUBROUTINE write_history_tracer_delta_vector_2d (tracer_mass_acc, water_acc, &
+      ref_ratio, file_hist, varname, itime_in_file, filter, longname, units, water_min)
+
+      IMPLICIT NONE
+      real(r8), intent(in) :: tracer_mass_acc(:)
+      real(r8), intent(in) :: water_acc(:)
+      real(r8), intent(in) :: ref_ratio
+      character(len=*), intent(in) :: file_hist
+      character(len=*), intent(in) :: varname
+      integer, intent(in) :: itime_in_file
+      logical, intent(in) :: filter(:)
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
+      real(r8), intent(in) :: water_min
+
+      CALL write_history_tracer_vector_2d (tracer_mass_acc, water_acc, ref_ratio, &
+         .true., water_min, file_hist, varname, itime_in_file, filter, &
+         longname, units)
+   END SUBROUTINE write_history_tracer_delta_vector_2d
+
+   SUBROUTINE write_history_tracer_vector_2d (tracer_mass_acc, water_acc, ref_ratio, &
+      write_delta, water_min, file_hist, varname, itime_in_file, filter, longname, units)
+
+      USE MOD_SPMD_Task
+      USE MOD_Namelist, only: DEF_HIST_CompressLevel
+#ifdef CATCHMENT
+      USE MOD_LandHRU
+      USE MOD_HRUVector
+#else
+      USE MOD_LandElm
+      USE MOD_ElmVector
+#endif
+      IMPLICIT NONE
+
+      real(r8), intent(in) :: tracer_mass_acc(:)
+      real(r8), intent(in) :: water_acc(:)
+      real(r8), intent(in) :: ref_ratio
+      logical, intent(in) :: write_delta
+      real(r8), intent(in) :: water_min
+      character(len=*), intent(in) :: file_hist
+      character(len=*), intent(in) :: varname
+      integer, intent(in) :: itime_in_file
+      logical, intent(in) :: filter(:)
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
+
+      integer :: numset, totalnumset, iset, istt, iend, iwork, mesg(2)
+      integer :: isrc, ndata, compress
+      logical, allocatable :: mask(:)
+      real(r8), allocatable :: frac(:)
+      real(r8), allocatable :: trc_local(:), water_local(:), out_vec(:)
+      real(r8), allocatable :: trc_global(:), water_global(:)
+      real(r8), allocatable :: send_pair(:,:), recv_pair(:,:)
+      real(r8) :: delta_loc
+
+#ifdef USEMPI
+      CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+
+      IF (p_is_worker) THEN
+#ifdef CATCHMENT
+         numset = numhru
+#else
+         numset = numelm
+#endif
+         IF (numset > 0) THEN
+            allocate(trc_local(numset), water_local(numset))
+            trc_local = 0._r8
+            water_local = 0._r8
+
+            DO iset = 1, numset
+#ifdef CATCHMENT
+               istt = hru_patch%substt(iset)
+               iend = hru_patch%subend(iset)
+#else
+               istt = elm_patch%substt(iset)
+               iend = elm_patch%subend(iset)
+#endif
+               IF ((istt > 0) .and. (iend >= istt)) THEN
+                  allocate(mask(istt:iend), frac(istt:iend))
+                  IF (write_delta) THEN
+                     mask = (water_acc(istt:iend) > water_min) .and. &
+                        (tracer_mass_acc(istt:iend) /= spval) .and. filter(istt:iend)
+                  ELSE
+                     mask = (abs(water_acc(istt:iend)) > water_min) .and. &
+                        (tracer_mass_acc(istt:iend) /= spval) .and. filter(istt:iend)
+                  ENDIF
+                  IF (any(mask)) THEN
+#ifdef CATCHMENT
+                     frac = hru_patch%subfrc(istt:iend)
+#else
+                     frac = elm_patch%subfrc(istt:iend)
+#endif
+                     trc_local(iset) = sum(frac * tracer_mass_acc(istt:iend), mask = mask)
+                     water_local(iset) = sum(frac * water_acc(istt:iend), mask = mask)
+                  ENDIF
+                  deallocate(mask, frac)
+               ENDIF
+            ENDDO
+         ENDIF
+
+#ifdef USEMPI
+         mesg = (/p_iam_glb, numset/)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         IF (numset > 0) THEN
+            allocate(send_pair(2, numset))
+            send_pair(1, :) = trc_local
+            send_pair(2, :) = water_local
+            CALL mpi_send (send_pair, 2*numset, MPI_REAL8, p_address_master, &
+               mpi_tag_data, p_comm_glb, p_err)
+            deallocate(send_pair)
+         ENDIF
+#endif
+      ENDIF
+
+      IF (p_is_master) THEN
+#ifdef CATCHMENT
+         totalnumset = totalnumhru
+#else
+         totalnumset = totalnumelm
+#endif
+         allocate(out_vec(totalnumset), trc_global(totalnumset), water_global(totalnumset))
+         out_vec = spval
+         trc_global = 0._r8
+         water_global = 0._r8
+
+#ifdef USEMPI
+         DO iwork = 0, p_np_worker-1
+            CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
+               mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+            isrc = mesg(1)
+            ndata = mesg(2)
+            IF (ndata > 0) THEN
+               allocate(recv_pair(2, ndata))
+               CALL mpi_recv (recv_pair, 2*ndata, MPI_REAL8, isrc, &
+                  mpi_tag_data, p_comm_glb, p_stat, p_err)
+#ifdef CATCHMENT
+               trc_global(hru_data_address(p_itis_worker(isrc))%val) = recv_pair(1, :)
+               water_global(hru_data_address(p_itis_worker(isrc))%val) = recv_pair(2, :)
+#else
+               trc_global(elm_data_address(p_itis_worker(isrc))%val) = recv_pair(1, :)
+               water_global(elm_data_address(p_itis_worker(isrc))%val) = recv_pair(2, :)
+#endif
+               deallocate(recv_pair)
+            ENDIF
+         ENDDO
+#else
+#ifdef CATCHMENT
+         IF (allocated(trc_local)) THEN
+            trc_global(hru_data_address(0)%val) = trc_local
+            water_global(hru_data_address(0)%val) = water_local
+         ENDIF
+#else
+         IF (allocated(trc_local)) THEN
+            trc_global(elm_data_address(0)%val) = trc_local
+            water_global(elm_data_address(0)%val) = water_local
+         ENDIF
+#endif
+#endif
+
+         DO iset = 1, totalnumset
+            IF (write_delta) THEN
+               IF (water_global(iset) > water_min) THEN
+                  delta_loc = mass_to_delta(trc_global(iset), water_global(iset), ref_ratio)
+                  IF (delta_loc /= spval .and. abs(delta_loc) <= trc_delta_sanity_max) THEN
+                     out_vec(iset) = delta_loc
+                  ENDIF
+               ENDIF
+            ELSEIF (abs(water_global(iset)) > water_min) THEN
+               out_vec(iset) = trc_global(iset) / water_global(iset)
+            ENDIF
+         ENDDO
+
+         compress = DEF_HIST_CompressLevel
+         IF (itime_in_file >= 1) THEN
+#ifdef CATCHMENT
+            CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
+               'hydrounit', 'time', compress)
+#else
+            CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
+               'element', 'time', compress)
+#endif
+         ELSE
+#ifdef CATCHMENT
+            CALL ncio_write_serial (file_hist, varname, out_vec, 'hydrounit', compress)
+#else
+            CALL ncio_write_serial (file_hist, varname, out_vec, 'element', compress)
+#endif
+         ENDIF
+         IF (itime_in_file <= 1) THEN
+            CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
+            CALL ncio_put_attr (file_hist, varname, 'units', units)
+            CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
+         ENDIF
+      ENDIF
+
+      IF (allocated(out_vec)) deallocate(out_vec)
+      IF (allocated(trc_local)) deallocate(trc_local)
+      IF (allocated(trc_global)) deallocate(trc_global)
+      IF (allocated(water_local)) deallocate(water_local)
+      IF (allocated(water_global)) deallocate(water_global)
+
+#ifdef USEMPI
+      CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+   END SUBROUTINE write_history_tracer_vector_2d
+
+   SUBROUTINE write_history_tracer_ratio_vector_3d (tracer_mass_acc, water_acc, &
+      file_hist, varname, itime_in_file, dim1name, lb1, ndim1, filter, longname, units)
+
+      USE MOD_SPMD_Task
+      USE MOD_Namelist, only: DEF_HIST_CompressLevel
+#ifdef CATCHMENT
+      USE MOD_LandHRU
+      USE MOD_HRUVector
+#else
+      USE MOD_LandElm
+      USE MOD_ElmVector
+#endif
+      IMPLICIT NONE
+
+      real(r8), intent(in) :: tracer_mass_acc(lb1:,:)
+      real(r8), intent(in) :: water_acc(lb1:,:)
+      character(len=*), intent(in) :: file_hist
+      character(len=*), intent(in) :: varname
+      integer, intent(in) :: itime_in_file
+      character(len=*), intent(in) :: dim1name
+      integer, intent(in) :: lb1, ndim1
+      logical, intent(in) :: filter(:)
+      character(len=*), intent(in) :: longname
+      character(len=*), intent(in) :: units
+
+      integer :: numset, totalnumset, iset, istt, iend, iwork, mesg(2)
+      integer :: isrc, ndata, compress, i1, k, ub1
+      logical, allocatable :: mask(:)
+      real(r8), allocatable :: frac(:)
+      real(r8), allocatable :: trc_local(:,:), water_local(:,:), out_vec(:,:)
+      real(r8), allocatable :: trc_global(:,:), water_global(:,:)
+      real(r8), allocatable :: send_pair(:,:,:), recv_pair(:,:,:)
+
+#ifdef USEMPI
+      CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+
+      ub1 = lb1 + ndim1 - 1
+      IF (p_is_worker) THEN
+#ifdef CATCHMENT
+         numset = numhru
+#else
+         numset = numelm
+#endif
+         IF (numset > 0) THEN
+            allocate(trc_local(ndim1, numset), water_local(ndim1, numset))
+            trc_local = 0._r8
+            water_local = 0._r8
+            DO iset = 1, numset
+#ifdef CATCHMENT
+               istt = hru_patch%substt(iset)
+               iend = hru_patch%subend(iset)
+#else
+               istt = elm_patch%substt(iset)
+               iend = elm_patch%subend(iset)
+#endif
+               IF ((istt > 0) .and. (iend >= istt)) THEN
+                  allocate(mask(istt:iend), frac(istt:iend))
+#ifdef CATCHMENT
+                  frac = hru_patch%subfrc(istt:iend)
+#else
+                  frac = elm_patch%subfrc(istt:iend)
+#endif
+                  DO i1 = lb1, ub1
+                     k = i1 - lb1 + 1
+                     mask = (abs(water_acc(i1, istt:iend)) > trc_tiny) .and. &
+                        (tracer_mass_acc(i1, istt:iend) /= spval) .and. filter(istt:iend)
+                     IF (any(mask)) THEN
+                        trc_local(k, iset) = sum(frac * tracer_mass_acc(i1, istt:iend), mask = mask)
+                        water_local(k, iset) = sum(frac * water_acc(i1, istt:iend), mask = mask)
+                     ENDIF
+                  ENDDO
+                  deallocate(mask, frac)
+               ENDIF
+            ENDDO
+         ENDIF
+
+#ifdef USEMPI
+         mesg = (/p_iam_glb, numset/)
+         CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         IF (numset > 0) THEN
+            allocate(send_pair(2, ndim1, numset))
+            send_pair(1, :, :) = trc_local
+            send_pair(2, :, :) = water_local
+            CALL mpi_send (send_pair, 2*ndim1*numset, MPI_REAL8, p_address_master, &
+               mpi_tag_data, p_comm_glb, p_err)
+            deallocate(send_pair)
+         ENDIF
+#endif
+      ENDIF
+
+      IF (p_is_master) THEN
+#ifdef CATCHMENT
+         totalnumset = totalnumhru
+#else
+         totalnumset = totalnumelm
+#endif
+         allocate(out_vec(ndim1, totalnumset), trc_global(ndim1, totalnumset), &
+            water_global(ndim1, totalnumset))
+         out_vec = spval
+         trc_global = 0._r8
+         water_global = 0._r8
+
+#ifdef USEMPI
+         DO iwork = 0, p_np_worker-1
+            CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
+               mpi_tag_mesg, p_comm_glb, p_stat, p_err)
+            isrc = mesg(1)
+            ndata = mesg(2)
+            IF (ndata > 0) THEN
+               allocate(recv_pair(2, ndim1, ndata))
+               CALL mpi_recv (recv_pair, 2*ndim1*ndata, MPI_REAL8, isrc, &
+                  mpi_tag_data, p_comm_glb, p_stat, p_err)
+               DO k = 1, ndim1
+#ifdef CATCHMENT
+                  trc_global(k, hru_data_address(p_itis_worker(isrc))%val) = recv_pair(1, k, :)
+                  water_global(k, hru_data_address(p_itis_worker(isrc))%val) = recv_pair(2, k, :)
+#else
+                  trc_global(k, elm_data_address(p_itis_worker(isrc))%val) = recv_pair(1, k, :)
+                  water_global(k, elm_data_address(p_itis_worker(isrc))%val) = recv_pair(2, k, :)
+#endif
+               ENDDO
+               deallocate(recv_pair)
+            ENDIF
+         ENDDO
+#else
+#ifdef CATCHMENT
+         IF (allocated(trc_local)) THEN
+            trc_global(:, hru_data_address(0)%val) = trc_local
+            water_global(:, hru_data_address(0)%val) = water_local
+         ENDIF
+#else
+         IF (allocated(trc_local)) THEN
+            trc_global(:, elm_data_address(0)%val) = trc_local
+            water_global(:, elm_data_address(0)%val) = water_local
+         ENDIF
+#endif
+#endif
+
+         DO iset = 1, totalnumset
+            DO k = 1, ndim1
+               IF (abs(water_global(k, iset)) > trc_tiny) THEN
+                  out_vec(k, iset) = trc_global(k, iset) / water_global(k, iset)
+               ENDIF
+            ENDDO
+         ENDDO
+
+         CALL ncio_define_dimension (file_hist, dim1name, ndim1)
+         compress = DEF_HIST_CompressLevel
+         IF (itime_in_file >= 1) THEN
+#ifdef CATCHMENT
+            CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
+               dim1name, 'hydrounit', 'time', compress)
+#else
+            CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
+               dim1name, 'element', 'time', compress)
+#endif
+         ELSE
+#ifdef CATCHMENT
+            CALL ncio_write_serial (file_hist, varname, out_vec, dim1name, 'hydrounit', compress)
+#else
+            CALL ncio_write_serial (file_hist, varname, out_vec, dim1name, 'element', compress)
+#endif
+         ENDIF
+         IF (itime_in_file <= 1) THEN
+            CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
+            CALL ncio_put_attr (file_hist, varname, 'units', units)
+            CALL ncio_put_attr (file_hist, varname, 'missing_value', spval)
+         ENDIF
+      ENDIF
+
+      IF (allocated(out_vec)) deallocate(out_vec)
+      IF (allocated(trc_local)) deallocate(trc_local)
+      IF (allocated(trc_global)) deallocate(trc_global)
+      IF (allocated(water_local)) deallocate(water_local)
+      IF (allocated(water_global)) deallocate(water_global)
+
+#ifdef USEMPI
+      CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+   END SUBROUTINE write_history_tracer_ratio_vector_3d
+#endif
 #endif
 
    SUBROUTINE write_history_variable_2d ( is_hist, &

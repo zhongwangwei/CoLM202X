@@ -186,6 +186,8 @@ CONTAINS
       ! irrigation-reservoir tracer pool.
       logical, optional, intent(out) :: waterstorage_missing
       integer :: itrc
+      logical :: has_leaf_delta_e, has_leaf_delta_b
+      logical :: has_leaf_peclet, has_leaf_water_moles, has_leaf_iso_storage
       logical :: reset_legacy_leaf_e, reset_legacy_leaf_b
 
       found_restart = .false.
@@ -275,20 +277,31 @@ CONTAINS
       IF (allocated(trc_leaf_peclet)) trc_leaf_peclet = 1._r8
       IF (allocated(trc_leaf_water_moles)) trc_leaf_water_moles = 0._r8
       IF (allocated(trc_leaf_iso_storage)) trc_leaf_iso_storage = 0._r8
-      IF (tracer_dim_matches(file_restart, 'trc_leaf_delta_e')) THEN
+      has_leaf_delta_e = tracer_dim_matches(file_restart, 'trc_leaf_delta_e')
+      has_leaf_delta_b = tracer_dim_matches(file_restart, 'trc_leaf_delta_b')
+      has_leaf_peclet = tracer_dim_matches(file_restart, 'trc_leaf_peclet')
+      has_leaf_water_moles = tracer_dim_matches(file_restart, 'trc_leaf_water_moles')
+      has_leaf_iso_storage = tracer_dim_matches(file_restart, 'trc_leaf_iso_storage')
+      IF (has_leaf_delta_e) THEN
          CALL ncio_read_vector(file_restart, 'trc_leaf_delta_e', ntracers, landpatch, trc_leaf_delta_e)
       ENDIF
-      IF (tracer_dim_matches(file_restart, 'trc_leaf_delta_b')) THEN
+      IF (has_leaf_delta_b) THEN
          CALL ncio_read_vector(file_restart, 'trc_leaf_delta_b', ntracers, landpatch, trc_leaf_delta_b)
       ENDIF
-      IF (tracer_dim_matches(file_restart, 'trc_leaf_peclet')) THEN
+      IF (has_leaf_peclet) THEN
          CALL ncio_read_vector(file_restart, 'trc_leaf_peclet', ntracers, landpatch, trc_leaf_peclet)
       ENDIF
-      IF (tracer_dim_matches(file_restart, 'trc_leaf_water_moles')) THEN
+      IF (has_leaf_water_moles) THEN
          CALL ncio_read_vector(file_restart, 'trc_leaf_water_moles', ntracers, landpatch, trc_leaf_water_moles)
       ENDIF
-      IF (tracer_dim_matches(file_restart, 'trc_leaf_iso_storage')) THEN
+      IF (has_leaf_iso_storage) THEN
          CALL ncio_read_vector(file_restart, 'trc_leaf_iso_storage', ntracers, landpatch, trc_leaf_iso_storage)
+      ENDIF
+      IF (p_is_io .and. p_iam_io == p_root .and. &
+          (.not. has_leaf_delta_e .or. .not. has_leaf_delta_b .or. &
+           .not. has_leaf_peclet .or. .not. has_leaf_water_moles .or. &
+           .not. has_leaf_iso_storage)) THEN
+         WRITE(*,'(A)') 'Tracer restart lacks one or more leaf NSS diagnostic fields; initialized defaults.'
       ENDIF
 
       DO itrc = 1, ntracers
