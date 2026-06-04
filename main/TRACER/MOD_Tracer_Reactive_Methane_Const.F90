@@ -157,7 +157,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: f_methane_temperate_marsh      = 0.15_r8  ! Inferred from Bridgham 2013 GCB Typha/Carex range 0.10-0.25
       real(r8) :: f_methane_boreal_fen           = 0.12_r8  ! Inferred from Wania et al. 2010 GMD LPJ-WHyMe fen range 0.10-0.20; lower than CTSM global 0.20
       real(r8) :: f_methane_boreal_bog           = 0.08_r8  ! Inferred from Bridgham 2013 Sphagnum range 0.05-0.15 (fermenter-dominated)
-      real(r8) :: f_methane_rice_paddy           = 0.30_r8  ! Inferred from Holzapfel-Pschorn et al. 1985 rice paddy CH4/CO2 ratios; upper end of Bridgham range
+      real(r8) :: f_methane_rice_paddy           = 0.10_r8  ! Rice paddy CH4/CO2 ratio; conservative value within CLM4Me sensitivity range (0.1-0.3)
       real(r8) :: f_methane_upland_soil          = 0.05_r8  ! Inferred from Le Mer & Roger 2001 review (upland anaerobic microsites)
 
       ! Biome-specific redoxlag lookup (days).  When enabled, methane_prod
@@ -177,7 +177,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: redoxlag_temperate_marsh       = 20._r8   ! Temperate intermediate
       real(r8) :: redoxlag_boreal_fen            = 30._r8   ! CTSM legacy default (Walter & Heimann 2001 JGR ~14-30d transition)
       real(r8) :: redoxlag_boreal_bog            = 45._r8   ! Boreal slowest (cold Sphagnum, Whalen & Reeburgh 1990 Nature)
-      real(r8) :: redoxlag_rice_paddy            = 5._r8    ! Managed flood/drain rapid (Holzapfel-Pschorn et al. 1985 Plant Soil)
+      real(r8) :: redoxlag_rice_paddy            = 25._r8   ! Managed flood/drain redox response; faster than wetland 30d but avoids unrealistically immediate production
       real(r8) :: redoxlag_upland_soil           = 30._r8   ! Default (only when Plan A activates upland CH4)
 
       ! Explicit methanogenesis depth attenuation.  CTSM BGC SOC profile
@@ -468,7 +468,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! rice_paddy_min_finundated: floor on finundated for live paddy rice;
       !   blended with scheme-computed finundated using max() so already-wet
       !   patches are never lowered (e.g. wetland tile with rice CFT mixed).
-      real(r8) :: rice_paddy_min_finundated = 0.95_r8
+      real(r8) :: rice_paddy_min_finundated = 0.85_r8
       ! Reserved for R5 — paddy floodwater depth still left to CoLM hydrology
       ! + the existing wdsrf pressure term inside methane_ebul.
       real(r8) :: rice_paddy_min_wdsrf_mm   = 50._r8

@@ -63,7 +63,11 @@
     !   DEF_TRACER_PARAM_FILES = 'CH4:./standard_ch4_parameter.nml'
     ! All CH4-private controls belong here.
     DEF_METHANE%inundation_mode  = 'hybrid'
-    DEF_METHANE%enable_rice_paddy = .false.
+    DEF_METHANE%enable_rice_paddy = .true.
+    ! Standard global CH4 split: run soil-column CH4 only on natural
+    ! wetlands and paddy-rice soil patches.  Lake CH4 is handled by the
+    ! separate WATERBODY substep below.  Keeping ordinary non-rice soil off
+    ! avoids folding background soil CH4 into the rice diagnostic split.
     DEF_METHANE%only_wetland      = .false.
     DEF_METHANE%use_spatial_ph   = .true.
 
@@ -95,7 +99,7 @@
     DEF_METHANE%f_methane_temperate_marsh      = 0.15
     DEF_METHANE%f_methane_boreal_fen           = 0.12
     DEF_METHANE%f_methane_boreal_bog           = 0.08
-    DEF_METHANE%f_methane_rice_paddy           = 0.30
+    DEF_METHANE%f_methane_rice_paddy           = 0.10
     DEF_METHANE%f_methane_upland_soil          = 0.05
 
     ! Vertical source-profile sharpening.  Default 0 disables it; hybrid mode
@@ -132,7 +136,7 @@
     DEF_METHANE%redoxlag_temperate_marsh     = 20.0
     DEF_METHANE%redoxlag_boreal_fen          = 30.0
     DEF_METHANE%redoxlag_boreal_bog          = 45.0
-    DEF_METHANE%redoxlag_rice_paddy          = 5.0
+    DEF_METHANE%redoxlag_rice_paddy          = 25.0
     DEF_METHANE%redoxlag_upland_soil         = 30.0
 
     ! ------------------------------------------------------------------
@@ -142,6 +146,11 @@
     !   finundated = 1 / (1 + exp((zwt - wtd_inflection)/wtd_steepness))
     DEF_METHANE%wtd_inflection = 0.30      ! [m] depth at finundated = 0.5
     DEF_METHANE%wtd_steepness  = 0.05      ! [m] S-curve width
+
+    ! Rice-paddy equivalent flooded fraction floor. 0.80 avoids
+    ! treating all live rice as continuously flooded while retaining
+    ! strong paddy inundation relative to natural soil.
+    DEF_METHANE%rice_paddy_min_finundated = 0.85
 
     ! Soil-tile sigmoid extension.  0 keeps backward-compatible behavior.
     DEF_METHANE%wtd_inflection_soil = 0.0
@@ -228,7 +237,7 @@
     ! ------------------------------------------------------------------
     ! Disabled by default for backward-compatible global budgets.  If enabled,
     ! lake sediment CH4 production uses DEF_METHANE%f_methane above.
-    DEF_METHANE%allowlakeprod         = .false.
+    DEF_METHANE%allowlakeprod         = .true.
     DEF_METHANE%lake_zero_depth_fatal = .false.
     DEF_METHANE%lake_decomp_fact      = 9.e-11
     DEF_METHANE%replenishlakec        = .true.
@@ -258,11 +267,10 @@
     ! ------------------------------------------------------------------
     ! 9. CH4 history output control
     ! ------------------------------------------------------------------
-    ! Use 'core' for compact production output, 'diagnostic' for the
-    ! previous broad core set, 'all' for every CH4 diagnostic, 'none'
-    ! to suppress, or a comma-separated list of f_* variables.
+    ! Use 'all' for legacy full diagnostics, 'core' for global production
+    ! runs, 'none' to suppress, or a comma-separated list of f_* variables.
     DEF_METHANE%write_ch4_history = .true.
-    DEF_METHANE%ch4_history_vars  = 'core'
+    DEF_METHANE%ch4_history_vars  = 'diagnostic'
 
     ! ------------------------------------------------------------------
     ! 10. Optional microbial-pool diagnostics / flux override
