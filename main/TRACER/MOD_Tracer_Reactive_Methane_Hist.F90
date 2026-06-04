@@ -875,18 +875,9 @@ CONTAINS
                      'f_wetland_frac_patch', itime_in_file, sumarea, filter, &
                      'static wetland fraction of parent cell for methane patch', '-', &
                      acc_num=a_methane_acc_num)
-                  ! Sub-tile CH4 flux contributions: each variable is the active-CH4 area mean
-                  ! of that tile's contribution; non-source patches contribute 0.
-                  ! Sum (wetland+soil+rice+lake) equals f_methane_surf_flux_tot exactly.
-                  ! NOT the intrinsic per-tile flux (divide by tile area fraction for that).
-                  CALL write_history_variable_2d (.false., a_methane_surf_flux_wetland, file_hist, &
-                     'f_methane_surf_flux_wetland', itime_in_file, sumarea, filter, &
-                     'wetland-patch contribution to total CH4 surface flux (active-mean)', 'mol/m2/s', &
-                     acc_num=a_methane_acc_num)
-                  CALL write_history_variable_2d (.false., a_methane_surf_flux_soil, file_hist, &
-                     'f_methane_surf_flux_soil', itime_in_file, sumarea, filter, &
-                     'non-rice soil-patch contribution to total CH4 surface flux (active-mean)', 'mol/m2/s', &
-                     acc_num=a_methane_acc_num)
+                  ! Canonical wetland/soil split fluxes are written above as
+                  ! all-land contributions.  Do not write those names again
+                  ! with the active-CH4 denominator.
 	                  CALL write_history_variable_2d (.false., a_methane_surf_flux_rice, file_hist, &
 	                     'f_methane_surf_flux_rice', itime_in_file, sumarea, filter, &
 	                     'rice-paddy contribution to total CH4 surface flux (active-mean)', 'mol/m2/s', &

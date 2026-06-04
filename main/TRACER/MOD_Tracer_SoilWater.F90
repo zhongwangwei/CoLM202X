@@ -43,6 +43,10 @@ CONTAINS
    ! supplies its Campbell/Richards interface fluxes from the tridiagonal
    ! soilwater solve; any residual storage mismatch is still reconciled below.
    !---------------------------------------------------------------
+   ! REQUIRES: DEF_USE_VariablySaturatedFlow = .true.
+   ! The soil-water tracer closure uses VSF-only diagnostics (aquifer exchange,
+   ! actual root uptake, and wblc ice sink).  TRACER runs must be rejected at
+   ! namelist validation time when DEF_USE_VariablySaturatedFlow is false.
    SUBROUTINE tracer_soil_water (ipatch, deltim, snl, nl_soil, &
       qlayer, qinfl, qcharge, rsur, rsub, &
       qseva_in, qsdew_in, qsubl_in, qfros_in, &

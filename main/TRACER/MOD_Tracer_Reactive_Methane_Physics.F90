@@ -400,11 +400,17 @@ contains
 		integer  :: sat                     ! 0 = unsatured, 1 = saturated
 		real(r8) :: finundated              ! fractional inundated area
 		logical  :: methane_cold_start      ! true only when no valid previous CH4 inundation state exists
+		logical  :: wetland_inactive_dry_area ! non-inundated patchtype-2 area has no active CH4 column
 		logical  :: is_rice_paddy           ! R1: rice paddy patch flag (unpacked from optional)
 		real(r8) :: rice_pft_frac           ! R1: rice fraction within patch (0..1)
 		real(r8) :: rice_substrate_boost_eff ! R2: fraction-weighted paddy substrate multiplier
 		real(r8) :: finundated_rice         ! R1: rice-overridden finundated value
 		real(r8) :: finundated_default      ! R1: scheme-computed natural-wetland finundated
+		logical  :: rice_finundation_active ! true only during live rice or drain-window
+		real(r8) :: rice_flux_area          ! diagnostic flux under paddy-flooded fraction
+		real(r8) :: soil_flux_area          ! diagnostic flux under non-rice soil fraction
+		real(r8) :: rice_soil_flux_sum      ! unscaled area-weighted rice+soil diagnostic flux
+		real(r8) :: rice_soil_flux_scale    ! closure-preserving scale for split diagnostics
 		integer  :: idpp_rice, dsh
 		real(r8) :: ms_start, ms_end, decay, drain_target
 
@@ -792,6 +798,9 @@ contains
 		! Clamp to keep saturated/unsaturated weighting bounded.
 		finundated = min(max(finundated, 0._r8), 1._r8)
 
+		wetland_inactive_dry_area = patchtype == 2 .and. &
+			DEF_METHANE%wetland_dry_unsat_branch
+
 		! CoLM's wetland hydrology hardcodes zwt=0 and frcsat=1 for
 		! patchtype==2 (MOD_SoilSnowHydrology.F90:1227-1265), so the IGBP /
 		! TOPMODEL / sigmoid / routing schemes all collapse to ~1.0 or near-
@@ -820,6 +829,20 @@ contains
 				layer_sat_lag(j) = finundated
 			end if
 		end do
+		if (wetland_inactive_dry_area) then
+			! For a mapped wetland tile, finundated is the dynamic active
+			! wetland-water fraction.  The remaining dry part of the tile is
+			! not a separate prognostic CH4 soil column; otherwise dynamic
+			! wetland area changes create an artificial dry-unsat reservoir
+			! and budget warnings.  Preserve dynamic finundated, but define
+			! the dry fraction as inactive: newly flooded area starts with
+			! zero CH4, and decreasing flooded area releases the saturated
+			! excess through methane_dfsat_tot below.
+			totcolch4_bef = fsat_bef * totcolch4_bef_sat
+			totcolch4_bef_unsat = 0._r8
+			conc_methane_unsat = 0._r8
+			totcol_methane_unsat = 0._r8
+		endif
 		if (snowdp > 0._r8) then  !If snow_depth>0, keep finundated from the previous time step of snow season. (by Xiyan Xu, 05/2016)
             finundated = fsat_bef
 		end if
@@ -850,6 +873,9 @@ contains
 		   rice_pft_frac = 0._r8
 		ENDIF
 		rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
+		finundated_default = finundated
+		finundated_rice = finundated_default
+		rice_finundation_active = .false.
 		rice_substrate_boost_eff = 1._r8
 		IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
 		   ! Safety clamp on caller-supplied rice fraction (multi-CFT
@@ -857,7 +883,6 @@ contains
 		   ! has been touched upstream).
 		   rice_substrate_boost_eff = 1._r8 + rice_pft_frac * &
 		      (DEF_METHANE%rice_substrate_boost - 1._r8)
-		   finundated_default = finundated
 
 		   IF (is_paddy_rice_live(ipatch)) THEN
 		      ! Live rice: floor to rice_paddy_min_finundated.  Use max() so
@@ -875,6 +900,7 @@ contains
 		                finundated_default))
 		      ENDIF
 
+		      rice_finundation_active = .true.
 		      finundated = rice_pft_frac * finundated_rice &
 		                 + (1._r8 - rice_pft_frac) * finundated_default
 
@@ -884,6 +910,7 @@ contains
 		         decay = 1._r8 - real(dsh, r8) / DEF_METHANE%rice_drain_window_days
 		         drain_target = decay * DEF_METHANE%rice_paddy_min_finundated
 		         finundated_rice = max(drain_target, finundated_default)
+		         rice_finundation_active = .true.
 		         finundated = rice_pft_frac * finundated_rice &
 		                    + (1._r8 - rice_pft_frac) * finundated_default
 		      ENDIF
@@ -907,7 +934,17 @@ contains
 		do j=1,nl_soil
 			if (.not. methane_cold_start) then
 				if (dfsat > 0._r8) then
-					if (finundated < min_rebalance_finundated) then
+					if (wetland_inactive_dry_area) then
+						! Dynamic wetland can have very small but nonzero active
+						! fractions.  Do not use the generic tiny-area fallback
+						! (copy unsat, which is zero for inactive dry area),
+						! because it erases the previous saturated CH4 mass.
+						! Regrid active wetland inventory conservatively.
+						conc_methane_sat(j) = (fsat_bef*conc_methane_sat(j) + &
+							dfsat*conc_methane_unsat(j)) / max(finundated, 1.e-12_r8)
+						conc_o2_sat (j) = (fsat_bef*conc_o2_sat (j) + &
+							dfsat*conc_o2_unsat (j)) / max(finundated, 1.e-12_r8)
+					elseif (finundated < min_rebalance_finundated) then
 						conc_methane_sat(j) = conc_methane_unsat(j)
 						conc_o2_sat (j) = conc_o2_unsat (j)
 					else
@@ -945,6 +982,33 @@ contains
 		! Loop
 		!-------------------------------------------------
 		do sat= 0, 1
+			if (wetland_inactive_dry_area .and. sat == 0) then
+				methane_prod_depth_unsat = 0._r8
+				methane_oxid_depth_unsat = 0._r8
+				methane_ebul_depth_unsat = 0._r8
+				methane_aere_depth_unsat = 0._r8
+				methane_tran_depth_unsat = 0._r8
+				o2_decomp_depth_unsat = 0._r8
+				co2_decomp_depth_unsat = 0._r8
+				o2_oxid_depth_unsat = 0._r8
+				co2_oxid_depth_unsat = 0._r8
+				o2_aere_depth_unsat = 0._r8
+				co2_aere_depth_unsat = 0._r8
+				o2stress_unsat = 1._r8
+				methane_stress_unsat = 1._r8
+				conc_methane_unsat = 0._r8
+				totcol_methane_unsat = 0._r8
+				methane_surf_aere_unsat = 0._r8
+				methane_surf_ebul_unsat = 0._r8
+				methane_surf_diff_unsat = 0._r8
+				methane_surf_diff_phys_unsat = 0._r8
+				methane_ebul_tot_unsat = 0._r8
+				methane_balance_residual_unsat = 0._r8
+				methane_ch4_clip_credit_unsat = 0._r8
+				o2_cap_loss_unsat = 0._r8
+				o2_cap_gain_unsat = 0._r8
+				cycle
+			endif
 			if (patchtype == 4 .and. DEF_METHANE%allowlakeprod .and. sat == 0) then
 				methane_prod_depth_unsat = 0._r8
 				methane_oxid_depth_unsat = 0._r8
@@ -1355,18 +1419,40 @@ contains
 
 				IF (patchtype == 2) THEN
 					methane_surf_flux_wetland(ipatch) = methane_surf_flux_tot
-					ELSEIF (patchtype == 0) THEN
-						methane_soil_finundated(ipatch) = finundated
-						methane_soil_zwt(ipatch) = zwt
-						IF (is_rice_paddy) THEN
-							! Rice is a CFT fraction inside the soil patch.  Split the
-							! mixed-patch flux by rice area fraction for diagnostics instead
-							! of assigning the whole soil-patch flux to rice.
-							methane_surf_flux_rice(ipatch) = rice_pft_frac * methane_surf_flux_tot
-							methane_surf_flux_soil(ipatch) = (1._r8 - rice_pft_frac) * methane_surf_flux_tot
-						ELSE
-							methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
-						ENDIF
+						ELSEIF (patchtype == 0) THEN
+							methane_soil_finundated(ipatch) = finundated_default
+							methane_soil_zwt(ipatch) = zwt
+							IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
+								! Rice is a CFT fraction inside a soil patch.  Do not split
+								! history as rice_frac * mixed_flux: that assigns the paddy-
+								! flooded signature partly to non-rice soil and masks the actual
+								! rice/soil contrast.  Instead form provisional area fluxes from
+								! the saturated/unsaturated branch diagnostics at the natural-soil
+								! and paddy inundation fractions, then scale them to preserve the
+								! prognostic patch-total flux exactly.  This is still one CH4
+								! state pool per CoLM patch; the split is diagnostic-only until
+								! rice and non-rice crop fractions have separate CH4 state pools.
+								soil_flux_area = methane_surf_flux_tot_unsat * (1._r8 - finundated_default) + &
+								                 methane_surf_flux_tot_sat   * finundated_default
+								IF (rice_finundation_active) THEN
+									rice_flux_area = methane_surf_flux_tot_unsat * (1._r8 - finundated_rice) + &
+									                 methane_surf_flux_tot_sat   * finundated_rice
+								ELSE
+									rice_flux_area = soil_flux_area
+								ENDIF
+								rice_soil_flux_sum = (1._r8 - rice_pft_frac) * soil_flux_area + &
+								                     rice_pft_frac * rice_flux_area
+								IF (abs(rice_soil_flux_sum) > 1.e-30_r8) THEN
+									rice_soil_flux_scale = methane_surf_flux_tot / rice_soil_flux_sum
+								ELSE
+									rice_soil_flux_scale = 1._r8
+								ENDIF
+								methane_surf_flux_soil(ipatch) = (1._r8 - rice_pft_frac) * soil_flux_area * &
+								                                  rice_soil_flux_scale
+								methane_surf_flux_rice(ipatch) = methane_surf_flux_tot - methane_surf_flux_soil(ipatch)
+							ELSE
+								methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
+							ENDIF
 				ELSEIF (patchtype == 4 .and. DEF_METHANE%allowlakeprod) THEN
 					methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
 				ENDIF
@@ -1387,18 +1473,30 @@ contains
 			! Check balance
 			err_methane = totcol_methane - totcolch4_bef - deltim*(methane_prod_tot - methane_oxid_tot - methane_surf_flux_tot)
 			! [mol/m2]    = [mol/m2] - [mol/m2] + [s]*[mol/m2/s]
-			! Originally a fatal stop on column-budget closure > 1e-7. Cold-start
-			! configurations and the wider patch set under only_wetland=.false.
-			! routinely produce closure errors > 1e-7 from rounding while the
-			! long-term inventory stays well-conserved. Warn once per rank.
+			! Originally a fatal stop on column-budget closure > 1e-7.  Keep this
+			! as a rate-limited diagnostic rather than a stop so long runs can
+			! continue, but print the wetland inundation rebalance and numerical
+			! correction terms explicitly.  Values above this threshold are not
+			! assumed to be roundoff; the extra fields are needed to distinguish
+			! fsat/dfsat rebalance from transport clipping/residual corrections.
 			if (abs(err_methane) > 1.e-7_r8 .and. .not. warned_ch4_budget_methane) then
 				write(6,*)'WARNING: CH4 column budget closure > 1e-7 mol/m^2/timestep.'
 				write(6,*)'Lat,Lon,Patchtype        = ', dlat,dlon, patchtype
+				write(6,*)'err_methane              = ', err_methane
 				write(6,*)'totcol_methane                = ', totcol_methane
 				write(6,*)'totcolch4_bef            = ', totcolch4_bef
 				write(6,*)'deltim*methane_prod_tot      = ', deltim*methane_prod_tot
 				write(6,*)'deltim*methane_oxid_tot      = ', deltim*methane_oxid_tot
 				write(6,*)'deltim*methane_surf_flux_tot = ', deltim*methane_surf_flux_tot
+				write(6,*)'fsat_bef, finundated, dfsat = ', fsat_bef, finundated, dfsat
+				write(6,*)'deltim*methane_dfsat_tot = ', deltim*methane_dfsat_tot
+				write(6,*)'deltim*methane_balance_residual = ', deltim*methane_balance_residual
+				write(6,*)'deltim*methane_ch4_clip_credit = ', deltim*methane_ch4_clip_credit
+				write(6,*)'deltim*methane_surf_diff = ', deltim*methane_surf_diff
+				write(6,*)'deltim*methane_surf_aere = ', deltim*methane_surf_aere
+				write(6,*)'deltim*methane_surf_ebul = ', deltim*methane_surf_ebul
+				write(6,*)'deltim*methane_surf_tran = ', &
+					deltim*sum(methane_tran_depth(1:nl_soil)*dz_soisno(1:nl_soil))
 				warned_ch4_budget_methane = .true.
 			end if
 		end if
@@ -2504,6 +2602,7 @@ contains
 		real(r8) :: conc_o2_rel(0:nl_soil)             ! Concentration per volume of air or water
 		real(r8) :: conc_ch4_rel_old(0:nl_soil)        ! Concentration during last Crank-Nich. loop
 		real(r8), parameter :: smallnumber = 1.e-12_r8
+		logical, parameter :: ch4_backward_euler_transport = .true.
 		real(r8) :: snowdiff                                                   ! snow diffusivity (m^2/s)
 		real(r8) :: snow_resis                           ! Cumulative Snow resistance (s/m). Also includes
 			real(r8) :: pond_resis                                                    ! Additional resistance from ponding, up to pondmx water on top of top soil layer (s/m)
@@ -2924,18 +3023,52 @@ contains
 			end do ! j; nl_soil
 
 			! Perform a second loop for the tridiagonal coefficients since need dp1_zp1 and dm1_z1 at each depth
-			do j = 0,nl_soil
-				conc_ch4_rel_old(j) = conc_ch4_rel(j)
+				do j = 0,nl_soil
+					conc_ch4_rel_old(j) = conc_ch4_rel(j)
 
-				if (j > 0) dzj = dz_soisno(j)
-				if (j == 0) then ! top layer (atmosphere) doesn't change regardless of where WT is
-					at(j) = 0._r8
-					bt(j) = 1._r8
-					ct(j) = 0._r8
-					rt(j) = c_atm(s) ! 0th level stays at constant atmospheric conc
-				elseif (j < nl_soil .and. j == jwt) then ! concentration inside needs to be mult. by k_h_cc for dp1_zp1 term
-					at(j) = -0.5_r8 / dzj * dm1_zm1(j)
-					bt(j) = epsilon_t(j,s) / deltim + 0.5_r8 / dzj * (dp1_zp1(j)*k_h_cc(j,s) + dm1_zm1(j))
+					if (j > 0) dzj = dz_soisno(j)
+					if (j == 0) then ! top layer (atmosphere) doesn't change regardless of where WT is
+						at(j) = 0._r8
+						bt(j) = 1._r8
+						ct(j) = 0._r8
+						rt(j) = c_atm(s) ! 0th level stays at constant atmospheric conc
+					elseif (s == 1 .and. ch4_backward_euler_transport) then
+						! CH4 uses a fully implicit backward-Euler diffusion
+						! matrix.  The old Crank-Nicolson half-explicit
+						! diffusion term could overshoot sharp CH4 gradients in
+						! cold / low-storage layers and then rely on the
+						! negative-concentration clip branch.  With the
+						! competition limiter above, the CH4 RHS is non-negative;
+						! this M-matrix transport step is therefore
+						! positivity-preserving while keeping the same
+						! Henry-law interface coefficients.
+						if (j < nl_soil .and. j == jwt) then
+							at(j) = -1._r8 / dzj * dm1_zm1(j)
+							bt(j) = epsilon_t(j,s) / deltim + 1._r8 / dzj * &
+								(dp1_zp1(j)*k_h_cc(j,s) + dm1_zm1(j))
+							ct(j) = -1._r8 / dzj * dp1_zp1(j)
+						elseif (j < nl_soil .and. j == jwt+1) then
+							at(j) = -1._r8 / dzj * dm1_zm1(j) * k_h_cc(j-1,s)
+							bt(j) = epsilon_t(j,s) / deltim + 1._r8 / dzj * &
+								(dp1_zp1(j) + dm1_zm1(j))
+							ct(j) = -1._r8 / dzj * dp1_zp1(j)
+						elseif (j < nl_soil) then
+							at(j) = -1._r8 / dzj * dm1_zm1(j)
+							bt(j) = epsilon_t(j,s) / deltim + 1._r8 / dzj * &
+								(dp1_zp1(j) + dm1_zm1(j))
+							ct(j) = -1._r8 / dzj * dp1_zp1(j)
+						else if (j == nl_soil .and. j== jwt+1) then
+							at(j) = -1._r8 / dzj * dm1_zm1(j) * k_h_cc(j-1,s)
+							bt(j) = epsilon_t(j,s) / deltim + 1._r8 / dzj * dm1_zm1(j)
+							ct(j) = 0._r8
+						else
+							at(j) = -1._r8 / dzj * dm1_zm1(j)
+							bt(j) = epsilon_t(j,s) / deltim + 1._r8 / dzj * dm1_zm1(j)
+							ct(j) = 0._r8
+						endif
+					elseif (j < nl_soil .and. j == jwt) then ! concentration inside needs to be mult. by k_h_cc for dp1_zp1 term
+						at(j) = -0.5_r8 / dzj * dm1_zm1(j)
+						bt(j) = epsilon_t(j,s) / deltim + 0.5_r8 / dzj * (dp1_zp1(j)*k_h_cc(j,s) + dm1_zm1(j))
 					ct(j) = -0.5_r8 / dzj * dp1_zp1(j)
 				elseif (j < nl_soil .and. j == jwt+1) then
 					! concentration above needs to be mult. by k_h_cc for dm1_zm1 term
@@ -2965,16 +3098,23 @@ contains
 			if (s == 1) then  ! CH4
 
 				! Set rt, since it depends on conc
-				do j = 1,nl_soil
+					do j = 1,nl_soil
 
-					! Source and epsilon_t are constant over the implicit step,
-					! so a single evaluation is sufficient (formerly a CN-style
-					! average against a same-step "old" copy, which was a no-op).
-					dzj = dz_soisno(j)
-					if (j < nl_soil .and. j == jwt) then ! concentration inside needs to be mult. by k_h_cc for dp1_zp1 term
-						rt(j) = epsilon_t(j,s) / deltim * conc_ch4_rel(j) +           &
-							0.5_r8 / dzj * (dp1_zp1(j) * (conc_ch4_rel(j+1)-conc_ch4_rel(j)*k_h_cc(j,s)) - &
-							dm1_zm1(j) * (conc_ch4_rel(j)  -conc_ch4_rel(j-1))) + &
+						! Source and epsilon_t are constant over the implicit step,
+						! so a single evaluation is sufficient (formerly a CN-style
+						! average against a same-step "old" copy, which was a no-op).
+						dzj = dz_soisno(j)
+						if (ch4_backward_euler_transport) then
+							! Backward-Euler CH4 diffusion has no explicit
+							! diffusion contribution on the RHS.  With
+							! source(j,1) limited so source + storage/dt is
+							! non-negative, the implicit matrix above prevents
+							! large negative post-solve concentrations.
+							rt(j) = epsilon_t(j,s) / deltim * conc_ch4_rel(j) + source(j,s)
+						elseif (j < nl_soil .and. j == jwt) then ! concentration inside needs to be mult. by k_h_cc for dp1_zp1 term
+							rt(j) = epsilon_t(j,s) / deltim * conc_ch4_rel(j) +           &
+								0.5_r8 / dzj * (dp1_zp1(j) * (conc_ch4_rel(j+1)-conc_ch4_rel(j)*k_h_cc(j,s)) - &
+								dm1_zm1(j) * (conc_ch4_rel(j)  -conc_ch4_rel(j-1))) + &
 							source(j,s)
 					elseif (j < nl_soil .and. j == jwt+1) then
 						! concentration above needs to be mult. by k_h_cc for dm1_zm1 term
@@ -3010,15 +3150,24 @@ contains
 
 
 
-				! Calculate net methane flux to the atmosphere from the surface (+ to atm)
-				if (jwt /= 0) then ! WT not at the surface
-					methane_surf_diff = dm1_zm1(1) * ( (conc_ch4_rel(1)+conc_ch4_rel_old(1))/2._r8 &
-						- c_atm(s)) ! [mol/m2/s]
-				else ! WT at the surface; i.e., jwt==0
-					methane_surf_diff = dm1_zm1(1) * ( (conc_ch4_rel(1)+conc_ch4_rel_old(1))/2._r8 &
-						- c_atm(s)*k_h_cc(0,s)) ! [mol/m2/s]
-					! atmospheric concentration gets mult. by k_h_cc as above
-				endif
+					! Calculate net methane flux to the atmosphere from the surface (+ to atm)
+					if (jwt /= 0) then ! WT not at the surface
+						if (ch4_backward_euler_transport) then
+							methane_surf_diff = dm1_zm1(1) * (conc_ch4_rel(1) - c_atm(s)) ! [mol/m2/s]
+						else
+							methane_surf_diff = dm1_zm1(1) * ( (conc_ch4_rel(1)+conc_ch4_rel_old(1))/2._r8 &
+								- c_atm(s)) ! [mol/m2/s]
+						endif
+					else ! WT at the surface; i.e., jwt==0
+						if (ch4_backward_euler_transport) then
+							methane_surf_diff = dm1_zm1(1) * (conc_ch4_rel(1) &
+								- c_atm(s)*k_h_cc(0,s)) ! [mol/m2/s]
+						else
+							methane_surf_diff = dm1_zm1(1) * ( (conc_ch4_rel(1)+conc_ch4_rel_old(1))/2._r8 &
+								- c_atm(s)*k_h_cc(0,s)) ! [mol/m2/s]
+						endif
+						! atmospheric concentration gets mult. by k_h_cc as above
+					endif
 				methane_surf_ebul = methane_ebul_tot ! [mol/m2/s]
 
 				! Snapshot the raw diffusive flux BEFORE the negative-concentration

@@ -9,8 +9,8 @@
 !    Select one of the following options.
 #undef LULC_USGS
 #undef LULC_IGBP
-#undef LULC_IGBP_PFT
-#define LULC_IGBP_PC
+#define LULC_IGBP_PFT
+#undef LULC_IGBP_PC
 
 ! 2.1 3D Urban model (put it temporarily here):
 #undef URBAN_MODEL
@@ -24,9 +24,9 @@
 #endif
 
 ! 3. If defined, debug information is output.
-#define CoLMDEBUG
+#undef CoLMDEBUG
 ! 3.1 If defined, range of variables is checked.
-#define RangeCheck
+#undef RangeCheck
 ! 3.1 If defined, surface data in vector is mapped to gridded data for checking.
 #undef SrfdataDiag
 
@@ -63,10 +63,12 @@
 #undef GridRiverLakeFlow
 #endif
 
-
+! NOTE: the former standalone river-lake sediment macro has been retired.
+! Sediment is now a TRACER 'particle' species and is compiled/activated
+! under #ifdef TRACER together with GridRiverLakeFlow.
 
 ! 7. If defined, BGC model is used.
-#undef BGC
+#define BGC
 
 !    Conflicts :  only used when LULC_IGBP_PFT is defined.
 #ifndef LULC_IGBP_PFT
@@ -75,7 +77,7 @@
 #endif
 #endif
 ! 7.1 If defined, CROP model is used
-#undef CROP
+#define CROP
 !    Conflicts : only used when BGC is defined
 #ifndef BGC
 #undef CROP
@@ -102,13 +104,19 @@
 ! 12. Hyperspectral scheme.
 #undef HYPERSPECTRAL
 
+! 12b. If defined, extended canopy interception schemes are enabled.
+#undef extend_interception
+
 ! 13. If defined, water tracer module is enabled (e.g. delta-18O, delta-D).
 !     Default is OFF for production-safe builds; change to #define TRACER
 !     only when water tracers / particle tracer species are explicitly needed.
+#define TRACER
+!    Conflicts: TRACER requires VariablySaturatedFlow soil hydrology
+!    (vanGenuchten_Mualem_SOIL_MODEL). Disable when running with
+!    Campbell_SOIL_MODEL.
+#ifdef Campbell_SOIL_MODEL
 #undef TRACER
-!    WATER_2014/Campbell soil hydrology is allowed with TRACER but has reduced
-!    soil-water transport diagnostics; VariablySaturatedFlow remains preferred
-!    for fully resolved tracer budgets.
+#endif
 !    Dependency: the TRACER subsystem (water isotopes + the sediment particle
 !    species) routes through grid river/lake flow. Enabling TRACER REQUIRES
 !    GridRiverLakeFlow.

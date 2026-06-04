@@ -3,11 +3,9 @@
 include include/Makeoptions
 LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
-TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk 'NF { last=$$0 } END { print last }')
+TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | tail -n 1)
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
-MOD_OUT_DIR = .bld
-MOD_OUT = $(MOD_CMD)$(if $(filter -J,$(strip $(MOD_CMD))),, )$(MOD_OUT_DIR)
 VPATH = include : share : mksrfdata : mkinidata \
 	: main : main/TRACER : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
@@ -73,7 +71,7 @@ OBJS_SHARED =    \
 				  MOD_RegionClip.o
 
 ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 
@@ -98,7 +96,7 @@ OBJS_MKSRFDATA = \
 				  MKSRFDATA.o
 
 $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_MKSRFDATA_T = $(addprefix .bld/,${OBJS_MKSRFDATA})
 
@@ -139,19 +137,18 @@ TRACER_REACTIVE_MAIN_OBJS = \
 				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				MOD_Tracer_Reactive_Registrations.o
 TRACER_PARTICLE_REGISTERED_SPECIES_OBJS = \
-				MOD_Tracer_Particle_Sediment.o
-
-TRACER_PARTICLE_DISPATCH_OBJS = \
-				MOD_Tracer_Particle.o
+				  MOD_Tracer_Particle_Sediment.o
 
 TRACER_PARTICLE_MAIN_OBJS = \
 				$(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS) \
 				MOD_Tracer_Particle_Registrations.o
+TRACER_PARTICLE_CORE_OBJS = \
+				MOD_Tracer_Particle.o
 ifeq (${TRACER_ENABLED},YES)
 TRACER_BASIC_OBJS = \
-					 MOD_Tracer_Defs.o              \
-					 $(TRACER_PARTICLE_DISPATCH_OBJS) \
-					 $(TRACER_ISOTOPE_MAIN_OBJS)    \
+				 MOD_Tracer_Defs.o              \
+				 $(TRACER_PARTICLE_CORE_OBJS)    \
+				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
 				 MOD_Tracer_Frac.o              \
 				 MOD_Tracer_EvapLimit.o         \
 				 MOD_Tracer_Vars.o              \
@@ -170,29 +167,45 @@ TRACER_BASIC_OBJS = \
 TRACER_MAIN_OBJS = \
 				MOD_Tracer_Main.o                          \
 				MOD_Tracer_Hist.o                         \
-				$(TRACER_PARTICLE_MAIN_OBJS)              \
 				$(TRACER_REACTIVE_MAIN_OBJS)              \
+				$(TRACER_PARTICLE_MAIN_OBJS)              \
 				MOD_Tracer_SpecialPatches.o
 
 TRACER_MKINIDATA_OBJS = \
-				MOD_Tracer_Particle_Registrations_Stubs.o \
-				MOD_Tracer_Reactive_Registrations_Stubs.o
+				  MOD_Tracer_Reactive_Registrations_Stubs.o \
+				  MOD_Tracer_Particle_Registrations_Stubs.o
 
 MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
-MOD_Tracer_Forcing.o: MOD_UserSpecifiedForcing.o MOD_Tracer_Defs.o MOD_Tracer_Vars.o \
-					     MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o \
-					     MOD_Tracer_ForcingInput.o
-MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_EvapLimit.o
-MOD_Vars_1DAccFluxes.o: MOD_Forcing.o MOD_FrictionVelocity.o MOD_TurbulenceLEddy.o \
-					     MOD_Catch_Hist.o MOD_Tracer_Main.o
-MOD_HistGridded.o: MOD_HistWriteBack.o MOD_Forcing.o MOD_Vars_1DAccFluxes.o
-MOD_HistVector.o MOD_HistSingle.o: MOD_Vars_1DAccFluxes.o
-MOD_Tracer_Hist.o: MOD_HistGridded.o MOD_HistVector.o MOD_HistSingle.o MOD_Vars_1DAccFluxes.o
+MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
+MOD_Tracer_Forcing.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Isotope_Registry.o \
+				     MOD_Tracer_Isotope_Registrations.o MOD_Tracer_ForcingInput.o \
+				     MOD_Namelist.o MOD_SPMD_Task.o MOD_Grid.o MOD_DataType.o \
+				     MOD_NetCDFBlock.o MOD_SpatialMapping.o MOD_LandPatch.o \
+				     MOD_TimeManager.o MOD_UserSpecifiedForcing.o
+MOD_Tracer_Precip.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.o MOD_Tracer_Vars.o
+MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.o \
+				     MOD_Tracer_Frac.o MOD_Tracer_EvapLimit.o MOD_Tracer_Vars.o
+MOD_Tracer_Snow.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o
+MOD_Tracer_Conservation.o: MOD_Tracer_Defs.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o
+MOD_Tracer_Rest.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Reactive.o
+MOD_Tracer_Main.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Reactive.o
+MOD_HistVector.o: MOD_Vars_1DAccFluxes.o MOD_HRUVector.o MOD_ElmVector.o \
+				     MOD_LandElm.o MOD_LandHRU.o MOD_LandPatch.o
+MOD_HistSingle.o: MOD_Vars_1DAccFluxes.o MOD_SingleSrfdata.o MOD_LandPatch.o \
+				     MOD_LandUrban.o
+MOD_HistGridded.o: MOD_HistWriteBack.o MOD_Vars_1DAccFluxes.o MOD_Forcing.o \
+				     MOD_SingleSrfdata.o MOD_LandPatch.o MOD_LandUrban.o
+# MOD_Tracer_Hist USEs the core history infrastructure (module scope) and nac
+# from MOD_Vars_1DAccFluxes; those objects are listed later in OBJS_MAIN, so a
+# clean serial build needs their .mod present first. Without this rule the build
+# only succeeds when a stale .mod from a previous build happens to exist.
+MOD_Tracer_Hist.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Reactive.o \
+				     MOD_HistGridded.o MOD_HistVector.o MOD_HistSingle.o MOD_Vars_1DAccFluxes.o
 MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_Impl.o MOD_Tracer_Reactive_Methane_Hist.o \
-					     MOD_Tracer_Reactive_Methane_AccFlux.o MOD_Tracer_Reactive_Methane_Microbes.o \
-					     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_GIEMS.o \
+				     MOD_Tracer_Reactive_Methane_AccFlux.o MOD_Tracer_Reactive_Methane_Microbes.o \
+				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_GIEMS.o \
 				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
 MOD_Tracer_Reactive_Methane_Impl.o: MOD_Tracer_Reactive_Methane_Driver.o \
 				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_Registry.o \
@@ -207,14 +220,13 @@ MOD_Tracer_Reactive_Methane_Physics.o: MOD_Tracer_Reactive_Methane_Const.o \
 MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_Const.o \
 				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
 MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_Const.o \
-					     MOD_Tracer_Reactive_Methane_Microbes.o MOD_Tracer_Reactive_Methane_BgcLink.o
+				     MOD_Tracer_Reactive_Methane_Microbes.o MOD_Tracer_Reactive_Methane_BgcLink.o
 MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o
-MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Reactive_Methane_BgcLink.o \
-					     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o \
-					     MOD_HistGridded.o
+MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_Tracer_Reactive_Methane_BgcLink.o \
+				     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o \
+				     MOD_HistGridded.o
 MOD_Tracer_Reactive_Registrations.o: include/tracer_reactive_species.inc \
 				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS)
-MOD_Tracer_Particle.o: MOD_Tracer_Defs.o
 MOD_Tracer_Particle_Registrations.o: include/tracer_particle_species.inc \
 				     $(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS)
 MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Particle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
@@ -298,10 +310,9 @@ OBJS_BASIC =    \
 				 MOD_VicParaReadin.o            \
 				 MOD_Initialize.o
 
-MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 
 $(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
 
@@ -310,7 +321,7 @@ OBJS_MKINIDATA = \
 				  CoLMINI.o
 
 $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_MKINIDATA_T = $(addprefix .bld/,${OBJS_MKINIDATA})
 
@@ -364,7 +375,7 @@ OBJECTS_CAMA=\
 				  cmf_drv_advance_mod.o
 
 $(OBJECTS_CAMA) : %.o : %.F90 ${HEADER}
-	$(FCMP)  -c ${FFLAGS} $(MODS) ${CFLAGS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	$(FCMP)  -c ${FFLAGS} $(MODS) ${CFLAGS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_CAMA_T = $(addprefix .bld/,${OBJECTS_CAMA})
 
@@ -486,7 +497,7 @@ OBJS_MAIN = \
 				CoLM.o
 
 $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 
 
@@ -529,13 +540,13 @@ OBJS_POST2_T = $(addprefix .bld/,${OBJS_POST2})
 OBJS_POST3_T = $(addprefix .bld/,${OBJS_POST3})
 
 $(OBJS_POST1):%.o:%.F90 ${HEADER}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 $(OBJS_POST2):%.o:%.F90 ${HEADER}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 $(OBJS_POST3):%.o:%.F90 ${HEADER}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< $(MOD_OUT)
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST1}
 	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${OBJS_POST1_T} -o run/$@ ${LDFLAGS}
