@@ -165,7 +165,7 @@ TRACER_BASIC_OBJS = \
 				 MOD_Tracer_Rest.o
 
 TRACER_MAIN_OBJS = \
-				MOD_Tracer_Main.o                          \
+				MOD_Tracer_LandPhase.o                     \
 				MOD_Tracer_Hist.o                         \
 				$(TRACER_REACTIVE_MAIN_OBJS)              \
 				$(TRACER_PARTICLE_MAIN_OBJS)              \
@@ -190,7 +190,7 @@ MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.
 MOD_Tracer_Snow.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o
 MOD_Tracer_Conservation.o: MOD_Tracer_Defs.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o
 MOD_Tracer_Rest.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Reactive.o
-MOD_Tracer_Main.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Reactive.o
+MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Reactive.o
 MOD_HistVector.o: MOD_Vars_1DAccFluxes.o MOD_HRUVector.o MOD_ElmVector.o \
 				     MOD_LandElm.o MOD_LandHRU.o MOD_LandPatch.o
 MOD_HistSingle.o: MOD_Vars_1DAccFluxes.o MOD_SingleSrfdata.o MOD_LandPatch.o \

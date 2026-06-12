@@ -162,7 +162,7 @@ CONTAINS
       IMPLICIT NONE
 
       ! Generic tracer conservation is reported unconditionally from
-      ! MOD_Tracer_Main::tracer_report so non-CH4 tracer runs are covered too.
+      ! MOD_Tracer_LandPhase::tracer_report so non-CH4 tracer runs are covered too.
 
    END SUBROUTINE ch4_impl_report
 

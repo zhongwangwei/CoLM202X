@@ -201,7 +201,7 @@ SUBROUTINE CoLMMAIN ( &
       DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION, DEF_SPLIT_SOILSNOW, &
       DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW, DEF_URBAN_RUN
 #ifdef TRACER
-   USE MOD_Tracer_Main, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
+   USE MOD_Tracer_LandPhase, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
       tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland, &
       tracer_newsnow, tracer_save_storage, tracer_balance_check, &
       tracer_apply_reactive_processes, &

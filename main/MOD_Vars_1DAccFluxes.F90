@@ -12,7 +12,7 @@ MODULE MOD_Vars_1DAccFluxes
    USE MOD_Lake_1DAccVars
 #endif
 #ifdef TRACER
-   USE MOD_Tracer_Main, only: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
+   USE MOD_Tracer_LandPhase, only: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
 #endif
 
    real(r8) :: nac ! number of accumulation

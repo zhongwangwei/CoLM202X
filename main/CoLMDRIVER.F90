@@ -27,7 +27,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
    USE MOD_Forcing, only: forcmask_pch
 
 #ifdef TRACER
-   USE MOD_Tracer_Main, only: tracer_resolve_step, tracer_lake_step, &
+   USE MOD_Tracer_LandPhase, only: tracer_resolve_step, tracer_lake_step, &
       tracer_wetland_decomp, tracer_soil_step, tracer_report
    USE MOD_Tracer_Defs, only: ntracers
    USE MOD_SPMD_Task, only: CoLM_stop

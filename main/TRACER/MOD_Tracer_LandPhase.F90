@@ -1,7 +1,7 @@
 #include <define.h>
 
 #ifdef TRACER
-MODULE MOD_Tracer_Main
+MODULE MOD_Tracer_LandPhase
 
    USE MOD_Precision
    USE MOD_Tracer_Defs
@@ -23,19 +23,33 @@ MODULE MOD_Tracer_Main
 
    IMPLICIT NONE
 
+   ! Land-side multi-phase TRACER facade. Keeps the implementation split
+   ! across physics modules but exposes one import surface per host, so
+   ! drivers do not USE every low-level tracer module directly. NOTE: this
+   ! is a facade, not the engine -- per-step driving lives in the called
+   ! modules. River/lake ROUTING tracers are driven separately in HYDRO
+   ! (MOD_Grid_RiverLakeFlow -> MOD_Tracer_Particle) and are NOT re-exported
+   ! here. PUBLIC declarations below are grouped by consuming host phase.
+
+   ! -- Lifecycle: one-shot init/final, called from CoLM.F90 --------------
    PUBLIC :: land_tracer_init, land_tracer_final
-   PUBLIC :: tracer_resolve_step, tracer_lake_step, tracer_wetland_decomp
-   PUBLIC :: tracer_soil_step, tracer_report
-   PUBLIC :: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
-   ! Land TRACER facade for CoLMMAIN: keep the implementation split across
-   ! physics modules, but expose one import surface instead of making the
-   ! driver USE every low-level tracer module directly.
+
+   ! -- Column phase: per-patch soil-water/precip/evap/snow transport,
+   !    called inside the CoLMMAIN patch loop (per ipatch, snl, nl_soil) --
    PUBLIC :: ntracers, trc_tiny, tracer_uses_land_water_transport
    PUBLIC :: tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland
    PUBLIC :: tracer_newsnow, tracer_save_storage, tracer_balance_check
    PUBLIC :: tracer_apply_reactive_processes
    PUBLIC :: trc_wliq_soisno, trc_wice_soisno, trc_scv
    PUBLIC :: trc_ldew_rain, trc_ldew_snow, trc_sm_carry
+
+   ! -- Element phase: per-step orchestration, called from CoLMDRIVER;
+   !    these delegate to the reactive (methane) family ------------------
+   PUBLIC :: tracer_resolve_step, tracer_lake_step, tracer_wetland_decomp
+   PUBLIC :: tracer_soil_step, tracer_report
+
+   ! -- Acc-flux: called from MOD_Vars_1DAccFluxes -----------------------
+   PUBLIC :: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
 
 CONTAINS
 
@@ -291,5 +305,5 @@ CONTAINS
       CALL tracer_defs_final()
    END SUBROUTINE land_tracer_final
 
-END MODULE MOD_Tracer_Main
+END MODULE MOD_Tracer_LandPhase
 #endif
