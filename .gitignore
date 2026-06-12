@@ -13,3 +13,4 @@ lib
 *.log
 ppt_tracer/node_modules/
 /ppt_tracer
+docs/superpowers/
