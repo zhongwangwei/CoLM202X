@@ -1346,6 +1346,15 @@ CONTAINS
             write(*,*) 'or rebuild with #undef TRACER.'
             CALL CoLM_stop ()
          ENDIF
+         IF (DEF_USE_BIFURCATION .and. DEF_TRACER_NUM > 0) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'Fatal ERROR: TRACER (DEF_TRACER_NUM > 0) and DEF_USE_BIFURCATION'
+            write(*,*) 'cannot be enabled together. River bifurcation forces a single global'
+            write(*,*) 'routing sub-step shared by every river system; coupling that to tracer'
+            write(*,*) 'transport is prohibitively slow. Disable DEF_USE_BIFURCATION, or set'
+            write(*,*) 'DEF_TRACER_NUM = 0 (or rebuild with #undef TRACER) for bifurcation runs.'
+            CALL CoLM_stop ()
+         ENDIF
 #endif
 #ifdef SinglePoint
          IF (DEF_Runoff_SCHEME == 0) THEN

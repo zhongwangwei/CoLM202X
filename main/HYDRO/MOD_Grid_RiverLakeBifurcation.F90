@@ -48,6 +48,14 @@ MODULE MOD_Grid_RiverLakeBifurcation
    real(r8), allocatable :: bif_lev_hflux_sum(:) ! net layer-2+ vol flux per ucat [m^3/s]
    logical, save :: dbg_bif_restart_checked = .false.
    integer, save :: n_dt_mismatch_warn_count = 0
+   ! Static downstream-pushed path fields (riverbed elevation, levee mask,
+   ! reservoir mask) do not change within a routing call, so bifurcation_calc
+   ! pushes them once per call instead of every sub-step.
+   ! bifurcation_invalidate_static_dn resets this at the start of each routing
+   ! call; it is set .true. after the first push.  All workers flip it
+   ! identically, so the resulting one-per-call push stays collective-matched
+   ! with the per-sub-step pushes (no orphaned isend/irecv).
+   logical, save :: bif_static_dn_valid = .false.
 
    ! ----- Persistent scratch buffers (allocated once in bifurcation_init,
    !       reused every bifurcation_calc call to avoid alloc/dealloc churn).
@@ -102,6 +110,7 @@ MODULE MOD_Grid_RiverLakeBifurcation
    PUBLIC :: read_bifurcation_restart
    PUBLIC :: write_bifurcation_restart
    PUBLIC :: bifurcation_final
+   PUBLIC :: bifurcation_invalidate_static_dn
    PUBLIC :: bif_hflux_sum
    PUBLIC :: bif_hflux_lev
    PUBLIC :: bif_lev_hflux_sum
@@ -138,6 +147,19 @@ CONTAINS
       CALL allocate_bifurcation_arrays (numucat, npthlev_bif, npthout_local)
 
    END SUBROUTINE bifurcation_init
+
+
+   ! =========================================================================
+   SUBROUTINE bifurcation_invalidate_static_dn ()
+   ! =========================================================================
+   ! Mark the static downstream-pushed path fields (riverbed elevation, levee
+   ! mask, reservoir mask) stale so bifurcation_calc re-pushes them on its next
+   ! call.  Call once per routing call, before the sub-step loop, on EVERY
+   ! worker (it only sets a module flag; no MPI), so the resulting one-per-call
+   ! push stays collective-matched with the other per-sub-step pushes.
+   ! =========================================================================
+      bif_static_dn_valid = .false.
+   END SUBROUTINE bifurcation_invalidate_static_dn
 
 
    SUBROUTINE allocate_bifurcation_arrays (nucat, nlev, npth)
@@ -359,10 +381,10 @@ CONTAINS
       bif_lev_influx       => bif_lev_influx_buf
 
       wdsrf_dn_pth     (:) = 0._r8
-      rivelv_dn_pth    (:) = 0._r8
+      IF (.not. bif_static_dn_valid) rivelv_dn_pth(:) = 0._r8
       protected_wdsrf_ucat  (:) = 0._r8
       protected_wdsrf_dn_pth(:) = BIF_MISSING_VALUE
-      has_levee_dn_pth (:) = 0._r8
+      IF (.not. bif_static_dn_valid) has_levee_dn_pth(:) = 0._r8
          storage_dn_pth   (:) = 0._r8
          visible_storage_ucat(:) = 0._r8
          protected_storage_ucat(:) = 0._r8
@@ -395,7 +417,7 @@ CONTAINS
       ucatfilter_r8    (:) = 0._r8
       ucatfilter_dn_pth(:) = 0._r8
       is_resv_r8       (:) = 0._r8
-      is_resv_dn_pth   (:) = 0._r8
+      IF (.not. bif_static_dn_valid) is_resv_dn_pth(:) = 0._r8
       dt_ucat          (:) = 0._r8
       dt_dn_pth        (:) = 0._r8
       IF (numucat > 0) THEN
@@ -437,15 +459,21 @@ CONTAINS
       ! Use -9999 as fillvalue to mark pathways with no valid downstream cell
       ! (domain boundary or unresolved remote). These are skipped in Step 3.
       CALL worker_push_data (push_bif_dn2pth, wdsrf_ucat,  wdsrf_dn_pth,  fillvalue = -9999._r8)
-      CALL worker_push_data (push_bif_dn2pth, topo_rivelv, rivelv_dn_pth, fillvalue = -9999._r8)
+      ! Riverbed elevation is invariant; push it only on the first sub-step.
+      IF (.not. bif_static_dn_valid) &
+         CALL worker_push_data (push_bif_dn2pth, topo_rivelv, rivelv_dn_pth, fillvalue = -9999._r8)
       IF (DEF_USE_LEVEE) THEN
          CALL worker_push_data (push_bif_dn2pth, protected_wdsrf_ucat, protected_wdsrf_dn_pth, fillvalue = BIF_MISSING_VALUE)
-         CALL worker_push_data (push_bif_dn2pth, has_levee_r8,         has_levee_dn_pth,       fillvalue = 0._r8)
+         ! Levee mask is invariant; push it only on the first sub-step.
+         IF (.not. bif_static_dn_valid) &
+            CALL worker_push_data (push_bif_dn2pth, has_levee_r8,         has_levee_dn_pth,       fillvalue = 0._r8)
          ENDIF
          CALL worker_push_data (push_bif_dn2pth, storage_ucat, storage_dn_pth, fillvalue = -9999._r8)
          CALL worker_push_data (push_bif_dn2pth, visible_storage_ucat, visible_storage_dn_pth, fillvalue = 0._r8)
          CALL worker_push_data (push_bif_dn2pth, protected_storage_ucat, protected_storage_dn_pth, fillvalue = 0._r8)
-         CALL worker_push_data (push_bif_dn2pth, is_resv_r8, is_resv_dn_pth, fillvalue = 0._r8)
+         ! Reservoir mask is invariant within a routing call; push once per call.
+         IF (.not. bif_static_dn_valid) &
+            CALL worker_push_data (push_bif_dn2pth, is_resv_r8, is_resv_dn_pth, fillvalue = 0._r8)
       CALL worker_push_data (push_bif_dn2pth, dt_ucat, dt_dn_pth, fillvalue = 0._r8)
       ! push destination ucat active-mask so the source rank can
       ! skip pathways whose downstream cell lives in a river system that
@@ -454,6 +482,15 @@ CONTAINS
       ! (those are already handled by the wdsrf/rivelv boundary check
       ! above; this fill is only a defensive default).
       CALL worker_push_data (push_bif_dn2pth, ucatfilter_r8, ucatfilter_dn_pth, fillvalue = 0._r8)
+
+      ! Static downstream path fields (rivelv/has_levee/is_resv) are now cached
+      ! in their persistent path buffers for the remaining sub-steps of this
+      ! routing call.  bifurcation_invalidate_static_dn() resets this each call.
+      ! ASSUMES exactly one bifurcation_calc per sub-step (the live
+      ! update_state=.true. call; the predictive bif_dt_feedback path is dead).
+      ! If that path is ever re-enabled, gate this so a predictive call does not
+      ! cache buffers the final call then reuses with a different ucatfilter/dt.
+      bif_static_dn_valid = .true.
 
       ! ----- Step 3: Riemann solver for each pathway / layer -----
       DO ipth = 1, npthout_local
@@ -719,11 +756,14 @@ CONTAINS
 
       ENDDO  ! ipth
 
+#ifdef CoLMDEBUG
+      ! Diagnostic only: the global skip count just feeds the warning below.
+      ! Keep this allreduce inside the CoLM-DEBUG guard so production builds do
+      ! not pay a global collective on every routing substep for an unused count.
       n_dt_mismatch_skip_glb = n_dt_mismatch_skip
 #ifdef USEMPI
       CALL mpi_allreduce (n_dt_mismatch_skip, n_dt_mismatch_skip_glb, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
 #endif
-#ifdef CoLMDEBUG
       IF (p_iam_worker == p_root .and. n_dt_mismatch_skip_glb > 0 .and. n_dt_mismatch_warn_count < 5) THEN
          write(*,'(A,I0,A)') 'WARNING bifurcation_calc: skipped ', n_dt_mismatch_skip_glb, &
             ' pathway(s) because source/destination routing dt differ; cross-river-system bifurcation may be inactive.'
@@ -1306,6 +1346,10 @@ CONTAINS
    ! =========================================================================
 
    IMPLICIT NONE
+
+      ! Reset the static-push cache flag so it can never outlive the path
+      ! buffers it guards: a later bifurcation_init reallocates them fresh.
+      bif_static_dn_valid = .false.
 
       IF (allocated(pth_veloc))     deallocate (pth_veloc)
       IF (allocated(pth_momen))     deallocate (pth_momen)

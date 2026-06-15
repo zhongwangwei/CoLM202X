@@ -24,7 +24,7 @@ MODULE MOD_Grid_RiverLakeFlow
       levee_repartition_storage, &
       levee_visible_volume_from_stage, levee_final
    USE MOD_Grid_RiverLakeBifurcation, only: bifurcation_init, bifurcation_calc, &
-      read_bifurcation_restart, bifurcation_final, &
+      read_bifurcation_restart, bifurcation_final, bifurcation_invalidate_static_dn, &
       bif_hflux_sum, bif_hflux_lev, bif_lev_hflux_sum, bif_cfl_dt, bif_path_active
 #ifdef TRACER
    USE MOD_Tracer_Particle, only: tracer_particle_has_active, tracer_particle_init, &
@@ -610,10 +610,28 @@ CONTAINS
          ! systems have exhausted dt_res, otherwise a worker that finishes
          ! early may skip collectives while others still need push_data or
          ! global-DT synchronization.
+
+         ! Static bifurcation downstream path fields (riverbed elevation, levee
+         ! mask, reservoir mask) are constant within this routing call; flag them
+         ! stale so bifurcation_calc pushes them once on the first sub-step and
+         ! reuses the cached path buffers thereafter.  Runs on every worker (sets
+         ! a module flag only) to keep the one-per-call push collective-matched.
+         IF (DEF_USE_BIFURCATION) CALL bifurcation_invalidate_static_dn ()
+
          loop_active = any(dt_res > 0)
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
-            MPI_LOR, p_comm_worker, p_err)
+         ! Bifurcation links cross river-system (and MPI-region) boundaries, so
+         ! every worker must iterate the substep loop the same number of times:
+         ! the collective worker_push_data calls inside bifurcation_calc would
+         ! otherwise orphan isend/irecv (see bifurcation hang root cause #2).
+         ! Without bifurcation the river systems are independent, so keep the
+         ! loop local (baseline behaviour) and let a worker stop once its OWN
+         ! systems are drained instead of spinning until the globally slowest
+         ! worker finishes.
+         IF (DEF_USE_BIFURCATION) THEN
+            CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
+               MPI_LOR, p_comm_worker, p_err)
+         ENDIF
 #endif
 
          DO WHILE (loop_active)
@@ -625,7 +643,11 @@ CONTAINS
             CALL worker_push_data (push_next2ucat, veloc_riv,  veloc_next, fillvalue = 0.)
 
             dt_all(:) = min(dt_res(:), 60.)
-            CALL sync_global_routing_dt(dt_res, dt_all)
+            ! Bifurcation needs one global dt shared across river systems before
+            ! the flux/limiter passes that transfer water between them.  Without
+            ! bifurcation each river system advances with its own adaptive dt
+            ! (baseline), so skip the global synchronization here.
+            IF (DEF_USE_BIFURCATION) CALL sync_global_routing_dt(dt_res, dt_all)
 
             first_bif_dt_changed = .false.
             ! Bifurcation fluxes are storage-limited inside
@@ -943,7 +965,20 @@ CONTAINS
             ! Courant number > 1.
 
             IF (bif_dt_feedback_enabled) dt_all_before_sync = dt_all
-            CALL sync_global_routing_dt(dt_res, dt_all)
+            IF (DEF_USE_BIFURCATION) THEN
+               ! Bifurcation pairs donor/receiver cells across river systems; a
+               ! single synchronized global dt keeps the paired volume transfer
+               ! conservative and all collective-bearing calls in lockstep.
+               CALL sync_global_routing_dt(dt_res, dt_all)
+#ifdef USEMPI
+            ELSE IF (rivsys_by_multiple_procs) THEN
+               ! Baseline behaviour: each river system keeps its own adaptive dt;
+               ! only a system split across multiple processes needs a reduction,
+               ! over the per-river-system communicator (not all workers).
+               CALL mpi_allreduce (MPI_IN_PLACE, dt_all, 1, MPI_REAL8, MPI_MIN, &
+                  p_comm_rivsys, p_err)
+#endif
+            ENDIF
             IF (bif_dt_feedback_enabled .and. DEF_USE_BIFURCATION) THEN
                DO irivsys_iter = 1, size(dt_all)
                   IF (dt_res(irivsys_iter) <= 0._r8) CYCLE
@@ -1414,8 +1449,12 @@ CONTAINS
 
             loop_active = any(dt_res > 0)
 #ifdef USEMPI
-            CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
-               MPI_LOR, p_comm_worker, p_err)
+            ! Match the loop-entry reduction: only synchronize the loop
+            ! condition across all workers when bifurcation requires lockstep.
+            IF (DEF_USE_BIFURCATION) THEN
+               CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
+                  MPI_LOR, p_comm_worker, p_err)
+            ENDIF
 #endif
 
          ENDDO

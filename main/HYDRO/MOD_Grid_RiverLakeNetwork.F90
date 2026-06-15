@@ -860,7 +860,9 @@ CONTAINS
 
       ENDIF
 
-      IF (allocated(rivermouth)) deallocate(rivermouth)
+      ! rivermouth is deallocated AFTER read_and_distribute_bifurcation (below)
+      ! so its STEP-0 bif-connectivity diagnostic can group river systems by
+      ! the bifurcation links read inside that routine.
       IF (allocated(order_ucat)) deallocate(order_ucat)
 
       ! ----- Parameters for River and Lake -----
@@ -882,6 +884,10 @@ CONTAINS
       IF (DEF_USE_BIFURCATION) THEN
          CALL read_and_distribute_bifurcation (parafile)
       ENDIF
+
+      ! Deferred from above: rivermouth (master-only river-system labels) is no
+      ! longer needed once the bifurcation read + STEP-0 diagnostic have run.
+      IF (allocated(rivermouth)) deallocate(rivermouth)
 
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
@@ -1354,6 +1360,10 @@ CONTAINS
 
    integer :: iworker, nucat, npth, ip, i, j, iloc
    integer :: max_bif_inc_global
+   ! STEP-0 bifurcation-connected-component diagnostic (master, go/no-go gate)
+   integer,  allocatable :: comp_parent (:)   ! union-find parent over river systems 1..numrivmth
+   integer,  allocatable :: comp_size   (:)
+   integer :: sa, sb, ra, rb, s, ncomp_bif, max_comp, n_singleton
 
 #ifdef USEMPI
 
@@ -1380,6 +1390,58 @@ CONTAINS
             IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
             IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
          ENDDO
+
+         ! ----- STEP-0 diagnostic: bifurcation-connected-component analysis -----
+         ! Go/no-go gate for a future per-component adaptive dt. River systems
+         ! (rivermouth labels 1..numrivmth) are grouped into components linked by
+         ! bifurcation paths via union-find. If ONE component spans most systems,
+         ! per-component dt cannot beat today's single global dt (no speedup);
+         ! if components stay small/many, most systems would recover their own
+         ! adaptive dt (the speedup source). Master-only, init-time, no MPI.
+         IF (allocated(rivermouth) .and. numrivmth > 0) THEN
+            allocate (comp_parent (numrivmth))
+            allocate (comp_size   (numrivmth))
+            DO s = 1, numrivmth
+               comp_parent(s) = s
+            ENDDO
+            DO ip = 1, totalnpthout
+               IF (bif_down_all(ip) < 1 .or. bif_down_all(ip) > totalnumucat) CYCLE
+               sa = rivermouth(bif_upst_all(ip))
+               sb = rivermouth(bif_down_all(ip))
+               ! union(sa, sb) with path halving
+               ra = sa
+               DO WHILE (comp_parent(ra) /= ra)
+                  comp_parent(ra) = comp_parent(comp_parent(ra));  ra = comp_parent(ra)
+               ENDDO
+               rb = sb
+               DO WHILE (comp_parent(rb) /= rb)
+                  comp_parent(rb) = comp_parent(comp_parent(rb));  rb = comp_parent(rb)
+               ENDDO
+               IF (ra /= rb) comp_parent(max(ra,rb)) = min(ra,rb)
+            ENDDO
+            comp_size(:) = 0
+            DO s = 1, numrivmth
+               ra = s
+               DO WHILE (comp_parent(ra) /= ra)
+                  ra = comp_parent(ra)
+               ENDDO
+               comp_size(ra) = comp_size(ra) + 1
+            ENDDO
+            ncomp_bif   = count(comp_size > 0)
+            max_comp    = maxval(comp_size)
+            n_singleton = count(comp_size == 1)
+            write(*,'(A)')    '===== Bifurcation connectivity diagnostic (STEP-0 go/no-go) ====='
+            write(*,'(A,I0)') '  river systems (numrivmth)        : ', numrivmth
+            write(*,'(A,I0)') '  bifurcation paths (totalnpthout) : ', totalnpthout
+            write(*,'(A,I0)') '  bif-connected components         : ', ncomp_bif
+            write(*,'(A,I0)') '  singleton components             : ', n_singleton
+            write(*,'(A,I0,A,F6.2,A)') '  largest component (systems)      : ', max_comp, &
+               ' (', 100._r8*real(max_comp,r8)/real(max(numrivmth,1),r8), '% of systems)'
+            write(*,'(A)')    '  GUIDE: largest >~50% of systems => per-component dt gives ~no'
+            write(*,'(A)')    '         speedup (one giant component); small/many => worth it.'
+            write(*,'(A)')    '================================================================'
+            deallocate (comp_parent, comp_size)
+         ENDIF
 
          ! Build iworker_of_ucat: maps global seq index -> worker index
          allocate (iworker_of_ucat (totalnumucat))
