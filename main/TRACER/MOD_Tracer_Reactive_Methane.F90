@@ -33,7 +33,7 @@ MODULE MOD_Tracer_Reactive_Methane
    USE MOD_Tracer_Reactive_Methane_VegOverride, only: allocate_wetland_aere_overrides, &
       deallocate_wetland_aere_overrides
    USE MOD_Tracer_Reactive_Methane_Impl, only: ch4_impl_lake_step, &
-      ch4_impl_wetland_decomp, ch4_impl_soil_step, ch4_impl_report
+      ch4_impl_wetland_decomp, ch4_impl_soil_step
    USE MOD_Tracer_Reactive_Methane_Hist, only: methane_reactive_history
 
    IMPLICIT NONE
@@ -320,7 +320,8 @@ CONTAINS
 
       IMPLICIT NONE
 
-      IF (ch4_reactive_has()) CALL ch4_impl_report ()
+      ! Generic tracer conservation is reported unconditionally from
+      ! MOD_Tracer_LandPhase::tracer_report so non-CH4 tracer runs are covered too.
 
    END SUBROUTINE ch4_reactive_report
 

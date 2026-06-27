@@ -33,7 +33,6 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
    PUBLIC :: ch4_impl_lake_step
    PUBLIC :: ch4_impl_wetland_decomp
    PUBLIC :: ch4_impl_soil_step
-   PUBLIC :: ch4_impl_report
 
 CONTAINS
 
@@ -156,15 +155,6 @@ CONTAINS
          is_rice_paddy_in=is_rice_paddy, rice_pft_frac_in=rice_pft_frac)
 
    END SUBROUTINE ch4_impl_soil_step
-
-   SUBROUTINE ch4_impl_report ()
-
-      IMPLICIT NONE
-
-      ! Generic tracer conservation is reported unconditionally from
-      ! MOD_Tracer_LandPhase::tracer_report so non-CH4 tracer runs are covered too.
-
-   END SUBROUTINE ch4_impl_report
 
    SUBROUTINE methane_soisno_geometry (ipatch, lb, snl_loc, z_soisno_m, dz_soisno_m, zi_soisno_m)
 

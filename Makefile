@@ -3,7 +3,7 @@
 include include/Makeoptions
 LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
-TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | tail -n 1)
+TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -176,6 +176,9 @@ TRACER_MKINIDATA_OBJS = \
 				  MOD_Tracer_Particle_Registrations_Stubs.o
 
 MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc
+MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
+MOD_Tracer_Particle.o: MOD_Tracer_Defs.o
+MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
 MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
@@ -219,8 +222,10 @@ MOD_Tracer_Reactive_Methane_Physics.o: MOD_Tracer_Reactive_Methane_Const.o \
 				     MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_State.o
 MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_Const.o \
 				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
+MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
 MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_Const.o \
-				     MOD_Tracer_Reactive_Methane_Microbes.o MOD_Tracer_Reactive_Methane_BgcLink.o
+				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_Microbes.o \
+				     MOD_Tracer_Reactive_Methane_BgcLink.o
 MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o
 MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_Tracer_Reactive_Methane_BgcLink.o \
 				     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o \
@@ -231,12 +236,23 @@ MOD_Tracer_Particle_Registrations.o: include/tracer_particle_species.inc \
 				     $(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS)
 MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Particle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeFlow.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Particle.o
+MOD_Tracer_RiverLake.o: MOD_Tracer_Defs.o MOD_Grid_RiverLakeLevee.o
 MOD_Tracer_RiverLake.o MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o
+MOD_Vars_TimeVariables.o: MOD_Tracer_Defs.o MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
 else
 TRACER_BASIC_OBJS =
 TRACER_MAIN_OBJS =
 TRACER_MKINIDATA_OBJS =
 endif
+
+MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
+MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o
+MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
+MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o \
+				     MOD_Vector_ReadWrite.o MOD_HistGridded.o MOD_WorkerPushData.o MOD_LandPatch.o
+MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeLevee.o \
+				     MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
+MOD_Initialize.o: MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
 
 OBJS_BASIC =    \
 				 MOD_Vector_ReadWrite.o         \

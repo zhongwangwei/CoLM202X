@@ -1111,6 +1111,9 @@ CONTAINS
    character(len=14)  :: cdate
    character(len=256) :: cyear         !character for lc_year
    integer :: compress
+#ifdef GridRiverLakeFlow
+   EXTERNAL :: write_gridriverlake_hist_restart_external
+#endif
 
       compress = DEF_REST_CompressLevel
 
@@ -1298,6 +1301,7 @@ ENDIF
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
+      CALL write_gridriverlake_hist_restart_external (file_restart)
 #ifdef TRACER
          CALL write_tracer_restart(file_restart)
 #endif

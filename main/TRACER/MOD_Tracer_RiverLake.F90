@@ -124,6 +124,7 @@ MODULE MOD_Tracer_RiverLake
    PRIVATE :: trc_dn_out_vis_recv, trc_dn_out_lev_recv
    PRIVATE :: ensure_tracer_substep_workspace, release_tracer_substep_workspace
    PRIVATE :: ensure_real1_workspace, ensure_real2_workspace
+   PRIVATE :: tracer_bif_path_levee_sides
 
    PUBLIC :: river_lake_tracer_init
    PUBLIC :: tracer_init_from_water
@@ -152,132 +153,26 @@ MODULE MOD_Tracer_RiverLake
 CONTAINS
 
    !-------------------------------------------------------------------------------------
-   ! Parse comma-separated tracer names
-   !-------------------------------------------------------------------------------------
-   SUBROUTINE parse_tracer_names(namestr, names, n)
-
-   IMPLICIT NONE
-   character(len=*), intent(in) :: namestr
-   character(len=32), intent(out) :: names(:)
-   integer, intent(in) :: n
-
-   integer :: i, istart, itrc
-   ! Deferred-length buffer mirrors land-side parse_csv so
-   ! a longer DEF_TRACER_NAMES (future namelist expansion) is parsed in
-   ! full instead of silently truncated at 256 chars.
-   character(len=:), allocatable :: str
-
-      str = trim(namestr)
-      istart = 1
-      itrc = 0
-      names(:) = ''
-
-      ! Empty string yields zero tokens, matching land-side parse_csv
-      ! (MOD_Tracer_Defs.F90:158 where `IF (j <= slen)` skips the
-      ! trailing-segment add). Without this the river side would invent a
-      ! single `'unnamed'` tracer (from sanitize_ncname of a zero-length
-      ! substring), which then diverged from the land-side count.
-      IF (len_trim(str) == 0) THEN
-         IF (p_is_master) THEN
-            write(*,'(A,I0,A)') ' WARNING: DEF_TRACER_NAMES is empty but DEF_TRACER_NUM = ', &
-               n, '. Filling all names with tracer_N.'
-         ENDIF
-         DO i = 1, n
-            write(names(i), '(A,I0)') 'tracer_', i
-         ENDDO
-         RETURN
-      ENDIF
-
-      DO i = 1, len_trim(str)
-         IF (str(i:i) == ',') THEN
-            itrc = itrc + 1
-            IF (itrc <= n) names(itrc) = sanitize_ncname(str(istart:i-1))
-            istart = i + 1
-         ENDIF
-      ENDDO
-      ! last name
-      itrc = itrc + 1
-      IF (itrc <= n) names(itrc) = sanitize_ncname(str(istart:len_trim(str)))
-
-      ! Validate: parsed count must match requested count
-      IF (itrc /= n) THEN
-         IF (p_is_master) THEN
-            write(*,'(A,I0,A,I0,A)') ' WARNING: DEF_TRACER_NAMES has ', itrc, &
-               ' tokens but DEF_TRACER_NUM = ', n, '. Filling missing with tracer_N.'
-         ENDIF
-         DO i = itrc+1, n
-            write(names(i), '(A,I0)') 'tracer_', i
-         ENDDO
-      ENDIF
-
-   END SUBROUTINE parse_tracer_names
-
-
-   !-------------------------------------------------------------------------------------
-   ! Sanitize a string for use as a NetCDF variable name component.
-   ! Keep only alphanumeric characters, underscore, and period.
-   !-------------------------------------------------------------------------------------
-   FUNCTION sanitize_ncname(raw) RESULT(clean)
-   IMPLICIT NONE
-   character(len=*), intent(in) :: raw
-   character(len=32) :: clean
-   integer :: i, j
-   character(len=1) :: c
-
-      clean = ''
-      j = 0
-      DO i = 1, len_trim(raw)
-         c = raw(i:i)
-         IF ((c >= 'A' .and. c <= 'Z') .or. (c >= 'a' .and. c <= 'z') .or. &
-             (c >= '0' .and. c <= '9') .or. c == '_' .or. c == '.') THEN
-            j = j + 1
-            IF (j <= 32) clean(j:j) = c
-         ENDIF
-      ENDDO
-
-      ! Guard against empty result
-      IF (len_trim(clean) == 0) clean = 'unnamed'
-
-   END FUNCTION sanitize_ncname
-
-
-   !-------------------------------------------------------------------------------------
    ! Initialize tracer module
    !-------------------------------------------------------------------------------------
    SUBROUTINE river_lake_tracer_init ()
 
    USE MOD_Grid_RiverLakeNetwork, only: numucat
+   USE MOD_Tracer_Defs, only: tracer_defs_init, tracers
    IMPLICIT NONE
 
-	   integer :: i, j
-	   integer :: sfx_len, max_base
-	   character(len=32) :: sfx, base
+      integer :: i
 
       CALL river_lake_tracer_final()
+      CALL tracer_defs_init()
       IF (ntracers <= 0) RETURN
 
-      ! ntracers now populated by tracer_defs_init() from CoLM.F90 before
-      ! any HYDRO river_lake_tracer_init runs — no local assignment needed.
+      ! MOD_Tracer_Defs owns parsing, sanitisation, defaults, and de-duplication.
+      ! River/lake keeps a local copy only because restart/history names use it.
       allocate (tracer_names(ntracers))
-      CALL parse_tracer_names(DEF_TRACER_NAMES, tracer_names, ntracers)
-
-      ! Ensure unique names: append index if duplicates found after sanitization.
-      ! Budget the base name so `base // '_' // i` does not re-truncate to a
-      ! duplicate at len=32 (mirrors the dedup guard in
-      ! MOD_Tracer_Defs:tracer_defs_init).
-         DO i = 1, ntracers
-            DO j = 1, i-1
-               IF (trim(tracer_names(i)) == trim(tracer_names(j))) THEN
-                  write(sfx, '(A,I0)') '_', i
-                  sfx_len = len_trim(sfx)
-                  max_base = max(1, 32 - sfx_len)
-                  base = tracer_names(i)
-                  IF (len_trim(base) > max_base) base = base(1:max_base)
-                  write(tracer_names(i), '(A,A)') trim(base), trim(sfx)
-                  EXIT
-               ENDIF
-            ENDDO
-         ENDDO
+      DO i = 1, ntracers
+         tracer_names(i) = tracers(i)%name
+      ENDDO
 
       IF (p_is_worker) THEN
          ! Allocate on ALL workers (zero-length if numucat=0) for MPI safety.
@@ -909,6 +804,28 @@ CONTAINS
    END SUBROUTINE ensure_real2_workspace
 
 
+   SUBROUTINE tracer_bif_path_levee_sides (can_use_levee_tracer, i_up, i_dn, ipth, nucat, &
+      upstream_has_levee, downstream_has_levee)
+      USE MOD_Grid_RiverLakeLevee, only: has_levee
+      IMPLICIT NONE
+      logical, intent(in) :: can_use_levee_tracer
+      integer, intent(in) :: i_up, i_dn, ipth, nucat
+      logical, intent(out) :: upstream_has_levee, downstream_has_levee
+
+      upstream_has_levee = .false.
+      downstream_has_levee = .false.
+      IF (.not. can_use_levee_tracer .or. .not. allocated(has_levee)) RETURN
+
+      IF (i_up > 0 .and. i_up <= size(has_levee)) upstream_has_levee = has_levee(i_up)
+      IF (i_dn > 0 .and. i_dn <= nucat) THEN
+         IF (i_dn <= size(has_levee)) downstream_has_levee = has_levee(i_dn)
+      ELSEIF (allocated(has_levee_dn_pth)) THEN
+         IF (ipth > 0 .and. ipth <= size(has_levee_dn_pth)) &
+            downstream_has_levee = has_levee_dn_pth(ipth) > 0.5_r8
+      ENDIF
+   END SUBROUTINE tracer_bif_path_levee_sides
+
+
    SUBROUTINE release_tracer_substep_workspace ()
       IMPLICIT NONE
 
@@ -964,13 +881,13 @@ CONTAINS
       push_bif_influx, push_bif_dn2pth
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto
    USE MOD_Grid_RiverLakeTimeVars, only: volwater_ucat
-	   USE MOD_WorkerPushData
-	   USE MOD_Tracer_Defs, only: trc_tiny, tracers, delta_to_R, &
-	      tracer_init_water_ratio, tracer_can_use_fixed_signature, &
-	      tracer_reactive_decay_fraction
-	   USE MOD_Tracer_Frac, only: tracer_fractionation_active
-	   USE MOD_Tracer_Vars, only: trc_runtime_forced
-	   IMPLICIT NONE
+   USE MOD_WorkerPushData
+   USE MOD_Tracer_Defs, only: trc_tiny, &
+      tracer_init_water_ratio, tracer_can_use_fixed_signature, &
+      tracer_reactive_decay_fraction
+   USE MOD_Tracer_Frac, only: tracer_fractionation_active
+   USE MOD_Tracer_Vars, only: trc_runtime_forced
+   IMPLICIT NONE
 
    real(r8), intent(in) :: dt_ref
    real(r8), intent(in) :: dt_all(:)
@@ -982,28 +899,36 @@ CONTAINS
    real(r8), intent(in) :: volresv(:)
    integer,  intent(in) :: ucat2resv(:)
    logical,  intent(in) :: is_built_resv(:)
-   logical,  intent(in) :: do_bif
-   real(r8), intent(in) :: bif_hflux_lev_in(:,:)
-   integer,  intent(in) :: npthout_local_in
+   logical,  intent(in), optional :: do_bif
+   real(r8), intent(in), optional :: bif_hflux_lev_in(:,:)
+   integer,  intent(in), optional :: npthout_local_in
 
-	   integer  :: i, itrc, ipth, i_up, i_dn, ilev
-	   real(r8) :: volwater, volwater_next, volflux, dt_i, dt_donor, trc_pth_fl
-	   real(r8) :: layer_wflux, trc_rate
-	   logical  :: upstream_has_levee, downstream_has_levee, can_use_levee_tracer
-	   logical  :: can_snap_fixed
-	   logical  :: fixed_signature_transport
-	   real(r8) :: trc_inj_tau, m_cap, m_room, m_tau, release, R_cap, R_fill, inj_frac
+   integer  :: i, itrc, ipth, i_up, i_dn, ilev
+   real(r8) :: volwater, volwater_next, volflux, dt_i, dt_donor, trc_pth_fl
+   real(r8) :: layer_wflux, trc_rate
+   logical  :: upstream_has_levee, downstream_has_levee, can_use_levee_tracer
+   logical  :: can_snap_fixed
+   logical  :: fixed_signature_transport
+   real(r8) :: trc_inj_tau, m_cap, m_room, m_tau, release, R_cap, R_fill, inj_frac
    real(r8) :: trc_mass_new, ratio_next, ratio_snap_tol
    real(r8) :: decay_fraction, reactive_src
    logical  :: bif_workspace_active
+   integer  :: npth_bif, nlev_bif
    ! 1e-6 relative ratio tolerance equals 1e-3 permil for isotope ratios.
    real(r8), parameter :: fixed_sig_rel_tol = 1.e-6_r8
 
-      IF (numucat <= 0 .and. npthout_local_in <= 0) RETURN
+      npth_bif = 0
+      nlev_bif = 0
+      bif_workspace_active = .false.
+      IF (present(do_bif) .and. present(bif_hflux_lev_in) .and. present(npthout_local_in)) THEN
+         npth_bif = npthout_local_in
+         nlev_bif = size(bif_hflux_lev_in, 1)
+         bif_workspace_active = do_bif
+      ENDIF
 
-      bif_workspace_active = do_bif .and. npthout_local_in > 0
-      CALL ensure_tracer_substep_workspace(numucat, npthout_local_in, &
-         size(bif_hflux_lev_in, 1), bif_workspace_active)
+      IF (numucat <= 0 .and. npth_bif <= 0 .and. .not. bif_workspace_active) RETURN
+
+      CALL ensure_tracer_substep_workspace(numucat, npth_bif, nlev_bif, bif_workspace_active)
 
       trc_inj_tau = dt_ref
       can_use_levee_tracer = DEF_USE_LEVEE .and. allocated(has_levee) .and. &
@@ -1028,14 +953,14 @@ CONTAINS
          CALL worker_push_data (push_bif_dn2pth, dt_ucat, dt_dn_pth, fillvalue = 0._r8)
       ENDIF
 
-	      DO itrc = 1, ntracers
-	         IF (tracer_is_particle(itrc)) CYCLE
-	         R_fill = tracer_init_water_ratio(itrc)
-	         fixed_signature_transport = tracer_can_use_fixed_signature(itrc) .and. &
-	            .not. tracer_fractionation_active(itrc)
-	         IF (allocated(trc_runtime_forced)) THEN
-	            fixed_signature_transport = fixed_signature_transport .and. .not. trc_runtime_forced(itrc)
-	         ENDIF
+         DO itrc = 1, ntracers
+            IF (tracer_is_particle(itrc)) CYCLE
+            R_fill = tracer_init_water_ratio(itrc)
+            fixed_signature_transport = tracer_can_use_fixed_signature(itrc) .and. &
+               .not. tracer_fractionation_active(itrc)
+            IF (allocated(trc_runtime_forced)) THEN
+               fixed_signature_transport = fixed_signature_transport .and. .not. trc_runtime_forced(itrc)
+            ENDIF
 
          ! --- 1. Concentration from pre-update single-pool state ---
          DO i = 1, numucat
@@ -1055,25 +980,25 @@ CONTAINS
             ! Section 10 below folds any orphan trc_mass + trc_inp_buf into
             ! trc_flux_out as an exit flux.
             IF (volwater > trc_v_dry_off) THEN
-	               ! m_cap caps release only while this period has fresh input.
-	               ! Use the pre-consumption snapshot so runtime-forced tracers
-	               ! keep their actual runoff signature instead of falling back
-	               ! to the fixed-signature baseline after acc_trc_inp is reset.
-	               IF (acc_trc_inp(itrc, i) > trc_tiny .and. acc_rnof_ref(i) > trc_tiny) THEN
-	                  m_cap = inp_cap_factor * (acc_trc_inp(itrc, i) / max(acc_rnof_ref(i), 1.e-30_r8)) * volwater
-	                  m_room = max(0._r8, m_cap - trc_mass(itrc, i))
-	               ELSE
-	                  ! Residual buffer from a previous routing period must
-	                  ! respect the current host-cell water volume. For
-	                  ! fixed-signature tracers, R_init is a valid lower cap.
-	                  ! Runtime-forced / fractionating tracers must not inherit
-	                  ! that Phase-1 signature, so cap only by the current pool.
-	                  R_cap = max(delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio), &
-	                     max(trc_mass(itrc, i), 0._r8) / max(volwater, trc_v_dry_off))
-	                  IF (fixed_signature_transport) R_cap = max(R_cap, R_fill)
-	                  m_cap = inp_cap_factor * R_cap * volwater
-	                  m_room = max(0._r8, m_cap - trc_mass(itrc, i))
-	               ENDIF
+                  ! m_cap caps release only while this period has fresh input.
+                  ! Use the pre-consumption snapshot so runtime-forced tracers
+                  ! keep their actual runoff signature instead of falling back
+                  ! to the fixed-signature baseline after acc_trc_inp is reset.
+                  IF (acc_trc_inp(itrc, i) > trc_tiny .and. acc_rnof_ref(i) > trc_tiny) THEN
+                     m_cap = inp_cap_factor * (acc_trc_inp(itrc, i) / max(acc_rnof_ref(i), 1.e-30_r8)) * volwater
+                     m_room = max(0._r8, m_cap - trc_mass(itrc, i))
+                  ELSE
+                  ! Residual buffer from a previous routing period must
+                  ! respect the current host-cell water volume.  Use the
+                  ! type-specific initial water ratio/concentration as the
+                  ! default lower cap; fixed-signature tracers additionally
+                  ! preserve the precomputed fill ratio below.
+                     R_cap = max(tracer_init_water_ratio(itrc), &
+                        max(trc_mass(itrc, i), 0._r8) / max(volwater, trc_v_dry_off))
+                     IF (fixed_signature_transport) R_cap = max(R_cap, R_fill)
+                     m_cap = inp_cap_factor * R_cap * volwater
+                     m_room = max(0._r8, m_cap - trc_mass(itrc, i))
+                  ENDIF
                m_tau = trc_inp_buf(itrc, i) * dt_i / max(trc_inj_tau, dt_i)
                ! Signed runoff tracer corrections can leave a negative
                ! pending pool. Keep that debt attached to the runoff input
@@ -1130,24 +1055,16 @@ CONTAINS
             trc_pth_1trc(:) = 0._r8
             trc_pth_lev(:) = 0._r8
             trc_pth_levtrc(:,:) = 0._r8
-            DO ipth = 1, npthout_local_in
+            DO ipth = 1, npth_bif
                i_up = pth_upst_local(ipth)
                IF (i_up < 1 .or. i_up > numucat) CYCLE
                IF (.not. ucatfilter(i_up)) CYCLE
 
                i_dn = pth_down_local(ipth)
-               upstream_has_levee = .false.
-               downstream_has_levee = .false.
-               IF (can_use_levee_tracer) THEN
-                  IF (i_up <= size(has_levee)) upstream_has_levee = has_levee(i_up)
-                  IF (i_dn > 0 .and. i_dn <= numucat) THEN
-                     IF (i_dn <= size(has_levee)) downstream_has_levee = has_levee(i_dn)
-                  ELSEIF (bif_workspace_active) THEN
-                     downstream_has_levee = has_levee_dn_pth(ipth) > 0.5_r8
-                  ENDIF
-               ENDIF
+               CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
+                  upstream_has_levee, downstream_has_levee)
 
-               DO ilev = 1, size(bif_hflux_lev_in, 1)
+               DO ilev = 1, nlev_bif
                   layer_wflux = bif_hflux_lev_in(ilev, ipth)
                   IF (abs(layer_wflux) <= trc_tiny) CYCLE
 
@@ -1232,79 +1149,71 @@ CONTAINS
                + max(-trc_flux(i), 0._r8) * dt_i
          ENDDO
 
-	         ! Bifurcation gross incoming mass.  Do not use signed net flux
-	         ! here: multiple bifurcation paths can enter and leave the same
-	         ! ucat in one substep.  Netting those paths hides same-substep
-	         ! incoming tracer from the donor limiter and breaks the uniform
-	         ! concentration invariant.  Rebuild gross receiver-side amounts
-	         ! from the per-path, per-layer fluxes.
-	         IF (bif_workspace_active) THEN
-	            trc_pth_1trc(:) = 0._r8
-	            trc_pth_lev(:) = 0._r8
-	            DO ipth = 1, npthout_local_in
-	               i_up = pth_upst_local(ipth)
-	               IF (i_up < 1 .or. i_up > numucat) CYCLE
-	               IF (.not. (irivsys(i_up) > 0 .and. irivsys(i_up) <= size(dt_all))) CYCLE
-	               dt_i = dt_all(irivsys(i_up))
-	               IF (dt_i <= 0._r8) CYCLE
+         ! Bifurcation gross incoming mass.  Do not use signed net flux
+         ! here: multiple bifurcation paths can enter and leave the same
+         ! ucat in one substep.  Netting those paths hides same-substep
+         ! incoming tracer from the donor limiter and breaks the uniform
+         ! concentration invariant.  Rebuild gross receiver-side amounts
+         ! from the per-path, per-layer fluxes.
+         IF (bif_workspace_active) THEN
+            trc_pth_1trc(:) = 0._r8
+            trc_pth_lev(:) = 0._r8
+            DO ipth = 1, npth_bif
+               i_up = pth_upst_local(ipth)
+               IF (i_up < 1 .or. i_up > numucat) CYCLE
+               IF (.not. (irivsys(i_up) > 0 .and. irivsys(i_up) <= size(dt_all))) CYCLE
+               dt_i = dt_all(irivsys(i_up))
+               IF (dt_i <= 0._r8) CYCLE
 
-	               i_dn = pth_down_local(ipth)
-	               upstream_has_levee = .false.
-	               downstream_has_levee = .false.
-	               IF (can_use_levee_tracer) THEN
-	                  IF (i_up <= size(has_levee)) upstream_has_levee = has_levee(i_up)
-	                  IF (i_dn > 0 .and. i_dn <= numucat) THEN
-	                     IF (i_dn <= size(has_levee)) downstream_has_levee = has_levee(i_dn)
-	                  ELSE
-	                     downstream_has_levee = has_levee_dn_pth(ipth) > 0.5_r8
-	                  ENDIF
-	               ENDIF
+               i_dn = pth_down_local(ipth)
+               CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
+                  upstream_has_levee, downstream_has_levee)
 
-	               DO ilev = 1, size(bif_hflux_lev_in, 1)
-	                  layer_wflux = bif_hflux_lev_in(ilev, ipth)
-	                  trc_pth_fl = trc_pth_levtrc(ilev, ipth)
-	                  IF (abs(layer_wflux) <= trc_tiny .or. abs(trc_pth_fl) <= trc_tiny) CYCLE
+               DO ilev = 1, nlev_bif
+                  layer_wflux = bif_hflux_lev_in(ilev, ipth)
+                  trc_pth_fl = trc_pth_levtrc(ilev, ipth)
+                  IF (abs(layer_wflux) <= trc_tiny .or. abs(trc_pth_fl) <= trc_tiny) CYCLE
 
-	                  IF (layer_wflux >= 0._r8) THEN
-	                     ! upstream -> downstream: receiver is i_dn.
-	                     dt_donor = 0._r8
-	                     IF (i_dn > 0 .and. i_dn <= numucat) THEN
-	                        IF (irivsys(i_dn) > 0 .and. irivsys(i_dn) <= size(dt_all)) &
-	                           dt_donor = dt_all(irivsys(i_dn))
-	                        IF (dt_donor <= 0._r8) CYCLE
-	                        IF (ilev > 1 .and. downstream_has_levee) THEN
-	                           trc_in_mass_lev(i_dn) = trc_in_mass_lev(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
-	                        ELSE
-	                           trc_in_mass(i_dn) = trc_in_mass(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
-	                        ENDIF
-	                     ELSE
-	                        dt_donor = dt_dn_pth(ipth)
-	                        IF (dt_donor <= 0._r8) CYCLE
-	                        IF (ilev > 1 .and. downstream_has_levee) THEN
-	                           trc_pth_lev(ipth) = trc_pth_lev(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
-	                        ELSE
-	                           trc_pth_1trc(ipth) = trc_pth_1trc(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
-	                        ENDIF
-	                     ENDIF
-	                  ELSE
-	                     ! downstream -> upstream: receiver is local i_up.
-	                     IF (ilev > 1 .and. upstream_has_levee) THEN
-	                        trc_in_mass_lev(i_up) = trc_in_mass_lev(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
-	                     ELSE
-	                        trc_in_mass(i_up) = trc_in_mass(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
-	                     ENDIF
-	                  ENDIF
-	               ENDDO
-	            ENDDO
-	            CALL worker_push_data (push_bif_influx, trc_pth_1trc, bif_recv, &
-	               fillvalue = 0._r8, mode = 'sum')
-	            CALL worker_push_data (push_bif_influx, trc_pth_lev, bif_lev_recv, &
-	               fillvalue = 0._r8, mode = 'sum')
-	            DO i = 1, numucat
-	               trc_in_mass(i) = trc_in_mass(i) + max(bif_recv(i), 0._r8)
-	               trc_in_mass_lev(i) = trc_in_mass_lev(i) + max(bif_lev_recv(i), 0._r8)
-	            ENDDO
-	         ENDIF
+                  IF (layer_wflux >= 0._r8) THEN
+                     ! upstream -> downstream: receiver is i_dn.
+                     dt_donor = 0._r8
+                     IF (i_dn > 0 .and. i_dn <= numucat) THEN
+                        IF (irivsys(i_dn) > 0 .and. irivsys(i_dn) <= size(dt_all)) &
+                           dt_donor = dt_all(irivsys(i_dn))
+                        IF (dt_donor <= 0._r8) CYCLE
+                        IF (ilev > 1 .and. downstream_has_levee) THEN
+                           trc_in_mass_lev(i_dn) = trc_in_mass_lev(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
+                        ELSE
+                           trc_in_mass(i_dn) = trc_in_mass(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
+                        ENDIF
+                     ELSE
+                        dt_donor = dt_dn_pth(ipth)
+                        IF (dt_donor <= 0._r8) CYCLE
+                        IF (ilev > 1 .and. downstream_has_levee) THEN
+                           trc_pth_lev(ipth) = trc_pth_lev(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
+                        ELSE
+                           trc_pth_1trc(ipth) = trc_pth_1trc(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
+                        ENDIF
+                     ENDIF
+                  ELSE
+                     ! downstream -> upstream: receiver is local i_up.
+                     IF (ilev > 1 .and. upstream_has_levee) THEN
+                        trc_in_mass_lev(i_up) = trc_in_mass_lev(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
+                     ELSE
+                        trc_in_mass(i_up) = trc_in_mass(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
+                     ENDIF
+                  ENDIF
+               ENDDO
+            ENDDO
+            CALL worker_push_data (push_bif_influx, trc_pth_1trc, bif_recv, &
+               fillvalue = 0._r8, mode = 'sum')
+            CALL worker_push_data (push_bif_influx, trc_pth_lev, bif_lev_recv, &
+               fillvalue = 0._r8, mode = 'sum')
+            DO i = 1, numucat
+               trc_in_mass(i) = trc_in_mass(i) + max(bif_recv(i), 0._r8)
+               trc_in_mass_lev(i) = trc_in_mass_lev(i) + max(bif_lev_recv(i), 0._r8)
+            ENDDO
+         ENDIF
 
          ! 6a: P2STOOUT — total outgoing |tracer| per cell (water-direction)
          ! Guard dt_all(irivsys(i)) the same way as section 0/8 so a
@@ -1337,24 +1246,16 @@ CONTAINS
          IF (bif_workspace_active) THEN
             trc_dn_out_vis_pth(:) = 0._r8
             trc_dn_out_lev_pth(:) = 0._r8
-            DO ipth = 1, npthout_local_in
+            DO ipth = 1, npth_bif
                i_up = pth_upst_local(ipth)
                IF (i_up < 1 .or. i_up > numucat) CYCLE
                IF (.not. (irivsys(i_up) > 0 .and. irivsys(i_up) <= size(dt_all))) CYCLE
                dt_i = dt_all(irivsys(i_up))
-               upstream_has_levee = .false.
-               downstream_has_levee = .false.
                i_dn = pth_down_local(ipth)
-               IF (can_use_levee_tracer) THEN
-                  IF (i_up <= size(has_levee)) upstream_has_levee = has_levee(i_up)
-                  IF (i_dn > 0 .and. i_dn <= numucat) THEN
-                     IF (i_dn <= size(has_levee)) downstream_has_levee = has_levee(i_dn)
-                  ELSEIF (bif_workspace_active) THEN
-                     downstream_has_levee = has_levee_dn_pth(ipth) > 0.5_r8
-                  ENDIF
-               ENDIF
+               CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
+                  upstream_has_levee, downstream_has_levee)
 
-               DO ilev = 1, size(bif_hflux_lev_in, 1)
+               DO ilev = 1, nlev_bif
                   layer_wflux = bif_hflux_lev_in(ilev, ipth)
                   IF (abs(layer_wflux) <= trc_tiny) CYCLE
                   trc_pth_fl = trc_pth_levtrc(ilev, ipth)
@@ -1435,21 +1336,13 @@ CONTAINS
          IF (bif_workspace_active) THEN
             CALL worker_push_data (push_bif_dn2pth, rate_cell, rate_dn_pth, fillvalue = 1._r8)
             CALL worker_push_data (push_bif_dn2pth, rate_cell_lev, rate_dn_pth_lev, fillvalue = 1._r8)
-            DO ipth = 1, npthout_local_in
+            DO ipth = 1, npth_bif
                i_up = pth_upst_local(ipth)
                IF (i_up < 1 .or. i_up > numucat) CYCLE
-               upstream_has_levee = .false.
-               downstream_has_levee = .false.
                i_dn = pth_down_local(ipth)
-               IF (can_use_levee_tracer) THEN
-                  IF (i_up <= size(has_levee)) upstream_has_levee = has_levee(i_up)
-                  IF (i_dn > 0 .and. i_dn <= numucat) THEN
-                     IF (i_dn <= size(has_levee)) downstream_has_levee = has_levee(i_dn)
-                  ELSEIF (bif_workspace_active) THEN
-                     downstream_has_levee = has_levee_dn_pth(ipth) > 0.5_r8
-                  ENDIF
-               ENDIF
-               DO ilev = 1, size(bif_hflux_lev_in, 1)
+               CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
+                  upstream_has_levee, downstream_has_levee)
+               DO ilev = 1, nlev_bif
                   layer_wflux = bif_hflux_lev_in(ilev, ipth)
                   IF (abs(layer_wflux) <= trc_tiny) CYCLE
                   IF (layer_wflux >= 0._r8) THEN
@@ -1473,22 +1366,14 @@ CONTAINS
             trc_bif_lev_net(:) = 0._r8
             trc_pth_1trc(:) = 0._r8
             trc_pth_lev(:) = 0._r8
-            DO ipth = 1, npthout_local_in
+            DO ipth = 1, npth_bif
                i_up = pth_upst_local(ipth)
                IF (i_up < 1 .or. i_up > numucat) CYCLE
                i_dn = pth_down_local(ipth)
-               upstream_has_levee = .false.
-               downstream_has_levee = .false.
-               IF (can_use_levee_tracer) THEN
-                  IF (i_up <= size(has_levee)) upstream_has_levee = has_levee(i_up)
-                  IF (i_dn > 0 .and. i_dn <= numucat) THEN
-                     IF (i_dn <= size(has_levee)) downstream_has_levee = has_levee(i_dn)
-                  ELSEIF (bif_workspace_active) THEN
-                     downstream_has_levee = has_levee_dn_pth(ipth) > 0.5_r8
-                  ENDIF
-               ENDIF
+               CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
+                  upstream_has_levee, downstream_has_levee)
 
-               DO ilev = 1, size(bif_hflux_lev_in, 1)
+               DO ilev = 1, nlev_bif
                   trc_pth_fl = trc_pth_levtrc(ilev, ipth)
                   IF (abs(trc_pth_fl) <= trc_tiny) CYCLE
                   IF (ilev > 1 .and. upstream_has_levee) THEN
@@ -1542,21 +1427,21 @@ CONTAINS
                volwater_next = volwater
             ENDIF
 
-	            IF (volwater_next > trc_v_dry_off) THEN
-	               ratio_next = trc_mass_new / volwater_next
-	               ratio_snap_tol = max(abs(R_fill) * fixed_sig_rel_tol, trc_tiny)
-	               can_snap_fixed = fixed_signature_transport
-	               IF (can_snap_fixed .and. can_use_levee_tracer) THEN
-	                  IF (i <= size(has_levee)) THEN
-	                     ! Leveed cells have visible/protected compartments;
-	                     ! sum_hflux_riv can include protected-side bifurcation
-	                     ! fluxes, so a single visible-volume denominator is not
-	                     ! reliable enough for exact fixed-signature snapping.
-	                     IF (has_levee(i)) can_snap_fixed = .false.
-	                  ENDIF
-	               ENDIF
-		               IF (can_snap_fixed .and. &
-		                  abs(ratio_next - R_fill) <= ratio_snap_tol) THEN
+            IF (volwater_next > trc_v_dry_off) THEN
+               ratio_next = trc_mass_new / volwater_next
+               ratio_snap_tol = max(abs(R_fill) * fixed_sig_rel_tol, trc_tiny)
+               can_snap_fixed = fixed_signature_transport
+               IF (can_snap_fixed .and. can_use_levee_tracer) THEN
+                  IF (i <= size(has_levee)) THEN
+                     ! Leveed cells have visible/protected compartments;
+                     ! sum_hflux_riv can include protected-side bifurcation
+                     ! fluxes, so a single visible-volume denominator is not
+                     ! reliable enough for exact fixed-signature snapping.
+                     IF (has_levee(i)) can_snap_fixed = .false.
+                  ENDIF
+               ENDIF
+               IF (can_snap_fixed .and. &
+                   abs(ratio_next - R_fill) <= ratio_snap_tol) THEN
                   ! Preserve the no-fractionation / conservative invariant
                   ! exactly. The ordinary tracer path sums conc*hflux
                   ! separately from the water path's hflux reductions, which
@@ -2000,6 +1885,15 @@ CONTAINS
 
       ENDDO
 
+      IF (DEF_USE_LEVEE .and. p_is_worker .and. numucat > 0 &
+          .and. allocated(trc_levsto) .and. allocated(has_levee_bf)) THEN
+         DO ii_bf = 1, numucat
+            IF (ii_bf <= size(has_levee_bf)) THEN
+               IF (.not. has_levee_bf(ii_bf)) trc_levsto(:, ii_bf) = 0._r8
+            ENDIF
+         ENDDO
+      ENDIF
+
       ! Shared-across-tracers runoff reference for the routing period.
       ! Mirrors the per-tracer accinp recovery above.
       !
@@ -2136,20 +2030,18 @@ CONTAINS
          CALL vector_gather_and_write ( &
             tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, trim(varname), 'ucatch')
 
-         ! Protected-side tracer pool. Writing unconditionally
-         ! so even runs that never touched a levee cell produce a
-         ! zero-filled variable, letting restart consumers rely on its
-         ! presence without a per-case branch.
-         IF (p_is_worker .and. numucat > 0) THEN
-            IF (allocated(trc_levsto)) THEN
-               tmpvec(:) = trc_levsto(itrc, :)
-            ELSE
-               tmpvec(:) = 0._r8
-            ENDIF
-         ENDIF
-         write(varname, '(A,A)') 'trc_levsto_', trim(tracer_names(itrc))
-         CALL vector_gather_and_write ( &
-            tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, trim(varname), 'ucatch')
+	         IF (DEF_USE_LEVEE) THEN
+	            IF (p_is_worker .and. numucat > 0) THEN
+	               IF (allocated(trc_levsto)) THEN
+	                  tmpvec(:) = trc_levsto(itrc, :)
+	               ELSE
+	                  tmpvec(:) = 0._r8
+	               ENDIF
+	            ENDIF
+	            write(varname, '(A,A)') 'trc_levsto_', trim(tracer_names(itrc))
+	            CALL vector_gather_and_write ( &
+	               tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, trim(varname), 'ucatch')
+	         ENDIF
       ENDDO
 
       ! Shared runoff reference paired with acc_trc_inp for the active
@@ -2185,7 +2077,7 @@ CONTAINS
 	   integer :: itrc, i
 	   character(len=64) :: varname
 	   character(len=128) :: longname
-	   character(len=32) :: conc_word, conc_units, flux_units
+	   character(len=32) :: conc_word, conc_units, mass_units, flux_units
 	   real(r8), allocatable :: tmpvec(:)
 	   real(r8) :: ratio_loc, delta_loc
 	   real(r8), parameter :: trc_hist_fp_dust = 1.0e-12_r8
@@ -2207,10 +2099,12 @@ CONTAINS
          IF (tracer_uses_delta_diagnostics(itrc)) THEN
             conc_word  = 'ratio'
             conc_units = 'R'
+            mass_units = 'R*m3'
             flux_units = 'R*m3/s'
          ELSE
             conc_word  = 'concentration'
             conc_units = 'tracer/water'
+            mass_units = 'tracer'
             flux_units = 'tracer/s'
          ENDIF
 
@@ -2283,76 +2177,80 @@ CONTAINS
 	            file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
 	            trim(longname), trim(flux_units))
 
-	         ! --- Protected-side tracer storage behind levees ---
-	         IF (p_is_worker .and. numucat > 0) THEN
-	            tmpvec(:) = 0._r8
-	            IF (allocated(a_trc_levsto_mass)) THEN
-	               tmpvec(:) = spval
-	               DO i = 1, numucat
-	                  IF (i <= size(acctime_ucat_hist)) THEN
-	                     IF (acctime_ucat_hist(i) > 0._r8) &
-	                        tmpvec(i) = a_trc_levsto_mass(itrc, i) / acctime_ucat_hist(i)
-	                  ENDIF
-	               ENDDO
-	            ENDIF
-	            WHERE (abs(tmpvec) < trc_hist_fp_dust) tmpvec = 0._r8
-	         ENDIF
+		         IF (DEF_USE_LEVEE) THEN
+		            ! --- Protected-side tracer storage behind levees ---
+		            IF (p_is_worker .and. numucat > 0) THEN
+		               tmpvec(:) = 0._r8
+		               IF (allocated(a_trc_levsto_mass)) THEN
+		                  tmpvec(:) = spval
+		                  DO i = 1, numucat
+		                     IF (i <= size(acctime_ucat_hist)) THEN
+		                        IF (acctime_ucat_hist(i) > 0._r8) &
+		                           tmpvec(i) = a_trc_levsto_mass(itrc, i) / acctime_ucat_hist(i)
+		                     ENDIF
+		                  ENDDO
+		               ENDIF
+		               WHERE (abs(tmpvec) < trc_hist_fp_dust) tmpvec = 0._r8
+		            ENDIF
 
-	         write(varname, '(A,A)') 'f_trc_levsto_', trim(tracer_names(itrc))
-	         write(longname, '(A,A,A)') 'protected-side levee tracer storage (', trim(tracer_names(itrc)), ')'
+		            write(varname, '(A,A)') 'f_trc_levsto_', trim(tracer_names(itrc))
+		            write(longname, '(A,A,A)') 'protected-side levee tracer storage (', trim(tracer_names(itrc)), ')'
 
-	         CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-	            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-	            file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-	            trim(longname), 'R*m3')
+		            CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
+		               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+		               file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
+		               trim(longname), trim(mass_units))
 
-	         IF (tracer_uses_delta_diagnostics(itrc)) THEN
-	            IF (p_is_worker .and. numucat > 0) THEN
-	               tmpvec(:) = spval
-	               IF (tracers(itrc)%ref_ratio > trc_tiny .and. &
-	                   allocated(a_trc_levsto_mass) .and. allocated(a_levsto_water)) THEN
-	                  DO i = 1, numucat
-	                     IF (allocated(allups_mask_ucat)) THEN
-	                        IF (i > size(allups_mask_ucat)) CYCLE
-	                        IF (allups_mask_ucat(i) < 0.5_r8) CYCLE
-	                     ENDIF
-	                     IF (i > size(acctime_ucat_hist)) CYCLE
-	                     IF (acctime_ucat_hist(i) <= 0._r8) CYCLE
-	                     IF (a_levsto_water(i) <= trc_delta_diag_vmin * acctime_ucat_hist(i)) CYCLE
-	                     ratio_loc = a_trc_levsto_mass(itrc, i) / a_levsto_water(i)
-	                     IF (ratio_loc <= trc_tiny) CYCLE
-	                     delta_loc = (ratio_loc / tracers(itrc)%ref_ratio - 1.0_r8) * 1000.0_r8
-	                     IF (abs(delta_loc) <= trc_delta_sanity_max) tmpvec(i) = delta_loc
-	                  ENDDO
-	               ENDIF
-	            ENDIF
+		            IF (tracer_uses_delta_diagnostics(itrc)) THEN
+		               IF (p_is_worker .and. numucat > 0) THEN
+		                  tmpvec(:) = spval
+		                  IF (tracers(itrc)%ref_ratio > trc_tiny .and. &
+		                      allocated(a_trc_levsto_mass) .and. allocated(a_levsto_water)) THEN
+		                     DO i = 1, numucat
+		                        IF (allocated(allups_mask_ucat)) THEN
+		                           IF (i > size(allups_mask_ucat)) CYCLE
+		                           IF (allups_mask_ucat(i) < 0.5_r8) CYCLE
+		                        ENDIF
+		                        IF (i > size(acctime_ucat_hist)) CYCLE
+		                        IF (acctime_ucat_hist(i) <= 0._r8) CYCLE
+		                        IF (a_levsto_water(i) <= trc_delta_diag_vmin * acctime_ucat_hist(i)) CYCLE
+		                        ratio_loc = a_trc_levsto_mass(itrc, i) / a_levsto_water(i)
+		                        IF (ratio_loc <= trc_tiny) CYCLE
+		                        delta_loc = (ratio_loc / tracers(itrc)%ref_ratio - 1.0_r8) * 1000.0_r8
+		                        IF (abs(delta_loc) <= trc_delta_sanity_max) tmpvec(i) = delta_loc
+		                     ENDDO
+		                  ENDIF
+		               ENDIF
 
-	            write(varname, '(A,A)') 'f_trc_levdelta_', trim(tracer_names(itrc))
-	            write(longname, '(A,A,A)') 'protected-side levee tracer delta (', trim(tracer_names(itrc)), ')'
-	            CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-	               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-	               file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-	               trim(longname), 'permil')
-	         ENDIF
+		               write(varname, '(A,A)') 'f_trc_levdelta_', trim(tracer_names(itrc))
+		               write(longname, '(A,A,A)') 'protected-side levee tracer delta (', trim(tracer_names(itrc)), ')'
+		               CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
+		                  totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+		                  file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
+		                  trim(longname), 'permil')
+		            ENDIF
+		         ENDIF
 
-	         ! --- Tracer bifurcation net flux ---
-         IF (p_is_worker .and. numucat > 0) THEN
-            tmpvec(:) = spval
-            DO i = 1, numucat
-               IF (i <= size(acctime_ucat_hist)) THEN
-                  IF (acctime_ucat_hist(i) > 0._r8) tmpvec(i) = a_trc_bifout(itrc, i) / acctime_ucat_hist(i)
-               ENDIF
-            ENDDO
-            WHERE (abs(tmpvec) < trc_hist_fp_dust) tmpvec = 0._r8
-         ENDIF
+		         IF (DEF_USE_BIFURCATION) THEN
+		            ! --- Tracer bifurcation net flux ---
+		            IF (p_is_worker .and. numucat > 0) THEN
+		               tmpvec(:) = spval
+		               DO i = 1, numucat
+		                  IF (i <= size(acctime_ucat_hist)) THEN
+		                     IF (acctime_ucat_hist(i) > 0._r8) tmpvec(i) = a_trc_bifout(itrc, i) / acctime_ucat_hist(i)
+		                  ENDIF
+		               ENDDO
+		               WHERE (abs(tmpvec) < trc_hist_fp_dust) tmpvec = 0._r8
+		            ENDIF
 
-         write(varname, '(A,A)') 'f_trc_bifout_', trim(tracer_names(itrc))
-         write(longname, '(A,A,A)') 'tracer net bifurcation outflux (', trim(tracer_names(itrc)), ')'
+		            write(varname, '(A,A)') 'f_trc_bifout_', trim(tracer_names(itrc))
+		            write(longname, '(A,A,A)') 'tracer net bifurcation outflux (', trim(tracer_names(itrc)), ')'
 
-         CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-            trim(longname), trim(flux_units))
+		            CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
+		               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
+		               file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
+		               trim(longname), trim(flux_units))
+		         ENDIF
 
       ENDDO
 

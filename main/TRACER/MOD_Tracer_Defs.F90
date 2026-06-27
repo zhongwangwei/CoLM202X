@@ -146,8 +146,7 @@ CONTAINS
       ! Ensure uniqueness after sanitisation. Two raw tokens that differ
       ! only by illegal characters (e.g. 'H2O-16' vs 'H2O_16') collapse
       ! to the same clean token; MOD_Hist would then emit duplicate
-      ! NetCDF variable names and crash. Mirrors the river-side
-      ! dedup loop in MOD_Tracer_RiverLake:river_lake_tracer_init.
+      ! NetCDF variable names and crash. River/lake reuses these names.
          DO i = 1, ntracers
             DO j = 1, i - 1
                IF (trim(tracers(i)%name) == trim(tracers(j)%name)) THEN
@@ -558,9 +557,7 @@ CONTAINS
    !-------------------------------------------------------------------
    ! Sanitize a string for use as a NetCDF variable name component.
    ! Keeps alphanumerics, underscore and period; replaces anything else
-   ! by dropping it. Mirrors MOD_Tracer_RiverLake.sanitize_ncname so
-   ! land-side history/diagnostics names (which splice tracers(i)%name)
-   ! stay consistent with river-side output naming.
+   ! by dropping it. Land and river/lake history both splice tracers(i)%name.
    !-------------------------------------------------------------------
    FUNCTION sanitize_ncname (raw) RESULT(clean)
       character(len=*), intent(in) :: raw

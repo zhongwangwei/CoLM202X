@@ -282,8 +282,7 @@ CONTAINS
 			! flag is set by the same any_paddy_rice_live() helper used in
 			! methane() for finundated override, keeping the two physics
 			! decisions consistent.
-			! All BGC state access goes through MOD_Tracer_Reactive_Methane_BgcLink
-			! (architectural rule enforced by scripts/ci/check_methane_integration.sh).
+			! All BGC state access goes through MOD_Tracer_Reactive_Methane_BgcLink.
 			IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
 			   IF (is_paddy_rice_live(i)) THEN
 			      CALL get_rice_veg_proxy (lai, i, rice_pft_frac)

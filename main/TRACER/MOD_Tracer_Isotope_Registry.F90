@@ -59,8 +59,22 @@ MODULE MOD_Tracer_Isotope_Registry
    PUBLIC :: isotope_leaf_liquid_diffusivity
    PUBLIC :: isotope_legacy_forcing_kind
    PUBLIC :: isotope_default_soil_init_varname
+   PUBLIC :: isotope_weighted_leaf_epsilon
 
 CONTAINS
+
+   real(r8) FUNCTION isotope_weighted_leaf_epsilon (ra, rb, rc, eps_boundary, eps_stomatal)
+      real(r8), intent(in) :: ra, rb, rc, eps_boundary, eps_stomatal
+      real(r8) :: ra1, rb1, rc1, denom
+
+      ra1 = max(ra, 0._r8)
+      rb1 = max(rb, 0._r8)
+      rc1 = max(rc, 0._r8)
+      denom = ra1 + rb1 + rc1
+      isotope_weighted_leaf_epsilon = 0._r8
+      IF (denom <= 0._r8) RETURN
+      isotope_weighted_leaf_epsilon = (eps_boundary * rb1 + eps_stomatal * rc1) / denom
+   END FUNCTION isotope_weighted_leaf_epsilon
 
    SUBROUTINE register_isotope_physics (name, name_patterns, ref_ratio_hint, &
       legacy_forcing_kind, default_soil_init_varname, ref_ratio_tolerance, &

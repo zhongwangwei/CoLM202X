@@ -8,7 +8,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 
    USE MOD_Precision
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
-   USE MOD_Vars_Global, only: nl_soil, spval, dz_soi
+   USE MOD_Vars_Global, only: nl_soil, spval, dz_soi, WATERBODY
 
    IMPLICIT NONE
    SAVE
@@ -476,6 +476,7 @@ CONTAINS
    END SUBROUTINE credit_methane_restart_clip_2d
 
    SUBROUTINE allocate_methane_state (numpatch)
+      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
       integer, intent(in) :: numpatch
       ! Keep zero-length arrays allocated on IO/control ranks.  Methane
       ! restart reads use collective vector I/O; if numpatch==0 ranks return
@@ -516,7 +517,7 @@ CONTAINS
       allocate (co2_net_tot                     (numpatch)); co2_net_tot                (:) = 0._r8
 
       allocate (totcol_methane                   (numpatch)); totcol_methane              (:) = 0._r8
-      allocate (grnd_methane_cond               (numpatch)); grnd_methane_cond          (:) = 1.e-6_r8
+      allocate (grnd_methane_cond               (numpatch)); grnd_methane_cond          (:) = DEF_METHANE%grnd_methane_cond_default
       ! Keep the combined cold-start O2 concentration consistent with the
       ! split unsat/sat pools.  Optional microbial pools may read conc_o2 on
       ! the first step before fsat_bef is valid.
@@ -598,8 +599,8 @@ CONTAINS
       allocate (totcol_methane_unsat              (numpatch)); totcol_methane_unsat          (:)   = 0._r8
       allocate (totcol_methane_sat                (numpatch)); totcol_methane_sat            (:)   = 0._r8
 
-      allocate (grnd_methane_cond_unsat          (numpatch)); grnd_methane_cond_unsat      (:)   = 1.e-6_r8
-      allocate (grnd_methane_cond_sat            (numpatch)); grnd_methane_cond_sat        (:)   = 1.e-6_r8
+      allocate (grnd_methane_cond_unsat          (numpatch)); grnd_methane_cond_unsat      (:)   = DEF_METHANE%grnd_methane_cond_default
+      allocate (grnd_methane_cond_sat            (numpatch)); grnd_methane_cond_sat        (:)   = DEF_METHANE%grnd_methane_cond_default
 
       ! Physical cold-start concentrations for restart files without Methane state.
       allocate (conc_o2_unsat        (nl_soil,numpatch)); conc_o2_unsat           (:,:) = 1.0_r8
@@ -627,7 +628,7 @@ CONTAINS
 	      allocate (co2_oxid_tot_lake             (numpatch)); co2_oxid_tot_lake          (:) = 0._r8
 	      allocate (co2_net_tot_lake              (numpatch)); co2_net_tot_lake           (:) = 0._r8
 	      allocate (totcol_methane_lake             (numpatch)); totcol_methane_lake          (:)   = 0._r8
-	      allocate (grnd_methane_cond_lake          (numpatch)); grnd_methane_cond_lake       (:)   = 1.e-6_r8
+	      allocate (grnd_methane_cond_lake          (numpatch)); grnd_methane_cond_lake       (:)   = DEF_METHANE%grnd_methane_cond_default
 	      allocate (conc_o2_lake             (nl_soil,numpatch)); conc_o2_lake                (:,:) = 1.0_r8
 	      allocate (conc_methane_lake        (nl_soil,numpatch)); conc_methane_lake           (:,:) = 0._r8
 	      !!!! --------------------------------------------------------------------------------------------------------
@@ -1362,29 +1363,37 @@ CONTAINS
 	   END SUBROUTINE write_methane_restart
 
 
-   SUBROUTINE read_methane_restart (file_restart)
-      USE MOD_LandPatch,     only: landpatch
-	      USE MOD_NetCDFVector,  only: ncio_read_vector
-	      character(len=*), intent(in) :: file_restart
+	   SUBROUTINE read_methane_restart (file_restart)
+	      USE MOD_LandPatch,     only: landpatch
+	      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+		      USE MOD_NetCDFVector,  only: ncio_read_vector
+		      character(len=*), intent(in) :: file_restart
+	      real(r8) :: stale_grnd_cond_threshold
 
-	      IF (.not. allocated(conc_methane)) RETURN
+		      IF (.not. allocated(conc_methane)) RETURN
+	      stale_grnd_cond_threshold = min(1.e-6_r8, &
+	         max(tiny(1._r8), DEF_METHANE%grnd_methane_cond_default * 1.e-4_r8))
 
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2',          nl_soil, landpatch, conc_o2,          defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_methane',     nl_soil, landpatch, conc_methane,     defval = 1.e-6_r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane',   landpatch, totcol_methane,            defval = spval)
-	      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond',landpatch, grnd_methane_cond,         defval = 1.e-6_r8)
+		      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond',landpatch, grnd_methane_cond, &
+		         defval = DEF_METHANE%grnd_methane_cond_default)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2_unsat',    nl_soil, landpatch, conc_o2_unsat,    defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2_sat',      nl_soil, landpatch, conc_o2_sat,      defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_ch4_unsat',   nl_soil, landpatch, conc_methane_unsat, defval = 1.e-6_r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_ch4_sat',     nl_soil, landpatch, conc_methane_sat,   defval = 1.e-6_r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane_unsat', landpatch, totcol_methane_unsat,    defval = spval)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane_sat',   landpatch, totcol_methane_sat,      defval = spval)
-	      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_unsat', landpatch, grnd_methane_cond_unsat, defval = 1.e-6_r8)
-	      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_sat',   landpatch, grnd_methane_cond_sat,   defval = 1.e-6_r8)
+		      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_unsat', landpatch, grnd_methane_cond_unsat, &
+		         defval = DEF_METHANE%grnd_methane_cond_default)
+		      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_sat',   landpatch, grnd_methane_cond_sat, &
+		         defval = DEF_METHANE%grnd_methane_cond_default)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2_lake',     nl_soil, landpatch, conc_o2_lake,       defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_ch4_lake',    nl_soil, landpatch, conc_methane_lake,  defval = 0._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_lake',      landpatch, totcol_methane_lake,         defval = spval)
-	      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_lake', landpatch, grnd_methane_cond_lake, defval = 1.e-6_r8)
+		      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_lake', landpatch, grnd_methane_cond_lake, &
+		         defval = DEF_METHANE%grnd_methane_cond_default)
 	      CALL ncio_read_vector (file_restart, 'ch4_layer_sat_lag',    nl_soil, landpatch, layer_sat_lag,    defval = spval)
       CALL ncio_read_vector (file_restart, 'ch4_lake_soilc',       nl_soil, landpatch, lake_soilc,       defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'ch4_annavg_agnpp',     landpatch, annavg_agnpp,     defval = 0._r8)
@@ -1417,14 +1426,18 @@ CONTAINS
       WHERE (invalid_restart_value(conc_methane_unsat)) conc_methane_unsat = 1.e-6_r8
       WHERE (invalid_restart_value(conc_methane_sat))  conc_methane_sat  = 1.e-6_r8
       WHERE (invalid_restart_value(conc_methane_lake)) conc_methane_lake = 0._r8
-      WHERE (invalid_restart_value(grnd_methane_cond) .or. grnd_methane_cond <= 0._r8) &
-         grnd_methane_cond = 1.e-6_r8
-      WHERE (invalid_restart_value(grnd_methane_cond_unsat) .or. grnd_methane_cond_unsat <= 0._r8) &
-         grnd_methane_cond_unsat = 1.e-6_r8
-      WHERE (invalid_restart_value(grnd_methane_cond_sat) .or. grnd_methane_cond_sat <= 0._r8) &
-         grnd_methane_cond_sat = 1.e-6_r8
-	      WHERE (invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake <= 0._r8) &
-	         grnd_methane_cond_lake = 1.e-6_r8
+	      WHERE (invalid_restart_value(grnd_methane_cond) .or. &
+	             grnd_methane_cond <= stale_grnd_cond_threshold) &
+	         grnd_methane_cond = DEF_METHANE%grnd_methane_cond_default
+	      WHERE (invalid_restart_value(grnd_methane_cond_unsat) .or. &
+	             grnd_methane_cond_unsat <= stale_grnd_cond_threshold) &
+	         grnd_methane_cond_unsat = DEF_METHANE%grnd_methane_cond_default
+	      WHERE (invalid_restart_value(grnd_methane_cond_sat) .or. &
+	             grnd_methane_cond_sat <= stale_grnd_cond_threshold) &
+	         grnd_methane_cond_sat = DEF_METHANE%grnd_methane_cond_default
+		      WHERE (invalid_restart_value(grnd_methane_cond_lake) .or. &
+		             grnd_methane_cond_lake <= stale_grnd_cond_threshold) &
+		         grnd_methane_cond_lake = DEF_METHANE%grnd_methane_cond_default
 	      WHERE (invalid_restart_value(f_inund_levee_patch) .or. f_inund_levee_patch < 0._r8) &
 	         f_inund_levee_patch = 0._r8
 	      WHERE (invalid_restart_value(f_inund_flood_patch) .or. f_inund_flood_patch < 0._r8) &
@@ -1660,6 +1673,15 @@ CONTAINS
       CALL remap1d_mass(lulcc_totcol_methane_unsat_old, totcol_methane_unsat)
       CALL remap1d_mass(lulcc_totcol_methane_sat_old,   totcol_methane_sat)
       CALL remap1d_mass(lulcc_totcol_methane_lake_old,  totcol_methane_lake)
+      CALL remap1d(lulcc_fsat_bef_old,             fsat_bef)
+      CALL repartition_ch4_totcol_after_lulcc()
+      ! Keep remapped CH4 column stocks and layer concentrations consistent
+      ! across land<->lake LULCC so the next balance step does not emit a
+      ! one-time artificial residual flux.
+      CALL sync_ch4_conc_to_totcol(conc_methane,       totcol_methane)
+      CALL sync_ch4_conc_to_totcol(conc_methane_unsat, totcol_methane_unsat)
+      CALL sync_ch4_conc_to_totcol(conc_methane_sat,   totcol_methane_sat)
+      CALL sync_ch4_conc_to_totcol(conc_methane_lake,  totcol_methane_lake)
       CALL remap1d(lulcc_grnd_methane_cond_old,    grnd_methane_cond)
       CALL remap1d(lulcc_grnd_methane_cond_unsat_old, grnd_methane_cond_unsat)
       CALL remap1d(lulcc_grnd_methane_cond_sat_old,   grnd_methane_cond_sat)
@@ -1673,7 +1695,6 @@ CONTAINS
       CALL remap1d(lulcc_annsum_counter_old,       annsum_counter)
       CALL remap1d(lulcc_tempavg_somhr_old,        tempavg_somhr)
       CALL remap1d(lulcc_tempavg_finrw_old,        tempavg_finrw)
-      CALL remap1d(lulcc_fsat_bef_old,             fsat_bef)
       CALL remap1d(lulcc_finundated_lag_old,       finundated_lag)
       CALL remap1d_mass(lulcc_methane_dfsat_tot_old,    methane_dfsat_tot)
       CALL remap1d(lulcc_f_h2osfc_old,             f_h2osfc)
@@ -1746,7 +1767,7 @@ CONTAINS
          ENDDO
       END SUBROUTINE remap1d_mass
 
-      SUBROUTINE remap2d(old, new)
+	      SUBROUTINE remap2d(old, new)
          real(r8), intent(in) :: old(:,:)
          real(r8), intent(inout) :: new(:,:)
          integer :: np, op, src
@@ -1781,9 +1802,94 @@ CONTAINS
                ENDIF
             ENDIF
          ENDDO
-      END SUBROUTINE remap2d
+	      END SUBROUTINE remap2d
 
-	      INTEGER FUNCTION fallback_source(np, old_n) RESULT(src)
+
+         SUBROUTINE repartition_ch4_totcol_after_lulcc()
+            integer :: np, n
+            real(r8) :: total, land_eff, f, scale
+
+            n = min(size(totcol_methane), size(totcol_methane_unsat), &
+               size(totcol_methane_sat), size(totcol_methane_lake), &
+               size(patchclass_new), nnew)
+            DO np = 1, n
+               total = max(totcol_methane(np), 0._r8)
+               totcol_methane(np) = total
+
+               IF (patchclass_new(np) == WATERBODY) THEN
+                  totcol_methane_lake(np) = total
+                  totcol_methane_sat(np) = total
+                  totcol_methane_unsat(np) = 0._r8
+               ELSE
+                  totcol_methane_lake(np) = 0._r8
+                  totcol_methane_sat(np) = max(totcol_methane_sat(np), 0._r8)
+                  totcol_methane_unsat(np) = max(totcol_methane_unsat(np), 0._r8)
+                  f = methane_lulcc_saturated_fraction(np)
+                  land_eff = f * totcol_methane_sat(np) + &
+                     (1._r8 - f) * totcol_methane_unsat(np)
+                  IF (total <= tiny(1._r8)) THEN
+                     totcol_methane_sat(np) = 0._r8
+                     totcol_methane_unsat(np) = 0._r8
+                  ELSEIF (land_eff > tiny(1._r8)) THEN
+                     scale = total / land_eff
+                     totcol_methane_sat(np) = totcol_methane_sat(np) * scale
+                     totcol_methane_unsat(np) = totcol_methane_unsat(np) * scale
+                  ELSE
+                     ! ponytail: class-changed patches have no branch history;
+                     ! seed both land branches equally so any finundated gives
+                     ! the conserved remapped CH4 column without inventing a
+                     ! saturated/unsaturated contrast.
+                     totcol_methane_sat(np) = total
+                     totcol_methane_unsat(np) = total
+                  ENDIF
+               ENDIF
+            ENDDO
+         END SUBROUTINE repartition_ch4_totcol_after_lulcc
+
+         REAL(r8) FUNCTION methane_lulcc_saturated_fraction(np) RESULT(f)
+            integer, intent(in) :: np
+
+            f = 0._r8
+            IF (np <= size(fsat_bef)) f = fsat_bef(np)
+            IF (f < 0._r8 .or. f > 1._r8 .or. ieee_is_nan(f) .or. &
+                abs(f) >= 0.5_r8 * abs(spval)) f = 0._r8
+            f = min(max(f, 0._r8), 1._r8)
+         END FUNCTION methane_lulcc_saturated_fraction
+
+      SUBROUTINE sync_ch4_conc_to_totcol(conc, totcol)
+	         real(r8), intent(inout) :: conc(:,:)
+	         real(r8), intent(inout) :: totcol(:)
+	         integer :: j, np, nlev
+	         real(r8) :: col, target, dz, dzsum
+
+	         nlev = min(size(conc,1), nl_soil)
+	         dzsum = 0._r8
+	         DO j = 1, nlev
+	            dzsum = dzsum + max(dz_soi(j), 0._r8)
+	         ENDDO
+	         IF (dzsum <= tiny(1._r8)) RETURN
+
+	         DO np = 1, min(size(conc,2), size(totcol), nnew)
+	            target = max(totcol(np), 0._r8)
+	            totcol(np) = target
+	            col = 0._r8
+	            DO j = 1, nlev
+	               dz = max(dz_soi(j), 0._r8)
+	               conc(j,np) = max(conc(j,np), 0._r8)
+	               col = col + conc(j,np) * dz
+	            ENDDO
+
+	            IF (target <= tiny(1._r8)) THEN
+	               conc(1:nlev,np) = 0._r8
+	            ELSEIF (col > tiny(1._r8)) THEN
+	               conc(1:nlev,np) = conc(1:nlev,np) * (target / col)
+	            ELSE
+	               conc(1:nlev,np) = target / dzsum
+	            ENDIF
+	         ENDDO
+	      END SUBROUTINE sync_ch4_conc_to_totcol
+
+		      INTEGER FUNCTION fallback_source(np, old_n) RESULT(src)
          integer, intent(in) :: np, old_n
          integer :: op
          src = 0

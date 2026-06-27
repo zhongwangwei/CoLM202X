@@ -160,6 +160,7 @@ CONTAINS
       IF ((p_is_worker) .and. (numpatch > 0)) THEN
          filter(:) = patchtype < 99
          IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
+         filter = filter .and. patchmask
       ENDIF
       IF (HistForm == 'Gridded') THEN
          CALL mp2g_hist%get_sumarea (sumarea, filter)
@@ -187,6 +188,13 @@ CONTAINS
                ENDIF
 
                DO itrc_loc = 1, ntracers
+                  IF (p_is_worker) THEN
+                     IF (numpatch > 0) THEN
+                        filter(:) = patchtype < 99
+                        IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
+                        filter = filter .and. patchmask
+                     ENDIF
+                  ENDIF
                   IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
                      trc_ratio_word  = 'ratio'
@@ -475,10 +483,8 @@ CONTAINS
 
                   IF (p_is_worker) THEN
                      IF (numpatch > 0) THEN
-                        filter(:) = patchtype <= 3
-                        IF (forcing_has_missing_value) THEN
-                           filter = filter .and. forcmask_pch
-                        ENDIF
+                        filter(:) = patchtype < 99
+                        IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
                         filter = filter .and. patchmask
                      ENDIF
                   ENDIF

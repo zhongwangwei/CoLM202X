@@ -263,6 +263,9 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: scale_factor_liqdiff = 1._r8   ! For sensitivity tests; convection would allow this to be > 1(? params:1.) (doc:fD0 Basline:1 Range:1,10 Unit:m2 s-1)
       real(r8) :: lake_liqdiff_scale = 1._r8      ! Lake-only multiplier on saturated/liquid CH4 diffusivity
       real(r8) :: lake_o2_liqdiff_scale = 1._r8   ! Lake-only multiplier on saturated/liquid O2 diffusivity
+      ! ponytail: simplified atmospheric CH4/O2 boundary conductance [m/s].
+      ! Full aerodynamic coupling belongs in a later interface pass.
+      real(r8) :: grnd_methane_cond_default = 1.e-2_r8
 
       ! -------------------------------------------------- Invariant parameter ----------------------------------------------------
       ! methane production constants
@@ -830,6 +833,11 @@ CONTAINS
             DEF_METHANE%lake_o2_liqdiff_scale
          bad = .true.
       ENDIF
+      IF (DEF_METHANE%grnd_methane_cond_default <= 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: grnd_methane_cond_default must be > 0: ', &
+            DEF_METHANE%grnd_methane_cond_default
+         bad = .true.
+      ENDIF
       IF (DEF_METHANE%q10methane_base <= 0._r8 .or. DEF_METHANE%q10lakebase <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: q10 base temperatures must be > 0 K: ', &
             DEF_METHANE%q10methane_base, DEF_METHANE%q10lakebase
@@ -1039,6 +1047,11 @@ CONTAINS
       SELECT CASE (trim(v))
       CASE ( &
          'f_methane_surf_flux_tot', &
+         'f_methane_surf_flux_global_total_with_lake', &
+         'f_methane_surf_flux_wetland', &
+         'f_methane_surf_flux_soil', &
+         'f_methane_surf_flux_lake', &
+         'f_methane_surf_flux_rice', &
          'f_methane_prod_tot', &
          'f_methane_oxid_tot', &
          'f_totcol_methane')

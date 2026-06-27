@@ -28,8 +28,30 @@ MODULE MOD_Tracer_EvapLimit
    end interface
 
    PUBLIC :: tracer_evaporative_tracer_loss
+   PUBLIC :: tracer_atmospheric_tracer_loss
 
 CONTAINS
+
+   real(r8) FUNCTION tracer_atmospheric_tracer_loss (pool_trc, pool_water, water_loss, &
+      temp_k, from_ice, evap_ratio_fn, trc_tiny, r_max, is_nonvolatile)
+
+      real(r8), intent(in) :: pool_trc
+      real(r8), intent(in) :: pool_water
+      real(r8), intent(in) :: water_loss
+      real(r8), intent(in) :: temp_k
+      logical,  intent(in) :: from_ice
+      procedure(tracer_evap_ratio_callback) :: evap_ratio_fn
+      real(r8), intent(in) :: trc_tiny
+      real(r8), intent(in) :: r_max
+      logical,  intent(in) :: is_nonvolatile
+
+      IF (is_nonvolatile) THEN
+         tracer_atmospheric_tracer_loss = 0._r8
+      ELSE
+         tracer_atmospheric_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
+            water_loss, temp_k, from_ice, evap_ratio_fn, trc_tiny, r_max)
+      ENDIF
+   END FUNCTION tracer_atmospheric_tracer_loss
 
    real(r8) FUNCTION tracer_evaporative_tracer_loss (pool_trc, pool_water, water_loss, &
       temp_k, from_ice, evap_ratio_fn, trc_tiny, r_max)

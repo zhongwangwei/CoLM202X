@@ -21,16 +21,8 @@ MODULE MOD_Tracer_Reactive_Methane_pH
 !   colm.x reads only this patch vector.  This avoids runtime reads and
 !   broadcasts of the 2.8 GB global PHH2O raw file.
 !
-! LEGACY RAW INIT ALGORITHM (kept as fallback utility, not used by CoLM.F90):
-!   Called once during methane init, after numpatch +
-! patchlatr/patchlonr are known):
-!   1. Master rank opens PHH2O1.nc, reads lat/lon coords + 4 byte layers.
-!   2. Master averages top 4 layers (0-29 cm) into a single 2D byte grid,
-!      skipping missing pixels.
-!   3. Master broadcasts the 2D byte grid + lat/lon coords.
-!   4. Each rank does nearest-pixel lookup for its own patches.
-!   5. Fallback pH = 6.2 (neutral, Dunfield optimum) for patches with
-!      no valid match (ocean-adjacent, sentinels, file missing).
+! Runtime raw-PHH2O reads were removed: use the patch-vector file above.
+! Fallback pH = 6.2 (neutral, Dunfield optimum) when that vector is absent.
 !
 ! RUNTIME:
 !   FUNCTION get_ph_for_patch(ipatch) returns the per-patch column-mean
@@ -49,7 +41,6 @@ MODULE MOD_Tracer_Reactive_Methane_pH
 
    USE MOD_Precision
    USE MOD_SPMD_Task
-   USE MOD_Vars_Global, only: PI
 
    IMPLICIT NONE
    SAVE
@@ -66,7 +57,6 @@ MODULE MOD_Tracer_Reactive_Methane_pH
    PUBLIC :: allocate_methane_ph
    PUBLIC :: deallocate_methane_ph
    PUBLIC :: read_methane_ph_patch
-   PUBLIC :: read_methane_ph
    PUBLIC :: get_ph_for_patch
 
 CONTAINS
@@ -156,310 +146,6 @@ CONTAINS
       ENDIF
    END SUBROUTINE read_methane_ph_patch
 
-   SUBROUTINE read_methane_ph(file_ph1, patchlatr_in, patchlonr_in, numpatch)
-      ! Read PHH2O1.nc (top 4 layers, 0-29 cm), average across layers,
-      ! and populate per-patch pH via nearest-pixel lookup.
-#ifdef USEMPI
-      USE MPI
-#endif
-      USE netcdf
-
-      character(len=*), intent(in) :: file_ph1
-      real(r8), intent(in) :: patchlatr_in(:), patchlonr_in(:)   ! radians
-      integer, intent(in)  :: numpatch
-
-      character(len=*), parameter :: varname = 'PHH2O'
-      character(len=*), parameter :: latname = 'lat'
-      character(len=*), parameter :: lonname = 'lon'
-      integer(1), parameter       :: missing_byte = -100_1
-      ! LEGACY FALLBACK ONLY — not called from CoLM.F90 in the current
-      ! init path (mksrfdata Aggregation_MethanePH produces a per-patch
-      ! NetCDF that read_methane_ph_patch reads instead, avoiding the
-      ! large MPI_Bcast that was destabilising UCX on this cluster).
-      !
-      ! Down-sample factor: PHH2O is 30 arc-sec (43200 x 16800).  CoLM
-      ! patches are ~10 km, so a stride of 10 gives ~5 arc-min sampling
-      ! (4320 x 1680).  NOTE: this is a *stride sample* (every 10th pixel),
-      ! not a 10x10 block average — aliasing possible where pH varies on
-      ! 1 km scale.
-      integer, parameter :: COARSEN = 10
-
-      integer :: ncid, vid, ierr
-      integer :: nlat, nlon, ndepth, max_depth
-      integer :: nlat_c, nlon_c
-      integer :: ilat_c, ilon_c, ipatch, d
-      integer :: ilat0, ilon0, ilat_start, ilat_end, ilon_offset, jlon
-      integer :: search_radius_lat, search_radius_lon, total_valid
-      integer(1), allocatable :: byte_slab(:,:)        ! coarse strided slab (master only)
-      integer,    allocatable :: sum_pH_x10(:,:)       ! coarsened accumulator (broadcast)
-      integer,    allocatable :: cnt_valid(:,:)
-      real(r8),   allocatable :: lat_g(:), lon_g(:)    ! full-res coords (master only)
-      real(r8),   allocatable :: lat_c(:), lon_c(:)    ! coarsened coords (broadcast)
-      real(r8) :: lat_deg, lon_deg, dlatd, dlond, dmin, d2, mean_x10
-      real(r8) :: search_box_deg, dlat_grid, dlon_grid, lon_norm
-      integer  :: best_ix, best_iy
-      integer  :: ival
-      logical  :: fexists, found_match
-
-      ! IMPORTANT: do NOT RETURN here on numpatch<=0 or unallocated patch
-      ! array.  CoLM's master rank typically has no patches (it is a
-      ! coordinator, not a worker).  Returning early on master would leave
-      ! worker ranks blocked in the MPI_Bcast collectives below — classic
-      ! MPI deadlock.  Instead, gate only the master-side file read.
-      ph_active = .false.
-      nlat_c = 0
-      nlon_c = 0
-      IF (numpatch > 0 .and. .not. allocated(methane_ph_patch)) CALL allocate_methane_ph(numpatch)
-      IF (allocated(methane_ph_patch)) methane_ph_patch(:) = methane_ph_fallback
-
-      ! ---- master reads file, accumulates top-4-layer sum ----
-      IF (p_is_master) THEN
-         INQUIRE(file=trim(file_ph1), exist=fexists)
-         IF (.not. fexists) THEN
-            write(*,'(A,A)') ' WARNING: PHH2O file not found: ', trim(file_ph1)
-            write(*,'(A)') '          methane pH path will use fallback 6.2 globally.'
-            nlat = 0; nlon = 0; ndepth = 0
-         ELSE
-            ierr = nf90_open(trim(file_ph1), NF90_NOWRITE, ncid)
-            IF (ierr /= NF90_NOERR) THEN
-               write(*,'(A,A)') ' WARNING: PHH2O open failed: ', trim(nf90_strerror(ierr))
-               nlat = 0; nlon = 0; ndepth = 0
-            ELSE
-               CALL get_dim(ncid, latname,  nlat)
-               CALL get_dim(ncid, lonname,  nlon)
-               CALL get_dim(ncid, 'depth',  ndepth)
-               IF (nlat <= 0 .or. nlon <= 0 .or. ndepth <= 0) THEN
-                  write(*,'(A)') ' WARNING: PHH2O missing required dimensions; using fallback pH=6.2.'
-                  ierr = nf90_close(ncid)
-               ELSE
-                  write(*,'(A,I0,A,I0,A,I0)') &
-                     ' PHH2O dims: lat=', nlat, ' lon=', nlon, ' depth=', ndepth
-                  FLUSH(6)
-
-                  allocate(lat_g(nlat), lon_g(nlon))
-                  ierr = nf90_inq_varid(ncid, latname, vid)
-                  IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lat_g)
-                  IF (ierr /= NF90_NOERR) THEN
-                     write(*,'(A,A)') ' WARNING: PHH2O latitude read failed: ', trim(nf90_strerror(ierr))
-                     ierr = nf90_close(ncid)
-                     deallocate(lat_g, lon_g)
-                  ELSE
-                     ierr = nf90_inq_varid(ncid, lonname, vid)
-                     IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lon_g)
-                     IF (ierr /= NF90_NOERR) THEN
-                        write(*,'(A,A)') ' WARNING: PHH2O longitude read failed: ', trim(nf90_strerror(ierr))
-                        ierr = nf90_close(ncid)
-                        deallocate(lat_g, lon_g)
-                     ELSE
-                        ierr = nf90_inq_varid(ncid, varname, vid)
-                        IF (ierr /= NF90_NOERR) THEN
-                           write(*,'(A,A)') ' WARNING: PHH2O variable not found: ', trim(nf90_strerror(ierr))
-                           ierr = nf90_close(ncid)
-                           deallocate(lat_g, lon_g)
-                        ELSE
-                           ! Coarsened grid dimensions: pick every COARSEN-th pixel
-                           ! via NetCDF stride.  Avoids reading the 725 MB fine slab
-                           ! per layer + the 725 M iteration nested coarsen loop on
-                           ! master (which made the original 30 arc-sec broadcast
-                           ! attempt appear to hang for 30+ min).
-                           nlon_c = nlon / COARSEN
-                           nlat_c = nlat / COARSEN
-                           write(*,'(A,I0,A,I0,A,I0,A)') &
-                              ' PHH2O coarsened to ', nlon_c, ' x ', nlat_c, &
-                              ' (', COARSEN, 'x stride, ~5 arc-min)'
-                           FLUSH(6)
-
-                           allocate(byte_slab(nlon_c, nlat_c))   ! coarse slab only
-                           allocate(sum_pH_x10(nlon_c, nlat_c)); sum_pH_x10(:,:) = 0
-                           allocate(cnt_valid (nlon_c, nlat_c)); cnt_valid (:,:) = 0
-
-                           max_depth = min(4, ndepth)
-                           DO d = 1, max_depth
-                              ierr = nf90_get_var(ncid, vid, byte_slab, &
-                                 start=[1, 1, d], count=[nlon_c, nlat_c, 1], &
-                                 stride=[COARSEN, COARSEN, 1])
-                              IF (ierr /= NF90_NOERR) THEN
-                                 write(*,'(A,I0,A,A)') ' WARNING: PHH2O read depth ', d, &
-                                    ' failed: ', trim(nf90_strerror(ierr))
-                                 CYCLE
-                              ENDIF
-                              DO ilat_c = 1, nlat_c
-                                 DO ilon_c = 1, nlon_c
-                                    IF (byte_slab(ilon_c, ilat_c) == missing_byte) CYCLE
-                                    ! Interpret as unsigned (0..255 / 10 -> pH 0..25.5).
-                                    IF (byte_slab(ilon_c, ilat_c) >= 0_1) THEN
-                                       ival = int(byte_slab(ilon_c, ilat_c))
-                                    ELSE
-                                       ival = int(byte_slab(ilon_c, ilat_c)) + 256
-                                    ENDIF
-                                    sum_pH_x10(ilon_c, ilat_c) = sum_pH_x10(ilon_c, ilat_c) + ival
-                                    cnt_valid (ilon_c, ilat_c) = cnt_valid (ilon_c, ilat_c) + 1
-                                 ENDDO
-                              ENDDO
-                           ENDDO
-
-                           total_valid = sum(cnt_valid)
-                           IF (total_valid <= 0) THEN
-                              write(*,'(A)') ' WARNING: PHH2O contains no valid coarsened pH values; using fallback pH=6.2.'
-                              ph_active = .false.
-                           ELSE
-                              ph_active = .true.
-                           ENDIF
-
-                           ! Coarsened lat/lon coords: take the same strided pixel.
-                           allocate(lat_c(nlat_c), lon_c(nlon_c))
-                           DO ilat_c = 1, nlat_c
-                              lat_c(ilat_c) = lat_g((ilat_c - 1) * COARSEN + 1)
-                           ENDDO
-                           DO ilon_c = 1, nlon_c
-                              lon_c(ilon_c) = lon_g((ilon_c - 1) * COARSEN + 1)
-                           ENDDO
-
-                           deallocate(byte_slab, lat_g, lon_g)
-                           ierr = nf90_close(ncid)
-                           write(*,'(A)') ' PHH2O master read+coarsen done.'
-                           FLUSH(6)
-                        ENDIF
-                     ENDIF
-                  ENDIF
-               ENDIF
-            ENDIF
-         ENDIF
-      ENDIF
-
-#ifdef USEMPI
-      CALL MPI_Bcast(ph_active, 1, MPI_LOGICAL, p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(nlat_c,    1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(nlon_c,    1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
-      IF (ph_active) THEN
-         IF (.not. p_is_master) THEN
-            allocate(lat_c(nlat_c), lon_c(nlon_c))
-            allocate(sum_pH_x10(nlon_c, nlat_c))
-            allocate(cnt_valid (nlon_c, nlat_c))
-         ENDIF
-         ! Coarsened arrays only — ~58 MB total broadcast (cf. 5.8 GB at
-         ! full 30 arc-sec resolution which deadlocked PSM3 fabric).
-         CALL MPI_Bcast(lat_c,      nlat_c,           MPI_DOUBLE_PRECISION, p_address_master, p_comm_glb, ierr)
-         CALL MPI_Bcast(lon_c,      nlon_c,           MPI_DOUBLE_PRECISION, p_address_master, p_comm_glb, ierr)
-         CALL MPI_Bcast(sum_pH_x10, nlon_c * nlat_c,  MPI_INTEGER,          p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(cnt_valid,  nlon_c * nlat_c,  MPI_INTEGER,          p_address_master, p_comm_glb, ierr)
-      ENDIF
-#endif
-
-      IF (.not. ph_active) THEN
-         IF (allocated(lat_c))      deallocate(lat_c)
-         IF (allocated(lon_c))      deallocate(lon_c)
-         IF (allocated(sum_pH_x10)) deallocate(sum_pH_x10)
-         IF (allocated(cnt_valid))  deallocate(cnt_valid)
-         RETURN
-      ENDIF
-
-      IF (nlat_c <= 0 .or. nlon_c <= 0 .or. .not. allocated(sum_pH_x10) .or. &
-          .not. allocated(cnt_valid) .or. .not. allocated(lat_c) .or. .not. allocated(lon_c)) THEN
-         ph_active = .false.
-         IF (allocated(lat_c))      deallocate(lat_c)
-         IF (allocated(lon_c))      deallocate(lon_c)
-         IF (allocated(sum_pH_x10)) deallocate(sum_pH_x10)
-         IF (allocated(cnt_valid))  deallocate(cnt_valid)
-         RETURN
-      ENDIF
-
-      total_valid = sum(cnt_valid)
-      IF (total_valid <= 0) THEN
-         ph_active = .false.
-         IF (p_is_master) write(*,'(A)') ' WARNING: PHH2O broadcast has no valid pH values; using fallback pH=6.2.'
-         IF (allocated(lat_c))      deallocate(lat_c)
-         IF (allocated(lon_c))      deallocate(lon_c)
-         IF (allocated(sum_pH_x10)) deallocate(sum_pH_x10)
-         IF (allocated(cnt_valid))  deallocate(cnt_valid)
-         RETURN
-      ENDIF
-
-      ! ---- nearest-pixel lookup per local patch (on coarsened grid) ----
-      ! Use direct regular-grid indexing and only scan a small neighborhood.
-      ! The previous implementation looped over the full coarsened longitude
-      ! dimension for every patch; that is safe for tiny domains but can look
-      ! like a hang for large patch counts.  Keep a generous 1-degree search
-      ! radius to tolerate stride sampling, masked pixels, and coastline cells.
-      IF (nlat_c > 1) THEN
-         dlat_grid = abs(lat_c(2) - lat_c(1))
-      ELSE
-         dlat_grid = 1.0_r8
-      ENDIF
-      IF (nlon_c > 1) THEN
-         dlon_grid = abs(lon_c(2) - lon_c(1))
-      ELSE
-         dlon_grid = 1.0_r8
-      ENDIF
-      search_box_deg = 1.0_r8
-      search_radius_lat = max(1, ceiling(search_box_deg / max(dlat_grid, 1.e-12_r8)))
-      search_radius_lon = max(1, ceiling(search_box_deg / max(dlon_grid, 1.e-12_r8)))
-
-      DO ipatch = 1, numpatch
-         lat_deg = patchlatr_in(ipatch) * 180._r8 / PI
-         lon_deg = patchlonr_in(ipatch) * 180._r8 / PI
-
-         ! Out-of-data lat range guard (lat_c is descending 84..-56)
-         IF (lat_deg < lat_c(nlat_c) - search_box_deg .or. &
-             lat_deg > lat_c(1)      + search_box_deg) THEN
-            methane_ph_patch(ipatch) = methane_ph_fallback
-            CYCLE
-         ENDIF
-
-         dmin = huge(0._r8)
-         best_ix = 0; best_iy = 0
-         found_match = .false.
-
-         IF (lat_c(1) >= lat_c(nlat_c)) THEN
-            ilat0 = nint((lat_c(1) - lat_deg) / max(dlat_grid, 1.e-12_r8)) + 1
-         ELSE
-            ilat0 = nint((lat_deg - lat_c(1)) / max(dlat_grid, 1.e-12_r8)) + 1
-         ENDIF
-         ilat0 = min(max(ilat0, 1), nlat_c)
-         ilat_start = max(1, ilat0 - search_radius_lat)
-         ilat_end   = min(nlat_c, ilat0 + search_radius_lat)
-
-         ! Normalize patch longitude to the same periodic branch as lon_c(1).
-         lon_norm = modulo(lon_deg - lon_c(1), 360._r8) + lon_c(1)
-         ilon0 = nint((lon_norm - lon_c(1)) / max(dlon_grid, 1.e-12_r8)) + 1
-         ilon0 = modulo(ilon0 - 1, nlon_c) + 1
-
-         DO ilat_c = ilat_start, ilat_end
-            dlatd = abs(lat_deg - lat_c(ilat_c))
-            IF (dlatd > search_box_deg) CYCLE
-            DO ilon_offset = -search_radius_lon, search_radius_lon
-               jlon = modulo(ilon0 + ilon_offset - 1, nlon_c) + 1
-               dlond = modulo(abs(lon_deg - lon_c(jlon)), 360._r8)
-               dlond = min(dlond, 360._r8 - dlond)
-               IF (dlond > search_box_deg) CYCLE
-               d2 = dlatd*dlatd + dlond*dlond
-               IF (d2 < dmin .and. cnt_valid(jlon, ilat_c) > 0) THEN
-                  dmin = d2
-                  best_iy = ilat_c
-                  best_ix = jlon
-                  found_match = .true.
-               ENDIF
-            ENDDO
-         ENDDO
-
-         IF (found_match) THEN
-            mean_x10 = real(sum_pH_x10(best_ix, best_iy), r8) / &
-                       real(cnt_valid (best_ix, best_iy), r8)
-            methane_ph_patch(ipatch) = mean_x10 * 0.1_r8
-            methane_ph_patch(ipatch) = max(2._r8, min(10._r8, methane_ph_patch(ipatch)))
-         ELSE
-            methane_ph_patch(ipatch) = methane_ph_fallback
-         ENDIF
-      ENDDO
-
-      IF (allocated(lat_c))      deallocate(lat_c)
-      IF (allocated(lon_c))      deallocate(lon_c)
-      IF (allocated(sum_pH_x10)) deallocate(sum_pH_x10)
-      IF (allocated(cnt_valid))  deallocate(cnt_valid)
-
-      IF (p_is_master) write(*,'(A)') ' PHH2O loaded; spatial soil pH active for methane.'
-   END SUBROUTINE read_methane_ph
-
    real(r8) FUNCTION get_ph_for_patch(ipatch)
       integer, intent(in) :: ipatch
       get_ph_for_patch = methane_ph_fallback
@@ -468,19 +154,6 @@ CONTAINS
       IF (ipatch < 1 .or. ipatch > size(methane_ph_patch)) RETURN
       get_ph_for_patch = methane_ph_patch(ipatch)
    END FUNCTION get_ph_for_patch
-
-   SUBROUTINE get_dim(ncid, name, n)
-      USE netcdf
-      integer, intent(in)  :: ncid
-      character(len=*), intent(in) :: name
-      integer, intent(out) :: n
-      integer :: did, ierr
-      n = 0
-      ierr = nf90_inq_dimid(ncid, trim(name), did)
-      IF (ierr /= NF90_NOERR) RETURN
-      ierr = nf90_inquire_dimension(ncid, did, len=n)
-      IF (ierr /= NF90_NOERR) n = 0
-   END SUBROUTINE get_dim
 
 END MODULE MOD_Tracer_Reactive_Methane_pH
 #endif

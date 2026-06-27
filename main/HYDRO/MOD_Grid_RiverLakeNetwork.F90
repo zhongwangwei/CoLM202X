@@ -77,18 +77,18 @@ MODULE MOD_Grid_RiverLakeNetwork
 
    ! ----- Levee parameters (read from file) -----
    real(r8), allocatable :: levee_frc_data (:)   ! levee unprotected fraction [0-1]
-   real(r8), allocatable :: levee_hgt_data (:)   ! levee crest height above riverbed [m]
+   real(r8), allocatable :: levee_hgt_data (:)   ! levee crest height above floodplain datum [m]
 
    ! ----- Bifurcation pathway parameters (read from file) -----
-   integer  :: totalnpthout              ! total number of pathways globally
-   integer  :: npthout_local             ! number of pathways on this worker
-   integer  :: npthlev_bif               ! number of vertical layers
+   integer  :: totalnpthout  = 0         ! total number of pathways globally
+   integer  :: npthout_local = 0         ! number of pathways on this worker
+   integer  :: npthlev_bif   = 0         ! number of vertical layers
 
    integer,  allocatable :: pth_upst_local  (:)   ! upstream ucat local index
    integer,  allocatable :: pth_down_local  (:)   ! downstream ucat local index (or -1 if remote)
    integer,  allocatable :: pth_down_ucid   (:)   ! downstream ucat global ID
    integer,  allocatable :: pth_global_id   (:)   ! global pathway ID (1..totalnpthout)
-   real(r8), allocatable :: pth_dst         (:)   ! channel distance [m] (metadata only; not used in current solver or CFL)
+   real(r8), allocatable :: pth_dst         (:)   ! pathway length [m], used for BIF slope (not adaptive-dt CFL)
    real(r8), allocatable :: pth_elv         (:,:) ! elevation profile (npthlev, npthout_local) [m]
    real(r8), allocatable :: pth_wth         (:,:) ! width profile (npthlev, npthout_local) [m]
    real(r8), allocatable :: pth_man         (:)   ! Manning coefficients (npthlev)
@@ -860,9 +860,7 @@ CONTAINS
 
       ENDIF
 
-      ! rivermouth is deallocated AFTER read_and_distribute_bifurcation (below)
-      ! so its STEP-0 bif-connectivity diagnostic can group river systems by
-      ! the bifurcation links read inside that routine.
+      IF (allocated(rivermouth)) deallocate(rivermouth)
       IF (allocated(order_ucat)) deallocate(order_ucat)
 
       ! ----- Parameters for River and Lake -----
@@ -884,10 +882,6 @@ CONTAINS
       IF (DEF_USE_BIFURCATION) THEN
          CALL read_and_distribute_bifurcation (parafile)
       ENDIF
-
-      ! Deferred from above: rivermouth (master-only river-system labels) is no
-      ! longer needed once the bifurcation read + STEP-0 diagnostic have run.
-      IF (allocated(rivermouth)) deallocate(rivermouth)
 
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
@@ -1360,10 +1354,13 @@ CONTAINS
 
    integer :: iworker, nucat, npth, ip, i, j, iloc
    integer :: max_bif_inc_global
-   ! STEP-0 bifurcation-connected-component diagnostic (master, go/no-go gate)
-   integer,  allocatable :: comp_parent (:)   ! union-find parent over river systems 1..numrivmth
-   integer,  allocatable :: comp_size   (:)
-   integer :: sa, sb, ra, rb, s, ncomp_bif, max_comp, n_singleton
+#ifdef CoLMDEBUG
+   ! Debug-only bifurcation-connected-component diagnostic.
+   integer,  allocatable :: uf_parent (:)   ! union-find over global ucats 1..totalnumucat
+   integer,  allocatable :: sys_root  (:)   ! main-channel (river-system) root per ucat
+   integer,  allocatable :: comp_nsys (:)   ! river systems per bif-connected component
+   integer :: ib, ra, rb, k, nsys, ncomp_bif, max_sys_in_comp
+#endif
 
 #ifdef USEMPI
 
@@ -1372,76 +1369,79 @@ CONTAINS
       ! ================================================================
       IF (p_is_master) THEN
 
-         ! Get dimensions
-         CALL ncio_inquire_length (parafile, 'bifurcation_upst',    totalnpthout)
-         CALL ncio_inquire_length (parafile, 'bifurcation_manning', npthlev_bif)
+         CALL read_bifurcation_global_arrays (parafile, bif_upst_all, bif_down_all, &
+            bif_dist_all, bif_elev_all, bif_wdth_all, bif_mann_all)
 
-         ! Read all bifurcation arrays
-         CALL ncio_read_serial (parafile, 'bifurcation_upst',      bif_upst_all)
-         CALL ncio_read_serial (parafile, 'bifurcation_down',      bif_down_all)
-         CALL ncio_read_serial (parafile, 'bifurcation_distance',  bif_dist_all)
-         CALL ncio_read_serial (parafile, 'bifurcation_elevation', bif_elev_all)
-         CALL ncio_read_serial (parafile, 'bifurcation_width',     bif_wdth_all)
-         CALL ncio_read_serial (parafile, 'bifurcation_manning',   bif_mann_all)
-
-         DO ip = 1, totalnpthout
-            IF (bif_upst_all(ip) < 1 .or. bif_upst_all(ip) > totalnumucat) CALL CoLM_stop ( &
-               'bifurcation upstream index out of range')
-            IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
-            IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
-         ENDDO
-
-         ! ----- STEP-0 diagnostic: bifurcation-connected-component analysis -----
-         ! Go/no-go gate for a future per-component adaptive dt. River systems
-         ! (rivermouth labels 1..numrivmth) are grouped into components linked by
-         ! bifurcation paths via union-find. If ONE component spans most systems,
-         ! per-component dt cannot beat today's single global dt (no speedup);
-         ! if components stay small/many, most systems would recover their own
-         ! adaptive dt (the speedup source). Master-only, init-time, no MPI.
-         IF (allocated(rivermouth) .and. numrivmth > 0) THEN
-            allocate (comp_parent (numrivmth))
-            allocate (comp_size   (numrivmth))
-            DO s = 1, numrivmth
-               comp_parent(s) = s
+#ifdef CoLMDEBUG
+         ! Debug-only connectivity summary; do not print or allocate in production.
+         IF (totalnumucat > 0) THEN
+            allocate (uf_parent (totalnumucat))
+            allocate (sys_root  (totalnumucat))
+            allocate (comp_nsys (totalnumucat))
+            DO k = 1, totalnumucat
+               uf_parent(k) = k
             ENDDO
+            ! Phase 1: main-channel edges (each drainage tree = one river system)
+            DO k = 1, totalnumucat
+               ib = ucat_next(k)
+               IF (ib < 1 .or. ib > totalnumucat) CYCLE
+               ra = k
+               DO WHILE (uf_parent(ra) /= ra)
+                  uf_parent(ra) = uf_parent(uf_parent(ra));  ra = uf_parent(ra)
+               ENDDO
+               rb = ib
+               DO WHILE (uf_parent(rb) /= rb)
+                  uf_parent(rb) = uf_parent(uf_parent(rb));  rb = uf_parent(rb)
+               ENDDO
+               IF (ra /= rb) uf_parent(max(ra,rb)) = min(ra,rb)
+            ENDDO
+            ! Snapshot river-system roots before adding bifurcation edges
+            DO k = 1, totalnumucat
+               ra = k
+               DO WHILE (uf_parent(ra) /= ra)
+                  ra = uf_parent(ra)
+               ENDDO
+               sys_root(k) = ra
+            ENDDO
+            ! Phase 2: bifurcation edges (merge bif-linked systems)
             DO ip = 1, totalnpthout
                IF (bif_down_all(ip) < 1 .or. bif_down_all(ip) > totalnumucat) CYCLE
-               sa = rivermouth(bif_upst_all(ip))
-               sb = rivermouth(bif_down_all(ip))
-               ! union(sa, sb) with path halving
-               ra = sa
-               DO WHILE (comp_parent(ra) /= ra)
-                  comp_parent(ra) = comp_parent(comp_parent(ra));  ra = comp_parent(ra)
+               ra = bif_upst_all(ip)
+               DO WHILE (uf_parent(ra) /= ra)
+                  uf_parent(ra) = uf_parent(uf_parent(ra));  ra = uf_parent(ra)
                ENDDO
-               rb = sb
-               DO WHILE (comp_parent(rb) /= rb)
-                  comp_parent(rb) = comp_parent(comp_parent(rb));  rb = comp_parent(rb)
+               rb = bif_down_all(ip)
+               DO WHILE (uf_parent(rb) /= rb)
+                  uf_parent(rb) = uf_parent(uf_parent(rb));  rb = uf_parent(rb)
                ENDDO
-               IF (ra /= rb) comp_parent(max(ra,rb)) = min(ra,rb)
+               IF (ra /= rb) uf_parent(max(ra,rb)) = min(ra,rb)
             ENDDO
-            comp_size(:) = 0
-            DO s = 1, numrivmth
-               ra = s
-               DO WHILE (comp_parent(ra) /= ra)
-                  ra = comp_parent(ra)
+            ! Count river systems per final component (system reps: sys_root(k)==k)
+            comp_nsys(:) = 0
+            nsys = 0
+            DO k = 1, totalnumucat
+               IF (sys_root(k) /= k) CYCLE
+               nsys = nsys + 1
+               ra = k
+               DO WHILE (uf_parent(ra) /= ra)
+                  ra = uf_parent(ra)
                ENDDO
-               comp_size(ra) = comp_size(ra) + 1
+               comp_nsys(ra) = comp_nsys(ra) + 1
             ENDDO
-            ncomp_bif   = count(comp_size > 0)
-            max_comp    = maxval(comp_size)
-            n_singleton = count(comp_size == 1)
+            ncomp_bif       = count(comp_nsys > 0)
+            max_sys_in_comp = maxval(comp_nsys)
             write(*,'(A)')    '===== Bifurcation connectivity diagnostic (STEP-0 go/no-go) ====='
-            write(*,'(A,I0)') '  river systems (numrivmth)        : ', numrivmth
+            write(*,'(A,I0)') '  river systems                    : ', nsys
             write(*,'(A,I0)') '  bifurcation paths (totalnpthout) : ', totalnpthout
             write(*,'(A,I0)') '  bif-connected components         : ', ncomp_bif
-            write(*,'(A,I0)') '  singleton components             : ', n_singleton
-            write(*,'(A,I0,A,F6.2,A)') '  largest component (systems)      : ', max_comp, &
-               ' (', 100._r8*real(max_comp,r8)/real(max(numrivmth,1),r8), '% of systems)'
+            write(*,'(A,I0,A,F6.2,A)') '  largest component (systems)      : ', max_sys_in_comp, &
+               ' (', 100._r8*real(max_sys_in_comp,r8)/real(max(nsys,1),r8), '% of systems)'
             write(*,'(A)')    '  GUIDE: largest >~50% of systems => per-component dt gives ~no'
             write(*,'(A)')    '         speedup (one giant component); small/many => worth it.'
             write(*,'(A)')    '================================================================'
-            deallocate (comp_parent, comp_size)
+            deallocate (uf_parent, sys_root, comp_nsys)
          ENDIF
+#endif
 
          ! Build iworker_of_ucat: maps global seq index -> worker index
          allocate (iworker_of_ucat (totalnumucat))
@@ -1624,29 +1624,8 @@ CONTAINS
             CALL mpi_recv (pth_wth,        npthlev_bif*npthout_local, MPI_REAL8, p_address_master, &
                mpi_tag_data, p_comm_glb, p_stat, p_err)
 
-            ! Convert upstream global seq index to local index
-            ! ucat_ucid(k) = global seq index of local ucat k
-            ! pth_upst_local currently holds global seq index
-            DO ip = 1, npthout_local
-               DO i = 1, numucat
-                  IF (ucat_ucid(i) == pth_upst_local(ip)) THEN
-                     pth_upst_local(ip) = i
-                     EXIT
-                  ENDIF
-               ENDDO
-            ENDDO
-
-            ! Compute downstream local index (-1 if remote)
             allocate (pth_down_local (npthout_local))
-            DO ip = 1, npthout_local
-               pth_down_local(ip) = -1
-               DO i = 1, numucat
-                  IF (ucat_ucid(i) == pth_down_ucid(ip)) THEN
-                     pth_down_local(ip) = i
-                     EXIT
-                  ENDIF
-               ENDDO
-            ENDDO
+            CALL localize_bifurcation_path_indices (pth_upst_local, pth_down_ucid, pth_down_local)
          ELSE
             npthout_local = 0
             ! Allocate zero-size arrays so they are safely passable to
@@ -1697,23 +1676,8 @@ CONTAINS
       ! Serial (non-MPI) path
       ! ================================================================
 
-      ! Get dimensions
-      CALL ncio_inquire_length (parafile, 'bifurcation_upst',    totalnpthout)
-      CALL ncio_inquire_length (parafile, 'bifurcation_manning', npthlev_bif)
-
-      ! Read all bifurcation arrays
-      CALL ncio_read_serial (parafile, 'bifurcation_upst',      bif_upst_all)
-      CALL ncio_read_serial (parafile, 'bifurcation_down',      bif_down_all)
-      CALL ncio_read_serial (parafile, 'bifurcation_distance',  bif_dist_all)
-      CALL ncio_read_serial (parafile, 'bifurcation_elevation', bif_elev_all)
-      CALL ncio_read_serial (parafile, 'bifurcation_width',     bif_wdth_all)
-      CALL ncio_read_serial (parafile, 'bifurcation_manning',   bif_mann_all)
-
-      DO ip = 1, totalnpthout
-         IF (bif_upst_all(ip) < 1 .or. bif_upst_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation upstream index out of range')
-         IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
-         IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
-      ENDDO
+      CALL read_bifurcation_global_arrays (parafile, bif_upst_all, bif_down_all, &
+         bif_dist_all, bif_elev_all, bif_wdth_all, bif_mann_all)
 
       npthout_local = totalnpthout
 
@@ -1739,26 +1703,8 @@ CONTAINS
             pth_global_id(ip) = ip
          ENDDO
 
-         ! Convert upstream global seq index to local index (serial: identity)
-         DO ip = 1, npthout_local
-            DO i = 1, numucat
-               IF (ucat_ucid(i) == bif_upst_all(ip)) THEN
-                  pth_upst_local(ip) = i
-                  EXIT
-               ENDIF
-            ENDDO
-         ENDDO
-
-         ! Compute downstream local index
-         DO ip = 1, npthout_local
-            pth_down_local(ip) = -1
-            DO i = 1, numucat
-               IF (ucat_ucid(i) == pth_down_ucid(ip)) THEN
-                  pth_down_local(ip) = i
-                  EXIT
-               ENDIF
-            ENDDO
-         ENDDO
+         pth_upst_local(:) = bif_upst_all(:)
+         CALL localize_bifurcation_path_indices (pth_upst_local, pth_down_ucid, pth_down_local)
       ELSE
          npthout_local = 0
          allocate (pth_upst_local (0))
@@ -1828,6 +1774,73 @@ CONTAINS
          bif_incoming_pths, bif_incoming_wts, push_bif_influx)
 
    END SUBROUTINE read_and_distribute_bifurcation
+
+   ! ---------
+   SUBROUTINE read_bifurcation_global_arrays (parafile, bif_upst_all, bif_down_all, &
+      bif_dist_all, bif_elev_all, bif_wdth_all, bif_mann_all)
+
+   USE MOD_NetCDFSerial
+   USE MOD_Utils
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: parafile
+   integer,  allocatable, intent(out) :: bif_upst_all  (:)
+   integer,  allocatable, intent(out) :: bif_down_all  (:)
+   real(r8), allocatable, intent(out) :: bif_dist_all  (:)
+   real(r8), allocatable, intent(out) :: bif_elev_all  (:,:)
+   real(r8), allocatable, intent(out) :: bif_wdth_all  (:,:)
+   real(r8), allocatable, intent(out) :: bif_mann_all  (:)
+   integer :: ip
+
+      CALL ncio_inquire_length (parafile, 'bifurcation_upst',    totalnpthout)
+      CALL ncio_inquire_length (parafile, 'bifurcation_manning', npthlev_bif)
+
+      CALL ncio_read_serial (parafile, 'bifurcation_upst',      bif_upst_all)
+      CALL ncio_read_serial (parafile, 'bifurcation_down',      bif_down_all)
+      CALL ncio_read_serial (parafile, 'bifurcation_distance',  bif_dist_all)
+      CALL ncio_read_serial (parafile, 'bifurcation_elevation', bif_elev_all)
+      CALL ncio_read_serial (parafile, 'bifurcation_width',     bif_wdth_all)
+      CALL ncio_read_serial (parafile, 'bifurcation_manning',   bif_mann_all)
+
+      DO ip = 1, totalnpthout
+         IF (bif_upst_all(ip) < 1 .or. bif_upst_all(ip) > totalnumucat) CALL CoLM_stop ( &
+            'bifurcation upstream index out of range')
+         IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
+         IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
+      ENDDO
+
+   END SUBROUTINE read_bifurcation_global_arrays
+
+   ! ---------
+   SUBROUTINE localize_bifurcation_path_indices (path_upst, path_down_ucid, path_down_local)
+
+   IMPLICIT NONE
+
+   integer, intent(inout) :: path_upst(:)
+   integer, intent(in)    :: path_down_ucid(:)
+   integer, intent(out)   :: path_down_local(:)
+   integer :: ip, i
+
+      DO ip = 1, size(path_upst)
+         DO i = 1, numucat
+            IF (ucat_ucid(i) == path_upst(ip)) THEN
+               path_upst(ip) = i
+               EXIT
+            ENDIF
+         ENDDO
+      ENDDO
+
+      path_down_local = -1
+      DO ip = 1, size(path_down_ucid)
+         DO i = 1, numucat
+            IF (ucat_ucid(i) == path_down_ucid(ip)) THEN
+               path_down_local(ip) = i
+               EXIT
+            ENDIF
+         ENDDO
+      ENDDO
+
+   END SUBROUTINE localize_bifurcation_path_indices
 
 END MODULE MOD_Grid_RiverLakeNetwork
 #endif

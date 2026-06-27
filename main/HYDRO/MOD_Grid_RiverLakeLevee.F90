@@ -24,7 +24,7 @@ MODULE MOD_Grid_RiverLakeLevee
    ! ----- Levee parameters (derived in levee_init) -----
    logical,  allocatable :: has_levee     (:)   ! true where levee exists
    real(r8), allocatable :: levee_frc     (:)   ! unprotected fraction [0-1]
-   real(r8), allocatable :: levee_hgt     (:)   ! levee crest height above riverbed [m]
+   real(r8), allocatable :: levee_hgt     (:)   ! levee crest height above floodplain datum [m]
    real(r8), allocatable :: levee_dst     (:)   ! distance from river center to levee [m]
    real(r8), allocatable :: levee_bashgt  (:)   ! ground elevation at levee position [m]
    real(r8), allocatable :: levee_bassto  (:)   ! storage at levee base [m^3]
@@ -158,6 +158,8 @@ CONTAINS
                has_levee(i) = .false.
                levee_frc(i) = 1._r8
                levee_hgt(i) = 0._r8
+               levsto(i) = 0._r8
+               levdph(i) = 0._r8
                n_levee_resv_clash = n_levee_resv_clash + 1
             ENDIF
          ENDDO
@@ -475,7 +477,7 @@ CONTAINS
    real(r8), intent(in)  :: dt
    real(r8), intent(out), optional :: clipped_volume
 
-   real(r8) :: protected_raw
+   real(r8) :: protected_raw, clip_tol, wdsrf_dummy, levsto_dummy, fldfrc_dummy
 
       IF (present(clipped_volume)) clipped_volume = 0._r8
       IF (.not. allocated(levsto)) RETURN
@@ -486,7 +488,20 @@ CONTAINS
       IF (present(clipped_volume)) THEN
          IF (protected_raw < 0._r8) clipped_volume = -protected_raw
       ENDIF
+      clip_tol = max(1._r8, abs(levsto(i)), abs(protected_hflux * dt)) * 1.e-10_r8
+      IF (protected_raw < 0._r8 .and. -protected_raw <= clip_tol) THEN
+         protected_raw = 0._r8
+         IF (present(clipped_volume)) clipped_volume = 0._r8
+      ENDIF
       levsto(i) = max(protected_raw, 0._r8)
+      IF (allocated(levdph) .and. i <= size(levdph)) THEN
+         IF (allocated(has_levee) .and. i <= size(has_levee) .and. has_levee(i) .and. levsto(i) > 0._r8) THEN
+            CALL levee_fldstg(i, levee_topsto(i) + levsto(i), &
+               wdsrf_dummy, levsto_dummy, levdph(i), fldfrc_dummy)
+         ELSE
+            levdph(i) = 0._r8
+         ENDIF
+      ENDIF
 
    END SUBROUTINE levee_apply_protected_flux
 
@@ -766,7 +781,7 @@ CONTAINS
 
    ! =========================================================================
    SUBROUTINE read_levee_restart (file_restart, fold_protected_to_visible, &
-      volwater_ucat_io, volwater_ucat_valid_io)
+      volwater_ucat_io, volwater_ucat_valid_io, wdsrf_ucat_in)
    ! =========================================================================
    ! Read levee state from restart file. Called AFTER levee_init() so that
    ! levsto is already allocated. If runtime levee is disabled while the
@@ -776,14 +791,16 @@ CONTAINS
 
    USE MOD_NetCDFSerial,        only: ncio_var_exist
    USE MOD_Vector_ReadWrite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address, floodplain_curve
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
    logical,  intent(in),    optional :: fold_protected_to_visible
    real(r8), allocatable, intent(inout), optional :: volwater_ucat_io(:)
    logical,  intent(inout), optional :: volwater_ucat_valid_io
+   real(r8), intent(in), optional :: wdsrf_ucat_in(:)
    integer :: has_restart_var(2)
+   integer :: i
    logical :: do_fold
    real(r8) :: folded_volume
 
@@ -821,12 +838,21 @@ CONTAINS
          folded_volume = 0._r8
          IF (p_is_worker .and. present(volwater_ucat_io)) THEN
             IF (numucat > 0) THEN
+               IF (has_restart_var(2) == 0 .and. present(wdsrf_ucat_in)) THEN
+                  DO i = 1, numucat
+                     IF (i <= size(wdsrf_ucat_in)) THEN
+                        volwater_ucat_io(i) = floodplain_curve(i)%volume(wdsrf_ucat_in(i))
+                     ENDIF
+                  ENDDO
+               ENDIF
                folded_volume = sum(max(levsto, 0._r8))
                volwater_ucat_io = volwater_ucat_io + max(levsto, 0._r8)
                levsto = 0._r8
             ENDIF
          ENDIF
-         IF (present(volwater_ucat_valid_io)) volwater_ucat_valid_io = .true.
+         IF (present(volwater_ucat_valid_io)) THEN
+            IF (has_restart_var(2) == 1 .or. present(wdsrf_ucat_in)) volwater_ucat_valid_io = .true.
+         ENDIF
 #ifdef USEMPI
          CALL mpi_allreduce (MPI_IN_PLACE, folded_volume, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
 #endif
@@ -834,6 +860,13 @@ CONTAINS
             write(*,'(A,ES12.4,A)') 'WARNING read_levee_restart: DEF_USE_LEVEE is false; folded ', &
                folded_volume, ' m^3 protected levee storage into volwater_ucat.'
          ENDIF
+      ENDIF
+
+      IF (has_restart_var(1) == 1 .and. p_is_worker .and. allocated(has_levee)) THEN
+         WHERE (.not. has_levee)
+            levsto = 0._r8
+            levdph = 0._r8
+         END WHERE
       ENDIF
 
    END SUBROUTINE read_levee_restart

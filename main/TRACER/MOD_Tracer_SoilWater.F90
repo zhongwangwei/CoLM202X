@@ -15,7 +15,7 @@ MODULE MOD_Tracer_SoilWater
       tracer_transpiration_nss_ratio, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_alpha_liq_vap, &
       tracer_rayleigh_freezing_loss, tracer_equilibrium_deposition_ratio
-   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss
+   USE MOD_Tracer_EvapLimit, only: tracer_atmospheric_tracer_loss
       USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
          trc_wa, trc_wdsrf, trc_wetwat, trc_waterstorage, &
             a_trc_precip, a_trc_transp_src, tracer_book_evap_loss, &
@@ -310,42 +310,46 @@ CONTAINS
                trc_leaf_water_moles(itrc, ipatch) = leaf_moles_new
             ENDIF
 
-               DO j = 1, nl_soil
-                  IF (etroot_actual(j) > trc_tiny .and. wliq_soisno_bef(j) > trc_tiny) THEN
-                  trc_flux = etroot_actual(j) * ratio_layer(j)
+            DO j = 1, nl_soil
+               IF (etroot_actual(j) > trc_tiny .and. wliq_soisno_bef(j) > trc_tiny) THEN
+                  IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
+                     trc_flux = etroot_actual(j) * ratio_layer(j)
                      trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
-                        trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
-                        IF (transp_frac_active) THEN
-                           transp_source_tracer_total = transp_source_tracer_total + trc_flux
-                           ELSE
-                                    CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, &
-                                       etroot_actual(j), TRC_EVAP_KIND_TRANSP)
+                     trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
+                     IF (transp_frac_active) THEN
+                        transp_source_tracer_total = transp_source_tracer_total + trc_flux
+                     ELSE
+                        CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, &
+                           etroot_actual(j), TRC_EVAP_KIND_TRANSP)
 #if 0
-                              a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
+                           a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + trc_flux
 #endif
-                                    a_trc_transp_src(itrc, ipatch) = a_trc_transp_src(itrc, ipatch) + trc_flux
-                           ENDIF
-                        water_shadow(j) = water_shadow(j) - etroot_actual(j)
+                        a_trc_transp_src(itrc, ipatch) = a_trc_transp_src(itrc, ipatch) + trc_flux
                      ENDIF
-                  ENDDO
+                  ENDIF
+                  water_shadow(j) = water_shadow(j) - etroot_actual(j)
+               ENDIF
+            ENDDO
 
          ! Aquifer share of ET (deficit cascade residual). Use SIGNED
          ! wa_bef so a pre-existing aquifer debt (wa_bef<0) still yields
          ! a well-defined ratio; the min/max clamp prevents trc_wa from
          ! going more negative than its current signed value.
-                  IF (etroot_aquifer > trc_tiny) THEN
-                     remove_ratio = aquifer_ratio
-                     trc_flux = etroot_aquifer * remove_ratio
-                     IF (wa_bef > trc_tiny) trc_flux = min(trc_flux, max(trc_wa(itrc, ipatch), 0._r8))
-                     trc_wa(itrc, ipatch) = trc_wa(itrc, ipatch) - trc_flux
-                     IF (transp_frac_active) THEN
-                        transp_source_tracer_total = transp_source_tracer_total + trc_flux
-                     ELSE
-                           CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, &
-                              etroot_aquifer, TRC_EVAP_KIND_TRANSP)
-                           a_trc_transp_src(itrc, ipatch) = a_trc_transp_src(itrc, ipatch) + trc_flux
-                     ENDIF
+         IF (etroot_aquifer > trc_tiny) THEN
+            IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
+               remove_ratio = aquifer_ratio
+               trc_flux = etroot_aquifer * remove_ratio
+               IF (wa_bef > trc_tiny) trc_flux = min(trc_flux, max(trc_wa(itrc, ipatch), 0._r8))
+               trc_wa(itrc, ipatch) = trc_wa(itrc, ipatch) - trc_flux
+               IF (transp_frac_active) THEN
+                  transp_source_tracer_total = transp_source_tracer_total + trc_flux
+               ELSE
+                  CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, &
+                     etroot_aquifer, TRC_EVAP_KIND_TRANSP)
+                  a_trc_transp_src(itrc, ipatch) = a_trc_transp_src(itrc, ipatch) + trc_flux
                ENDIF
+            ENDIF
+         ENDIF
 
                   IF (transp_frac_active) THEN
                      a_trc_transp_src(itrc, ipatch) = a_trc_transp_src(itrc, ipatch) &
@@ -1198,18 +1202,10 @@ CONTAINS
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
 
-         IF (tracer_is_nonvolatile_solute(itrc)) THEN
-            atmospheric_loss_tracer = 0._r8
-         ELSE
-            ! r_max ceiling only for fractionating isotope tracers; above the
-            ! ceiling, evaporation becomes non-fractionating so the pool R stops
-            ! increasing.  Nonvolatile solutes are handled above as zero
-            ! evaporative tracer loss.
-            atmospheric_loss_tracer = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
-               water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
-               merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
-                     0._r8, tracer_fractionation_active(itrc)))
-         ENDIF
+         atmospheric_loss_tracer = tracer_atmospheric_tracer_loss(pool_trc, pool_water, &
+            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+            merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
+                  0._r8, tracer_fractionation_active(itrc)), tracer_is_nonvolatile_solute(itrc))
       END FUNCTION atmospheric_loss_tracer
 
       real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)
@@ -1734,6 +1730,11 @@ CONTAINS
                   trc_loss      = trc_loss      + cap_excess
                ENDIF
             ENDIF
+         ELSEIF (tracer_is_nonvolatile_solute(itrc)) THEN
+            trc_loss = 0._r8
+            trc_evap_loss = 0._r8
+            trc_subl_loss = 0._r8
+            trc_etr_loss  = 0._r8
          ELSE
             trc_loss = loss_water * pool_ratio
             trc_evap_loss = q_evap_out * pool_ratio
@@ -1862,18 +1863,10 @@ CONTAINS
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
 
-         IF (tracer_is_nonvolatile_solute(itrc)) THEN
-            atmospheric_loss_tracer = 0._r8
-         ELSE
-            ! r_max ceiling only for fractionating isotope tracers; above the
-            ! ceiling, evaporation becomes non-fractionating so the pool R stops
-            ! increasing.  Nonvolatile solutes are handled above as zero
-            ! evaporative tracer loss.
-            atmospheric_loss_tracer = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
-               water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
-               merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
-                     0._r8, tracer_fractionation_active(itrc)))
-         ENDIF
+         atmospheric_loss_tracer = tracer_atmospheric_tracer_loss(pool_trc, pool_water, &
+            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+            merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
+                  0._r8, tracer_fractionation_active(itrc)), tracer_is_nonvolatile_solute(itrc))
       END FUNCTION atmospheric_loss_tracer
 
       real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)

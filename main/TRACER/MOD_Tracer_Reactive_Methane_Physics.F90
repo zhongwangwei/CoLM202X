@@ -2344,8 +2344,7 @@ contains
 				aere_ch4_resis = 1._r8/((area_tiller * rootfr(j) * d_con_g(1,1) * 1e-4_r8 / (z_soisno(j)*DEF_METHANE%rob))+smallnumber)
 				! [s/m]         = /([m2/m2]          * [-]       * [m2/s]                 / [m]         /[-])
 				! Add in boundary layer resistance
-				! grnd_ch4_resis = 1._r8/(grnd_methane_cond+smallnumber)
-				grnd_ch4_resis = 1._r8/(grnd_methane_cond+smallnumber)
+				grnd_ch4_resis = 1._r8/max(grnd_methane_cond, DEF_METHANE%grnd_methane_cond_default, smallnumber)
 				aerecond = 1._r8/(aere_ch4_resis + grnd_ch4_resis)
 				! aerecond = max(aerecond,1.e-8_r8)
 				aere(j) = aerecond*(conc_ch4_gas_porsl(j) - c_atm(1)) / dz_soisno(j)
@@ -2356,7 +2355,7 @@ contains
 
 				! Do oxygen diffusion into layer
 				aere_o2_resis = 1._r8/((area_tiller * rootfr(j) * d_con_g(2,1) * 1e-4_r8 / (z_soisno(j)*DEF_METHANE%rob)) + smallnumber)
-				grnd_o2_resis = 1._r8/(grnd_methane_cond+smallnumber)
+				grnd_o2_resis = 1._r8/max(grnd_methane_cond, DEF_METHANE%grnd_methane_cond_default, smallnumber)
 
 				oxaere(j) = -(conc_o2_gas_porsl(j) - c_atm(2)) / (dz_soisno(j)*(aere_o2_resis + grnd_o2_resis)) ![mol/m3-total/s]
 				oxaere(j) = max(oxaere(j), 0._r8)
@@ -2601,13 +2600,14 @@ contains
 		real(r8) :: conc_ch4_rel(0:nl_soil)            ! Concentration per volume of air or water
 		real(r8) :: conc_o2_rel(0:nl_soil)             ! Concentration per volume of air or water
 		real(r8) :: conc_ch4_rel_old(0:nl_soil)        ! Concentration during last Crank-Nich. loop
-		real(r8), parameter :: smallnumber = 1.e-12_r8
-		logical, parameter :: ch4_backward_euler_transport = .true.
-		real(r8) :: snowdiff                                                   ! snow diffusivity (m^2/s)
-		real(r8) :: snow_resis                           ! Cumulative Snow resistance (s/m). Also includes
+			real(r8), parameter :: smallnumber = 1.e-12_r8
+			logical, parameter :: ch4_backward_euler_transport = .true.
+			real(r8) :: snowdiff                                                   ! snow diffusivity (m^2/s)
+			real(r8) :: snow_resis                           ! Cumulative Snow resistance (s/m). Also includes
 			real(r8) :: pond_resis                                                    ! Additional resistance from ponding, up to pondmx water on top of top soil layer (s/m)
 			real(r8) :: pondz                                                      ! Depth of ponding (m)
 			real(r8) :: ponddiff                                                   ! Pondwater diffusivity (m^2/s)
+			real(r8) :: grnd_cond_base                                                ! atmosphere-side base conductance before snow/pond resistance
 			real(r8) :: lake_exchange_vel                                          ! Lake piston velocity [m/s]
 			real(r8) :: lake_k600_cmhr                                             ! Cole & Caraco k600 [cm/hr]
 			real(r8) :: lake_schmidt_ch4                                           ! CH4 Schmidt number in freshwater [-]
@@ -2818,7 +2818,7 @@ contains
 			! Adjust the grnd_methane_cond to keep it positive, and add the snow resistance & pond resistance
 			do j = maxsnl + 1,0
 				if (j == maxsnl + 1) then
-					if (grnd_methane_cond < smallnumber .and. s==1) grnd_methane_cond = smallnumber
+					grnd_cond_base = max(grnd_methane_cond, DEF_METHANE%grnd_methane_cond_default, smallnumber)
 					! Needed to prevent overflow when ground is frozen, e.g. for lakes
 					snow_resis = 0._r8
 				end if
@@ -2951,7 +2951,7 @@ contains
 						endif
 					end if
 
-					spec_grnd_cond(s) = 1._r8/(1._r8/grnd_methane_cond + snow_resis + pond_resis)
+					spec_grnd_cond(s) = 1._r8/(1._r8/grnd_cond_base + snow_resis + pond_resis)
 				end if
 			end do ! j
 

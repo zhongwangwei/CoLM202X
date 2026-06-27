@@ -5,7 +5,7 @@ MODULE MOD_Tracer_Isotope_HDO
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: Rsmow_D
-   USE MOD_Tracer_Isotope_Registry, only: register_isotope_physics
+   USE MOD_Tracer_Isotope_Registry, only: register_isotope_physics, isotope_weighted_leaf_epsilon
 
    IMPLICIT NONE
    SAVE
@@ -50,7 +50,7 @@ CONTAINS
 
    real(r8) FUNCTION hdo_leaf_kinetic_epsilon (ra, rb, rc)
       real(r8), intent(in) :: ra, rb, rc
-      hdo_leaf_kinetic_epsilon = weighted_leaf_epsilon(ra, rb, rc, 17._r8, 25._r8)
+      hdo_leaf_kinetic_epsilon = isotope_weighted_leaf_epsilon(ra, rb, rc, 17._r8, 25._r8)
    END FUNCTION hdo_leaf_kinetic_epsilon
 
    real(r8) FUNCTION hdo_leaf_liquid_diffusivity (temp_k)
@@ -60,19 +60,6 @@ CONTAINS
       tk = max(temp_k, 150._r8)
       hdo_leaf_liquid_diffusivity = 116.e-9_r8 * exp(-626._r8 / max(tk - 139._r8, 1._r8))
    END FUNCTION hdo_leaf_liquid_diffusivity
-
-   real(r8) FUNCTION weighted_leaf_epsilon (ra, rb, rc, eps_boundary, eps_stomatal)
-      real(r8), intent(in) :: ra, rb, rc, eps_boundary, eps_stomatal
-      real(r8) :: ra1, rb1, rc1, denom
-
-      ra1 = max(ra, 0._r8)
-      rb1 = max(rb, 0._r8)
-      rc1 = max(rc, 0._r8)
-      denom = ra1 + rb1 + rc1
-      weighted_leaf_epsilon = 0._r8
-      IF (denom <= 0._r8) RETURN
-      weighted_leaf_epsilon = (eps_boundary * rb1 + eps_stomatal * rc1) / denom
-   END FUNCTION weighted_leaf_epsilon
 
 END MODULE MOD_Tracer_Isotope_HDO
 #endif
