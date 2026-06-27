@@ -34,7 +34,8 @@ MODULE MOD_Hist
    USE MOD_Catch_Hist
 #endif
 #ifdef GridRiverLakeFlow
-   USE MOD_Grid_RiverLakeHist
+   USE MOD_Grid_RiverLakeHist, only: hist_grid_riverlake_init, hist_grid_riverlake_out, hist_grid_riverlake_final
+   USE MOD_Grid_RiverLakeHistState
 #endif
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_Hist

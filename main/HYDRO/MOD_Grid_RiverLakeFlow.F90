@@ -18,7 +18,7 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_Reservoir
-   USE MOD_Grid_RiverLakeHist
+   USE MOD_Grid_RiverLakeHistState
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto, levdph, &
       levee_init, read_levee_restart, levee_apply_protected_flux, &
       levee_fldstg, levee_repartition_storage, &
