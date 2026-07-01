@@ -1368,12 +1368,8 @@ CONTAINS
 	      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
 		      USE MOD_NetCDFVector,  only: ncio_read_vector
 		      character(len=*), intent(in) :: file_restart
-	      real(r8) :: stale_grnd_cond_threshold
 
 		      IF (.not. allocated(conc_methane)) RETURN
-	      stale_grnd_cond_threshold = min(1.e-6_r8, &
-	         max(tiny(1._r8), DEF_METHANE%grnd_methane_cond_default * 1.e-4_r8))
-
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2',          nl_soil, landpatch, conc_o2,          defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_methane',     nl_soil, landpatch, conc_methane,     defval = 1.e-6_r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane',   landpatch, totcol_methane,            defval = spval)
@@ -1426,17 +1422,13 @@ CONTAINS
       WHERE (invalid_restart_value(conc_methane_unsat)) conc_methane_unsat = 1.e-6_r8
       WHERE (invalid_restart_value(conc_methane_sat))  conc_methane_sat  = 1.e-6_r8
       WHERE (invalid_restart_value(conc_methane_lake)) conc_methane_lake = 0._r8
-	      WHERE (invalid_restart_value(grnd_methane_cond) .or. &
-	             grnd_methane_cond <= stale_grnd_cond_threshold) &
+	      WHERE (invalid_restart_value(grnd_methane_cond) .or. grnd_methane_cond <= 0._r8) &
 	         grnd_methane_cond = DEF_METHANE%grnd_methane_cond_default
-	      WHERE (invalid_restart_value(grnd_methane_cond_unsat) .or. &
-	             grnd_methane_cond_unsat <= stale_grnd_cond_threshold) &
+	      WHERE (invalid_restart_value(grnd_methane_cond_unsat) .or. grnd_methane_cond_unsat <= 0._r8) &
 	         grnd_methane_cond_unsat = DEF_METHANE%grnd_methane_cond_default
-	      WHERE (invalid_restart_value(grnd_methane_cond_sat) .or. &
-	             grnd_methane_cond_sat <= stale_grnd_cond_threshold) &
+	      WHERE (invalid_restart_value(grnd_methane_cond_sat) .or. grnd_methane_cond_sat <= 0._r8) &
 	         grnd_methane_cond_sat = DEF_METHANE%grnd_methane_cond_default
-		      WHERE (invalid_restart_value(grnd_methane_cond_lake) .or. &
-		             grnd_methane_cond_lake <= stale_grnd_cond_threshold) &
+		      WHERE (invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake <= 0._r8) &
 		         grnd_methane_cond_lake = DEF_METHANE%grnd_methane_cond_default
 	      WHERE (invalid_restart_value(f_inund_levee_patch) .or. f_inund_levee_patch < 0._r8) &
 	         f_inund_levee_patch = 0._r8
