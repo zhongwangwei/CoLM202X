@@ -2344,7 +2344,7 @@ contains
 				aere_ch4_resis = 1._r8/((area_tiller * rootfr(j) * d_con_g(1,1) * 1e-4_r8 / (z_soisno(j)*DEF_METHANE%rob))+smallnumber)
 				! [s/m]         = /([m2/m2]          * [-]       * [m2/s]                 / [m]         /[-])
 				! Add in boundary layer resistance
-				grnd_ch4_resis = 1._r8/max(grnd_methane_cond, DEF_METHANE%grnd_methane_cond_default, smallnumber)
+				grnd_ch4_resis = 1._r8/(grnd_methane_cond+smallnumber)
 				aerecond = 1._r8/(aere_ch4_resis + grnd_ch4_resis)
 				! aerecond = max(aerecond,1.e-8_r8)
 				aere(j) = aerecond*(conc_ch4_gas_porsl(j) - c_atm(1)) / dz_soisno(j)
@@ -2355,7 +2355,7 @@ contains
 
 				! Do oxygen diffusion into layer
 				aere_o2_resis = 1._r8/((area_tiller * rootfr(j) * d_con_g(2,1) * 1e-4_r8 / (z_soisno(j)*DEF_METHANE%rob)) + smallnumber)
-				grnd_o2_resis = 1._r8/max(grnd_methane_cond, DEF_METHANE%grnd_methane_cond_default, smallnumber)
+				grnd_o2_resis = 1._r8/(grnd_methane_cond+smallnumber)
 
 				oxaere(j) = -(conc_o2_gas_porsl(j) - c_atm(2)) / (dz_soisno(j)*(aere_o2_resis + grnd_o2_resis)) ![mol/m3-total/s]
 				oxaere(j) = max(oxaere(j), 0._r8)
@@ -2818,7 +2818,7 @@ contains
 			! Adjust the grnd_methane_cond to keep it positive, and add the snow resistance & pond resistance
 			do j = maxsnl + 1,0
 				if (j == maxsnl + 1) then
-					grnd_cond_base = max(grnd_methane_cond, DEF_METHANE%grnd_methane_cond_default, smallnumber)
+					grnd_cond_base = max(grnd_methane_cond, smallnumber)
 					! Needed to prevent overflow when ground is frozen, e.g. for lakes
 					snow_resis = 0._r8
 				end if
