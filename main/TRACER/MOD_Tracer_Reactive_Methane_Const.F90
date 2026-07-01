@@ -265,7 +265,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: lake_o2_liqdiff_scale = 1._r8   ! Lake-only multiplier on saturated/liquid O2 diffusivity
       ! ponytail: simplified atmospheric CH4/O2 boundary conductance [m/s].
       ! Full aerodynamic coupling belongs in a later interface pass.
-      real(r8) :: grnd_methane_cond_default = 1.e-2_r8
+      real(r8) :: grnd_methane_cond_default = 1.e-6_r8
 
       ! -------------------------------------------------- Invariant parameter ----------------------------------------------------
       ! methane production constants

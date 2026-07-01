@@ -217,6 +217,7 @@
     DEF_METHANE%scale_factor_liqdiff    = 1.0
     DEF_METHANE%lake_liqdiff_scale      = 1.0
     DEF_METHANE%lake_o2_liqdiff_scale   = 1.0
+    DEF_METHANE%grnd_methane_cond_default = 1.0e-6
     DEF_METHANE%satpow                  = 2.0
     DEF_METHANE%capthick                = 100.0
 
