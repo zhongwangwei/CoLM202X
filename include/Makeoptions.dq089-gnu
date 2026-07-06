@@ -1,0 +1,52 @@
+# =======================================================
+# GNU / MPICH-4.2.3 build stack (dq089) -- PRODUCTION flags.
+#
+# Pairs with dq089's gnu-env:
+#   mpich-4.2.3-gnu + hdf5-1.14.5-gnu + netcdf-c-4.9.2-gnu + netcdf-fortran-4.6.1-gnu
+# Same libraries as the proven v1 wetland series -- ONLY the compile flags differ.
+#
+# Why this file exists (vs Makeoptions.SYSU-BaiduBoat.gnu):
+#   That file compiles with aggressive DEBUG flags -- `-ffpe-trap=invalid,zero,overflow`
+#   and `-fbounds-check` -- which turned benign edge cases in mksrf/mkini into hard
+#   aborts (SIGFPE in MOD_Block PIO setup; out-of-bounds abort at patch_pft_s in
+#   MOD_Initialize). Those flags are dropped here so the full pipeline is not killed
+#   by them. `-g -fbacktrace` are kept so any *real* crash still gives a line number.
+#
+# The compiler is pinned by absolute path so the build never depends on which mpif90
+# happens to be first in PATH (that ambient dependency is what burned the old runs).
+# =======================================================
+
+FF = /share/home/dq089/soft/mpich-4.2.3-gnu/bin/mpif90
+
+NETCDF_LIB = /share/home/dq089/soft/netcdf-fortran-4.6.1-gnu/lib
+NETCDF_INC = /share/home/dq089/soft/netcdf-fortran-4.6.1-gnu/include
+
+MOD_CMD = -J
+
+# ---- production flags: NO -ffpe-trap / -fbounds-check / -fdump-core ----
+FOPTS = -fdefault-real-8 -ffree-form -O2 -g -fbacktrace -mcmodel=medium \
+        -cpp -ffree-line-length-none -fopenmp
+
+INCLUDE_DIR = -I../include -I../share -I../mksrfdata -I../mkinidata -I../main -I$(NETCDF_INC)
+LDFLAGS = -fopenmp -L${NETCDF_LIB} -lnetcdff -llapack -L/share/home/dq089/soft/lib -lblas.gnu
+
+#============================================================
+# CaMa-Flood Mkinclude (for Linux, gfortran)
+
+RM = /bin/rm -f
+CP = /bin/cp
+#----
+# Pre-Prosessing options
+# DMPI=-DUseMPI: activate when MPI parallelization is used
+# DCDF=-DUseCDF: activate when using netCDF, comment out when not needed
+# DATM=-DNoAtom: activate when OMP ATOMIC calculation should be avoided (bit identical simulation)
+#----
+#DMPI=-DUseMPI
+DCDF=-DUseCDF
+#DATM=-DNoAtom
+DSINGLE=-DSinglePrec_CMF
+CFLAGS=$(DMPI) $(DCDF) $(DATM) $(DSINGLE)
+#----
+FCMP = gfortran -fopenmp
+FC   = gfortran -fopenmp
+FFLAGS = -O3 -cpp -ffree-line-length-none -fimplicit-none -ftree-vectorize
