@@ -21,7 +21,7 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeHistState
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto, levdph, &
       levee_init, read_levee_restart, levee_apply_protected_flux, &
-      levee_fldstg, levee_repartition_storage, &
+      levee_repartition_storage, &
       levee_visible_volume_from_stage, levee_final
    USE MOD_Grid_RiverLakeBifurcation, only: bifurcation_init, bifurcation_calc, &
       read_bifurcation_restart, bifurcation_final, bifurcation_invalidate_static_dn, &
@@ -48,7 +48,7 @@ MODULE MOD_Grid_RiverLakeFlow
    real(r8), parameter :: RIVERMIN  = RIVERLAKE_DRY_DEPTH
    real(r8), parameter :: RIVERLAKE_FLOOD_MISSING_VALUE = -1.e30_r8
    real(r8), parameter :: ROUTING_STORAGE_DT_EPS = 1.e-6_r8
-   real(r8), parameter :: ROUTING_MIN_ADAPTIVE_DT = 10._r8
+   real(r8), parameter :: ROUTING_PATHOLOGICAL_DT_FALLBACK = 10._r8
 
    real(r8), save :: acctime_rnof_max
    integer, save :: routing_zero_dt_warn_count = 0
@@ -233,7 +233,6 @@ CONTAINS
    real(r8) :: fldfrc_levee
    real(r8) :: vis_vol_bef_lv, levsto_bef_lv
    real(r8) :: vis_vol_bef_lv2, levsto_bef_lv2
-   real(r8) :: levsto_dummy, levdph_dummy
    real(r8), allocatable :: volresv_safe(:)
    integer,  allocatable :: ucat2resv_safe(:)
    integer :: itrc_dep
@@ -639,11 +638,12 @@ CONTAINS
             CALL worker_push_data (push_next2ucat, veloc_riv,  veloc_next, fillvalue = 0.)
 
             dt_all(:) = min(dt_res(:), 60.)
-            ! Bifurcation needs one global dt shared across river systems before
-            ! the flux/limiter passes that transfer water between them.  Without
-            ! bifurcation each river system advances with its own adaptive dt
-            ! (baseline), so skip the global synchronization here.
-            IF (DEF_USE_BIFURCATION) CALL sync_global_routing_dt(dt_res, dt_all)
+            ! In BIF mode every active system starts with the same residual
+            ! time: the first substep starts from acctime_rnof and every later
+            ! one subtracts the globally reduced dt.  Synchronizing this
+            ! initial 60 s cap is therefore redundant.  Reduce only once,
+            ! after the local CFL/storage/momentum constraints below, before
+            ! any cross-system BIF flux is evaluated.
 
             DO i = 1, numucat
 
@@ -1073,19 +1073,13 @@ CONTAINS
                ENDIF
 
                IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
-                  IF (abs(protected_hflux) > 1.e-20_r8) THEN
-                     ! BIF layer-2+ already updated the protected pool.  Do not
-                     ! immediately fold it back through static overtopping
-                     ! repartition; update only the river-side stage.
-                     vis_vol_bef_lv2 = volwater
-                     levsto_bef_lv2 = levsto(i)
-                     CALL levee_fldstg(i, volwater, wdsrf_ucat(i), &
-                        levsto_dummy, levdph_dummy, fldfrc_levee)
-                  ELSE
-                     ! Static levee repartition after ordinary transport.
-                     CALL levee_repartition_storage(i, volwater, wdsrf_ucat(i), &
-                        fldfrc_levee, vis_vol_bef_lv2, levsto_bef_lv2)
-                  ENDIF
+                  ! CaMa's simplified levee scheme applies all pathway fluxes
+                  ! to total storage, then restores the static visible/protected
+                  ! partition.  The split pools above are transport/limiter
+                  ! bookkeeping only; retaining that transient split here made
+                  ! river stage inconsistent with visible storage.
+                  CALL levee_repartition_storage(i, volwater, wdsrf_ucat(i), &
+                     fldfrc_levee, vis_vol_bef_lv2, levsto_bef_lv2)
                   volwater_ucat(i) = volwater
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
 #ifdef TRACER
@@ -1615,10 +1609,29 @@ CONTAINS
 
    SUBROUTINE sync_global_routing_dt(dt_res, dt_all)
 
+      USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
+
       real(r8), intent(in)    :: dt_res(:)
       real(r8), intent(inout) :: dt_all(:)
 
       real(r8) :: dt_global
+      logical  :: local_pathological
+
+      local_pathological = any(dt_res > 0._r8 .and. &
+         (dt_all <= 0._r8 .or. .not. ieee_is_finite(dt_all)))
+
+      IF (local_pathological) THEN
+         WHERE (dt_res > 0._r8 .and. &
+            (dt_all <= 0._r8 .or. .not. ieee_is_finite(dt_all)))
+            dt_all = min(ROUTING_PATHOLOGICAL_DT_FALLBACK, dt_res)
+         END WHERE
+
+         IF (p_is_worker .and. p_iam_worker == p_root .and. routing_zero_dt_warn_count < 5) THEN
+            routing_zero_dt_warn_count = routing_zero_dt_warn_count + 1
+            write(*,'(A)') 'WARNING grid_riverlake_flow: non-positive or non-finite adaptive dt; ' // &
+               'using a bounded fallback to avoid a stalled routing loop.'
+         ENDIF
+      ENDIF
 
       dt_global = huge(1._r8)
       IF (any(dt_res > 0._r8)) THEN
@@ -1629,15 +1642,6 @@ CONTAINS
       CALL mpi_allreduce (MPI_IN_PLACE, dt_global, 1, MPI_REAL8, MPI_MIN, &
          p_comm_worker, p_err)
 #endif
-
-      IF (dt_global < ROUTING_MIN_ADAPTIVE_DT .and. any(dt_res > 0._r8)) THEN
-         IF (p_is_worker .and. p_iam_worker == p_root .and. routing_zero_dt_warn_count < 5) THEN
-            routing_zero_dt_warn_count = routing_zero_dt_warn_count + 1
-            write(*,'(A,ES12.4,A)') 'WARNING grid_riverlake_flow: non-positive adaptive dt or pathological tiny dt=', &
-               dt_global, '; using adaptive dt floor to avoid stalled routing loop.'
-         ENDIF
-         dt_global = min(ROUTING_MIN_ADAPTIVE_DT, minval(dt_res, mask = dt_res > 0._r8))
-      ENDIF
 
       IF (dt_global < 0.5_r8 * huge(1._r8)) THEN
          WHERE (dt_res > 0._r8)

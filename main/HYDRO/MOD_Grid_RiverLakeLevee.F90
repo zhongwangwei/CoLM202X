@@ -15,7 +15,7 @@ MODULE MOD_Grid_RiverLakeLevee
 ! Created by CoLM team, March 2026
 !-------------------------------------------------------------------------------------
 
-   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_nan
+   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
    USE MOD_Precision
    USE MOD_SPMD_Task
    IMPLICIT NONE
@@ -133,7 +133,7 @@ CONTAINS
 
       ! --- Validate ---
       DO i = 1, numucat
-         IF (ieee_is_nan(levee_hgt(i)) .or. ieee_is_nan(levee_frc(i)) .or. &
+         IF (.not. ieee_is_finite(levee_hgt(i)) .or. .not. ieee_is_finite(levee_frc(i)) .or. &
              levee_hgt(i) <= 0._r8 .or. levee_frc(i) >= 1._r8 .or. levee_frc(i) < 0._r8) THEN
             levee_hgt(i) = 0._r8
             levee_frc(i) = 1._r8
@@ -784,89 +784,178 @@ CONTAINS
       volwater_ucat_io, volwater_ucat_valid_io, wdsrf_ucat_in)
    ! =========================================================================
    ! Read levee state from restart file. Called AFTER levee_init() so that
-   ! levsto is already allocated. If runtime levee is disabled while the
-   ! restart contains protected storage, fold that protected mass into the
-   ! TimeVars-owned visible routing volume before zeroing levsto.
+   ! levsto is already allocated. If the current run disables levees globally
+   ! or at an individual cell, fold restart protected storage into the
+   ! TimeVars-owned visible routing volume before clearing that compartment.
    ! =========================================================================
 
    USE MOD_NetCDFSerial,        only: ncio_var_exist
    USE MOD_Vector_ReadWrite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address, floodplain_curve
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address, floodplain_curve, lake_type
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
    logical,  intent(in),    optional :: fold_protected_to_visible
    real(r8), allocatable, intent(inout), optional :: volwater_ucat_io(:)
    logical,  intent(inout), optional :: volwater_ucat_valid_io
-   real(r8), intent(in), optional :: wdsrf_ucat_in(:)
-   integer :: has_restart_var(2)
-   integer :: i
-   logical :: do_fold
+   real(r8), allocatable, intent(in), optional :: wdsrf_ucat_in(:)
+   integer :: has_restart_var(3)
+   integer :: i, n_folded_cells
+   logical :: do_fold, fold_failed, fold_this_cell, invalid_restart, legacy_fold_failed, &
+      reservoir_fold_failed, visible_volume_ready, visible_volume_preloaded
    real(r8) :: folded_volume
 
       ! NOTE: vector_read_and_scatter contains mpi_barrier(p_comm_glb),
       ! so ALL processes must participate. Never early-return for non-workers.
       has_restart_var = 0
+      visible_volume_preloaded = .false.
+      IF (present(volwater_ucat_valid_io)) visible_volume_preloaded = volwater_ucat_valid_io
       IF (p_is_master) THEN
          IF (ncio_var_exist(file_restart, 'levsto', readflag = .false.)) has_restart_var(1) = 1
-         IF (ncio_var_exist(file_restart, 'volwater_ucat', readflag = .false.)) has_restart_var(2) = 1
+         IF (visible_volume_preloaded) THEN
+            ! TimeVars has already read and scattered this field.  Reuse it
+            ! instead of reopening NetCDF and repeating the collective scatter.
+            has_restart_var(2) = 1
+            has_restart_var(3) = 1
+         ELSEIF (ncio_var_exist(file_restart, 'volwater_ucat', readflag = .false.)) THEN
+            has_restart_var(2) = 1
+         ENDIF
       ENDIF
 #ifdef USEMPI
-      CALL mpi_bcast (has_restart_var, 2, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (has_restart_var, 3, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
 #endif
+      visible_volume_preloaded = has_restart_var(3) == 1
 
       IF (has_restart_var(1) == 1) THEN
          CALL vector_read_and_scatter (file_restart, levsto, numucat, 'levsto', ucat_data_address)
       ENDIF
 
+      invalid_restart = .false.
+      IF (has_restart_var(1) == 1 .and. p_is_worker .and. allocated(levsto)) THEN
+         invalid_restart = any(.not. ieee_is_finite(levsto) .or. levsto < 0._r8)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_allreduce (MPI_IN_PLACE, invalid_restart, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+#endif
+      IF (invalid_restart) THEN
+         IF (p_is_master) write(*,'(A)') &
+            'ERROR read_levee_restart: levsto contains a negative or non-finite value.'
+         CALL CoLM_stop()
+      ENDIF
+
       IF (has_restart_var(2) == 1) THEN
-         IF (present(volwater_ucat_io)) THEN
-            CALL vector_read_and_scatter (file_restart, volwater_ucat_io, numucat, 'volwater_ucat', ucat_data_address)
+         IF (.not. visible_volume_preloaded) THEN
+            IF (present(volwater_ucat_io)) THEN
+               CALL vector_read_and_scatter (file_restart, volwater_ucat_io, numucat, 'volwater_ucat', ucat_data_address)
+            ENDIF
          ENDIF
          IF (present(volwater_ucat_valid_io)) volwater_ucat_valid_io = .true.
       ENDIF
 
       do_fold = .false.
       IF (present(fold_protected_to_visible)) do_fold = fold_protected_to_visible
-      IF (do_fold .and. (.not. present(volwater_ucat_io))) THEN
-         IF (p_is_master) THEN
-            write(*,'(A)') 'ERROR read_levee_restart: fold_protected_to_visible requires volwater_ucat_io.'
-         ENDIF
-         do_fold = .false.
-      ENDIF
-      IF (do_fold .and. has_restart_var(1) == 1) THEN
-         folded_volume = 0._r8
-         IF (p_is_worker .and. present(volwater_ucat_io)) THEN
-            IF (numucat > 0) THEN
-               IF (has_restart_var(2) == 0 .and. present(wdsrf_ucat_in)) THEN
-                  DO i = 1, numucat
-                     IF (i <= size(wdsrf_ucat_in)) THEN
-                        volwater_ucat_io(i) = floodplain_curve(i)%volume(wdsrf_ucat_in(i))
-                     ENDIF
-                  ENDDO
-               ENDIF
-               folded_volume = sum(max(levsto, 0._r8))
-               volwater_ucat_io = volwater_ucat_io + max(levsto, 0._r8)
-               levsto = 0._r8
+      ! Fold protected storage whenever the current configuration no longer
+      ! has a levee at that cell. This covers both a global levee-off restart
+      ! and per-cell mask/geometry changes; silently zeroing levsto here would
+      ! violate the restart water budget.
+      folded_volume = 0._r8
+      n_folded_cells = 0
+      fold_failed = .false.
+      legacy_fold_failed = .false.
+      reservoir_fold_failed = .false.
+      IF (has_restart_var(1) == 1 .and. p_is_worker .and. allocated(has_levee)) THEN
+         visible_volume_ready = has_restart_var(2) == 1
+         IF (.not. visible_volume_ready .and. present(wdsrf_ucat_in)) THEN
+            IF (allocated(wdsrf_ucat_in) .and. present(volwater_ucat_io)) THEN
+               DO i = 1, min(numucat, size(wdsrf_ucat_in), size(volwater_ucat_io))
+                  IF (has_levee(i)) THEN
+                     volwater_ucat_io(i) = levee_visible_volume_from_stage(i, wdsrf_ucat_in(i), levsto(i))
+                  ELSE
+                     volwater_ucat_io(i) = floodplain_curve(i)%volume(wdsrf_ucat_in(i))
+                  ENDIF
+               ENDDO
+               visible_volume_ready = .true.
             ENDIF
          ENDIF
-         IF (present(volwater_ucat_valid_io)) THEN
-            IF (has_restart_var(2) == 1 .or. present(wdsrf_ucat_in)) volwater_ucat_valid_io = .true.
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, folded_volume, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-#endif
-         IF (p_is_master .and. folded_volume > 0._r8) THEN
-            write(*,'(A,ES12.4,A)') 'WARNING read_levee_restart: DEF_USE_LEVEE is false; folded ', &
-               folded_volume, ' m^3 protected levee storage into volwater_ucat.'
-         ENDIF
+
+         DO i = 1, min(numucat, size(has_levee), size(levsto))
+            fold_this_cell = do_fold .or. (.not. has_levee(i))
+            IF (.not. fold_this_cell) CYCLE
+
+            IF (levsto(i) > 0._r8) THEN
+               ! Without persisted visible volume, the old levee-side stage
+               ! does not uniquely determine river-side storage after the
+               ! levee mask changes. Reconstructing it with the current
+               ! no-levee curve and then adding levsto can double-count water.
+               IF (has_restart_var(2) == 0) THEN
+                  legacy_fold_failed = .true.
+                  CYCLE
+               ENDIF
+               ! A current reservoir cell stores its visible water in volresv,
+               ! not volwater_ucat. The old levee pool cannot be mapped
+               ! unambiguously here because reservoir construction timing may
+               ! also have changed, so fail instead of silently losing mass.
+               IF (allocated(lake_type)) THEN
+                  IF (i <= size(lake_type)) THEN
+                     IF (lake_type(i) == 2) THEN
+                        reservoir_fold_failed = .true.
+                        CYCLE
+                     ENDIF
+                  ENDIF
+               ENDIF
+               IF (present(volwater_ucat_io) .and. visible_volume_ready) THEN
+                  IF (i <= size(volwater_ucat_io)) THEN
+                     volwater_ucat_io(i) = volwater_ucat_io(i) + levsto(i)
+                     folded_volume = folded_volume + levsto(i)
+                     n_folded_cells = n_folded_cells + 1
+                     levsto(i) = 0._r8
+                  ELSE
+                     fold_failed = .true.
+                  ENDIF
+               ELSE
+                  fold_failed = .true.
+               ENDIF
+            ELSE
+               levsto(i) = 0._r8
+            ENDIF
+            IF (levsto(i) == 0._r8 .and. allocated(levdph)) levdph(i) = 0._r8
+         ENDDO
       ENDIF
 
-      IF (has_restart_var(1) == 1 .and. p_is_worker .and. allocated(has_levee)) THEN
-         WHERE (.not. has_levee)
-            levsto = 0._r8
-            levdph = 0._r8
-         END WHERE
+#ifdef USEMPI
+      CALL mpi_allreduce (MPI_IN_PLACE, folded_volume, 1, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, n_folded_cells, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, fold_failed, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, legacy_fold_failed, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, reservoir_fold_failed, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+#endif
+      IF (legacy_fold_failed) THEN
+         IF (p_is_master) THEN
+            write(*,'(A)') 'ERROR read_levee_restart: protected storage must be folded, but the restart lacks volwater_ucat.'
+            write(*,'(A)') '      The old levee-side stage cannot reconstruct visible storage without double counting.'
+         ENDIF
+         CALL CoLM_stop()
+      ENDIF
+      IF (reservoir_fold_failed) THEN
+         IF (p_is_master) THEN
+            write(*,'(A)') 'ERROR read_levee_restart: protected storage exists on a current reservoir cell; '
+            write(*,'(A)') '      levee-to-reservoir restart mapping is ambiguous. Use a compatible restart configuration.'
+         ENDIF
+         CALL CoLM_stop()
+      ENDIF
+      IF (fold_failed) THEN
+         IF (p_is_master) THEN
+            write(*,'(A)') 'ERROR read_levee_restart: cannot fold protected storage without a valid visible volume.'
+         ENDIF
+         CALL CoLM_stop()
+      ENDIF
+      IF (present(volwater_ucat_valid_io)) THEN
+         IF (has_restart_var(2) == 1 .or. n_folded_cells > 0) volwater_ucat_valid_io = .true.
+      ENDIF
+      IF (p_is_master .and. n_folded_cells > 0) THEN
+         write(*,'(A,ES12.4,A,I0,A)') 'WARNING read_levee_restart: folded ', &
+            folded_volume, ' m^3 protected storage from ', n_folded_cells, &
+            ' currently non-leveed cell(s) into visible routing storage.'
       ENDIF
 
    END SUBROUTINE read_levee_restart

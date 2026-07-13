@@ -24,6 +24,7 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_annavg_agnpp
    PUBLIC :: a_annavg_bgnpp
    PUBLIC :: a_annavg_finrw
+   PUBLIC :: a_annavg_finrw_acc_num
    PUBLIC :: a_annavg_somhr
    PUBLIC :: a_co2_aere_depth
    PUBLIC :: a_co2_aere_depth_sat
@@ -338,6 +339,7 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_acc_num_lake  (:)
    real(r8), allocatable :: a_methane_acc_num_extra (:)
    real(r8), allocatable :: a_methane_acc_num_microbe (:)
+   real(r8), allocatable :: a_annavg_finrw_acc_num (:)
 
 
 CONTAINS
@@ -503,6 +505,7 @@ CONTAINS
 	      allocate (a_methane_acc_num_sat     (numpatch))
 	      allocate (a_methane_acc_num_lake    (numpatch))
 	      allocate (a_methane_acc_num_extra   (numpatch))
+	      allocate (a_annavg_finrw_acc_num     (numpatch))
 
       CALL flush_methane_acc_fluxes ()
 
@@ -664,6 +667,7 @@ CONTAINS
       a_methane_acc_num_sat     (:) = 0._r8
       a_methane_acc_num_lake    (:) = 0._r8
       a_methane_acc_num_extra   (:) = 0._r8
+	      a_annavg_finrw_acc_num   (:) = 0._r8
 	      IF (allocated(a_methane_acc_num_microbe)) a_methane_acc_num_microbe (:) = 0._r8
 
    END SUBROUTINE flush_methane_acc_fluxes
@@ -921,6 +925,7 @@ CONTAINS
       CALL acc1d (annavg_bgnpp      , a_annavg_bgnpp      )
       CALL acc1d (annavg_somhr      , a_annavg_somhr      )
 	      CALL acc1d (annavg_finrw      , a_annavg_finrw      )
+	      CALL acc_count1d (annavg_finrw, a_annavg_finrw_acc_num)
 	      CALL acc1d (methane_dfsat_tot , a_methane_dfsat_tot )
 	      CALL acc1d (f_h2osfc          , a_f_h2osfc          )
 	      CALL acc1d (methane_finundated        , a_methane_finundated        )
@@ -1251,6 +1256,8 @@ CONTAINS
          'patch', landpatch, a_methane_acc_num_lake, compress)
       IF (allocated(a_methane_acc_num_extra)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_extra', &
          'patch', landpatch, a_methane_acc_num_extra, compress)
+      IF (allocated(a_annavg_finrw_acc_num)) CALL ncio_write_vector (file_restart, 'ch4_a_annavg_finrw_acc_num', &
+         'patch', landpatch, a_annavg_finrw_acc_num, compress)
       IF (allocated(a_methane_acc_num_microbe)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
          'patch', landpatch, a_methane_acc_num_microbe, compress)
    END SUBROUTINE write_methane_accflux_restart
@@ -1259,7 +1266,7 @@ CONTAINS
    SUBROUTINE read_methane_accflux_restart (file_restart)
       USE MOD_LandPatch,    only: landpatch
       USE MOD_NetCDFSerial, only: ncio_var_exist
-      USE MOD_NetCDFVector, only: ncio_read_vector
+      USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete
       USE MOD_SPMD_Task,    only: p_is_master
       character(len=*), intent(in) :: file_restart
 
@@ -1567,6 +1574,8 @@ CONTAINS
          landpatch, a_methane_acc_num_lake, defval = 0._r8)
       IF (allocated(a_methane_acc_num_extra)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_extra', &
          landpatch, a_methane_acc_num_extra, defval = 0._r8)
+      IF (allocated(a_annavg_finrw_acc_num)) CALL ncio_read_vector (file_restart, 'ch4_a_annavg_finrw_acc_num', &
+         landpatch, a_annavg_finrw_acc_num, defval = 0._r8)
       IF (allocated(a_methane_acc_num_microbe)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
          landpatch, a_methane_acc_num_microbe, defval = 0._r8)
    END SUBROUTINE read_methane_accflux_restart
@@ -1727,6 +1736,7 @@ CONTAINS
       IF (allocated(a_methane_acc_num_sat    )) deallocate (a_methane_acc_num_sat    )
       IF (allocated(a_methane_acc_num_lake   )) deallocate (a_methane_acc_num_lake   )
       IF (allocated(a_methane_acc_num_extra  )) deallocate (a_methane_acc_num_extra  )
+      IF (allocated(a_annavg_finrw_acc_num    )) deallocate (a_annavg_finrw_acc_num    )
       IF (allocated(a_methane_acc_num_microbe)) deallocate (a_methane_acc_num_microbe)
 
    END SUBROUTINE deallocate_methane_acc_fluxes

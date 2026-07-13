@@ -70,7 +70,7 @@ OBJS_SHARED =    \
 				  MOD_MeshFilter.o             \
 				  MOD_RegionClip.o
 
-${OBJS_SHARED} : %.o : %.F90 ${HEADER}
+${OBJS_SHARED} : %.o : %.F90 ${HEADER} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
@@ -95,7 +95,7 @@ OBJS_MKSRFDATA = \
 				  MOD_Lulcc_TransferTrace.o         \
 				  MKSRFDATA.o
 
-$(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
+$(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_MKSRFDATA_T = $(addprefix .bld/,${OBJS_MKSRFDATA})
@@ -145,9 +145,11 @@ TRACER_PARTICLE_MAIN_OBJS = \
 TRACER_PARTICLE_CORE_OBJS = \
 				MOD_Tracer_Particle.o
 ifeq (${TRACER_ENABLED},YES)
-TRACER_BASIC_OBJS = \
+TRACER_BASIC_PRE_ROUTING_OBJS = \
 				 MOD_Tracer_Defs.o              \
-				 $(TRACER_PARTICLE_CORE_OBJS)    \
+				 $(TRACER_PARTICLE_CORE_OBJS)
+
+TRACER_BASIC_PRE_FORCING_OBJS = \
 				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
 				 MOD_Tracer_Frac.o              \
 				 MOD_Tracer_EvapLimit.o         \
@@ -155,7 +157,9 @@ TRACER_BASIC_OBJS = \
 				 MOD_Tracer_RiverLake.o     \
 				 MOD_Tracer_Conservation.o      \
 				 MOD_Tracer_SoilInit.o          \
-				 MOD_Tracer_ForcingInput.o      \
+				 MOD_Tracer_ForcingInput.o
+
+TRACER_BASIC_POST_FORCING_OBJS = \
 				 MOD_Tracer_Forcing.o           \
 				 MOD_Tracer_Precip.o            \
 				 MOD_Tracer_Evapo.o             \
@@ -164,12 +168,23 @@ TRACER_BASIC_OBJS = \
 				 MOD_Tracer_Reactive.o          \
 				 MOD_Tracer_Rest.o
 
-TRACER_MAIN_OBJS = \
-				MOD_Tracer_LandPhase.o                     \
+TRACER_BASIC_OBJS = \
+				 $(TRACER_BASIC_PRE_ROUTING_OBJS) \
+				 $(TRACER_BASIC_PRE_FORCING_OBJS) \
+				 $(TRACER_BASIC_POST_FORCING_OBJS)
+
+TRACER_MAIN_PRE_HISTORY_OBJS = \
+				MOD_Tracer_LandPhase.o
+
+TRACER_MAIN_POST_HISTORY_OBJS = \
 				MOD_Tracer_Hist.o                         \
 				$(TRACER_REACTIVE_MAIN_OBJS)              \
 				$(TRACER_PARTICLE_MAIN_OBJS)              \
 				MOD_Tracer_SpecialPatches.o
+
+TRACER_MAIN_OBJS = \
+				$(TRACER_MAIN_PRE_HISTORY_OBJS)            \
+				$(TRACER_MAIN_POST_HISTORY_OBJS)
 
 TRACER_MKINIDATA_OBJS = \
 				  MOD_Tracer_Reactive_Registrations_Stubs.o \
@@ -240,7 +255,12 @@ MOD_Tracer_RiverLake.o: MOD_Tracer_Defs.o MOD_Grid_RiverLakeLevee.o
 MOD_Tracer_RiverLake.o MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o
 MOD_Vars_TimeVariables.o: MOD_Tracer_Defs.o MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
 else
+TRACER_BASIC_PRE_ROUTING_OBJS =
+TRACER_BASIC_PRE_FORCING_OBJS =
+TRACER_BASIC_POST_FORCING_OBJS =
 TRACER_BASIC_OBJS =
+TRACER_MAIN_PRE_HISTORY_OBJS =
+TRACER_MAIN_POST_HISTORY_OBJS =
 TRACER_MAIN_OBJS =
 TRACER_MKINIDATA_OBJS =
 endif
@@ -270,10 +290,12 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeHistState.o  \
 				 MOD_Grid_RiverLakeLevee.o      \
 				 MOD_Grid_RiverLakeBifurcation.o \
-				 $(TRACER_BASIC_OBJS)           \
+				 $(TRACER_BASIC_PRE_ROUTING_OBJS) \
 				 MOD_Grid_RiverLakeTimeVars.o   \
+				 $(TRACER_BASIC_PRE_FORCING_OBJS) \
 				 MOD_Qsadv.o                    \
 				 MOD_UserSpecifiedForcing.o     \
+				 $(TRACER_BASIC_POST_FORCING_OBJS) \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
 				 MOD_BGC_Vars_PFTimeVariables.o \
@@ -331,7 +353,7 @@ OBJS_BASIC =    \
 				 MOD_Initialize.o
 
 
-$(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
+$(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
@@ -340,7 +362,7 @@ OBJS_MKINIDATA = \
 				  $(TRACER_MKINIDATA_OBJS) \
 				  CoLMINI.o
 
-$(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
+$(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_MKINIDATA_T = $(addprefix .bld/,${OBJS_MKINIDATA})
@@ -394,7 +416,7 @@ OBJECTS_CAMA=\
 				  cmf_drv_control_mod.o   \
 				  cmf_drv_advance_mod.o
 
-$(OBJECTS_CAMA) : %.o : %.F90 ${HEADER}
+$(OBJECTS_CAMA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	$(FCMP)  -c ${FFLAGS} $(MODS) ${CFLAGS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 OBJS_CAMA_T = $(addprefix .bld/,${OBJECTS_CAMA})
@@ -476,18 +498,19 @@ OBJS_MAIN = \
 				MOD_SoilSurfaceResistance.o               \
 				MOD_NewSnow.o                             \
 				MOD_Thermal.o                             \
-				$(TRACER_MAIN_OBJS)                       \
+				$(TRACER_MAIN_PRE_HISTORY_OBJS)           \
 				MOD_Vars_1DAccFluxes.o                    \
-				MOD_CaMa_Vars.o                           \
-				MOD_Irrigation.o                          \
-				MOD_BGC_driver.o                          \
 				MOD_HistWriteBack.o                       \
 				MOD_HistGridded.o                         \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
+				$(TRACER_MAIN_POST_HISTORY_OBJS)          \
+				MOD_CaMa_Vars.o                           \
+				MOD_Irrigation.o                          \
+				MOD_BGC_driver.o                          \
 				MOD_Grid_RiverLakeHist.o                  \
-					MOD_Hist.o                                \
-					MOD_CheckEquilibrium.o                    \
+				MOD_Hist.o                                \
+				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_CaMa_colmCaMa.o                       \
 				MOD_Catch_LateralFlow.o                   \
@@ -516,7 +539,7 @@ OBJS_MAIN = \
 				CoLMMAIN.o                                \
 				CoLM.o
 
-$(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
+$(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 
@@ -559,14 +582,34 @@ OBJS_POST1_T = $(addprefix .bld/,${OBJS_POST1})
 OBJS_POST2_T = $(addprefix .bld/,${OBJS_POST2})
 OBJS_POST3_T = $(addprefix .bld/,${OBJS_POST3})
 
-$(OBJS_POST1):%.o:%.F90 ${HEADER}
+$(OBJS_POST1):%.o:%.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
-$(OBJS_POST2):%.o:%.F90 ${HEADER}
+$(OBJS_POST2):%.o:%.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
-$(OBJS_POST3):%.o:%.F90 ${HEADER}
+$(OBJS_POST3):%.o:%.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+
+# GNU make 3.81 has neither .WAIT nor target-scoped .NOTPARALLEL.  Preserve
+# parallelism between independent build products, but compile each existing
+# object stage in its maintained source order so a clean parallel build never
+# consumes a Fortran .mod file while its provider is still being compiled.
+# Explicit cross-stage prerequisites above remain authoritative; the recursive
+# helper only adds predecessor edges within each ordered list.
+define chain_objects
+$(if $(word 2,$1),$(eval $(word 2,$1): $(word 1,$1))$(call chain_objects,$(wordlist 2,$(words $1),$1)))
+endef
+
+$(call chain_objects,$(OBJS_SHARED))
+$(call chain_objects,$(OBJS_MKSRFDATA))
+$(call chain_objects,$(OBJS_BASIC))
+$(call chain_objects,$(OBJS_MKINIDATA))
+$(call chain_objects,$(OBJECTS_CAMA))
+$(call chain_objects,$(OBJS_MAIN))
+$(call chain_objects,$(OBJS_POST1))
+$(call chain_objects,$(OBJS_POST2))
+$(call chain_objects,$(OBJS_POST3))
 
 hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST1}
 	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${OBJS_POST1_T} -o run/$@ ${LDFLAGS}
@@ -609,6 +652,7 @@ lib : mksrfdata.x mkinidata.x colm.x postprocess.x
 .PHONY: clean
 clean :
 	rm -rf .bld
+	rm -f ./*.mod
 	rm -rf lib libcolm.a
 	rm -f run/mksrfdata.x run/mkinidata.x run/colm.x
 	rm -f run/hist_concatenate.x run/srfdata_concatenate.x run/post_vector2grid.x

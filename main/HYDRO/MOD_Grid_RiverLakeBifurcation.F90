@@ -25,6 +25,7 @@ MODULE MOD_Grid_RiverLakeBifurcation
    real(r8), parameter :: RIVERLAKE_DRY_DEPTH = 1.e-5_r8
    real(r8), parameter :: BIFMIN = RIVERLAKE_DRY_DEPTH
    real(r8), parameter :: BIF_MISSING_VALUE = -9999._r8
+   integer, parameter :: BIF_RESTART_SIGNATURE_VERSION = 1
 
    ! ----- State variables -----
    real(r8), allocatable :: pth_veloc     (:,:)  ! velocity (npthlev, npthout_local) [m/s]
@@ -99,8 +100,6 @@ MODULE MOD_Grid_RiverLakeBifurcation
    real(r8), allocatable, target, save :: ucatfilter_dn_pth_buf    (:)
    real(r8), allocatable, target, save :: is_resv_r8_buf           (:)
    real(r8), allocatable, target, save :: is_resv_dn_pth_buf       (:)
-   real(r8), allocatable, target, save :: dt_ucat_buf              (:)
-   real(r8), allocatable, target, save :: dt_dn_pth_buf            (:)
 
    PUBLIC :: bifurcation_init
    PUBLIC :: bifurcation_calc
@@ -246,8 +245,6 @@ CONTAINS
       allocate (ucatfilter_dn_pth_buf    (npth))
       allocate (is_resv_r8_buf           (nucat))
       allocate (is_resv_dn_pth_buf       (npth))
-      allocate (dt_ucat_buf              (nucat))
-      allocate (dt_dn_pth_buf            (npth))
 
       allocate (pth_lev_hflux_total_buf  (npth))
       allocate (bif_lev_influx_buf       (nucat))
@@ -317,8 +314,6 @@ CONTAINS
    real(r8), pointer :: ucatfilter_dn_pth    (:) => null()
    real(r8), pointer :: is_resv_r8           (:) => null()
    real(r8), pointer :: is_resv_dn_pth       (:) => null()
-   real(r8), pointer :: dt_ucat              (:) => null()
-   real(r8), pointer :: dt_dn_pth            (:) => null()
    real(r8), pointer :: pth_lev_hflux_total  (:) => null()
    real(r8), pointer :: bif_lev_influx       (:) => null()
 
@@ -387,8 +382,6 @@ CONTAINS
       ucatfilter_dn_pth    => ucatfilter_dn_pth_buf
       is_resv_r8           => is_resv_r8_buf
       is_resv_dn_pth       => is_resv_dn_pth_buf
-      dt_ucat              => dt_ucat_buf
-      dt_dn_pth            => dt_dn_pth_buf
       pth_lev_hflux_total  => pth_lev_hflux_total_buf
       bif_lev_influx       => bif_lev_influx_buf
 
@@ -430,16 +423,9 @@ CONTAINS
       ucatfilter_dn_pth(:) = 0._r8
       is_resv_r8       (:) = 0._r8
       IF (.not. bif_static_dn_valid) is_resv_dn_pth(:) = 0._r8
-      dt_ucat          (:) = 0._r8
-      dt_dn_pth        (:) = 0._r8
       IF (numucat > 0) THEN
          WHERE (ucatfilter) ucatfilter_r8 = 1._r8
          WHERE (is_built_resv) is_resv_r8 = 1._r8
-         DO i_ucat = 1, numucat
-            IF (irivsys(i_ucat) > 0 .and. irivsys(i_ucat) <= size(dt_all)) THEN
-               dt_ucat(i_ucat) = dt_all(irivsys(i_ucat))
-            ENDIF
-         ENDDO
       ENDIF
 
       IF (DEF_USE_LEVEE) THEN
@@ -457,15 +443,20 @@ CONTAINS
          ENDIF
       ENDIF
 
-         IF (numucat > 0) THEN
-            DO i_ucat = 1, numucat
-               storage_ucat(i_ucat) = available_storage_ucat(i_ucat, wdsrf_ucat(i_ucat), &
+      IF (numucat > 0) THEN
+         DO i_ucat = 1, numucat
+            storage_ucat(i_ucat) = available_storage_ucat(i_ucat, wdsrf_ucat(i_ucat), &
                volwater_ucat_in, volwater_ucat_valid_in, volresv, is_built_resv)
+            IF (DEF_USE_LEVEE) THEN
                visible_storage_ucat(i_ucat) = available_visible_storage_ucat(i_ucat, wdsrf_ucat(i_ucat), &
                   volwater_ucat_in, volwater_ucat_valid_in, volresv, is_built_resv)
                protected_storage_ucat(i_ucat) = available_protected_storage_ucat(i_ucat, is_built_resv)
-            ENDDO
-         ENDIF
+            ELSE
+               visible_storage_ucat(i_ucat) = storage_ucat(i_ucat)
+               protected_storage_ucat(i_ucat) = 0._r8
+            ENDIF
+         ENDDO
+      ENDIF
 
       ! ----- Step 2: Get downstream cell state via push objects -----
       ! Use -9999 as fillvalue to mark pathways with no valid downstream cell
@@ -480,13 +471,17 @@ CONTAINS
          IF (.not. bif_static_dn_valid) &
             CALL worker_push_data (push_bif_dn2pth, has_levee_r8,         has_levee_dn_pth,       fillvalue = 0._r8)
          ENDIF
-         CALL worker_push_data (push_bif_dn2pth, storage_ucat, storage_dn_pth, fillvalue = -9999._r8)
+      CALL worker_push_data (push_bif_dn2pth, storage_ucat, storage_dn_pth, fillvalue = -9999._r8)
+      IF (DEF_USE_LEVEE) THEN
          CALL worker_push_data (push_bif_dn2pth, visible_storage_ucat, visible_storage_dn_pth, fillvalue = 0._r8)
          CALL worker_push_data (push_bif_dn2pth, protected_storage_ucat, protected_storage_dn_pth, fillvalue = 0._r8)
+      ELSE
+         visible_storage_dn_pth(:) = storage_dn_pth(:)
+         protected_storage_dn_pth(:) = 0._r8
+      ENDIF
          ! Reservoir mask is invariant within a routing call; push once per call.
          IF (.not. bif_static_dn_valid) &
             CALL worker_push_data (push_bif_dn2pth, is_resv_r8, is_resv_dn_pth, fillvalue = 0._r8)
-      CALL worker_push_data (push_bif_dn2pth, dt_ucat, dt_dn_pth, fillvalue = 0._r8)
       ! push destination ucat active-mask so the source rank can
       ! skip pathways whose downstream cell lives in a river system that
       ! has already exhausted its adaptive sub-step. Fillvalue = 0 means
@@ -517,7 +512,7 @@ CONTAINS
          wdsrf_up  = wdsrf_ucat(i_up)
          rivelv_dn = rivelv_dn_pth(ipth)
          wdsrf_dn  = wdsrf_dn_pth(ipth)
-         dt        = dt_ucat(i_up)
+         dt        = dt_all(irivsys(i_up))
 
          pth_hflux_total(ipth) = 0._r8
 
@@ -535,11 +530,14 @@ CONTAINS
          IF (i_dn > 0 .and. i_dn <= numucat) THEN
             IF (.not. ucatfilter(i_dn)) CYCLE
             IF (i_dn <= size(is_built_resv) .and. is_built_resv(i_dn)) CYCLE
-            dt_dn = dt_ucat(i_dn)
+            dt_dn = dt_all(irivsys(i_dn))
          ELSE
             IF (ucatfilter_dn_pth(ipth) < 0.5_r8) CYCLE
             IF (is_resv_dn_pth(ipth) > 0.5_r8) CYCLE
-            dt_dn = dt_dn_pth(ipth)
+            ! Flow synchronizes one global BIF dt after all local stability
+            ! constraints.  The remote active mask is therefore sufficient;
+            ! sending the identical destination dt was a redundant MPI phase.
+            dt_dn = dt
          ENDIF
 
          IF (dt <= 0._r8 .or. dt_dn <= 0._r8) CYCLE
@@ -613,11 +611,12 @@ CONTAINS
             ! directly, which accelerates a dry-still link even when the two
             ! water surfaces are level.  Drive pathway momentum by water-surface
             ! slope instead; equal H_up/H_dn then leaves only frictional decay.
-            ! CaMa-Flood levee alignment: overland layer depth can use the
-            ! protected-side surface, but the link slope is still based on
-            ! river-side water surface for stability.
-            zsurf_up = wdsrf_up + rivelv_up
-            zsurf_dn = wdsrf_dn + rivelv_dn
+            ! CaMa-Flood levee alignment: channel flow uses the river-side
+            ! surface, while overland flow uses the protected-side surface
+            ! wherever a levee exists.  Use the same effective surface for
+            ! both flow depth and hydraulic slope.
+            zsurf_up = wdsrf_up_eff + rivelv_up
+            zsurf_dn = wdsrf_dn_eff + rivelv_dn
             slope_lev = (zsurf_dn - zsurf_up) / pth_dst(ipth)
             slope_lev = max(-0.005_r8, min(0.005_r8, slope_lev))
             h_face = max(height_up, height_dn)
@@ -673,8 +672,8 @@ CONTAINS
             ! storage based; CoLM additionally has a protected levee pool
             ! (`levsto`) and a protected tracer pool (`trc_levsto`).  Limit
             ! each layer by the donor compartment only so a dry protected side
-            ! cannot be silently clipped by the caller, while true zero
-            ! inundation at the receiver is still allowed to wet up.
+            ! cannot be silently clipped by the caller.  CaMa's path-level
+            ! endpoint-storage limiter above remains the stability constraint.
             IF (dt > 0._r8) THEN
                DO ilev = 1, npthlev_bif
                   layer_transfer = abs(bif_hflux_lev(ilev, ipth))
@@ -722,7 +721,8 @@ CONTAINS
             fillvalue = 0._r8, mode = 'sum')
          DO i_ucat = 1, numucat
             protected_outgoing(i_ucat) = protected_outgoing(i_ucat) + protected_out_recv(i_ucat)
-            dt_cell = dt_ucat(i_ucat)
+            IF (.not. ucatfilter(i_ucat)) CYCLE
+            dt_cell = dt_all(irivsys(i_ucat))
             IF (protected_outgoing(i_ucat) > 1.e-10_r8 .and. dt_cell > 0._r8) THEN
                protected_out_rate(i_ucat) = min(1._r8, &
                   max(protected_storage_ucat(i_ucat), 0._r8) / (protected_outgoing(i_ucat) * dt_cell))
@@ -759,7 +759,8 @@ CONTAINS
       ENDDO
 
       DO i_ucat = 1, numucat
-         dt_cell = dt_ucat(i_ucat)
+         IF (.not. ucatfilter(i_ucat)) CYCLE
+         dt_cell = dt_all(irivsys(i_ucat))
          storage_ref = max(visible_storage_ucat(i_ucat), 0._r8)
          normal_outflow = 0._r8
          IF (i_ucat <= size(normal_outgoing_rate)) &
@@ -803,13 +804,13 @@ CONTAINS
          IF (i_dn > 0 .and. i_dn <= numucat) THEN
             IF (.not. ucatfilter(i_dn)) CYCLE
             IF (i_dn <= size(is_built_resv) .and. is_built_resv(i_dn)) CYCLE
-            dt_dn = dt_ucat(i_dn)
+            dt_dn = dt_all(irivsys(i_dn))
          ELSE
             IF (ucatfilter_dn_pth(ipth) < 0.5_r8) CYCLE
             IF (is_resv_dn_pth(ipth) > 0.5_r8) CYCLE
-            dt_dn = dt_dn_pth(ipth)
+            dt_dn = dt_all(irivsys(i_up))
          ENDIF
-         dt = dt_ucat(i_up)
+         dt = dt_all(irivsys(i_up))
          IF (dt <= 0._r8 .or. dt_dn <= 0._r8) CYCLE
          IF (abs(dt - dt_dn) > max(1.e-9_r8, 1.e-12_r8 * max(abs(dt), abs(dt_dn)))) CYCLE
             CALL bif_path_levee_sides(i_up, i_dn, ipth, numucat, upstream_has_levee, downstream_has_levee)
@@ -917,7 +918,6 @@ CONTAINS
                limiter_out_rate_pth, protected_neg_pth, &
                protected_out_recv, protected_out_rate_pth, &
                ucatfilter_r8, ucatfilter_dn_pth, is_resv_r8, is_resv_dn_pth, &
-               dt_ucat, dt_dn_pth, &
                pth_lev_hflux_total, bif_lev_influx)
 
    END SUBROUTINE bifurcation_calc
@@ -1105,6 +1105,50 @@ CONTAINS
 
 
    ! =========================================================================
+   SUBROUTINE build_bifurcation_path_signature (signature)
+   ! =========================================================================
+   !
+   ! Build lossless restart metadata for each pathway.  The rows are:
+   !   schema version, upstream global UCID, downstream global UCID, distance,
+   !   elevation(:), width(:), Manning(:).
+   ! Values are copied directly from the network input, so exact comparison
+   ! after a NetCDF real8 round trip is intentional.
+   !
+   ! =========================================================================
+
+   USE MOD_Grid_RiverLakeNetwork, only: npthlev_bif, npthout_local, &
+      pth_upst_local, pth_down_ucid, pth_dst, pth_elv, pth_wth, pth_man, ucat_ucid
+   IMPLICIT NONE
+
+   real(r8), allocatable, intent(out) :: signature(:,:)
+   integer :: ipth, iup, npath
+
+      npath = 0
+      IF (p_is_worker) npath = npthout_local
+      allocate (signature(4 + 3*npthlev_bif, npath))
+      signature(:,:) = 0._r8
+
+      IF (.not. p_is_worker) RETURN
+
+      DO ipth = 1, npthout_local
+         iup = pth_upst_local(ipth)
+         IF (iup < 1 .or. iup > size(ucat_ucid)) THEN
+            CALL CoLM_stop ('build_bifurcation_path_signature: invalid upstream local index')
+         ENDIF
+
+         signature(1, ipth) = real(BIF_RESTART_SIGNATURE_VERSION, r8)
+         signature(2, ipth) = real(ucat_ucid(iup), r8)
+         signature(3, ipth) = real(pth_down_ucid(ipth), r8)
+         signature(4, ipth) = pth_dst(ipth)
+         signature(5:4+npthlev_bif, ipth) = pth_elv(:, ipth)
+         signature(5+npthlev_bif:4+2*npthlev_bif, ipth) = pth_wth(:, ipth)
+         signature(5+2*npthlev_bif:4+3*npthlev_bif, ipth) = pth_man(:)
+      ENDDO
+
+   END SUBROUTINE build_bifurcation_path_signature
+
+
+   ! =========================================================================
    SUBROUTINE read_bifurcation_restart (file_restart)
    ! =========================================================================
    !
@@ -1118,10 +1162,11 @@ CONTAINS
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
-   logical :: has_pth_veloc, has_pth_momen
+   logical :: has_pth_veloc, has_pth_momen, has_path_signature
    integer, allocatable :: global_id_read(:)
-   real(r8), allocatable :: matrix_dummy(:,:)
-   integer :: has_flags(2)
+   real(r8), allocatable :: matrix_dummy(:,:), path_signature(:,:), current_signature(:,:)
+   integer :: has_flags(3)
+   integer :: ipth, mismatch_count, first_mismatch_gid
 
       ! vector_read_matrix_and_scatter contains mpi_barrier(p_comm_glb)
       ! and mpi_recv/mpi_send on p_comm_glb, so every rank in that
@@ -1134,25 +1179,78 @@ CONTAINS
       IF (npthlev_bif <= 0 .or. totalnpthout <= 0) RETURN
       IF (.not. allocated(pth_veloc) .or. .not. allocated(pth_momen)) RETURN
 
+      ! Restart state is opt-in only after its pathway identity has been
+      ! validated. This also makes repeated reads of a legacy/incomplete file
+      ! a deterministic cold start instead of retaining stale in-memory state.
+      IF (p_is_worker) THEN
+         pth_veloc(:,:) = 0._r8
+         pth_momen(:,:) = 0._r8
+      ENDIF
+
       ! Master probes restart variable existence then broadcasts the
       ! result. Having all ranks call ncio_var_exist directly would mean
       ! p_np_glb concurrent nf90_open calls on the same file; on an
       ! HDF5-backed NetCDF4 build the default file locking serialises or
       ! deadlocks those opens. One master-only probe + broadcast avoids
       ! the storm entirely and keeps all ranks on the same boolean.
+      has_flags(:) = 0
       IF (p_is_master) THEN
          has_pth_veloc = ncio_var_exist(file_restart, 'pth_veloc', readflag = .false.)
          has_pth_momen = ncio_var_exist(file_restart, 'pth_momen', readflag = .false.)
+         has_path_signature = ncio_var_exist(file_restart, 'bif_path_signature', readflag = .false.)
          has_flags(1) = merge(1, 0, has_pth_veloc)
          has_flags(2) = merge(1, 0, has_pth_momen)
+         has_flags(3) = merge(1, 0, has_path_signature)
       ENDIF
 #ifdef USEMPI
-      CALL mpi_bcast (has_flags, 2, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (has_flags, 3, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
 #endif
       has_pth_veloc = (has_flags(1) /= 0)
       has_pth_momen = (has_flags(2) /= 0)
+      has_path_signature = (has_flags(3) /= 0)
 
-      if (has_pth_veloc .and. has_pth_momen) then
+      IF (has_pth_veloc .and. has_pth_momen .and. has_path_signature) THEN
+         ! Validate identity before reading ordinally indexed momentum.
+         CALL build_bifurcation_path_signature (current_signature)
+
+         IF (p_is_worker) THEN
+            CALL vector_read_matrix_and_scatter ( &
+               file_restart, path_signature, 4 + 3*npthlev_bif, npthout_local, &
+               'bif_path_signature', pth_global_id, totalnpthout)
+         ELSE
+            allocate (global_id_read(0))
+            CALL vector_read_matrix_and_scatter ( &
+               file_restart, matrix_dummy, 4 + 3*npthlev_bif, 0, &
+               'bif_path_signature', global_id_read, totalnpthout)
+            deallocate (global_id_read)
+         ENDIF
+
+         mismatch_count = 0
+         first_mismatch_gid = huge(first_mismatch_gid)
+         IF (p_is_worker) THEN
+            DO ipth = 1, npthout_local
+               IF (any(path_signature(:, ipth) /= current_signature(:, ipth))) THEN
+                  mismatch_count = mismatch_count + 1
+                  first_mismatch_gid = min(first_mismatch_gid, pth_global_id(ipth))
+               ENDIF
+            ENDDO
+         ENDIF
+#ifdef USEMPI
+         CALL mpi_allreduce (MPI_IN_PLACE, mismatch_count, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, first_mismatch_gid, 1, MPI_INTEGER, MPI_MIN, p_comm_glb, p_err)
+#endif
+         deallocate (current_signature)
+         IF (allocated(path_signature)) deallocate (path_signature)
+
+         IF (mismatch_count > 0) THEN
+            IF (p_is_master) THEN
+               write(*,'(A,I0,A,I0)') 'ERROR: bifurcation restart pathway identity mismatch; count=', &
+                  mismatch_count, ', first global pathway=', first_mismatch_gid
+               call flush(6)
+            ENDIF
+            CALL CoLM_stop ('Refusing to load bifurcation momentum for a different pathway network')
+         ENDIF
+
          IF (p_is_worker) THEN
             CALL vector_read_matrix_and_scatter ( &
                file_restart, pth_veloc, npthlev_bif, npthout_local, 'pth_veloc', pth_global_id, totalnpthout)
@@ -1166,14 +1264,18 @@ CONTAINS
                file_restart, matrix_dummy, npthlev_bif, 0, 'pth_momen', global_id_read, totalnpthout)
             deallocate (global_id_read)
          ENDIF
-      else
-         ! Missing pathway variables mean the restart file predates bifurcation
-         ! support, so keep the zero-initialized cold-start state for compatibility.
-         IF (p_is_worker) THEN
-            pth_veloc(:,:) = 0._r8
-            pth_momen(:,:) = 0._r8
+      ELSE
+         ! Old files have no pathway identity metadata. Loading their ordinally
+         ! indexed state could bind momentum to a different path after a same-size
+         ! network reorder, so preserve file compatibility by cold-starting BIF.
+         IF (p_is_master) THEN
+            write(*,'(A,L1,A,L1,A,L1,A)') &
+               'WARNING: incomplete/legacy bifurcation restart (pth_veloc=', has_pth_veloc, &
+               ', pth_momen=', has_pth_momen, ', bif_path_signature=', has_path_signature, &
+               '); cold-starting pathway velocity and momentum at zero.'
+            call flush(6)
          ENDIF
-      endif
+      ENDIF
 
       ! Sanitize loaded state: zero out NaN, Inf, and unphysically extreme
       ! values so a corrupt restart cannot poison subsequent bifurcation_calc
@@ -1262,7 +1364,7 @@ CONTAINS
 
    integer :: ncol_local_write
    integer, allocatable :: pth_global_id_write(:)
-   real(r8), allocatable :: wdata(:,:)
+   real(r8), allocatable :: wdata(:,:), path_signature_write(:,:)
    real(r8), allocatable :: pth_veloc_write(:,:), pth_momen_write(:,:)
 
       IF (totalnpthout <= 0 .or. npthlev_bif <= 0) RETURN
@@ -1294,9 +1396,24 @@ CONTAINS
       ENDIF
 
       IF (p_is_master) THEN
+         CALL ncio_define_dimension(file_restart, 'bifurcation_signature_field', 4 + 3*npthlev_bif)
          CALL ncio_define_dimension(file_restart, 'bifurcation_level',   npthlev_bif)
          CALL ncio_define_dimension(file_restart, 'bifurcation_pathway', totalnpthout)
       ENDIF
+
+      ! Persist the identity before the ordinally indexed state. A reader must
+      ! validate this lossless metadata before loading velocity or momentum.
+      CALL build_bifurcation_path_signature (path_signature_write)
+      CALL vector_gather_matrix_to_master ( &
+         path_signature_write, 4 + 3*npthlev_bif, ncol_local_write, &
+         totalnpthout, pth_global_id_write, wdata)
+
+      IF (p_is_master) THEN
+         CALL ncio_write_serial (file_restart, 'bif_path_signature', wdata, &
+            'bifurcation_signature_field', 'bifurcation_pathway', DEF_REST_CompressLevel)
+         deallocate (wdata)
+      ENDIF
+      deallocate (path_signature_write)
 
       ! Gather local (npthlev_bif, npthout_local) state into global
       ! (npthlev_bif, totalnpthout) pathway order using pth_global_id.
@@ -1378,8 +1495,6 @@ CONTAINS
       IF (allocated(ucatfilter_dn_pth_buf   )) deallocate (ucatfilter_dn_pth_buf   )
       IF (allocated(is_resv_r8_buf          )) deallocate (is_resv_r8_buf          )
       IF (allocated(is_resv_dn_pth_buf      )) deallocate (is_resv_dn_pth_buf      )
-      IF (allocated(dt_ucat_buf             )) deallocate (dt_ucat_buf             )
-      IF (allocated(dt_dn_pth_buf           )) deallocate (dt_dn_pth_buf           )
 
       IF (allocated(pth_lev_hflux_total_buf )) deallocate (pth_lev_hflux_total_buf )
       IF (allocated(bif_lev_influx_buf      )) deallocate (bif_lev_influx_buf      )

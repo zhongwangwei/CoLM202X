@@ -45,8 +45,6 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-
       IF (p_is_worker) THEN
          mesg = (/p_iam_glb, vlen/)
          CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
@@ -117,8 +115,6 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-
       IF (p_is_worker) THEN
          mesg = (/p_iam_glb, ncol_local/)
          CALL mpi_send (mesg, 2, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)

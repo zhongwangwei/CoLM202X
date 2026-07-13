@@ -68,9 +68,9 @@ CONTAINS
 
       IF (p_is_worker) THEN
 
-         IF (numucat > 0)  allocate (wdsrf_ucat (numucat))
-         IF (numucat > 0)  allocate (veloc_riv  (numucat))
-         IF (numucat > 0)  allocate (momen_riv  (numucat))
+         allocate (wdsrf_ucat (numucat))
+         allocate (veloc_riv  (numucat))
+         allocate (momen_riv  (numucat))
          IF (numresv > 0)  allocate (volresv    (numresv))
 
          ! Allocate on ALL workers (zero-length if numucat=0) so assumed-
@@ -105,6 +105,10 @@ CONTAINS
    logical :: has_var
 
       gridriver_restart_file = trim(file_restart)
+      ! A restart read is a new state transaction.  Do not let a previous
+      ! in-process read make a later legacy file appear to contain visible
+      ! routing volume that is actually absent.
+      volwater_ucat_valid = .false.
 
       CALL vector_read_and_scatter (file_restart, wdsrf_ucat, numucat, 'wdsrf_ucat', ucat_data_address)
       CALL vector_read_and_scatter (file_restart, veloc_riv,  numucat, 'veloc_riv',  ucat_data_address)

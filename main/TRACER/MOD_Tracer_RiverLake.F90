@@ -25,7 +25,8 @@ MODULE MOD_Tracer_RiverLake
    ! Share the single authoritative `ntracers` from MOD_Tracer_Defs to
    ! avoid the land/river tracer modules holding two independent copies
    ! that could silently diverge on re-init.
-   USE MOD_Tracer_Defs, only: ntracers, tracer_is_particle
+   USE MOD_Tracer_Defs, only: ntracers, tracer_is_particle, tracer_uses_land_water_transport, &
+                              tracer_concentration_units
    IMPLICIT NONE
 
    !-------------------------------------------------------------------------------------
@@ -260,7 +261,7 @@ CONTAINS
 
       n_init = 0
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          do_init = .true.
          IF (present(missing_mask)) THEN
             IF (itrc <= size(missing_mask)) do_init = missing_mask(itrc)
@@ -339,7 +340,7 @@ CONTAINS
       IF (.not. present(trc_rnof_ext)) THEN
          allocate(R_default(ntracers))
          DO itrc = 1, ntracers
-            IF (tracer_is_particle(itrc)) CYCLE
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             R_default(itrc) = tracer_init_water_ratio(itrc)
          ENDDO
       ENDIF
@@ -354,7 +355,7 @@ CONTAINS
       DO i = 1, numucat_in
          acc_rnof_ref(i) = acc_rnof_ref(i) + rnof_uc_depth(i)
          DO itrc = 1, ntracers
-            IF (tracer_is_particle(itrc)) CYCLE
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             IF (present(trc_rnof_ext)) THEN
                acc_trc_inp(itrc, i) = acc_trc_inp(itrc, i) + trc_rnof_ext(itrc, i)
             ELSE
@@ -494,7 +495,7 @@ CONTAINS
 
       water_factor = 0._r8
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          vis_pending = 0._r8
          IF (present(pending_trc_pool)) THEN
             IF (itrc <= size(pending_trc_pool)) vis_pending = pending_trc_pool(itrc)
@@ -637,7 +638,7 @@ CONTAINS
       DO i = 1, numucat
          CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, volwater)
          DO itrc = 1, ntracers
-            IF (tracer_is_particle(itrc)) CYCLE
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             CALL update_tracer_concentration(itrc, i, volwater)
          ENDDO
       ENDDO
@@ -676,7 +677,7 @@ CONTAINS
          IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
          IF (volwater <= trc_v_dry_off) THEN
             DO itrc = 1, ntracers
-               IF (tracer_is_particle(itrc)) CYCLE
+               IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
                ! NEG_RUNOFF_DEBT: a negative pending runoff tracer is a
                ! signed correction tied to future same-cell runoff input, not
                ! a physical negative river outflow.  Dry-cell cleanup drains
@@ -693,7 +694,7 @@ CONTAINS
             ENDDO
          ENDIF
          DO itrc = 1, ntracers
-            IF (tracer_is_particle(itrc)) CYCLE
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             CALL update_tracer_concentration(itrc, i, volwater)
          ENDDO
          IF (.not. ucatfilter(i)) CYCLE
@@ -711,7 +712,7 @@ CONTAINS
 		      ENDIF
 
 		      DO itrc = 1, ntracers
-		         IF (tracer_is_particle(itrc)) CYCLE
+		         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
 		         a_trc_conc  (itrc, i) = a_trc_conc  (itrc, i) + trc_conc(itrc, i) * dt_i
 		         IF (volwater > trc_v_dry_off .and. allocated(a_trc_storage_mass)) THEN
 		            a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) &
@@ -954,7 +955,7 @@ CONTAINS
       ENDIF
 
          DO itrc = 1, ntracers
-            IF (tracer_is_particle(itrc)) CYCLE
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             R_fill = tracer_init_water_ratio(itrc)
             fixed_signature_transport = tracer_can_use_fixed_signature(itrc) .and. &
                .not. tracer_fractionation_active(itrc)
@@ -1495,7 +1496,7 @@ CONTAINS
       DO i = 1, numucat
          CALL get_cell_volume(i, wdsrf(i), volresv, ucat2resv, volwater)
          DO itrc = 1, ntracers
-            IF (tracer_is_particle(itrc)) CYCLE
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             CALL update_tracer_concentration(itrc, i, volwater)
          ENDDO
       ENDDO
@@ -1522,7 +1523,7 @@ CONTAINS
 
       riverlake_tracer_count_meta = 0
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          riverlake_tracer_count_meta = riverlake_tracer_count_meta + 1
       ENDDO
 
@@ -1536,7 +1537,7 @@ CONTAINS
       jtrc = 0
       IF (.not. allocated(tracer_names)) RETURN
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          jtrc = jtrc + 1
          riverlake_tracer_namehash_meta = riverlake_tracer_namehash_meta + &
             real(jtrc * 1000003, r8)
@@ -1547,6 +1548,38 @@ CONTAINS
       ENDDO
 
    END FUNCTION riverlake_tracer_namehash_meta
+
+   integer FUNCTION riverlake_legacy_tracer_count_meta ()
+      IMPLICIT NONE
+      integer :: itrc
+
+      riverlake_legacy_tracer_count_meta = 0
+      DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
+         riverlake_legacy_tracer_count_meta = riverlake_legacy_tracer_count_meta + 1
+      ENDDO
+
+   END FUNCTION riverlake_legacy_tracer_count_meta
+
+   real(r8) FUNCTION riverlake_legacy_tracer_namehash_meta ()
+      IMPLICIT NONE
+      integer :: itrc, k, jtrc
+
+      riverlake_legacy_tracer_namehash_meta = 0._r8
+      jtrc = 0
+      IF (.not. allocated(tracer_names)) RETURN
+      DO itrc = 1, ntracers
+         IF (tracer_is_particle(itrc)) CYCLE
+         jtrc = jtrc + 1
+         riverlake_legacy_tracer_namehash_meta = riverlake_legacy_tracer_namehash_meta + &
+            real(jtrc * 1000003, r8)
+         DO k = 1, len_trim(tracer_names(itrc))
+            riverlake_legacy_tracer_namehash_meta = riverlake_legacy_tracer_namehash_meta + &
+               real(jtrc * 1009 + k * 37 + iachar(tracer_names(itrc)(k:k)), r8)
+         ENDDO
+      ENDDO
+
+   END FUNCTION riverlake_legacy_tracer_namehash_meta
 
 
    !-------------------------------------------------------------------------------------
@@ -1580,6 +1613,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE read_tracer_restart (file_restart, found_restart, missing_mask)
 
+   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
    USE MOD_NetCDFSerial,          only: ncio_var_exist, ncio_inquire_length
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, lake_type_bf => lake_type
@@ -1604,9 +1638,11 @@ CONTAINS
 
 	   integer :: itrc, has_flag
 	   integer :: ondisk_numucat, dimchk_flag
-	   integer :: expected_trc_n
+	   integer :: expected_trc_n, legacy_expected_trc_n
 	   integer :: ii_bf, itrc_bf
-	   logical :: has_var, has_active, has_inactive, meta_bad
+	   logical :: has_var, has_active, has_inactive, invalid_protected_mass, meta_bad
+	   logical :: has_trc_n_meta, has_namehash_meta
+	   logical :: meta_matches_current, meta_matches_legacy, legacy_meta_complete
 	   logical :: all_found
 	   logical :: reported_bf
 	   logical, allocatable :: has_accinp(:)
@@ -1614,7 +1650,7 @@ CONTAINS
 	   character(len=64) :: varname
 	   real(r8), allocatable :: tmpvec(:)
 	   real(r8), allocatable :: volresv_bf(:)
-	   real(r8) :: R_bf, visvol_bf, ratio_bf, expected_namehash
+	   real(r8) :: R_bf, visvol_bf, ratio_bf, expected_namehash, legacy_expected_namehash
 
 	      all_found = .true.
 	      IF (present(missing_mask)) missing_mask = .false.
@@ -1659,13 +1695,22 @@ CONTAINS
 
       ! Strict metadata for new-format river/lake tracer restarts. These
       ! ucatch-length vectors are written by write_tracer_restart so a file
-      ! produced on a different river network or with a different non-particle
-      ! tracer set fails before any per-tracer scatter can silently misalign
-      ! state. Older restarts without the metadata keep the legacy per-variable
-      ! fallback path above/below.
+      ! produced on a different river network or with a different generic
+      ! land-water tracer set fails before any per-tracer scatter can silently
+      ! misalign state. Restarts from the immediately preceding format used a
+      ! non-particle signature (and therefore included species-owned CH4); that
+      ! exact count/hash pair remains readable, while state loading below still
+      ! follows the current land-water transport capability. Older restarts
+      ! without metadata keep the per-variable fallback path above/below.
       expected_trc_n = riverlake_tracer_count_meta()
       expected_namehash = riverlake_tracer_namehash_meta()
+      legacy_expected_trc_n = riverlake_legacy_tracer_count_meta()
+      legacy_expected_namehash = riverlake_legacy_tracer_namehash_meta()
       meta_bad = .false.
+      meta_matches_current = .true.
+      meta_matches_legacy = .true.
+      has_trc_n_meta = .false.
+      has_namehash_meta = .false.
       IF (p_is_master) THEN
          has_var = ncio_var_exist(file_restart, 'trc_numucat_meta', readflag = .false.)
          has_flag = merge(1, 0, has_var)
@@ -1692,9 +1737,13 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
 #endif
+      has_trc_n_meta = has_flag /= 0
       IF (has_flag /= 0) THEN
          CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_n_meta', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) meta_bad = meta_bad .or. any(nint(tmpvec(:)) /= expected_trc_n)
+         IF (p_is_worker .and. numucat > 0) THEN
+            meta_matches_current = all(nint(tmpvec(:)) == expected_trc_n)
+            meta_matches_legacy = all(nint(tmpvec(:)) == legacy_expected_trc_n)
+         ENDIF
       ENDIF
 
       IF (p_is_master) THEN
@@ -1704,13 +1753,24 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
 #endif
+      has_namehash_meta = has_flag /= 0
       IF (has_flag /= 0) THEN
          CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_namehash_meta', ucat_data_address)
          IF (p_is_worker .and. numucat > 0) THEN
-            meta_bad = meta_bad .or. any(abs(tmpvec(:) - expected_namehash) > 0.5_r8)
+            meta_matches_current = meta_matches_current .and. &
+               all(abs(tmpvec(:) - expected_namehash) <= 0.5_r8)
+            meta_matches_legacy = meta_matches_legacy .and. &
+               all(abs(tmpvec(:) - legacy_expected_namehash) <= 0.5_r8)
          ENDIF
       ENDIF
 
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, meta_matches_current, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, meta_matches_legacy, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
+#endif
+      legacy_meta_complete = has_trc_n_meta .and. has_namehash_meta
+      meta_bad = meta_bad .or. (.not. meta_matches_current .and. &
+         .not. (legacy_meta_complete .and. meta_matches_legacy))
 #ifdef USEMPI
       CALL mpi_allreduce(MPI_IN_PLACE, meta_bad, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
 #endif
@@ -1722,7 +1782,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          write(varname, '(A,A)') 'trc_mass_', trim(tracer_names(itrc))
 
          ! Master-only file probe + broadcast to avoid concurrent opens.
@@ -1866,6 +1926,20 @@ CONTAINS
             ENDIF
          ENDIF
 
+         invalid_protected_mass = .false.
+         IF (p_is_worker .and. numucat > 0) THEN
+            invalid_protected_mass = any(.not. ieee_is_finite(trc_levsto(itrc, :)) .or. &
+               trc_levsto(itrc, :) < 0._r8)
+         ENDIF
+#ifdef USEMPI
+         CALL mpi_allreduce (MPI_IN_PLACE, invalid_protected_mass, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+#endif
+         IF (invalid_protected_mass) THEN
+            IF (p_is_master) write(*,'(A,A,A)') 'ERROR read_tracer_restart: "trc_levsto_', &
+               trim(tracer_names(itrc)), '" contains a negative or non-finite value.'
+            CALL CoLM_stop()
+         ENDIF
+
          ! Per-tracer routing-period accumulator. Absent in old-format
          ! restarts: keep the zero initialisation so behaviour is unchanged
          ! when the file predates this persistence.
@@ -1885,11 +1959,22 @@ CONTAINS
 
       ENDDO
 
-      IF (DEF_USE_LEVEE .and. p_is_worker .and. numucat > 0 &
+      ! The water restart reader folds protected storage into visible storage
+      ! whenever the current configuration has no levee for a cell.  Mirror
+      ! that transfer for tracer mass; simply zeroing trc_levsto would either
+      ! strand mass (global LEVEE off) or lose it (per-cell mask change).
+      IF (p_is_worker .and. numucat > 0 .and. allocated(trc_mass) &
           .and. allocated(trc_levsto) .and. allocated(has_levee_bf)) THEN
          DO ii_bf = 1, numucat
             IF (ii_bf <= size(has_levee_bf)) THEN
-               IF (.not. has_levee_bf(ii_bf)) trc_levsto(:, ii_bf) = 0._r8
+               IF (.not. has_levee_bf(ii_bf)) THEN
+                  DO itrc_bf = 1, ntracers
+                     IF (.not. tracer_uses_land_water_transport(itrc_bf)) CYCLE
+                     trc_mass(itrc_bf, ii_bf) = trc_mass(itrc_bf, ii_bf) &
+                        + max(trc_levsto(itrc_bf, ii_bf), 0._r8)
+                     trc_levsto(itrc_bf, ii_bf) = 0._r8
+                  ENDDO
+               ENDIF
             ENDIF
          ENDDO
       ENDIF
@@ -1937,6 +2022,7 @@ CONTAINS
             IF (p_is_worker .and. numucat > 0) THEN
                acc_rnof_ref(:) = tmpvec(:)
 	               DO itrc_bf = 1, ntracers
+	                  IF (.not. tracer_uses_land_water_transport(itrc_bf)) CYCLE
 	                  IF (.not. has_accinp(itrc_bf)) THEN
 	                     R_bf = tracer_init_water_ratio(itrc_bf)
 	                     acc_trc_inp(itrc_bf, :) = acc_rnof_ref(:) * R_bf
@@ -2004,7 +2090,7 @@ CONTAINS
          tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_namehash_meta', 'ucatch')
 
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = trc_mass(itrc, :)
          ENDIF
@@ -2095,7 +2181,7 @@ CONTAINS
       ! remain visible via the WARNING watchdog); only this display
       ! slice hides the noise floor.
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          IF (tracer_uses_delta_diagnostics(itrc)) THEN
             conc_word  = 'ratio'
             conc_units = 'R'
@@ -2103,7 +2189,7 @@ CONTAINS
             flux_units = 'R*m3/s'
          ELSE
             conc_word  = 'concentration'
-            conc_units = 'tracer/water'
+            conc_units = tracer_concentration_units(itrc)
             mass_units = 'tracer'
             flux_units = 'tracer/s'
          ENDIF
@@ -2329,14 +2415,14 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          IF (tracer_uses_delta_diagnostics(itrc)) THEN
             trc_mass_units = 'R*m3'
             trc_conc_units = 'R'
             trc_flux_units = 'R*m3/s'
          ELSE
             trc_mass_units = 'tracer'
-            trc_conc_units = 'tracer/water'
+            trc_conc_units = tracer_concentration_units(itrc)
             trc_flux_units = 'tracer/s'
          ENDIF
 

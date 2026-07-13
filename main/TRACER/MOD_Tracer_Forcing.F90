@@ -13,7 +13,8 @@ MODULE MOD_Tracer_Forcing
    USE MOD_LandPatch
    USE MOD_TimeManager
    USE MOD_UserSpecifiedForcing, only: metfilename
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_init_water_ratio, &
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_precip_default_ratio, &
+      tracer_vapor_default_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
       tracer_uses_land_water_transport, tracer_lower
    USE MOD_Tracer_Vars, only: trc_runtime_forced
@@ -284,6 +285,11 @@ CONTAINS
       character(len=*), intent(in) :: fprefix, vname, tintalgo
       integer :: total_idx
 
+      IF (dtime <= 0) THEN
+         IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') &
+            'ERROR tracer_forcing_add_var: forcing dtime for tracer ', itrc, ' must be > 0, got ', dtime, '.'
+         CALL CoLM_stop()
+      ENDIF
       IF (.not. tracer_forcing_token_present(fprefix)) RETURN
       IF (.not. tracer_forcing_token_present(vname)) RETURN
 
@@ -310,6 +316,12 @@ CONTAINS
 
       IF (stream == STREAM_PRECIP) THEN
          IF (idx_total_precip == 0) THEN
+            IF (DEF_forcing%dtime(4) <= 0) THEN
+               IF (p_is_master) WRITE(*,'(A,I0,A)') &
+                  'ERROR tracer_forcing_ensure_total: total precipitation dtime must be > 0, got ', &
+                  DEF_forcing%dtime(4), '.'
+               CALL CoLM_stop()
+            ENDIF
             n_trc_forc_vars = n_trc_forc_vars + 1
             idx_total_precip = n_trc_forc_vars
             trc_var_stream(idx_total_precip) = STREAM_TOTAL_PRECIP
@@ -325,6 +337,12 @@ CONTAINS
          tracer_forcing_ensure_total = idx_total_precip
       ELSE
          IF (idx_total_vapor == 0) THEN
+            IF (DEF_forcing%dtime(2) <= 0) THEN
+               IF (p_is_master) WRITE(*,'(A,I0,A)') &
+                  'ERROR tracer_forcing_ensure_total: total vapor dtime must be > 0, got ', &
+                  DEF_forcing%dtime(2), '.'
+               CALL CoLM_stop()
+            ENDIF
             n_trc_forc_vars = n_trc_forc_vars + 1
             idx_total_vapor = n_trc_forc_vars
             trc_var_stream(idx_total_vapor) = STREAM_TOTAL_VAPOR
@@ -369,8 +387,8 @@ CONTAINS
       IF (.not. allocated(trc_forc_precip_value)) RETURN
 
       DO itrc = 1, ntracers
-         trc_forc_precip_value(itrc, :) = tracer_init_water_ratio(itrc)
-         trc_forc_vapor_value(itrc, :) = tracer_init_water_ratio(itrc)
+         trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)
+         trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)
       ENDDO
       trc_forc_has_precip(:,:) = .false.
       trc_forc_has_vapor(:,:) = .false.
@@ -547,6 +565,8 @@ CONTAINS
       integer :: day, sec, sec_file
       integer :: months(0:12)
 
+      CALL tracer_forcing_validate_var_dtime(iv)
+
       year = mtstamp%year
       day = mtstamp%day
       sec = mtstamp%sec
@@ -694,6 +714,8 @@ CONTAINS
       integer :: day, sec, sec_file
       integer :: months(0:12)
 
+      CALL tracer_forcing_validate_var_dtime(iv)
+
       IF (trc_tstamp_UB(iv) == 'NULL') THEN
          trc_tstamp_UB(iv) = trc_tstamp_LB(iv) + trc_var_dtime(iv)
       ELSE
@@ -790,6 +812,25 @@ CONTAINS
       ENDIF
    END SUBROUTINE tracer_forcing_setstamp_UB
 
+   SUBROUTINE tracer_forcing_validate_var_dtime (iv)
+      IMPLICIT NONE
+      integer, intent(in) :: iv
+
+      IF (.not. allocated(trc_var_dtime)) THEN
+         IF (p_is_master) WRITE(*,'(A)') 'ERROR tracer forcing dtime is not configured.'
+         CALL CoLM_stop()
+      ENDIF
+      IF (iv < 1 .or. iv > n_trc_forc_vars) THEN
+         IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR tracer forcing variable index ', iv, ' is out of range.'
+         CALL CoLM_stop()
+      ENDIF
+      IF (trc_var_dtime(iv) <= 0) THEN
+         IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') 'ERROR tracer forcing dtime for variable ', iv, &
+            ' must be > 0, got ', trc_var_dtime(iv), '.'
+         CALL CoLM_stop()
+      ENDIF
+   END SUBROUTINE tracer_forcing_validate_var_dtime
+
    character(len=256) FUNCTION tracer_forcing_filename (year, month, day, iv)
       IMPLICIT NONE
       integer, intent(in) :: year, month, day, iv
@@ -835,7 +876,7 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: itrc, ipatch
 
-      tracer_forcing_precip_value = tracer_init_water_ratio(itrc)
+      tracer_forcing_precip_value = tracer_precip_default_ratio(itrc)
       IF (.not. allocated(trc_forc_precip_value)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       IF (ipatch < 1 .or. ipatch > size(trc_forc_precip_value, 2)) RETURN
@@ -846,7 +887,7 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: itrc, ipatch
 
-      tracer_forcing_vapor_value = tracer_init_water_ratio(itrc)
+      tracer_forcing_vapor_value = tracer_vapor_default_ratio(itrc)
       IF (.not. allocated(trc_forc_vapor_value)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       IF (ipatch < 1 .or. ipatch > size(trc_forc_vapor_value, 2)) RETURN

@@ -346,6 +346,10 @@ MODULE MOD_Namelist
    real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
    integer  :: DEF_TRACER_NUM          = 2
+   ! Allowed aggregate bad entries before abort; zero preserves strict behavior.
+   integer  :: DEF_TRACER_BALANCE_ABORT_NBAD = 0
+   integer  :: DEF_TRACER_RESID_ABORT_NBAD   = 0
+   integer  :: DEF_TRACER_LULCC_ABORT_NBAD   = 0
    character(len=256) :: DEF_TRACER_NAMES     = "H2_18O,HDO"
    character(len=256) :: DEF_TRACER_TYPES     = "isotope,isotope"
    character(len=256) :: DEF_TRACER_MRAT      = "20.0,19.0"
@@ -355,6 +359,8 @@ MODULE MOD_Namelist
    logical  :: DEF_TRACER_USE_SOIL_INIT = .false.
    character(len=256) :: DEF_TRACER_SOIL_INIT_FILE = 'null'
    character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = 'soilwat_O18,soilwat_H2'
+   ! Per-species files carry unit/capability metadata plus optional
+   ! species-owned parameter groups; use NAME:path mappings where possible.
    character(len=512) :: DEF_TRACER_PARAM_FILES = 'null'
 #if (defined TRACER) && (defined BGC)
    ! ----- Generic BGC/reactive-tracer shared inputs -----
@@ -1191,6 +1197,9 @@ CONTAINS
       DEF_TRACER_NSS_LEAF_PATH_LENGTH,        &
       DEF_TRACER_NSS_LEAF_RB,                 &
       DEF_TRACER_NUM,                         &
+      DEF_TRACER_BALANCE_ABORT_NBAD,          &
+      DEF_TRACER_RESID_ABORT_NBAD,            &
+      DEF_TRACER_LULCC_ABORT_NBAD,            &
       DEF_TRACER_NAMES,                       &
       DEF_TRACER_TYPES,                       &
       DEF_TRACER_MRAT,                        &
@@ -1342,6 +1351,11 @@ CONTAINS
          DEF_USE_VariablySaturatedFlow = .true.
 #endif
 #ifdef TRACER
+         IF (DEF_TRACER_BALANCE_ABORT_NBAD < 0 .or. DEF_TRACER_RESID_ABORT_NBAD < 0 .or. &
+             DEF_TRACER_LULCC_ABORT_NBAD < 0) THEN
+            write(*,*) 'Fatal ERROR: DEF_TRACER_*_ABORT_NBAD values must be non-negative.'
+            CALL CoLM_stop ()
+         ENDIF
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
             write(*,*) '                  *****                  '
             write(*,*) 'Fatal ERROR: TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
@@ -1866,6 +1880,9 @@ CONTAINS
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH        ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                 ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_BALANCE_ABORT_NBAD          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_RESID_ABORT_NBAD            ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_LULCC_ABORT_NBAD            ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NAMES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_TYPES                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_MRAT                        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)

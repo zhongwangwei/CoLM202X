@@ -8,6 +8,7 @@ MODULE MOD_Grid_RiverLakeNetwork
 
    USE MOD_Grid
    USE MOD_WorkerPushData
+   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
    IMPLICIT NONE
 
    ! ----- River Lake network -----
@@ -175,7 +176,7 @@ CONTAINS
    integer  :: iworker, iwrkdsp
    integer  :: iloc, i, j, ithis
    real(r8) :: sumwt
-   logical  :: is_new
+   logical  :: is_new, invalid_rivsys_partition
 
 
 #ifdef USEMPI
@@ -811,6 +812,7 @@ CONTAINS
          ENDIF
       ENDIF
 
+      rivsys_by_multiple_procs = .false.
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
             color = maxval(rivermouth)
@@ -819,7 +821,6 @@ CONTAINS
             CALL mpi_comm_split (p_comm_worker, MPI_UNDEFINED, p_iam_worker, p_comm_rivsys, p_err)
          ENDIF
 
-         rivsys_by_multiple_procs = .false.
          IF (p_comm_rivsys /= MPI_COMM_NULL) THEN
             CALL mpi_comm_size (p_comm_rivsys, p_np_rivsys, p_err)
             IF (p_np_rivsys > 1) THEN
@@ -827,13 +828,31 @@ CONTAINS
             ENDIF
          ENDIF
       ENDIF
+
+      ! The scalar p_comm_rivsys reduction below is valid only because the
+      ! partitioner reserves each multi-rank river system an exclusive worker
+      ! range.  Make that implicit invariant executable: a future partitioner
+      ! change must not silently put two river systems on one member of a
+      ! multi-rank communicator and then reduce only one dt value.
+      invalid_rivsys_partition = .false.
+      IF (p_is_worker .and. rivsys_by_multiple_procs .and. numucat > 0) THEN
+         invalid_rivsys_partition = minval(rivermouth) /= maxval(rivermouth)
+      ENDIF
+      CALL mpi_allreduce (MPI_IN_PLACE, invalid_rivsys_partition, 1, MPI_LOGICAL, &
+         MPI_LOR, p_comm_glb, p_err)
+      IF (invalid_rivsys_partition) THEN
+         IF (p_is_master) write(*,'(A)') &
+            'ERROR: a multi-rank river communicator contains more than one river system.'
+         CALL CoLM_stop ('invalid river-system MPI partition')
+      ENDIF
 #else
       rivsys_by_multiple_procs = .false.
 #endif
 
       IF (p_is_worker) THEN
 
-         IF (numucat > 0) allocate (irivsys (numucat))
+         numrivsys = 0
+         allocate (irivsys (numucat))
 
          IF (.not. rivsys_by_multiple_procs) THEN
             IF (numucat > 0) THEN
@@ -1790,7 +1809,7 @@ CONTAINS
    real(r8), allocatable, intent(out) :: bif_elev_all  (:,:)
    real(r8), allocatable, intent(out) :: bif_wdth_all  (:,:)
    real(r8), allocatable, intent(out) :: bif_mann_all  (:)
-   integer :: ip
+   integer :: ip, ilev
 
       CALL ncio_inquire_length (parafile, 'bifurcation_upst',    totalnpthout)
       CALL ncio_inquire_length (parafile, 'bifurcation_manning', npthlev_bif)
@@ -1802,11 +1821,43 @@ CONTAINS
       CALL ncio_read_serial (parafile, 'bifurcation_width',     bif_wdth_all)
       CALL ncio_read_serial (parafile, 'bifurcation_manning',   bif_mann_all)
 
+      IF (size(bif_down_all) /= totalnpthout .or. &
+          size(bif_dist_all) /= totalnpthout .or. &
+          size(bif_elev_all, 1) /= npthlev_bif .or. &
+          size(bif_elev_all, 2) /= totalnpthout .or. &
+          size(bif_wdth_all, 1) /= npthlev_bif .or. &
+          size(bif_wdth_all, 2) /= totalnpthout .or. &
+          size(bif_mann_all) /= npthlev_bif) THEN
+         CALL CoLM_stop ('bifurcation parameter dimensions are inconsistent')
+      ENDIF
+
+      IF (any(.not. ieee_is_finite(bif_dist_all)) .or. any(bif_dist_all <= 0._r8)) THEN
+         CALL CoLM_stop ('bifurcation distance must be finite and positive')
+      ENDIF
+      IF (any(.not. ieee_is_finite(bif_elev_all))) THEN
+         CALL CoLM_stop ('bifurcation elevation contains a non-finite value')
+      ENDIF
+      IF (any(.not. ieee_is_finite(bif_wdth_all))) THEN
+         CALL CoLM_stop ('bifurcation width contains a non-finite value')
+      ENDIF
+      IF (any(.not. ieee_is_finite(bif_mann_all))) THEN
+         CALL CoLM_stop ('bifurcation Manning coefficient contains a non-finite value')
+      ENDIF
+
+      DO ilev = 1, npthlev_bif
+         IF (any(bif_wdth_all(ilev, :) > 0._r8) .and. bif_mann_all(ilev) <= 0._r8) THEN
+            CALL CoLM_stop ('active bifurcation layer requires a positive Manning coefficient')
+         ENDIF
+      ENDDO
+
       DO ip = 1, totalnpthout
          IF (bif_upst_all(ip) < 1 .or. bif_upst_all(ip) > totalnumucat) CALL CoLM_stop ( &
             'bifurcation upstream index out of range')
          IF (bif_down_all(ip) > totalnumucat) CALL CoLM_stop ('bifurcation downstream index out of range')
          IF (bif_down_all(ip) == bif_upst_all(ip)) CALL CoLM_stop ('bifurcation self-loop pathway is invalid')
+         IF (.not. any(bif_wdth_all(:, ip) > 0._r8)) THEN
+            CALL CoLM_stop ('bifurcation pathway has no active positive-width layer')
+         ENDIF
       ENDDO
 
    END SUBROUTINE read_bifurcation_global_arrays

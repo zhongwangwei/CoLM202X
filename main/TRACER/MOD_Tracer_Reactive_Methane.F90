@@ -51,6 +51,7 @@ MODULE MOD_Tracer_Reactive_Methane
    PUBLIC :: ch4_reactive_write_restart, ch4_reactive_read_restart
    PUBLIC :: ch4_reactive_flush_acc_fluxes, ch4_reactive_accumulate_fluxes
    PUBLIC :: ch4_reactive_save_lulcc_state, ch4_reactive_remap_lulcc_state
+   PUBLIC :: ch4_reactive_reload_lulcc_inputs
    PUBLIC :: ch4_reactive_publish_levee_flood, ch4_reactive_publish_flood
    PUBLIC :: ch4_register_reactive_callbacks
 
@@ -70,6 +71,7 @@ CONTAINS
          accumulate_fluxes_fn=ch4_reactive_accumulate_fluxes, &
          history_fn=methane_reactive_history, save_lulcc_fn=ch4_reactive_save_lulcc_state, &
          remap_lulcc_fn=ch4_reactive_remap_lulcc_state, &
+         reload_lulcc_fn=ch4_reactive_reload_lulcc_inputs, &
          publish_levee_flood_fn=ch4_reactive_publish_levee_flood, &
          publish_flood_fn=ch4_reactive_publish_flood, final_fn=ch4_reactive_final)
 
@@ -352,23 +354,22 @@ CONTAINS
    END SUBROUTINE ch4_reactive_save_lulcc_state
 
    SUBROUTINE ch4_reactive_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-      lccpct_patches, old_patch_area, new_patch_area)
+      lccpct_patches, new_patch_area, old_patch_area)
 
       IMPLICIT NONE
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,:)
-      real(r8), intent(in), optional :: old_patch_area(:)
       real(r8), intent(in), optional :: new_patch_area(:)
+      real(r8), intent(in), optional :: old_patch_area(:)
       integer :: nnew
-      real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
       CALL remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-         lccpct_patches, old_patch_area, new_patch_area)
+         lccpct_patches, new_patch_area, old_patch_area)
       IF (DEF_METHANE%use_microbial_pools) THEN
          CALL remap_methane_microbes_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-            lccpct_patches, old_patch_area)
+            lccpct_patches, new_patch_area, old_patch_area)
       ENDIF
 
       ! LULCC can change the worker-local patch count.  Methane state and
@@ -381,6 +382,24 @@ CONTAINS
       CALL flush_methane_acc_fluxes ()
       CALL deallocate_methane_acc_fluxes ()
       CALL allocate_methane_acc_fluxes (nnew)
+
+      CALL deallocate_wetland_aere_overrides ()
+      CALL allocate_wetland_aere_overrides (nnew)
+
+   END SUBROUTINE ch4_reactive_remap_lulcc_state
+
+   SUBROUTINE ch4_reactive_reload_lulcc_inputs ()
+
+      IMPLICIT NONE
+      integer :: nnew
+      real(r8), allocatable :: giems_dummy_patch(:)
+
+      IF (.not. ch4_reactive_has()) RETURN
+
+      ! GIEMS and spatial-pH loading are collective.  Derive the worker-local
+      ! size here so non-worker ranks participate with zero-length vectors.
+      nnew = 0
+      IF (p_is_worker .and. allocated(patchtype)) nnew = size(patchtype)
 
       CALL deallocate_methane_giems ()
       CALL allocate_methane_giems (nnew)
@@ -407,10 +426,7 @@ CONTAINS
          CALL read_methane_ph_patch (trim(last_methane_ph_patch_file), nnew)
       ENDIF
 
-      CALL deallocate_wetland_aere_overrides ()
-      CALL allocate_wetland_aere_overrides (nnew)
-
-   END SUBROUTINE ch4_reactive_remap_lulcc_state
+   END SUBROUTINE ch4_reactive_reload_lulcc_inputs
 
    SUBROUTINE ch4_reactive_publish_levee_flood (fldfrc_patch)
 

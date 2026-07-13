@@ -4,6 +4,7 @@
 MODULE MOD_Tracer_Conservation
 
    USE MOD_Precision
+   USE MOD_Namelist, only: DEF_TRACER_BALANCE_ABORT_NBAD, DEF_TRACER_RESID_ABORT_NBAD
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
       tracer_reactive_decay_fraction, tracer_can_use_fixed_signature, tracer_uses_land_water_transport
    USE MOD_Tracer_Frac, only: tracer_fractionation_active
@@ -22,9 +23,7 @@ MODULE MOD_Tracer_Conservation
    ! MOD_Tracer_SoilWater instead of hidden behind a local tolerance waiver.
    real(r8), parameter :: trc_balance_abs_tol = 5.0e-6_r8
    real(r8), parameter :: trc_balance_rel_tol = 1.0e-12_r8
-   ! Zero means abort on the first reported aggregate failure.
-   integer,  parameter :: trc_balance_abort_nbad = 0
-   integer, parameter :: n_storage_diag = 9
+   integer, parameter :: n_storage_diag = 11
    integer, parameter :: n_flux_diag = 7
 
    ! Per-step accumulator snapshots (saved at start of each timestep)
@@ -61,8 +60,6 @@ MODULE MOD_Tracer_Conservation
    real(r8), parameter :: trc_resid_warn_frac = 1.0e-6_r8
    real(r8), parameter :: trc_resid_abs_tol   = 5.0e-5_r8
    real(r8), parameter :: trc_resid_rel_tol   = 1.0e-6_r8
-   ! Zero means abort on the first aggregate residual-cap failure.
-   integer,  parameter :: trc_resid_abort_nbad = 0
    real(r8), save :: resid_worst_abs      = 0._r8
    real(r8), save :: resid_hard_worst_abs = 0._r8
    real(r8), save :: resid_hard_worst_tol = 0._r8
@@ -174,6 +171,12 @@ CONTAINS
          IF (allocated(trc_leaf_iso_storage)) THEN
             storage_comp(9) = trc_leaf_iso_storage(itrc, ipatch)
          ENDIF
+         IF (allocated(trc_surface_residue)) THEN
+            storage_comp(10) = trc_surface_residue(itrc, ipatch)
+         ENDIF
+         IF (allocated(trc_subsurface_residue)) THEN
+            storage_comp(11) = trc_subsurface_residue(itrc, ipatch)
+         ENDIF
          snap_storage_comp(:, itrc, ipatch) = storage_comp
          trc_storage_beg(itrc, ipatch) = sum(storage_comp)
 
@@ -226,6 +229,12 @@ CONTAINS
          ENDIF
          IF (allocated(trc_leaf_iso_storage)) THEN
             CALL decay_pool(trc_leaf_iso_storage(itrc, ipatch), decay_fraction, source_sink)
+         ENDIF
+         IF (allocated(trc_surface_residue)) THEN
+            CALL decay_pool(trc_surface_residue(itrc, ipatch), decay_fraction, source_sink)
+         ENDIF
+         IF (allocated(trc_subsurface_residue)) THEN
+            CALL decay_pool(trc_subsurface_residue(itrc, ipatch), decay_fraction, source_sink)
          ENDIF
 
          trc_reactive_source_step(itrc, ipatch) = trc_reactive_source_step(itrc, ipatch) &
@@ -307,6 +316,12 @@ CONTAINS
          ENDIF
          IF (allocated(trc_leaf_iso_storage)) THEN
             storage_comp_end(9) = trc_leaf_iso_storage(itrc, ipatch)
+         ENDIF
+         IF (allocated(trc_surface_residue)) THEN
+            storage_comp_end(10) = trc_surface_residue(itrc, ipatch)
+         ENDIF
+         IF (allocated(trc_subsurface_residue)) THEN
+            storage_comp_end(11) = trc_subsurface_residue(itrc, ipatch)
          ENDIF
          storage_end = sum(storage_comp_end)
          storage_comp_beg = snap_storage_comp(:, itrc, ipatch)
@@ -502,8 +517,7 @@ CONTAINS
    SUBROUTINE tracer_balance_report ()
       USE MOD_SPMD_Task, only: CoLM_stop
 #ifdef USEMPI
-      USE MOD_SPMD_Task, only: p_comm_worker, p_iam_worker, p_err, p_is_worker, &
-                               p_np_worker
+      USE MOD_SPMD_Task, only: p_comm_worker, p_iam_worker, p_err, p_is_worker
 #endif
       IMPLICIT NONE
       real(r8) :: worst_abs, reduced_abs
@@ -512,10 +526,12 @@ CONTAINS
       real(r8) :: resid_hard_abs_total, resid_hard_tol_total
       integer  :: resid_nbad_total
       integer  :: resid_hard_nbad_total
-      integer  :: winner_rank, local_winner
+      integer  :: winner_rank
       integer  :: resid_winner_rank
       integer  :: resid_hard_ipatch_total, resid_hard_itrc_total, resid_hard_ptype_total
       logical  :: print_me
+      real(r8) :: maxima_local(3), maxima_total(3)
+      integer  :: counts_local(3), counts_total(3)
       ! MAXLOC reduction: pair |err| with rank so we can ship ipatch/itrc
       ! from the rank that owns the worst patch. Standard MPI_MAXLOC on
       ! real+int works with MPI_2DOUBLE_PRECISION wrapping (rank as real).
@@ -540,80 +556,80 @@ CONTAINS
 #ifdef USEMPI
       reduced_abs = worst_abs
       IF (p_is_worker) THEN
-         CALL mpi_reduce(worst_abs,    reduced_abs, 1, MPI_REAL8,   MPI_MAX, 0, p_comm_worker, p_err)
-         CALL mpi_reduce(balance_nbad, nbad_total,  1, MPI_INTEGER, MPI_SUM, 0, p_comm_worker, p_err)
-         CALL mpi_reduce(resid_worst_abs, resid_abs_total,  1, MPI_REAL8,   MPI_MAX, 0, p_comm_worker, p_err)
-         CALL mpi_reduce(resid_nbad,      resid_nbad_total, 1, MPI_INTEGER, MPI_SUM, 0, p_comm_worker, p_err)
-         CALL mpi_reduce(resid_hard_worst_abs, resid_hard_abs_total, 1, MPI_REAL8, MPI_MAX, 0, &
-            p_comm_worker, p_err)
-         CALL mpi_reduce(resid_hard_nbad, resid_hard_nbad_total, 1, MPI_INTEGER, MPI_SUM, 0, &
-            p_comm_worker, p_err)
-         in_pair(1) = resid_hard_worst_abs
-         in_pair(2) = real(p_iam_worker, r8)
-         out_pair   = in_pair
-         CALL mpi_reduce(in_pair, out_pair, 1, MPI_2DOUBLE_PRECISION, &
-                         MPI_MAXLOC, 0, p_comm_worker, p_err)
-         resid_winner_rank = nint(out_pair(2))
-         CALL mpi_bcast(resid_winner_rank, 1, MPI_INTEGER, 0, p_comm_worker, p_err)
-         IF (resid_hard_nbad_total > 0 .and. resid_winner_rank /= 0) THEN
-            IF (p_iam_worker == resid_winner_rank) THEN
-               CALL mpi_send(resid_hard_worst_ipatch, 1, MPI_INTEGER, 0, 101, p_comm_worker, p_err)
-               CALL mpi_send(resid_hard_worst_itrc,   1, MPI_INTEGER, 0, 102, p_comm_worker, p_err)
-               CALL mpi_send(resid_hard_worst_ptype,  1, MPI_INTEGER, 0, 103, p_comm_worker, p_err)
-               CALL mpi_send(resid_hard_worst_tol,    1, MPI_REAL8,   0, 104, p_comm_worker, p_err)
-            ELSEIF (p_iam_worker == 0) THEN
-               CALL mpi_recv(resid_hard_ipatch_total, 1, MPI_INTEGER, resid_winner_rank, 101, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(resid_hard_itrc_total,   1, MPI_INTEGER, resid_winner_rank, 102, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(resid_hard_ptype_total,  1, MPI_INTEGER, resid_winner_rank, 103, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(resid_hard_tol_total,    1, MPI_REAL8,   resid_winner_rank, 104, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
+         maxima_local = (/ worst_abs, resid_worst_abs, resid_hard_worst_abs /)
+         maxima_total = maxima_local
+         counts_local = (/ balance_nbad, resid_nbad, resid_hard_nbad /)
+         counts_total = counts_local
+         CALL mpi_reduce(maxima_local, maxima_total, 3, MPI_REAL8, MPI_MAX, 0, &
+                         p_comm_worker, p_err)
+         CALL mpi_reduce(counts_local, counts_total, 3, MPI_INTEGER, MPI_SUM, 0, &
+                         p_comm_worker, p_err)
+         CALL mpi_bcast(counts_total, 3, MPI_INTEGER, 0, p_comm_worker, p_err)
+
+         reduced_abs          = maxima_total(1)
+         resid_abs_total      = maxima_total(2)
+         resid_hard_abs_total = maxima_total(3)
+         nbad_total            = counts_total(1)
+         resid_nbad_total      = counts_total(2)
+         resid_hard_nbad_total = counts_total(3)
+
+         IF (resid_hard_nbad_total > 0) THEN
+            in_pair = (/ resid_hard_worst_abs, real(p_iam_worker, r8) /)
+            CALL mpi_allreduce(in_pair, out_pair, 1, MPI_2DOUBLE_PRECISION, &
+                               MPI_MAXLOC, p_comm_worker, p_err)
+            resid_winner_rank = nint(out_pair(2))
+            IF (resid_winner_rank /= 0) THEN
+               IF (p_iam_worker == resid_winner_rank) THEN
+                  CALL mpi_send(resid_hard_worst_ipatch, 1, MPI_INTEGER, 0, 101, p_comm_worker, p_err)
+                  CALL mpi_send(resid_hard_worst_itrc,   1, MPI_INTEGER, 0, 102, p_comm_worker, p_err)
+                  CALL mpi_send(resid_hard_worst_ptype,  1, MPI_INTEGER, 0, 103, p_comm_worker, p_err)
+                  CALL mpi_send(resid_hard_worst_tol,    1, MPI_REAL8,   0, 104, p_comm_worker, p_err)
+               ELSEIF (p_iam_worker == 0) THEN
+                  CALL mpi_recv(resid_hard_ipatch_total, 1, MPI_INTEGER, resid_winner_rank, 101, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(resid_hard_itrc_total,   1, MPI_INTEGER, resid_winner_rank, 102, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(resid_hard_ptype_total,  1, MPI_INTEGER, resid_winner_rank, 103, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(resid_hard_tol_total,    1, MPI_REAL8,   resid_winner_rank, 104, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+               ENDIF
             ENDIF
          ENDIF
-         ! Broadcast reduced_abs back so every worker can decide whether
-         ! to contribute its ipatch/itrc (only the owner of worst_abs
-         ! ships it via another reduce).
-         CALL mpi_bcast(reduced_abs, 1, MPI_REAL8, 0, p_comm_worker, p_err)
 
-         ! Two-stage: pack (|err|, rank_as_real) and MAXLOC to find owner.
-         in_pair(1) = worst_abs
-         in_pair(2) = real(p_iam_worker, r8)
-         out_pair   = in_pair
-         CALL mpi_reduce(in_pair, out_pair, 1, MPI_2DOUBLE_PRECISION, &
-                         MPI_MAXLOC, 0, p_comm_worker, p_err)
-         winner_rank = nint(out_pair(2))
-         ! Broadcast winner rank to everyone so the owner can ship
-         ! ipatch/itrc to worker 0 via a point-to-point (cheap vs another reduce).
-         CALL mpi_bcast(winner_rank, 1, MPI_INTEGER, 0, p_comm_worker, p_err)
-         IF (winner_rank /= 0) THEN
-            IF (p_iam_worker == winner_rank) THEN
-               CALL mpi_send(balance_worst_ipatch, 1, MPI_INTEGER, 0, 91, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_itrc,   1, MPI_INTEGER, 0, 92, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_ptype,  1, MPI_INTEGER, 0, 93, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_diag,  19, MPI_REAL8,   0, 94, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_sds, n_storage_diag, MPI_REAL8, 0, 95, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_sbeg, n_storage_diag, MPI_REAL8, 0, 96, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_send, n_storage_diag, MPI_REAL8, 0, 97, p_comm_worker, p_err)
-               CALL mpi_send(balance_worst_fcomp, n_flux_diag, MPI_REAL8, 0, 98, p_comm_worker, p_err)
-            ELSEIF (p_iam_worker == 0) THEN
-               CALL mpi_recv(balance_worst_ipatch, 1, MPI_INTEGER, winner_rank, 91, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_itrc,   1, MPI_INTEGER, winner_rank, 92, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_ptype,  1, MPI_INTEGER, winner_rank, 93, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_diag,  19, MPI_REAL8,   winner_rank, 94, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_sds, n_storage_diag, MPI_REAL8, winner_rank, 95, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_sbeg, n_storage_diag, MPI_REAL8, winner_rank, 96, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_send, n_storage_diag, MPI_REAL8, winner_rank, 97, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
-               CALL mpi_recv(balance_worst_fcomp, n_flux_diag, MPI_REAL8, winner_rank, 98, &
-                             p_comm_worker, MPI_STATUS_IGNORE, p_err)
+         IF (nbad_total > 0) THEN
+            in_pair = (/ worst_abs, real(p_iam_worker, r8) /)
+            CALL mpi_allreduce(in_pair, out_pair, 1, MPI_2DOUBLE_PRECISION, &
+                               MPI_MAXLOC, p_comm_worker, p_err)
+            winner_rank = nint(out_pair(2))
+            IF (winner_rank /= 0) THEN
+               IF (p_iam_worker == winner_rank) THEN
+                  CALL mpi_send(balance_worst_ipatch, 1, MPI_INTEGER, 0, 91, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_itrc,   1, MPI_INTEGER, 0, 92, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_ptype,  1, MPI_INTEGER, 0, 93, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_diag,  19, MPI_REAL8,   0, 94, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_sds, n_storage_diag, MPI_REAL8, 0, 95, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_sbeg, n_storage_diag, MPI_REAL8, 0, 96, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_send, n_storage_diag, MPI_REAL8, 0, 97, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_fcomp, n_flux_diag, MPI_REAL8, 0, 98, p_comm_worker, p_err)
+               ELSEIF (p_iam_worker == 0) THEN
+                  CALL mpi_recv(balance_worst_ipatch, 1, MPI_INTEGER, winner_rank, 91, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_itrc,   1, MPI_INTEGER, winner_rank, 92, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_ptype,  1, MPI_INTEGER, winner_rank, 93, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_diag,  19, MPI_REAL8,   winner_rank, 94, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_sds, n_storage_diag, MPI_REAL8, winner_rank, 95, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_sbeg, n_storage_diag, MPI_REAL8, winner_rank, 96, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_send, n_storage_diag, MPI_REAL8, winner_rank, 97, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(balance_worst_fcomp, n_flux_diag, MPI_REAL8, winner_rank, 98, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+               ENDIF
             ENDIF
          ENDIF
       ENDIF
@@ -658,7 +674,7 @@ CONTAINS
             ' evap_minus_water_R=', balance_worst_diag(18), &
             ' rnof_minus_water_R=', balance_worst_diag(19)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
-                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
+                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
             'TRC_BAL_DCOMP @ipatch=', balance_worst_ipatch, &
             ' itrc=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
@@ -670,7 +686,9 @@ CONTAINS
             ' d_wetwat=', balance_worst_sds(6), &
             ' d_scv=', balance_worst_sds(7), &
             ' d_waterstorage=', balance_worst_sds(8), &
-            ' d_leaf_iso=', balance_worst_sds(9)
+            ' d_leaf_iso=', balance_worst_sds(9), &
+            ' d_surface_residue=', balance_worst_sds(10), &
+            ' d_subsurface_residue=', balance_worst_sds(11)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5)') &
             'TRC_BAL_FCOMP @ipatch=', balance_worst_ipatch, &
@@ -684,7 +702,7 @@ CONTAINS
             ' qinfl=', balance_worst_fcomp(6), &
             ' qcharge=', balance_worst_fcomp(7)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
-                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
+                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
             'TRC_BAL_SEND @ipatch=', balance_worst_ipatch, &
             ' itrc=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
@@ -696,7 +714,9 @@ CONTAINS
             ' wetwat=', balance_worst_send(6), &
             ' scv=', balance_worst_send(7), &
             ' waterstorage=', balance_worst_send(8), &
-            ' leaf_iso=', balance_worst_send(9)
+            ' leaf_iso=', balance_worst_send(9), &
+            ' surface_residue=', balance_worst_send(10), &
+            ' subsurface_residue=', balance_worst_send(11)
       ENDIF
 
       IF (print_me .and. resid_nbad_total > 0) THEN
@@ -707,7 +727,7 @@ CONTAINS
             resid_nbad_total, ' worst_abs=', resid_abs_total
       ENDIF
 
-      IF (print_me .and. resid_hard_nbad_total > trc_resid_abort_nbad) THEN
+      IF (print_me .and. resid_hard_nbad_total > DEF_TRACER_RESID_ABORT_NBAD) THEN
          WRITE(*,'(A,I8,A,E12.5,A,E12.5,A,I8,A,I4,A,I3,A,I4)') &
             'TRC_BAL residual hard failure: n_entries=', resid_hard_nbad_total, &
             ' worst_abs=', resid_hard_abs_total, &
@@ -719,7 +739,7 @@ CONTAINS
          CALL CoLM_stop ('TRC_BAL hard failure: numerical residual exceeds independent threshold')
       ENDIF
 
-      IF (print_me .and. nbad_total > trc_balance_abort_nbad) THEN
+      IF (print_me .and. nbad_total > DEF_TRACER_BALANCE_ABORT_NBAD) THEN
          CALL CoLM_stop ('TRC_BAL hard failure: tracer balance error exceeds aggregate threshold')
       ENDIF
 

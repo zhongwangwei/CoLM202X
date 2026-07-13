@@ -365,9 +365,9 @@ MODULE MOD_Tracer_Reactive_Methane_Const
             ! NOTE SWITCHING THIS OFF ASSUMES TRANSIENT CARBON SUPPLY FROM LAKES; COUPLED MODEL WILL NOT CONSERVE CARBON
             ! IN THIS MODE.
 
-      logical :: methane_offline = .true.    ! true --> Methane is not passed between the land & atmosphere.
-                                 ! NEM is not added to NEE flux to atm. to correct for methane production,
-                                 ! and ambient CH4 is set to constant 2009 value.
+      logical :: methane_offline = .true.    ! Only offline land CH4 is implemented in this repository.
+                                 ! Setting false is rejected during validation until a host atmosphere
+                                 ! flux publisher and NEM-to-NEE coupling are available.
 
       logical :: methane_rmcnlim = .false.   ! Remove the N and low moisture limitations on SOM HR when calculating
                                  ! methanogenesis.
@@ -667,6 +667,12 @@ CONTAINS
       logical :: bad
 
       bad = .false.
+
+      IF (.not. DEF_METHANE%methane_offline) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: methane_offline=.false. requires an online atmosphere/NEE coupling that is not implemented.'
+         bad = .true.
+      ENDIF
 
       IF (DEF_METHANE%f_methane < 0._r8 .or. DEF_METHANE%f_methane > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane out of [0,0.5]: ', DEF_METHANE%f_methane
@@ -1047,7 +1053,13 @@ CONTAINS
       SELECT CASE (trim(v))
       CASE ( &
          'f_methane_surf_flux_tot', &
+         'f_methane_surf_flux_tot_active', &
          'f_methane_surf_flux_global_total_with_lake', &
+         'f_methane_surf_flux_tot_phys', &
+         'f_methane_balance_residual', &
+         'f_methane_ch4_clip_credit', &
+         'f_o2_cap_loss', &
+         'f_o2_cap_gain', &
          'f_methane_surf_flux_wetland', &
          'f_methane_surf_flux_soil', &
          'f_methane_surf_flux_lake', &
@@ -1069,6 +1081,7 @@ CONTAINS
       CASE ( &
          'f_net_methane', &
          'f_methane_surf_flux_tot', &
+         'f_methane_surf_flux_tot_active', &
          'f_methane_surf_flux_active_total_without_lake', &
          'f_methane_surf_flux_global_total_with_lake', &
          'f_methane_surf_flux_tot_phys', &
