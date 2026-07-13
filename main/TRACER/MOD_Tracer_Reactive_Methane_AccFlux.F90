@@ -1265,21 +1265,24 @@ CONTAINS
    !-------------------------------------------------------------------
    SUBROUTINE read_methane_accflux_restart (file_restart)
       USE MOD_LandPatch,    only: landpatch
-      USE MOD_NetCDFSerial, only: ncio_var_exist
-      USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete
+      USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete, &
+         ncio_vector_var_present
       USE MOD_SPMD_Task,    only: p_is_master
       character(len=*), intent(in) :: file_restart
+      logical :: has_microbe_accumulator
 
       IF (.not. allocated(a_methane_acc_num)) RETURN
 
+      has_microbe_accumulator = ncio_vector_var_present( &
+         file_restart, 'ch4_a_methane_acc_num_microbe', landpatch)
       IF (p_is_master) THEN
          IF (DEF_METHANE%use_microbial_pools) THEN
-            IF (.not. ncio_var_exist(file_restart, 'ch4_a_methane_acc_num_microbe', .false.)) THEN
+            IF (.not. has_microbe_accumulator) THEN
                WRITE(*,'(A)') 'WARNING read_methane_accflux_restart: use_microbial_pools enabled, ' // &
                   'but restart has no microbial accumulator counts; microbial history diagnostics restart from zero.'
             ENDIF
          ELSE
-            IF (ncio_var_exist(file_restart, 'ch4_a_methane_acc_num_microbe', .false.)) THEN
+            IF (has_microbe_accumulator) THEN
                WRITE(*,'(A)') 'WARNING read_methane_accflux_restart: restart contains microbial accumulators, ' // &
                   'but use_microbial_pools is disabled; microbial history diagnostics are intentionally ignored.'
             ENDIF

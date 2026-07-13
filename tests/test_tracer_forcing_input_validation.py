@@ -172,3 +172,18 @@ def test_nonpositive_forcing_dtime_fails_fast(forcing_input_driver):
     )
     assert result.returncode != 0
     assert "forcing_dtime(1)" in result.stdout
+
+
+@pytest.mark.parametrize("forcing_num", [-1, 9])
+def test_forcing_count_out_of_range_fails_fast(forcing_input_driver, forcing_num):
+    result = run_forcing_driver(
+        forcing_input_driver,
+        f"""
+&nl_colm_tracer_forcing
+  forcing_num = {forcing_num}
+/
+""",
+    )
+    assert result.returncode != 0
+    assert "forcing_num" in result.stdout
+    assert "must be between 0 and 8" in result.stdout

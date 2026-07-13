@@ -52,3 +52,16 @@ def test_reactive_lulcc_area_order_is_new_then_old() -> None:
     assert "landpatch%pctshared, landpatch_%pctshared" in source(
         "main/LULCC/MOD_Lulcc_Driver.F90"
     )
+
+
+def test_giems_distributes_only_requested_patch_pixels() -> None:
+    giems = source("main/TRACER/MOD_Tracer_Reactive_Methane_GIEMS.F90")
+
+    # The master may still stream one slab from NetCDF, but must not replicate
+    # that slab to every rank.  Patch lookup indices are gathered once and only
+    # the requested values are scattered during the monthly loop.
+    assert "MPI_Bcast(slab" not in giems
+    gather = giems.index("MPI_Gatherv(pixel_index")
+    month_loop = giems.index("DO t = 1, ntime")
+    scatter = giems.index("MPI_Scatterv(requested_values")
+    assert gather < month_loop < scatter

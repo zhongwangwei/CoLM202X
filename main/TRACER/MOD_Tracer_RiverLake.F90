@@ -1616,7 +1616,8 @@ CONTAINS
    USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
    USE MOD_NetCDFSerial,          only: ncio_var_exist, ncio_inquire_length
    USE MOD_Vector_ReadWrite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, lake_type_bf => lake_type
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
+      ucat_gdid, ucat_next, lake_type_bf => lake_type
    USE MOD_Grid_RiverLakeLevee, only: has_levee_bf => has_levee, levsto_bf => levsto
    USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_bf => wdsrf_ucat, volresv_bf_in => volresv
    USE MOD_Grid_Reservoir, only: ucat2resv_bf_in => ucat2resv
@@ -1643,6 +1644,8 @@ CONTAINS
 	   logical :: has_var, has_active, has_inactive, invalid_protected_mass, meta_bad
 	   logical :: has_trc_n_meta, has_namehash_meta
 	   logical :: meta_matches_current, meta_matches_legacy, legacy_meta_complete
+	   logical :: has_gdid_meta, has_next_meta
+	   logical :: network_meta_complete, network_meta_matches
 	   logical :: all_found
 	   logical :: reported_bf
 	   logical, allocatable :: has_accinp(:)
@@ -1691,6 +1694,59 @@ CONTAINS
             'current totalnumucat (probed via acc_rnof_ref); aborting to avoid '// &
             'silent tracer-mass misalignment.'
          CALL CoLM_stop ()
+      ENDIF
+
+      ! New-format files carry the stable grid-cell identity and downstream
+      ! global UCID for every ucatch.  Count alone cannot distinguish two
+      ! networks of equal size, while this pair catches both reordered cells
+      ! and changed routing topology.  Both fields absent is the legacy path;
+      ! one present without the other is an interrupted/incomplete contract.
+      has_gdid_meta = .false.
+      has_next_meta = .false.
+      network_meta_matches = .true.
+      IF (p_is_master) THEN
+         has_var = ncio_var_exist(file_restart, 'trc_ucat_gdid_meta', readflag=.false.)
+         has_flag = merge(1, 0, has_var)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast(has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      has_gdid_meta = has_flag /= 0
+      IF (has_gdid_meta) THEN
+         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
+            'trc_ucat_gdid_meta', ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) &
+            network_meta_matches = all(nint(tmpvec(:)) == ucat_gdid(:))
+      ENDIF
+
+      IF (p_is_master) THEN
+         has_var = ncio_var_exist(file_restart, 'trc_ucat_next_meta', readflag=.false.)
+         has_flag = merge(1, 0, has_var)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast(has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      has_next_meta = has_flag /= 0
+      IF (has_next_meta) THEN
+         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
+            'trc_ucat_next_meta', ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) &
+            network_meta_matches = network_meta_matches .and. all(nint(tmpvec(:)) == ucat_next(:))
+      ENDIF
+
+      network_meta_complete = has_gdid_meta .and. has_next_meta
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, network_meta_matches, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
+#endif
+      IF (has_gdid_meta .neqv. has_next_meta) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: incomplete river-network identity metadata in tracer restart; aborting.'
+         CALL CoLM_stop()
+      ENDIF
+      IF (network_meta_complete .and. .not. network_meta_matches) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: river/lake tracer restart belongs to a different catchment network; aborting.'
+         CALL CoLM_stop()
       ENDIF
 
       ! Strict metadata for new-format river/lake tracer restarts. These
@@ -2051,7 +2107,8 @@ CONTAINS
    SUBROUTINE write_tracer_restart (file_restart)
 
    USE MOD_Vector_ReadWrite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
+      ucat_gdid, ucat_next
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
@@ -2088,6 +2145,14 @@ CONTAINS
       IF (p_is_worker .and. numucat > 0) tmpvec(:) = riverlake_tracer_namehash_meta()
       CALL vector_gather_and_write ( &
          tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_namehash_meta', 'ucatch')
+
+      IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(ucat_gdid(:), r8)
+      CALL vector_gather_and_write ( &
+         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_ucat_gdid_meta', 'ucatch')
+
+      IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(ucat_next(:), r8)
+      CALL vector_gather_and_write ( &
+         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_ucat_next_meta', 'ucatch')
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE

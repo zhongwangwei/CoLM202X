@@ -131,12 +131,14 @@ CONTAINS
             allocate (self_from (n_req_uniq))
             self_from(:) = -1
 
-            DO i = 1, n_req_uniq
-               iloc = find_in_sorted_list1 (ids_req_uniq(i), num_me, ids_me_sorted)
-               IF (iloc > 0) THEN
-                  self_from(i) = order_ids(iloc)
-               ENDIF
-            ENDDO
+            IF (num_me > 0) THEN
+               DO i = 1, n_req_uniq
+                  iloc = find_in_sorted_list1 (ids_req_uniq(i), num_me, ids_me_sorted)
+                  IF (iloc > 0) THEN
+                     self_from(i) = order_ids(iloc)
+                  ENDIF
+               ENDDO
+            ENDIF
 
             pushdata%nself = count(self_from > 0)
             IF (pushdata%nself > 0) THEN

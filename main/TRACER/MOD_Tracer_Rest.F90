@@ -34,7 +34,7 @@ CONTAINS
    logical FUNCTION tracer_dim_matches (file_restart, varname, expect_soilsnow)
 #ifdef USEMPI
       USE MOD_SPMD_Task, only: p_is_io, p_comm_io, p_comm_group, p_err, p_root, &
-         MPI_IN_PLACE, MPI_LOGICAL, MPI_LAND
+         MPI_IN_PLACE, MPI_INTEGER, MPI_SUM
 #else
       USE MOD_SPMD_Task, only: p_is_io
 #endif
@@ -48,56 +48,53 @@ CONTAINS
       ! per-layer data via ncio_read_vector's reshape.
       integer, intent(in), optional :: expect_soilsnow
       integer, allocatable :: varsize(:)
-      integer :: iblkgrp, iblk, jblk
+      integer :: iblkgrp, iblk, jblk, expected_rank
+      integer :: counts(3)
       character(len=256) :: fileblock
-      logical :: found_var, local_match
+      logical :: block_shape_ok
 
-      found_var = .false.
-      local_match = .true.
+      counts(:) = 0
+      expected_rank = merge(3, 2, present(expect_soilsnow))
 
       ! Vector restart files are split by block via get_filename_block().
       ! Checking the unsuffixed base filename makes hot starts look like
       ! old/missing tracer restarts and silently reinitializes NSS state.
       IF (p_is_io) THEN
+         counts(1) = landpatch%nblkgrp
          DO iblkgrp = 1, landpatch%nblkgrp
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
 
             IF (.not. ncio_var_exist(fileblock, varname, readflag = .false.)) THEN
-               local_match = .false.
-               EXIT
+               CYCLE
             ENDIF
-            found_var = .true.
+            counts(2) = counts(2) + 1
 
             CALL ncio_inquire_varsize(fileblock, varname, varsize)
-            IF (.not. allocated(varsize)) THEN
-               local_match = .false.
-            ELSEIF (size(varsize) < 1) THEN
-               local_match = .false.
-            ELSE
-               local_match = (varsize(1) == ntracers)
-               IF (local_match .and. present(expect_soilsnow)) THEN
-                  IF (size(varsize) >= 2) THEN
-                     local_match = (varsize(2) == expect_soilsnow)
-                  ELSE
-                     local_match = .false.
+            block_shape_ok = .false.
+            IF (allocated(varsize)) THEN
+               IF (size(varsize) == expected_rank) THEN
+                  block_shape_ok = varsize(1) == ntracers .and. &
+                     varsize(expected_rank) == landpatch%vecgs%vlen(iblk,jblk)
+                  IF (block_shape_ok .and. present(expect_soilsnow)) THEN
+                     block_shape_ok = varsize(2) == expect_soilsnow
                   ENDIF
                ENDIF
             ENDIF
             IF (allocated(varsize)) deallocate(varsize)
-            IF (.not. local_match) EXIT
+            IF (.not. block_shape_ok) counts(3) = counts(3) + 1
          ENDDO
-         local_match = found_var .and. local_match
       ENDIF
 
 #ifdef USEMPI
-      IF (p_is_io) &
-         CALL mpi_allreduce(MPI_IN_PLACE, local_match, 1, MPI_LOGICAL, MPI_LAND, p_comm_io, p_err)
-      CALL mpi_bcast(local_match, 1, MPI_LOGICAL, p_root, p_comm_group, p_err)
+      IF (p_is_io) THEN
+         CALL mpi_allreduce(MPI_IN_PLACE, counts, 3, MPI_INTEGER, MPI_SUM, p_comm_io, p_err)
+      ENDIF
+      CALL mpi_bcast(counts, 3, MPI_INTEGER, p_root, p_comm_group, p_err)
 #endif
 
-      tracer_dim_matches = local_match
+      tracer_dim_matches = counts(1) > 0 .and. counts(2) == counts(1) .and. counts(3) == 0
    END FUNCTION tracer_dim_matches
 
    SUBROUTINE tracer_init_from_water (numpatch, maxsnl, nl_soil, &

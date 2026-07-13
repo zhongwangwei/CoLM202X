@@ -52,6 +52,10 @@ def test_restart_writer_keeps_the_new_transport_capability_signature():
     assert "riverlake_tracer_namehash_meta()" in writer
     assert "riverlake_legacy_tracer_count_meta()" not in writer
     assert "riverlake_legacy_tracer_namehash_meta()" not in writer
+    assert "trc_ucat_gdid_meta" in writer
+    assert "trc_ucat_next_meta" in writer
+    assert "ucat_gdid" in writer
+    assert "ucat_next" in writer
 
 
 def test_restart_reader_accepts_only_complete_new_or_legacy_signatures():
@@ -95,3 +99,19 @@ def test_restart_reader_accepts_only_complete_new_or_legacy_signatures():
     assert accepted(current=False, legacy=True, complete=True)
     assert not accepted(current=False, legacy=True, complete=False)
     assert not accepted(current=False, legacy=False, complete=True)
+
+
+def test_restart_rejects_same_size_different_network_identity():
+    source = RIVER.read_text(encoding="utf-8")
+    reader = source.split("SUBROUTINE read_tracer_restart", 1)[1]
+    reader = reader.split("END SUBROUTINE read_tracer_restart", 1)[0]
+
+    for field, current in (
+        ("trc_ucat_gdid_meta", "ucat_gdid"),
+        ("trc_ucat_next_meta", "ucat_next"),
+    ):
+        assert field in reader
+        assert current in reader
+    assert "network_meta_complete" in reader
+    assert "network_meta_matches" in reader
+    assert "incomplete river-network identity metadata" in reader

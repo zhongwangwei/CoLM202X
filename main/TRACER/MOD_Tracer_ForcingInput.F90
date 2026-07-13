@@ -119,7 +119,14 @@ CONTAINS
             CALL CoLM_stop()
          ENDIF
 
-         nf = min(max(forcing_num, 0), TRACER_FORCING_MAX)
+         IF (forcing_num < 0 .or. forcing_num > TRACER_FORCING_MAX) THEN
+            IF (p_is_master) THEN
+               write(*,'(A,I0,A,I0,A,A,A)') 'ERROR tracer_forcing_input_load: forcing_num=', forcing_num, &
+                  ' must be between 0 and ', TRACER_FORCING_MAX, ' in ', trim(nlfile), '.'
+            ENDIF
+            CALL CoLM_stop()
+         ENDIF
+         nf = forcing_num
          tracer_forcing_n(itrc) = nf
          DO k = 1, nf
             IF (forcing_dtime(k) <= 0) THEN

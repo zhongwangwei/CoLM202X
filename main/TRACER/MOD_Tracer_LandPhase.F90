@@ -22,6 +22,7 @@ MODULE MOD_Tracer_LandPhase
       tracer_reactive_accumulate_fluxes, tracer_reactive_read_restart
 
    IMPLICIT NONE
+   PRIVATE
 
    ! Land-side multi-phase TRACER facade. Keeps the implementation split
    ! across physics modules but exposes one import surface per host, so

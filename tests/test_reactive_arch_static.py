@@ -34,6 +34,26 @@ def function_body(text: str, name: str) -> str:
 
 
 class ReactiveArchitectureStaticTests(unittest.TestCase):
+    def test_land_phase_facade_is_private_by_default(self):
+        land_phase = source("MOD_Tracer_LandPhase.F90")
+        declarations = land_phase[: land_phase.index("CONTAINS")]
+
+        self.assertRegex(declarations, r"(?mi)^\s*PRIVATE\s*$")
+        self.assertIn("PUBLIC :: land_tracer_init, land_tracer_final", declarations)
+        self.assertIn("PUBLIC :: tracer_soil_step, tracer_report", declarations)
+
+    def test_land_tracer_state_hides_lulcc_workspaces(self):
+        variables = source("MOD_Tracer_Vars.F90")
+        declarations = variables[: variables.index("CONTAINS")]
+
+        self.assertRegex(declarations, r"(?mi)^\s*PRIVATE\s*$")
+        self.assertIn("PUBLIC :: trc_wliq_soisno, trc_wice_soisno", declarations)
+        self.assertIn(
+            "PUBLIC :: save_land_tracer_lulcc_state, remap_land_tracer_lulcc_state",
+            declarations,
+        )
+        self.assertNotRegex(declarations, r"(?mi)^\s*PUBLIC\s*::[^\n]*lulcc_trc_")
+
     def test_species_can_disable_generic_land_water_transport(self):
         defs = source("MOD_Tracer_Defs.F90")
         registry = source("MOD_Tracer_Reactive_Methane_Registry.F90")

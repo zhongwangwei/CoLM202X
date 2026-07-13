@@ -17,9 +17,12 @@ def test_land_restart_dimension_probe_is_global_before_vector_reads():
         "END SUBROUTINE read_land_tracer_restart", 1
     )[0]
 
-    assert "MPI_LAND, p_comm_io" in probe
+    assert "MPI_SUM, p_comm_io" in probe
     assert "p_root, p_comm_group" in probe
-    assert probe.index("MPI_LAND, p_comm_io") < probe.index("p_root, p_comm_group")
+    assert probe.index("MPI_SUM, p_comm_io") < probe.index("p_root, p_comm_group")
+    assert "size(varsize) == expected_rank" in probe
+    assert "varsize(expected_rank) == landpatch%vecgs%vlen(iblk,jblk)" in probe
+    assert "expected_rank = merge(3, 2, present(expect_soilsnow))" in probe
     assert reader.index("tracer_dim_matches(file_restart, 'trc_ldew_rain'") < reader.index(
         "CALL ncio_read_vector(file_restart, 'trc_ldew_rain'"
     )
@@ -42,9 +45,19 @@ def test_complete_vector_reader_rejects_partial_block_variables():
     assert "ncio_var_exist" in check
     assert "MPI_SUM, p_comm_io" in check
     assert "p_root, p_comm_group" in check
-    assert "present_count > 0" in check
-    assert "present_count < block_count" in check
+    assert "counts(2) > 0" in check
+    assert "counts(2) < counts(1)" in check
     assert "CALL CoLM_stop" in check
+
+
+def test_complete_vector_preflight_skips_the_control_master_singleton_group():
+    source = _source("share/MOD_NetCDFVector.F90")
+    check = source.split("SUBROUTINE ncio_require_complete_vector_var", 1)[1].split(
+        "END SUBROUTINE ncio_require_complete_vector_var", 1
+    )[0]
+
+    assert "p_is_worker" in check
+    assert "IF (.not. (p_is_io .or. p_is_worker)) RETURN" in check
 
 
 def test_complete_vector_reader_rejects_missing_required_and_wrong_shape_before_read():
@@ -60,12 +73,12 @@ def test_complete_vector_reader_rejects_missing_required_and_wrong_shape_before_
     )[0]
 
     assert "allow_missing" in check
-    assert "present_count == 0 .and. .not. allow_missing" in check
+    assert "counts(2) == 0 .and. .not. allow_missing" in check
     assert "ncio_inquire_varsize" in check
     assert "size(varsize) == expected_rank" in check
     assert "varsize(expected_rank) == pixelset%vecgs%vlen(iblk,jblk)" in check
     assert "varsize(1) == expected_dim1" in check
-    assert "shape_error_count > 0" in check
+    assert "counts(3) > 0" in check
     assert wrapper_1d.index("ncio_require_complete_vector_var") < wrapper_1d.index(
         "ncio_read_vector_real8_1d"
     )
@@ -92,3 +105,49 @@ def test_all_ch4_restart_readers_opt_into_complete_block_policy():
         assert (
             "ncio_read_vector => ncio_read_vector_complete" in body
         ), f"{routine} must reject variables present in only some restart blocks"
+
+
+def test_ch4_restart_uses_schema_in_progress_and_commit_markers():
+    source = _source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
+    reader = source.split("SUBROUTINE ch4_reactive_read_restart", 1)[1].split(
+        "END SUBROUTINE ch4_reactive_read_restart", 1
+    )[0]
+    writer = source.split("SUBROUTINE ch4_reactive_write_restart", 1)[1].split(
+        "END SUBROUTINE ch4_reactive_write_restart", 1
+    )[0]
+    validator = source.split("SUBROUTINE validate_methane_restart_transaction", 1)[1].split(
+        "END SUBROUTINE validate_methane_restart_transaction", 1
+    )[0]
+
+    assert "ch4_restart_schema" in validator
+    assert "ch4_restart_complete" in validator
+    assert "#ifdef USEMPI" in validator
+    assert "#else\n      USE MOD_SPMD_Task, only: p_is_worker, p_is_master" in validator
+    assert "IF (.not. has_schema .and. .not. has_commit) RETURN" in validator
+    assert "IF (.not. has_schema .or. .not. has_commit) THEN" in validator
+    assert reader.index("validate_methane_restart_transaction") < reader.index(
+        "read_methane_restart"
+    )
+    assert writer.count("write_methane_restart_marker") == 3
+    assert writer.index("write_methane_restart_marker(file_restart, 'ch4_restart_complete', 0._r8") < writer.index(
+        "write_methane_restart(file_restart"
+    )
+    assert writer.rindex("write_methane_restart_marker(file_restart, 'ch4_restart_complete', 1._r8") > writer.index(
+        "write_methane_microbes_restart(file_restart"
+    )
+
+
+def test_ch4_presence_probes_use_block_aware_vector_metadata():
+    methane = _source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
+    accflux = _source("main/TRACER/MOD_Tracer_Reactive_Methane_AccFlux.F90")
+    reader = methane.split("SUBROUTINE ch4_reactive_read_restart", 1)[1].split(
+        "END SUBROUTINE ch4_reactive_read_restart", 1
+    )[0]
+    acc_reader = accflux.split("SUBROUTINE read_methane_accflux_restart", 1)[1].split(
+        "END SUBROUTINE read_methane_accflux_restart", 1
+    )[0]
+
+    assert "ncio_vector_var_present" in reader
+    assert "ncio_var_exist(file_restart" not in reader
+    assert "ncio_vector_var_present" in acc_reader
+    assert "ncio_var_exist(file_restart" not in acc_reader

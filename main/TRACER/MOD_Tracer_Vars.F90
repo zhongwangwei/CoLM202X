@@ -11,6 +11,7 @@ MODULE MOD_Tracer_Vars
 
    IMPLICIT NONE
    SAVE
+   PRIVATE
 
    logical :: lulcc_area_fallback_warned = .false.
    real(r8), parameter :: lulcc_mass_abs_tol = 1.e-8_r8
@@ -158,10 +159,40 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: a_trc_scv_mass   (:,:)
    real(r8), allocatable :: a_water_scv      (:)
 
-	   PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
-	   PUBLIC :: zero_particle_land_tracer_state
-	   PUBLIC :: sync_tracer_patch_ratio
-	   PUBLIC :: tracer_book_evap_loss
+   ! External state contract.  LULCC snapshots and remapping work arrays stay
+   ! private; only pools and diagnostics consumed by the land physics, restart,
+   ! history, and host facades are exposed.
+   PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
+   PUBLIC :: save_land_tracer_lulcc_state, remap_land_tracer_lulcc_state
+   PUBLIC :: zero_particle_land_tracer_state, sync_tracer_patch_ratio
+   PUBLIC :: tracer_book_evap_loss
+
+   PUBLIC :: trc_ldew_rain, trc_ldew_snow
+   PUBLIC :: trc_wliq_soisno, trc_wice_soisno
+   PUBLIC :: trc_wa, trc_wdsrf, trc_wetwat
+   PUBLIC :: trc_surface_residue, trc_subsurface_residue, trc_waterstorage
+   PUBLIC :: trc_scv, trc_pg_rain_ground, trc_pg_snow_ground, trc_rnof_step
+   PUBLIC :: trc_sm_carry, trc_runtime_forced
+   PUBLIC :: trc_leaf_delta_e, trc_leaf_delta_b, trc_leaf_peclet
+   PUBLIC :: trc_leaf_water_moles, trc_leaf_iso_storage
+   PUBLIC :: trc_storage_beg, trc_balance_err
+   PUBLIC :: trc_reactive_source_step, trc_numerical_residual_step
+
+   PUBLIC :: TRC_EVAP_KIND_TRANSP, TRC_EVAP_KIND_SOILEVAP
+   PUBLIC :: TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SUBL, TRC_EVAP_KIND_WETLAND
+   PUBLIC :: a_trc_precip, a_trc_evap, a_water_evap_gross
+   PUBLIC :: a_trc_transp, a_trc_transp_src, a_water_transp
+   PUBLIC :: a_trc_soilevap, a_water_soilevap
+   PUBLIC :: a_trc_canopyevap, a_water_canopyevap
+   PUBLIC :: a_trc_subl, a_water_subl, a_trc_wetland_evap, a_water_wetland_evap
+   PUBLIC :: a_trc_rsur, a_trc_rsub, a_trc_rnof, a_trc_qinfl, a_trc_qcharge
+   PUBLIC :: a_trc_ldew_mass, a_water_ldew
+   PUBLIC :: a_trc_soil_mass, a_water_soil, a_trc_snow_mass, a_water_snow
+   PUBLIC :: a_trc_wa_mass, a_water_wa, a_trc_wa_debt_mass, a_water_wa_debt
+   PUBLIC :: a_trc_wdsrf_mass, a_water_wdsrf
+   PUBLIC :: a_trc_wetwat_mass, a_water_wetwat
+   PUBLIC :: a_trc_surface_residue_mass, a_trc_subsurface_residue_mass
+   PUBLIC :: a_trc_layer_dry_mass, a_trc_scv_mass, a_water_scv
 
 CONTAINS
 
