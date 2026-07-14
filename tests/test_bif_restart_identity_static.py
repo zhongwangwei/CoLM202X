@@ -46,6 +46,7 @@ def test_reader_validates_identity_before_loading_state() -> None:
     velocity_read = reader.index("'pth_veloc', pth_global_id")
     assert signature_read < velocity_read
     assert "mpi_allreduce (MPI_IN_PLACE, mismatch_count" in reader
+    assert "ieee_is_finite(path_signature(:, ipth))" in reader
     assert "IF (allocated(path_signature)) deallocate (path_signature)" in reader
     assert "Refusing to load bifurcation momentum for a different pathway network" in reader
 
@@ -53,10 +54,12 @@ def test_reader_validates_identity_before_loading_state() -> None:
 def test_legacy_restart_is_an_explicit_cold_start() -> None:
     reader = routine("read_bifurcation_restart")
     validation = reader.index(
-        "IF (has_pth_veloc .and. has_pth_momen .and. has_path_signature) THEN"
+        "IF ((.not. restart_feature_present .or. strict_bif_restart) .and. &"
     )
     assert reader.index("pth_veloc(:,:) = 0._r8") < validation
     assert reader.index("pth_momen(:,:) = 0._r8") < validation
+    assert "previous_depth_restart_found" in reader
+    assert "restart_loaded" in reader
     assert "WARNING: incomplete/legacy bifurcation restart" in reader
 
 
@@ -64,6 +67,16 @@ def test_legacy_restart_does_not_load_ordinal_path_history() -> None:
     assert "has_bif_signature = restart_var_exists(file_restart, 'bif_path_signature')" in HIST_STATE
     assert "IF (has_bif_signature) THEN" in HIST_STATE
     assert "cold-starting pathway history accumulators" in HIST_STATE
+
+
+def test_corrupt_path_state_cold_starts_the_paired_restart_unit_trap_safely() -> None:
+    reader = routine("read_bifurcation_restart")
+
+    assert "ieee_is_finite(pth_veloc(ilev, ipth))" in reader
+    assert "ieee_is_finite(pth_momen(ilev, ipth))" in reader
+    assert "invalid_state_count" in reader
+    assert "restart_loaded = .false." in reader
+    assert "pth_veloc /= pth_veloc .or." not in reader
 
 
 def test_same_size_path_reorder_changes_identity() -> None:

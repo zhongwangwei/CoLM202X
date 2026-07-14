@@ -9,6 +9,9 @@ MODULE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid
    USE MOD_WorkerPushData
    USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
+#ifdef USEMPI
+   USE MOD_SPMD_Task, ONLY: MPI_COMM_NULL
+#endif
    IMPLICIT NONE
 
    ! ----- River Lake network -----
@@ -57,7 +60,7 @@ MODULE MOD_Grid_RiverLakeNetwork
    logical :: rivsys_by_multiple_procs
    integer, allocatable :: irivsys (:)
 #ifdef USEMPI
-   integer :: p_comm_rivsys
+   integer :: p_comm_rivsys = MPI_COMM_NULL
 #endif
 
 
@@ -1283,7 +1286,25 @@ CONTAINS
    ! ---------
    SUBROUTINE riverlake_network_final ()
 
+#ifdef USEMPI
+   USE MOD_SPMD_Task, ONLY: p_err
+#endif
    IMPLICIT NONE
+
+      ! Module-scope derived objects are not finalized when this routine
+      ! returns. Release their owned allocatables explicitly so a later
+      ! riverlake_network_init can rebuild them without allocate-on-allocated
+      ! failures. These cleanup routines are local deallocations only.
+      CALL worker_pushdata_free_mem (push_inpm2ucat)
+      CALL worker_pushdata_free_mem (push_ucat2inpm)
+      CALL worker_pushdata_free_mem (push_ucat2grid)
+      CALL worker_pushdata_free_mem (allreduce_inpm)
+      CALL worker_pushdata_free_mem (push_next2ucat)
+      CALL worker_pushdata_free_mem (push_ups2ucat)
+      CALL worker_pushdata_free_mem (push_bif_dn2pth)
+      CALL worker_pushdata_free_mem (push_bif_influx)
+      CALL worker_remapdata_free_mem (remap_patch2inpm)
+      CALL grid_free_mem (griducat)
 
       IF (allocated(x_ucat           )) deallocate(x_ucat           )
       IF (allocated(y_ucat           )) deallocate(y_ucat           )
@@ -1301,7 +1322,9 @@ CONTAINS
       IF (allocated(area_uc2gd       )) deallocate(area_uc2gd       )
       IF (allocated(ucat_next        )) deallocate(ucat_next        )
       IF (allocated(ucat_ups         )) deallocate(ucat_ups         )
+      IF (allocated(wts_ups          )) deallocate(wts_ups          )
       IF (allocated(irivsys          )) deallocate(irivsys          )
+      IF (allocated(lake_type        )) deallocate(lake_type        )
 
       IF (allocated(topo_rivelv      )) deallocate(topo_rivelv      )
       IF (allocated(topo_rivhgt      )) deallocate(topo_rivhgt      )
@@ -1332,6 +1355,13 @@ CONTAINS
       IF (allocated(pth_man           )) deallocate(pth_man           )
       IF (allocated(bif_incoming_pths )) deallocate(bif_incoming_pths )
       IF (allocated(bif_incoming_wts  )) deallocate(bif_incoming_wts  )
+
+#ifdef USEMPI
+      IF (p_comm_rivsys /= MPI_COMM_NULL) THEN
+         CALL mpi_comm_free (p_comm_rivsys, p_err)
+         p_comm_rivsys = MPI_COMM_NULL
+      ENDIF
+#endif
 
    END SUBROUTINE riverlake_network_final
 
@@ -1831,7 +1861,9 @@ CONTAINS
          CALL CoLM_stop ('bifurcation parameter dimensions are inconsistent')
       ENDIF
 
-      IF (any(.not. ieee_is_finite(bif_dist_all)) .or. any(bif_dist_all <= 0._r8)) THEN
+      IF (any(.not. ieee_is_finite(bif_dist_all))) THEN
+         CALL CoLM_stop ('bifurcation distance must be finite and positive')
+      ELSEIF (any(bif_dist_all <= 0._r8)) THEN
          CALL CoLM_stop ('bifurcation distance must be finite and positive')
       ENDIF
       IF (any(.not. ieee_is_finite(bif_elev_all))) THEN
@@ -1839,6 +1871,8 @@ CONTAINS
       ENDIF
       IF (any(.not. ieee_is_finite(bif_wdth_all))) THEN
          CALL CoLM_stop ('bifurcation width contains a non-finite value')
+      ELSEIF (any(bif_wdth_all < 0._r8)) THEN
+         CALL CoLM_stop ('bifurcation width must be non-negative')
       ENDIF
       IF (any(.not. ieee_is_finite(bif_mann_all))) THEN
          CALL CoLM_stop ('bifurcation Manning coefficient contains a non-finite value')
@@ -1858,6 +1892,17 @@ CONTAINS
          IF (.not. any(bif_wdth_all(:, ip) > 0._r8)) THEN
             CALL CoLM_stop ('bifurcation pathway has no active positive-width layer')
          ENDIF
+         DO ilev = 2, npthlev_bif
+            IF (bif_wdth_all(ilev, ip) > 0._r8) THEN
+               IF (bif_wdth_all(ilev-1, ip) <= 0._r8) THEN
+                  CALL CoLM_stop ('active bifurcation layers must be contiguous from layer 1')
+               ENDIF
+               IF (bif_elev_all(ilev, ip) < bif_elev_all(ilev-1, ip)) THEN
+                  CALL CoLM_stop ( &
+                     'active bifurcation layer elevation must be non-decreasing from layer 1')
+               ENDIF
+            ENDIF
+         ENDDO
       ENDDO
 
    END SUBROUTINE read_bifurcation_global_arrays

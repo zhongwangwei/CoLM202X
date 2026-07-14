@@ -102,6 +102,7 @@ CONTAINS
    real(r8) :: dhgtpre, dwth_fil, dwth_add, fldgrd, dhgtdif
    real(r8) :: dhgtnow, dsto_fil, dsto_add
    integer  :: n_levee_resv_clash
+   logical  :: invalid_levee_input
 
       IF (allocated(has_levee)) CALL levee_final()
 
@@ -133,8 +134,17 @@ CONTAINS
 
       ! --- Validate ---
       DO i = 1, numucat
-         IF (.not. ieee_is_finite(levee_hgt(i)) .or. .not. ieee_is_finite(levee_frc(i)) .or. &
-             levee_hgt(i) <= 0._r8 .or. levee_frc(i) >= 1._r8 .or. levee_frc(i) < 0._r8) THEN
+         invalid_levee_input = .false.
+         IF (.not. ieee_is_finite(levee_hgt(i))) THEN
+            invalid_levee_input = .true.
+         ELSEIF (.not. ieee_is_finite(levee_frc(i))) THEN
+            invalid_levee_input = .true.
+         ELSEIF (levee_hgt(i) <= 0._r8) THEN
+            invalid_levee_input = .true.
+         ELSEIF (levee_frc(i) >= 1._r8 .or. levee_frc(i) < 0._r8) THEN
+            invalid_levee_input = .true.
+         ENDIF
+         IF (invalid_levee_input) THEN
             levee_hgt(i) = 0._r8
             levee_frc(i) = 1._r8
          ENDIF
@@ -780,7 +790,8 @@ CONTAINS
 
 
    ! =========================================================================
-   SUBROUTINE read_levee_restart (file_restart, fold_protected_to_visible, &
+   SUBROUTINE read_levee_restart (file_restart, restart_transaction_validated_in, &
+      restart_feature_manifest_present_in, restart_levee_enabled_in, fold_protected_to_visible, &
       volwater_ucat_io, volwater_ucat_valid_io, wdsrf_ucat_in)
    ! =========================================================================
    ! Read levee state from restart file. Called AFTER levee_init() so that
@@ -791,10 +802,13 @@ CONTAINS
 
    USE MOD_NetCDFSerial,        only: ncio_var_exist
    USE MOD_Vector_ReadWrite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_data_address, floodplain_curve, lake_type
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, floodplain_curve, lake_type
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
+   logical,  intent(in) :: restart_transaction_validated_in
+   logical,  intent(in) :: restart_feature_manifest_present_in
+   logical,  intent(in) :: restart_levee_enabled_in
    logical,  intent(in),    optional :: fold_protected_to_visible
    real(r8), allocatable, intent(inout), optional :: volwater_ucat_io(:)
    logical,  intent(inout), optional :: volwater_ucat_valid_io
@@ -802,8 +816,13 @@ CONTAINS
    integer :: has_restart_var(3)
    integer :: i, n_folded_cells
    logical :: do_fold, fold_failed, fold_this_cell, invalid_restart, legacy_fold_failed, &
-      reservoir_fold_failed, visible_volume_ready, visible_volume_preloaded
+      reservoir_fold_failed, visible_volume_ready, visible_volume_preloaded, &
+      strict_levee_restart
    real(r8) :: folded_volume
+
+      IF (.not. restart_transaction_validated_in) THEN
+         CALL CoLM_stop ('read_levee_restart requires validated transaction context')
+      ENDIF
 
       ! NOTE: vector_read_and_scatter contains mpi_barrier(p_comm_glb),
       ! so ALL processes must participate. Never early-return for non-workers.
@@ -826,13 +845,28 @@ CONTAINS
 #endif
       visible_volume_preloaded = has_restart_var(3) == 1
 
+      strict_levee_restart = restart_feature_manifest_present_in .and. restart_levee_enabled_in
+      IF (restart_feature_manifest_present_in) THEN
+         IF (strict_levee_restart .and. totalnumucat > 0 .and. has_restart_var(1) == 0) THEN
+            CALL CoLM_stop ('GridRiverLake restart declares levee enabled but levsto is missing')
+         ENDIF
+         IF (.not. restart_levee_enabled_in) has_restart_var(1) = 0
+      ENDIF
+
       IF (has_restart_var(1) == 1) THEN
          CALL vector_read_and_scatter (file_restart, levsto, numucat, 'levsto', ucat_data_address)
       ENDIF
 
       invalid_restart = .false.
       IF (has_restart_var(1) == 1 .and. p_is_worker .and. allocated(levsto)) THEN
-         invalid_restart = any(.not. ieee_is_finite(levsto) .or. levsto < 0._r8)
+         DO i = 1, size(levsto)
+            IF (.not. ieee_is_finite(levsto(i))) THEN
+               invalid_restart = .true.
+            ELSEIF (levsto(i) < 0._r8) THEN
+               invalid_restart = .true.
+            ENDIF
+            IF (invalid_restart) EXIT
+         ENDDO
       ENDIF
 #ifdef USEMPI
       CALL mpi_allreduce (MPI_IN_PLACE, invalid_restart, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)

@@ -1984,8 +1984,14 @@ CONTAINS
 
          invalid_protected_mass = .false.
          IF (p_is_worker .and. numucat > 0) THEN
-            invalid_protected_mass = any(.not. ieee_is_finite(trc_levsto(itrc, :)) .or. &
-               trc_levsto(itrc, :) < 0._r8)
+            DO ii_bf = 1, numucat
+               IF (.not. ieee_is_finite(trc_levsto(itrc, ii_bf))) THEN
+                  invalid_protected_mass = .true.
+               ELSEIF (trc_levsto(itrc, ii_bf) < 0._r8) THEN
+                  invalid_protected_mass = .true.
+               ENDIF
+               IF (invalid_protected_mass) EXIT
+            ENDDO
          ENDIF
 #ifdef USEMPI
          CALL mpi_allreduce (MPI_IN_PLACE, invalid_protected_mass, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)

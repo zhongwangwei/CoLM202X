@@ -59,6 +59,7 @@ MODULE MOD_Grid_RiverLakeBifurcation
    !       reused every bifurcation_calc call to avoid alloc/dealloc churn).
    !       TARGET attribute lets bifurcation_calc alias them via pointers.  -----
    real(r8), allocatable, target, save :: wdsrf_dn_pth_buf     (:)
+   real(r8), allocatable, target, save :: wdsrf_prev_dn_pth_buf (:)
    real(r8), allocatable, target, save :: rivelv_dn_pth_buf    (:)
    real(r8), allocatable, target, save :: protected_wdsrf_ucat_buf  (:)
    real(r8), allocatable, target, save :: protected_wdsrf_dn_pth_buf (:)
@@ -214,6 +215,7 @@ CONTAINS
       ! Persistent scratch buffers used by bifurcation_calc. Sized once here
       ! using the network-fixed dimensions; zero-length is valid.
       allocate (wdsrf_dn_pth_buf     (npth))
+      allocate (wdsrf_prev_dn_pth_buf (npth))
       allocate (rivelv_dn_pth_buf    (npth))
       allocate (protected_wdsrf_ucat_buf   (nucat))
       allocate (protected_wdsrf_dn_pth_buf (npth))
@@ -253,7 +255,7 @@ CONTAINS
 
 
    ! =========================================================================
-   SUBROUTINE bifurcation_calc (wdsrf_ucat, volwater_ucat_in, volwater_ucat_valid_in, &
+   SUBROUTINE bifurcation_calc (wdsrf_ucat, wdsrf_ucat_prev, volwater_ucat_in, volwater_ucat_valid_in, &
       volresv, is_built_resv, dt_all, irivsys, ucatfilter, normal_outgoing_rate)
    ! =========================================================================
    !
@@ -273,7 +275,8 @@ CONTAINS
 
    IMPLICIT NONE
 
-   real(r8), intent(in) :: wdsrf_ucat (:)   ! water depth above riverbed [m]
+   real(r8), intent(in), target :: wdsrf_ucat (:)   ! water depth above riverbed [m]
+   real(r8), intent(in), target :: wdsrf_ucat_prev (:) ! depth used by previous BIF substep [m]
    real(r8), intent(in) :: volwater_ucat_in(:) ! TimeVars-owned routing volume [m^3]
    logical,  intent(in) :: volwater_ucat_valid_in
    real(r8), intent(in) :: volresv    (:)   ! reservoir water volume [m^3]
@@ -285,6 +288,7 @@ CONTAINS
 
    ! Pointer aliases to persistent module-level buffers (no per-call alloc).
    real(r8), pointer :: wdsrf_dn_pth     (:) => null()
+   real(r8), pointer :: wdsrf_prev_dn_pth (:) => null()
    real(r8), pointer :: rivelv_dn_pth    (:) => null()
    real(r8), pointer :: protected_wdsrf_ucat  (:) => null()
    real(r8), pointer :: protected_wdsrf_dn_pth (:) => null()
@@ -318,8 +322,10 @@ CONTAINS
    real(r8), pointer :: bif_lev_influx       (:) => null()
 
    real(r8) :: rivelv_up, rivelv_dn, wdsrf_up, wdsrf_dn, wdsrf_up_eff, wdsrf_dn_eff
+   real(r8) :: wdsrf_up_prev, wdsrf_dn_prev
    real(r8) :: zsurf_up, zsurf_dn, slope_lev
-   real(r8) :: height_up, height_dn, h_face
+   real(r8) :: height_up, height_dn, height_up_prev, height_dn_prev
+   real(r8) :: h_face, h_face_current, h_face_previous
    real(r8) :: hflux_lev, mflux_lev, zgrad_lev  ! flux/pressure terms for this layer
    real(r8) :: width_pth, pth_are
    real(r8) :: friction, momen_trial, veloc_trial
@@ -327,6 +333,12 @@ CONTAINS
       real(r8) :: donor_storage, layer_transfer
       real(r8) :: normal_outflow, bif_outflow, remaining_capacity
       logical  :: upstream_has_levee, downstream_has_levee
+      logical  :: use_protected_fields
+      type(worker_push_real8_field_type) :: dynamic_state_fields(7)
+      type(worker_push_real8_field_type) :: donor_reverse_fields(2)
+      type(worker_push_real8_field_type) :: donor_rate_fields(2)
+      type(worker_push_real8_field_type) :: final_influx_fields(2)
+      integer :: n_dynamic_state_fields, n_coupled_fields, n_final_influx_fields
    integer  :: ipth, ilev, i_up, i_dn, i_ucat
    integer  :: n_dt_mismatch_skip, n_dt_mismatch_skip_glb
 
@@ -343,6 +355,8 @@ CONTAINS
 
       n_dt_mismatch_skip = 0
       n_dt_mismatch_skip_glb = 0
+      use_protected_fields = DEF_USE_LEVEE .and. npthlev_bif >= 2
+      n_final_influx_fields = merge(2, 1, npthlev_bif >= 2)
 
       ! Reset net flux accumulator
       bif_hflux_sum(:) = 0._r8
@@ -353,6 +367,7 @@ CONTAINS
       ! Alias persistent module-level buffers (allocated once in
       ! bifurcation_init). Zero-length buffers are still valid targets.
       wdsrf_dn_pth     => wdsrf_dn_pth_buf
+      wdsrf_prev_dn_pth => wdsrf_prev_dn_pth_buf
       rivelv_dn_pth    => rivelv_dn_pth_buf
       protected_wdsrf_ucat   => protected_wdsrf_ucat_buf
       protected_wdsrf_dn_pth => protected_wdsrf_dn_pth_buf
@@ -386,6 +401,7 @@ CONTAINS
       bif_lev_influx       => bif_lev_influx_buf
 
       wdsrf_dn_pth     (:) = 0._r8
+      wdsrf_prev_dn_pth(:) = BIF_MISSING_VALUE
       IF (.not. bif_static_dn_valid) rivelv_dn_pth(:) = 0._r8
       protected_wdsrf_ucat  (:) = 0._r8
       protected_wdsrf_dn_pth(:) = BIF_MISSING_VALUE
@@ -459,36 +475,57 @@ CONTAINS
       ENDIF
 
       ! ----- Step 2: Get downstream cell state via push objects -----
-      ! Use -9999 as fillvalue to mark pathways with no valid downstream cell
-      ! (domain boundary or unresolved remote). These are skipped in Step 3.
-      CALL worker_push_data (push_bif_dn2pth, wdsrf_ucat,  wdsrf_dn_pth,  fillvalue = -9999._r8)
-      ! Riverbed elevation is invariant; push it only on the first sub-step.
-      IF (.not. bif_static_dn_valid) &
-         CALL worker_push_data (push_bif_dn2pth, topo_rivelv, rivelv_dn_pth, fillvalue = -9999._r8)
+      ! Dynamic fields share one fixed-order communication phase.  All ranks use
+      ! the same field count because DEF_USE_LEVEE and npthlev_bif are global.
+      ! Single-layer levee runs still need visible storage for the channel donor
+      ! limiter, but omit protected stage/storage fields that no layer can use.
+      dynamic_state_fields(1)%send => wdsrf_ucat
+      dynamic_state_fields(1)%recv => wdsrf_dn_pth
+      dynamic_state_fields(1)%fillvalue = BIF_MISSING_VALUE
+      dynamic_state_fields(2)%send => wdsrf_ucat_prev
+      dynamic_state_fields(2)%recv => wdsrf_prev_dn_pth
+      dynamic_state_fields(2)%fillvalue = BIF_MISSING_VALUE
+      dynamic_state_fields(3)%send => storage_ucat
+      dynamic_state_fields(3)%recv => storage_dn_pth
+      dynamic_state_fields(3)%fillvalue = BIF_MISSING_VALUE
+      dynamic_state_fields(4)%send => ucatfilter_r8
+      dynamic_state_fields(4)%recv => ucatfilter_dn_pth
+      dynamic_state_fields(4)%fillvalue = 0._r8
+      n_dynamic_state_fields = 4
+
       IF (DEF_USE_LEVEE) THEN
-         CALL worker_push_data (push_bif_dn2pth, protected_wdsrf_ucat, protected_wdsrf_dn_pth, fillvalue = BIF_MISSING_VALUE)
-         ! Levee mask is invariant; push it only on the first sub-step.
-         IF (.not. bif_static_dn_valid) &
-            CALL worker_push_data (push_bif_dn2pth, has_levee_r8,         has_levee_dn_pth,       fillvalue = 0._r8)
-         ENDIF
-      CALL worker_push_data (push_bif_dn2pth, storage_ucat, storage_dn_pth, fillvalue = -9999._r8)
-      IF (DEF_USE_LEVEE) THEN
-         CALL worker_push_data (push_bif_dn2pth, visible_storage_ucat, visible_storage_dn_pth, fillvalue = 0._r8)
-         CALL worker_push_data (push_bif_dn2pth, protected_storage_ucat, protected_storage_dn_pth, fillvalue = 0._r8)
-      ELSE
+         dynamic_state_fields(5)%send => visible_storage_ucat
+         dynamic_state_fields(5)%recv => visible_storage_dn_pth
+         dynamic_state_fields(5)%fillvalue = 0._r8
+         n_dynamic_state_fields = 5
+      ENDIF
+      IF (use_protected_fields) THEN
+         dynamic_state_fields(6)%send => protected_wdsrf_ucat
+         dynamic_state_fields(6)%recv => protected_wdsrf_dn_pth
+         dynamic_state_fields(6)%fillvalue = BIF_MISSING_VALUE
+         dynamic_state_fields(7)%send => protected_storage_ucat
+         dynamic_state_fields(7)%recv => protected_storage_dn_pth
+         dynamic_state_fields(7)%fillvalue = 0._r8
+         n_dynamic_state_fields = 7
+      ENDIF
+
+      CALL worker_push_data (push_bif_dn2pth, &
+         dynamic_state_fields(1:n_dynamic_state_fields))
+
+      IF (.not. DEF_USE_LEVEE) THEN
          visible_storage_dn_pth(:) = storage_dn_pth(:)
          protected_storage_dn_pth(:) = 0._r8
+      ELSEIF (.not. use_protected_fields) THEN
+         protected_storage_dn_pth(:) = 0._r8
       ENDIF
-         ! Reservoir mask is invariant within a routing call; push once per call.
-         IF (.not. bif_static_dn_valid) &
-            CALL worker_push_data (push_bif_dn2pth, is_resv_r8, is_resv_dn_pth, fillvalue = 0._r8)
-      ! push destination ucat active-mask so the source rank can
-      ! skip pathways whose downstream cell lives in a river system that
-      ! has already exhausted its adaptive sub-step. Fillvalue = 0 means
-      ! unresolved remote/boundary destinations are treated as inactive
-      ! (those are already handled by the wdsrf/rivelv boundary check
-      ! above; this fill is only a defensive default).
-      CALL worker_push_data (push_bif_dn2pth, ucatfilter_r8, ucatfilter_dn_pth, fillvalue = 0._r8)
+
+      ! Static fields remain one-per-routing-call pushes.
+      IF (.not. bif_static_dn_valid) &
+         CALL worker_push_data (push_bif_dn2pth, topo_rivelv, rivelv_dn_pth, fillvalue = BIF_MISSING_VALUE)
+      IF (use_protected_fields .and. .not. bif_static_dn_valid) &
+         CALL worker_push_data (push_bif_dn2pth, has_levee_r8, has_levee_dn_pth, fillvalue = 0._r8)
+      IF (.not. bif_static_dn_valid) &
+         CALL worker_push_data (push_bif_dn2pth, is_resv_r8, is_resv_dn_pth, fillvalue = 0._r8)
 
       ! Static downstream path fields (rivelv/has_levee/is_resv) are now cached
       ! in their persistent path buffers for the remaining sub-steps of this
@@ -510,8 +547,10 @@ CONTAINS
 
          rivelv_up = topo_rivelv(i_up)
          wdsrf_up  = wdsrf_ucat(i_up)
+         wdsrf_up_prev = wdsrf_ucat_prev(i_up)
          rivelv_dn = rivelv_dn_pth(ipth)
          wdsrf_dn  = wdsrf_dn_pth(ipth)
+         wdsrf_dn_prev = wdsrf_prev_dn_pth(ipth)
          dt        = dt_all(irivsys(i_up))
 
          pth_hflux_total(ipth) = 0._r8
@@ -619,9 +658,36 @@ CONTAINS
             zsurf_dn = wdsrf_dn_eff + rivelv_dn
             slope_lev = (zsurf_dn - zsurf_up) / pth_dst(ipth)
             slope_lev = max(-0.005_r8, min(0.005_r8, slope_lev))
-            h_face = max(height_up, height_dn)
+            h_face_current = max(height_up, height_dn)
+            IF (DEF_USE_LEVEE) THEN
+               IF (ilev == 1) THEN
+                  ! CaMa-Flood levee scheme: stabilize the in-channel local-
+                  ! inertial update with the geometric mean of current and
+                  ! previous-substep flow depth. If either side was dry, CaMa
+                  ! falls back to the current depth.
+                  height_up_prev = max(0._r8, wdsrf_up_prev + rivelv_up - pth_elv(ilev, ipth))
+                  height_dn_prev = max(0._r8, wdsrf_dn_prev + rivelv_dn - pth_elv(ilev, ipth))
+                  h_face_previous = max(height_up_prev, height_dn_prev)
+                  h_face = sqrt(h_face_current * h_face_previous)
+                  IF (h_face <= 0._r8) h_face = h_face_current
+               ELSE
+                  ! Above-bankfull layers use the protected-side surface and
+                  ! stay explicit because the simplified levee scheme has no
+                  ! matching previous protected-depth field.
+                  h_face = h_face_current
+               ENDIF
+            ELSE
+               ! Standard CaMa BIF applies the semi-implicit depth to every
+               ! layer.  Its 0.01 m previous-depth floor preserves finite
+               ! conductance when a previously dry pathway becomes wet.
+               height_up_prev = max(0._r8, wdsrf_up_prev + rivelv_up - pth_elv(ilev, ipth))
+               height_dn_prev = max(0._r8, wdsrf_dn_prev + rivelv_dn - pth_elv(ilev, ipth))
+               h_face_previous = max(height_up_prev, height_dn_prev)
+               h_face = sqrt(h_face_current * h_face_previous)
+               h_face = max(h_face, sqrt(h_face_current * 0.01_r8))
+            ENDIF
 
-            IF (h_face < BIFMIN) THEN
+            IF (h_face <= BIFMIN) THEN
                hflux_lev = 0._r8
                pth_momen(ilev, ipth) = 0._r8
                pth_veloc(ilev, ipth) = 0._r8
@@ -658,7 +724,7 @@ CONTAINS
          ENDDO  ! ilev
 
          ! ----- Step 4: 5% storage limiter -----
-            IF (abs(pth_hflux_total(ipth)) > 1.e-10_r8 .and. dt > 0._r8) THEN
+            IF (abs(pth_hflux_total(ipth)) > 0._r8 .and. dt > 0._r8) THEN
                storage_up = storage_ucat(i_up)
                storage_dn = storage_dn_pth(ipth)
                ! CaMa path limiter: one path may move at most 5% of the
@@ -677,7 +743,7 @@ CONTAINS
             IF (dt > 0._r8) THEN
                DO ilev = 1, npthlev_bif
                   layer_transfer = abs(bif_hflux_lev(ilev, ipth))
-                  IF (layer_transfer <= 1.e-10_r8) CYCLE
+                  IF (layer_transfer <= 0._r8) CYCLE
 
                   IF (bif_hflux_lev(ilev, ipth) >= 0._r8) THEN
                      ! upstream -> downstream: local upstream cell is donor
@@ -716,19 +782,30 @@ CONTAINS
 
       ENDDO  ! ipth
 
-      IF (DEF_USE_LEVEE .and. npthlev_bif >= 2) THEN
-         CALL worker_push_data (push_bif_influx, protected_neg_pth, protected_out_recv, &
-            fillvalue = 0._r8, mode = 'sum')
+      ! Reverse-flow donor totals share one multi-mapping phase.  Runs without
+      ! protected overland flow send only the visible field.
+      n_coupled_fields = merge(2, 1, use_protected_fields)
+      donor_reverse_fields(1)%send => neg_pth
+      donor_reverse_fields(1)%recv => bif_neg_recv
+      donor_reverse_fields(1)%fillvalue = 0._r8
+      IF (use_protected_fields) THEN
+         donor_reverse_fields(2)%send => protected_neg_pth
+         donor_reverse_fields(2)%recv => protected_out_recv
+         donor_reverse_fields(2)%fillvalue = 0._r8
+      ENDIF
+      CALL worker_push_data (push_bif_influx, &
+         donor_reverse_fields(1:n_coupled_fields), mode = 'sum')
+
+      IF (use_protected_fields) THEN
          DO i_ucat = 1, numucat
             protected_outgoing(i_ucat) = protected_outgoing(i_ucat) + protected_out_recv(i_ucat)
             IF (.not. ucatfilter(i_ucat)) CYCLE
             dt_cell = dt_all(irivsys(i_ucat))
-            IF (protected_outgoing(i_ucat) > 1.e-10_r8 .and. dt_cell > 0._r8) THEN
+            IF (protected_outgoing(i_ucat) > 0._r8 .and. dt_cell > 0._r8) THEN
                protected_out_rate(i_ucat) = min(1._r8, &
                   max(protected_storage_ucat(i_ucat), 0._r8) / (protected_outgoing(i_ucat) * dt_cell))
             ENDIF
          ENDDO
-         CALL worker_push_data (push_bif_dn2pth, protected_out_rate, protected_out_rate_pth, fillvalue = 1._r8)
       ENDIF
 
 #ifdef CoLMDEBUG
@@ -745,10 +822,6 @@ CONTAINS
          n_dt_mismatch_warn_count = n_dt_mismatch_warn_count + 1
       ENDIF
 #endif
-      ! ----- cross-rank reverse-flow visible-donor accumulation -----
-      CALL worker_push_data (push_bif_influx, neg_pth, bif_neg_recv, &
-         fillvalue = 0._r8, mode = 'sum')
-
       ! CaMa-style aggregate donor limiter.  CaMa applies the cell rate to
       ! ordinary routing and BIF together; CoLM's ordinary routing flux has
       ! already fixed dt and is not rescaled here.  For split-pool levee cells,
@@ -766,18 +839,24 @@ CONTAINS
          IF (i_ucat <= size(normal_outgoing_rate)) &
             normal_outflow = max(normal_outgoing_rate(i_ucat), 0._r8)
          bif_outflow = limiter_outgoing(i_ucat)
-         IF (bif_outflow > 1.e-10_r8 .and. dt_cell > 0._r8) THEN
+         IF (bif_outflow > 0._r8 .and. dt_cell > 0._r8) THEN
             remaining_capacity = max(storage_ref / dt_cell - normal_outflow, 0._r8)
             limiter_out_rate(i_ucat) = min(1._r8, remaining_capacity / bif_outflow)
          ENDIF
       ENDDO
 
-      ! ----- push downstream donor rates back to each pathway -----
-      ! For pathways whose downstream cell is on a remote rank, the cell rate
-      ! is computed there; we pull it via push_bif_dn2pth. For local-downstream
-      ! pathways the push delivers the same value as a direct lookup.
-      ! Fillvalue=1 keeps boundary pathways unconstrained from this side.
-      CALL worker_push_data (push_bif_dn2pth, limiter_out_rate, limiter_out_rate_pth, fillvalue = 1._r8)
+      ! Push visible/protected downstream donor rates in one single-mapping
+      ! phase. Fillvalue=1 keeps boundary pathways unconstrained.
+      donor_rate_fields(1)%send => limiter_out_rate
+      donor_rate_fields(1)%recv => limiter_out_rate_pth
+      donor_rate_fields(1)%fillvalue = 1._r8
+      IF (use_protected_fields) THEN
+         donor_rate_fields(2)%send => protected_out_rate
+         donor_rate_fields(2)%recv => protected_out_rate_pth
+         donor_rate_fields(2)%fillvalue = 1._r8
+      ENDIF
+      CALL worker_push_data (push_bif_dn2pth, &
+         donor_rate_fields(1:n_coupled_fields))
 
       DO ipth = 1, npthout_local
 
@@ -877,12 +956,16 @@ CONTAINS
          bif_influx(:) = 0._r8
          bif_lev_influx(:) = 0._r8
       ENDIF
-      CALL worker_push_data (push_bif_influx, pth_hflux_total, bif_influx, &
-         fillvalue = 0._r8, mode = 'sum')
+      final_influx_fields(1)%send => pth_hflux_total
+      final_influx_fields(1)%recv => bif_influx
+      final_influx_fields(1)%fillvalue = 0._r8
       IF (npthlev_bif >= 2) THEN
-         CALL worker_push_data (push_bif_influx, pth_lev_hflux_total, bif_lev_influx, &
-            fillvalue = 0._r8, mode = 'sum')
+         final_influx_fields(2)%send => pth_lev_hflux_total
+         final_influx_fields(2)%recv => bif_lev_influx
+         final_influx_fields(2)%fillvalue = 0._r8
       ENDIF
+      CALL worker_push_data (push_bif_influx, &
+         final_influx_fields(1:n_final_influx_fields), mode = 'sum')
 
       ! ----- Step 7: Subtract remote inflow, avoiding double-counting -----
       ! Remove contributions from local pathways (already counted in step 5)
@@ -907,7 +990,8 @@ CONTAINS
       ENDIF
 
       ! Disassociate pointer aliases (targets remain allocated, owned by module)
-      nullify (wdsrf_dn_pth, rivelv_dn_pth, protected_wdsrf_ucat, protected_wdsrf_dn_pth, has_levee_dn_pth, &
+      nullify (wdsrf_dn_pth, wdsrf_prev_dn_pth, rivelv_dn_pth, &
+                  protected_wdsrf_ucat, protected_wdsrf_dn_pth, has_levee_dn_pth, &
                   storage_dn_pth, visible_storage_ucat, protected_storage_ucat, &
                   visible_storage_dn_pth, protected_storage_dn_pth, &
                   pth_hflux_total, pth_limiter_rate, bif_influx, &
@@ -1149,7 +1233,9 @@ CONTAINS
 
 
    ! =========================================================================
-   SUBROUTINE read_bifurcation_restart (file_restart)
+   SUBROUTINE read_bifurcation_restart (file_restart, previous_depth_restart_found, restart_loaded, &
+      restart_transaction_validated_in, restart_feature_manifest_present_in, &
+      restart_bifurcation_enabled_in)
    ! =========================================================================
    !
    ! Read bifurcation pathway state from restart in global pathway order.
@@ -1159,14 +1245,27 @@ CONTAINS
    USE MOD_NetCDFSerial, only: ncio_var_exist
    USE MOD_Vector_ReadWrite, only: vector_read_matrix_and_scatter
    USE MOD_Grid_RiverLakeNetwork, only: npthlev_bif, npthout_local, totalnpthout, pth_global_id
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
+   logical, intent(in) :: previous_depth_restart_found
+   logical, intent(out) :: restart_loaded
+   logical, intent(in) :: restart_transaction_validated_in
+   logical, intent(in) :: restart_feature_manifest_present_in
+   logical, intent(in) :: restart_bifurcation_enabled_in
    logical :: has_pth_veloc, has_pth_momen, has_path_signature
+   logical :: restart_feature_present, strict_bif_restart, state_allocated
    integer, allocatable :: global_id_read(:)
    real(r8), allocatable :: matrix_dummy(:,:), path_signature(:,:), current_signature(:,:)
    integer :: has_flags(3)
-   integer :: ipth, mismatch_count, first_mismatch_gid
+   integer :: ipth, ilev, mismatch_count, first_mismatch_gid, invalid_state_count
+
+      restart_loaded = .false.
+
+      IF (.not. restart_transaction_validated_in) THEN
+         CALL CoLM_stop ('read_bifurcation_restart requires validated transaction context')
+      ENDIF
 
       ! vector_read_matrix_and_scatter contains mpi_barrier(p_comm_glb)
       ! and mpi_recv/mpi_send on p_comm_glb, so every rank in that
@@ -1177,12 +1276,12 @@ CONTAINS
       ! collectives. Do NOT short-circuit with `p_is_master .or.
       ! p_is_worker` here.
       IF (npthlev_bif <= 0 .or. totalnpthout <= 0) RETURN
-      IF (.not. allocated(pth_veloc) .or. .not. allocated(pth_momen)) RETURN
+      state_allocated = allocated(pth_veloc) .and. allocated(pth_momen)
 
       ! Restart state is opt-in only after its pathway identity has been
       ! validated. This also makes repeated reads of a legacy/incomplete file
       ! a deterministic cold start instead of retaining stale in-memory state.
-      IF (p_is_worker) THEN
+      IF (state_allocated .and. p_is_worker) THEN
          pth_veloc(:,:) = 0._r8
          pth_momen(:,:) = 0._r8
       ENDIF
@@ -1208,8 +1307,20 @@ CONTAINS
       has_pth_veloc = (has_flags(1) /= 0)
       has_pth_momen = (has_flags(2) /= 0)
       has_path_signature = (has_flags(3) /= 0)
+      restart_feature_present = restart_feature_manifest_present_in
+      strict_bif_restart = restart_feature_present .and. restart_bifurcation_enabled_in
 
-      IF (has_pth_veloc .and. has_pth_momen .and. has_path_signature) THEN
+      IF (strict_bif_restart .and. &
+          (.not. state_allocated .or. .not. has_pth_veloc .or. .not. has_pth_momen .or. &
+           .not. has_path_signature .or. .not. previous_depth_restart_found)) THEN
+         CALL CoLM_stop (&
+            'GridRiverLake restart declares bifurcation enabled but pathway state is incomplete')
+      ENDIF
+      IF (.not. state_allocated) RETURN
+
+      IF ((.not. restart_feature_present .or. strict_bif_restart) .and. &
+          has_pth_veloc .and. has_pth_momen .and. has_path_signature .and. &
+          previous_depth_restart_found) THEN
          ! Validate identity before reading ordinally indexed momentum.
          CALL build_bifurcation_path_signature (current_signature)
 
@@ -1229,7 +1340,10 @@ CONTAINS
          first_mismatch_gid = huge(first_mismatch_gid)
          IF (p_is_worker) THEN
             DO ipth = 1, npthout_local
-               IF (any(path_signature(:, ipth) /= current_signature(:, ipth))) THEN
+               IF (any(.not. ieee_is_finite(path_signature(:, ipth)))) THEN
+                  mismatch_count = mismatch_count + 1
+                  first_mismatch_gid = min(first_mismatch_gid, pth_global_id(ipth))
+               ELSEIF (any(path_signature(:, ipth) /= current_signature(:, ipth))) THEN
                   mismatch_count = mismatch_count + 1
                   first_mismatch_gid = min(first_mismatch_gid, pth_global_id(ipth))
                ENDIF
@@ -1264,36 +1378,72 @@ CONTAINS
                file_restart, matrix_dummy, npthlev_bif, 0, 'pth_momen', global_id_read, totalnpthout)
             deallocate (global_id_read)
          ENDIF
+         restart_loaded = .true.
       ELSE
-         ! Old files have no pathway identity metadata. Loading their ordinally
-         ! indexed state could bind momentum to a different path after a same-size
-         ! network reorder, so preserve file compatibility by cold-starting BIF.
+         IF (restart_feature_present .and. .not. strict_bif_restart) THEN
+            IF (p_is_master) THEN
+               write(*,'(A)') 'GridRiverLake restart declares bifurcation disabled; cold-starting pathway state.'
+               call flush(6)
+            ENDIF
+         ELSE
+            ! Old files have no pathway identity metadata. Loading their
+            ! ordinally indexed state could bind momentum to a different path
+            ! after a same-size network reorder, so cold-start BIF safely.
+            IF (p_is_master) THEN
+               write(*,'(A,L1,A,L1,A,L1,A,L1,A)') &
+                  'WARNING: incomplete/legacy bifurcation restart (pth_veloc=', has_pth_veloc, &
+                  ', pth_momen=', has_pth_momen, ', bif_path_signature=', has_path_signature, &
+                  ', wdsrf_ucat_prev=', previous_depth_restart_found, &
+                  '); cold-starting pathway velocity and momentum at zero.'
+               call flush(6)
+            ENDIF
+         ENDIF
+      ENDIF
+
+      ! Validate without compound logical expressions: Fortran need not
+      ! short-circuit `.or.`, so comparing abs(NaN) under -ffpe-trap=invalid
+      ! can abort before the restart guard runs. Velocity is clamped to
+      ! +/-20 m/s during routing; 50 m/s and 1e4 m2/s are generous restart
+      ! corruption bounds. Any bad pathway cold-starts the whole paired
+      ! (previous depth, pathway momentum) state unit via restart_loaded.
+      invalid_state_count = 0
+      IF (restart_loaded .and. p_is_worker .and. npthout_local > 0) THEN
+         DO ipth = 1, npthout_local
+            DO ilev = 1, npthlev_bif
+               IF (.not. ieee_is_finite(pth_veloc(ilev, ipth))) THEN
+                  invalid_state_count = invalid_state_count + 1
+               ELSEIF (abs(pth_veloc(ilev, ipth)) > 50._r8) THEN
+                  invalid_state_count = invalid_state_count + 1
+               ELSEIF (.not. ieee_is_finite(pth_momen(ilev, ipth))) THEN
+                  invalid_state_count = invalid_state_count + 1
+               ELSEIF (abs(pth_momen(ilev, ipth)) > 1.e4_r8) THEN
+                  invalid_state_count = invalid_state_count + 1
+               ENDIF
+            ENDDO
+         ENDDO
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_allreduce (MPI_IN_PLACE, invalid_state_count, 1, MPI_INTEGER, &
+         MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (invalid_state_count > 0) THEN
+         IF (p_is_worker) THEN
+            pth_veloc = 0._r8
+            pth_momen = 0._r8
+         ENDIF
+         restart_loaded = .false.
+         IF (strict_bif_restart) THEN
+            CALL CoLM_stop (&
+               'GridRiverLake restart declares bifurcation enabled but pathway state is invalid')
+         ENDIF
          IF (p_is_master) THEN
-            write(*,'(A,L1,A,L1,A,L1,A)') &
-               'WARNING: incomplete/legacy bifurcation restart (pth_veloc=', has_pth_veloc, &
-               ', pth_momen=', has_pth_momen, ', bif_path_signature=', has_path_signature, &
-               '); cold-starting pathway velocity and momentum at zero.'
+            write(*,'(A,I0,A)') 'WARNING: invalid bifurcation restart state (count=', &
+               invalid_state_count, '); cold-starting paired pathway state.'
             call flush(6)
          ENDIF
       ENDIF
 
-      ! Sanitize loaded state: zero out NaN, Inf, and unphysically extreme
-      ! values so a corrupt restart cannot poison subsequent bifurcation_calc
-      ! steps. Velocity is clamped to +/-20 m/s every substep, so anything
-      ! above 50 m/s on load is almost certainly garbage. Momentum = velocity
-      ! * depth, and plausible depths are O(10 m), so 1e4 m^2/s is a generous
-      ! cap. Sanitize (velocity, momentum) as a pair: if either field at a
-      ! given (ilev, ipth) is bad, clear BOTH so the solver never sees an
-      ! inconsistent (pth_veloc, pth_momen) state on the first substep.
-      IF (p_is_worker .and. npthout_local > 0 .and. allocated(pth_veloc) .and. allocated(pth_momen)) THEN
-         WHERE (pth_veloc /= pth_veloc .or. abs(pth_veloc) > 50._r8 .or. &
-                pth_momen /= pth_momen .or. abs(pth_momen) > 1.e4_r8)
-            pth_veloc = 0._r8
-            pth_momen = 0._r8
-         END WHERE
-      ENDIF
-
-      CALL debug_check_bifurcation_restart_state (has_pth_veloc, has_pth_momen)
+      CALL debug_check_bifurcation_restart_state (restart_loaded, restart_loaded)
 
    END SUBROUTINE read_bifurcation_restart
 
@@ -1464,6 +1614,7 @@ CONTAINS
       IF (allocated(bif_lev_hflux_sum)) deallocate (bif_lev_hflux_sum)
 
       IF (allocated(wdsrf_dn_pth_buf    )) deallocate (wdsrf_dn_pth_buf    )
+      IF (allocated(wdsrf_prev_dn_pth_buf)) deallocate (wdsrf_prev_dn_pth_buf)
       IF (allocated(rivelv_dn_pth_buf   )) deallocate (rivelv_dn_pth_buf   )
       IF (allocated(protected_wdsrf_ucat_buf  )) deallocate (protected_wdsrf_ucat_buf  )
       IF (allocated(protected_wdsrf_dn_pth_buf)) deallocate (protected_wdsrf_dn_pth_buf)

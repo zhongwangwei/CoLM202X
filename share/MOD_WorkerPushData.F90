@@ -11,9 +11,22 @@ MODULE MOD_WorkerPushData
    USE MOD_Utils
    IMPLICIT NONE
 
+   integer, parameter, private :: WORKER_PUSH_MAPPING_UNSET  = 0
+   integer, parameter, private :: WORKER_PUSH_MAPPING_SINGLE = 1
+   integer, parameter, private :: WORKER_PUSH_MAPPING_MULTI  = 2
+
+   ! -- Non-owning descriptor for one real8 field in a batched push --
+   type :: worker_push_real8_field_type
+      real(r8), pointer :: send(:) => null()
+      real(r8), pointer :: recv(:) => null()
+      real(r8) :: fillvalue = 0._r8
+   END type worker_push_real8_field_type
+
    ! -- Data Type : push data between workers --
    type :: worker_pushdata_type
 
+      integer :: mapping_kind = WORKER_PUSH_MAPPING_UNSET
+      integer :: required_send_size = 0
       integer :: num_req_uniq
 
       integer,  allocatable :: addr_single (:)
@@ -41,6 +54,9 @@ MODULE MOD_WorkerPushData
       type(pointer_int32_1d), allocatable :: other_to (:)
       real(r8), allocatable :: sendcache_real8 (:)
       real(r8), allocatable :: recvcache_real8 (:)
+      integer :: real8_batch_capacity = 0
+      real(r8), allocatable :: sendcache_real8_batch (:)
+      real(r8), allocatable :: recvcache_real8_batch (:)
       integer,  allocatable :: req_send_real8  (:)
       integer,  allocatable :: req_recv_real8  (:)
       integer,  allocatable :: send_peer_real8 (:)
@@ -85,6 +101,7 @@ MODULE MOD_WorkerPushData
       MODULE procedure worker_push_data_single_real8
       MODULE procedure worker_push_data_single_int32
       MODULE procedure worker_push_data_multi_real8
+      MODULE procedure worker_push_data_multi_real8_batch
    END INTERFACE worker_push_data
 
    INTERFACE worker_remap_data_pset2grid
@@ -117,6 +134,8 @@ CONTAINS
       CALL reset_worker_push_real8_scratch (pushdata)
 
       IF (p_is_worker) THEN
+
+         pushdata%required_send_size = 0
 
          IF (num_me > 0) THEN
             allocate (ids_me_sorted (num_me));  ids_me_sorted = ids_me
@@ -236,6 +255,8 @@ CONTAINS
          CALL mpi_barrier (p_comm_worker, p_err)
 #endif
 
+         CALL update_worker_push_required_send_size (pushdata)
+
          IF (allocated(ids_me_sorted)) deallocate(ids_me_sorted)
          IF (allocated(order_ids    )) deallocate(order_ids    )
          IF (allocated(self_from    )) deallocate(self_from    )
@@ -243,6 +264,36 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE build_worker_pushdata_uniq
+
+   ! ----------
+   SUBROUTINE update_worker_push_required_send_size (pushdata)
+
+   IMPLICIT NONE
+
+   type(worker_pushdata_type), intent(inout) :: pushdata
+
+#ifdef USEMPI
+   integer :: iworker
+#endif
+
+      pushdata%required_send_size = 0
+      IF (allocated(pushdata%self_from)) THEN
+         IF (size(pushdata%self_from) > 0) &
+            pushdata%required_send_size = maxval(pushdata%self_from)
+      ENDIF
+
+#ifdef USEMPI
+      IF (allocated(pushdata%n_to_other) .and. allocated(pushdata%to_other)) THEN
+         DO iworker = lbound(pushdata%n_to_other, 1), ubound(pushdata%n_to_other, 1)
+            IF (pushdata%n_to_other(iworker) > 0) THEN
+               pushdata%required_send_size = max(pushdata%required_send_size, &
+                  maxval(pushdata%to_other(iworker)%val))
+            ENDIF
+         ENDDO
+      ENDIF
+#endif
+
+   END SUBROUTINE update_worker_push_required_send_size
 
    ! ----------
    SUBROUTINE build_worker_pushdata_single (num_me, ids_me, num_req, ids_req, pushdata)
@@ -260,9 +311,12 @@ CONTAINS
       IF (p_is_worker) THEN
 
          n_req_uniq = 0
+         ! A zero-sized allocated actual is valid; an array section of an
+         ! unallocated allocatable is not.  Empty workers still build every
+         ! mapping collectively, including mappings with no local requests.
+         allocate (ids_req_uniq (num_req))
 
          IF (num_req > 0) THEN
-            allocate (ids_req_uniq (num_req))
             DO i = 1, size(ids_req)
                CALL insert_into_sorted_list1 (ids_req(i), n_req_uniq, ids_req_uniq, iloc)
             ENDDO
@@ -278,6 +332,7 @@ CONTAINS
 
          CALL build_worker_pushdata_uniq ( &
             num_me, ids_me, n_req_uniq, ids_req_uniq(1:n_req_uniq), pushdata)
+         pushdata%mapping_kind = WORKER_PUSH_MAPPING_SINGLE
 
          IF (allocated (ids_req_uniq)) deallocate(ids_req_uniq)
 
@@ -304,12 +359,12 @@ CONTAINS
       IF (p_is_worker) THEN
 
          n_req_uniq = 0
+         ndim1 = size(ids_req,1)
+         ! See the single-map builder above: keep the zero-request actual
+         ! allocated so build_worker_pushdata_uniq receives a legal 1:0 slice.
+         allocate (ids_req_uniq (ndim1*num_req))
 
          IF (num_req > 0) THEN
-
-            ndim1 = size(ids_req,1)
-
-            allocate (ids_req_uniq (ndim1*num_req))
             DO j = 1, num_req
                DO i = 1, ndim1
                   CALL insert_into_sorted_list1 (ids_req(i,j), n_req_uniq, ids_req_uniq, iloc)
@@ -330,6 +385,7 @@ CONTAINS
 
          CALL build_worker_pushdata_uniq ( &
             num_me, ids_me, n_req_uniq, ids_req_uniq(1:n_req_uniq), pushdata)
+         pushdata%mapping_kind = WORKER_PUSH_MAPPING_MULTI
 
          IF (num_req > 0) THEN
             allocate (pushdata%area_multi (ndim1,num_req))
@@ -395,6 +451,8 @@ CONTAINS
    integer, allocatable :: subdsp_me(:), subdsp_req_uniq(:)
 
       IF (p_is_worker) THEN
+
+         pushdata_out%mapping_kind = WORKER_PUSH_MAPPING_SINGLE
 
          IF (num_me > 0) THEN
             allocate (nsub_me (num_me))
@@ -552,6 +610,8 @@ CONTAINS
          ENDDO
 #endif
 
+         CALL update_worker_push_required_send_size (pushdata_out)
+
          IF (allocated (nsub_me        )) deallocate (nsub_me        )
          IF (allocated (nsub_req       )) deallocate (nsub_req       )
          IF (allocated (nsub_req_uniq  )) deallocate (nsub_req_uniq  )
@@ -666,6 +726,9 @@ CONTAINS
 #ifdef USEMPI
       IF (allocated(pushdata%sendcache_real8)) deallocate(pushdata%sendcache_real8)
       IF (allocated(pushdata%recvcache_real8)) deallocate(pushdata%recvcache_real8)
+      pushdata%real8_batch_capacity = 0
+      IF (allocated(pushdata%sendcache_real8_batch)) deallocate(pushdata%sendcache_real8_batch)
+      IF (allocated(pushdata%recvcache_real8_batch)) deallocate(pushdata%recvcache_real8_batch)
       IF (allocated(pushdata%req_send_real8 )) deallocate(pushdata%req_send_real8 )
       IF (allocated(pushdata%req_recv_real8 )) deallocate(pushdata%req_recv_real8 )
       IF (allocated(pushdata%send_peer_real8)) deallocate(pushdata%send_peer_real8)
@@ -751,6 +814,35 @@ CONTAINS
       pushdata%real8_scratch_ready = .true.
 
    END SUBROUTINE ensure_worker_push_real8_scratch
+
+   ! ----------
+   SUBROUTINE ensure_worker_push_real8_batch_scratch (pushdata, nfield)
+
+   IMPLICIT NONE
+
+   type(worker_pushdata_type), intent(inout) :: pushdata
+   integer, intent(in) :: nfield
+
+#ifdef USEMPI
+   integer :: ndatasend, ndatarecv
+#endif
+
+      CALL ensure_worker_push_real8_scratch (pushdata)
+
+#ifdef USEMPI
+      IF (nfield <= pushdata%real8_batch_capacity) RETURN
+
+      ndatasend = sum(pushdata%n_to_other)
+      ndatarecv = sum(pushdata%n_from_other)
+
+      IF (allocated(pushdata%sendcache_real8_batch)) deallocate(pushdata%sendcache_real8_batch)
+      IF (allocated(pushdata%recvcache_real8_batch)) deallocate(pushdata%recvcache_real8_batch)
+      allocate(pushdata%sendcache_real8_batch(ndatasend * nfield))
+      allocate(pushdata%recvcache_real8_batch(ndatarecv * nfield))
+      pushdata%real8_batch_capacity = nfield
+#endif
+
+   END SUBROUTINE ensure_worker_push_real8_batch_scratch
 
    ! ----------
    SUBROUTINE worker_push_data_uniq_real8 ( &
@@ -999,6 +1091,7 @@ CONTAINS
       IF (p_is_worker) THEN
 
          CALL ensure_worker_push_real8_scratch (pushdata)
+         vec_recv(:) = fillvalue
          IF (pushdata%num_req_uniq > 0) THEN
             pushdata%recv_uniq_real8(:) = fillvalue
          ENDIF
@@ -1006,14 +1099,12 @@ CONTAINS
          CALL worker_push_data_uniq_real8 (pushdata, vec_send, fillvalue)
 
          IF (pushdata%num_req_uniq > 0) THEN
-
-            vec_recv(:) = fillvalue
-
             DO j = 1, size(pushdata%addr_multi,2)
 
                sumarea = 0.
 
                DO i = 1, size(pushdata%addr_multi,1)
+                  IF (pushdata%area_multi(i,j) <= 0._r8) CYCLE
                   val = pushdata%recv_uniq_real8(pushdata%addr_multi(i,j))
                   IF (val /= fillvalue) THEN
                      IF (vec_recv(j) == fillvalue) THEN
@@ -1026,7 +1117,7 @@ CONTAINS
                ENDDO
 
                IF (trim(mode) == 'average') THEN
-                  IF (vec_recv(j) /= fillvalue) THEN
+                  IF (vec_recv(j) /= fillvalue .and. sumarea > 0._r8) THEN
                      vec_recv(j) = vec_recv(j) / sumarea
                   ENDIF
                ENDIF
@@ -1036,6 +1127,188 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE worker_push_data_multi_real8
+
+   ! ----------
+   SUBROUTINE validate_worker_push_real8_batch (pushdata, fields, mode)
+
+   IMPLICIT NONE
+
+   type(worker_pushdata_type), intent(in) :: pushdata
+   type(worker_push_real8_field_type), intent(in) :: fields(:)
+   character(len=*), intent(in), optional :: mode
+
+   integer :: expected_recv_size, ifield
+
+      SELECT CASE (pushdata%mapping_kind)
+      CASE (WORKER_PUSH_MAPPING_SINGLE)
+         IF (present(mode)) &
+            CALL CoLM_stop('worker_push_data: mode is invalid for a batched single mapping')
+         IF (pushdata%num_req_uniq > 0 .and. .not. allocated(pushdata%addr_single)) &
+            CALL CoLM_stop('worker_push_data: incomplete batched single mapping')
+         expected_recv_size = 0
+         IF (allocated(pushdata%addr_single)) expected_recv_size = size(pushdata%addr_single)
+
+      CASE (WORKER_PUSH_MAPPING_MULTI)
+         IF (.not. present(mode)) &
+            CALL CoLM_stop('worker_push_data: mode is required for a batched multi mapping')
+         IF (pushdata%num_req_uniq > 0 .and. &
+             (.not. allocated(pushdata%addr_multi) .or. .not. allocated(pushdata%area_multi))) &
+            CALL CoLM_stop('worker_push_data: incomplete batched multi mapping')
+         expected_recv_size = 0
+         IF (allocated(pushdata%addr_multi)) expected_recv_size = size(pushdata%addr_multi, 2)
+
+      CASE DEFAULT
+         CALL CoLM_stop('worker_push_data: batch used with an untyped push mapping')
+      END SELECT
+
+      DO ifield = 1, size(fields)
+         IF (.not. associated(fields(ifield)%send) .or. &
+             .not. associated(fields(ifield)%recv)) &
+            CALL CoLM_stop('worker_push_data: null field in real8 batch')
+         IF (size(fields(ifield)%send) < pushdata%required_send_size) &
+            CALL CoLM_stop('worker_push_data: short send field in real8 batch')
+         IF (size(fields(ifield)%recv) /= expected_recv_size) &
+            CALL CoLM_stop('worker_push_data: wrong receive field size in real8 batch')
+      ENDDO
+
+   END SUBROUTINE validate_worker_push_real8_batch
+
+   ! ----------
+   SUBROUTINE worker_push_data_multi_real8_batch (pushdata, fields, mode)
+
+   IMPLICIT NONE
+
+   type(worker_pushdata_type), intent(inout) :: pushdata
+   type(worker_push_real8_field_type), intent(in) :: fields(:)
+   character(len=*), intent(in), optional :: mode
+
+   integer :: ifield, i, j, i_to
+   real(r8) :: val, sumarea
+   character(len=16) :: batch_mode
+#ifdef USEMPI
+   integer :: iworker, iproc, npeer, ibase, istt, iend
+#endif
+
+      IF (p_is_worker) THEN
+
+         IF (size(fields) <= 0) RETURN
+         CALL validate_worker_push_real8_batch (pushdata, fields, mode)
+         CALL ensure_worker_push_real8_batch_scratch (pushdata, size(fields))
+         batch_mode = ''
+         IF (present(mode)) batch_mode = mode
+
+         DO ifield = 1, size(fields)
+            fields(ifield)%recv(:) = fields(ifield)%fillvalue
+         ENDDO
+
+#ifdef USEMPI
+         IF (size(pushdata%send_peer_real8) > 0) THEN
+            DO iproc = 1, size(pushdata%send_peer_real8)
+               iworker = pushdata%send_peer_real8(iproc)
+               npeer = pushdata%n_to_other(iworker)
+               ibase = 1 + size(fields) * (pushdata%send_disp_real8(iproc) - 1)
+
+               DO ifield = 1, size(fields)
+                  istt = ibase + (ifield - 1) * npeer
+                  iend = istt + npeer - 1
+                  pushdata%sendcache_real8_batch(istt:iend) = &
+                     fields(ifield)%send(pushdata%to_other(iworker)%val)
+               ENDDO
+
+               CALL mpi_isend(pushdata%sendcache_real8_batch(ibase:ibase+size(fields)*npeer-1), &
+                  size(fields)*npeer, MPI_REAL8, iworker, 101, p_comm_worker, &
+                  pushdata%req_send_real8(iproc), p_err)
+            ENDDO
+         ENDIF
+
+         IF (size(pushdata%recv_peer_real8) > 0) THEN
+            DO iproc = 1, size(pushdata%recv_peer_real8)
+               iworker = pushdata%recv_peer_real8(iproc)
+               npeer = pushdata%n_from_other(iworker)
+               ibase = 1 + size(fields) * (pushdata%recv_disp_real8(iproc) - 1)
+
+               CALL mpi_irecv(pushdata%recvcache_real8_batch(ibase:ibase+size(fields)*npeer-1), &
+                  size(fields)*npeer, MPI_REAL8, iworker, 101, p_comm_worker, &
+                  pushdata%req_recv_real8(iproc), p_err)
+            ENDDO
+
+            CALL mpi_waitall(size(pushdata%req_recv_real8), pushdata%req_recv_real8, &
+               MPI_STATUSES_IGNORE, p_err)
+         ENDIF
+#endif
+
+         IF (pushdata%num_req_uniq > 0) THEN
+            DO ifield = 1, size(fields)
+               pushdata%recv_uniq_real8(:) = fields(ifield)%fillvalue
+
+               IF (pushdata%nself > 0) THEN
+                  pushdata%recv_uniq_real8(pushdata%self_to) = &
+                     fields(ifield)%send(pushdata%self_from)
+               ENDIF
+
+#ifdef USEMPI
+               DO iproc = 1, size(pushdata%recv_peer_real8)
+                  iworker = pushdata%recv_peer_real8(iproc)
+                  npeer = pushdata%n_from_other(iworker)
+                  ibase = 1 + size(fields) * (pushdata%recv_disp_real8(iproc) - 1)
+                  istt = ibase + (ifield - 1) * npeer
+
+                  DO i = 1, npeer
+                     val = pushdata%recvcache_real8_batch(istt+i-1)
+                     IF (val /= fields(ifield)%fillvalue) THEN
+                        i_to = pushdata%other_to(iworker)%val(i)
+                        IF (pushdata%recv_uniq_real8(i_to) == fields(ifield)%fillvalue) THEN
+                           pushdata%recv_uniq_real8(i_to) = val
+                        ELSE
+                           pushdata%recv_uniq_real8(i_to) = pushdata%recv_uniq_real8(i_to) + val
+                        ENDIF
+                     ENDIF
+                  ENDDO
+               ENDDO
+#endif
+
+               SELECT CASE (pushdata%mapping_kind)
+               CASE (WORKER_PUSH_MAPPING_SINGLE)
+                  fields(ifield)%recv = pushdata%recv_uniq_real8(pushdata%addr_single)
+
+               CASE (WORKER_PUSH_MAPPING_MULTI)
+                  DO j = 1, size(pushdata%addr_multi,2)
+                     sumarea = 0._r8
+                     DO i = 1, size(pushdata%addr_multi,1)
+                        IF (pushdata%area_multi(i,j) <= 0._r8) CYCLE
+                        val = pushdata%recv_uniq_real8(pushdata%addr_multi(i,j))
+                        IF (val /= fields(ifield)%fillvalue) THEN
+                           IF (fields(ifield)%recv(j) == fields(ifield)%fillvalue) THEN
+                              fields(ifield)%recv(j) = val * pushdata%area_multi(i,j)
+                           ELSE
+                              fields(ifield)%recv(j) = fields(ifield)%recv(j) + &
+                                 val * pushdata%area_multi(i,j)
+                           ENDIF
+                           sumarea = sumarea + pushdata%area_multi(i,j)
+                        ENDIF
+                     ENDDO
+
+                     IF (trim(batch_mode) == 'average') THEN
+                        IF (fields(ifield)%recv(j) /= fields(ifield)%fillvalue .and. &
+                            sumarea > 0._r8) THEN
+                           fields(ifield)%recv(j) = fields(ifield)%recv(j) / sumarea
+                        ENDIF
+                     ENDIF
+                  ENDDO
+               END SELECT
+            ENDDO
+         ENDIF
+
+#ifdef USEMPI
+         IF (size(pushdata%send_peer_real8) > 0) THEN
+            CALL mpi_waitall(size(pushdata%req_send_real8), pushdata%req_send_real8, &
+               MPI_STATUSES_IGNORE, p_err)
+         ENDIF
+#endif
+
+      ENDIF
+
+   END SUBROUTINE worker_push_data_multi_real8_batch
 
    ! ----------
    SUBROUTINE worker_push_data_single_int32 (pushdata, vec_send, vec_recv, fillvalue)
@@ -1142,6 +1415,7 @@ CONTAINS
                DO ipart = 1, remapdata%npart(iset)
                   iloc = remapdata%part_to(iset)%val(ipart)
                   area = remapdata%areapart(iset)%val(ipart)
+                  IF (area <= 0._r8) CYCLE
 
                   IF (vec_in(iloc) /= fillvalue) THEN
                      IF (vec_out(iset) == fillvalue) THEN
@@ -1154,7 +1428,7 @@ CONTAINS
                ENDDO
 
                IF (trim(mode) == 'average') THEN
-                  IF (vec_out(iset) /= fillvalue) THEN
+                  IF (vec_out(iset) /= fillvalue .and. sumarea > 0._r8) THEN
                      vec_out(iset) = vec_out(iset) / sumarea
                   ENDIF
                ENDIF
@@ -1185,6 +1459,8 @@ CONTAINS
       IF (allocated(this%other_to    )) deallocate(this%other_to    )
       IF (allocated(this%sendcache_real8)) deallocate(this%sendcache_real8)
       IF (allocated(this%recvcache_real8)) deallocate(this%recvcache_real8)
+      IF (allocated(this%sendcache_real8_batch)) deallocate(this%sendcache_real8_batch)
+      IF (allocated(this%recvcache_real8_batch)) deallocate(this%recvcache_real8_batch)
       IF (allocated(this%req_send_real8 )) deallocate(this%req_send_real8 )
       IF (allocated(this%req_recv_real8 )) deallocate(this%req_recv_real8 )
       IF (allocated(this%send_peer_real8)) deallocate(this%send_peer_real8)
@@ -1192,6 +1468,8 @@ CONTAINS
       IF (allocated(this%send_disp_real8)) deallocate(this%send_disp_real8)
       IF (allocated(this%recv_disp_real8)) deallocate(this%recv_disp_real8)
 #endif
+      this%mapping_kind = WORKER_PUSH_MAPPING_UNSET
+      this%required_send_size = 0
 
    END SUBROUTINE worker_pushdata_free_mem
 

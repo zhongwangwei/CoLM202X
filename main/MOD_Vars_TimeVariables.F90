@@ -1303,6 +1303,7 @@ ENDIF
 #ifdef TRACER
          CALL write_tracer_restart(file_restart)
 #endif
+      CALL commit_GridRiverLakeRestart (file_restart)
 #endif
 
 #if (defined URBAN_MODEL)

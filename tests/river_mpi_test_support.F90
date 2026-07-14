@@ -27,6 +27,12 @@ MODULE MOD_SPMD_Task
    integer :: p_np_io = 0
    integer :: p_stat(MPI_STATUS_SIZE)
    integer :: p_err = MPI_SUCCESS
+CONTAINS
+   SUBROUTINE CoLM_stop(message)
+      character(len=*), intent(in), optional :: message
+      IF (present(message)) write(*,'(A)') trim(message)
+      CALL MPI_Abort(MPI_COMM_WORLD, 1, p_err)
+   END SUBROUTINE CoLM_stop
 END MODULE MOD_SPMD_Task
 
 MODULE MOD_Utils
@@ -47,21 +53,41 @@ CONTAINS
       integer, intent(inout) :: list(:)
       integer, intent(out) :: iloc
       logical, intent(out), optional :: is_new_out
-      integer :: i
+      integer :: ileft, iright
       logical :: is_new
 
-      iloc = n + 1
-      is_new = .true.
-      DO i = 1, n
-         IF (x == list(i)) THEN
-            iloc = i
-            is_new = .false.
-            EXIT
-         ELSEIF (x < list(i)) THEN
-            iloc = i
-            EXIT
-         ENDIF
-      ENDDO
+      IF (n == 0) THEN
+         iloc = 1
+         is_new = .true.
+      ELSEIF (x <= list(1)) THEN
+         iloc = 1
+         is_new = x /= list(1)
+      ELSEIF (x > list(n)) THEN
+         iloc = n + 1
+         is_new = .true.
+      ELSEIF (x == list(n)) THEN
+         iloc = n
+         is_new = .false.
+      ELSE
+         ileft = 1
+         iright = n
+         DO
+            IF (iright - ileft <= 1) THEN
+               iloc = iright
+               is_new = .true.
+               EXIT
+            ENDIF
+            iloc = (ileft + iright) / 2
+            IF (x > list(iloc)) THEN
+               ileft = iloc
+            ELSEIF (x < list(iloc)) THEN
+               iright = iloc
+            ELSE
+               is_new = .false.
+               EXIT
+            ENDIF
+         ENDDO
+      ENDIF
       IF (is_new) THEN
          IF (iloc <= n) list(iloc+1:n+1) = list(iloc:n)
          list(iloc) = x
@@ -73,14 +99,23 @@ CONTAINS
    integer FUNCTION find_in_sorted_list1_int32(x, n, list) RESULT(iloc)
       integer, intent(in) :: x, n
       integer, intent(in) :: list(n)
-      integer :: i
+      integer :: ileft, iright
+
       iloc = 0
-      DO i = 1, n
-         IF (list(i) == x) THEN
-            iloc = i
+      IF (n <= 0 .or. x < list(1) .or. x > list(n)) RETURN
+      ileft = 1
+      iright = n
+      DO WHILE (ileft <= iright)
+         iloc = (ileft + iright) / 2
+         IF (x < list(iloc)) THEN
+            iright = iloc - 1
+         ELSEIF (x > list(iloc)) THEN
+            ileft = iloc + 1
+         ELSE
             RETURN
          ENDIF
       ENDDO
+      iloc = 0
    END FUNCTION find_in_sorted_list1_int32
 
    SUBROUTINE insert_into_sorted_list2(x, y, n, xlist, ylist, iloc, is_new_out)
@@ -112,19 +147,33 @@ CONTAINS
    recursive SUBROUTINE quicksort_int32(n, values, order)
       integer, intent(in) :: n
       integer, intent(inout) :: values(n), order(n)
-      integer :: i, j, value_tmp, order_tmp
-      DO i = 1, n - 1
-         DO j = i + 1, n
-            IF (values(j) < values(i)) THEN
-               value_tmp = values(i)
-               values(i) = values(j)
-               values(j) = value_tmp
-               order_tmp = order(i)
-               order(i) = order(j)
-               order(j) = order_tmp
-            ENDIF
+      integer :: left, right, pivot, marker, value_tmp, order_tmp
+
+      IF (n <= 1) RETURN
+      pivot = values(n / 2)
+      left = 0
+      right = n + 1
+      DO WHILE (left < right)
+         right = right - 1
+         DO WHILE (values(right) > pivot)
+            right = right - 1
          ENDDO
+         left = left + 1
+         DO WHILE (values(left) < pivot)
+            left = left + 1
+         ENDDO
+         IF (left < right) THEN
+            value_tmp = values(left)
+            values(left) = values(right)
+            values(right) = value_tmp
+            order_tmp = order(left)
+            order(left) = order(right)
+            order(right) = order_tmp
+         ENDIF
       ENDDO
+      marker = right
+      CALL quicksort_int32(marker, values(1:marker), order(1:marker))
+      CALL quicksort_int32(n-marker, values(marker+1:n), order(marker+1:n))
    END SUBROUTINE quicksort_int32
 END MODULE MOD_Utils
 

@@ -29,7 +29,9 @@ def test_bif_substep_has_one_global_dt_reduction() -> None:
     substep_loop = FLOW.split("DO WHILE (loop_active)", 1)[1].split(
         "! Keep restart-visible state", 1
     )[0]
-    assert substep_loop.count("CALL sync_global_routing_dt(dt_res, dt_all)") == 1
+    assert substep_loop.count(
+        "CALL sync_global_routing_dt(dt_res, dt_all, next_loop_active)"
+    ) == 1
 
 
 def test_real8_worker_push_reuses_communication_scratch() -> None:
@@ -78,13 +80,19 @@ def test_bif_does_not_send_globally_identical_destination_dt() -> None:
 
 def test_no_levee_path_skips_split_storage_pushes() -> None:
     calc = routine(BIF, "bifurcation_calc")
-    split_push = calc.index(
-        "CALL worker_push_data (push_bif_dn2pth, visible_storage_ucat"
+    split_field = calc.index(
+        "dynamic_state_fields(5)%send => visible_storage_ucat"
     )
-    guard = calc.rfind("IF (DEF_USE_LEVEE) THEN", 0, split_push)
-    fallback = calc.index("visible_storage_dn_pth(:) = storage_dn_pth(:)", split_push)
+    guard = calc.rfind("IF (DEF_USE_LEVEE) THEN", 0, split_field)
+    guard_end = calc.index("ENDIF", split_field)
+    fallback = calc.index(
+        "visible_storage_dn_pth(:) = storage_dn_pth(:)", guard_end
+    )
+
     assert guard >= 0
-    assert split_push < fallback
+    assert "n_dynamic_state_fields = 4" in calc[:guard]
+    assert "n_dynamic_state_fields = 5" in calc[split_field:guard_end]
+    assert guard_end < fallback
 
 
 def test_levee_restart_reuses_preloaded_visible_volume() -> None:
@@ -113,7 +121,7 @@ def test_mpi_evaluator_executes_multi_rank_harness() -> None:
     harness = (ROOT / "tests/river_mpi_harness.F90").read_text(encoding="utf-8")
     assert EVALUATOR.stat().st_mode & 0o111
     assert "mpiexec" in script or "mpirun" in script
-    assert "for ranks in 2 4" in script
+    assert "for ranks in 2 4 8" in script
     assert "river_mpi_harness" in script
     assert "MPI_Comm_split" in harness
     assert "is_master = rank == nranks - 1" in harness

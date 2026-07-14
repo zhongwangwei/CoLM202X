@@ -16,7 +16,9 @@ def test_bif_flux_returns_to_cama_static_levee_partition() -> None:
 
 def test_restart_folds_nonleveed_protected_water_instead_of_zeroing_it() -> None:
     assert "ieee_is_finite(levee_hgt(i))" in LEVEE
-    assert "ieee_is_finite(levsto)" in LEVEE
+    assert "ieee_is_finite(levsto(i))" in LEVEE
+    assert "ELSEIF (levsto(i) < 0._r8) THEN" in LEVEE
+    assert "ieee_is_finite(levsto) .or." not in LEVEE
     assert "volwater_ucat_io(i) = volwater_ucat_io(i) + levsto(i)" in LEVEE
     assert "currently non-leveed cell(s) into visible routing storage" in LEVEE
     assert "IF (has_restart_var(2) == 0) THEN" in LEVEE
@@ -26,7 +28,8 @@ def test_restart_folds_nonleveed_protected_water_instead_of_zeroing_it() -> None
 
 
 def test_restart_folds_matching_tracer_mass_into_visible_pool() -> None:
-    assert "ieee_is_finite(trc_levsto(itrc, :))" in TRACER
+    assert "ieee_is_finite(trc_levsto(itrc, ii_bf))" in TRACER
+    assert "ELSEIF (trc_levsto(itrc, ii_bf) < 0._r8) THEN" in TRACER
     assert "IF (.not. has_levee_bf(ii_bf)) THEN" in TRACER
     assert "IF (.not. tracer_uses_land_water_transport(itrc_bf)) CYCLE" in TRACER
     assert "trc_mass(itrc_bf, ii_bf) = trc_mass(itrc_bf, ii_bf)" in TRACER

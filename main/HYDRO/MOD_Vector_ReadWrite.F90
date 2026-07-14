@@ -24,6 +24,7 @@ CONTAINS
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_DataType
+   USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
    real(r8), intent(in) :: vector (:)
@@ -42,6 +43,7 @@ CONTAINS
 
       IF (p_is_master) THEN
          allocate (wdata (totalvlen))
+         wdata = spval
       ENDIF
 
 #ifdef USEMPI
@@ -198,6 +200,8 @@ CONTAINS
    logical :: write_attr
 
 
+      IF (totalvlen <= 0) RETURN
+
       CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
 
       IF (p_is_master) THEN
@@ -262,6 +266,8 @@ CONTAINS
    real(r8), allocatable :: wdata(:), wdata2d(:,:)
    logical :: write_attr
 
+      IF (totalvlen <= 0) RETURN
+
       CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
 
       IF (p_is_master) THEN
@@ -317,11 +323,29 @@ CONTAINS
    type(pointer_int32_1d), intent(in)    :: data_address (0:)
 
    ! Local variables
-   integer :: iwork, ndata
+   integer :: iwork, ndata, expected_length
    real(r8), allocatable :: rdata(:), rcache(:)
 
       IF (p_is_master) THEN
          CALL ncio_read_serial (filein, varname, rdata)
+
+         expected_length = 0
+         DO iwork = lbound(data_address, 1), ubound(data_address, 1)
+            IF (allocated(data_address(iwork)%val)) &
+               expected_length = expected_length + size(data_address(iwork)%val)
+         ENDDO
+         IF (size(rdata) /= expected_length) THEN
+            CALL CoLM_stop ('vector_read_and_scatter: restart vector length mismatch')
+         ENDIF
+
+         DO iwork = lbound(data_address, 1), ubound(data_address, 1)
+            IF (allocated(data_address(iwork)%val)) THEN
+               IF (any(data_address(iwork)%val < 1 .or. &
+                       data_address(iwork)%val > size(rdata))) THEN
+                  CALL CoLM_stop ('vector_read_and_scatter: restart vector address out of range')
+               ENDIF
+            ENDIF
+         ENDDO
       ENDIF
 
 #ifdef USEMPI
