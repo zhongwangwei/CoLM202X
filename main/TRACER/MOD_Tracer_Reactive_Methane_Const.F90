@@ -196,10 +196,10 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: z0_methane_prod = 0._r8
 
       ! methane oxidation constants
-	      ! Oxidation vmax is per aqueous/active-water volume; methane_oxid
-	      ! multiplies by vol_aqu to produce bulk-soil mol m-3 s-1 rates.
-	      real(r8) :: vmax_methane_oxid = 1.25e-5_r8       ! Unit: mol m-3-aqueous s-1
-	      real(r8) :: vmax_oxid_unsat = 1.25e-6_r8         ! Unit: mol m-3-aqueous s-1
+      ! Oxidation vmax is per aqueous/active-water volume; methane_oxid
+      ! multiplies by vol_aqu to produce bulk-soil mol m-3 s-1 rates.
+      real(r8) :: vmax_methane_oxid = 1.25e-5_r8       ! Unit: mol m-3-aqueous s-1
+      real(r8) :: vmax_oxid_unsat = 1.25e-6_r8         ! Unit: mol m-3-aqueous s-1
       real(r8) :: k_m = 5.e-3_r8                ! Michaelis-Menten oxidation rate constant for CH4 concentration (params:5e-3 code:5.e-6_r8 * 1000._r8) (doc:KCH4 Baseline:5e-3 Range:5e-4~5e-2)
       real(r8) :: k_m_unsat = 5.e-4_r8           ! Michaelis-Menten oxidation rate constant for CH4 concentration (params:5e-4 code:5.e-6_r8 * 1000._r8 / 10._r8) (doc:KCH4 Baseline:5e-3 Range:5e-4~5e-2)
       real(r8) :: k_m_o2 =2.e-2_r8             ! Michaelis-Menten oxidation rate constant for O2 concentration (params:2e-2 code:20.e-6_r8 * 1000._r8) (doc:KO2 Baseline:2e-2 Range:2e-3~2e-1)
@@ -319,7 +319,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
                                  ! Note: switching this off turns off ALL lake methane biogeochem. However, 0 values
                                  ! will still be averaged into the concentration _sat history fields.
 
-	      logical :: usephfact = .true.  ! Switch to use pH factor in methane production; falls back to neutral pH 6.2 if spatial pH file is missing. Standard namelist also sets .true. — keep defaults aligned.
+      logical :: usephfact = .true.  ! Switch to use pH factor in methane production; falls back to neutral pH 6.2 if spatial pH file is missing. Standard namelist also sets .true. — keep defaults aligned.
 
       ! Smooth WTD->finundated transition for scheme 6 (logistic S-curve).
       ! Replaces the original step function (zwt<=0.30 -> 1, else 0).
@@ -511,7 +511,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
    END type Methane_type
 
    type Methane_hydrology_type
-            real(r8) :: vdcf = 2._r8
+      real(r8) :: vdcf = 2._r8
       real(r8) :: slopebeta = -3._r8
       real(r8) :: slopemax = 0.4_r8
       real(r8) :: pc = 0.4_r8
@@ -526,7 +526,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 
 CONTAINS
 
-	   SUBROUTINE read_methane_namelist (nlfile)
+   SUBROUTINE read_methane_namelist (nlfile)
 
    USE MOD_SPMD_Task
    USE MOD_Namelist

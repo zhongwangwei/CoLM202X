@@ -325,9 +325,9 @@ CONTAINS
 
       pft_arrays_ready = .false.
       IF (ps <= 0 .or. pe < ps) RETURN
-	      IF (.not. allocated(pftfrac)) RETURN
-	      IF (.not. allocated(annsum_npp_p)) RETURN
-	      IF (.not. allocated(cinput_rootfr_p)) RETURN
+      IF (.not. allocated(pftfrac)) RETURN
+      IF (.not. allocated(annsum_npp_p)) RETURN
+      IF (.not. allocated(cinput_rootfr_p)) RETURN
       IF (.not. allocated(froot_mr_p)) RETURN
       IF (.not. allocated(cpool_to_leafc_p)) RETURN
       IF (.not. allocated(cpool_to_leafc_storage_p)) RETURN
@@ -351,10 +351,10 @@ CONTAINS
       IF (.not. allocated(transfer_livecroot_gr_p)) RETURN
       IF (.not. allocated(transfer_deadcroot_gr_p)) RETURN
 
-	      IF (pe > size(pftfrac)) RETURN
-	      IF (pe > size(annsum_npp_p)) RETURN
-	      IF (nl_soil > size(cinput_rootfr_p,1)) RETURN
-	      IF (pe > size(cinput_rootfr_p,2)) RETURN
+      IF (pe > size(pftfrac)) RETURN
+      IF (pe > size(annsum_npp_p)) RETURN
+      IF (nl_soil > size(cinput_rootfr_p,1)) RETURN
+      IF (pe > size(cinput_rootfr_p,2)) RETURN
       IF (pe > size(froot_mr_p)) RETURN
       IF (pe > size(cpool_to_leafc_p)) RETURN
       IF (pe > size(cpool_to_leafc_storage_p)) RETURN

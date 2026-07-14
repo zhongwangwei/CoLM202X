@@ -1192,8 +1192,8 @@ CONTAINS
 	   END SUBROUTINE accumulate_methane_lake_substep_diagnostics
 
 
-	   !-------------------------------------------------------------------
-	   ! compute_f_h2osfc — CLM5 microtopography-based prognostic surface water fraction
+   !-------------------------------------------------------------------
+   ! compute_f_h2osfc — CLM5 microtopography-based prognostic surface water fraction
    !
    ! Ported from the Methane source restart flow.
    !   main/MOD_Runoff.F90 (line 332-462) / MOD_Runoff_h2osfc.F90 (line 247)
@@ -1254,55 +1254,55 @@ CONTAINS
       micro_sigma = max(0._r8, min(DEF_METHANE_hydrology%slopemax, micro_sigma))
       sigma_mm = 1.0e3_r8 * micro_sigma   ! m -> mm
 
-	      IF (sigma_mm > 1.e-3_r8) THEN
-	         IF (wdsrf_in >= 10._r8 * sigma_mm) THEN
-	            f_h2osfc(ipatch) = 1._r8
-	            RETURN
-	         ENDIF
-	         ! Newton iteration for the CLM fill-and-spill microtopography
-         ! relation:
-         !   W(d) = 0.5*d*(1+erf(d/(sigma*sqrt(2))))
-         !        + sigma/sqrt(2*pi)*exp(-d**2/(2*sigma**2))
-         ! where W is grid-cell mean surface-water depth [mm].  The old
-         ! implementation solved an unrelated pc threshold and then replaced
-         ! d by wdsrf, which made wdsrf=0 diagnose f_h2osfc=0.5.
-		         d = min(max(0._r8, wdsrf_in), 10._r8 * sigma_mm)
-		         converged = .false.
-	         DO p = 1, 20
-	            fd = 0.5_r8 * d * (1.0_r8 + erf(d / (sigma_mm * sqrt(2.0_r8)))) &
-	               + sigma_mm / sqrt(2.0_r8 * PI) &
-	               * exp(-d**2 / (2.0_r8 * sigma_mm**2)) &
-	               - wdsrf_in
-	            dfdd = 0.5_r8 * (1.0_r8 + erf(d / (sigma_mm * sqrt(2.0_r8))))
-	            IF (abs(fd) < fd_tol) THEN
-	               converged = .true.
-	               EXIT
-	            ENDIF
-	            IF (dfdd < 1.e-12_r8) EXIT
-	            d = d - fd / dfdd
-	            d = max(-10._r8 * sigma_mm, min(10._r8 * sigma_mm, d))
-	         END DO
-	         IF (.not. converged) THEN
-	            ! Monotone fallback for rare Newton failures.  This avoids
-	            ! silently using the last Newton iterate when the derivative is
-	            ! tiny near the dry tail.
-	            d_lo = -10._r8 * sigma_mm
-	            d_hi =  10._r8 * sigma_mm
-	            DO p = 1, 60
-	               d_mid = 0.5_r8 * (d_lo + d_hi)
-	               f_mid = 0.5_r8 * d_mid * (1.0_r8 + erf(d_mid / (sigma_mm * sqrt(2.0_r8)))) &
-	                  + sigma_mm / sqrt(2.0_r8 * PI) &
-	                  * exp(-d_mid**2 / (2.0_r8 * sigma_mm**2)) &
-	                  - wdsrf_in
-	               IF (abs(f_mid) < fd_tol) EXIT
-	               IF (f_mid > 0._r8) THEN
-	                  d_hi = d_mid
-	               ELSE
-	                  d_lo = d_mid
-	               ENDIF
-	            END DO
-	            d = d_mid
-	         ENDIF
+      IF (sigma_mm > 1.e-3_r8) THEN
+         IF (wdsrf_in >= 10._r8 * sigma_mm) THEN
+            f_h2osfc(ipatch) = 1._r8
+            RETURN
+         ENDIF
+         ! Newton iteration for the CLM fill-and-spill microtopography
+      ! relation:
+      !   W(d) = 0.5*d*(1+erf(d/(sigma*sqrt(2))))
+      !        + sigma/sqrt(2*pi)*exp(-d**2/(2*sigma**2))
+      ! where W is grid-cell mean surface-water depth [mm].  The old
+      ! implementation solved an unrelated pc threshold and then replaced
+      ! d by wdsrf, which made wdsrf=0 diagnose f_h2osfc=0.5.
+            d = min(max(0._r8, wdsrf_in), 10._r8 * sigma_mm)
+            converged = .false.
+         DO p = 1, 20
+            fd = 0.5_r8 * d * (1.0_r8 + erf(d / (sigma_mm * sqrt(2.0_r8)))) &
+               + sigma_mm / sqrt(2.0_r8 * PI) &
+               * exp(-d**2 / (2.0_r8 * sigma_mm**2)) &
+               - wdsrf_in
+            dfdd = 0.5_r8 * (1.0_r8 + erf(d / (sigma_mm * sqrt(2.0_r8))))
+            IF (abs(fd) < fd_tol) THEN
+               converged = .true.
+               EXIT
+            ENDIF
+            IF (dfdd < 1.e-12_r8) EXIT
+            d = d - fd / dfdd
+            d = max(-10._r8 * sigma_mm, min(10._r8 * sigma_mm, d))
+         END DO
+         IF (.not. converged) THEN
+            ! Monotone fallback for rare Newton failures.  This avoids
+            ! silently using the last Newton iterate when the derivative is
+            ! tiny near the dry tail.
+            d_lo = -10._r8 * sigma_mm
+            d_hi =  10._r8 * sigma_mm
+            DO p = 1, 60
+               d_mid = 0.5_r8 * (d_lo + d_hi)
+               f_mid = 0.5_r8 * d_mid * (1.0_r8 + erf(d_mid / (sigma_mm * sqrt(2.0_r8)))) &
+                  + sigma_mm / sqrt(2.0_r8 * PI) &
+                  * exp(-d_mid**2 / (2.0_r8 * sigma_mm**2)) &
+                  - wdsrf_in
+               IF (abs(f_mid) < fd_tol) EXIT
+               IF (f_mid > 0._r8) THEN
+                  d_hi = d_mid
+               ELSE
+                  d_lo = d_mid
+               ENDIF
+            END DO
+            d = d_mid
+         ENDIF
          f_h2osfc(ipatch) = 0.5_r8 * (1.0_r8 + erf(d / (sigma_mm * sqrt(2.0_r8))))
          f_h2osfc(ipatch) = min(1._r8, max(0._r8, f_h2osfc(ipatch)))
       ELSE

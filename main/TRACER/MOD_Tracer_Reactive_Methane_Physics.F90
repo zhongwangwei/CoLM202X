@@ -66,15 +66,15 @@ contains
 		dlon,dlat,&
 		deltim,&
 		z_soisno,dz_soisno,zi_soisno,t_soisno,t_grnd,wliq_soisno,wice_soisno,&
-			forc_t,forc_pbot,forc_po2m,forc_pco2m,forc_us,forc_vs,&
+		forc_t,forc_pbot,forc_po2m,forc_pco2m,forc_us,forc_vs,&
 		zwt,rootfr,snowdp,wat,rsur,etr,lakedepth,lake_icefrac,wdsrf,wetwat,bsw,&
 		smp,porsl,lai,rootr,&
 		annsum_npp,rr,&
 		fsatmax,fsatdcf,frcsat,&
 		agnpp,bgnpp,somhr,&
 		crootfr,lithr,hr_vr,o_scalar,fphr,pot_f_nit_vr,pH,&
-			cellorg,t_h2osfc,organic_max,&
-			microbial_prod_potential_patch, microbial_oxid_potential_patch, &
+		cellorg,t_h2osfc,organic_max,&
+		microbial_prod_potential_patch, microbial_oxid_potential_patch, &
 		!!!! --------------------------------------------------------------------------------------------------------
 		!!!!                                         sum data
 		!!!! --------------------------------------------------------------------------------------------------------
@@ -82,9 +82,9 @@ contains
 		methane_prod_depth, o2_decomp_depth, co2_decomp_depth, methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
 		methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, methane_ebul_depth, &
 		o2stress, methane_stress, &
-			methane_surf_flux_tot, methane_surf_flux_tot_phys, &
-			methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
-			methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
+		methane_surf_flux_tot, methane_surf_flux_tot_phys, &
+		methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
+		methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
 		methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
 		co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
 		totcol_methane, grnd_methane_cond, conc_o2, conc_methane, &
@@ -155,11 +155,11 @@ contains
 			wice_soisno(maxsnl+1:nl_soil)  , &! ice lens in layers [kg/m2]
 
 			forc_t                  , &! temperature at reference height [K]
-				forc_pbot               , &! atm bottom level pressure (or reference height) [Pa]
-				forc_po2m               , &! O2 concentration in atmos. [Pa]
-				forc_pco2m              , &! CO2 partial pressure at observational height [Pa]
-				forc_us                 , &! eastward wind speed [m/s], used as U10 proxy for lake gas exchange
-				forc_vs                 , &! northward wind speed [m/s], used as U10 proxy for lake gas exchange
+			forc_pbot               , &! atm bottom level pressure (or reference height) [Pa]
+			forc_po2m               , &! O2 concentration in atmos. [Pa]
+			forc_pco2m              , &! CO2 partial pressure at observational height [Pa]
+			forc_us                 , &! eastward wind speed [m/s], used as U10 proxy for lake gas exchange
+			forc_vs                 , &! northward wind speed [m/s], used as U10 proxy for lake gas exchange
 
 			zwt                     , &! the depth from ground (soil) surface to water table [m]
 
@@ -554,21 +554,21 @@ contains
 		methane_stress           = 1._r8
 		methane_ebul_tot         = 0._r8
 
-			methane_surf_flux_tot       = 0._r8
-			methane_surf_flux_tot_sat   = 0._r8
-			methane_surf_flux_tot_unsat = 0._r8
-				methane_balance_residual    = 0._r8
-				methane_ch4_clip_credit     = 0._r8
-				methane_balance_residual_unsat = 0._r8
-				methane_balance_residual_sat   = 0._r8
-				methane_ch4_clip_credit_unsat = 0._r8
-				methane_ch4_clip_credit_sat   = 0._r8
-				o2_cap_loss             = 0._r8
-				o2_cap_loss_unsat       = 0._r8
-				o2_cap_loss_sat         = 0._r8
-				o2_cap_gain             = 0._r8
-				o2_cap_gain_unsat       = 0._r8
-				o2_cap_gain_sat         = 0._r8
+		methane_surf_flux_tot       = 0._r8
+		methane_surf_flux_tot_sat   = 0._r8
+		methane_surf_flux_tot_unsat = 0._r8
+		methane_balance_residual    = 0._r8
+		methane_ch4_clip_credit     = 0._r8
+		methane_balance_residual_unsat = 0._r8
+		methane_balance_residual_sat   = 0._r8
+		methane_ch4_clip_credit_unsat = 0._r8
+		methane_ch4_clip_credit_sat   = 0._r8
+		o2_cap_loss             = 0._r8
+		o2_cap_loss_unsat       = 0._r8
+		o2_cap_loss_sat         = 0._r8
+		o2_cap_gain             = 0._r8
+		o2_cap_gain_unsat       = 0._r8
+		o2_cap_gain_sat         = 0._r8
 
 		methane_prod_tot            = 0._r8
 		methane_prod_tot_sat        = 0._r8
@@ -593,20 +593,20 @@ contains
 		net_methane_sat         = 0._r8
 		net_methane_unsat       = 0._r8
 
-			CALL julian2monthday (idate(1), idate(2), atm_month, atm_mday)
-			atm_methane_mix = methane_atm_mixing_ratio(idate(1), atm_month)
-			! Offline CH4 can use either the scalar atmospheric value
-			! DEF_METHANE%atm_methane or an optional transient file table.
-			if (DEF_METHANE%methane_offline) then
+		CALL julian2monthday (idate(1), idate(2), atm_month, atm_mday)
+		atm_methane_mix = methane_atm_mixing_ratio(idate(1), atm_month)
+		! Offline CH4 can use either the scalar atmospheric value
+		! DEF_METHANE%atm_methane or an optional transient file table.
+		if (DEF_METHANE%methane_offline) then
+			forc_pmethanem = atm_methane_mix*forc_pbot
+			! [Pa]     =[mol/mol]*[Pa]
+		else
+			if (ieee_is_nan(forc_pmethanem) .or. &
+				abs(forc_pmethanem) >= 0.5_r8 * abs(spval) .or. &
+				forc_pmethanem <= 0._r8) then
 				forc_pmethanem = atm_methane_mix*forc_pbot
-				! [Pa]     =[mol/mol]*[Pa]
-			else
-				if (ieee_is_nan(forc_pmethanem) .or. &
-				    abs(forc_pmethanem) >= 0.5_r8 * abs(spval) .or. &
-				    forc_pmethanem <= 0._r8) then
-					forc_pmethanem = atm_methane_mix*forc_pbot
-				end if
 			end if
+		end if
 		c_atm(1) =  forc_pmethanem / rgasm / forc_t
 		c_atm(2) =  forc_po2m  / rgasm / forc_t
 		c_atm(3) =  max(forc_pco2m, 0._r8) / rgasm / forc_t
@@ -628,7 +628,7 @@ contains
 			idate(2) >= DEF_METHANE%lake_restart_debug_start_doy .and. &
 			idate(2) <= DEF_METHANE%lake_restart_debug_end_doy .and. &
 			(DEF_METHANE%lake_restart_debug_sec < 0 .or. &
-			 idate(3) == DEF_METHANE%lake_restart_debug_sec) .and. &
+			idate(3) == DEF_METHANE%lake_restart_debug_sec) .and. &
 			totcolch4_bef_lake > 0._r8
 		if (lake_restart_debug_print) then
 			lake_dbg_totcol_bef = totcolch4_bef_lake
@@ -657,44 +657,44 @@ contains
 		totcol_methane_unsat = 0.
 
 		finundated = 0._r8
-			if (DEF_wetland_finundation_scheme == 1) then
-				! Wetland tiles fully saturated (finundated=1), all other patch
-				! types unsaturated (finundated=0).  The user-facing wetwat mode
-				! starts from this classification and then replaces wetland tiles
-				! with wetwat/wetwat_ref below.
-				if (patchtype == 2) then
-					finundated = 1._r8
-				else
-					finundated = 0._r8
-				endif
-			elseif (DEF_wetland_finundation_scheme == 2) then
-						finundated = frcsat
-			elseif (DEF_wetland_finundation_scheme == 3) then
+		if (DEF_wetland_finundation_scheme == 1) then
+			! Wetland tiles fully saturated (finundated=1), all other patch
+			! types unsaturated (finundated=0).  The user-facing wetwat mode
+			! starts from this classification and then replaces wetland tiles
+			! with wetwat/wetwat_ref below.
+			if (patchtype == 2) then
+				finundated = 1._r8
+			else
+				finundated = 0._r8
+			endif
+		elseif (DEF_wetland_finundation_scheme == 2) then
+					finundated = frcsat
+		elseif (DEF_wetland_finundation_scheme == 3) then
+			finundated = f_h2osfc
+		elseif (DEF_wetland_finundation_scheme == 4) then
+			if (patchtype == 2) then
+				finundated = 1._r8
+			else
 				finundated = f_h2osfc
-			elseif (DEF_wetland_finundation_scheme == 4) then
-				if (patchtype == 2) then
-					finundated = 1._r8
-				else
-					finundated = f_h2osfc
-				endif
-			elseif (DEF_wetland_finundation_scheme == 5) then
-				! GIEMS-MC monthly wetland climatology, looked up per-patch.
-				! Loaded once at init by MOD_Tracer_Reactive_Methane_GIEMS (see CoLM.F90).
+			endif
+		elseif (DEF_wetland_finundation_scheme == 5) then
+			! GIEMS-MC monthly wetland climatology, looked up per-patch.
+			! Loaded once at init by MOD_Tracer_Reactive_Methane_GIEMS (see CoLM.F90).
 			! ipatch is passed in through methane()'s arg list and forwarded
 			! to giems_finundated() below.
 			if (.not. giems_active) then
 				write(6,*) 'ERROR: methane scheme 5 requires an active GIEMS file.'
 				CALL CoLM_stop ()
-				endif
-				finundated = giems_finundated(ipatch, idate(1), idate(2))
-				! GIEMS-MC is grid-cell absolute inundated/saturated wetland
-				! fraction.  Convert to a wetland-relative fraction on mapped
-				! wetland patches, matching routing A1 semantics.
-				IF (patchtype == 2 .and. allocated(wetland_frac_per_patch) .and. &
-				    ipatch >= 1 .and. ipatch <= size(wetland_frac_per_patch)) THEN
-				   finundated = min(1._r8, finundated / max(wetland_frac_per_patch(ipatch), 0.01_r8))
-				ENDIF
-			elseif (DEF_wetland_finundation_scheme == 6) then
+			endif
+			finundated = giems_finundated(ipatch, idate(1), idate(2))
+			! GIEMS-MC is grid-cell absolute inundated/saturated wetland
+			! fraction.  Convert to a wetland-relative fraction on mapped
+			! wetland patches, matching routing A1 semantics.
+			IF (patchtype == 2 .and. allocated(wetland_frac_per_patch) .and. &
+				ipatch >= 1 .and. ipatch <= size(wetland_frac_per_patch)) THEN
+				finundated = min(1._r8, finundated / max(wetland_frac_per_patch(ipatch), 0.01_r8))
+			ENDIF
+		elseif (DEF_wetland_finundation_scheme == 6) then
 			! Water-table-driven inundation via logistic S-curve:
 			!   finundated = 1 / (1 + exp((zwt - wtd_inflection) / wtd_steepness))
 			! Defaults (wtd_inflection=0.30 m, wtd_steepness=0.05 m) reproduce
@@ -745,36 +745,36 @@ contains
 				finundated = 1._r8 / (1._r8 + exp(wtd_arg))
 			endif
 		elseif (DEF_wetland_finundation_scheme == 7) then
-				! GridRiverLake fldfrc: per-patch general flood fraction
-				! (levee+floodplain) from grid-based river/lake routing.
-					! Published by MOD_Grid_RiverLakeFlow::publish_fldfrc_to_patches
-					! at end of routing.  Methane consumes the most recently published
-					! value, normally from the previous land step.  Fall back to the
-					! levee variable if flood var happens to be unallocated (e.g.
-				IF (allocated(f_inund_flood_patch) .and. &
-				    ipatch >= 1 .and. &
-				    ipatch <= size(f_inund_flood_patch)) THEN
-				   finundated = f_inund_flood_patch(ipatch)
-				ELSE IF (allocated(f_inund_levee_patch) .and. &
-				    ipatch >= 1 .and. &
-				    ipatch <= size(f_inund_levee_patch)) THEN
-				   finundated = f_inund_levee_patch(ipatch)
-					ELSE
-						   write(6,*) 'ERROR: methane scheme 7 requires published GridRiverLake levee/floodplain fraction for patch ', &
-					      ipatch
-					   CALL CoLM_stop ()
-					ENDIF
-					! Routing flood fractions are grid/ucat-relative
-					! (A_flood / A_cell).  On wetland tiles convert them to a
-					! wetland-relative fraction (A_flood / A_wetland) using the
-					! static parent-cell wetland fraction cache.  This assumes
-					! broad floodwater preferentially occupies mapped wetland
-					! area; soil tiles keep the grid-relative routing fraction.
-					IF (patchtype == 2 .and. allocated(wetland_frac_per_patch) .and. &
-					    ipatch >= 1 .and. ipatch <= size(wetland_frac_per_patch)) THEN
-					   finundated = min(1._r8, finundated / max(wetland_frac_per_patch(ipatch), 0.01_r8))
-					ENDIF
-			else
+			! GridRiverLake fldfrc: per-patch general flood fraction
+			! (levee+floodplain) from grid-based river/lake routing.
+			! Published by MOD_Grid_RiverLakeFlow::publish_fldfrc_to_patches
+			! at end of routing.  Methane consumes the most recently published
+			! value, normally from the previous land step.  Fall back to the
+			! levee variable if flood var happens to be unallocated (e.g.
+			IF (allocated(f_inund_flood_patch) .and. &
+				ipatch >= 1 .and. &
+				ipatch <= size(f_inund_flood_patch)) THEN
+				finundated = f_inund_flood_patch(ipatch)
+			ELSE IF (allocated(f_inund_levee_patch) .and. &
+				ipatch >= 1 .and. &
+				ipatch <= size(f_inund_levee_patch)) THEN
+				finundated = f_inund_levee_patch(ipatch)
+			ELSE
+				write(6,*) 'ERROR: methane scheme 7 requires published GridRiverLake levee/floodplain fraction for patch ', &
+				ipatch
+				CALL CoLM_stop ()
+			ENDIF
+			! Routing flood fractions are grid/ucat-relative
+			! (A_flood / A_cell).  On wetland tiles convert them to a
+			! wetland-relative fraction (A_flood / A_wetland) using the
+			! static parent-cell wetland fraction cache.  This assumes
+			! broad floodwater preferentially occupies mapped wetland
+			! area; soil tiles keep the grid-relative routing fraction.
+			IF (patchtype == 2 .and. allocated(wetland_frac_per_patch) .and. &
+				ipatch >= 1 .and. ipatch <= size(wetland_frac_per_patch)) THEN
+				finundated = min(1._r8, finundated / max(wetland_frac_per_patch(ipatch), 0.01_r8))
+			ENDIF
+		else
 			write(6,*) 'ERROR: unsupported DEF_wetland_finundation_scheme = ', &
 				DEF_wetland_finundation_scheme
 			CALL CoLM_stop ()
@@ -881,43 +881,43 @@ contains
 		   ! Safety clamp on caller-supplied rice fraction (multi-CFT
 		   ! aggregation occasionally exceeds 1 if pftfrac normalization
 		   ! has been touched upstream).
-		   rice_substrate_boost_eff = 1._r8 + rice_pft_frac * &
+		   	rice_substrate_boost_eff = 1._r8 + rice_pft_frac * &
 		      (DEF_METHANE%rice_substrate_boost - 1._r8)
 
-		   IF (is_paddy_rice_live(ipatch)) THEN
-		      ! Live rice: floor to rice_paddy_min_finundated.  Use max() so
-		      ! an already-wet patch (wetland tile with rice CFT, or scheme=6
-		      ! zwt at surface) is NOT lowered.
-		      finundated_rice = max(finundated_default, DEF_METHANE%rice_paddy_min_finundated)
+		   	IF (is_paddy_rice_live(ipatch)) THEN
+				! Live rice: floor to rice_paddy_min_finundated.  Use max() so
+				! an already-wet patch (wetland tile with rice CFT, or scheme=6
+				! zwt at surface) is NOT lowered.
+				finundated_rice = max(finundated_default, DEF_METHANE%rice_paddy_min_finundated)
 
-		      idpp_rice = rice_days_past_planting(ipatch, idate(2))
-		      ms_start  = DEF_METHANE%rice_midseason_start_days
-		      ms_end    = ms_start + DEF_METHANE%rice_midseason_drain_days
-		      IF (idpp_rice >= 0 .and. real(idpp_rice, r8) >= ms_start &
-		          .and. real(idpp_rice, r8) < ms_end) THEN
-		         finundated_rice = min(finundated_rice, &
-		            max(DEF_METHANE%rice_midseason_drained_finundated, &
-		                finundated_default))
-		      ENDIF
+				idpp_rice = rice_days_past_planting(ipatch, idate(2))
+				ms_start  = DEF_METHANE%rice_midseason_start_days
+				ms_end    = ms_start + DEF_METHANE%rice_midseason_drain_days
+				IF (idpp_rice >= 0 .and. real(idpp_rice, r8) >= ms_start &
+					.and. real(idpp_rice, r8) < ms_end) THEN
+					finundated_rice = min(finundated_rice, &
+						max(DEF_METHANE%rice_midseason_drained_finundated, &
+							finundated_default))
+				ENDIF
 
 		      rice_finundation_active = .true.
 		      finundated = rice_pft_frac * finundated_rice &
 		                 + (1._r8 - rice_pft_frac) * finundated_default
 
-		   ELSE
-		      dsh = rice_days_since_harvest(ipatch, idate(2))
-		      IF (dsh >= 0 .and. real(dsh, r8) < DEF_METHANE%rice_drain_window_days) THEN
-		         decay = 1._r8 - real(dsh, r8) / DEF_METHANE%rice_drain_window_days
-		         drain_target = decay * DEF_METHANE%rice_paddy_min_finundated
-		         finundated_rice = max(drain_target, finundated_default)
-		         rice_finundation_active = .true.
-		         finundated = rice_pft_frac * finundated_rice &
-		                    + (1._r8 - rice_pft_frac) * finundated_default
-		      ENDIF
-		   ENDIF
+		   	ELSE
+				dsh = rice_days_since_harvest(ipatch, idate(2))
+				IF (dsh >= 0 .and. real(dsh, r8) < DEF_METHANE%rice_drain_window_days) THEN
+					decay = 1._r8 - real(dsh, r8) / DEF_METHANE%rice_drain_window_days
+					drain_target = decay * DEF_METHANE%rice_paddy_min_finundated
+					finundated_rice = max(drain_target, finundated_default)
+					rice_finundation_active = .true.
+					finundated = rice_pft_frac * finundated_rice &
+								+ (1._r8 - rice_pft_frac) * finundated_default
+				ENDIF
+		   	ENDIF
 
-		   ! Clamp to [0,1] for safety after any blend.
-		   finundated = min(max(finundated, 0._r8), 1._r8)
+		   	! Clamp to [0,1] for safety after any blend.
+		   	finundated = min(max(finundated, 0._r8), 1._r8)
 		ENDIF
 
 		dfsat = finundated - fsat_bef
@@ -1095,7 +1095,7 @@ contains
 				! are NOT scaled because that would falsify the BGC carbon
 				! balance — this is a methane-only substrate availability proxy.
 				IF (is_rice_paddy .and. rice_substrate_boost_eff > 1._r8) THEN
-				   methane_prod_depth_unsat(:) = methane_prod_depth_unsat(:) * rice_substrate_boost_eff
+				   	methane_prod_depth_unsat(:) = methane_prod_depth_unsat(:) * rice_substrate_boost_eff
 				ENDIF
 
 				! Calculate CH4 oxidation in each soil layer
@@ -1148,7 +1148,7 @@ contains
 				! IF (wetwat_sat > wetwatmax) THEN
 				! 	wdsrf_sat  = wetwat_sat - wetwatmax
 				! 	wetwat_sat = wetwatmax
-	! 	wa_sat     = 0.
+				! 	wa_sat     = 0.
 				! ELSEIF (wetwat_sat < 0) THEN
 	            ! 	wa_sat     = wetwat_sat
 				! 	wdsrf_sat  = 0.
@@ -1262,9 +1262,9 @@ contains
 						lb, snl, jwt_sat, sat, finundated, &
 						dlon, dlat, deltim, z_soisno, dz_soisno, zi_soisno, t_soisno, t_grnd, forc_us, forc_vs, &
 						porsl, wliq_soisno_sat, wice_soisno_sat, wdsrf_sat, lakedepth, lake_icefrac, bsw, c_atm, methane_prod_depth_sat, o2_aere_depth_sat, &
-					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat, vol_aqu_sat, vol_gas_sat, &
-					o2stress_sat, methane_stress_sat, methane_surf_aere_sat, methane_surf_ebul_sat, methane_surf_diff_sat, methane_ebul_tot_sat, &
-					methane_oxid_depth_sat, methane_aere_depth_sat, methane_tran_depth_sat, methane_ebul_depth_sat, &
+						cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat, vol_aqu_sat, vol_gas_sat, &
+						o2stress_sat, methane_stress_sat, methane_surf_aere_sat, methane_surf_ebul_sat, methane_surf_diff_sat, methane_ebul_tot_sat, &
+						methane_oxid_depth_sat, methane_aere_depth_sat, methane_tran_depth_sat, methane_ebul_depth_sat, &
 						grnd_methane_cond_sat, o2_oxid_depth_sat, o2_decomp_depth_sat, &
 						conc_o2_sat, conc_methane_sat, methane_balance_residual_sat, methane_ch4_clip_credit_sat, methane_surf_diff_phys_sat, &
 						o2_cap_loss_sat, o2_cap_gain_sat )
@@ -1457,16 +1457,6 @@ contains
 					methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
 				ENDIF
 			ENDIF
-
-
-
-
-
-
-
-
-
-
 
 		! Column level balance
 		if (.not. methane_cold_start) then
@@ -1690,13 +1680,13 @@ contains
 		real(r8) :: rr_vr(1:nl_soil) ! vertically resolved column-mean root respiration (g C/m2/s)
 
 		real(r8) :: sif              ! (unitless) ratio applied to sat. prod. to account for seasonal inundation
-			real(r8) :: q10lake_eff      ! lake Q10 for sediment carbon decomposition
-			real(r8) :: lake_ch4_fraction
-			real(r8) :: carbon_decomp_depth
-			real(r8) :: legacy_methane_prod_depth
-			real(r8) :: microbe_prod_cap
-			real(r8) :: freeze_factor
-			logical  :: use_microbe_override
+		real(r8) :: q10lake_eff      ! lake Q10 for sediment carbon decomposition
+		real(r8) :: lake_ch4_fraction
+		real(r8) :: carbon_decomp_depth
+		real(r8) :: legacy_methane_prod_depth
+		real(r8) :: microbe_prod_cap
+		real(r8) :: freeze_factor
+		logical  :: use_microbe_override
 		real(r8) :: walter_renorm        ! Walter 2001 depth attenuation renormalization factor
 		real(r8) :: walter_w_raw, walter_w_atten   ! pre-pass HR weights for renorm
 		!-----------------------------------------------------------------------

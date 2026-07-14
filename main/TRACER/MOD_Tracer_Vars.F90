@@ -185,42 +185,42 @@ CONTAINS
          trc_leaf_delta_b(itrc, :) = tracers(itrc)%init_delta
       ENDDO
 
-	      allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
-		      allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
-		      allocate(a_water_evap_gross(ntracers, numpatch));         a_water_evap_gross = 0._r8
-		      allocate(a_trc_transp    (ntracers, numpatch));           a_trc_transp    = 0._r8
-		      allocate(a_trc_transp_src(ntracers, numpatch));           a_trc_transp_src = 0._r8
-		      allocate(a_water_transp  (ntracers, numpatch));           a_water_transp  = 0._r8
-		      allocate(a_trc_soilevap  (ntracers, numpatch));           a_trc_soilevap  = 0._r8
-		      allocate(a_water_soilevap(ntracers, numpatch));           a_water_soilevap = 0._r8
-		      allocate(a_trc_canopyevap(ntracers, numpatch));           a_trc_canopyevap = 0._r8
-		      allocate(a_water_canopyevap(ntracers, numpatch));         a_water_canopyevap = 0._r8
-		      allocate(a_trc_subl      (ntracers, numpatch));           a_trc_subl      = 0._r8
-		      allocate(a_water_subl    (ntracers, numpatch));           a_water_subl    = 0._r8
-		      allocate(a_trc_wetland_evap(ntracers, numpatch));         a_trc_wetland_evap = 0._r8
-		      allocate(a_water_wetland_evap(ntracers, numpatch));       a_water_wetland_evap = 0._r8
+      allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
+      allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
+      allocate(a_water_evap_gross(ntracers, numpatch));         a_water_evap_gross = 0._r8
+      allocate(a_trc_transp    (ntracers, numpatch));           a_trc_transp    = 0._r8
+      allocate(a_trc_transp_src(ntracers, numpatch));           a_trc_transp_src = 0._r8
+      allocate(a_water_transp  (ntracers, numpatch));           a_water_transp  = 0._r8
+      allocate(a_trc_soilevap  (ntracers, numpatch));           a_trc_soilevap  = 0._r8
+      allocate(a_water_soilevap(ntracers, numpatch));           a_water_soilevap = 0._r8
+      allocate(a_trc_canopyevap(ntracers, numpatch));           a_trc_canopyevap = 0._r8
+      allocate(a_water_canopyevap(ntracers, numpatch));         a_water_canopyevap = 0._r8
+      allocate(a_trc_subl      (ntracers, numpatch));           a_trc_subl      = 0._r8
+      allocate(a_water_subl    (ntracers, numpatch));           a_water_subl    = 0._r8
+      allocate(a_trc_wetland_evap(ntracers, numpatch));         a_trc_wetland_evap = 0._r8
+      allocate(a_water_wetland_evap(ntracers, numpatch));       a_water_wetland_evap = 0._r8
       allocate(a_trc_rsur      (ntracers, numpatch));           a_trc_rsur      = 0._r8
       allocate(a_trc_rsub      (ntracers, numpatch));           a_trc_rsub      = 0._r8
       allocate(a_trc_rnof      (ntracers, numpatch));           a_trc_rnof      = 0._r8
       allocate(a_trc_qinfl     (ntracers, numpatch));           a_trc_qinfl     = 0._r8
       allocate(a_trc_qcharge   (ntracers, numpatch));           a_trc_qcharge   = 0._r8
 
-	      allocate(trc_storage_beg (ntracers, numpatch));           trc_storage_beg = 0._r8
-	      allocate(trc_balance_err (ntracers, numpatch));           trc_balance_err = 0._r8
-	      allocate(trc_reactive_source_step(ntracers, numpatch));   trc_reactive_source_step = 0._r8
-	      allocate(trc_numerical_residual_step(ntracers, numpatch)); trc_numerical_residual_step = 0._r8
+      allocate(trc_storage_beg (ntracers, numpatch));           trc_storage_beg = 0._r8
+      allocate(trc_balance_err (ntracers, numpatch));           trc_balance_err = 0._r8
+      allocate(trc_reactive_source_step(ntracers, numpatch));   trc_reactive_source_step = 0._r8
+      allocate(trc_numerical_residual_step(ntracers, numpatch)); trc_numerical_residual_step = 0._r8
 
-	      allocate(a_trc_ldew_mass (ntracers, numpatch));           a_trc_ldew_mass = 0._r8
+      allocate(a_trc_ldew_mass (ntracers, numpatch));           a_trc_ldew_mass = 0._r8
       allocate(a_water_ldew    (numpatch));                     a_water_ldew    = 0._r8
       allocate(a_trc_soil_mass (ntracers, nl_soil, numpatch));  a_trc_soil_mass = 0._r8
       allocate(a_water_soil    (nl_soil, numpatch));             a_water_soil    = 0._r8
       allocate(a_trc_snow_mass (ntracers, abs(maxsnl), numpatch)); a_trc_snow_mass = 0._r8
       allocate(a_water_snow    (abs(maxsnl), numpatch));            a_water_snow    = 0._r8
 
-	      allocate(a_trc_wa_mass    (ntracers, numpatch));          a_trc_wa_mass     = 0._r8
-	      allocate(a_water_wa       (numpatch));                    a_water_wa        = 0._r8
-	      allocate(a_trc_wa_debt_mass(ntracers, numpatch));         a_trc_wa_debt_mass = 0._r8
-	      allocate(a_water_wa_debt   (numpatch));                   a_water_wa_debt    = 0._r8
+      allocate(a_trc_wa_mass    (ntracers, numpatch));          a_trc_wa_mass     = 0._r8
+      allocate(a_water_wa       (numpatch));                    a_water_wa        = 0._r8
+      allocate(a_trc_wa_debt_mass(ntracers, numpatch));         a_trc_wa_debt_mass = 0._r8
+      allocate(a_water_wa_debt   (numpatch));                   a_water_wa_debt    = 0._r8
       allocate(a_trc_wdsrf_mass (ntracers, numpatch));          a_trc_wdsrf_mass  = 0._r8
       allocate(a_water_wdsrf    (numpatch));                    a_water_wdsrf     = 0._r8
       allocate(a_trc_wetwat_mass(ntracers, numpatch));          a_trc_wetwat_mass = 0._r8
