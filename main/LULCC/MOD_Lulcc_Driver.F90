@@ -94,7 +94,7 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Namelist
 #ifdef TRACER
    USE MOD_Tracer_Reactive, only: tracer_reactive_save_lulcc_state, &
-      tracer_reactive_remap_lulcc_state
+      tracer_reactive_remap_lulcc_state, tracer_reactive_reload_lulcc_inputs
    USE MOD_Tracer_Particle, only: tracer_particle_save_lulcc_state, &
       tracer_particle_remap_lulcc_state
    USE MOD_Tracer_Vars, only: save_land_tracer_lulcc_state, &
@@ -178,7 +178,7 @@ MODULE MOD_Lulcc_Driver
                   landpatch%pctshared, landpatch_%pctshared)
                CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
                   patchclass_, landpatch_%eindex, lccpct_patches, &
-                  landpatch_%pctshared, landpatch%pctshared)
+                  landpatch%pctshared, landpatch_%pctshared)
                CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
                   patchclass_, landpatch_%eindex, lccpct_patches, landpatch_%pctshared)
             ELSE
@@ -198,6 +198,9 @@ MODULE MOD_Lulcc_Driver
                patchclass_, landpatch_%eindex)
          ENDIF
       ENDIF
+      ! GIEMS broadcasts and spatial-pH vector I/O use global collectives;
+      ! reload them after the worker-local state remap with every rank present.
+      CALL tracer_reactive_reload_lulcc_inputs ()
 #endif
 
 

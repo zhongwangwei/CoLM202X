@@ -81,7 +81,8 @@ CONTAINS
                  a_methanogen_growth_rate, a_methanotroph_growth_rate, &
                  a_microbial_prod_potential, a_microbial_oxid_potential, &
                  a_methane_acc_num, a_methane_acc_num_unsat, a_methane_acc_num_sat, &
-                 a_methane_acc_num_lake, a_methane_acc_num_extra, a_methane_acc_num_microbe
+                 a_methane_acc_num_lake, a_methane_acc_num_extra, a_methane_acc_num_microbe, &
+                 a_annavg_finrw_acc_num
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_hist
@@ -281,13 +282,14 @@ CONTAINS
                   'f_methane_stress', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
                   'CH4 availability/sinks ratio', '-', &
 	                  acc_num=a_methane_acc_num)
-	                  CALL write_history_variable_2d (.false., a_methane_surf_flux_tot, file_hist, &
-	                     'f_methane_surf_flux_tot', itime_in_file, sumarea, filter, &
-	                     'legacy active CH4 total surface flux; lake excluded; active-area mean', 'mol/m2/s', &
+	                  CALL write_history_variable_2d (mhist_on('f_methane_surf_flux_tot_active'), &
+	                     a_methane_surf_flux_tot, file_hist, &
+	                     'f_methane_surf_flux_tot_active', itime_in_file, sumarea, filter, &
+	                     'corrected CH4 total surface flux; active-CH4-area mean; lake excluded', 'mol/m2/s', &
 	                     acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_surf_flux_tot_phys'), a_methane_surf_flux_tot_phys, file_hist, &
                      'f_methane_surf_flux_tot_phys', itime_in_file, sumarea, filter, &
-                     'CH4 physical total surface flux (before CH4 clip and closure residual)', 'mol/m2/s', &
+                     'CH4 physical total surface flux before clip/residual; active-CH4-area mean; lake excluded', 'mol/m2/s', &
                      acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_surf_aere'), a_methane_surf_aere, file_hist, &
                   'f_methane_surf_aere', itime_in_file, sumarea, filter, &
@@ -307,11 +309,11 @@ CONTAINS
                         acc_num=a_methane_acc_num)
                   CALL write_history_variable_2d (mhist_on('f_methane_balance_residual'), a_methane_balance_residual, file_hist, &
                      'f_methane_balance_residual', itime_in_file, sumarea, filter, &
-                     'CH4 numerical closure flux credited to f_methane_surf_diff', 'mol/m2/s', &
+                     'CH4 numerical closure flux; active-CH4-area mean; lake excluded', 'mol/m2/s', &
                      acc_num=a_methane_acc_num)
                   CALL write_history_variable_2d (mhist_on('f_methane_ch4_clip_credit'), a_methane_ch4_clip_credit, file_hist, &
                      'f_methane_ch4_clip_credit', itime_in_file, sumarea, filter, &
-                     'CH4 negative-concentration clip credit included in reported diffusive flux', 'mol/m2/s', &
+                     'CH4 negative-concentration clip credit; active-CH4-area mean; lake excluded', 'mol/m2/s', &
                      acc_num=a_methane_acc_num)
                   CALL write_history_variable_2d (mhist_on('f_o2_cap_loss'), a_o2_cap_loss, file_hist, &
                      'f_o2_cap_loss', itime_in_file, sumarea, filter, &
@@ -849,7 +851,7 @@ CONTAINS
                CALL write_history_variable_2d (mhist_on('f_annavg_finrw'), a_annavg_finrw, file_hist, &
                   'f_annavg_finrw', itime_in_file, sumarea, filter, &
                   'respiration-weighted annual avg inundated fraction', '-', &
-                  acc_num=a_methane_acc_num_extra)
+                  acc_num=a_annavg_finrw_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_dfsat_tot'), a_methane_dfsat_tot, file_hist, &
                   'f_methane_dfsat_tot', itime_in_file, sumarea, filter, &
                   'CH4 flux from decreasing inundated fraction', 'mol/m2/s', &

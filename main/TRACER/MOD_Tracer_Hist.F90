@@ -15,7 +15,9 @@ MODULE MOD_Tracer_Hist
 #endif
    USE MOD_Tracer_Defs, only: ntracers, tracers, mass_to_delta, trc_tiny, &
       trc_delta_sanity_max, trc_flux_water_min_for_delta, trc_water_min_for_delta, &
-      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport, tracer_is_reactive
+      trc_water_min_for_ratio, &
+      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport, &
+      tracer_concentration_units, tracer_is_nonvolatile_solute
    USE MOD_Tracer_Vars
 
    IMPLICIT NONE
@@ -41,6 +43,7 @@ CONTAINS
       real(r8), intent(in) :: wa, wdsrf, wetwat, scv
 
       integer :: itrc, j, jsnow
+      real(r8) :: layer_water, layer_tracer
 
       IF (ntracers <= 0) RETURN
 
@@ -54,11 +57,17 @@ CONTAINS
 
       ! Soil layers (1:nl_soil) — fixed dimension, safe for MPI gather
       DO j = 1, nl_soil
-         a_water_soil(j, ipatch) = a_water_soil(j, ipatch) + wliq_soisno(j) + wice_soisno(j)
+         layer_water = wliq_soisno(j) + wice_soisno(j)
+         a_water_soil(j, ipatch) = a_water_soil(j, ipatch) + layer_water
          DO itrc = 1, ntracers
             IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-            a_trc_soil_mass(itrc, j, ipatch) = a_trc_soil_mass(itrc, j, ipatch) &
-               + trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+            layer_tracer = trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+            IF (tracer_is_nonvolatile_solute(itrc) .and. &
+                layer_water <= trc_water_min_for_ratio) THEN
+               a_trc_layer_dry_mass(itrc, ipatch) = a_trc_layer_dry_mass(itrc, ipatch) + layer_tracer
+            ELSE
+               a_trc_soil_mass(itrc, j, ipatch) = a_trc_soil_mass(itrc, j, ipatch) + layer_tracer
+            ENDIF
          ENDDO
       ENDDO
 
@@ -73,8 +82,16 @@ CONTAINS
                + wliq_soisno(j) + wice_soisno(j)
             DO itrc = 1, ntracers
                IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-               a_trc_snow_mass(itrc, jsnow, ipatch) = a_trc_snow_mass(itrc, jsnow, ipatch) &
-                  + trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+               layer_water = wliq_soisno(j) + wice_soisno(j)
+               layer_tracer = trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+               IF (tracer_is_nonvolatile_solute(itrc) .and. &
+                   layer_water <= trc_water_min_for_ratio) THEN
+                  a_trc_layer_dry_mass(itrc, ipatch) = &
+                     a_trc_layer_dry_mass(itrc, ipatch) + layer_tracer
+               ELSE
+                  a_trc_snow_mass(itrc, jsnow, ipatch) = &
+                     a_trc_snow_mass(itrc, jsnow, ipatch) + layer_tracer
+               ENDIF
             ENDDO
          ENDDO
       ENDIF
@@ -106,6 +123,10 @@ CONTAINS
                ENDIF
             a_trc_wdsrf_mass (itrc, ipatch) = a_trc_wdsrf_mass (itrc, ipatch) + trc_wdsrf (itrc, ipatch)
          a_trc_wetwat_mass(itrc, ipatch) = a_trc_wetwat_mass(itrc, ipatch) + trc_wetwat(itrc, ipatch)
+         a_trc_surface_residue_mass(itrc, ipatch) = a_trc_surface_residue_mass(itrc, ipatch) + &
+            trc_surface_residue(itrc, ipatch)
+         a_trc_subsurface_residue_mass(itrc, ipatch) = a_trc_subsurface_residue_mass(itrc, ipatch) + &
+            trc_subsurface_residue(itrc, ipatch)
          IF (snl == 0 .and. scv > trc_tiny) THEN
             a_trc_scv_mass(itrc, ipatch) = a_trc_scv_mass(itrc, ipatch) + trc_scv(itrc, ipatch)
          ENDIF
@@ -201,7 +222,7 @@ CONTAINS
                      trc_ratio_units = 'R'
                   ELSE
                      trc_ratio_word  = 'concentration'
-                     trc_ratio_units = 'tracer/water'
+                     trc_ratio_units = tracer_concentration_units(itrc_loc)
                   ENDIF
 
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
@@ -344,14 +365,36 @@ CONTAINS
                      itime_in_file, filter, trim(trc_longname), 'permil')
                   ENDIF
 
-                  ! Reactive species (for example CH4) own their physical
-                  ! history through species-specific callbacks below.  The
-                  ! generic water-pool concentration fields are meaningful for
-                  ! isotope/conservative water tracers, but for reactive gases
-                  ! they are transport bookkeeping and can dominate history I/O
-                  ! even when the reactive namelist requests only a small
-                  ! species-specific history set.
-                  IF (tracer_is_reactive(itrc_loc)) CYCLE
+                  ! Species-owned tracers (for example CH4) were filtered by
+                  ! tracer_uses_land_water_transport above and write history
+                  ! through callbacks. Generic reactive tracers retain these
+                  ! water-pool diagnostics just like conservative tracers.
+
+                  ! Waterless residue is an areal tracer inventory, not a
+                  ! concentration. Tie its output to the existing surface-water
+                  ! history switch until history namelist gains a dedicated key.
+                  IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
+                     write(trc_varname , '(A,A)') 'f_trc_surface_residue_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'immobile surface tracer residue (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%wdsrf, &
+                        a_trc_surface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+
+                     write(trc_varname , '(A,A)') 'f_trc_subsurface_residue_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'immobile subsurface tracer residue (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%wa, &
+                        a_trc_subsurface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+
+                     write(trc_varname , '(A,A)') 'f_trc_layer_dry_inventory_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'dry snow/soil layer tracer inventory (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
+                        a_trc_layer_dry_mass(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                  ENDIF
 
                   ! --- Canopy ratio ---
                   write(trc_varname , '(A,A)')   'f_trc_conc_ldew_', trim(tracers(itrc_loc)%name)
@@ -954,10 +997,6 @@ CONTAINS
       real(r8), allocatable :: send_pair(:,:), recv_pair(:,:)
       real(r8) :: delta_loc
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
       IF (p_is_worker) THEN
 #ifdef CATCHMENT
          numset = numhru
@@ -1102,6 +1141,9 @@ CONTAINS
       IF (allocated(water_global)) deallocate(water_global)
 
 #ifdef USEMPI
+      ! Fixed tags are reused for every history field.  Keep a field-boundary
+      ! synchronization so a fast worker cannot send the next field while the
+      ! master is still receiving the current field from a slower worker.
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
    END SUBROUTINE write_history_tracer_vector_2d
@@ -1138,10 +1180,6 @@ CONTAINS
       real(r8), allocatable :: trc_local(:,:), water_local(:,:), out_vec(:,:)
       real(r8), allocatable :: trc_global(:,:), water_global(:,:)
       real(r8), allocatable :: send_pair(:,:,:), recv_pair(:,:,:)
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
       ub1 = lb1 + ndim1 - 1
       IF (p_is_worker) THEN
@@ -1284,6 +1322,8 @@ CONTAINS
       IF (allocated(water_global)) deallocate(water_global)
 
 #ifdef USEMPI
+      ! See the 2-D gather above: the trailing barrier separates messages
+      ! that intentionally reuse mpi_tag_mesg/mpi_tag_data across fields.
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
    END SUBROUTINE write_history_tracer_ratio_vector_3d

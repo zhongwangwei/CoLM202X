@@ -1,0 +1,42 @@
+&nl_colm_tracer_parameter
+    ! ------------------------------------------------------------------
+    ! Dilute conservative chloride tracer.
+    !
+    ! Main &nl_colm mapping example:
+    !   DEF_TRACER_NAMES       = 'CL'
+    !   DEF_TRACER_TYPES       = 'conservative'
+    !   DEF_TRACER_PARAM_FILES = 'CL:run/standard_chloride_parameter.nml'
+    !
+    ! The current generic land transport carries a tracer/water ratio.  For CL,
+    ! mass_fraction means kg Cl per kg water; for dilute water this is
+    ! approximately mg/L divided by 1.0e6. River/lake amount diagnostics still
+    ! use the model's legacy ratio*m3 scaling, so this file is a conservative
+    ! hydrologic-tracer configuration, not yet a full salt-budget setup. Keep
+    ! Explicit initial/forcing concentrations are separate.  init_delta is
+    ! retained only as the backward-compatible fallback for older files.
+    !
+    ! No hard concentration cap is enabled.  The current model has no solid
+    ! salt pool, plant uptake/harvest ledger, or physical excess-export flux,
+    ! so those controls are not exposed as namelist options yet. Chloride mass
+    ! is never silently removed by a concentration cap. Near-dry numerical
+    ! residue is retained without deleting mass: exhausted snow/soil phases
+    ! keep it in their original layer, while unresolved surface mixed-pool and
+    ! aquifer mass use separate immobile inventories until those pools rewet.
+    ! Internal freeze/thaw still uses the generic bulk-water phase bookkeeping;
+    ! brine rejection, salt precipitation, ion activity, and electroneutrality
+    ! require a future coupled salinity/chemistry model.
+    ! ------------------------------------------------------------------
+    DEF_TRACER%unit_kind           = 'mass_fraction'
+    DEF_TRACER%mol_weight          = 35.453     ! Cl molecular weight [g/mol]
+    DEF_TRACER%ref_ratio           = 1.0        ! unused for conservative tracer
+    DEF_TRACER%init_delta          = 0.0        ! legacy fallback [kg Cl / kg water]
+    DEF_TRACER%init_conc           = 0.0        ! initial water [kg Cl / kg water]
+    DEF_TRACER%precip_default_conc = 0.0        ! when no precip field is configured
+    DEF_TRACER%vapor_default_conc  = 0.0        ! when no vapor field is configured
+    DEF_TRACER%reactive_decay_rate = 0.0
+    DEF_TRACER%charge              = -1
+
+    DEF_TRACER%uses_generic_land_water_transport = .true.
+    DEF_TRACER%is_nonvolatile      = .true.
+    DEF_TRACER%uses_reaction       = .false.
+/

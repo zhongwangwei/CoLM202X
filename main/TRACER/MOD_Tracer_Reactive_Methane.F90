@@ -51,6 +51,7 @@ MODULE MOD_Tracer_Reactive_Methane
    PUBLIC :: ch4_reactive_write_restart, ch4_reactive_read_restart
    PUBLIC :: ch4_reactive_flush_acc_fluxes, ch4_reactive_accumulate_fluxes
    PUBLIC :: ch4_reactive_save_lulcc_state, ch4_reactive_remap_lulcc_state
+   PUBLIC :: ch4_reactive_reload_lulcc_inputs
    PUBLIC :: ch4_reactive_publish_levee_flood, ch4_reactive_publish_flood
    PUBLIC :: ch4_register_reactive_callbacks
 
@@ -70,6 +71,7 @@ CONTAINS
          accumulate_fluxes_fn=ch4_reactive_accumulate_fluxes, &
          history_fn=methane_reactive_history, save_lulcc_fn=ch4_reactive_save_lulcc_state, &
          remap_lulcc_fn=ch4_reactive_remap_lulcc_state, &
+         reload_lulcc_fn=ch4_reactive_reload_lulcc_inputs, &
          publish_levee_flood_fn=ch4_reactive_publish_levee_flood, &
          publish_flood_fn=ch4_reactive_publish_flood, final_fn=ch4_reactive_final)
 
@@ -235,12 +237,14 @@ CONTAINS
 
    SUBROUTINE ch4_reactive_read_restart (file_restart)
 
-      USE MOD_NetCDFSerial, only: ncio_var_exist
+      USE MOD_LandPatch, only: landpatch
+      USE MOD_NetCDFVector, only: ncio_vector_var_present
       IMPLICIT NONE
       character(len=*), intent(in) :: file_restart
       logical :: file_has_pools
 
       IF (.not. ch4_reactive_has()) RETURN
+      CALL validate_methane_restart_transaction (file_restart)
       CALL read_methane_restart (file_restart)
       CALL read_methane_accflux_restart (file_restart)
 
@@ -249,8 +253,8 @@ CONTAINS
       ! resumed with use_microbial_pools=.false. silently drops the prognostic
       ! biomass pools (and the reverse silently cold-starts them from B_init),
       ! breaking restart reproducibility with no message. Master-only probe.
+      file_has_pools = ncio_vector_var_present(file_restart, 'ch4_B_methanogen', landpatch)
       IF (p_is_master) THEN
-         file_has_pools = ncio_var_exist(file_restart, 'ch4_B_methanogen', readflag = .false.)
          IF (file_has_pools .and. (.not. DEF_METHANE%use_microbial_pools)) THEN
             WRITE(*,'(A)') 'WARNING: methane microbial-pool fields are present in the '// &
                'restart but use_microbial_pools=.false.; those pools are being ignored.'
@@ -273,11 +277,84 @@ CONTAINS
       integer, intent(in) :: compress
 
       IF (.not. ch4_reactive_has()) RETURN
+      ! Invalidate an older commit before overwriting any member field.  The
+      ! final marker is written only after state, accumulators and optional
+      ! microbial pools have all completed on every vector block.
+      CALL write_methane_restart_marker(file_restart, 'ch4_restart_complete', 0._r8, compress)
+      CALL write_methane_restart_marker(file_restart, 'ch4_restart_schema', 1._r8, compress)
       CALL write_methane_restart(file_restart, compress)
       CALL write_methane_accflux_restart(file_restart, compress)
       CALL write_methane_microbes_restart(file_restart, compress)
+      CALL write_methane_restart_marker(file_restart, 'ch4_restart_complete', 1._r8, compress)
 
    END SUBROUTINE ch4_reactive_write_restart
+
+   SUBROUTINE write_methane_restart_marker (file_restart, varname, value, compress)
+
+      USE MOD_LandPatch, only: landpatch
+      USE MOD_NetCDFVector, only: ncio_write_vector
+      IMPLICIT NONE
+      character(len=*), intent(in) :: file_restart, varname
+      real(r8), intent(in) :: value
+      integer, intent(in) :: compress
+      real(r8), allocatable :: marker(:)
+
+      IF (p_is_worker) THEN
+         allocate(marker(landpatch%nset))
+         marker(:) = value
+      ELSE
+         allocate(marker(0))
+      ENDIF
+      CALL ncio_write_vector(file_restart, varname, 'patch', landpatch, marker, compress)
+      deallocate(marker)
+
+   END SUBROUTINE write_methane_restart_marker
+
+   SUBROUTINE validate_methane_restart_transaction (file_restart)
+
+      USE MOD_LandPatch, only: landpatch
+      USE MOD_NetCDFVector, only: ncio_read_vector_complete, ncio_vector_var_present
+#ifdef USEMPI
+      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, p_comm_glb, p_err, &
+         MPI_IN_PLACE, MPI_LOGICAL, MPI_LOR
+#else
+      USE MOD_SPMD_Task, only: p_is_worker, p_is_master
+#endif
+      IMPLICIT NONE
+      character(len=*), intent(in) :: file_restart
+      real(r8), allocatable :: schema(:), committed(:)
+      logical :: has_schema, has_commit, invalid_marker
+
+      ! Both markers absent identifies a legacy restart.  Any one-sided marker
+      ! is an interrupted new-format write and must never fall back to legacy.
+      has_schema = ncio_vector_var_present(file_restart, 'ch4_restart_schema', landpatch)
+      has_commit = ncio_vector_var_present(file_restart, 'ch4_restart_complete', landpatch)
+      IF (.not. has_schema .and. .not. has_commit) RETURN
+      IF (.not. has_schema .or. .not. has_commit) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: incomplete methane restart transaction metadata; refusing mixed checkpoint state.'
+         CALL CoLM_stop()
+      ENDIF
+
+      CALL ncio_read_vector_complete(file_restart, 'ch4_restart_schema', landpatch, schema)
+      CALL ncio_read_vector_complete(file_restart, 'ch4_restart_complete', landpatch, committed)
+      invalid_marker = .false.
+      IF (p_is_worker) THEN
+         IF (allocated(schema)) invalid_marker = invalid_marker .or. any(schema /= 1._r8)
+         IF (allocated(committed)) invalid_marker = invalid_marker .or. any(committed /= 1._r8)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, invalid_marker, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+#endif
+      IF (invalid_marker) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: methane restart transaction is uncommitted or has an unsupported schema.'
+         CALL CoLM_stop()
+      ENDIF
+      IF (allocated(schema)) deallocate(schema)
+      IF (allocated(committed)) deallocate(committed)
+
+   END SUBROUTINE validate_methane_restart_transaction
 
    SUBROUTINE ch4_reactive_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
 
@@ -352,23 +429,22 @@ CONTAINS
    END SUBROUTINE ch4_reactive_save_lulcc_state
 
    SUBROUTINE ch4_reactive_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-      lccpct_patches, old_patch_area, new_patch_area)
+      lccpct_patches, new_patch_area, old_patch_area)
 
       IMPLICIT NONE
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,:)
-      real(r8), intent(in), optional :: old_patch_area(:)
       real(r8), intent(in), optional :: new_patch_area(:)
+      real(r8), intent(in), optional :: old_patch_area(:)
       integer :: nnew
-      real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
       CALL remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-         lccpct_patches, old_patch_area, new_patch_area)
+         lccpct_patches, new_patch_area, old_patch_area)
       IF (DEF_METHANE%use_microbial_pools) THEN
          CALL remap_methane_microbes_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-            lccpct_patches, old_patch_area)
+            lccpct_patches, new_patch_area, old_patch_area)
       ENDIF
 
       ! LULCC can change the worker-local patch count.  Methane state and
@@ -381,6 +457,24 @@ CONTAINS
       CALL flush_methane_acc_fluxes ()
       CALL deallocate_methane_acc_fluxes ()
       CALL allocate_methane_acc_fluxes (nnew)
+
+      CALL deallocate_wetland_aere_overrides ()
+      CALL allocate_wetland_aere_overrides (nnew)
+
+   END SUBROUTINE ch4_reactive_remap_lulcc_state
+
+   SUBROUTINE ch4_reactive_reload_lulcc_inputs ()
+
+      IMPLICIT NONE
+      integer :: nnew
+      real(r8), allocatable :: giems_dummy_patch(:)
+
+      IF (.not. ch4_reactive_has()) RETURN
+
+      ! GIEMS and spatial-pH loading are collective.  Derive the worker-local
+      ! size here so non-worker ranks participate with zero-length vectors.
+      nnew = 0
+      IF (p_is_worker .and. allocated(patchtype)) nnew = size(patchtype)
 
       CALL deallocate_methane_giems ()
       CALL allocate_methane_giems (nnew)
@@ -407,10 +501,7 @@ CONTAINS
          CALL read_methane_ph_patch (trim(last_methane_ph_patch_file), nnew)
       ENDIF
 
-      CALL deallocate_wetland_aere_overrides ()
-      CALL allocate_wetland_aere_overrides (nnew)
-
-   END SUBROUTINE ch4_reactive_remap_lulcc_state
+   END SUBROUTINE ch4_reactive_reload_lulcc_inputs
 
    SUBROUTINE ch4_reactive_publish_levee_flood (fldfrc_patch)
 

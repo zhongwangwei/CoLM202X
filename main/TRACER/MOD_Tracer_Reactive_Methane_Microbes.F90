@@ -311,7 +311,7 @@ CONTAINS
 
    SUBROUTINE read_methane_microbes_restart(file_restart)
       USE MOD_LandPatch,    only: landpatch
-      USE MOD_NetCDFVector, only: ncio_read_vector
+      USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete
       character(len=*), intent(in) :: file_restart
 
       IF (.not. allocated(B_methanogen)) RETURN
@@ -376,10 +376,11 @@ CONTAINS
 
 
 	   SUBROUTINE remap_methane_microbes_lulcc_state(patchclass_new, eindex_new, &
-	      patchclass_old, eindex_old, lccpct_patches, old_patch_area)
+	      patchclass_old, eindex_old, lccpct_patches, new_patch_area, old_patch_area)
 	      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
 	      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
 	      real(r8), intent(in), optional :: lccpct_patches(:,:)
+	      real(r8), intent(in), optional :: new_patch_area(:)
 	      real(r8), intent(in), optional :: old_patch_area(:)
       integer :: nnew
 

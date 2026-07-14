@@ -455,8 +455,7 @@ CONTAINS
 
       CALL ensure_particle_callbacks_registered ()
       DO i = 1, n_particle_callbacks
-         IF (particle_callback_enabled(i) .and. associated(particle_callbacks(i)%final)) &
-            CALL particle_callbacks(i)%final ()
+         IF (associated(particle_callbacks(i)%final)) CALL particle_callbacks(i)%final ()
       ENDDO
       CALL clear_particle_callbacks ()
 

@@ -213,7 +213,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	real(r8), allocatable :: co2_aere_tot         (:) ! total CO2 aerenchyma diagnostic (mol/m2/s)
 	real(r8), allocatable :: co2_net_tot          (:) ! net diagnosed CO2 source from CH4 module (mol/m2/s)
    real(r8), allocatable :: totcol_methane             (:) ! total methane in soil column, start of timestep (mol/m2)
-	real(r8), allocatable :: grnd_methane_cond         (:) ! tracer conductance for boundary layer (m/s)
+	real(r8), allocatable :: grnd_methane_cond         (:) ! effective tracer conductance incl. snow/pond resistance (m/s)
    real(r8), allocatable :: conc_o2             (:,:) ! O2 conc in each soil layer (mol/m3)
 	real(r8), allocatable :: conc_methane            (:,:) ! CH4 conc in each soil layer (mol/m3)
    !!!! --------------------------------------------------------------------------------------------------------
@@ -292,8 +292,8 @@ MODULE MOD_Tracer_Reactive_Methane_State
    real(r8), allocatable :: totcol_methane_unsat             (:)  ! total methane in soil column, start (unsaturated)     (mol/m2)
    real(r8), allocatable :: totcol_methane_sat               (:)  ! total methane in soil column, start (saturated)       (mol/m2)
 
-   real(r8), allocatable :: grnd_methane_cond_unsat         (:)  ! tracer conductance for boundary layer (unsaturated)  (m/s)
-   real(r8), allocatable :: grnd_methane_cond_sat           (:)  ! tracer conductance for boundary layer (saturated)    (m/s)
+   real(r8), allocatable :: grnd_methane_cond_unsat         (:)  ! effective tracer conductance incl. snow/pond (unsaturated) (m/s)
+   real(r8), allocatable :: grnd_methane_cond_sat           (:)  ! effective tracer conductance incl. snow/pond (saturated) (m/s)
 
    real(r8), allocatable :: conc_o2_unsat             (:,:)  ! O2 concentration in each soil layer (unsaturated)    (mol/m3)
    real(r8), allocatable :: conc_o2_sat               (:,:)  ! O2 concentration in each soil layer (saturated)      (mol/m3)
@@ -320,7 +320,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   real(r8), allocatable :: co2_oxid_tot_lake           (:)    ! lake total CO2 oxidation product (mol/m2/s)
 	   real(r8), allocatable :: co2_net_tot_lake            (:)    ! lake net diagnosed CO2 source (mol/m2/s)
 	   real(r8), allocatable :: totcol_methane_lake           (:)    ! lake CH4 column stock (mol/m2)
-	   real(r8), allocatable :: grnd_methane_cond_lake        (:)    ! lake-atmosphere CH4 conductance (m/s)
+	   real(r8), allocatable :: grnd_methane_cond_lake        (:)    ! effective lake-atmosphere CH4 conductance (m/s)
 	   real(r8), allocatable :: conc_o2_lake                  (:,:)  ! lake O2 concentration by layer (mol/m3)
 	   real(r8), allocatable :: conc_methane_lake             (:,:)  ! lake CH4 concentration by layer (mol/m3)
 	   !!!! --------------------------------------------------------------------------------------------------------
@@ -415,6 +415,9 @@ MODULE MOD_Tracer_Reactive_Methane_State
    real(r8), allocatable :: lulcc_tempavg_finrw_old(:), lulcc_fsat_bef_old(:)
    real(r8), allocatable :: lulcc_finundated_lag_old(:), lulcc_methane_dfsat_tot_old(:)
    real(r8), allocatable :: lulcc_f_h2osfc_old(:), lulcc_forc_pmethanem_old(:)
+	   real(r8), allocatable :: lulcc_f_inund_levee_patch_old(:)
+	   real(r8), allocatable :: lulcc_f_inund_flood_patch_old(:)
+	   real(r8), allocatable :: lulcc_f_inund_flood_depth_patch_old(:)
 	   real(r8), allocatable :: lulcc_c_atm_old(:,:)
 
 	   ! Temporary lake-substep history buffers.  Lake methane runs on the
@@ -1366,7 +1369,7 @@ CONTAINS
 	   SUBROUTINE read_methane_restart (file_restart)
 	      USE MOD_LandPatch,     only: landpatch
 	      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
-		      USE MOD_NetCDFVector,  only: ncio_read_vector
+		      USE MOD_NetCDFVector,  only: ncio_read_vector => ncio_read_vector_complete
 		      character(len=*), intent(in) :: file_restart
 
 		      IF (.not. allocated(conc_methane)) RETURN
@@ -1561,6 +1564,12 @@ CONTAINS
       allocate(lulcc_methane_dfsat_tot_old(size(methane_dfsat_tot))); lulcc_methane_dfsat_tot_old = methane_dfsat_tot
       allocate(lulcc_f_h2osfc_old(size(f_h2osfc))); lulcc_f_h2osfc_old = f_h2osfc
       allocate(lulcc_forc_pmethanem_old(size(forc_pmethanem))); lulcc_forc_pmethanem_old = forc_pmethanem
+	      allocate(lulcc_f_inund_levee_patch_old(size(f_inund_levee_patch)))
+	      lulcc_f_inund_levee_patch_old = f_inund_levee_patch
+	      allocate(lulcc_f_inund_flood_patch_old(size(f_inund_flood_patch)))
+	      lulcc_f_inund_flood_patch_old = f_inund_flood_patch
+	      allocate(lulcc_f_inund_flood_depth_patch_old(size(f_inund_flood_depth_patch)))
+	      lulcc_f_inund_flood_depth_patch_old = f_inund_flood_depth_patch
       allocate(lulcc_c_atm_old(3,size(c_atm,2))); lulcc_c_atm_old = c_atm
 
       methane_lulcc_snapshot_valid = .true.
@@ -1605,12 +1614,12 @@ CONTAINS
 
 
 	   SUBROUTINE remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-	      lccpct_patches, old_patch_area, new_patch_area)
+	      lccpct_patches, new_patch_area, old_patch_area)
 	      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
 	      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
 	      real(r8), intent(in), optional :: lccpct_patches(:,:)
-	      real(r8), intent(in), optional :: old_patch_area(:)
 	      real(r8), intent(in), optional :: new_patch_area(:)
+	      real(r8), intent(in), optional :: old_patch_area(:)
       integer :: nnew
 
 	      nnew = size(patchclass_new)
@@ -1691,6 +1700,24 @@ CONTAINS
       CALL remap1d_mass(lulcc_methane_dfsat_tot_old,    methane_dfsat_tot)
       CALL remap1d(lulcc_f_h2osfc_old,             f_h2osfc)
       CALL remap1d(lulcc_forc_pmethanem_old,       forc_pmethanem)
+	      CALL remap1d(lulcc_f_inund_levee_patch_old, f_inund_levee_patch)
+	      CALL remap1d(lulcc_f_inund_flood_patch_old, f_inund_flood_patch)
+	      CALL remap1d(lulcc_f_inund_flood_depth_patch_old, f_inund_flood_depth_patch)
+	      WHERE (ieee_is_nan(f_inund_levee_patch) .or. &
+	             abs(f_inund_levee_patch) >= 0.5_r8 * abs(spval))
+	         f_inund_levee_patch = 0._r8
+	      END WHERE
+	      WHERE (ieee_is_nan(f_inund_flood_patch) .or. &
+	             abs(f_inund_flood_patch) >= 0.5_r8 * abs(spval))
+	         f_inund_flood_patch = 0._r8
+	      END WHERE
+	      WHERE (ieee_is_nan(f_inund_flood_depth_patch) .or. &
+	             abs(f_inund_flood_depth_patch) >= 0.5_r8 * abs(spval))
+	         f_inund_flood_depth_patch = 0._r8
+	      END WHERE
+	      f_inund_levee_patch = min(max(f_inund_levee_patch, 0._r8), 1._r8)
+	      f_inund_flood_patch = min(max(f_inund_flood_patch, 0._r8), 1._r8)
+	      f_inund_flood_depth_patch = max(f_inund_flood_depth_patch, 0._r8)
 
       CALL clear_methane_lulcc_snapshot ()
 
@@ -2052,6 +2079,9 @@ CONTAINS
       IF (allocated(lulcc_methane_dfsat_tot_old)) deallocate(lulcc_methane_dfsat_tot_old)
       IF (allocated(lulcc_f_h2osfc_old)) deallocate(lulcc_f_h2osfc_old)
       IF (allocated(lulcc_forc_pmethanem_old)) deallocate(lulcc_forc_pmethanem_old)
+	   IF (allocated(lulcc_f_inund_levee_patch_old)) deallocate(lulcc_f_inund_levee_patch_old)
+	   IF (allocated(lulcc_f_inund_flood_patch_old)) deallocate(lulcc_f_inund_flood_patch_old)
+	   IF (allocated(lulcc_f_inund_flood_depth_patch_old)) deallocate(lulcc_f_inund_flood_depth_patch_old)
       IF (allocated(lulcc_c_atm_old)) deallocate(lulcc_c_atm_old)
       methane_lulcc_snapshot_valid = .false.
    END SUBROUTINE clear_methane_lulcc_snapshot

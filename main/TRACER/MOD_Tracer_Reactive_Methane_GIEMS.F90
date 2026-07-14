@@ -21,11 +21,11 @@ MODULE MOD_Tracer_Reactive_Methane_GIEMS
 !   1. Master opens file, reads dims + lat/lon coords (small).
 !   2. Broadcast dims + coords; allocate per-rank ts (small).
 !   3. Each rank computes nearest-pixel (best_ix, best_iy) per patch.
+!      Those cached pixel indices are gathered to master once.
 !   4. Streaming loop over 348 months:
 !      a. Master reads one (nlon, nlat) slab (~4 MB).
-!      b. MPI_Bcast the slab.
-!      c. Each rank fills giems_ts_wetland_frac(t, ipatch) from its
-!         cached (best_ix, best_iy) indices.
+!      b. Master packs only values requested by patches on each rank.
+!      c. MPI_Scatterv sends each rank only its local patch values.
 !   5. Build 12-month climatology fallback from full ts.
 !
 ! RUNTIME:
@@ -103,11 +103,15 @@ CONTAINS
 
       integer :: ncid, vid, ierr, ierr_bc
       integer :: ntime, nlat, nlon
-      integer :: t, mo, ilat, ilon, ipatch
+      integer :: t, mo, ilat, ilon, ipatch, irequest
       integer :: ndims, vdims(3), dlen_lon
+      integer :: total_requests
       real(r4), allocatable :: slab(:,:)
+      real(r4), allocatable :: patch_values(:), requested_values(:)
       real(r8), allocatable :: lat_g(:), lon_g(:)
       integer,  allocatable :: best_ix(:), best_iy(:)
+      integer,  allocatable :: pixel_index(:), all_pixel_index(:)
+      integer,  allocatable :: request_counts(:), request_displs(:)
       integer,  allocatable :: ccnt(:,:)            ! valid-count per (month, patch) for climatology
       real(r8) :: lat_deg, lon_deg, dlatd, dlond, dmin, d
       logical  :: fexists, found_match
@@ -281,7 +285,55 @@ CONTAINS
       allocate(ccnt(12, numpatch))
       ccnt(:,:) = 0
 
-      ! ---- Step 4: streaming month-by-month read + broadcast + lookup ----
+      ! Cache the local flattened GIEMS pixel requested by each patch, then
+      ! gather that routing map once.  The master reuses it for every month;
+      ! only the selected patch values cross the network.
+      allocate(pixel_index(max(1, numpatch)))
+      allocate(patch_values(max(1, numpatch)))
+      pixel_index(:) = 0
+      patch_values(:) = 0._r4
+      DO ipatch = 1, numpatch
+         IF (best_ix(ipatch) > 0 .and. best_iy(ipatch) > 0) THEN
+            pixel_index(ipatch) = (best_iy(ipatch) - 1) * nlon + best_ix(ipatch)
+         ENDIF
+      ENDDO
+
+      allocate(request_counts(p_np_glb), request_displs(p_np_glb))
+      request_counts(:) = 0
+      request_displs(:) = 0
+#ifdef USEMPI
+      CALL MPI_Gather(numpatch, 1, MPI_INTEGER, request_counts, 1, MPI_INTEGER, &
+         p_address_master, p_comm_glb, ierr)
+#else
+      request_counts(1) = numpatch
+#endif
+
+      total_requests = 0
+      IF (p_is_master) THEN
+         DO irequest = 1, p_np_glb
+            request_displs(irequest) = total_requests
+            total_requests = total_requests + request_counts(irequest)
+         ENDDO
+         allocate(all_pixel_index(max(1, total_requests)))
+         allocate(requested_values(max(1, total_requests)))
+      ELSE
+         ! MPI ignores root-only receive arguments away from the root, but
+         ! allocated one-element buffers keep the legacy `use mpi` interface
+         ! valid on implementations that still inspect the actual argument.
+         allocate(all_pixel_index(1), requested_values(1))
+      ENDIF
+      all_pixel_index(:) = 0
+      requested_values(:) = 0._r4
+
+#ifdef USEMPI
+      CALL MPI_Gatherv(pixel_index, numpatch, MPI_INTEGER, all_pixel_index, &
+         request_counts, request_displs, MPI_INTEGER, p_address_master, &
+         p_comm_glb, ierr)
+#else
+      IF (numpatch > 0) all_pixel_index(1:numpatch) = pixel_index(1:numpatch)
+#endif
+
+      ! ---- Step 4: streaming month-by-month read + directed distribution ----
       ! Dimension-order note: NetCDF metadata advertises the variable as
       ! inund_sat_wetland_frac(time, latitude, longitude) in C order, but
       ! Fortran reverses dimension order for nf90_get_var so the buffer is
@@ -290,7 +342,7 @@ CONTAINS
       ! lookup.  init_methane_giems verifies dim names against the file at
       ! Step 1 (nf90_inq_dim_ids/names), and a future maintainer should keep
       ! that check before touching this read.
-      allocate(slab(nlon, nlat))
+      IF (p_is_master) allocate(slab(nlon, nlat))
 
       DO t = 1, ntime
          mo = mod(t-1, 12) + 1
@@ -315,16 +367,31 @@ CONTAINS
             CALL CoLM_stop ()
          ENDIF
 
+         IF (p_is_master) THEN
+            DO irequest = 1, total_requests
+               IF (all_pixel_index(irequest) <= 0) THEN
+                  requested_values(irequest) = -999._r4
+               ELSE
+                  ilon = mod(all_pixel_index(irequest) - 1, nlon) + 1
+                  ilat = (all_pixel_index(irequest) - 1) / nlon + 1
+                  requested_values(irequest) = slab(ilon, ilat)
+               ENDIF
+            ENDDO
+         ENDIF
+
 #ifdef USEMPI
-         ! slab is declared real(r4); MPI_REAL4 locks the 4-byte ABI even if a
-         ! future maintainer flips r4 -> r8 and forgets to update the type tag
-         ! (silent half-array truncation otherwise).
-         CALL MPI_Bcast(slab, nlon*nlat, MPI_REAL4, p_address_master, p_comm_glb, ierr)
+         ! requested_values and patch_values are real(r4); MPI_REAL4 keeps the
+         ! NetCDF slab ABI explicit while sending only local patch requests.
+         CALL MPI_Scatterv(requested_values, request_counts, request_displs, &
+            MPI_REAL4, patch_values, numpatch, MPI_REAL4, p_address_master, &
+            p_comm_glb, ierr)
+#else
+         IF (numpatch > 0) patch_values(1:numpatch) = requested_values(1:numpatch)
 #endif
 
          DO ipatch = 1, numpatch
-            IF (best_ix(ipatch) < 1 .or. best_iy(ipatch) < 1) CYCLE
-            v = slab(best_ix(ipatch), best_iy(ipatch))
+            IF (pixel_index(ipatch) <= 0) CYCLE
+            v = patch_values(ipatch)
             IF (v >= 0._r4 .and. v <= 1._r4) THEN
                giems_ts_wetland_frac(t, ipatch) = real(v, r8)
                giems_clim_wetland_frac(mo, ipatch) = &
@@ -347,7 +414,10 @@ CONTAINS
 
       IF (p_is_master) ierr = nf90_close(ncid)
 
-      deallocate(slab, ccnt, best_ix, best_iy, lat_g, lon_g)
+      IF (allocated(slab)) deallocate(slab)
+      deallocate(ccnt, best_ix, best_iy, pixel_index, patch_values)
+      deallocate(all_pixel_index, requested_values, request_counts, request_displs)
+      deallocate(lat_g, lon_g)
 
       IF (p_is_master) write(*,'(A,I0,A,I0,A,I0,A)') &
          ' GIEMS monthly time series loaded (', ntime, ' months, ', &

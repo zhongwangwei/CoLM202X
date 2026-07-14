@@ -15,6 +15,12 @@ MODULE MOD_Grid_Reservoir
    integer :: totalnumresv
    integer :: numresv
    integer,  allocatable :: ucat2resv   (:)
+   ! Local reservoir state is ordered by the original row in the reservoir
+   ! parameter file.  Preserve both that global ordinal and its owning ucatch
+   ! so restart files can prove that volresv has not been rebound after a dam
+   ! table change or reordering.
+   integer,  allocatable :: resv_global_id(:)
+   integer,  allocatable :: resv_ucid     (:)
    type(pointer_int32_1d), allocatable :: resv_data_address (:)
 
 
@@ -57,7 +63,7 @@ CONTAINS
    ! Local variables
    character(len=256) :: parafile
 
-   integer,  allocatable :: dam_seq(:), order(:), loc2all(:)
+   integer,  allocatable :: dam_seq(:), order(:), loc2all(:), ordinal_count(:)
    real(r8), allocatable :: rcache (:)
    integer,  allocatable :: icache (:)
 
@@ -84,6 +90,7 @@ CONTAINS
 
          allocate (ucat2resv (numucat))
          allocate (loc2all   (numucat))
+         ucat2resv = 0
 
          numresv = 0
          DO i = 1, numucat
@@ -96,7 +103,42 @@ CONTAINS
             ENDIF
          ENDDO
 
+         allocate (resv_global_id(numresv))
+         allocate (resv_ucid     (numresv))
+         IF (numresv > 0) THEN
+            resv_global_id = loc2all(1:numresv)
+            DO i = 1, numucat
+               IF (ucat2resv(i) > 0) resv_ucid(ucat2resv(i)) = ucat_ucid(i)
+            ENDDO
+         ENDIF
+
       ENDIF
+
+      ! Every parameter-table row defines one global reservoir-state ordinal.
+      ! Reject duplicate dam_seq entries, orphan rows outside the active
+      ! ucatch network, and duplicate ucatch ownership before any state vector
+      ! is gathered through resv_data_address.
+      allocate (ordinal_count(totalnumresv))
+      ordinal_count = 0
+      IF (p_is_worker) THEN
+         DO irsv = 1, numresv
+            IF (resv_global_id(irsv) < 1 .or. resv_global_id(irsv) > totalnumresv) &
+               CALL CoLM_stop ('invalid reservoir parameter-table ordinal')
+            ordinal_count(resv_global_id(irsv)) = ordinal_count(resv_global_id(irsv)) + 1
+         ENDDO
+      ENDIF
+#ifdef USEMPI
+      IF (totalnumresv > 0) CALL mpi_allreduce (MPI_IN_PLACE, ordinal_count, totalnumresv, &
+         MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (totalnumresv > 0) THEN
+         IF (any(ordinal_count /= 1)) THEN
+            IF (p_is_master) write(*,'(A,I0)') &
+               'ERROR: invalid reservoir parameter mapping; bad ordinal count=', count(ordinal_count /= 1)
+            CALL CoLM_stop ('reservoir parameter rows must map one-to-one to active ucatch IDs')
+         ENDIF
+      ENDIF
+      deallocate (ordinal_count)
 
 #ifdef USEMPI
       IF (p_is_master) THEN
@@ -248,6 +290,8 @@ CONTAINS
    IMPLICIT NONE
 
       IF (allocated(ucat2resv        )) deallocate (ucat2resv        )
+      IF (allocated(resv_global_id   )) deallocate (resv_global_id   )
+      IF (allocated(resv_ucid        )) deallocate (resv_ucid        )
       IF (allocated(resv_data_address)) deallocate (resv_data_address)
 
       IF (allocated(dam_GRAND_ID     )) deallocate (dam_GRAND_ID     )

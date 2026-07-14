@@ -5,7 +5,7 @@ MODULE MOD_Tracer_Rest
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, tracers, &
-      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport
+      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport, tracer_is_nonvolatile_solute
    USE MOD_Tracer_Vars
    USE MOD_LandPatch, only: landpatch
    USE MOD_Block, only: get_filename_block
@@ -32,6 +32,12 @@ CONTAINS
    ! can fall back to tracer_init_from_water instead of crashing.
    !-------------------------------------------------------------------
    logical FUNCTION tracer_dim_matches (file_restart, varname, expect_soilsnow)
+#ifdef USEMPI
+      USE MOD_SPMD_Task, only: p_is_io, p_comm_io, p_comm_group, p_err, p_root, &
+         MPI_IN_PLACE, MPI_INTEGER, MPI_SUM
+#else
+      USE MOD_SPMD_Task, only: p_is_io
+#endif
       IMPLICIT NONE
       character(len=*), intent(in) :: file_restart, varname
       ! Optional second-dimension size (soilsnow extent = nl_soil-maxsnl).
@@ -42,47 +48,53 @@ CONTAINS
       ! per-layer data via ncio_read_vector's reshape.
       integer, intent(in), optional :: expect_soilsnow
       integer, allocatable :: varsize(:)
-      integer :: iblkgrp, iblk, jblk
+      integer :: iblkgrp, iblk, jblk, expected_rank
+      integer :: counts(3)
       character(len=256) :: fileblock
-      logical :: found_var
+      logical :: block_shape_ok
 
-      found_var = .false.
-      tracer_dim_matches = .true.
+      counts(:) = 0
+      expected_rank = merge(3, 2, present(expect_soilsnow))
 
       ! Vector restart files are split by block via get_filename_block().
       ! Checking the unsuffixed base filename makes hot starts look like
       ! old/missing tracer restarts and silently reinitializes NSS state.
-      DO iblkgrp = 1, landpatch%nblkgrp
-         iblk = landpatch%xblkgrp(iblkgrp)
-         jblk = landpatch%yblkgrp(iblkgrp)
-         CALL get_filename_block(file_restart, iblk, jblk, fileblock)
+      IF (p_is_io) THEN
+         counts(1) = landpatch%nblkgrp
+         DO iblkgrp = 1, landpatch%nblkgrp
+            iblk = landpatch%xblkgrp(iblkgrp)
+            jblk = landpatch%yblkgrp(iblkgrp)
+            CALL get_filename_block(file_restart, iblk, jblk, fileblock)
 
-         IF (.not. ncio_var_exist(fileblock, varname, readflag = .false.)) THEN
-            tracer_dim_matches = .false.
-            EXIT
-         ENDIF
-         found_var = .true.
+            IF (.not. ncio_var_exist(fileblock, varname, readflag = .false.)) THEN
+               CYCLE
+            ENDIF
+            counts(2) = counts(2) + 1
 
-         CALL ncio_inquire_varsize(fileblock, varname, varsize)
-         IF (.not. allocated(varsize)) THEN
-            tracer_dim_matches = .false.
-         ELSEIF (size(varsize) < 1) THEN
-            tracer_dim_matches = .false.
-         ELSE
-            tracer_dim_matches = (varsize(1) == ntracers)
-            IF (tracer_dim_matches .and. present(expect_soilsnow)) THEN
-               IF (size(varsize) >= 2) THEN
-                  tracer_dim_matches = (varsize(2) == expect_soilsnow)
-               ELSE
-                  tracer_dim_matches = .false.
+            CALL ncio_inquire_varsize(fileblock, varname, varsize)
+            block_shape_ok = .false.
+            IF (allocated(varsize)) THEN
+               IF (size(varsize) == expected_rank) THEN
+                  block_shape_ok = varsize(1) == ntracers .and. &
+                     varsize(expected_rank) == landpatch%vecgs%vlen(iblk,jblk)
+                  IF (block_shape_ok .and. present(expect_soilsnow)) THEN
+                     block_shape_ok = varsize(2) == expect_soilsnow
+                  ENDIF
                ENDIF
             ENDIF
-         ENDIF
-         IF (allocated(varsize)) deallocate(varsize)
-         IF (.not. tracer_dim_matches) EXIT
-      ENDDO
+            IF (allocated(varsize)) deallocate(varsize)
+            IF (.not. block_shape_ok) counts(3) = counts(3) + 1
+         ENDDO
+      ENDIF
 
-      tracer_dim_matches = found_var .and. tracer_dim_matches
+#ifdef USEMPI
+      IF (p_is_io) THEN
+         CALL mpi_allreduce(MPI_IN_PLACE, counts, 3, MPI_INTEGER, MPI_SUM, p_comm_io, p_err)
+      ENDIF
+      CALL mpi_bcast(counts, 3, MPI_INTEGER, p_root, p_comm_group, p_err)
+#endif
+
+      tracer_dim_matches = counts(1) > 0 .and. counts(2) == counts(1) .and. counts(3) == 0
    END FUNCTION tracer_dim_matches
 
    SUBROUTINE tracer_init_from_water (numpatch, maxsnl, nl_soil, &
@@ -111,6 +123,8 @@ CONTAINS
       integer  :: itrc, ip, j, snl_local
       real(r8) :: R_init
 
+      IF (allocated(trc_surface_residue)) trc_surface_residue = 0._r8
+      IF (allocated(trc_subsurface_residue)) trc_subsurface_residue = 0._r8
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
@@ -189,11 +203,17 @@ CONTAINS
       logical :: has_leaf_delta_e, has_leaf_delta_b
       logical :: has_leaf_peclet, has_leaf_water_moles, has_leaf_iso_storage
       logical :: reset_legacy_leaf_e, reset_legacy_leaf_b
+      logical :: has_nonvolatile_solute
+      logical :: restart_complete, field_matches
 
       found_restart = .false.
       IF (present(scv_missing)) scv_missing = .false.
       IF (present(waterstorage_missing)) waterstorage_missing = .false.
       IF (ntracers <= 0) RETURN
+      has_nonvolatile_solute = .false.
+      DO itrc = 1, ntracers
+         has_nonvolatile_solute = has_nonvolatile_solute .or. tracer_is_nonvolatile_solute(itrc)
+      ENDDO
 
       ! The master/control rank does not belong to the landpatch vector
       ! IO/worker group under MPI. Its landpatch%nblkgrp is therefore 0,
@@ -206,15 +226,24 @@ CONTAINS
       ! Reject the restart if required tracer variables are absent from
       ! the block-split vector files, if ntracers changed, or if the
       ! per-layer extent no longer matches nl_soil-maxsnl.
-      IF (.not. tracer_dim_matches(file_restart, 'trc_ldew_rain'  ) .or. &
-          .not. tracer_dim_matches(file_restart, 'trc_ldew_snow'  ) .or. &
-          .not. tracer_dim_matches(file_restart, 'trc_wliq_soisno', &
-                                   expect_soilsnow = nl_soil - maxsnl) .or. &
-          .not. tracer_dim_matches(file_restart, 'trc_wice_soisno', &
-                                   expect_soilsnow = nl_soil - maxsnl) .or. &
-          .not. tracer_dim_matches(file_restart, 'trc_wa'         ) .or. &
-          .not. tracer_dim_matches(file_restart, 'trc_wdsrf'      ) .or. &
-          .not. tracer_dim_matches(file_restart, 'trc_wetwat'     )) THEN
+      restart_complete = .true.
+      field_matches = tracer_dim_matches(file_restart, 'trc_ldew_rain')
+      restart_complete = restart_complete .and. field_matches
+      field_matches = tracer_dim_matches(file_restart, 'trc_ldew_snow')
+      restart_complete = restart_complete .and. field_matches
+      field_matches = tracer_dim_matches(file_restart, 'trc_wliq_soisno', &
+                                         expect_soilsnow = nl_soil - maxsnl)
+      restart_complete = restart_complete .and. field_matches
+      field_matches = tracer_dim_matches(file_restart, 'trc_wice_soisno', &
+                                         expect_soilsnow = nl_soil - maxsnl)
+      restart_complete = restart_complete .and. field_matches
+      field_matches = tracer_dim_matches(file_restart, 'trc_wa')
+      restart_complete = restart_complete .and. field_matches
+      field_matches = tracer_dim_matches(file_restart, 'trc_wdsrf')
+      restart_complete = restart_complete .and. field_matches
+      field_matches = tracer_dim_matches(file_restart, 'trc_wetwat')
+      restart_complete = restart_complete .and. field_matches
+      IF (.not. restart_complete) THEN
          IF (p_is_io .and. p_iam_io == p_root) WRITE(*,*) &
             'Tracer restart ntracers/soilsnow mismatch in ', &
             TRIM(file_restart), '. Using cold-start.'
@@ -228,6 +257,20 @@ CONTAINS
       CALL ncio_read_vector(file_restart, 'trc_wa', ntracers, landpatch, trc_wa)
       CALL ncio_read_vector(file_restart, 'trc_wdsrf', ntracers, landpatch, trc_wdsrf)
       CALL ncio_read_vector(file_restart, 'trc_wetwat', ntracers, landpatch, trc_wetwat)
+      IF (allocated(trc_surface_residue)) trc_surface_residue = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_surface_residue')) THEN
+         CALL ncio_read_vector(file_restart, 'trc_surface_residue', ntracers, landpatch, trc_surface_residue)
+      ELSE
+         IF (has_nonvolatile_solute .and. p_is_io .and. p_iam_io == p_root) WRITE(*,*) &
+            'Tracer restart has no trc_surface_residue; initializing the optional pool to zero.'
+      ENDIF
+      IF (allocated(trc_subsurface_residue)) trc_subsurface_residue = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_subsurface_residue')) THEN
+         CALL ncio_read_vector(file_restart, 'trc_subsurface_residue', ntracers, landpatch, trc_subsurface_residue)
+      ELSE
+         IF (has_nonvolatile_solute .and. p_is_io .and. p_iam_io == p_root) WRITE(*,*) &
+            'Tracer restart has no trc_subsurface_residue; initializing the optional pool to zero.'
+      ENDIF
       IF (tracer_dim_matches(file_restart, 'trc_scv')) THEN
          CALL ncio_read_vector(file_restart, 'trc_scv', ntracers, landpatch, trc_scv)
       ELSE
@@ -499,6 +542,18 @@ CONTAINS
       restart_patch(:, :) = 0._r8
       IF (have_patch_data) restart_patch(:, :) = trc_wetwat(:, :)
       CALL ncio_write_vector(file_restart, 'trc_wetwat', 'tracer', ntracers, 'patch', landpatch, &
+         restart_patch, DEF_REST_CompressLevel)
+
+      restart_patch(:, :) = 0._r8
+      IF (allocated(trc_surface_residue) .and. have_patch_data) &
+         restart_patch(:, :) = trc_surface_residue(:, :)
+      CALL ncio_write_vector(file_restart, 'trc_surface_residue', 'tracer', ntracers, 'patch', landpatch, &
+         restart_patch, DEF_REST_CompressLevel)
+
+      restart_patch(:, :) = 0._r8
+      IF (allocated(trc_subsurface_residue) .and. have_patch_data) &
+         restart_patch(:, :) = trc_subsurface_residue(:, :)
+      CALL ncio_write_vector(file_restart, 'trc_subsurface_residue', 'tracer', ntracers, 'patch', landpatch, &
          restart_patch, DEF_REST_CompressLevel)
 
       restart_patch(:, :) = 0._r8

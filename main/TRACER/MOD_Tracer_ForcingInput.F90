@@ -66,11 +66,12 @@ MODULE MOD_Tracer_ForcingInput
 CONTAINS
 
    SUBROUTINE tracer_forcing_input_load ()
-      USE MOD_SPMD_Task, only: p_is_master
+      USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
       IMPLICIT NONE
       integer :: itrc, k, nf, ierr, unit_nml
       logical :: found, fexists
       character(len=256) :: nlfile
+      character(len=512) :: iomsg
 
       ! namelist scratch (parallel arrays for cross-compiler robustness)
       integer            :: forcing_num
@@ -94,6 +95,7 @@ CONTAINS
          IF (.not. found) CYCLE
          INQUIRE (file=trim(nlfile), exist=fexists)
          IF (.not. fexists) CYCLE
+         IF (.not. tracer_forcing_group_present(nlfile)) CYCLE
 
          forcing_num            = 0
          forcing_role(:)        = 'none'
@@ -105,13 +107,35 @@ CONTAINS
          forcing_input_mode(:)  = 'normalized_over_total'
 
          open (newunit=unit_nml, status='OLD', file=trim(nlfile), form='FORMATTED')
-         read (unit_nml, nml=nl_colm_tracer_forcing, iostat=ierr)
+         iomsg = ''
+         read (unit_nml, nml=nl_colm_tracer_forcing, iostat=ierr, iomsg=iomsg)
          close (unit_nml)
-         IF (ierr /= 0) CYCLE   ! group absent / unreadable => tracer has no forcing here
+         IF (ierr /= 0) THEN
+            IF (p_is_master) THEN
+               write(*,'(3A)') 'ERROR tracer_forcing_input_load: invalid &nl_colm_tracer_forcing in ', &
+                  trim(nlfile), ': '
+               write(*,'(A)') trim(iomsg)
+            ENDIF
+            CALL CoLM_stop()
+         ENDIF
 
-         nf = min(max(forcing_num, 0), TRACER_FORCING_MAX)
+         IF (forcing_num < 0 .or. forcing_num > TRACER_FORCING_MAX) THEN
+            IF (p_is_master) THEN
+               write(*,'(A,I0,A,I0,A,A,A)') 'ERROR tracer_forcing_input_load: forcing_num=', forcing_num, &
+                  ' must be between 0 and ', TRACER_FORCING_MAX, ' in ', trim(nlfile), '.'
+            ENDIF
+            CALL CoLM_stop()
+         ENDIF
+         nf = forcing_num
          tracer_forcing_n(itrc) = nf
          DO k = 1, nf
+            IF (forcing_dtime(k) <= 0) THEN
+               IF (p_is_master) THEN
+                  write(*,'(A,I0,A,A,A,I0,A)') 'ERROR tracer_forcing_input_load: forcing_dtime(', k, &
+                     ') for tracer "', trim(tracers(itrc)%name), '" must be > 0, got ', forcing_dtime(k), '.'
+               ENDIF
+               CALL CoLM_stop()
+            ENDIF
             tracer_forcing_specs(k,itrc)%role       = adjustl(forcing_role(k))
             tracer_forcing_specs(k,itrc)%fprefix    = adjustl(forcing_fprefix(k))
             tracer_forcing_specs(k,itrc)%vname      = adjustl(forcing_vname(k))
@@ -130,8 +154,9 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: itrc
       tracer_forcing_input_count = 0
-      IF (allocated(tracer_forcing_n) .and. itrc >= 1 .and. itrc <= ntracers) &
-         tracer_forcing_input_count = tracer_forcing_n(itrc)
+      IF (.not. allocated(tracer_forcing_n)) RETURN
+      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      tracer_forcing_input_count = tracer_forcing_n(itrc)
    END FUNCTION tracer_forcing_input_count
 
    FUNCTION tracer_forcing_input_get (itrc, k) RESULT(spec)
@@ -139,10 +164,10 @@ CONTAINS
       integer, intent(in) :: itrc, k
       type(tracer_forcing_spec_type) :: spec
       ! defaults from the type definition apply if out of range
-      IF (allocated(tracer_forcing_specs) .and. itrc >= 1 .and. itrc <= ntracers &
-          .and. k >= 1 .and. k <= TRACER_FORCING_MAX) THEN
-         spec = tracer_forcing_specs(k,itrc)
-      ENDIF
+      IF (.not. allocated(tracer_forcing_specs)) RETURN
+      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (k < 1 .or. k > TRACER_FORCING_MAX) RETURN
+      spec = tracer_forcing_specs(k,itrc)
    END FUNCTION tracer_forcing_input_get
 
    integer FUNCTION tracer_forcing_input_find (itrc, role)
@@ -166,6 +191,28 @@ CONTAINS
       character(len=*), intent(in) :: a, b
       tracer_forcing_role_equal = (tracer_lower(a) == tracer_lower(b))
    END FUNCTION tracer_forcing_role_equal
+
+   logical FUNCTION tracer_forcing_group_present (nlfile)
+      IMPLICIT NONE
+      character(len=*), intent(in) :: nlfile
+      character(len=1024) :: line
+      integer :: ierr, unit_nml
+
+      tracer_forcing_group_present = .false.
+      open(newunit=unit_nml, status='OLD', file=trim(nlfile), form='FORMATTED')
+      DO
+         read(unit_nml, '(A)', iostat=ierr) line
+         IF (ierr /= 0) EXIT
+         line = adjustl(line)
+         IF (line(1:1) == '!') CYCLE
+         IF (index(tracer_lower(line), '&nl_colm_tracer_forcing') == 1 .or. &
+             index(tracer_lower(line), '$nl_colm_tracer_forcing') == 1) THEN
+            tracer_forcing_group_present = .true.
+            EXIT
+         ENDIF
+      ENDDO
+      close(unit_nml)
+   END FUNCTION tracer_forcing_group_present
 
    SUBROUTINE tracer_forcing_input_final ()
       IMPLICIT NONE

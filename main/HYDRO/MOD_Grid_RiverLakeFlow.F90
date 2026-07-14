@@ -21,7 +21,7 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeHistState
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto, levdph, &
       levee_init, read_levee_restart, levee_apply_protected_flux, &
-      levee_fldstg, levee_repartition_storage, &
+      levee_repartition_storage, &
       levee_visible_volume_from_stage, levee_final
    USE MOD_Grid_RiverLakeBifurcation, only: bifurcation_init, bifurcation_calc, &
       read_bifurcation_restart, bifurcation_final, bifurcation_invalidate_static_dn, &
@@ -48,7 +48,7 @@ MODULE MOD_Grid_RiverLakeFlow
    real(r8), parameter :: RIVERMIN  = RIVERLAKE_DRY_DEPTH
    real(r8), parameter :: RIVERLAKE_FLOOD_MISSING_VALUE = -1.e30_r8
    real(r8), parameter :: ROUTING_STORAGE_DT_EPS = 1.e-6_r8
-   real(r8), parameter :: ROUTING_MIN_ADAPTIVE_DT = 10._r8
+   real(r8), parameter :: ROUTING_PATHOLOGICAL_DT_FALLBACK = 10._r8
 
    real(r8), save :: acctime_rnof_max
    integer, save :: routing_zero_dt_warn_count = 0
@@ -77,6 +77,7 @@ CONTAINS
       real(r8), allocatable :: wdsrf_safe(:), volresv_safe(:)
       integer,  allocatable :: ucat2resv_safe(:)
 #endif
+      logical :: bif_restart_loaded
 
       acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
       ! acctime_rnof / acc_rnof_uc are allocated + zero-initialised in
@@ -110,6 +111,8 @@ CONTAINS
       CALL levee_init()
       IF (len_trim(gridriver_restart_file) > 0) THEN
          CALL read_levee_restart(gridriver_restart_file, &
+            restart_transaction_validated, restart_feature_manifest_present, &
+            restart_levee_enabled, &
             fold_protected_to_visible = .not. DEF_USE_LEVEE, &
             volwater_ucat_io = volwater_ucat, &
             volwater_ucat_valid_io = volwater_ucat_valid, &
@@ -119,7 +122,16 @@ CONTAINS
       IF (DEF_USE_BIFURCATION) THEN
          CALL bifurcation_init()
          IF (len_trim(gridriver_restart_file) > 0) THEN
-            CALL read_bifurcation_restart(gridriver_restart_file)
+            CALL read_bifurcation_restart(gridriver_restart_file, &
+               wdsrf_ucat_prev_restart_found, bif_restart_loaded, &
+               restart_transaction_validated, restart_feature_manifest_present, &
+               restart_bifurcation_enabled)
+            IF (.not. bif_restart_loaded) THEN
+               ! Previous depth and pathway momentum form one numerical state
+               ! unit. If either half is absent, cold-start both together.
+               wdsrf_ucat_prev = wdsrf_ucat
+               wdsrf_ucat_prev_valid = .true.
+            ENDIF
          ENDIF
       ENDIF
 
@@ -172,6 +184,8 @@ CONTAINS
    USE MOD_LandPatch,      only: elm_patch, numpatch
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
+   USE MOD_WorkerPushData, only: worker_push_real8_field_type
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 #ifdef TRACER
    USE MOD_Tracer_Defs,    only: ntracers, tracer_uses_land_water_transport
 #endif
@@ -205,19 +219,22 @@ CONTAINS
 
    logical,  allocatable :: is_built_resv(:)
 
-   real(r8), allocatable :: wdsrf_next(:)
-   real(r8), allocatable :: veloc_next(:)
+   real(r8), allocatable, target :: wdsrf_next(:)
+   real(r8), allocatable, target :: veloc_next(:)
+   type(worker_push_real8_field_type) :: downstream_state_fields(2)
 
-   real(r8), allocatable :: hflux_fc(:)
-   real(r8), allocatable :: mflux_fc(:)
-   real(r8), allocatable :: zgrad_dn(:)
+   real(r8), allocatable, target :: hflux_fc(:)
+   real(r8), allocatable, target :: mflux_fc(:)
+   real(r8), allocatable, target :: zgrad_dn(:)
 
-   real(r8), allocatable :: hflux_resv(:)
-   real(r8), allocatable :: mflux_resv(:)
+   real(r8), allocatable, target :: hflux_resv(:)
+   real(r8), allocatable, target :: mflux_resv(:)
+   type(worker_push_real8_field_type) :: reservoir_flux_fields(2)
 
-   real(r8), allocatable :: hflux_sumups(:)
-   real(r8), allocatable :: mflux_sumups(:)
-   real(r8), allocatable :: zgrad_sumups(:)
+   real(r8), allocatable, target :: hflux_sumups(:)
+   real(r8), allocatable, target :: mflux_sumups(:)
+   real(r8), allocatable, target :: zgrad_sumups(:)
+   type(worker_push_real8_field_type) :: upstream_flux_fields(3)
 
    real(r8), allocatable :: sum_hflux_riv(:)
    real(r8), allocatable :: sum_hflux_base(:)
@@ -233,7 +250,6 @@ CONTAINS
    real(r8) :: fldfrc_levee
    real(r8) :: vis_vol_bef_lv, levsto_bef_lv
    real(r8) :: vis_vol_bef_lv2, levsto_bef_lv2
-   real(r8) :: levsto_dummy, levdph_dummy
    real(r8), allocatable :: volresv_safe(:)
    integer,  allocatable :: ucat2resv_safe(:)
    integer :: itrc_dep
@@ -243,7 +259,7 @@ CONTAINS
    real(r8), allocatable :: total_flooddepth(:)  ! floodplain water depth flddph [m], per ucat
    real(r8),  allocatable :: dt_res(:), dt_all(:)
    logical,   allocatable :: ucatfilter(:)
-      logical :: loop_active
+   logical :: loop_active, next_loop_active
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
    real(r8) :: water_balance_err, water_balance_tol
    real(r8) :: water_balance_vec(4)
@@ -413,6 +429,12 @@ CONTAINS
             allocate (is_built_resv (numucat))
             allocate (wdsrf_next    (numucat))
             allocate (veloc_next    (numucat))
+            downstream_state_fields(1)%send => wdsrf_ucat
+            downstream_state_fields(1)%recv => wdsrf_next
+            downstream_state_fields(1)%fillvalue = spval
+            downstream_state_fields(2)%send => veloc_riv
+            downstream_state_fields(2)%recv => veloc_next
+            downstream_state_fields(2)%fillvalue = 0._r8
             allocate (hflux_fc      (numucat))
             allocate (mflux_fc      (numucat))
             allocate (zgrad_dn      (numucat))
@@ -442,9 +464,25 @@ CONTAINS
             allocate (mflux_sumups  (numucat))
             allocate (zgrad_sumups  (numucat))
 
+            upstream_flux_fields(1)%send => hflux_fc
+            upstream_flux_fields(1)%recv => hflux_sumups
+            upstream_flux_fields(1)%fillvalue = 0._r8
+            upstream_flux_fields(2)%send => mflux_fc
+            upstream_flux_fields(2)%recv => mflux_sumups
+            upstream_flux_fields(2)%fillvalue = 0._r8
+            upstream_flux_fields(3)%send => zgrad_dn
+            upstream_flux_fields(3)%recv => zgrad_sumups
+            upstream_flux_fields(3)%fillvalue = 0._r8
+
             IF (DEF_Reservoir_Method > 0) THEN
                allocate (hflux_resv (numucat))
                allocate (mflux_resv (numucat))
+               reservoir_flux_fields(1)%send => hflux_resv
+               reservoir_flux_fields(1)%recv => hflux_sumups
+               reservoir_flux_fields(1)%fillvalue = 0._r8
+               reservoir_flux_fields(2)%send => mflux_resv
+               reservoir_flux_fields(2)%recv => mflux_sumups
+               reservoir_flux_fields(2)%fillvalue = 0._r8
             ENDIF
 
             allocate (dt_res (numrivsys))
@@ -614,36 +652,43 @@ CONTAINS
          ! a module flag only) to keep the one-per-call push collective-matched.
          IF (DEF_USE_BIFURCATION) CALL bifurcation_invalidate_static_dn ()
 
-         loop_active = any(dt_res > 0)
-#ifdef USEMPI
-         ! Bifurcation links cross river-system (and MPI-region) boundaries, so
-         ! every worker must iterate the substep loop the same number of times:
-         ! the collective worker_push_data calls inside bifurcation_calc would
-         ! otherwise orphan isend/irecv (see bifurcation hang root cause #2).
-         ! Without bifurcation the river systems are independent, so keep the
-         ! loop local (baseline behaviour) and let a worker stop once its OWN
-         ! systems are drained instead of spinning until the globally slowest
-         ! worker finishes.
-         IF (DEF_USE_BIFURCATION) THEN
-            CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
-               MPI_LOR, p_comm_worker, p_err)
+         ! Legacy restarts and cold starts have no previous BIF depth. Use the
+         ! current stage for the first semi-implicit channel update; subsequent
+         ! substeps advance this state at the same point as CaMa CALC_VARS_PRE.
+         IF (DEF_USE_BIFURCATION .and. .not. wdsrf_ucat_prev_valid) THEN
+            wdsrf_ucat_prev = wdsrf_ucat
+            wdsrf_ucat_prev_valid = .true.
          ENDIF
-#endif
+
+         IF (DEF_USE_BIFURCATION) THEN
+            ! acctime_rnof is broadcast on restart and advanced identically on
+            ! every rank. Use that global scalar for loop entry so even an
+            ! empty worker enters the collective-bearing BIF loop, without a
+            ! separate MPI_LOR just to recover the same global decision.
+            IF (.not. ieee_is_finite(acctime_rnof)) THEN
+               loop_active = .true.
+            ELSE
+               loop_active = acctime_rnof > 0._r8
+            ENDIF
+         ELSE
+            loop_active = any(dt_res > 0._r8)
+         ENDIF
 
          DO WHILE (loop_active)
 
             ntimestep = ntimestep + 1
 
-            CALL worker_push_data (push_next2ucat, wdsrf_ucat, wdsrf_next, fillvalue = spval)
-            ! velocity in ocean or inland depression is assumed to be 0.
-            CALL worker_push_data (push_next2ucat, veloc_riv,  veloc_next, fillvalue = 0.)
+            ! Water depth and velocity use the same one-to-one downstream
+            ! mapping.  Pack them into one peer message per routing substep.
+            CALL worker_push_data (push_next2ucat, downstream_state_fields)
 
             dt_all(:) = min(dt_res(:), 60.)
-            ! Bifurcation needs one global dt shared across river systems before
-            ! the flux/limiter passes that transfer water between them.  Without
-            ! bifurcation each river system advances with its own adaptive dt
-            ! (baseline), so skip the global synchronization here.
-            IF (DEF_USE_BIFURCATION) CALL sync_global_routing_dt(dt_res, dt_all)
+            ! In BIF mode every active system starts with the same residual
+            ! time: the first substep starts from acctime_rnof and every later
+            ! one subtracts the globally reduced dt.  Synchronizing this
+            ! initial 60 s cap is therefore redundant.  Reduce only once,
+            ! after the local CFL/storage/momentum constraints below, before
+            ! any cross-system BIF flux is evaluated.
 
             DO i = 1, numucat
 
@@ -795,9 +840,7 @@ CONTAINS
 
             ENDDO
 
-            CALL worker_push_data (push_ups2ucat, hflux_fc, hflux_sumups, fillvalue = 0., mode = 'sum')
-            CALL worker_push_data (push_ups2ucat, mflux_fc, mflux_sumups, fillvalue = 0., mode = 'sum')
-            CALL worker_push_data (push_ups2ucat, zgrad_dn, zgrad_sumups, fillvalue = 0., mode = 'sum')
+            CALL worker_push_data (push_ups2ucat, upstream_flux_fields, mode = 'sum')
 
             IF (numucat > 0) THEN
                WHERE (ucatfilter)
@@ -841,8 +884,7 @@ CONTAINS
 
                ENDDO
 
-               CALL worker_push_data (push_ups2ucat, hflux_resv, hflux_sumups, fillvalue = 0., mode = 'sum')
-               CALL worker_push_data (push_ups2ucat, mflux_resv, mflux_sumups, fillvalue = 0., mode = 'sum')
+               CALL worker_push_data (push_ups2ucat, reservoir_flux_fields, mode = 'sum')
 
                IF (numucat > 0) THEN
                   WHERE (ucatfilter)
@@ -922,7 +964,7 @@ CONTAINS
                ! Bifurcation pairs donor/receiver cells across river systems; a
                ! single synchronized global dt keeps the paired volume transfer
                ! conservative and all collective-bearing calls in lockstep.
-               CALL sync_global_routing_dt(dt_res, dt_all)
+               CALL sync_global_routing_dt(dt_res, dt_all, next_loop_active)
 #ifdef USEMPI
             ELSE IF (rivsys_by_multiple_procs) THEN
                ! Baseline behaviour: each river system keeps its own adaptive dt;
@@ -943,9 +985,17 @@ CONTAINS
                ENDIF
 
                      IF (allocated(volresv)) volresv_safe = volresv
-                     CALL bifurcation_calc(wdsrf_ucat, volwater_ucat, volwater_ucat_valid, &
+                     CALL bifurcation_calc(wdsrf_ucat, wdsrf_ucat_prev, &
+                              volwater_ucat, volwater_ucat_valid, &
                               volresv_safe, is_built_resv, dt_all, &
                         irivsys, ucatfilter, normal_outgoing_rate)
+
+                     ! CaMa saves D2RIVDPH_PRE after calculating pathway flow
+                     ! and before advancing storage/stage. Preserve that
+                     ! ordering so the next adaptive substep sees the depth
+                     ! paired with the carried pathway momentum.
+                     wdsrf_ucat_prev = wdsrf_ucat
+                     wdsrf_ucat_prev_valid = .true.
 
                IF (allocated(a_bifflw_lev) .and. allocated(a_bifflw_acctime)) THEN
                   DO ipth = 1, npthout_local
@@ -1073,19 +1123,13 @@ CONTAINS
                ENDIF
 
                IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
-                  IF (abs(protected_hflux) > 1.e-20_r8) THEN
-                     ! BIF layer-2+ already updated the protected pool.  Do not
-                     ! immediately fold it back through static overtopping
-                     ! repartition; update only the river-side stage.
-                     vis_vol_bef_lv2 = volwater
-                     levsto_bef_lv2 = levsto(i)
-                     CALL levee_fldstg(i, volwater, wdsrf_ucat(i), &
-                        levsto_dummy, levdph_dummy, fldfrc_levee)
-                  ELSE
-                     ! Static levee repartition after ordinary transport.
-                     CALL levee_repartition_storage(i, volwater, wdsrf_ucat(i), &
-                        fldfrc_levee, vis_vol_bef_lv2, levsto_bef_lv2)
-                  ENDIF
+                  ! CaMa's simplified levee scheme applies all pathway fluxes
+                  ! to total storage, then restores the static visible/protected
+                  ! partition.  The split pools above are transport/limiter
+                  ! bookkeeping only; retaining that transient split here made
+                  ! river stage inconsistent with visible storage.
+                  CALL levee_repartition_storage(i, volwater, wdsrf_ucat(i), &
+                     fldfrc_levee, vis_vol_bef_lv2, levsto_bef_lv2)
                   volwater_ucat(i) = volwater
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
 #ifdef TRACER
@@ -1260,15 +1304,14 @@ CONTAINS
             ENDIF
 #endif
 
-            loop_active = any(dt_res > 0)
-#ifdef USEMPI
-            ! Match the loop-entry reduction: only synchronize the loop
-            ! condition across all workers when bifurcation requires lockstep.
             IF (DEF_USE_BIFURCATION) THEN
-               CALL mpi_allreduce (MPI_IN_PLACE, loop_active, 1, MPI_LOGICAL, &
-                  MPI_LOR, p_comm_worker, p_err)
+               ! sync_global_routing_dt derives this from the same global
+               ! reduction that selected the just-completed substep.  Avoid a
+               ! second collective solely to determine loop continuation.
+               loop_active = next_loop_active
+            ELSE
+               loop_active = any(dt_res > 0)
             ENDIF
-#endif
 
          ENDDO
 
@@ -1613,33 +1656,90 @@ CONTAINS
 #endif
 
 
-   SUBROUTINE sync_global_routing_dt(dt_res, dt_all)
+   SUBROUTINE sync_global_routing_dt(dt_res, dt_all, next_loop_active)
+
+      USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
 
       real(r8), intent(in)    :: dt_res(:)
       real(r8), intent(inout) :: dt_all(:)
+      logical,  intent(out)   :: next_loop_active
 
-      real(r8) :: dt_global
+      real(r8) :: dt_reduce(2), dt_global, max_residual, remaining_after
+      logical  :: local_pathological
+      logical  :: pathological_mask(size(dt_res))
+      integer  :: i
 
-      dt_global = huge(1._r8)
-      IF (any(dt_res > 0._r8)) THEN
-         dt_global = minval(dt_all, mask = dt_res > 0._r8)
+      pathological_mask = .false.
+      DO i = 1, size(dt_res)
+         ! Do not compare a NaN with zero: Fortran does not guarantee
+         ! short-circuit evaluation and production builds may trap invalid FP.
+         IF (.not. ieee_is_finite(dt_res(i))) CYCLE
+         IF (dt_res(i) > 0._r8) THEN
+            IF (.not. ieee_is_finite(dt_all(i))) THEN
+               pathological_mask(i) = .true.
+            ELSEIF (dt_all(i) <= 0._r8) THEN
+               pathological_mask(i) = .true.
+            ENDIF
+         ENDIF
+      ENDDO
+      local_pathological = any(pathological_mask)
+
+      IF (local_pathological) THEN
+         DO i = 1, size(dt_res)
+            IF (pathological_mask(i)) &
+               dt_all(i) = min(ROUTING_PATHOLOGICAL_DT_FALLBACK, dt_res(i))
+         ENDDO
+
+         IF (p_is_worker .and. p_iam_worker == p_root .and. routing_zero_dt_warn_count < 5) THEN
+            routing_zero_dt_warn_count = routing_zero_dt_warn_count + 1
+            write(*,'(A)') 'WARNING grid_riverlake_flow: non-positive or non-finite adaptive dt; ' // &
+               'using a bounded fallback to avoid a stalled routing loop.'
+         ENDIF
+      ENDIF
+
+      ! One collective returns both the global adaptive step D and the global
+      ! maximum residual R.  The second MPI_MIN lane carries -R.  After every
+      ! active system subtracts the same D, another substep is needed exactly
+      ! when R-D remains positive.
+      dt_reduce = [huge(1._r8), 0._r8]
+      IF (any(.not. ieee_is_finite(dt_res))) THEN
+         ! A negative-HUGE sentinel makes every rank fail together after the
+         ! collective instead of allowing a NaN residual to desynchronize the
+         ! collective-bearing BIF loop.
+         dt_reduce(1) = -huge(1._r8)
+      ELSEIF (any(dt_res > 0._r8)) THEN
+         dt_reduce(1) = minval(dt_all, mask = dt_res > 0._r8)
+         dt_reduce(2) = -maxval(dt_res, mask = dt_res > 0._r8)
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_allreduce (MPI_IN_PLACE, dt_global, 1, MPI_REAL8, MPI_MIN, &
+      CALL mpi_allreduce (MPI_IN_PLACE, dt_reduce, 2, MPI_REAL8, MPI_MIN, &
          p_comm_worker, p_err)
 #endif
 
-      IF (dt_global < ROUTING_MIN_ADAPTIVE_DT .and. any(dt_res > 0._r8)) THEN
-         IF (p_is_worker .and. p_iam_worker == p_root .and. routing_zero_dt_warn_count < 5) THEN
-            routing_zero_dt_warn_count = routing_zero_dt_warn_count + 1
-            write(*,'(A,ES12.4,A)') 'WARNING grid_riverlake_flow: non-positive adaptive dt or pathological tiny dt=', &
-               dt_global, '; using adaptive dt floor to avoid stalled routing loop.'
-         ENDIF
-         dt_global = min(ROUTING_MIN_ADAPTIVE_DT, minval(dt_res, mask = dt_res > 0._r8))
+      IF (.not. ieee_is_finite(dt_reduce(1))) THEN
+         CALL CoLM_stop('grid_riverlake_flow: invalid synchronized routing dt')
+      ELSEIF (dt_reduce(1) <= -0.5_r8 * huge(1._r8)) THEN
+         CALL CoLM_stop('grid_riverlake_flow: non-finite routing residual')
       ENDIF
 
+      dt_global = dt_reduce(1)
+      max_residual = -dt_reduce(2)
+      next_loop_active = .false.
+
       IF (dt_global < 0.5_r8 * huge(1._r8)) THEN
+         IF (.not. ieee_is_finite(max_residual)) THEN
+            CALL CoLM_stop('grid_riverlake_flow: invalid synchronized routing dt')
+         ELSEIF (dt_global <= 0._r8) THEN
+            CALL CoLM_stop('grid_riverlake_flow: invalid synchronized routing dt')
+         ENDIF
+
+         remaining_after = max_residual - dt_global
+         IF (max_residual > 0._r8 .and. remaining_after >= max_residual) THEN
+            CALL CoLM_stop('grid_riverlake_flow: routing dt makes no numerical progress')
+         ENDIF
+         next_loop_active = remaining_after > 0._r8
+
          WHERE (dt_res > 0._r8)
             dt_all = dt_global
          ELSEWHERE

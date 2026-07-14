@@ -1007,6 +1007,10 @@ contains
 				methane_ch4_clip_credit_unsat = 0._r8
 				o2_cap_loss_unsat = 0._r8
 				o2_cap_gain_unsat = 0._r8
+				! The dry branch is deliberately inactive, so its area-weighted
+				! effective conductance contribution must also be zero rather than
+				! a stale value from the previous timestep.
+				grnd_methane_cond_unsat = 0._r8
 				cycle
 			endif
 			if (patchtype == 4 .and. DEF_METHANE%allowlakeprod .and. sat == 0) then
@@ -1113,7 +1117,7 @@ contains
 				! Calculate CH4 aerenchyma losses in each soil layer
 				call methane_aere ( ipatch, idate, jwt_unsat, sat, patchclass, lai, deltim, &
 					z_soisno, dz_soisno, zi_soisno, t_soisno, &
-					rootfr, rootr, etr, grnd_methane_cond_unsat, c_atm, annsum_npp, &
+					rootfr, rootr, etr, DEF_METHANE%grnd_methane_cond_default, c_atm, annsum_npp, &
 					annavg_agnpp, annavg_bgnpp, conc_methane_unsat, methane_prod_depth_unsat, &
 					methane_oxid_depth_unsat, methane_ebul_depth_unsat, &
 					conc_ch4_aqu_unsat, conc_ch4_aqu_porsl_unsat, conc_ch4_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, &
@@ -1128,7 +1132,8 @@ contains
 					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_unsat, conc_ch4_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, vol_aqu_unsat, vol_gas_unsat, &
 					o2stress_unsat, methane_stress_unsat, methane_surf_aere_unsat, methane_surf_ebul_unsat, methane_surf_diff_unsat, methane_ebul_tot_unsat, &
 					methane_oxid_depth_unsat, methane_aere_depth_unsat, methane_tran_depth_unsat, methane_ebul_depth_unsat, &
-						grnd_methane_cond_unsat, o2_oxid_depth_unsat, o2_decomp_depth_unsat, &
+						DEF_METHANE%grnd_methane_cond_default, grnd_methane_cond_unsat, &
+						o2_oxid_depth_unsat, o2_decomp_depth_unsat, &
 						conc_o2_unsat, conc_methane_unsat, methane_balance_residual_unsat, methane_ch4_clip_credit_unsat, methane_surf_diff_phys_unsat, &
 						o2_cap_loss_unsat, o2_cap_gain_unsat )
 
@@ -1249,7 +1254,7 @@ contains
 				else
 					call methane_aere ( ipatch, idate, jwt_sat, sat, patchclass, lai, deltim, &
 						z_soisno, dz_soisno, zi_soisno, t_soisno, &
-						rootfr, rootr, etr, grnd_methane_cond_sat, c_atm, annsum_npp, &
+						rootfr, rootr, etr, DEF_METHANE%grnd_methane_cond_default, c_atm, annsum_npp, &
 						annavg_agnpp, annavg_bgnpp, conc_methane_sat, methane_prod_depth_sat, &
 						methane_oxid_depth_sat, methane_ebul_depth_sat, &
 						conc_ch4_aqu_sat, conc_ch4_aqu_porsl_sat, conc_ch4_gas_porsl_sat, conc_o2_aqu_porsl_sat, conc_o2_gas_porsl_sat, &
@@ -1265,7 +1270,8 @@ contains
 					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat, vol_aqu_sat, vol_gas_sat, &
 					o2stress_sat, methane_stress_sat, methane_surf_aere_sat, methane_surf_ebul_sat, methane_surf_diff_sat, methane_ebul_tot_sat, &
 					methane_oxid_depth_sat, methane_aere_depth_sat, methane_tran_depth_sat, methane_ebul_depth_sat, &
-						grnd_methane_cond_sat, o2_oxid_depth_sat, o2_decomp_depth_sat, &
+						DEF_METHANE%grnd_methane_cond_default, grnd_methane_cond_sat, &
+						o2_oxid_depth_sat, o2_decomp_depth_sat, &
 						conc_o2_sat, conc_methane_sat, methane_balance_residual_sat, methane_ch4_clip_credit_sat, methane_surf_diff_phys_sat, &
 						o2_cap_loss_sat, o2_cap_gain_sat )
 
@@ -1336,9 +1342,12 @@ contains
 		net_methane = net_methane_sat * finundated + net_methane_unsat * (1.0_r8 - finundated)
 		methane_surf_flux_tot = methane_surf_diff + methane_surf_ebul + methane_surf_aere + &
 			sum(methane_tran_depth(1:nl_soil) * dz_soisno(1:nl_soil))
-		methane_surf_flux_tot_phys = methane_surf_diff_phys + methane_surf_ebul + methane_surf_aere + &
+		methane_surf_flux_tot_phys = methane_surf_diff_phys + methane_dfsat_tot + &
+			methane_surf_ebul + methane_surf_aere + &
 			sum(methane_tran_depth(1:nl_soil) * dz_soisno(1:nl_soil))
 		totcol_methane = totcol_methane_sat * finundated + totcol_methane_unsat * (1.0_r8 - finundated)
+		grnd_methane_cond = grnd_methane_cond_sat * finundated + &
+			grnd_methane_cond_unsat * (1.0_r8 - finundated)
 
 		conc_methane = conc_methane_sat * finundated + conc_methane_unsat * (1._r8 - finundated)
 		conc_o2 = conc_o2_sat * finundated + conc_o2_unsat * (1._r8 - finundated)
@@ -1360,6 +1369,7 @@ contains
 			co2_net_tot_lake = co2_net_tot_sat
 			totcol_methane_lake = totcol_methane_sat
 			grnd_methane_cond_lake = grnd_methane_cond_sat
+			grnd_methane_cond = grnd_methane_cond_lake
 			conc_o2_lake = conc_o2_sat
 			conc_methane_lake = conc_methane_sat
 			methane_prod_depth = methane_prod_depth_lake
@@ -2072,7 +2082,7 @@ contains
 		!---------------------------------------------------------------------------
 	subroutine methane_aere (ipatch, idate,jwt, sat, patchclass, lai, deltim,&
 		z_soisno, dz_soisno, zi_soisno, t_soisno,&
-		rootfr, rootr, etr, grnd_methane_cond, c_atm, annsum_npp,&
+		rootfr, rootr, etr, grnd_methane_cond_base, c_atm, annsum_npp,&
 		annavg_agnpp, annavg_bgnpp, conc_methane, methane_prod_depth, methane_oxid_depth, methane_ebul_depth, &
 		conc_ch4_aqu, conc_ch4_aqu_porsl,conc_ch4_gas_porsl,conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 		methane_aere_depth, methane_tran_depth, o2_aere_depth)
@@ -2106,7 +2116,7 @@ contains
 			rootr    (1:nl_soil)   , &! effective fraction of roots in each soil layer (SMS method only)
 			! rootr here for effective per-layer transpiration, which may not be the same as rootfr
 			etr                    , &! transpiration rate [mm/s]
-			grnd_methane_cond          , &! tracer conductance for boundary layer [m/s]
+			grnd_methane_cond_base     , &! base tracer conductance before snow/pond resistance [m/s]
 
 			c_atm(3)               , &! CH4, O2, CO2 atmospheric conc  (mol/m3)
 
@@ -2180,7 +2190,7 @@ contains
 		endif
 
 		call SiteOxAere(ipatch, idate, jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  &
-			rootfr, rootr, grnd_methane_cond, etr, &
+		rootfr, rootr, grnd_methane_cond_base, etr, &
 			annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 			tranloss, aere, oxaere)
 
@@ -2210,7 +2220,7 @@ contains
 
 	!---------------------------------------------------------------------------
 	subroutine SiteOxAere(ipatch, idate,jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  &
-		rootfr, rootr, grnd_methane_cond, etr, &
+			rootfr, rootr, grnd_methane_cond_base, etr, &
 		annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 		tranloss, aere, oxaere)
 		!-----------------------------------------------------------------------
@@ -2237,7 +2247,7 @@ contains
 			t_soisno (maxsnl+1:nl_soil)    , &! soil temperature (Kelvin)
 			rootfr   (1:nl_soil)   , &! fraction of roots in each soil layer
 			rootr    (1:nl_soil)   , &! root resistance of a layer, all layers sum to 1
-			grnd_methane_cond          , &! tracer conductance for boundary layer [m/s]
+			grnd_methane_cond_base     , &! base tracer conductance before snow/pond resistance [m/s]
 			etr                    , &! transpiration rate [mm/s]
 
 			annsum_npp             , &! annual sum NPP (g C/m2/yr)
@@ -2344,7 +2354,7 @@ contains
 				aere_ch4_resis = 1._r8/((area_tiller * rootfr(j) * d_con_g(1,1) * 1e-4_r8 / (z_soisno(j)*DEF_METHANE%rob))+smallnumber)
 				! [s/m]         = /([m2/m2]          * [-]       * [m2/s]                 / [m]         /[-])
 				! Add in boundary layer resistance
-				grnd_ch4_resis = 1._r8/(grnd_methane_cond+smallnumber)
+				grnd_ch4_resis = 1._r8/(grnd_methane_cond_base+smallnumber)
 				aerecond = 1._r8/(aere_ch4_resis + grnd_ch4_resis)
 				! aerecond = max(aerecond,1.e-8_r8)
 				aere(j) = aerecond*(conc_ch4_gas_porsl(j) - c_atm(1)) / dz_soisno(j)
@@ -2355,7 +2365,7 @@ contains
 
 				! Do oxygen diffusion into layer
 				aere_o2_resis = 1._r8/((area_tiller * rootfr(j) * d_con_g(2,1) * 1e-4_r8 / (z_soisno(j)*DEF_METHANE%rob)) + smallnumber)
-				grnd_o2_resis = 1._r8/(grnd_methane_cond+smallnumber)
+				grnd_o2_resis = 1._r8/(grnd_methane_cond_base+smallnumber)
 
 				oxaere(j) = -(conc_o2_gas_porsl(j) - c_atm(2)) / (dz_soisno(j)*(aere_o2_resis + grnd_o2_resis)) ![mol/m3-total/s]
 				oxaere(j) = max(oxaere(j), 0._r8)
@@ -2475,7 +2485,7 @@ contains
 		cellorg,t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl,conc_ch4_aqu_porsl,conc_o2_gas_porsl,conc_o2_aqu_porsl,vol_aqu,vol_gas,&
 		o2stress, methane_stress, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_ebul_tot, &
 		methane_oxid_depth, methane_aere_depth, methane_tran_depth, methane_ebul_depth, &
-			grnd_methane_cond, o2_oxid_depth, o2_decomp_depth, &
+			grnd_methane_cond_base, grnd_methane_cond_effective, o2_oxid_depth, o2_decomp_depth, &
 			conc_o2, conc_methane, methane_balance_residual, methane_ch4_clip_credit, methane_surf_diff_phys, &
 		o2_cap_loss, o2_cap_gain )
 		!-----------------------------------------------------------------------
@@ -2545,7 +2555,8 @@ contains
 			conc_o2_gas_porsl (1:nl_soil)   , &! gas phase O2 conc in each porosity (mol/m3)
 			conc_o2_aqu_porsl (1:nl_soil)   , &! aqueous phase O2 conc in each porosity (mol/m3)
 			vol_aqu           (1:nl_soil)   , &
-			vol_gas           (1:nl_soil)
+			vol_gas           (1:nl_soil)   , &
+			grnd_methane_cond_base              ! base conductance before snow/pond resistance [m/s]
 
 		real(r8), intent(out) :: &
 			o2stress          (1:nl_soil)   , &! Ratio of oxygen available to that demanded by roots, aerobes, & methanotrophs
@@ -2558,7 +2569,8 @@ contains
 				methane_ch4_clip_credit             , &! negative CH4 clip credited to methane_surf_diff (mol/m2/s)
 				methane_surf_diff_phys              , &! pure diffusive flux before clip/residual (mol/m2/s)
 				o2_cap_loss                        , &! O2 removed by post-solve physical cap (mol/m2/s)
-				o2_cap_gain                          ! O2 added by post-solve nonnegative floor (mol/m2/s)
+				o2_cap_gain                         , &! O2 added by post-solve nonnegative floor (mol/m2/s)
+				grnd_methane_cond_effective            ! effective CH4 conductance including snow/pond resistance [m/s]
 
 		real(r8), intent(inout) :: &
 			methane_oxid_depth    (1:nl_soil)   , &! InOut: CH4 consumption rate via oxidation in each soil layer (mol/m3/s)
@@ -2568,7 +2580,6 @@ contains
 			o2_oxid_depth     (1:nl_soil)   , &! InOut: O2 loss rate via ebullition in each soil layer (mol/m3/s)
 			o2_decomp_depth   (1:nl_soil)   , &! InOut: O2 consumption during decomposition in each soil layer (mol/m3/s)
 
-			grnd_methane_cond                   , &! InOut: tracer conductance for boundary layer [m/s]
 			conc_o2           (1:nl_soil)   , &! InOut: O2 conc in each soil layer (mol/m3)
 			conc_methane          (1:nl_soil)      ! InOut: CH4 conc in each soil layer (mol/m3)
 
@@ -2607,7 +2618,6 @@ contains
 			real(r8) :: pond_resis                                                    ! Additional resistance from ponding, up to pondmx water on top of top soil layer (s/m)
 			real(r8) :: pondz                                                      ! Depth of ponding (m)
 			real(r8) :: ponddiff                                                   ! Pondwater diffusivity (m^2/s)
-			real(r8) :: grnd_cond_base                                                ! atmosphere-side base conductance before snow/pond resistance
 			real(r8) :: lake_exchange_vel                                          ! Lake piston velocity [m/s]
 			real(r8) :: lake_k600_cmhr                                             ! Cole & Caraco k600 [cm/hr]
 			real(r8) :: lake_schmidt_ch4                                           ! CH4 Schmidt number in freshwater [-]
@@ -2815,10 +2825,10 @@ contains
 
 		! Loop over species
 		do s = 1, 2 ! transport CH4 and O2; CO2 is not prognosed here
-			! Adjust the grnd_methane_cond to keep it positive, and add the snow resistance & pond resistance
+			! Apply snow and pond resistance to the immutable base conductance.
+			! The effective result is diagnostic output only and never feeds the next step.
 			do j = maxsnl + 1,0
 				if (j == maxsnl + 1) then
-					grnd_cond_base = max(grnd_methane_cond, smallnumber)
 					! Needed to prevent overflow when ground is frozen, e.g. for lakes
 					snow_resis = 0._r8
 				end if
@@ -2951,7 +2961,8 @@ contains
 						endif
 					end if
 
-					spec_grnd_cond(s) = 1._r8/(1._r8/grnd_cond_base + snow_resis + pond_resis)
+					spec_grnd_cond(s) = 1._r8/(1._r8/max(grnd_methane_cond_base, smallnumber) + &
+						snow_resis + pond_resis)
 				end if
 			end do ! j
 
@@ -3314,8 +3325,8 @@ contains
 			err_methane = err_methane + methane_tran_depth(j)*dz_soisno(j)*deltim
 		end do
 
-		! For history make sure that grnd_methane_cond includes snow, for methane diffusivity
-		grnd_methane_cond = spec_grnd_cond(1)
+		! History output uses the effective CH4 conductance, including snow and pond resistance.
+		grnd_methane_cond_effective = spec_grnd_cond(1)
 
 		err_methane = err_methane + (methane_surf_aere + methane_surf_ebul + methane_surf_diff)*deltim
 

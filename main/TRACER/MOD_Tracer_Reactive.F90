@@ -82,13 +82,13 @@ MODULE MOD_Tracer_Reactive
       END SUBROUTINE reactive_history_if
 
       SUBROUTINE reactive_remap_lulcc_if (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-         lccpct_patches, old_patch_area, new_patch_area)
+         lccpct_patches, new_patch_area, old_patch_area)
          USE MOD_Precision
          integer, intent(in) :: patchclass_new(:), patchclass_old(:)
          integer*8, intent(in) :: eindex_new(:), eindex_old(:)
          real(r8), intent(in), optional :: lccpct_patches(:,:)
-         real(r8), intent(in), optional :: old_patch_area(:)
          real(r8), intent(in), optional :: new_patch_area(:)
+         real(r8), intent(in), optional :: old_patch_area(:)
       END SUBROUTINE reactive_remap_lulcc_if
 
       SUBROUTINE reactive_publish_levee_flood_if (fldfrc_patch)
@@ -124,6 +124,7 @@ MODULE MOD_Tracer_Reactive
       procedure(reactive_history_if),         pointer, nopass :: history => null()
       procedure(reactive_noarg_if),           pointer, nopass :: save_lulcc => null()
       procedure(reactive_remap_lulcc_if),     pointer, nopass :: remap_lulcc => null()
+      procedure(reactive_noarg_if),           pointer, nopass :: reload_lulcc => null()
       procedure(reactive_publish_levee_flood_if), pointer, nopass :: publish_levee_flood => null()
       procedure(reactive_publish_flood_if),    pointer, nopass :: publish_flood => null()
       procedure(reactive_noarg_if),           pointer, nopass :: final => null()
@@ -142,6 +143,7 @@ MODULE MOD_Tracer_Reactive
    PUBLIC :: tracer_reactive_history
    PUBLIC :: tracer_reactive_flush_acc_fluxes, tracer_reactive_accumulate_fluxes
    PUBLIC :: tracer_reactive_save_lulcc_state, tracer_reactive_remap_lulcc_state
+   PUBLIC :: tracer_reactive_reload_lulcc_inputs
    PUBLIC :: tracer_reactive_publish_levee_flood_patch, tracer_reactive_publish_flood_patch
    PUBLIC :: tracer_reactive_has_levee_flood_publisher, tracer_reactive_has_flood_publisher
    PUBLIC :: register_reactive_callbacks
@@ -179,7 +181,7 @@ CONTAINS
    SUBROUTINE register_reactive_callbacks (name, aliases, has_fn, refresh_fn, init_fn, &
       read_restart_fn, write_restart_fn, lake_step_fn, wetland_decomp_fn, &
       soil_step_fn, report_fn, flush_acc_fluxes_fn, accumulate_fluxes_fn, &
-      history_fn, save_lulcc_fn, remap_lulcc_fn, publish_levee_flood_fn, &
+      history_fn, save_lulcc_fn, remap_lulcc_fn, reload_lulcc_fn, publish_levee_flood_fn, &
       publish_flood_fn, final_fn)
 
       IMPLICIT NONE
@@ -199,6 +201,7 @@ CONTAINS
       procedure(reactive_history_if),        optional :: history_fn
       procedure(reactive_noarg_if),          optional :: save_lulcc_fn
       procedure(reactive_remap_lulcc_if),    optional :: remap_lulcc_fn
+      procedure(reactive_noarg_if),          optional :: reload_lulcc_fn
       procedure(reactive_publish_levee_flood_if), optional :: publish_levee_flood_fn
       procedure(reactive_publish_flood_if),  optional :: publish_flood_fn
       procedure(reactive_noarg_if),          optional :: final_fn
@@ -244,6 +247,7 @@ CONTAINS
       IF (present(history_fn))           reactive_callbacks(idx)%history => history_fn
       IF (present(save_lulcc_fn))        reactive_callbacks(idx)%save_lulcc => save_lulcc_fn
       IF (present(remap_lulcc_fn))       reactive_callbacks(idx)%remap_lulcc => remap_lulcc_fn
+      IF (present(reload_lulcc_fn))      reactive_callbacks(idx)%reload_lulcc => reload_lulcc_fn
       IF (present(publish_levee_flood_fn)) reactive_callbacks(idx)%publish_levee_flood => publish_levee_flood_fn
       IF (present(publish_flood_fn))     reactive_callbacks(idx)%publish_flood => publish_flood_fn
       IF (present(final_fn))             reactive_callbacks(idx)%final => final_fn
@@ -590,15 +594,25 @@ CONTAINS
       logical, intent(in) :: forcing_has_missing_value
       logical, intent(in) :: forcmask_pch(:)
       integer :: i
+      type(block_data_real8_2d) :: callback_sumarea
+      logical, allocatable :: callback_filter(:)
 
       CALL prepare_reactive_dispatch ()
+      allocate(callback_filter(size(filter)))
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%history)) THEN
-            CALL reactive_callbacks(i)%history (file_hist, itime_in_file, sumarea, filter, &
+            ! History callbacks legitimately rebuild their species-specific
+            ! mask and gridded normalization area.  Give each callback the
+            ! same caller-owned baseline so callback order cannot affect the
+            ! next species (or leak a species mask back to the caller).
+            callback_sumarea = sumarea
+            callback_filter = filter
+            CALL reactive_callbacks(i)%history (file_hist, itime_in_file, callback_sumarea, callback_filter, &
                nl_soil, forcing_has_missing_value, forcmask_pch)
          ENDIF
       ENDDO
+      deallocate(callback_filter)
 
    END SUBROUTINE tracer_reactive_history
 
@@ -618,14 +632,14 @@ CONTAINS
    END SUBROUTINE tracer_reactive_save_lulcc_state
 
    SUBROUTINE tracer_reactive_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-      lccpct_patches, old_patch_area, new_patch_area)
+      lccpct_patches, new_patch_area, old_patch_area)
 
       IMPLICIT NONE
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,:)
-      real(r8), intent(in), optional :: old_patch_area(:)
       real(r8), intent(in), optional :: new_patch_area(:)
+      real(r8), intent(in), optional :: old_patch_area(:)
 
       integer :: i
 
@@ -634,12 +648,27 @@ CONTAINS
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%remap_lulcc)) THEN
             CALL reactive_callbacks(i)%remap_lulcc (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-               lccpct_patches, old_patch_area, new_patch_area)
+               lccpct_patches, new_patch_area, old_patch_area)
          ENDIF
       ENDDO
       CALL mark_reactive_callbacks_dirty ()
 
    END SUBROUTINE tracer_reactive_remap_lulcc_state
+
+   SUBROUTINE tracer_reactive_reload_lulcc_inputs ()
+
+      IMPLICIT NONE
+      integer :: i
+
+      CALL prepare_reactive_dispatch ()
+      DO i = 1, n_reactive_callbacks
+         IF (reactive_callback_enabled(i) .and. &
+             associated(reactive_callbacks(i)%reload_lulcc)) THEN
+            CALL reactive_callbacks(i)%reload_lulcc ()
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE tracer_reactive_reload_lulcc_inputs
 
    logical FUNCTION tracer_reactive_has_levee_flood_publisher ()
 
@@ -825,6 +854,7 @@ CONTAINS
             nullify(reactive_callbacks(i)%history)
             nullify(reactive_callbacks(i)%save_lulcc)
             nullify(reactive_callbacks(i)%remap_lulcc)
+            nullify(reactive_callbacks(i)%reload_lulcc)
             nullify(reactive_callbacks(i)%publish_levee_flood)
             nullify(reactive_callbacks(i)%publish_flood)
             nullify(reactive_callbacks(i)%final)

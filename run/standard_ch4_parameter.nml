@@ -2,10 +2,14 @@
     ! Generic tracer metadata for this tracer.  These values are read by
     ! MOD_Tracer_Defs through DEF_TRACER_PARAM_FILES before the CH4-specific
     ! methane namelist below is read by the CH4 module.
+    DEF_TRACER%unit_kind           = 'species_owned'
     DEF_TRACER%mol_weight          = 16.04
     DEF_TRACER%ref_ratio           = 1.0
     DEF_TRACER%init_delta          = 0.0
     DEF_TRACER%reactive_decay_rate = 0.0
+    DEF_TRACER%uses_generic_land_water_transport = .false. ! CH4 owns its state
+    DEF_TRACER%is_nonvolatile      = .false.
+    DEF_TRACER%uses_reaction       = .true.
 /
 
 &nl_colm_methane_parameter
