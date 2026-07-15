@@ -26,6 +26,7 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
    USE MOD_Namelist, only: DEF_Srfdata_CompressLevel
    USE MOD_SPMD_Task
    USE MOD_LandPatch
+   USE MOD_Land2mWMO, only: wmo_patch, wmo_source
    USE MOD_Mesh
    USE MOD_Pixel
    USE MOD_NetCDFVector
@@ -49,7 +50,7 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
    logical :: raw_exists, ok_center
    integer :: ncid, vid, ierr
    integer :: nlat, nlon, ndepth
-   integer :: ipatch
+   integer :: ipatch, wmo_src
    real(r8), allocatable :: methane_ph_patches(:)
    real(r8), allocatable :: lat_g(:), lon_g(:)
    real(r8) :: lat_deg, lon_deg
@@ -111,6 +112,11 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
                            write(*,'(A,A)') ' WARNING: PHH2O variable read failed: ', trim(nf90_strerror(ierr))
                         ELSE
                            DO ipatch = 1, numpatch
+                              IF (ipatch == wmo_patch(landpatch%ielm(ipatch))) THEN
+                                 wmo_src = wmo_source(landpatch%ielm(ipatch))
+                                 methane_ph_patches(ipatch) = methane_ph_patches(wmo_src)
+                                 CYCLE
+                              ENDIF
                               CALL patch_center_deg(ipatch, lat_deg, lon_deg, ok_center)
                               IF (.not. ok_center) CYCLE
                               methane_ph_patches(ipatch) = native_patch_ph(ncid, vid, lat_g, lon_g, &
@@ -164,7 +170,7 @@ CONTAINS
       ie     = landpatch%ielm(ipatch)
       ipxstt = landpatch%ipxstt(ipatch)
       ipxend = landpatch%ipxend(ipatch)
-      IF (ie <= 0 .or. ipxend < ipxstt) RETURN
+      IF (ie <= 0 .or. ipxstt < 1 .or. ipxend < ipxstt) RETURN
 
       sumarea = 0._r8
       lat_deg = 0._r8
@@ -195,10 +201,14 @@ CONTAINS
       real(r8), intent(in) :: lat_deg, lon_deg
 
       integer :: ilat0, ilon0, ilat, ilon, d, ioff, joff, cnt, ierr_loc
+      integer :: ilat_start, ilat_end, nlat_read, nlon_read, ilon_start
+      integer :: nfirst, nsecond, ix, iy
       integer :: ival
-      integer(1) :: bval(1,1,1)
+      integer(1) :: bval(2*native_search_radius+1, 2*native_search_radius+1, 4)
+      integer(1) :: bsegment(2*native_search_radius+1, 2*native_search_radius+1, 4)
       real(r8) :: dlat, dlon, lon_norm, sum_x10
       real(r8) :: lat_min, lat_max
+      logical :: any_read, slab_failed
 
       native_patch_ph = methane_ph_fallback
       IF (nlat <= 0 .or. nlon <= 0 .or. ndepth <= 0) RETURN
@@ -229,21 +239,98 @@ CONTAINS
       ilon0 = nint((lon_norm - lon_g(1)) / max(dlon, 1.e-12_r8)) + 1
       ilon0 = modulo(ilon0 - 1, nlon) + 1
 
+      ilat_start = max(1, ilat0 - native_search_radius)
+      ilat_end = min(nlat, ilat0 + native_search_radius)
+      nlat_read = ilat_end - ilat_start + 1
+      nlon_read = min(nlon, 2 * native_search_radius + 1)
+      bval = missing_byte
+      any_read = .false.
+      slab_failed = .false.
+
+      IF (nlon <= 2 * native_search_radius) THEN
+         ierr_loc = nf90_get_var(ncid, vid, bsegment(1:nlon_read,1:nlat_read,1:ndepth), &
+            start=[1, ilat_start, 1], &
+            count=[nlon_read, nlat_read, ndepth])
+         IF (ierr_loc == NF90_NOERR) THEN
+            bval(1:nlon_read,1:nlat_read,1:ndepth) = bsegment(1:nlon_read,1:nlat_read,1:ndepth)
+            any_read = .true.
+         ELSE
+            slab_failed = .true.
+         ENDIF
+      ELSE
+         ilon_start = modulo(ilon0 - native_search_radius - 1, nlon) + 1
+         nfirst = min(nlon_read, nlon - ilon_start + 1)
+         ierr_loc = nf90_get_var(ncid, vid, bsegment(1:nfirst,1:nlat_read,1:ndepth), &
+            start=[ilon_start, ilat_start, 1], &
+            count=[nfirst, nlat_read, ndepth])
+         IF (ierr_loc == NF90_NOERR) THEN
+            bval(1:nfirst,1:nlat_read,1:ndepth) = bsegment(1:nfirst,1:nlat_read,1:ndepth)
+            any_read = .true.
+         ELSE
+            slab_failed = .true.
+         ENDIF
+
+         nsecond = nlon_read - nfirst
+         IF (nsecond > 0) THEN
+            ierr_loc = nf90_get_var(ncid, vid, bsegment(1:nsecond,1:nlat_read,1:ndepth), &
+               start=[1, ilat_start, 1], &
+               count=[nsecond, nlat_read, ndepth])
+            IF (ierr_loc == NF90_NOERR) THEN
+               bval(nfirst+1:nlon_read,1:nlat_read,1:ndepth) = &
+                  bsegment(1:nsecond,1:nlat_read,1:ndepth)
+               any_read = .true.
+            ELSE
+               slab_failed = .true.
+            ENDIF
+         ENDIF
+      ENDIF
+
+      IF (slab_failed) THEN
+         bval = missing_byte
+         any_read = .false.
+         DO d = 1, ndepth
+            DO joff = -native_search_radius, native_search_radius
+               ilat = ilat0 + joff
+               IF (ilat < 1 .or. ilat > nlat) CYCLE
+               iy = ilat - ilat_start + 1
+               DO ioff = -native_search_radius, native_search_radius
+                  ilon = modulo(ilon0 + ioff - 1, nlon) + 1
+                  IF (nlon <= 2 * native_search_radius) THEN
+                     ix = ilon
+                  ELSE
+                     ix = ioff + native_search_radius + 1
+                  ENDIF
+                  ierr_loc = nf90_get_var(ncid, vid, bsegment(1:1,1:1,1:1), &
+                     start=[ilon, ilat, d], count=[1, 1, 1])
+                  IF (ierr_loc /= NF90_NOERR) CYCLE
+                  bval(ix,iy,d) = bsegment(1,1,1)
+                  any_read = .true.
+               ENDDO
+            ENDDO
+         ENDDO
+      ENDIF
+
+      IF (.not. any_read) RETURN
+
       sum_x10 = 0._r8
       cnt = 0
       DO d = 1, ndepth
          DO joff = -native_search_radius, native_search_radius
             ilat = ilat0 + joff
             IF (ilat < 1 .or. ilat > nlat) CYCLE
+            iy = ilat - ilat_start + 1
             DO ioff = -native_search_radius, native_search_radius
                ilon = modulo(ilon0 + ioff - 1, nlon) + 1
-               ierr_loc = nf90_get_var(ncid, vid, bval, start=[ilon, ilat, d], count=[1, 1, 1])
-               IF (ierr_loc /= NF90_NOERR) CYCLE
-               IF (bval(1,1,1) == missing_byte) CYCLE
-               IF (bval(1,1,1) >= 0_1) THEN
-                  ival = int(bval(1,1,1))
+               IF (nlon <= 2 * native_search_radius) THEN
+                  ix = ilon
                ELSE
-                  ival = int(bval(1,1,1)) + 256
+                  ix = ioff + native_search_radius + 1
+               ENDIF
+               IF (bval(ix,iy,d) == missing_byte) CYCLE
+               IF (bval(ix,iy,d) >= 0_1) THEN
+                  ival = int(bval(ix,iy,d))
+               ELSE
+                  ival = int(bval(ix,iy,d)) + 256
                ENDIF
                IF (ival <= 0) CYCLE
                sum_x10 = sum_x10 + real(ival, r8)
