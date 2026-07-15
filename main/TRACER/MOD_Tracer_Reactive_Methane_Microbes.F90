@@ -74,15 +74,15 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
 
 CONTAINS
 
-	   SUBROUTINE allocate_methane_microbes_state(numpatch)
-	      integer, intent(in) :: numpatch
+   SUBROUTINE allocate_methane_microbes_state(numpatch)
+      integer, intent(in) :: numpatch
 
-	      IF (.not. DEF_METHANE%use_microbial_pools) RETURN
-	      IF (allocated(B_methanogen)) RETURN
-	      ! Keep zero-length arrays allocated on ranks with numpatch==0 when
-	      ! microbial pools are enabled; restart/vector I/O paths are collective.
+      IF (.not. DEF_METHANE%use_microbial_pools) RETURN
+      IF (allocated(B_methanogen)) RETURN
+      ! Keep zero-length arrays allocated on ranks with numpatch==0 when
+      ! microbial pools are enabled; restart/vector I/O paths are collective.
 
-	      allocate(B_methanogen(nl_soil,numpatch))
+      allocate(B_methanogen(nl_soil,numpatch))
       allocate(B_methanotroph(nl_soil,numpatch))
       allocate(B_methanogen_dormant(nl_soil,numpatch))
       allocate(B_methanotroph_dormant(nl_soil,numpatch))
@@ -138,10 +138,10 @@ CONTAINS
 
       integer :: j
       real(r8) :: dt_day, tempfac, sub_pool, sub_rate, f_s, f_o2, ch4_mm, o2_mm
-	      real(r8) :: mu_m, mu_o, loss_m, loss_o, to_dormant, from_dormant
-	      real(r8) :: prod_pot, oxid_pot, carbon_cap, ch4_cap, o2_cap, freeze_loss
-	      real(r8) :: growth_factor, dormant_loss
-	      real(r8) :: B_cap_methanogen, B_cap_methanotroph, organic_c_layer
+      real(r8) :: mu_m, mu_o, loss_m, loss_o, to_dormant, from_dormant
+      real(r8) :: prod_pot, oxid_pot, carbon_cap, ch4_cap, o2_cap, freeze_loss
+      real(r8) :: growth_factor, dormant_loss
+      real(r8) :: B_cap_methanogen, B_cap_methanotroph, organic_c_layer
       real(r8), parameter :: small = 1.e-30_r8
 
       IF (.not. DEF_METHANE%use_microbial_pools) RETURN
@@ -152,16 +152,16 @@ CONTAINS
       dt_day = deltim / secspday
 
       DO j = 1, nl_soil
-	         IF (t_soisno(j) <= tfrz) THEN
-	            freeze_loss = min(1._r8, max(0._r8, DEF_METHANE%gamma_microbial_freeze * dt_day))
-	            B_methanogen(j,ipatch) = max(DEF_METHANE%B_min_methanogen, &
-	               B_methanogen(j,ipatch) * (1._r8 - freeze_loss))
-	            B_methanotroph(j,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
-	               B_methanotroph(j,ipatch) * (1._r8 - freeze_loss))
-	            B_methanogen_dormant(j,ipatch) = max(0._r8, &
-	               B_methanogen_dormant(j,ipatch) * (1._r8 - freeze_loss))
-	            B_methanotroph_dormant(j,ipatch) = max(0._r8, &
-	               B_methanotroph_dormant(j,ipatch) * (1._r8 - freeze_loss))
+         IF (t_soisno(j) <= tfrz) THEN
+            freeze_loss = min(1._r8, max(0._r8, DEF_METHANE%gamma_microbial_freeze * dt_day))
+            B_methanogen(j,ipatch) = max(DEF_METHANE%B_min_methanogen, &
+               B_methanogen(j,ipatch) * (1._r8 - freeze_loss))
+            B_methanotroph(j,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
+               B_methanotroph(j,ipatch) * (1._r8 - freeze_loss))
+            B_methanogen_dormant(j,ipatch) = max(0._r8, &
+               B_methanogen_dormant(j,ipatch) * (1._r8 - freeze_loss))
+            B_methanotroph_dormant(j,ipatch) = max(0._r8, &
+               B_methanotroph_dormant(j,ipatch) * (1._r8 - freeze_loss))
 
             f_T_methanogen(j,ipatch) = 0._r8
             f_S_methanogen(j,ipatch) = 0._r8
@@ -186,64 +186,64 @@ CONTAINS
          f_o2 = DEF_METHANE%K_inh_O2_methanogen / &
             (DEF_METHANE%K_inh_O2_methanogen + max(conc_o2(j), 0._r8) + small)
 
-	         mu_m = DEF_METHANE%mu_max_methanogen * tempfac * f_s * f_o2
-	         loss_m = DEF_METHANE%gamma_methanogen * tempfac
-	         to_dormant = 0._r8
-	         from_dormant = 0._r8
-	         growth_factor = exp(max(-50._r8, min(50._r8, (mu_m - loss_m) * dt_day)))
-	         B_methanogen(j,ipatch) = max(DEF_METHANE%B_min_methanogen, &
+         mu_m = DEF_METHANE%mu_max_methanogen * tempfac * f_s * f_o2
+         loss_m = DEF_METHANE%gamma_methanogen * tempfac
+         to_dormant = 0._r8
+         from_dormant = 0._r8
+         growth_factor = exp(max(-50._r8, min(50._r8, (mu_m - loss_m) * dt_day)))
+         B_methanogen(j,ipatch) = max(DEF_METHANE%B_min_methanogen, &
             B_methanogen(j,ipatch) * growth_factor)
-	         IF (DEF_METHANE%use_microbial_dormancy) THEN
-	            IF (f_s < DEF_METHANE%dormancy_threshold_methanogen_fS .or. &
-	                f_o2 < DEF_METHANE%dormancy_threshold_methanogen_fO2) THEN
-	               to_dormant = min(B_methanogen(j,ipatch), &
-	                  max(0._r8, DEF_METHANE%dormancy_rate_active * B_methanogen(j,ipatch) * dt_day))
-	            ELSE
-	               from_dormant = min(B_methanogen_dormant(j,ipatch), &
-	                  max(0._r8, DEF_METHANE%dormancy_rate_revive * &
-	                  B_methanogen_dormant(j,ipatch) * dt_day))
-		            ENDIF
-		         ENDIF
+         IF (DEF_METHANE%use_microbial_dormancy) THEN
+            IF (f_s < DEF_METHANE%dormancy_threshold_methanogen_fS .or. &
+               f_o2 < DEF_METHANE%dormancy_threshold_methanogen_fO2) THEN
+               to_dormant = min(B_methanogen(j,ipatch), &
+                  max(0._r8, DEF_METHANE%dormancy_rate_active * B_methanogen(j,ipatch) * dt_day))
+            ELSE
+               from_dormant = min(B_methanogen_dormant(j,ipatch), &
+                  max(0._r8, DEF_METHANE%dormancy_rate_revive * &
+                  B_methanogen_dormant(j,ipatch) * dt_day))
+            ENDIF
+         ENDIF
 
-		         B_methanogen(j,ipatch) = max(DEF_METHANE%B_min_methanogen, &
+         B_methanogen(j,ipatch) = max(DEF_METHANE%B_min_methanogen, &
             B_methanogen(j,ipatch) - to_dormant + from_dormant)
-	         dormant_loss = min(B_methanogen_dormant(j,ipatch), &
-	            max(0._r8, DEF_METHANE%gamma_microbial_dormant * tempfac * &
-	            B_methanogen_dormant(j,ipatch) * dt_day))
-	         B_methanogen_dormant(j,ipatch) = B_methanogen_dormant(j,ipatch) + &
-	            to_dormant - from_dormant - dormant_loss
-	         B_methanogen_dormant(j,ipatch) = max(B_methanogen_dormant(j,ipatch), 0._r8)
+         dormant_loss = min(B_methanogen_dormant(j,ipatch), &
+            max(0._r8, DEF_METHANE%gamma_microbial_dormant * tempfac * &
+            B_methanogen_dormant(j,ipatch) * dt_day))
+         B_methanogen_dormant(j,ipatch) = B_methanogen_dormant(j,ipatch) + &
+            to_dormant - from_dormant - dormant_loss
+         B_methanogen_dormant(j,ipatch) = max(B_methanogen_dormant(j,ipatch), 0._r8)
 
          ch4_mm = max(conc_ch4(j), 0._r8) / (DEF_METHANE%k_m + max(conc_ch4(j), 0._r8) + small)
          o2_mm = max(conc_o2(j), 0._r8) / (DEF_METHANE%k_m_o2 + max(conc_o2(j), 0._r8) + small)
          mu_o = DEF_METHANE%mu_max_methanotroph * tempfac * ch4_mm * o2_mm
          loss_o = DEF_METHANE%gamma_methanotroph * tempfac
 
-	         growth_factor = exp(max(-50._r8, min(50._r8, (mu_o - loss_o) * dt_day)))
-	         B_methanotroph(j,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
+         growth_factor = exp(max(-50._r8, min(50._r8, (mu_o - loss_o) * dt_day)))
+         B_methanotroph(j,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
             B_methanotroph(j,ipatch) * growth_factor)
-	         to_dormant = 0._r8
-	         from_dormant = 0._r8
-	         IF (DEF_METHANE%use_microbial_dormancy) THEN
-	            IF (ch4_mm < DEF_METHANE%dormancy_threshold_methanotroph_fS .or. &
-	                o2_mm < DEF_METHANE%dormancy_threshold_methanotroph_fO2) THEN
-	               to_dormant = min(B_methanotroph(j,ipatch), &
-	                  max(0._r8, DEF_METHANE%dormancy_rate_active * B_methanotroph(j,ipatch) * dt_day))
-	            ELSE
-	               from_dormant = min(B_methanotroph_dormant(j,ipatch), &
-	                  max(0._r8, DEF_METHANE%dormancy_rate_revive * &
-	                  B_methanotroph_dormant(j,ipatch) * dt_day))
-	            ENDIF
-	         ENDIF
-	         B_methanotroph(j,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
+         to_dormant = 0._r8
+         from_dormant = 0._r8
+         IF (DEF_METHANE%use_microbial_dormancy) THEN
+            IF (ch4_mm < DEF_METHANE%dormancy_threshold_methanotroph_fS .or. &
+               o2_mm < DEF_METHANE%dormancy_threshold_methanotroph_fO2) THEN
+               to_dormant = min(B_methanotroph(j,ipatch), &
+                  max(0._r8, DEF_METHANE%dormancy_rate_active * B_methanotroph(j,ipatch) * dt_day))
+            ELSE
+               from_dormant = min(B_methanotroph_dormant(j,ipatch), &
+                  max(0._r8, DEF_METHANE%dormancy_rate_revive * &
+                  B_methanotroph_dormant(j,ipatch) * dt_day))
+            ENDIF
+         ENDIF
+         B_methanotroph(j,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
             B_methanotroph(j,ipatch) - to_dormant + from_dormant)
-	         dormant_loss = min(B_methanotroph_dormant(j,ipatch), &
-	            max(0._r8, DEF_METHANE%gamma_microbial_dormant * tempfac * &
-	            B_methanotroph_dormant(j,ipatch) * dt_day))
-	         B_methanotroph_dormant(j,ipatch) = B_methanotroph_dormant(j,ipatch) + &
-	            to_dormant - from_dormant - dormant_loss
-	         B_methanotroph(j,ipatch) = max(B_methanotroph(j,ipatch), DEF_METHANE%B_min_methanotroph)
-	         B_methanotroph_dormant(j,ipatch) = max(B_methanotroph_dormant(j,ipatch), 0._r8)
+         dormant_loss = min(B_methanotroph_dormant(j,ipatch), &
+            max(0._r8, DEF_METHANE%gamma_microbial_dormant * tempfac * &
+            B_methanotroph_dormant(j,ipatch) * dt_day))
+         B_methanotroph_dormant(j,ipatch) = B_methanotroph_dormant(j,ipatch) + &
+            to_dormant - from_dormant - dormant_loss
+         B_methanotroph(j,ipatch) = max(B_methanotroph(j,ipatch), DEF_METHANE%B_min_methanotroph)
+         B_methanotroph_dormant(j,ipatch) = max(B_methanotroph_dormant(j,ipatch), 0._r8)
 
          ! Constrain microbial biomass by local organic carbon.  Without this
          ! bound, positive net growth can compound exponentially while the
@@ -260,19 +260,19 @@ CONTAINS
             B_methanotroph(j,ipatch) = min(B_methanotroph(j,ipatch), B_cap_methanotroph)
          ENDIF
 
-	         ! B_* pools are stored as [gC biomass m-3 soil].  Treat kappa_m_*
-	         ! as first-order biomass-C turnover [day-1] and convert biomass C
-	         ! to mol C with catomw before exposing molar CH4 potentials.  This
-	         ! keeps the optional microbial override in the same [mol m-3 s-1]
-	         ! units as the legacy production/oxidation physics and the caps
-	         ! below.
-	         prod_pot = DEF_METHANE%kappa_m_methanogen * B_methanogen(j,ipatch) / catomw * &
-	            tempfac * f_s * f_o2 / secspday
+         ! B_* pools are stored as [gC biomass m-3 soil].  Treat kappa_m_*
+         ! as first-order biomass-C turnover [day-1] and convert biomass C
+         ! to mol C with catomw before exposing molar CH4 potentials.  This
+         ! keeps the optional microbial override in the same [mol m-3 s-1]
+         ! units as the legacy production/oxidation physics and the caps
+         ! below.
+         prod_pot = DEF_METHANE%kappa_m_methanogen * B_methanogen(j,ipatch) / catomw * &
+            tempfac * f_s * f_o2 / secspday
          carbon_cap = sub_rate
          prod_pot = min(max(prod_pot, 0._r8), carbon_cap)
 
-	         oxid_pot = DEF_METHANE%kappa_m_methanotroph * B_methanotroph(j,ipatch) / catomw * &
-	            tempfac * ch4_mm * o2_mm / secspday
+         oxid_pot = DEF_METHANE%kappa_m_methanotroph * B_methanotroph(j,ipatch) / catomw * &
+            tempfac * ch4_mm * o2_mm / secspday
          ch4_cap = max(conc_ch4(j), 0._r8) / deltim
          o2_cap = max(conc_o2(j), 0._r8) / (2._r8 * deltim)
          oxid_pot = min(max(oxid_pot, 0._r8), ch4_cap, o2_cap)
@@ -375,19 +375,19 @@ CONTAINS
    END SUBROUTINE save_methane_microbes_lulcc_state
 
 
-	   SUBROUTINE remap_methane_microbes_lulcc_state(patchclass_new, eindex_new, &
-	      patchclass_old, eindex_old, lccpct_patches, old_patch_area)
-	      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
-	      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
-	      real(r8), intent(in), optional :: lccpct_patches(:,:)
-	      real(r8), intent(in), optional :: old_patch_area(:)
+   SUBROUTINE remap_methane_microbes_lulcc_state(patchclass_new, eindex_new, &
+      patchclass_old, eindex_old, lccpct_patches, old_patch_area)
+      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
+      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
+      real(r8), intent(in), optional :: lccpct_patches(:,:)
+      real(r8), intent(in), optional :: old_patch_area(:)
       integer :: nnew
 
-	      nnew = size(patchclass_new)
-	      CALL deallocate_methane_microbes_arrays_only()
-	      CALL allocate_methane_microbes_state(nnew)
-	      IF (.not. allocated(B_methanogen)) RETURN
-	      IF (.not. methane_microbes_lulcc_snapshot_valid) RETURN
+      nnew = size(patchclass_new)
+      CALL deallocate_methane_microbes_arrays_only()
+      CALL allocate_methane_microbes_state(nnew)
+      IF (.not. allocated(B_methanogen)) RETURN
+      IF (.not. methane_microbes_lulcc_snapshot_valid) RETURN
 
       CALL remap2d(lulcc_B_methanogen_old, B_methanogen)
       CALL remap2d(lulcc_B_methanotroph_old, B_methanotroph)
@@ -419,8 +419,8 @@ CONTAINS
                DO op = 1, min(size(old,2), size(patchclass_old), size(eindex_old))
                   IF (eindex_old(op) /= eindex_new(np)) CYCLE
                   IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
-	                  w = lulcc_source_weight(np, op)
+                     patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                  w = lulcc_source_weight(np, op)
                   IF (w <= 0._r8) CYCLE
                   new(1:min(size(new,1),size(old,1)),np) = &
                      new(1:min(size(new,1),size(old,1)),np) + &
@@ -447,40 +447,40 @@ CONTAINS
          src = 0
          DO op = 1, min(nold, size(patchclass_old), size(eindex_old))
             IF (eindex_old(op) == eindex_new(np) .and. &
-                patchclass_old(op) == patchclass_new(np)) THEN
+               patchclass_old(op) == patchclass_new(np)) THEN
                src = op
                RETURN
             ENDIF
          ENDDO
          ! Microbial pools are patch-class specific; avoid copying a same-eindex
          ! pool from a different land-cover class when no class match exists.
-	      END FUNCTION fallback_source
+      END FUNCTION fallback_source
 
-	      REAL(r8) FUNCTION lulcc_source_weight(np, op) RESULT(w)
-	         integer, intent(in) :: np, op
-	         integer :: oq
-	         real(r8) :: class_area
+      REAL(r8) FUNCTION lulcc_source_weight(np, op) RESULT(w)
+         integer, intent(in) :: np, op
+         integer :: oq
+         real(r8) :: class_area
 
-	         w = 0._r8
-	         IF (.not. present(lccpct_patches)) RETURN
-	         IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-	             patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
-	         w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
-	         IF (w <= 0._r8 .or. .not. present(old_patch_area)) RETURN
-	         IF (op > size(old_patch_area)) RETURN
+         w = 0._r8
+         IF (.not. present(lccpct_patches)) RETURN
+         IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+            patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
+         w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
+         IF (w <= 0._r8 .or. .not. present(old_patch_area)) RETURN
+         IF (op > size(old_patch_area)) RETURN
 
-	         class_area = 0._r8
-	         DO oq = 1, min(size(patchclass_old), size(eindex_old), size(old_patch_area))
-	            IF (eindex_old(oq) == eindex_new(np) .and. &
-	                patchclass_old(oq) == patchclass_old(op)) THEN
-	               class_area = class_area + max(0._r8, old_patch_area(oq))
-	            ENDIF
-	         ENDDO
-	         IF (class_area > 0._r8) THEN
-	            w = w * max(0._r8, old_patch_area(op)) / class_area
-	         ENDIF
-	      END FUNCTION lulcc_source_weight
-	   END SUBROUTINE remap_methane_microbes_lulcc_state
+         class_area = 0._r8
+         DO oq = 1, min(size(patchclass_old), size(eindex_old), size(old_patch_area))
+            IF (eindex_old(oq) == eindex_new(np) .and. &
+               patchclass_old(oq) == patchclass_old(op)) THEN
+               class_area = class_area + max(0._r8, old_patch_area(oq))
+            ENDIF
+         ENDDO
+         IF (class_area > 0._r8) THEN
+            w = w * max(0._r8, old_patch_area(op)) / class_area
+         ENDIF
+      END FUNCTION lulcc_source_weight
+   END SUBROUTINE remap_methane_microbes_lulcc_state
 
 
    SUBROUTINE deallocate_methane_microbes_arrays_only()
