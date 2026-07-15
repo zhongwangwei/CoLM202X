@@ -7,9 +7,9 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
 !=======================================================================
 
    USE MOD_Precision
-	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
-	   USE MOD_Vars_Global, only: nl_soil, spval
-	   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
+   USE MOD_Vars_Global, only: nl_soil, spval
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
 
    IMPLICIT NONE
    SAVE
@@ -133,6 +133,15 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_methane_surf_flux_tot_sat
    PUBLIC :: a_methane_surf_flux_tot_unsat
    PUBLIC :: a_methane_surf_flux_wetland
+   ! Category-split CH4 budget components (wetland / soil / lake / rice).
+   PUBLIC :: a_methane_prod_wetland, a_methane_prod_soil, a_methane_prod_lake
+   PUBLIC :: a_methane_oxid_wetland, a_methane_oxid_soil, a_methane_oxid_lake
+   PUBLIC :: a_methane_aere_wetland, a_methane_aere_soil, a_methane_aere_lake
+   PUBLIC :: a_methane_ebul_wetland, a_methane_ebul_soil, a_methane_ebul_lake
+   PUBLIC :: a_methane_diff_wetland, a_methane_diff_soil, a_methane_diff_lake
+   PUBLIC :: a_methane_area_wetland, a_methane_area_soil, a_methane_area_lake
+   PUBLIC :: a_methane_area_floodplain
+   PUBLIC :: a_methane_wetland_type
    PUBLIC :: a_methane_tran_depth
    PUBLIC :: a_methane_tran_depth_sat
    PUBLIC :: a_methane_tran_depth_unsat
@@ -298,19 +307,35 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_annavg_agnpp          (:)
    real(r8), allocatable :: a_annavg_bgnpp          (:)
    real(r8), allocatable :: a_annavg_somhr          (:)
-	   real(r8), allocatable :: a_annavg_finrw          (:)
-	   real(r8), allocatable :: a_methane_dfsat_tot     (:)
-	   real(r8), allocatable :: a_f_h2osfc              (:)
-	   real(r8), allocatable :: a_methane_finundated        (:)
-	   real(r8), allocatable :: a_methane_soil_finundated   (:)
-	   real(r8), allocatable :: a_methane_soil_zwt          (:)
-	   real(r8), allocatable :: a_f_inund_flood_patch       (:)
-	   real(r8), allocatable :: a_f_inund_flood_depth_patch (:)
-	   real(r8), allocatable :: a_wetland_frac_per_patch    (:)
-	   real(r8), allocatable :: a_methane_surf_flux_wetland (:)
-	   real(r8), allocatable :: a_methane_surf_flux_soil    (:)
-	   real(r8), allocatable :: a_methane_surf_flux_lake    (:)
-	   real(r8), allocatable :: a_methane_surf_flux_rice    (:)
+   real(r8), allocatable :: a_annavg_finrw          (:)
+   real(r8), allocatable :: a_methane_dfsat_tot     (:)
+   real(r8), allocatable :: a_f_h2osfc              (:)
+   real(r8), allocatable :: a_methane_finundated        (:)
+   real(r8), allocatable :: a_methane_soil_finundated   (:)
+   real(r8), allocatable :: a_methane_soil_zwt          (:)
+   real(r8), allocatable :: a_f_inund_flood_patch       (:)
+   real(r8), allocatable :: a_f_inund_flood_depth_patch (:)
+   real(r8), allocatable :: a_wetland_frac_per_patch    (:)
+   real(r8), allocatable :: a_methane_surf_flux_wetland (:)
+   ! Category-split CH4 budget components.  Time accumulators over the
+   ! history window; Hist divides by a_methane_acc_num / a_methane_acc_num_lake.
+   real(r8), allocatable :: a_methane_prod_wetland (:), a_methane_prod_soil (:)
+   real(r8), allocatable :: a_methane_prod_lake    (:)
+   real(r8), allocatable :: a_methane_oxid_wetland (:), a_methane_oxid_soil (:)
+   real(r8), allocatable :: a_methane_oxid_lake    (:)
+   real(r8), allocatable :: a_methane_aere_wetland (:), a_methane_aere_soil (:)
+   real(r8), allocatable :: a_methane_aere_lake    (:)
+   real(r8), allocatable :: a_methane_ebul_wetland (:), a_methane_ebul_soil (:)
+   real(r8), allocatable :: a_methane_ebul_lake    (:)
+   real(r8), allocatable :: a_methane_diff_wetland (:), a_methane_diff_soil (:)
+   real(r8), allocatable :: a_methane_diff_lake    (:)
+   real(r8), allocatable :: a_methane_area_wetland (:), a_methane_area_soil (:)
+   real(r8), allocatable :: a_methane_area_lake    (:)
+   real(r8), allocatable :: a_methane_area_floodplain (:)
+   real(r8), allocatable :: a_methane_wetland_type  (:)
+   real(r8), allocatable :: a_methane_surf_flux_soil    (:)
+   real(r8), allocatable :: a_methane_surf_flux_lake    (:)
+   real(r8), allocatable :: a_methane_surf_flux_rice    (:)
 
    !!!! ----------------------------------------------------------------
    !!!!                 optional microbial-pool diagnostics
@@ -467,42 +492,56 @@ CONTAINS
       allocate (a_annavg_agnpp      (numpatch))
       allocate (a_annavg_bgnpp      (numpatch))
       allocate (a_annavg_somhr      (numpatch))
-	      allocate (a_annavg_finrw      (numpatch))
-	      allocate (a_methane_dfsat_tot (numpatch))
-	      allocate (a_f_h2osfc          (numpatch))
-	      allocate (a_methane_finundated        (numpatch))
-	      allocate (a_methane_soil_finundated   (numpatch))
-	      allocate (a_methane_soil_zwt          (numpatch))
-	      allocate (a_f_inund_flood_patch       (numpatch))
-	      allocate (a_f_inund_flood_depth_patch (numpatch))
-	      allocate (a_wetland_frac_per_patch    (numpatch))
-	      allocate (a_methane_surf_flux_wetland (numpatch))
-	      allocate (a_methane_surf_flux_soil    (numpatch))
-	      allocate (a_methane_surf_flux_lake    (numpatch))
-	      allocate (a_methane_surf_flux_rice    (numpatch))
+      allocate (a_annavg_finrw      (numpatch))
+      allocate (a_methane_dfsat_tot (numpatch))
+      allocate (a_f_h2osfc          (numpatch))
+      allocate (a_methane_finundated        (numpatch))
+      allocate (a_methane_soil_finundated   (numpatch))
+      allocate (a_methane_soil_zwt          (numpatch))
+      allocate (a_f_inund_flood_patch       (numpatch))
+      allocate (a_f_inund_flood_depth_patch (numpatch))
+      allocate (a_wetland_frac_per_patch    (numpatch))
+      allocate (a_methane_surf_flux_wetland (numpatch))
+      allocate (a_methane_prod_wetland (numpatch)) ; allocate (a_methane_prod_soil (numpatch))
+      allocate (a_methane_prod_lake    (numpatch))
+      allocate (a_methane_oxid_wetland (numpatch)) ; allocate (a_methane_oxid_soil (numpatch))
+      allocate (a_methane_oxid_lake    (numpatch))
+      allocate (a_methane_aere_wetland (numpatch)) ; allocate (a_methane_aere_soil (numpatch))
+      allocate (a_methane_aere_lake    (numpatch))
+      allocate (a_methane_ebul_wetland (numpatch)) ; allocate (a_methane_ebul_soil (numpatch))
+      allocate (a_methane_ebul_lake    (numpatch))
+      allocate (a_methane_diff_wetland (numpatch)) ; allocate (a_methane_diff_soil (numpatch))
+      allocate (a_methane_diff_lake    (numpatch))
+      allocate (a_methane_area_wetland (numpatch)) ; allocate (a_methane_area_soil (numpatch))
+      allocate (a_methane_area_lake    (numpatch))
+      allocate (a_methane_area_floodplain (numpatch))
+      allocate (a_methane_wetland_type  (numpatch))
+      allocate (a_methane_surf_flux_soil    (numpatch))
+      allocate (a_methane_surf_flux_lake    (numpatch))
+      allocate (a_methane_surf_flux_rice    (numpatch))
 
-	      ! optional microbial-pool diagnostics
-	      IF (DEF_METHANE%use_microbial_pools .and. .not. allocated(a_B_methanogen)) THEN
-	         allocate (a_B_methanogen             (nl_soil,numpatch))
-	         allocate (a_B_methanotroph           (nl_soil,numpatch))
-	         allocate (a_B_methanogen_dormant     (nl_soil,numpatch))
-	         allocate (a_B_methanotroph_dormant   (nl_soil,numpatch))
-	         allocate (a_f_T_methanogen           (nl_soil,numpatch))
-	         allocate (a_f_S_methanogen           (nl_soil,numpatch))
-	         allocate (a_f_O2_methanogen          (nl_soil,numpatch))
-	         allocate (a_f_T_methanotroph         (nl_soil,numpatch))
-	         allocate (a_methanogen_growth_rate   (nl_soil,numpatch))
-	         allocate (a_methanotroph_growth_rate (nl_soil,numpatch))
-	         allocate (a_microbial_prod_potential (nl_soil,numpatch))
-	         allocate (a_microbial_oxid_potential (nl_soil,numpatch))
-	         allocate (a_methane_acc_num_microbe  (numpatch))
-	      ENDIF
+      ! optional microbial-pool diagnostics
+      IF (DEF_METHANE%use_microbial_pools .and. .not. allocated(a_B_methanogen)) THEN
+         allocate (a_B_methanogen             (nl_soil,numpatch))
+         allocate (a_B_methanotroph           (nl_soil,numpatch))
+         allocate (a_B_methanogen_dormant     (nl_soil,numpatch))
+         allocate (a_B_methanotroph_dormant   (nl_soil,numpatch))
+         allocate (a_f_T_methanogen           (nl_soil,numpatch))
+         allocate (a_f_S_methanogen           (nl_soil,numpatch))
+         allocate (a_f_O2_methanogen          (nl_soil,numpatch))
+         allocate (a_f_T_methanotroph         (nl_soil,numpatch))
+         allocate (a_methanogen_growth_rate   (nl_soil,numpatch))
+         allocate (a_methanotroph_growth_rate (nl_soil,numpatch))
+         allocate (a_microbial_prod_potential (nl_soil,numpatch))
+         allocate (a_microbial_oxid_potential (nl_soil,numpatch))
+         allocate (a_methane_acc_num_microbe  (numpatch))
+      ENDIF
 
-	      allocate (a_methane_acc_num         (numpatch))
-	      allocate (a_methane_acc_num_unsat   (numpatch))
-	      allocate (a_methane_acc_num_sat     (numpatch))
-	      allocate (a_methane_acc_num_lake    (numpatch))
-	      allocate (a_methane_acc_num_extra   (numpatch))
+      allocate (a_methane_acc_num         (numpatch))
+      allocate (a_methane_acc_num_unsat   (numpatch))
+      allocate (a_methane_acc_num_sat     (numpatch))
+      allocate (a_methane_acc_num_lake    (numpatch))
+      allocate (a_methane_acc_num_extra   (numpatch))
 
       CALL flush_methane_acc_fluxes ()
 
@@ -632,107 +671,128 @@ CONTAINS
       a_annavg_bgnpp      (:)   = 0._r8
       a_annavg_somhr      (:)   = 0._r8
       a_annavg_finrw      (:)   = 0._r8
-	      a_methane_dfsat_tot (:)   = 0._r8
-		      a_f_h2osfc          (:)   = 0._r8
-	      a_methane_finundated        (:) = 0._r8
-	      a_methane_soil_finundated   (:) = 0._r8
-	      a_methane_soil_zwt          (:) = 0._r8
-	      a_f_inund_flood_patch       (:) = 0._r8
-	      a_f_inund_flood_depth_patch (:) = 0._r8
-	      a_wetland_frac_per_patch    (:) = 0._r8
-	      a_methane_surf_flux_wetland (:) = 0._r8
-	      a_methane_surf_flux_soil    (:) = 0._r8
-	      a_methane_surf_flux_lake    (:) = 0._r8
-	      a_methane_surf_flux_rice    (:) = 0._r8
+      a_methane_dfsat_tot (:)   = 0._r8
+      a_f_h2osfc          (:)   = 0._r8
+      a_methane_finundated        (:) = 0._r8
+      a_methane_soil_finundated   (:) = 0._r8
+      a_methane_soil_zwt          (:) = 0._r8
+      a_f_inund_flood_patch       (:) = 0._r8
+      a_f_inund_flood_depth_patch (:) = 0._r8
+      a_wetland_frac_per_patch    (:) = 0._r8
+      a_methane_surf_flux_wetland (:) = 0._r8
+      a_methane_prod_wetland (:) = 0._r8 ; a_methane_prod_soil (:) = 0._r8
+      a_methane_prod_lake    (:) = 0._r8
+      a_methane_oxid_wetland (:) = 0._r8 ; a_methane_oxid_soil (:) = 0._r8
+      a_methane_oxid_lake    (:) = 0._r8
+      a_methane_aere_wetland (:) = 0._r8 ; a_methane_aere_soil (:) = 0._r8
+      a_methane_aere_lake    (:) = 0._r8
+      a_methane_ebul_wetland (:) = 0._r8 ; a_methane_ebul_soil (:) = 0._r8
+      a_methane_ebul_lake    (:) = 0._r8
+      a_methane_diff_wetland (:) = 0._r8 ; a_methane_diff_soil (:) = 0._r8
+      a_methane_diff_lake    (:) = 0._r8
+      a_methane_area_wetland (:) = 0._r8 ; a_methane_area_soil (:) = 0._r8
+      a_methane_area_lake    (:) = 0._r8
+      a_methane_area_floodplain (:) = 0._r8
+      a_methane_wetland_type  (:) = 0._r8
+      a_methane_surf_flux_soil    (:) = 0._r8
+      a_methane_surf_flux_lake    (:) = 0._r8
+      a_methane_surf_flux_rice    (:) = 0._r8
 
-	      ! optional microbial-pool diagnostics
-	      IF (allocated(a_B_methanogen))             a_B_methanogen             (:,:) = 0._r8
-	      IF (allocated(a_B_methanotroph))           a_B_methanotroph           (:,:) = 0._r8
-	      IF (allocated(a_B_methanogen_dormant))     a_B_methanogen_dormant     (:,:) = 0._r8
-	      IF (allocated(a_B_methanotroph_dormant))   a_B_methanotroph_dormant   (:,:) = 0._r8
-	      IF (allocated(a_f_T_methanogen))           a_f_T_methanogen           (:,:) = 0._r8
-	      IF (allocated(a_f_S_methanogen))           a_f_S_methanogen           (:,:) = 0._r8
-	      IF (allocated(a_f_O2_methanogen))          a_f_O2_methanogen          (:,:) = 0._r8
-	      IF (allocated(a_f_T_methanotroph))         a_f_T_methanotroph         (:,:) = 0._r8
-	      IF (allocated(a_methanogen_growth_rate))   a_methanogen_growth_rate   (:,:) = 0._r8
-	      IF (allocated(a_methanotroph_growth_rate)) a_methanotroph_growth_rate (:,:) = 0._r8
-	      IF (allocated(a_microbial_prod_potential)) a_microbial_prod_potential (:,:) = 0._r8
-	      IF (allocated(a_microbial_oxid_potential)) a_microbial_oxid_potential (:,:) = 0._r8
+      ! optional microbial-pool diagnostics
+      IF (allocated(a_B_methanogen))             a_B_methanogen             (:,:) = 0._r8
+      IF (allocated(a_B_methanotroph))           a_B_methanotroph           (:,:) = 0._r8
+      IF (allocated(a_B_methanogen_dormant))     a_B_methanogen_dormant     (:,:) = 0._r8
+      IF (allocated(a_B_methanotroph_dormant))   a_B_methanotroph_dormant   (:,:) = 0._r8
+      IF (allocated(a_f_T_methanogen))           a_f_T_methanogen           (:,:) = 0._r8
+      IF (allocated(a_f_S_methanogen))           a_f_S_methanogen           (:,:) = 0._r8
+      IF (allocated(a_f_O2_methanogen))          a_f_O2_methanogen          (:,:) = 0._r8
+      IF (allocated(a_f_T_methanotroph))         a_f_T_methanotroph         (:,:) = 0._r8
+      IF (allocated(a_methanogen_growth_rate))   a_methanogen_growth_rate   (:,:) = 0._r8
+      IF (allocated(a_methanotroph_growth_rate)) a_methanotroph_growth_rate (:,:) = 0._r8
+      IF (allocated(a_microbial_prod_potential)) a_microbial_prod_potential (:,:) = 0._r8
+      IF (allocated(a_microbial_oxid_potential)) a_microbial_oxid_potential (:,:) = 0._r8
 
-	      a_methane_acc_num         (:) = 0._r8
+      a_methane_acc_num         (:) = 0._r8
       a_methane_acc_num_unsat   (:) = 0._r8
       a_methane_acc_num_sat     (:) = 0._r8
       a_methane_acc_num_lake    (:) = 0._r8
       a_methane_acc_num_extra   (:) = 0._r8
-	      IF (allocated(a_methane_acc_num_microbe)) a_methane_acc_num_microbe (:) = 0._r8
+      IF (allocated(a_methane_acc_num_microbe)) a_methane_acc_num_microbe (:) = 0._r8
 
    END SUBROUTINE flush_methane_acc_fluxes
 
    !-------------------------------------------------------------------
    SUBROUTINE accumulate_methane_fluxes ()
       ! Accumulate Methane state into a_* via acc1d/acc2d.
-	      USE MOD_Tracer_Reactive_Methane_State,    only: &
-	           net_methane, methane_prod_depth, o2_decomp_depth, co2_decomp_depth, &
-	           methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
-           methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, &
-           methane_ebul_depth, o2stress, methane_stress, &
-           methane_surf_flux_tot, methane_surf_flux_tot_phys, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
-           methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
-           methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
-	           co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
-           totcol_methane, grnd_methane_cond, &
-           conc_o2, conc_methane, &
-           ! unsat/sat
-           net_methane_unsat, net_methane_sat, &
-           methane_prod_depth_unsat, methane_prod_depth_sat, &
-           o2_decomp_depth_unsat, o2_decomp_depth_sat, &
-	           co2_decomp_depth_unsat, co2_decomp_depth_sat, &
-           methane_oxid_depth_unsat, methane_oxid_depth_sat, &
-           o2_oxid_depth_unsat, o2_oxid_depth_sat, &
-	           co2_oxid_depth_unsat, co2_oxid_depth_sat, &
-           methane_aere_depth_unsat, methane_aere_depth_sat, &
-           methane_tran_depth_unsat, methane_tran_depth_sat, &
-           o2_aere_depth_unsat, o2_aere_depth_sat, &
-	           co2_aere_depth_unsat, co2_aere_depth_sat, &
-           methane_ebul_depth_unsat, methane_ebul_depth_sat, &
-           o2stress_unsat, o2stress_sat, &
-           methane_stress_unsat, methane_stress_sat, &
-           methane_surf_flux_tot_unsat, methane_surf_flux_tot_sat, &
-           methane_surf_aere_unsat, methane_surf_aere_sat, &
-           methane_surf_ebul_unsat, methane_surf_ebul_sat, &
-           methane_surf_diff_unsat, methane_surf_diff_sat, &
-           methane_ebul_tot_unsat, methane_ebul_tot_sat, &
-           methane_prod_tot_unsat, methane_prod_tot_sat, &
-           methane_oxid_tot_unsat, methane_oxid_tot_sat, &
-	           co2_decomp_tot_unsat, co2_decomp_tot_sat, &
-	           co2_oxid_tot_unsat, co2_oxid_tot_sat, &
-	           co2_net_tot_unsat, co2_net_tot_sat, &
-           totcol_methane_unsat, totcol_methane_sat, &
-           grnd_methane_cond_unsat, grnd_methane_cond_sat, &
-           conc_o2_unsat, conc_o2_sat, &
-           conc_methane_unsat, conc_methane_sat, &
-           ! lake data
-           methane_prod_depth_lake, methane_oxid_depth_lake, methane_ebul_depth_lake, &
-	           co2_decomp_depth_lake, co2_oxid_depth_lake, &
-           methane_surf_ebul_lake, methane_surf_diff_lake, methane_surf_flux_tot_lake, &
-           methane_prod_tot_lake, methane_oxid_tot_lake, methane_ebul_tot_lake, &
-	           co2_decomp_tot_lake, co2_oxid_tot_lake, co2_net_tot_lake, &
-           totcol_methane_lake, grnd_methane_cond_lake, &
-           conc_o2_lake, conc_methane_lake, &
-	           ! extras
-	           forc_pmethanem, layer_sat_lag, &
-	           annavg_agnpp, annavg_bgnpp, annavg_somhr, annavg_finrw, &
-	           methane_dfsat_tot, f_h2osfc, &
-	           methane_finundated, methane_soil_finundated, methane_soil_zwt, &
-	           f_inund_flood_patch, f_inund_flood_depth_patch, wetland_frac_per_patch, &
-	           methane_surf_flux_wetland, methane_surf_flux_soil, methane_surf_flux_lake, &
-	           methane_surf_flux_rice
+      USE MOD_Tracer_Reactive_Methane_State,    only: &
+         net_methane, methane_prod_depth, o2_decomp_depth, co2_decomp_depth, &
+         methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
+         methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, &
+         methane_ebul_depth, o2stress, methane_stress, &
+         methane_surf_flux_tot, methane_surf_flux_tot_phys, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
+         methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
+         methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
+         co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
+         totcol_methane, grnd_methane_cond, &
+         conc_o2, conc_methane, &
+      ! unsat/sat
+         net_methane_unsat, net_methane_sat, &
+         methane_prod_depth_unsat, methane_prod_depth_sat, &
+         o2_decomp_depth_unsat, o2_decomp_depth_sat, &
+         co2_decomp_depth_unsat, co2_decomp_depth_sat, &
+         methane_oxid_depth_unsat, methane_oxid_depth_sat, &
+         o2_oxid_depth_unsat, o2_oxid_depth_sat, &
+         co2_oxid_depth_unsat, co2_oxid_depth_sat, &
+         methane_aere_depth_unsat, methane_aere_depth_sat, &
+         methane_tran_depth_unsat, methane_tran_depth_sat, &
+         o2_aere_depth_unsat, o2_aere_depth_sat, &
+         co2_aere_depth_unsat, co2_aere_depth_sat, &
+         methane_ebul_depth_unsat, methane_ebul_depth_sat, &
+         o2stress_unsat, o2stress_sat, &
+         methane_stress_unsat, methane_stress_sat, &
+         methane_surf_flux_tot_unsat, methane_surf_flux_tot_sat, &
+         methane_surf_aere_unsat, methane_surf_aere_sat, &
+         methane_surf_ebul_unsat, methane_surf_ebul_sat, &
+         methane_surf_diff_unsat, methane_surf_diff_sat, &
+         methane_ebul_tot_unsat, methane_ebul_tot_sat, &
+         methane_prod_tot_unsat, methane_prod_tot_sat, &
+         methane_oxid_tot_unsat, methane_oxid_tot_sat, &
+         co2_decomp_tot_unsat, co2_decomp_tot_sat, &
+         co2_oxid_tot_unsat, co2_oxid_tot_sat, &
+         co2_net_tot_unsat, co2_net_tot_sat, &
+         totcol_methane_unsat, totcol_methane_sat, &
+         grnd_methane_cond_unsat, grnd_methane_cond_sat, &
+         conc_o2_unsat, conc_o2_sat, &
+         conc_methane_unsat, conc_methane_sat, &
+      ! lake data
+         methane_prod_depth_lake, methane_oxid_depth_lake, methane_ebul_depth_lake, &
+         co2_decomp_depth_lake, co2_oxid_depth_lake, &
+         methane_surf_ebul_lake, methane_surf_diff_lake, methane_surf_flux_tot_lake, &
+         methane_prod_tot_lake, methane_oxid_tot_lake, methane_ebul_tot_lake, &
+         co2_decomp_tot_lake, co2_oxid_tot_lake, co2_net_tot_lake, &
+         totcol_methane_lake, grnd_methane_cond_lake, &
+         conc_o2_lake, conc_methane_lake, &
+      ! extras
+         forc_pmethanem, layer_sat_lag, &
+         annavg_agnpp, annavg_bgnpp, annavg_somhr, annavg_finrw, &
+         methane_dfsat_tot, f_h2osfc, &
+         methane_finundated, methane_soil_finundated, methane_soil_zwt, &
+         f_inund_flood_patch, f_inund_flood_depth_patch, wetland_frac_per_patch, &
+         methane_surf_flux_wetland, methane_surf_flux_soil, methane_surf_flux_lake, &
+         methane_surf_flux_rice, &
+         methane_prod_wetland, methane_prod_soil, methane_prod_lake, &
+         methane_oxid_wetland, methane_oxid_soil, methane_oxid_lake, &
+         methane_aere_wetland, methane_aere_soil, methane_aere_lake, &
+         methane_ebul_wetland, methane_ebul_soil, methane_ebul_lake, &
+         methane_diff_wetland, methane_diff_soil, methane_diff_lake, &
+         methane_area_wetland, methane_area_soil, methane_area_lake, &
+         methane_area_floodplain, methane_wetland_type
       USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
       USE MOD_Tracer_Reactive_Methane_Microbes, only: &
-           B_methanogen, B_methanotroph, B_methanogen_dormant, B_methanotroph_dormant, &
-           f_T_methanogen, f_S_methanogen, f_O2_methanogen, f_T_methanotroph, &
-           methanogen_growth_rate, methanotroph_growth_rate, &
-           microbial_prod_potential, microbial_oxid_potential
+         B_methanogen, B_methanotroph, B_methanogen_dormant, B_methanotroph_dormant, &
+         f_T_methanogen, f_S_methanogen, f_O2_methanogen, f_T_methanotroph, &
+         methanogen_growth_rate, methanotroph_growth_rate, &
+         microbial_prod_potential, microbial_oxid_potential
       USE MOD_SPMD_Task, only: p_is_worker
       USE MOD_Vars_TimeInvariants, only: patchtype
       USE MOD_Tracer_Reactive_Methane_BgcLink, only: methane_patch_active_mask
@@ -764,20 +824,20 @@ CONTAINS
          CALL abort
       ENDIF
 
-	      ! Build the methane-active patch mask once via BgcLink helper so
-	      ! AccFlux / history filters match the driver gate (CoLMDRIVER.F90
-	      ! ~line 380) exactly, including the rice paddy override on patchtype==0
-	      ! rice tiles.
-	      ! Base wetland/soil mask: (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
-	      ! save attribute amortises allocation across CN timesteps.
-	      IF (allocated(methane_active_mask)) THEN
-	         IF (size(methane_active_mask) /= size(patchtype)) deallocate(methane_active_mask)
-	      ENDIF
-	      IF (.not. allocated(methane_active_mask)) allocate(methane_active_mask(size(patchtype)))
-	      methane_active_mask = (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
-	      CALL methane_patch_active_mask (size(patchtype), DEF_METHANE%only_wetland, &
-	                                       DEF_METHANE%enable_rice_paddy, patchtype, &
-	                                       methane_active_mask)
+      ! Build the methane-active patch mask once via BgcLink helper so
+      ! AccFlux / history filters match the driver gate (CoLMDRIVER.F90
+      ! ~line 380) exactly, including the rice paddy override on patchtype==0
+      ! rice tiles.
+      ! Base wetland/soil mask: (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
+      ! save attribute amortises allocation across CN timesteps.
+      IF (allocated(methane_active_mask)) THEN
+         IF (size(methane_active_mask) /= size(patchtype)) deallocate(methane_active_mask)
+      ENDIF
+      IF (.not. allocated(methane_active_mask)) allocate(methane_active_mask(size(patchtype)))
+      methane_active_mask = (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
+      CALL methane_patch_active_mask (size(patchtype), DEF_METHANE%only_wetland, &
+         DEF_METHANE%enable_rice_paddy, patchtype, &
+         methane_active_mask)
 
       ! sum data
       CALL acc1d (net_methane           , a_net_methane           )
@@ -822,7 +882,7 @@ CONTAINS
       ! mask wrongly counted urban (and counted soil even under only_wetland),
       ! diluting per-grid-cell averages at history time.
       CALL acc_count1d_masked (totcol_methane, a_methane_acc_num, &
-                               methane_active_mask)
+         methane_active_mask)
 
       ! unsat/sat data
       CALL acc1d (net_methane_unsat        , a_net_methane_unsat        )
@@ -882,9 +942,9 @@ CONTAINS
       CALL acc2d (conc_methane_unsat          , a_conc_methane_unsat          )
       CALL acc2d (conc_methane_sat            , a_conc_methane_sat            )
       CALL acc_count1d_masked (totcol_methane_unsat, a_methane_acc_num_unsat, &
-                               methane_active_mask)
+         methane_active_mask)
       CALL acc_count1d_masked (totcol_methane_sat,   a_methane_acc_num_sat,   &
-                               methane_active_mask)
+         methane_active_mask)
 
       ! lake data
       CALL acc2d (methane_prod_depth_lake , a_methane_prod_depth_lake )
@@ -912,7 +972,7 @@ CONTAINS
       ! The history filter already excludes non-lake patches at write time,
       ! but a clean lake-only count avoids relying on the filter for math.
       CALL acc_count1d_masked (totcol_methane_lake, a_methane_acc_num_lake, &
-                               patchtype == 4 .and. DEF_METHANE%allowlakeprod)
+         patchtype == 4 .and. DEF_METHANE%allowlakeprod)
 
       ! extras
       CALL acc1d (forc_pmethanem    , a_forc_pmethanem    )
@@ -920,20 +980,40 @@ CONTAINS
       CALL acc1d (annavg_agnpp      , a_annavg_agnpp      )
       CALL acc1d (annavg_bgnpp      , a_annavg_bgnpp      )
       CALL acc1d (annavg_somhr      , a_annavg_somhr      )
-	      CALL acc1d (annavg_finrw      , a_annavg_finrw      )
-	      CALL acc1d (methane_dfsat_tot , a_methane_dfsat_tot )
-	      CALL acc1d (f_h2osfc          , a_f_h2osfc          )
-	      CALL acc1d (methane_finundated        , a_methane_finundated        )
-	      CALL acc1d (methane_soil_finundated   , a_methane_soil_finundated   )
-	      CALL acc1d (methane_soil_zwt          , a_methane_soil_zwt          )
-	      CALL acc1d (f_inund_flood_patch       , a_f_inund_flood_patch       )
-	      CALL acc1d (f_inund_flood_depth_patch , a_f_inund_flood_depth_patch )
-	      CALL acc1d (wetland_frac_per_patch    , a_wetland_frac_per_patch    )
-	      CALL acc1d (methane_surf_flux_wetland , a_methane_surf_flux_wetland )
-	      CALL acc1d (methane_surf_flux_soil    , a_methane_surf_flux_soil    )
-	      CALL acc1d (methane_surf_flux_lake    , a_methane_surf_flux_lake    )
-	      CALL acc1d (methane_surf_flux_rice    , a_methane_surf_flux_rice    )
-	      CALL acc_count1d (forc_pmethanem, a_methane_acc_num_extra)
+      CALL acc1d (annavg_finrw      , a_annavg_finrw      )
+      CALL acc1d (methane_dfsat_tot , a_methane_dfsat_tot )
+      CALL acc1d (f_h2osfc          , a_f_h2osfc          )
+      CALL acc1d (methane_finundated        , a_methane_finundated        )
+      CALL acc1d (methane_soil_finundated   , a_methane_soil_finundated   )
+      CALL acc1d (methane_soil_zwt          , a_methane_soil_zwt          )
+      CALL acc1d (f_inund_flood_patch       , a_f_inund_flood_patch       )
+      CALL acc1d (f_inund_flood_depth_patch , a_f_inund_flood_depth_patch )
+      CALL acc1d (wetland_frac_per_patch    , a_wetland_frac_per_patch    )
+      CALL acc1d (methane_surf_flux_wetland , a_methane_surf_flux_wetland )
+      CALL acc1d (methane_prod_wetland , a_methane_prod_wetland )
+      CALL acc1d (methane_prod_soil    , a_methane_prod_soil    )
+      CALL acc1d (methane_prod_lake    , a_methane_prod_lake    )
+      CALL acc1d (methane_oxid_wetland , a_methane_oxid_wetland )
+      CALL acc1d (methane_oxid_soil    , a_methane_oxid_soil    )
+      CALL acc1d (methane_oxid_lake    , a_methane_oxid_lake    )
+      CALL acc1d (methane_aere_wetland , a_methane_aere_wetland )
+      CALL acc1d (methane_aere_soil    , a_methane_aere_soil    )
+      CALL acc1d (methane_aere_lake    , a_methane_aere_lake    )
+      CALL acc1d (methane_ebul_wetland , a_methane_ebul_wetland )
+      CALL acc1d (methane_ebul_soil    , a_methane_ebul_soil    )
+      CALL acc1d (methane_ebul_lake    , a_methane_ebul_lake    )
+      CALL acc1d (methane_diff_wetland , a_methane_diff_wetland )
+      CALL acc1d (methane_diff_soil    , a_methane_diff_soil    )
+      CALL acc1d (methane_diff_lake    , a_methane_diff_lake    )
+      CALL acc1d (methane_area_wetland , a_methane_area_wetland )
+      CALL acc1d (methane_area_soil    , a_methane_area_soil    )
+      CALL acc1d (methane_area_lake    , a_methane_area_lake    )
+      CALL acc1d (methane_area_floodplain , a_methane_area_floodplain )
+      CALL acc1d (methane_wetland_type  , a_methane_wetland_type  )
+      CALL acc1d (methane_surf_flux_soil    , a_methane_surf_flux_soil    )
+      CALL acc1d (methane_surf_flux_lake    , a_methane_surf_flux_lake    )
+      CALL acc1d (methane_surf_flux_rice    , a_methane_surf_flux_rice    )
+      CALL acc_count1d (forc_pmethanem, a_methane_acc_num_extra)
 
       ! optional microbial-pool diagnostics
       IF (DEF_METHANE%use_microbial_pools) THEN
@@ -1211,6 +1291,46 @@ CONTAINS
          'patch', landpatch, a_wetland_frac_per_patch, compress)
       IF (allocated(a_methane_surf_flux_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_wetland', &
          'patch', landpatch, a_methane_surf_flux_wetland, compress)
+      IF (allocated(a_methane_prod_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_wetland', &
+         'patch', landpatch, a_methane_prod_wetland, compress)
+      IF (allocated(a_methane_prod_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_soil', &
+         'patch', landpatch, a_methane_prod_soil, compress)
+      IF (allocated(a_methane_prod_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_lake', &
+         'patch', landpatch, a_methane_prod_lake, compress)
+      IF (allocated(a_methane_oxid_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_wetland', &
+         'patch', landpatch, a_methane_oxid_wetland, compress)
+      IF (allocated(a_methane_oxid_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_soil', &
+         'patch', landpatch, a_methane_oxid_soil, compress)
+      IF (allocated(a_methane_oxid_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_lake', &
+         'patch', landpatch, a_methane_oxid_lake, compress)
+      IF (allocated(a_methane_aere_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_aere_wetland', &
+         'patch', landpatch, a_methane_aere_wetland, compress)
+      IF (allocated(a_methane_aere_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_aere_soil', &
+         'patch', landpatch, a_methane_aere_soil, compress)
+      IF (allocated(a_methane_aere_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_aere_lake', &
+         'patch', landpatch, a_methane_aere_lake, compress)
+      IF (allocated(a_methane_ebul_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_wetland', &
+         'patch', landpatch, a_methane_ebul_wetland, compress)
+      IF (allocated(a_methane_ebul_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_soil', &
+         'patch', landpatch, a_methane_ebul_soil, compress)
+      IF (allocated(a_methane_ebul_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_ebul_lake', &
+         'patch', landpatch, a_methane_ebul_lake, compress)
+      IF (allocated(a_methane_diff_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_diff_wetland', &
+         'patch', landpatch, a_methane_diff_wetland, compress)
+      IF (allocated(a_methane_diff_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_diff_soil', &
+         'patch', landpatch, a_methane_diff_soil, compress)
+      IF (allocated(a_methane_diff_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_diff_lake', &
+         'patch', landpatch, a_methane_diff_lake, compress)
+      IF (allocated(a_methane_area_wetland)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_area_wetland', &
+         'patch', landpatch, a_methane_area_wetland, compress)
+      IF (allocated(a_methane_area_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_area_soil', &
+         'patch', landpatch, a_methane_area_soil, compress)
+      IF (allocated(a_methane_area_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_area_lake', &
+         'patch', landpatch, a_methane_area_lake, compress)
+      IF (allocated(a_methane_area_floodplain)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_area_floodplain', &
+         'patch', landpatch, a_methane_area_floodplain, compress)
+      IF (allocated(a_methane_wetland_type)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_wetland_type', &
+         'patch', landpatch, a_methane_wetland_type, compress)
       IF (allocated(a_methane_surf_flux_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_soil', &
          'patch', landpatch, a_methane_surf_flux_soil, compress)
       IF (allocated(a_methane_surf_flux_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_flux_lake', &
@@ -1527,6 +1647,46 @@ CONTAINS
          landpatch, a_wetland_frac_per_patch, defval = 0._r8)
       IF (allocated(a_methane_surf_flux_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_wetland', &
          landpatch, a_methane_surf_flux_wetland, defval = 0._r8)
+      IF (allocated(a_methane_prod_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_wetland', &
+         landpatch, a_methane_prod_wetland, defval = 0._r8)
+      IF (allocated(a_methane_prod_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_soil', &
+         landpatch, a_methane_prod_soil, defval = 0._r8)
+      IF (allocated(a_methane_prod_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_lake', &
+         landpatch, a_methane_prod_lake, defval = 0._r8)
+      IF (allocated(a_methane_oxid_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_wetland', &
+         landpatch, a_methane_oxid_wetland, defval = 0._r8)
+      IF (allocated(a_methane_oxid_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_soil', &
+         landpatch, a_methane_oxid_soil, defval = 0._r8)
+      IF (allocated(a_methane_oxid_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_lake', &
+         landpatch, a_methane_oxid_lake, defval = 0._r8)
+      IF (allocated(a_methane_aere_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_aere_wetland', &
+         landpatch, a_methane_aere_wetland, defval = 0._r8)
+      IF (allocated(a_methane_aere_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_aere_soil', &
+         landpatch, a_methane_aere_soil, defval = 0._r8)
+      IF (allocated(a_methane_aere_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_aere_lake', &
+         landpatch, a_methane_aere_lake, defval = 0._r8)
+      IF (allocated(a_methane_ebul_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_wetland', &
+         landpatch, a_methane_ebul_wetland, defval = 0._r8)
+      IF (allocated(a_methane_ebul_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_soil', &
+         landpatch, a_methane_ebul_soil, defval = 0._r8)
+      IF (allocated(a_methane_ebul_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_ebul_lake', &
+         landpatch, a_methane_ebul_lake, defval = 0._r8)
+      IF (allocated(a_methane_diff_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_diff_wetland', &
+         landpatch, a_methane_diff_wetland, defval = 0._r8)
+      IF (allocated(a_methane_diff_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_diff_soil', &
+         landpatch, a_methane_diff_soil, defval = 0._r8)
+      IF (allocated(a_methane_diff_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_diff_lake', &
+         landpatch, a_methane_diff_lake, defval = 0._r8)
+      IF (allocated(a_methane_area_wetland)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_area_wetland', &
+         landpatch, a_methane_area_wetland, defval = 0._r8)
+      IF (allocated(a_methane_area_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_area_soil', &
+         landpatch, a_methane_area_soil, defval = 0._r8)
+      IF (allocated(a_methane_area_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_area_lake', &
+         landpatch, a_methane_area_lake, defval = 0._r8)
+      IF (allocated(a_methane_area_floodplain)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_area_floodplain', &
+         landpatch, a_methane_area_floodplain, defval = 0._r8)
+      IF (allocated(a_methane_wetland_type)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_wetland_type', &
+         landpatch, a_methane_wetland_type, defval = 0._r8)
       IF (allocated(a_methane_surf_flux_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_soil', &
          landpatch, a_methane_surf_flux_soil, defval = 0._r8)
       IF (allocated(a_methane_surf_flux_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_lake', &
@@ -1695,19 +1855,39 @@ CONTAINS
       IF (allocated(a_annavg_agnpp     )) deallocate (a_annavg_agnpp     )
       IF (allocated(a_annavg_bgnpp     )) deallocate (a_annavg_bgnpp     )
       IF (allocated(a_annavg_somhr     )) deallocate (a_annavg_somhr     )
-	      IF (allocated(a_annavg_finrw     )) deallocate (a_annavg_finrw     )
-	      IF (allocated(a_methane_dfsat_tot)) deallocate (a_methane_dfsat_tot)
-	      IF (allocated(a_f_h2osfc         )) deallocate (a_f_h2osfc         )
-	      IF (allocated(a_methane_finundated       )) deallocate (a_methane_finundated       )
-	      IF (allocated(a_methane_soil_finundated  )) deallocate (a_methane_soil_finundated  )
-	      IF (allocated(a_methane_soil_zwt         )) deallocate (a_methane_soil_zwt         )
-	      IF (allocated(a_f_inund_flood_patch      )) deallocate (a_f_inund_flood_patch      )
-	      IF (allocated(a_f_inund_flood_depth_patch)) deallocate (a_f_inund_flood_depth_patch)
-	      IF (allocated(a_wetland_frac_per_patch   )) deallocate (a_wetland_frac_per_patch   )
-	      IF (allocated(a_methane_surf_flux_wetland)) deallocate (a_methane_surf_flux_wetland)
-	      IF (allocated(a_methane_surf_flux_soil   )) deallocate (a_methane_surf_flux_soil   )
-	      IF (allocated(a_methane_surf_flux_lake   )) deallocate (a_methane_surf_flux_lake   )
-	      IF (allocated(a_methane_surf_flux_rice   )) deallocate (a_methane_surf_flux_rice   )
+      IF (allocated(a_annavg_finrw     )) deallocate (a_annavg_finrw     )
+      IF (allocated(a_methane_dfsat_tot)) deallocate (a_methane_dfsat_tot)
+      IF (allocated(a_f_h2osfc         )) deallocate (a_f_h2osfc         )
+      IF (allocated(a_methane_finundated       )) deallocate (a_methane_finundated       )
+      IF (allocated(a_methane_soil_finundated  )) deallocate (a_methane_soil_finundated  )
+      IF (allocated(a_methane_soil_zwt         )) deallocate (a_methane_soil_zwt         )
+      IF (allocated(a_f_inund_flood_patch      )) deallocate (a_f_inund_flood_patch      )
+      IF (allocated(a_f_inund_flood_depth_patch)) deallocate (a_f_inund_flood_depth_patch)
+      IF (allocated(a_wetland_frac_per_patch   )) deallocate (a_wetland_frac_per_patch   )
+      IF (allocated(a_methane_surf_flux_wetland)) deallocate (a_methane_surf_flux_wetland)
+      IF (allocated(a_methane_prod_wetland)) deallocate (a_methane_prod_wetland)
+      IF (allocated(a_methane_prod_soil)) deallocate (a_methane_prod_soil)
+      IF (allocated(a_methane_prod_lake)) deallocate (a_methane_prod_lake)
+      IF (allocated(a_methane_oxid_wetland)) deallocate (a_methane_oxid_wetland)
+      IF (allocated(a_methane_oxid_soil)) deallocate (a_methane_oxid_soil)
+      IF (allocated(a_methane_oxid_lake)) deallocate (a_methane_oxid_lake)
+      IF (allocated(a_methane_aere_wetland)) deallocate (a_methane_aere_wetland)
+      IF (allocated(a_methane_aere_soil)) deallocate (a_methane_aere_soil)
+      IF (allocated(a_methane_aere_lake)) deallocate (a_methane_aere_lake)
+      IF (allocated(a_methane_ebul_wetland)) deallocate (a_methane_ebul_wetland)
+      IF (allocated(a_methane_ebul_soil)) deallocate (a_methane_ebul_soil)
+      IF (allocated(a_methane_ebul_lake)) deallocate (a_methane_ebul_lake)
+      IF (allocated(a_methane_diff_wetland)) deallocate (a_methane_diff_wetland)
+      IF (allocated(a_methane_diff_soil)) deallocate (a_methane_diff_soil)
+      IF (allocated(a_methane_diff_lake)) deallocate (a_methane_diff_lake)
+      IF (allocated(a_methane_area_wetland)) deallocate (a_methane_area_wetland)
+      IF (allocated(a_methane_area_soil)) deallocate (a_methane_area_soil)
+      IF (allocated(a_methane_area_lake)) deallocate (a_methane_area_lake)
+      IF (allocated(a_methane_area_floodplain)) deallocate (a_methane_area_floodplain)
+      IF (allocated(a_methane_wetland_type)) deallocate (a_methane_wetland_type)
+      IF (allocated(a_methane_surf_flux_soil   )) deallocate (a_methane_surf_flux_soil   )
+      IF (allocated(a_methane_surf_flux_lake   )) deallocate (a_methane_surf_flux_lake   )
+      IF (allocated(a_methane_surf_flux_rice   )) deallocate (a_methane_surf_flux_rice   )
 
       ! optional microbial-pool diagnostics
       IF (allocated(a_B_methanogen            )) deallocate (a_B_methanogen            )

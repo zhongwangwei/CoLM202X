@@ -26,8 +26,8 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    USE MOD_BGC_Vars_TimeVariables,  only: decomp_cpools_vr, o_scalar
    USE MOD_BGC_Vars_PFTimeVariables, only: annsum_npp_p, cinput_rootfr_p
    USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_poros, wetland_aere_radius, &
-                                              wetland_aere_tillerC, wetland_aere_scale, &
-                                              wetland_aere_active
+      wetland_aere_tillerC, wetland_aere_scale, &
+      wetland_aere_active
    USE MOD_BGC_Vars_1DPFTFluxes,    only: froot_mr_p, &
       cpool_to_leafc_p, cpool_to_leafc_storage_p, &
       cpool_to_livestemc_p, cpool_to_livestemc_storage_p, &
@@ -62,6 +62,27 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    real(r8), public, parameter :: PADDY_RICE_FRAC_MIN = 0.01_r8
    real(r8), parameter :: O_SCALAR_CONTRACT_TOL = 1.e-8_r8
 
+   ! CH4 biome class codes, reported by get_biome_f_methane through its
+   ! optional class_id argument.  The codes label the SAME decision tree that
+   ! selects DEF_METHANE%f_methane_*; they add no independent classification.
+   !
+   ! Only codes 1..5 (the patchtype==2 branches) reach history, as
+   ! f_methane_wetland_type under a wetland-only filter -- a class code is a
+   ! label, not a quantity, and must never be area-averaged across patches of
+   ! different classes.  The 6/7 distinction on patchtype==0 is carried instead
+   ! by f_methane_floodplain_frac, which is a fraction and averages correctly.
+   !
+   ! Rice is deliberately absent: it is an area fraction inside a
+   ! BIOME_UPLAND_SOIL / BIOME_FLOODPLAIN patch, not a class of its own.
+   integer, public, parameter :: BIOME_NONE                = 0  ! lake / urban / ice: not classified
+   integer, public, parameter :: BIOME_TROPICAL_PEAT       = 1
+   integer, public, parameter :: BIOME_TROPICAL_FLOODPLAIN = 2
+   integer, public, parameter :: BIOME_TEMPERATE_MARSH     = 3
+   integer, public, parameter :: BIOME_BOREAL_FEN          = 4
+   integer, public, parameter :: BIOME_BOREAL_BOG          = 5
+   integer, public, parameter :: BIOME_FLOODPLAIN          = 6  ! routing-flooded patchtype==0
+   integer, public, parameter :: BIOME_UPLAND_SOIL         = 7
+
 CONTAINS
 
    SUBROUTINE tracer_ch4_bgc_patch_inputs (ipatch, rootfr, crootfr, pH, cellorg, &
@@ -94,14 +115,14 @@ CONTAINS
       pe = -1
       IF (allocated(patch_pft_s) .and. allocated(patch_pft_e)) THEN
          IF (ipatch >= 1 .and. ipatch <= size(patch_pft_s) .and. &
-             ipatch <= size(patch_pft_e)) THEN
+            ipatch <= size(patch_pft_e)) THEN
             ps = patch_pft_s(ipatch)
             pe = patch_pft_e(ipatch)
          ENDIF
       ENDIF
 
-	      crootfr(:) = 0._r8
-		      pH = get_ph_for_patch(ipatch)
+      crootfr(:) = 0._r8
+      pH = get_ph_for_patch(ipatch)
       cellorg(:) = 0._r8
       somhr = 0._r8
       lithr = 0._r8
@@ -123,42 +144,42 @@ CONTAINS
       ! the wetland/lake surface-data fallback convention:
       !   580 gC per kg OM.
       have_decomp_state = .false.
-	      IF (allocated(decomp_cpools_vr) .and. allocated(decomp_hr_vr)) THEN
-	         have_decomp_state = ipatch >= 1 .and. &
-	                             ipatch <= size(decomp_cpools_vr,3) .and. &
-	                             ipatch <= size(decomp_hr_vr,3)
-	         IF (have_decomp_state) THEN
-	            have_decomp_state = &
-	               any(valid_bgc_value(decomp_cpools_vr(:,:,ipatch)) .and. &
-	                   decomp_cpools_vr(:,:,ipatch) > 0._r8) .and. &
-	               any(valid_bgc_value(decomp_hr_vr(:,:,ipatch)) .and. &
-	                   decomp_hr_vr(:,:,ipatch) > 0._r8)
-	         ENDIF
-	      ENDIF
-	      have_pft_state = pft_arrays_ready(ps, pe)
-	      IF (present(bgc_inputs_ready)) bgc_inputs_ready = have_decomp_state .and. have_pft_state
+      IF (allocated(decomp_cpools_vr) .and. allocated(decomp_hr_vr)) THEN
+         have_decomp_state = ipatch >= 1 .and. &
+            ipatch <= size(decomp_cpools_vr,3) .and. &
+            ipatch <= size(decomp_hr_vr,3)
+         IF (have_decomp_state) THEN
+            have_decomp_state = &
+               any(valid_bgc_value(decomp_cpools_vr(:,:,ipatch)) .and. &
+               decomp_cpools_vr(:,:,ipatch) > 0._r8) .and. &
+               any(valid_bgc_value(decomp_hr_vr(:,:,ipatch)) .and. &
+               decomp_hr_vr(:,:,ipatch) > 0._r8)
+         ENDIF
+      ENDIF
+      have_pft_state = pft_arrays_ready(ps, pe)
+      IF (present(bgc_inputs_ready)) bgc_inputs_ready = have_decomp_state .and. have_pft_state
 
-	      IF (have_pft_state) THEN
-	         DO m = ps, pe
-	            frac = safe_nonnegative(pftfrac(m))
-	            DO j = 1, nl_soil
-	               IF (valid_bgc_value(cinput_rootfr_p(j,m))) THEN
-	                  crootfr(j) = crootfr(j) + frac * max(0._r8, cinput_rootfr_p(j,m)) * dz_soi(j)
-	               ENDIF
-	            ENDDO
-	         ENDDO
-	      ENDIF
-	      IF (sum(crootfr) <= 0._r8) THEN
-	         DO j = 1, nl_soil
-	            IF (valid_bgc_value(rootfr(j))) crootfr(j) = max(0._r8, rootfr(j))
-	         ENDDO
-	      ENDIF
-	      profile_sum = sum(crootfr)
-	      IF (profile_sum > 0._r8) THEN
-	         crootfr(:) = crootfr(:) / profile_sum
-	      ELSE
-	         crootfr(1) = 1._r8
-	      ENDIF
+      IF (have_pft_state) THEN
+         DO m = ps, pe
+            frac = safe_nonnegative(pftfrac(m))
+            DO j = 1, nl_soil
+               IF (valid_bgc_value(cinput_rootfr_p(j,m))) THEN
+                  crootfr(j) = crootfr(j) + frac * max(0._r8, cinput_rootfr_p(j,m)) * dz_soi(j)
+               ENDIF
+            ENDDO
+         ENDDO
+      ENDIF
+      IF (sum(crootfr) <= 0._r8) THEN
+         DO j = 1, nl_soil
+            IF (valid_bgc_value(rootfr(j))) crootfr(j) = max(0._r8, rootfr(j))
+         ENDDO
+      ENDIF
+      profile_sum = sum(crootfr)
+      IF (profile_sum > 0._r8) THEN
+         crootfr(:) = crootfr(:) / profile_sum
+      ELSE
+         crootfr(1) = 1._r8
+      ENDIF
 
       IF (allocated(decomp_cpools_vr) .and. ipatch >= 1 .and. ipatch <= size(decomp_cpools_vr,3)) THEN
          DO j = 1, nl_soil
@@ -186,7 +207,7 @@ CONTAINS
                   donor_soil = .false.
                   donor_litter_like = .false.
                   IF (allocated(donor_pool) .and. k >= lbound(donor_pool,1) .and. &
-                      k <= ubound(donor_pool,1)) THEN
+                     k <= ubound(donor_pool,1)) THEN
                      donor = donor_pool(k)
 
                      IF (allocated(is_soil)) THEN
@@ -239,31 +260,31 @@ CONTAINS
 
             agnpp = agnpp + frac * ( &
                safe_nonnegative(cpool_to_leafc_p(m)) &
-             + safe_nonnegative(cpool_to_leafc_storage_p(m)) &
-             + safe_nonnegative(cpool_to_livestemc_p(m)) &
-             + safe_nonnegative(cpool_to_livestemc_storage_p(m)) &
-             + safe_nonnegative(cpool_to_deadstemc_p(m)) &
-             + safe_nonnegative(cpool_to_deadstemc_storage_p(m)) )
+               + safe_nonnegative(cpool_to_leafc_storage_p(m)) &
+               + safe_nonnegative(cpool_to_livestemc_p(m)) &
+               + safe_nonnegative(cpool_to_livestemc_storage_p(m)) &
+               + safe_nonnegative(cpool_to_deadstemc_p(m)) &
+               + safe_nonnegative(cpool_to_deadstemc_storage_p(m)) )
 
             bgnpp = bgnpp + frac * ( &
                safe_nonnegative(cpool_to_frootc_p(m)) &
-             + safe_nonnegative(cpool_to_frootc_storage_p(m)) &
-             + safe_nonnegative(cpool_to_livecrootc_p(m)) &
-             + safe_nonnegative(cpool_to_livecrootc_storage_p(m)) &
-             + safe_nonnegative(cpool_to_deadcrootc_p(m)) &
-             + safe_nonnegative(cpool_to_deadcrootc_storage_p(m)) )
+               + safe_nonnegative(cpool_to_frootc_storage_p(m)) &
+               + safe_nonnegative(cpool_to_livecrootc_p(m)) &
+               + safe_nonnegative(cpool_to_livecrootc_storage_p(m)) &
+               + safe_nonnegative(cpool_to_deadcrootc_p(m)) &
+               + safe_nonnegative(cpool_to_deadcrootc_storage_p(m)) )
 
             rr = rr + frac * ( &
                safe_nonnegative(froot_mr_p(m)) &
-             + safe_nonnegative(cpool_froot_gr_p(m)) &
-             + safe_nonnegative(cpool_froot_storage_gr_p(m)) &
-             + safe_nonnegative(cpool_livecroot_gr_p(m)) &
-             + safe_nonnegative(cpool_livecroot_storage_gr_p(m)) &
-             + safe_nonnegative(cpool_deadcroot_gr_p(m)) &
-             + safe_nonnegative(cpool_deadcroot_storage_gr_p(m)) &
-             + safe_nonnegative(transfer_froot_gr_p(m)) &
-             + safe_nonnegative(transfer_livecroot_gr_p(m)) &
-             + safe_nonnegative(transfer_deadcroot_gr_p(m)) )
+               + safe_nonnegative(cpool_froot_gr_p(m)) &
+               + safe_nonnegative(cpool_froot_storage_gr_p(m)) &
+               + safe_nonnegative(cpool_livecroot_gr_p(m)) &
+               + safe_nonnegative(cpool_livecroot_storage_gr_p(m)) &
+               + safe_nonnegative(cpool_deadcroot_gr_p(m)) &
+               + safe_nonnegative(cpool_deadcroot_storage_gr_p(m)) &
+               + safe_nonnegative(transfer_froot_gr_p(m)) &
+               + safe_nonnegative(transfer_livecroot_gr_p(m)) &
+               + safe_nonnegative(transfer_deadcroot_gr_p(m)) )
 
             annsum_npp = annsum_npp + frac * safe_nonnegative(annsum_npp_p(m))
          END DO
@@ -382,227 +403,227 @@ CONTAINS
    END FUNCTION pft_arrays_ready
 
 
-	   ELEMENTAL LOGICAL FUNCTION valid_bgc_value (x)
-	      real(r8), intent(in) :: x
+   ELEMENTAL LOGICAL FUNCTION valid_bgc_value (x)
+      real(r8), intent(in) :: x
 
-	      valid_bgc_value = (.not. ieee_is_nan(x)) .and. &
+      valid_bgc_value = (.not. ieee_is_nan(x)) .and. &
          abs(x) < 0.5_r8 * abs(spval)
-	   END FUNCTION valid_bgc_value
+   END FUNCTION valid_bgc_value
 
    !---------------------------------------------------------------------------
    SUBROUTINE get_wetland_veg_proxy (dlat, cellorg_top, lai_in, ipatch, &
       lai_out, annsum_npp_out, agnpp_out, bgnpp_out, rootfr_out)
-   !
-   ! Climate-zone wetland vegetation proxy for patchtype==2 patches.
-   !
-   ! IGBP class 11 ("permanent wetland") has no PFT attached in CoLM, so
-   ! NPP / rootfr arrive as 0 and methane_aere (Wania 2010 aerenchyma
-   ! transport) cannot fire fully -- losing the plant-mediated CH4
-   ! pathway that observations show carries 50-90% of total wetland
-   ! CH4 efflux (Bridgham et al. 2013 GCB).
-   !
-   ! LAI handling: CoLM mksrfdata does aggregate the Yuan+2011 (MODIS)
-   ! LAI dataset onto wetland patches (fveg0_igbp(11)=1), so the input
-   ! lai_in has real data + monthly seasonality.  Trust it when valid
-   ! (0.1 < lai_in < 20).  Fall back to a climate-zone peak only when
-   ! lai_in is missing (0 or sentinel), e.g. in regions where MODIS LAI
-   ! has no signal over a wetland pixel.
-   !
-   ! NPP / rootfr always injected (no data source for wetland patches).
-   !
-   ! Climate zones:
-   !   - |lat| <= 23.5 deg           -> tropical emergent grass/sedge
-   !                                    (varzea, papyrus, Phragmites)
-   !   - lat  >  50 deg AND high SOC -> boreal/arctic Sphagnum bog
-   !                                    (LAI fallback=0 disables aerenchyma)
-   !   - |lat| >  50 deg             -> boreal/subarctic sedge fen (Carex)
-   !   - otherwise                   -> temperate marsh
-   !
-   ! Refs:
-   !   Bridgham et al. 2013 GCB (wetland CH4 review)
-   !   Wania et al. 2010 GMD   (Sphagnum/sedge parameterisation)
-   !   Yuan et al. 2011 RSE    (CoLM LAI dataset)
-   !   Bona et al. 2020 GCB    (boreal peatland PFT)
-   !   Jackson et al. 1996 Oecologia (global root distributions)
-   !---------------------------------------------------------------------------
-   real(r8), intent(in)  :: dlat            ! patch latitude [deg, signed]
-   real(r8), intent(in)  :: cellorg_top     ! top-soil organic matter density [kg OM/m3]
-   real(r8), intent(in)  :: lai_in          ! input LAI from CoLM data [m2/m2] (may be 0/spval)
-   integer,  intent(in)  :: ipatch          ! patch index, used to write override arrays
-   real(r8), intent(out) :: lai_out         ! effective LAI for aerenchyma [m2/m2]
-   real(r8), intent(out) :: annsum_npp_out  ! annual NPP [gC/m2/yr]
-   real(r8), intent(out) :: agnpp_out       ! aboveground NPP rate [gC/m2/s]
-   real(r8), intent(out) :: bgnpp_out       ! belowground NPP rate [gC/m2/s]
-   real(r8), intent(out) :: rootfr_out(1:nl_soil)
+      !
+      ! Climate-zone wetland vegetation proxy for patchtype==2 patches.
+      !
+      ! IGBP class 11 ("permanent wetland") has no PFT attached in CoLM, so
+      ! NPP / rootfr arrive as 0 and methane_aere (Wania 2010 aerenchyma
+      ! transport) cannot fire fully -- losing the plant-mediated CH4
+      ! pathway that observations show carries 50-90% of total wetland
+      ! CH4 efflux (Bridgham et al. 2013 GCB).
+      !
+      ! LAI handling: CoLM mksrfdata does aggregate the Yuan+2011 (MODIS)
+      ! LAI dataset onto wetland patches (fveg0_igbp(11)=1), so the input
+      ! lai_in has real data + monthly seasonality.  Trust it when valid
+      ! (0.1 < lai_in < 20).  Fall back to a climate-zone peak only when
+      ! lai_in is missing (0 or sentinel), e.g. in regions where MODIS LAI
+      ! has no signal over a wetland pixel.
+      !
+      ! NPP / rootfr always injected (no data source for wetland patches).
+      !
+      ! Climate zones:
+      !   - |lat| <= 23.5 deg           -> tropical emergent grass/sedge
+      !                                    (varzea, papyrus, Phragmites)
+      !   - lat  >  50 deg AND high SOC -> boreal/arctic Sphagnum bog
+      !                                    (LAI fallback=0 disables aerenchyma)
+      !   - |lat| >  50 deg             -> boreal/subarctic sedge fen (Carex)
+      !   - otherwise                   -> temperate marsh
+      !
+      ! Refs:
+      !   Bridgham et al. 2013 GCB (wetland CH4 review)
+      !   Wania et al. 2010 GMD   (Sphagnum/sedge parameterisation)
+      !   Yuan et al. 2011 RSE    (CoLM LAI dataset)
+      !   Bona et al. 2020 GCB    (boreal peatland PFT)
+      !   Jackson et al. 1996 Oecologia (global root distributions)
+      !---------------------------------------------------------------------------
+      real(r8), intent(in)  :: dlat            ! patch latitude [deg, signed]
+      real(r8), intent(in)  :: cellorg_top     ! top-soil organic matter density [kg OM/m3]
+      real(r8), intent(in)  :: lai_in          ! input LAI from CoLM data [m2/m2] (may be 0/spval)
+      integer,  intent(in)  :: ipatch          ! patch index, used to write override arrays
+      real(r8), intent(out) :: lai_out         ! effective LAI for aerenchyma [m2/m2]
+      real(r8), intent(out) :: annsum_npp_out  ! annual NPP [gC/m2/yr]
+      real(r8), intent(out) :: agnpp_out       ! aboveground NPP rate [gC/m2/s]
+      real(r8), intent(out) :: bgnpp_out       ! belowground NPP rate [gC/m2/s]
+      real(r8), intent(out) :: rootfr_out(1:nl_soil)
 
-   real(r8) :: lai_fallback, anpp_tot, bg_ratio
-   real(r8) :: aere_poros_z, aere_radius_z, aere_tillerC_z, aere_scale_z
-   real(r8), parameter :: secsperyear = 365._r8 * 86400._r8
-   ! Histosol-style peat threshold: cellorg ~ 150 kg OM/m3 corresponds to
-   ! ~75 kgC/m3, well above typical mineral soil (< 50 kg OM/m3).
-   real(r8), parameter :: peat_om_threshold = 150._r8
-   ! Tropical wetland discriminator: high SOC indicates peat-forming
-   ! emergent vasculars (papyrus, Phragmites); low SOC indicates mineral
-   ! soil under varzea grass / swamp forest.
-   real(r8), parameter :: tropical_peat_threshold = 80._r8
-   ! Bounds for trusting lai_in: 0.1 filters out empty cells; 20 filters
-   ! spval (~1e36) and pathological aggregation outputs.
-   real(r8), parameter :: lai_in_min = 0.1_r8, lai_in_max = 20._r8
+      real(r8) :: lai_fallback, anpp_tot, bg_ratio
+      real(r8) :: aere_poros_z, aere_radius_z, aere_tillerC_z, aere_scale_z
+      real(r8), parameter :: secsperyear = 365._r8 * 86400._r8
+      ! Histosol-style peat threshold: cellorg ~ 150 kg OM/m3 corresponds to
+      ! ~75 kgC/m3, well above typical mineral soil (< 50 kg OM/m3).
+      real(r8), parameter :: peat_om_threshold = 150._r8
+      ! Tropical wetland discriminator: high SOC indicates peat-forming
+      ! emergent vasculars (papyrus, Phragmites); low SOC indicates mineral
+      ! soil under varzea grass / swamp forest.
+      real(r8), parameter :: tropical_peat_threshold = 80._r8
+      ! Bounds for trusting lai_in: 0.1 filters out empty cells; 20 filters
+      ! spval (~1e36) and pathological aggregation outputs.
+      real(r8), parameter :: lai_in_min = 0.1_r8, lai_in_max = 20._r8
 
-   ! ---- 5-zone climate-based wetland classification --------------------
-   ! Zone parameter values from:
-   !   Brix 2001 Aquat Bot (Phragmites)
-   !   Wania 2010 GMD     (Carex sedge defaults)
-   !   Saunders 2007      (Papyrus)
-   !   Bridgham 2013 GCB  (review of plant-mediated CH4)
-   !   Pangala 2017 Nature(tropical swamp forest stem conduits)
-   IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
-      ! Zone 1: Tropical reed/papyrus (peat-rich, large emergent vascular)
-      lai_fallback   = 4.0_r8
-      anpp_tot       = 600._r8
-      bg_ratio       = 0.5_r8
-      aere_poros_z   = 0.50_r8       ! Phragmites/papyrus highly developed aerenchyma
-      aere_radius_z  = 8.0e-3_r8     ! ~8 mm stems
-      aere_tillerC_z = 3.0_r8        ! ~3 gC/tiller (large emergent)
-      aere_scale_z   = 1.0_r8
-   ELSEIF (abs(dlat) <= 23.5_r8) THEN
-      ! Zone 2: Tropical swamp (mineral soil, varzea grass / igapo forest mix).
-      ! Smaller tillers + lower porosity since trees and grasses share patch;
-      ! Pangala 2017 stem-conduit fluxes not yet modelled here.
-      lai_fallback   = 3.0_r8
-      anpp_tot       = 400._r8
-      bg_ratio       = 0.3_r8        ! higher AG biomass for tree mix
-      aere_poros_z   = 0.10_r8       ! reduced (trees + grass mix)
-      aere_radius_z  = 3.0e-3_r8     ! grass scale
-      aere_tillerC_z = 0.5_r8
-      aere_scale_z   = 0.5_r8        ! half default tiller transport
-   ELSEIF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
-      ! Zone 5: Boreal/arctic Sphagnum bog (non-vascular moss).
-      ! LAI fallback = 0 disables aerenchyma entirely; override params
-      ! still set to 0 for safety in case lai_in trips the data branch.
-      lai_fallback   = 0._r8
-      anpp_tot       = 100._r8
-      bg_ratio       = 0.2_r8
-      aere_poros_z   = 0._r8
-      aere_radius_z  = 1.e-6_r8      ! nonzero to avoid div-by-zero downstream
-      aere_tillerC_z = 1._r8         ! nonzero to avoid div-by-zero
-      aere_scale_z   = 0._r8
-   ELSEIF (abs(dlat) > 50._r8) THEN
-      ! Zone 4: Boreal/subarctic sedge fen (Carex-dominated, CTSM defaults)
-      lai_fallback   = 2.0_r8
-      anpp_tot       = 200._r8
-      bg_ratio       = 0.6_r8
-      aere_poros_z   = 0.30_r8
-      aere_radius_z  = 2.9e-3_r8
-      aere_tillerC_z = 0.3_r8
-      aere_scale_z   = 1.0_r8
-   ELSE
-      ! Zone 3: Temperate marsh (Typha + Carex mix)
-      lai_fallback   = 2.5_r8
-      anpp_tot       = 300._r8
-      bg_ratio       = 0.5_r8
-      aere_poros_z   = 0.40_r8
-      aere_radius_z  = 5.0e-3_r8
-      aere_tillerC_z = 1.0_r8
-      aere_scale_z   = 1.0_r8
-   ENDIF
+      ! ---- 5-zone climate-based wetland classification --------------------
+      ! Zone parameter values from:
+      !   Brix 2001 Aquat Bot (Phragmites)
+      !   Wania 2010 GMD     (Carex sedge defaults)
+      !   Saunders 2007      (Papyrus)
+      !   Bridgham 2013 GCB  (review of plant-mediated CH4)
+      !   Pangala 2017 Nature(tropical swamp forest stem conduits)
+      IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
+         ! Zone 1: Tropical reed/papyrus (peat-rich, large emergent vascular)
+         lai_fallback   = 4.0_r8
+         anpp_tot       = 600._r8
+         bg_ratio       = 0.5_r8
+         aere_poros_z   = 0.50_r8       ! Phragmites/papyrus highly developed aerenchyma
+         aere_radius_z  = 8.0e-3_r8     ! ~8 mm stems
+         aere_tillerC_z = 3.0_r8        ! ~3 gC/tiller (large emergent)
+         aere_scale_z   = 1.0_r8
+      ELSEIF (abs(dlat) <= 23.5_r8) THEN
+         ! Zone 2: Tropical swamp (mineral soil, varzea grass / igapo forest mix).
+         ! Smaller tillers + lower porosity since trees and grasses share patch;
+         ! Pangala 2017 stem-conduit fluxes not yet modelled here.
+         lai_fallback   = 3.0_r8
+         anpp_tot       = 400._r8
+         bg_ratio       = 0.3_r8        ! higher AG biomass for tree mix
+         aere_poros_z   = 0.10_r8       ! reduced (trees + grass mix)
+         aere_radius_z  = 3.0e-3_r8     ! grass scale
+         aere_tillerC_z = 0.5_r8
+         aere_scale_z   = 0.5_r8        ! half default tiller transport
+      ELSEIF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
+         ! Zone 5: Boreal/arctic Sphagnum bog (non-vascular moss).
+         ! LAI fallback = 0 disables aerenchyma entirely; override params
+         ! still set to 0 for safety in case lai_in trips the data branch.
+         lai_fallback   = 0._r8
+         anpp_tot       = 100._r8
+         bg_ratio       = 0.2_r8
+         aere_poros_z   = 0._r8
+         aere_radius_z  = 1.e-6_r8      ! nonzero to avoid div-by-zero downstream
+         aere_tillerC_z = 1._r8         ! nonzero to avoid div-by-zero
+         aere_scale_z   = 0._r8
+      ELSEIF (abs(dlat) > 50._r8) THEN
+         ! Zone 4: Boreal/subarctic sedge fen (Carex-dominated, CTSM defaults)
+         lai_fallback   = 2.0_r8
+         anpp_tot       = 200._r8
+         bg_ratio       = 0.6_r8
+         aere_poros_z   = 0.30_r8
+         aere_radius_z  = 2.9e-3_r8
+         aere_tillerC_z = 0.3_r8
+         aere_scale_z   = 1.0_r8
+      ELSE
+         ! Zone 3: Temperate marsh (Typha + Carex mix)
+         lai_fallback   = 2.5_r8
+         anpp_tot       = 300._r8
+         bg_ratio       = 0.5_r8
+         aere_poros_z   = 0.40_r8
+         aere_radius_z  = 5.0e-3_r8
+         aere_tillerC_z = 1.0_r8
+         aere_scale_z   = 1.0_r8
+      ENDIF
 
-   ! Write per-patch aerenchyma override (consumed by methane_aere /
-   ! SiteOxAere in Physics via getter functions).
-   IF (allocated(wetland_aere_active) .and. &
-       ipatch >= 1 .and. ipatch <= size(wetland_aere_active)) THEN
-      wetland_aere_poros  (ipatch) = aere_poros_z
-      wetland_aere_radius (ipatch) = aere_radius_z
-      wetland_aere_tillerC(ipatch) = aere_tillerC_z
-      wetland_aere_scale  (ipatch) = aere_scale_z
-      wetland_aere_active (ipatch) = .true.
-   ENDIF
+      ! Write per-patch aerenchyma override (consumed by methane_aere /
+      ! SiteOxAere in Physics via getter functions).
+      IF (allocated(wetland_aere_active) .and. &
+         ipatch >= 1 .and. ipatch <= size(wetland_aere_active)) THEN
+         wetland_aere_poros  (ipatch) = aere_poros_z
+         wetland_aere_radius (ipatch) = aere_radius_z
+         wetland_aere_tillerC(ipatch) = aere_tillerC_z
+         wetland_aere_scale  (ipatch) = aere_scale_z
+         wetland_aere_active (ipatch) = .true.
+      ENDIF
 
-   ! LAI: trust data when valid, else fall back to climate-zone peak.
-   IF (lai_in > lai_in_min .and. lai_in < lai_in_max) THEN
-      lai_out = lai_in
-   ELSE
-      lai_out = lai_fallback
-   ENDIF
+      ! LAI: trust data when valid, else fall back to climate-zone peak.
+      IF (lai_in > lai_in_min .and. lai_in < lai_in_max) THEN
+         lai_out = lai_in
+      ELSE
+         lai_out = lai_fallback
+      ENDIF
 
-   annsum_npp_out = anpp_tot
-   agnpp_out      = (1._r8 - bg_ratio) * anpp_tot / secsperyear
-   bgnpp_out      =          bg_ratio  * anpp_tot / secsperyear
+      annsum_npp_out = anpp_tot
+      agnpp_out      = (1._r8 - bg_ratio) * anpp_tot / secsperyear
+      bgnpp_out      =          bg_ratio  * anpp_tot / secsperyear
 
-   ! Sedge-style shallow root profile, normalized.  ~80% in top 30 cm.
-   rootfr_out(:) = 0._r8
-   IF (nl_soil >= 1) rootfr_out(1) = 0.35_r8
-   IF (nl_soil >= 2) rootfr_out(2) = 0.25_r8
-   IF (nl_soil >= 3) rootfr_out(3) = 0.15_r8
-   IF (nl_soil >= 4) rootfr_out(4) = 0.10_r8
-   IF (nl_soil >= 5) rootfr_out(5) = 0.08_r8
-   IF (nl_soil >= 6) rootfr_out(6) = 0.04_r8
-   IF (nl_soil >= 7) rootfr_out(7) = 0.02_r8
-   IF (nl_soil >= 8) rootfr_out(8) = 0.01_r8
-   IF (sum(rootfr_out) > 0._r8) rootfr_out(:) = rootfr_out(:) / sum(rootfr_out)
+      ! Sedge-style shallow root profile, normalized.  ~80% in top 30 cm.
+      rootfr_out(:) = 0._r8
+      IF (nl_soil >= 1) rootfr_out(1) = 0.35_r8
+      IF (nl_soil >= 2) rootfr_out(2) = 0.25_r8
+      IF (nl_soil >= 3) rootfr_out(3) = 0.15_r8
+      IF (nl_soil >= 4) rootfr_out(4) = 0.10_r8
+      IF (nl_soil >= 5) rootfr_out(5) = 0.08_r8
+      IF (nl_soil >= 6) rootfr_out(6) = 0.04_r8
+      IF (nl_soil >= 7) rootfr_out(7) = 0.02_r8
+      IF (nl_soil >= 8) rootfr_out(8) = 0.01_r8
+      IF (sum(rootfr_out) > 0._r8) rootfr_out(:) = rootfr_out(:) / sum(rootfr_out)
 
    END SUBROUTINE get_wetland_veg_proxy
 
    !---------------------------------------------------------------------------
    SUBROUTINE get_rice_veg_proxy (lai_in, ipatch, rice_fraction)
-   !
-   ! Zone 6: Rice paddy aerenchyma (R4 extension; off unless DEF_METHANE%enable_rice_paddy).
-   !
-   ! Writes wetland_aere_* overrides for paddy-irrigated rice patches so
-   ! methane_aere uses rice-tuned tiller geometry instead of the
-   ! Wania-natural-wetland default (poros=0.30, radius=2.9mm).
-   !
-   ! Rice tiller params (literature):
-   !   Justin & Armstrong 1991 (New Phytol)  : aerenchyma porosity 0.18-0.40
-   !   Sasakawa & Yamamoto 1978 (Soil Sci PN): tiller base diameter ~1.5 mm
-   !   Aulakh+2001 Plant&Soil               : tiller density 200-400/m2
-   !   Holzapfel-Pschorn+1985 Plant&Soil    : plant-mediated CH4 ~30-50% total
-   !
-   ! Unlike get_wetland_veg_proxy this does NOT overwrite NPP / rootfr / LAI —
-   ! CN already computes those correctly for rice CFTs (61/62).  Only the
-   ! aerenchyma transport geometry needs override.
-   !---------------------------------------------------------------------------
-   real(r8), intent(in)  :: lai_in          ! input LAI from CoLM/CN [m2/m2]
-   integer,  intent(in)  :: ipatch          ! patch index
-   real(r8), intent(in)  :: rice_fraction   ! paddy rice area fraction in mixed soil patch
+      !
+      ! Zone 6: Rice paddy aerenchyma (R4 extension; off unless DEF_METHANE%enable_rice_paddy).
+      !
+      ! Writes wetland_aere_* overrides for paddy-irrigated rice patches so
+      ! methane_aere uses rice-tuned tiller geometry instead of the
+      ! Wania-natural-wetland default (poros=0.30, radius=2.9mm).
+      !
+      ! Rice tiller params (literature):
+      !   Justin & Armstrong 1991 (New Phytol)  : aerenchyma porosity 0.18-0.40
+      !   Sasakawa & Yamamoto 1978 (Soil Sci PN): tiller base diameter ~1.5 mm
+      !   Aulakh+2001 Plant&Soil               : tiller density 200-400/m2
+      !   Holzapfel-Pschorn+1985 Plant&Soil    : plant-mediated CH4 ~30-50% total
+      !
+      ! Unlike get_wetland_veg_proxy this does NOT overwrite NPP / rootfr / LAI —
+      ! CN already computes those correctly for rice CFTs (61/62).  Only the
+      ! aerenchyma transport geometry needs override.
+      !---------------------------------------------------------------------------
+      real(r8), intent(in)  :: lai_in          ! input LAI from CoLM/CN [m2/m2]
+      integer,  intent(in)  :: ipatch          ! patch index
+      real(r8), intent(in)  :: rice_fraction   ! paddy rice area fraction in mixed soil patch
 
-   real(r8) :: aere_poros_z, aere_radius_z, aere_tillerC_z, aere_scale_z
+      real(r8) :: aere_poros_z, aere_radius_z, aere_tillerC_z, aere_scale_z
 
-   ! Rice paddy fixed params.  aere_radius is treated as a RADIUS by
-   ! SiteOxAere (area_tiller ~ PI * radius_eff**2).  Watanabe 2001
-   ! / Aulakh 2001 report rice tiller cross-section ~1.5 mm in DIAMETER
-   ! at the base, so the radius is ~0.75 mm; mis-reading diameter as
-   ! radius would over-estimate aerenchyma cross-section by 4x.
-   aere_poros_z   = 0.40_r8       ! Justin+Armstrong 1991 typical, more developed than sedge
-   aere_radius_z  = 0.75e-3_r8    ! 0.75 mm radius = 1.5 mm tiller diameter (Watanabe 2001)
-   aere_tillerC_z = 1.0_r8        ! denser tillers vs natural wetland 0.22 default
+      ! Rice paddy fixed params.  aere_radius is treated as a RADIUS by
+      ! SiteOxAere (area_tiller ~ PI * radius_eff**2).  Watanabe 2001
+      ! / Aulakh 2001 report rice tiller cross-section ~1.5 mm in DIAMETER
+      ! at the base, so the radius is ~0.75 mm; mis-reading diameter as
+      ! radius would over-estimate aerenchyma cross-section by 4x.
+      aere_poros_z   = 0.40_r8       ! Justin+Armstrong 1991 typical, more developed than sedge
+      aere_radius_z  = 0.75e-3_r8    ! 0.75 mm radius = 1.5 mm tiller diameter (Watanabe 2001)
+      aere_tillerC_z = 1.0_r8        ! denser tillers vs natural wetland 0.22 default
 
-   ! Phenology proxy: scale aerenchyma area by relative LAI within the
-   ! growing season.  LAI ~ 4 at peak tillering/heading for rice (IRRI
-   ! N2/N3 cv).  Cap [0.5, 1.5] guards against early-season LAI<<1 from
-   ! transplant transient or very dense double-crop LAI > 6 inflating
-   ! the override.  The caller (methane_driver) only invokes this routine
-   ! when is_paddy_rice_live(ipatch)==.true., so post-harvest stubble is
-   ! NOT a concern here — the override simply isn't applied after harvest.
-   IF (lai_in > 0._r8 .and. lai_in < 20._r8) THEN
-      aere_scale_z = max(0.5_r8, min(1.5_r8, lai_in / 4._r8))
-   ELSE
-      aere_scale_z = 1.0_r8
-   ENDIF
-   ! Rice is represented as a CFT fraction inside a soil patch, not as a
-   ! separate land patch.  Scale the rice aerenchyma override by the paddy
-   ! fraction so a small rice tile cannot impose rice transport geometry on
-   ! the whole mixed soil patch.
-   aere_scale_z = aere_scale_z * min(max(rice_fraction, 0._r8), 1._r8)
+      ! Phenology proxy: scale aerenchyma area by relative LAI within the
+      ! growing season.  LAI ~ 4 at peak tillering/heading for rice (IRRI
+      ! N2/N3 cv).  Cap [0.5, 1.5] guards against early-season LAI<<1 from
+      ! transplant transient or very dense double-crop LAI > 6 inflating
+      ! the override.  The caller (methane_driver) only invokes this routine
+      ! when is_paddy_rice_live(ipatch)==.true., so post-harvest stubble is
+      ! NOT a concern here — the override simply isn't applied after harvest.
+      IF (lai_in > 0._r8 .and. lai_in < 20._r8) THEN
+         aere_scale_z = max(0.5_r8, min(1.5_r8, lai_in / 4._r8))
+      ELSE
+         aere_scale_z = 1.0_r8
+      ENDIF
+      ! Rice is represented as a CFT fraction inside a soil patch, not as a
+      ! separate land patch.  Scale the rice aerenchyma override by the paddy
+      ! fraction so a small rice tile cannot impose rice transport geometry on
+      ! the whole mixed soil patch.
+      aere_scale_z = aere_scale_z * min(max(rice_fraction, 0._r8), 1._r8)
 
-   IF (allocated(wetland_aere_active) .and. &
-       ipatch >= 1 .and. ipatch <= size(wetland_aere_active)) THEN
-      wetland_aere_poros  (ipatch) = aere_poros_z
-      wetland_aere_radius (ipatch) = aere_radius_z
-      wetland_aere_tillerC(ipatch) = aere_tillerC_z
-      wetland_aere_scale  (ipatch) = aere_scale_z
-      wetland_aere_active (ipatch) = .true.
-   ENDIF
+      IF (allocated(wetland_aere_active) .and. &
+         ipatch >= 1 .and. ipatch <= size(wetland_aere_active)) THEN
+         wetland_aere_poros  (ipatch) = aere_poros_z
+         wetland_aere_radius (ipatch) = aere_radius_z
+         wetland_aere_tillerC(ipatch) = aere_tillerC_z
+         wetland_aere_scale  (ipatch) = aere_scale_z
+         wetland_aere_active (ipatch) = .true.
+      ENDIF
 
    END SUBROUTINE get_rice_veg_proxy
 
@@ -662,7 +683,7 @@ CONTAINS
       IF (pe_loc > n_pft_max) RETURN
       DO m_loc = ps_loc, pe_loc
          IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc)) .and. &
-             croplive_p(m_loc)) THEN
+            croplive_p(m_loc)) THEN
             yes = .true.
             RETURN
          ENDIF
@@ -753,11 +774,11 @@ CONTAINS
       pe_loc = patch_pft_e(ipatch)
       IF (ps_loc < 1 .or. pe_loc < ps_loc) RETURN
       n_pft_max = min(size(pftclass), size(irrig_method_p), &
-                      size(croplive_p), size(idop_p))
+         size(croplive_p), size(idop_p))
       IF (pe_loc > n_pft_max) RETURN
       DO m_loc = ps_loc, pe_loc
          IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc)) .and. &
-             croplive_p(m_loc)) THEN
+            croplive_p(m_loc)) THEN
             IF (idop_p(m_loc) >= 1 .and. idop_p(m_loc) <= dayspyr) THEN
                IF (jday >= idop_p(m_loc)) THEN
                   idpp = jday - idop_p(m_loc)
@@ -824,7 +845,7 @@ CONTAINS
    !     are included, matching the driver gate exactly).
    !---------------------------------------------------------------------------
    SUBROUTINE methane_patch_active_mask (numpatch_loc, only_wetland, &
-                                          enable_rice_paddy, ptype, mask)
+      enable_rice_paddy, ptype, mask)
       integer, intent(in)  :: numpatch_loc
       logical, intent(in)  :: only_wetland, enable_rice_paddy
       integer, intent(in)  :: ptype(numpatch_loc)
@@ -844,175 +865,192 @@ CONTAINS
 
    !---------------------------------------------------------------------------
    real(r8) FUNCTION get_biome_f_methane (patchtype, dlat, cellorg_top, &
-      is_rice_paddy, rice_fraction, rice_parameter_active, is_floodplain)
-   !
-   ! Biome-specific f_methane (CH4 yield ratio) lookup.
-   ! Mirrors get_wetland_veg_proxy 5-zone classification so each climate
-   ! zone gets a literature-informed CH4/HR ratio instead of CTSM's global
-   ! 0.20 default.
-   !
-   ! IMPORTANT: The specific f_methane numbers in DEF_METHANE are author-
-   ! selected midpoints within published literature RANGES, not direct
-   ! quotations from any single paper.  Tuned against Pantanal in-situ
-   ! (Marani & Alvalá 2007).  Other biomes use range midpoints.
-   !
-   ! Primary literature (full bibliographic detail; see also Const.F90 header):
-   !   Bridgham, S. D., Cadillo-Quiroz, H., Keller, J. K., & Zhuang, Q. (2013).
-   !     Methane emissions from wetlands: biogeochemical, microbial, and
-   !     modeling perspectives from local to global scales.
-   !     Global Change Biology, 19(5), 1325-1346.  doi:10.1111/gcb.12131
-   !   Marani, L., & Alvalá, P. C. (2007).  Methane emissions from lakes and
-   !     floodplains in Pantanal, Brazil.
-   !     Atmospheric Environment, 41(8), 1627-1633.
-   !     doi:10.1016/j.atmosenv.2006.10.046
-   !   Wania, R., Ross, I., & Prentice, I. C. (2010).  Implementation and
-   !     evaluation of a new methane model within a dynamic global vegetation
-   !     model: LPJ-WHyMe v1.3.1.
-   !     Geoscientific Model Development, 3(2), 565-584.
-   !     doi:10.5194/gmd-3-565-2010
-   !   Walter, B. P., Heimann, M., & Matthews, E. (2001).  Modeling modern
-   !     methane emissions from natural wetlands: 1. Model description and
-   !     results.  J. Geophys. Res. Atmos., 106(D24), 34189-34206.
-   !     doi:10.1029/2001JD900165
-   !   Holzapfel-Pschorn, A., Conrad, R., & Seiler, W. (1985).  Production,
-   !     oxidation and emission of methane in rice paddies.
-   !     FEMS Microbiology Ecology, 1(6), 343-351.
-   !     doi:10.1111/j.1574-6968.1985.tb01605.x
-   !   Le Mer, J., & Roger, P. (2001).  Production, oxidation, emission and
-   !     consumption of methane by soils: A review.
-   !     European Journal of Soil Biology, 37(1), 25-50.
-   !     doi:10.1016/S1164-5563(01)01067-6
-   !---------------------------------------------------------------------------
-   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
-   integer,  intent(in) :: patchtype
-   real(r8), intent(in) :: dlat
-   real(r8), intent(in) :: cellorg_top
-   logical,  intent(in) :: is_rice_paddy
-   real(r8), intent(in) :: rice_fraction
-   logical,  intent(in) :: rice_parameter_active
-   logical,  intent(in), optional :: is_floodplain
+      is_rice_paddy, rice_fraction, rice_parameter_active, is_floodplain, class_id)
+      !
+      ! Biome-specific f_methane (CH4 yield ratio) lookup.
+      ! Mirrors get_wetland_veg_proxy 5-zone classification so each climate
+      ! zone gets a literature-informed CH4/HR ratio instead of CTSM's global
+      ! 0.20 default.
+      !
+      ! IMPORTANT: The specific f_methane numbers in DEF_METHANE are author-
+      ! selected midpoints within published literature RANGES, not direct
+      ! quotations from any single paper.  Tuned against Pantanal in-situ
+      ! (Marani & Alvalá 2007).  Other biomes use range midpoints.
+      !
+      ! Primary literature (full bibliographic detail; see also Const.F90 header):
+      !   Bridgham, S. D., Cadillo-Quiroz, H., Keller, J. K., & Zhuang, Q. (2013).
+      !     Methane emissions from wetlands: biogeochemical, microbial, and
+      !     modeling perspectives from local to global scales.
+      !     Global Change Biology, 19(5), 1325-1346.  doi:10.1111/gcb.12131
+      !   Marani, L., & Alvalá, P. C. (2007).  Methane emissions from lakes and
+      !     floodplains in Pantanal, Brazil.
+      !     Atmospheric Environment, 41(8), 1627-1633.
+      !     doi:10.1016/j.atmosenv.2006.10.046
+      !   Wania, R., Ross, I., & Prentice, I. C. (2010).  Implementation and
+      !     evaluation of a new methane model within a dynamic global vegetation
+      !     model: LPJ-WHyMe v1.3.1.
+      !     Geoscientific Model Development, 3(2), 565-584.
+      !     doi:10.5194/gmd-3-565-2010
+      !   Walter, B. P., Heimann, M., & Matthews, E. (2001).  Modeling modern
+      !     methane emissions from natural wetlands: 1. Model description and
+      !     results.  J. Geophys. Res. Atmos., 106(D24), 34189-34206.
+      !     doi:10.1029/2001JD900165
+      !   Holzapfel-Pschorn, A., Conrad, R., & Seiler, W. (1985).  Production,
+      !     oxidation and emission of methane in rice paddies.
+      !     FEMS Microbiology Ecology, 1(6), 343-351.
+      !     doi:10.1111/j.1574-6968.1985.tb01605.x
+      !   Le Mer, J., & Roger, P. (2001).  Production, oxidation, emission and
+      !     consumption of methane by soils: A review.
+      !     European Journal of Soil Biology, 37(1), 25-50.
+      !     doi:10.1016/S1164-5563(01)01067-6
+      !---------------------------------------------------------------------------
+      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+      integer,  intent(in) :: patchtype
+      real(r8), intent(in) :: dlat
+      real(r8), intent(in) :: cellorg_top
+      logical,  intent(in) :: is_rice_paddy
+      real(r8), intent(in) :: rice_fraction
+      logical,  intent(in) :: rice_parameter_active
+      logical,  intent(in), optional :: is_floodplain
+      ! Diagnostic-only: reports which branch of the tree below was taken, so
+      ! history can bin CH4 fluxes by biome class without a second copy of the
+      ! tree.  Always set, including on the legacy scalar path.
+      integer,  intent(out), optional :: class_id
 
-   real(r8), parameter :: peat_om_threshold      = 150._r8
-   real(r8), parameter :: tropical_peat_threshold = 80._r8
-   logical :: floodplain_active
-   real(r8) :: rice_frac
-   real(r8) :: nonrice_f_methane
+      real(r8), parameter :: peat_om_threshold      = 150._r8
+      real(r8), parameter :: tropical_peat_threshold = 80._r8
+      logical :: floodplain_active
+      real(r8) :: rice_frac
+      real(r8) :: nonrice_f_methane
+      integer  :: cls
 
-   ! Legacy path: use global scalar if lookup not enabled
-   IF (.not. DEF_METHANE%use_biome_f_methane) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane
-      RETURN
-   ENDIF
+      floodplain_active = .false.
+      IF (present(is_floodplain)) floodplain_active = is_floodplain
+      rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
 
-   floodplain_active = .false.
-   IF (present(is_floodplain)) floodplain_active = is_floodplain
-   rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
+      ! First compute the non-rice background value for this patch.  Rice is a
+      ! CFT fraction inside patchtype==0, so it must blend with the non-rice
+      ! soil/floodplain value instead of replacing the whole mixed soil patch.
+      IF (floodplain_active) THEN
+         nonrice_f_methane = DEF_METHANE%f_methane_floodplain
+         cls = BIOME_FLOODPLAIN
+      ELSE IF (patchtype /= 2) THEN
+         nonrice_f_methane = DEF_METHANE%f_methane_upland_soil
+         cls = BIOME_UPLAND_SOIL
+      ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
+         nonrice_f_methane = DEF_METHANE%f_methane_tropical_peat
+         cls = BIOME_TROPICAL_PEAT
+      ELSE IF (abs(dlat) <= 23.5_r8) THEN
+         nonrice_f_methane = DEF_METHANE%f_methane_tropical_floodplain
+         cls = BIOME_TROPICAL_FLOODPLAIN
+      ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
+         nonrice_f_methane = DEF_METHANE%f_methane_boreal_bog
+         cls = BIOME_BOREAL_BOG
+      ELSE IF (abs(dlat) > 50._r8) THEN
+         nonrice_f_methane = DEF_METHANE%f_methane_boreal_fen
+         cls = BIOME_BOREAL_FEN
+      ELSE
+         nonrice_f_methane = DEF_METHANE%f_methane_temperate_marsh
+         cls = BIOME_TEMPERATE_MARSH
+      ENDIF
 
-   ! First compute the non-rice background value for this patch.  Rice is a
-   ! CFT fraction inside patchtype==0, so it must blend with the non-rice
-   ! soil/floodplain value instead of replacing the whole mixed soil patch.
-   IF (floodplain_active) THEN
-      nonrice_f_methane = DEF_METHANE%f_methane_floodplain
-   ELSE IF (patchtype /= 2) THEN
-      nonrice_f_methane = DEF_METHANE%f_methane_upland_soil
-   ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
-      nonrice_f_methane = DEF_METHANE%f_methane_tropical_peat
-   ELSE IF (abs(dlat) <= 23.5_r8) THEN
-      nonrice_f_methane = DEF_METHANE%f_methane_tropical_floodplain
-   ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
-      nonrice_f_methane = DEF_METHANE%f_methane_boreal_bog
-   ELSE IF (abs(dlat) > 50._r8) THEN
-      nonrice_f_methane = DEF_METHANE%f_methane_boreal_fen
-   ELSE
-      nonrice_f_methane = DEF_METHANE%f_methane_temperate_marsh
-   ENDIF
+      IF (present(class_id)) class_id = cls
 
-   IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN
-      get_biome_f_methane = (1._r8 - rice_frac) * nonrice_f_methane + &
-                            rice_frac * DEF_METHANE%f_methane_rice_paddy
-   ELSE
-      get_biome_f_methane = nonrice_f_methane
-   ENDIF
+      ! Legacy path: use global scalar if lookup not enabled.  Deliberately
+      ! placed after the tree so class_id stays available as a diagnostic even
+      ! when the lookup does not drive f_methane.  The returned value is
+      ! unchanged from the original early-return form.
+      IF (.not. DEF_METHANE%use_biome_f_methane) THEN
+         get_biome_f_methane = DEF_METHANE%f_methane
+         RETURN
+      ENDIF
+
+      IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN
+         get_biome_f_methane = (1._r8 - rice_frac) * nonrice_f_methane + &
+            rice_frac * DEF_METHANE%f_methane_rice_paddy
+      ELSE
+         get_biome_f_methane = nonrice_f_methane
+      ENDIF
 
    END FUNCTION get_biome_f_methane
 
    !---------------------------------------------------------------------------
    real(r8) FUNCTION get_biome_redoxlag (patchtype, dlat, cellorg_top, &
       is_rice_paddy, rice_fraction, rice_parameter_active)
-   !
-   ! Biome-specific redoxlag (microbial response time, days) lookup.
-   ! Mirrors get_wetland_veg_proxy 5-zone classification.  Concept: faster
-   ! response in warm tropical wetlands, slower in cold boreal peat.
-   !
-   ! IMPORTANT: Specific day values in DEF_METHANE are author-chosen
-   ! order-of-magnitude estimates based on QUALITATIVE conclusions in the
-   ! cited papers, NOT direct numerical quotes.  redoxlag is less well-
-   ! constrained empirically than f_methane (wider uncertainty 50-100%).
-   !
-   ! Primary literature informing the qualitative ordering:
-   !   Pangala, S. R., Enrich-Prast, A., Basso, L. S., Peixoto, R. B.,
-   !     Bastviken, D., Hornibrook, E. R. C., et al. (2017).  Large
-   !     emissions from floodplain trees close the Amazon methane budget.
-   !     Nature, 552(7684), 230-234.  doi:10.1038/nature24639
-   !     (Amazon tree stem rapid CH4 emission -> tropical rapid response)
-   !   Walter, B. P., Heimann, M., & Matthews, E. (2001).  Modeling modern
-   !     methane emissions from natural wetlands: 1. Model description and
-   !     results.  J. Geophys. Res. Atmos., 106(D24), 34189-34206.
-   !     doi:10.1029/2001JD900165
-   !     (CTSM-baseline ~14-30 d wetland CH4 transition timescale)
-   !   Whalen, S. C., & Reeburgh, W. S. (1990).  Consumption of atmospheric
-   !     methane by tundra soils.
-   !     Nature, 346(6280), 160-162.  doi:10.1038/346160a0
-   !     (cold boreal microbe slow response)
-   !   Holzapfel-Pschorn, A., Conrad, R., & Seiler, W. (1985).  Production,
-   !     oxidation and emission of methane in rice paddies.
-   !     FEMS Microbiology Ecology, 1(6), 343-351.
-   !     doi:10.1111/j.1574-6968.1985.tb01605.x
-   !     (rice paddy rapid response to managed flood/drain)
-   !---------------------------------------------------------------------------
-   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
-   integer,  intent(in) :: patchtype
-   real(r8), intent(in) :: dlat
-   real(r8), intent(in) :: cellorg_top
-   logical,  intent(in) :: is_rice_paddy
-   real(r8), intent(in) :: rice_fraction
-   logical,  intent(in) :: rice_parameter_active
+      !
+      ! Biome-specific redoxlag (microbial response time, days) lookup.
+      ! Mirrors get_wetland_veg_proxy 5-zone classification.  Concept: faster
+      ! response in warm tropical wetlands, slower in cold boreal peat.
+      !
+      ! IMPORTANT: Specific day values in DEF_METHANE are author-chosen
+      ! order-of-magnitude estimates based on QUALITATIVE conclusions in the
+      ! cited papers, NOT direct numerical quotes.  redoxlag is less well-
+      ! constrained empirically than f_methane (wider uncertainty 50-100%).
+      !
+      ! Primary literature informing the qualitative ordering:
+      !   Pangala, S. R., Enrich-Prast, A., Basso, L. S., Peixoto, R. B.,
+      !     Bastviken, D., Hornibrook, E. R. C., et al. (2017).  Large
+      !     emissions from floodplain trees close the Amazon methane budget.
+      !     Nature, 552(7684), 230-234.  doi:10.1038/nature24639
+      !     (Amazon tree stem rapid CH4 emission -> tropical rapid response)
+      !   Walter, B. P., Heimann, M., & Matthews, E. (2001).  Modeling modern
+      !     methane emissions from natural wetlands: 1. Model description and
+      !     results.  J. Geophys. Res. Atmos., 106(D24), 34189-34206.
+      !     doi:10.1029/2001JD900165
+      !     (CTSM-baseline ~14-30 d wetland CH4 transition timescale)
+      !   Whalen, S. C., & Reeburgh, W. S. (1990).  Consumption of atmospheric
+      !     methane by tundra soils.
+      !     Nature, 346(6280), 160-162.  doi:10.1038/346160a0
+      !     (cold boreal microbe slow response)
+      !   Holzapfel-Pschorn, A., Conrad, R., & Seiler, W. (1985).  Production,
+      !     oxidation and emission of methane in rice paddies.
+      !     FEMS Microbiology Ecology, 1(6), 343-351.
+      !     doi:10.1111/j.1574-6968.1985.tb01605.x
+      !     (rice paddy rapid response to managed flood/drain)
+      !---------------------------------------------------------------------------
+      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+      integer,  intent(in) :: patchtype
+      real(r8), intent(in) :: dlat
+      real(r8), intent(in) :: cellorg_top
+      logical,  intent(in) :: is_rice_paddy
+      real(r8), intent(in) :: rice_fraction
+      logical,  intent(in) :: rice_parameter_active
 
-   real(r8), parameter :: peat_om_threshold       = 150._r8
-   real(r8), parameter :: tropical_peat_threshold = 80._r8
-   real(r8) :: rice_frac
-   real(r8) :: nonrice_redoxlag
+      real(r8), parameter :: peat_om_threshold       = 150._r8
+      real(r8), parameter :: tropical_peat_threshold = 80._r8
+      real(r8) :: rice_frac
+      real(r8) :: nonrice_redoxlag
 
-   ! Legacy path: use global scalar if lookup not enabled
-   IF (.not. DEF_METHANE%use_biome_redoxlag) THEN
-      get_biome_redoxlag = DEF_METHANE%redoxlag
-      RETURN
-   ENDIF
+      ! Legacy path: use global scalar if lookup not enabled
+      IF (.not. DEF_METHANE%use_biome_redoxlag) THEN
+         get_biome_redoxlag = DEF_METHANE%redoxlag
+         RETURN
+      ENDIF
 
-   rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
+      rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
 
-   ! Compute the non-rice background response time, then blend the paddy
-   ! rapid-response parameter by rice area fraction for mixed soil patches.
-   IF (patchtype /= 2) THEN
-      nonrice_redoxlag = DEF_METHANE%redoxlag_upland_soil
-   ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
-      nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_peat
-   ELSE IF (abs(dlat) <= 23.5_r8) THEN
-      nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_floodplain
-   ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
-      nonrice_redoxlag = DEF_METHANE%redoxlag_boreal_bog
-   ELSE IF (abs(dlat) > 50._r8) THEN
-      nonrice_redoxlag = DEF_METHANE%redoxlag_boreal_fen
-   ELSE
-      nonrice_redoxlag = DEF_METHANE%redoxlag_temperate_marsh
-   ENDIF
+      ! Compute the non-rice background response time, then blend the paddy
+      ! rapid-response parameter by rice area fraction for mixed soil patches.
+      IF (patchtype /= 2) THEN
+         nonrice_redoxlag = DEF_METHANE%redoxlag_upland_soil
+      ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
+         nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_peat
+      ELSE IF (abs(dlat) <= 23.5_r8) THEN
+         nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_floodplain
+      ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
+         nonrice_redoxlag = DEF_METHANE%redoxlag_boreal_bog
+      ELSE IF (abs(dlat) > 50._r8) THEN
+         nonrice_redoxlag = DEF_METHANE%redoxlag_boreal_fen
+      ELSE
+         nonrice_redoxlag = DEF_METHANE%redoxlag_temperate_marsh
+      ENDIF
 
-   IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN
-      get_biome_redoxlag = (1._r8 - rice_frac) * nonrice_redoxlag + &
-                           rice_frac * DEF_METHANE%redoxlag_rice_paddy
-   ELSE
-      get_biome_redoxlag = nonrice_redoxlag
-   ENDIF
+      IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN
+         get_biome_redoxlag = (1._r8 - rice_frac) * nonrice_redoxlag + &
+            rice_frac * DEF_METHANE%redoxlag_rice_paddy
+      ELSE
+         get_biome_redoxlag = nonrice_redoxlag
+      ENDIF
 
    END FUNCTION get_biome_redoxlag
 

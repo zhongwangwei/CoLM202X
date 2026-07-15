@@ -63,65 +63,65 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 ! Default 'hybrid' mode is tuned against Pantanal in-situ flux
 ! [Marani & Alvalá 2007].
 !=======================================================================
-	USE MOD_Precision
-	USE MOD_Tracer_Defs, only: tracer_lower
+   USE MOD_Precision
+   USE MOD_Tracer_Defs, only: tracer_lower
 
-	IMPLICIT NONE
+   IMPLICIT NONE
 
-	PRIVATE
-	PUBLIC :: DEF_METHANE, DEF_METHANE_hydrology
-	PUBLIC :: read_methane_namelist, configure_methane_inundation_mode
-	PUBLIC :: methane_atm_mixing_ratio, methane_history_enabled
+   PRIVATE
+   PUBLIC :: DEF_METHANE, DEF_METHANE_hydrology
+   PUBLIC :: read_methane_namelist, configure_methane_inundation_mode
+   PUBLIC :: methane_atm_mixing_ratio, methane_history_enabled
 
-	!------------------------------------------------------------------
-	! Constants for the Methane reactive tracer
-	!------------------------------------------------------------------
-	! Note some of these constants are also used in CNNitrifDenitrifMod
+   !------------------------------------------------------------------
+   ! Constants for the Methane reactive tracer
+   !------------------------------------------------------------------
+   ! Note some of these constants are also used in CNNitrifDenitrifMod
 
-	integer :: iloop  ! loop index
+   integer :: iloop  ! loop index
 
-	integer, public, parameter :: ngases      =   3     ! CH4, O2, & CO2
+   integer, public, parameter :: ngases      =   3     ! CH4, O2, & CO2
 
-	!------------------------------------------------------------------
+   !------------------------------------------------------------------
 
-	real(r8), public, parameter :: catomw = 12.011_r8 ! molar mass of C atoms (g/mol)
-	real(r8), public, parameter :: methane_atomw = 16.04_r8 ! molar mass of CH4 atoms (g/mol)
+   real(r8), public, parameter :: catomw = 12.011_r8 ! molar mass of C atoms (g/mol)
+   real(r8), public, parameter :: methane_atomw = 16.04_r8 ! molar mass of CH4 atoms (g/mol)
 
-	real(r8), public :: s_con(ngases,4)    ! Schmidt # calculation constants (spp, #)
-	data (s_con(1,iloop),iloop=1,4) /1898.0_r8, -110.1_r8, 2.834_r8, -0.02791_r8/ ! CH4
-	data (s_con(2,iloop),iloop=1,4) /1801.0_r8, -120.1_r8, 3.7818_r8, -0.047608_r8/ ! O2
-	data (s_con(3,iloop),iloop=1,4) /1911.0_r8, -113.7_r8, 2.967_r8, -0.02943_r8/ ! CO2
+   real(r8), public :: s_con(ngases,4)    ! Schmidt # calculation constants (spp, #)
+   data (s_con(1,iloop),iloop=1,4) /1898.0_r8, -110.1_r8, 2.834_r8, -0.02791_r8/ ! CH4
+   data (s_con(2,iloop),iloop=1,4) /1801.0_r8, -120.1_r8, 3.7818_r8, -0.047608_r8/ ! O2
+   data (s_con(3,iloop),iloop=1,4) /1911.0_r8, -113.7_r8, 2.967_r8, -0.02943_r8/ ! CO2
 
-	real(r8), public :: d_con_w(ngases,3)    ! water diffusivity constants (spp, #)  (*10^-9 m2/s)
-	data (d_con_w(1,iloop),iloop=1,3) /0.9798_r8, 0.02986_r8, 0.0004381_r8/ ! CH4
-	data (d_con_w(2,iloop),iloop=1,3) /1.172_r8, 0.03443_r8, 0.0005048_r8/ ! O2
-	data (d_con_w(3,iloop),iloop=1,3) /0.939_r8, 0.02671_r8, 0.0004095_r8/ ! CO2
+   real(r8), public :: d_con_w(ngases,3)    ! water diffusivity constants (spp, #)  (*10^-9 m2/s)
+   data (d_con_w(1,iloop),iloop=1,3) /0.9798_r8, 0.02986_r8, 0.0004381_r8/ ! CH4
+   data (d_con_w(2,iloop),iloop=1,3) /1.172_r8, 0.03443_r8, 0.0005048_r8/ ! O2
+   data (d_con_w(3,iloop),iloop=1,3) /0.939_r8, 0.02671_r8, 0.0004095_r8/ ! CO2
 
-	real(r8), public :: d_con_g(ngases,2)    ! gas diffusivity constants (spp, #) (*10^-4 m2/s)
-	data (d_con_g(1,iloop),iloop=1,2) /0.1875_r8, 0.0013_r8/ ! CH4
-	data (d_con_g(2,iloop),iloop=1,2) /0.1759_r8, 0.00117_r8/ ! O2
-	data (d_con_g(3,iloop),iloop=1,2) /0.1325_r8, 0.0009_r8/ ! CO2
+   real(r8), public :: d_con_g(ngases,2)    ! gas diffusivity constants (spp, #) (*10^-4 m2/s)
+   data (d_con_g(1,iloop),iloop=1,2) /0.1875_r8, 0.0013_r8/ ! CH4
+   data (d_con_g(2,iloop),iloop=1,2) /0.1759_r8, 0.00117_r8/ ! O2
+   data (d_con_g(3,iloop),iloop=1,2) /0.1325_r8, 0.0009_r8/ ! CO2
 
-	real(r8), public :: c_h(ngases)    ! constant (K) for Henry's law (4.12, Wania)
-	data c_h(1:3) /1600._r8, 1500._r8, 2400._r8/ ! CH4, O2, CO2
+   real(r8), public :: c_h(ngases)    ! constant (K) for Henry's law (4.12, Wania)
+   data c_h(1:3) /1600._r8, 1500._r8, 2400._r8/ ! CH4, O2, CO2
 
-	real(r8), public :: kh_theta(ngases)    ! Henry's constant (mol/L/atm) at standard temperature (298K)
+   real(r8), public :: kh_theta(ngases)    ! Henry's constant (mol/L/atm) at standard temperature (298K)
    data kh_theta(1:3) /1.4e-3_r8, 1.3e-3_r8, 3.4e-2_r8/ ! CH4, O2, CO2
 
-	real(r8), public :: kh_tbase = 298.15_r8 ! base temperature for calculation of Henry's constant (K)
+   real(r8), public :: kh_tbase = 298.15_r8 ! base temperature for calculation of Henry's constant (K)
 
 !------------------------------------------------------------------
 
-	real(r8), public, parameter :: rgasm = 8.31446261815324_r8 ! Universal gas constant [J mol-1 K-1]
-                                 ![J/K/mol]=[N*m/K/mol]=[Pa*m3/K/mol]
-	!!! rgas Different from CoLM
-	!!! rgas in CoLM is gas constant for dry air [J/kg/K]
-	!!! not Universal gas constant
-	real(r8), public, parameter :: rgasLatm = 0.08206_r8 ! L*atm/mol/K
+   real(r8), public, parameter :: rgasm = 8.31446261815324_r8 ! Universal gas constant [J mol-1 K-1]
+   ![J/K/mol]=[N*m/K/mol]=[Pa*m3/K/mol]
+   !!! rgas Different from CoLM
+   !!! rgas in CoLM is gas constant for dry air [J/kg/K]
+   !!! not Universal gas constant
+   real(r8), public, parameter :: rgasLatm = 0.08206_r8 ! L*atm/mol/K
    ! rgasLatm      = rgasm         / 101325 / 0.001
    ! [L*atm/mol/K] = [Pa*m3/K/mol] / [Pa/atm] / [m3/L]
 
-	real(r8), public, parameter :: secspday = 86400._r8 ! Seconds per day
+   real(r8), public, parameter :: secspday = 86400._r8 ! Seconds per day
 
    type Methane_type
       ! ---------------------------------------------------- CH4 species controls ----------------------------------------------------
@@ -308,16 +308,16 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! file is 0.0).
 
       logical :: transpirationloss = .true. ! switch for activating CH4 loss from transpiration
-                                    ! Transpiration loss assumes that the methane concentration in dissolved soil
-                                    ! water remains constant through the plant and is released when the water evaporates
-                                    ! from the stomata.
-                                    ! Currently hard-wired to true; impact is < 1 Tg CH4/yr
+      ! Transpiration loss assumes that the methane concentration in dissolved soil
+      ! water remains constant through the plant and is released when the water evaporates
+      ! from the stomata.
+      ! Currently hard-wired to true; impact is < 1 Tg CH4/yr
 
       logical :: allowlakeprod = .false. ! Switch to allow production under lakes based on soil carbon dataset
-                                 ! (Methane can be produced, and CO2 produced from methane oxidation,
-                                 ! which will slowly reduce the available carbon stock, if ! replenishlakec, but no other biogeochem is done.)
-                                 ! Note: switching this off turns off ALL lake methane biogeochem. However, 0 values
-                                 ! will still be averaged into the concentration _sat history fields.
+      ! (Methane can be produced, and CO2 produced from methane oxidation,
+      ! which will slowly reduce the available carbon stock, if ! replenishlakec, but no other biogeochem is done.)
+      ! Note: switching this off turns off ALL lake methane biogeochem. However, 0 values
+      ! will still be averaged into the concentration _sat history fields.
 
       logical :: usephfact = .true.  ! Switch to use pH factor in methane production; falls back to neutral pH 6.2 if spatial pH file is missing. Standard namelist also sets .true. — keep defaults aligned.
 
@@ -360,35 +360,35 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: hybrid_soil_threshold    = 0._r8
 
       logical :: replenishlakec = .true. ! Switch for keeping carbon storage under lakes constant
-                                    ! so that lakes do not affect the carbon balance
-                                    ! Good for long term rather than transient warming experiments
-            ! NOTE SWITCHING THIS OFF ASSUMES TRANSIENT CARBON SUPPLY FROM LAKES; COUPLED MODEL WILL NOT CONSERVE CARBON
-            ! IN THIS MODE.
+      ! so that lakes do not affect the carbon balance
+      ! Good for long term rather than transient warming experiments
+      ! NOTE SWITCHING THIS OFF ASSUMES TRANSIENT CARBON SUPPLY FROM LAKES; COUPLED MODEL WILL NOT CONSERVE CARBON
+      ! IN THIS MODE.
 
       logical :: methane_offline = .true.    ! true --> Methane is not passed between the land & atmosphere.
-                                 ! NEM is not added to NEE flux to atm. to correct for methane production,
-                                 ! and ambient CH4 is set to constant 2009 value.
+      ! NEM is not added to NEE flux to atm. to correct for methane production,
+      ! and ambient CH4 is set to constant 2009 value.
 
       logical :: methane_rmcnlim = .false.   ! Remove the N and low moisture limitations on SOM HR when calculating
-                                 ! methanogenesis.
-                                 ! Note: this option has not been extensively tested.
-                                 ! Currently hardwired off.
+      ! methanogenesis.
+      ! Note: this option has not been extensively tested.
+      ! Currently hardwired off.
 
       logical :: anoxicmicrosites = .false. ! Use Arah & Stephen 1998 expression to allow production above the water table
-                                    ! Currently hardwired off; expression is crude.
+      ! Currently hardwired off; expression is crude.
 
       logical :: methane_frzout = .false.    ! Exclude CH4 from frozen fraction of soil pore H2O, to simulate "freeze-out" pulse
-                                 ! as in Mastepanov 2008.
-                                 ! Causes slight increase in emissions in the fall and decrease in the spring.
-                                 ! Currently hardwired off; small impact.
+      ! as in Mastepanov 2008.
+      ! Causes slight increase in emissions in the fall and decrease in the spring.
+      ! Currently hardwired off; small impact.
 
       ! public :: methane_conrd ! Read and initialize CH4 constants
 
       logical :: use_nitrif_denitrif = .true.
 
       logical :: anoxia  = .true. ! true => anoxia is applied to heterotrophic respiration also considered in CH4 model
-                                    ! default value reset in controlMod
-                                    ! Whether to enable the anoxia for the seasonally induatded zones
+      ! default value reset in controlMod
+      ! Whether to enable the anoxia for the seasonally induatded zones
       logical :: use_vertical_redoxlag = .true. ! Whether to enable the vertical redox lag effect
 
       ! SIF is enabled only when coupled BGC does not already apply anoxia limits.
@@ -528,17 +528,17 @@ CONTAINS
 
    SUBROUTINE read_methane_namelist (nlfile)
 
-   USE MOD_SPMD_Task
-   USE MOD_Namelist
-   IMPLICIT NONE
+      USE MOD_SPMD_Task
+      USE MOD_Namelist
+      IMPLICIT NONE
 
-   character(len=*), intent(in) :: nlfile
-   ! Local variables
-   logical :: fexists
-   integer :: ierr
-   integer :: unit_nml
+      character(len=*), intent(in) :: nlfile
+      ! Local variables
+      logical :: fexists
+      integer :: ierr
+      integer :: unit_nml
 
-   namelist /nl_colm_methane_parameter/ DEF_METHANE,DEF_METHANE_hydrology
+      namelist /nl_colm_methane_parameter/ DEF_METHANE,DEF_METHANE_hydrology
 
       ! Read on every rank so all workers use the same methane constants.
       ! The previous master-only read left non-master ranks at default values
@@ -557,107 +557,107 @@ CONTAINS
 
       CALL validate_methane_namelist ()
 
-	   END SUBROUTINE read_methane_namelist
+   END SUBROUTINE read_methane_namelist
 
-	   SUBROUTINE configure_methane_inundation_mode ()
-	      ! Resolve the user-facing four-option CH4 inundation mode into the
-	      ! internal scheme integer plus paired methane switches.  The old
-	      ! integer scheme remains only as the physics dispatch key; users
-	      ! should set DEF_METHANE%inundation_mode to one of:
-	      !   wetwat, satellite/giems, routing, dynamic_wtd, hybrid.
-	      USE MOD_Namelist, only: DEF_wetland_finundation_scheme, &
-	                              DEF_USE_Dynamic_Wetland
-	      USE MOD_SPMD_Task
-	      IMPLICIT NONE
+   SUBROUTINE configure_methane_inundation_mode ()
+      ! Resolve the user-facing four-option CH4 inundation mode into the
+      ! internal scheme integer plus paired methane switches.  The old
+      ! integer scheme remains only as the physics dispatch key; users
+      ! should set DEF_METHANE%inundation_mode to one of:
+      !   wetwat, satellite/giems, routing, dynamic_wtd, hybrid.
+      USE MOD_Namelist, only: DEF_wetland_finundation_scheme, &
+         DEF_USE_Dynamic_Wetland
+      USE MOD_SPMD_Task
+      IMPLICIT NONE
 
-	      character(len=32) :: mode
+      character(len=32) :: mode
 
-	      mode = tracer_lower(adjustl(trim(DEF_METHANE%inundation_mode)))
+      mode = tracer_lower(adjustl(trim(DEF_METHANE%inundation_mode)))
 
-	      SELECT CASE (trim(mode))
-	      CASE ('wetwat')
-	         DEF_wetland_finundation_scheme = 1
-	         DEF_METHANE%enable_wetwat_finundated_override = .true.
-	         DEF_METHANE%wetland_dry_unsat_branch = .true.
-	         IF (DEF_USE_Dynamic_Wetland) THEN
-	            IF (p_is_master) write(6,*) &
-	               '***** ERROR: wetwat methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
-	            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
-	         ENDIF
+      SELECT CASE (trim(mode))
+       CASE ('wetwat')
+         DEF_wetland_finundation_scheme = 1
+         DEF_METHANE%enable_wetwat_finundated_override = .true.
+         DEF_METHANE%wetland_dry_unsat_branch = .true.
+         IF (DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: wetwat methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
+            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
+         ENDIF
 
-	      CASE ('satellite','giems')
-	         DEF_wetland_finundation_scheme = 5
-	         DEF_METHANE%enable_wetwat_finundated_override = .false.
-	         DEF_METHANE%wetland_dry_unsat_branch = .true.
-	         IF (DEF_USE_Dynamic_Wetland) THEN
-	            IF (p_is_master) write(6,*) &
-	               '***** ERROR: satellite methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
-	            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
-	         ENDIF
+       CASE ('satellite','giems')
+         DEF_wetland_finundation_scheme = 5
+         DEF_METHANE%enable_wetwat_finundated_override = .false.
+         DEF_METHANE%wetland_dry_unsat_branch = .true.
+         IF (DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: satellite methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
+            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
+         ENDIF
 
-	      CASE ('routing')
-	         DEF_wetland_finundation_scheme = 7
-	         DEF_METHANE%enable_wetwat_finundated_override = .false.
-	         DEF_METHANE%wetland_dry_unsat_branch = .true.
-	         IF (DEF_USE_Dynamic_Wetland) THEN
-	            IF (p_is_master) write(6,*) &
-	               '***** ERROR: routing methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
-	            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
-	         ENDIF
+       CASE ('routing')
+         DEF_wetland_finundation_scheme = 7
+         DEF_METHANE%enable_wetwat_finundated_override = .false.
+         DEF_METHANE%wetland_dry_unsat_branch = .true.
+         IF (DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: routing methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
+            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
+         ENDIF
 
-	      CASE ('dynamic_wtd','dynamic-wtd')
-	         DEF_wetland_finundation_scheme = 6
-	         DEF_METHANE%enable_wetwat_finundated_override = .false.
-	         ! Dynamic wetland hydrology supplies the WTD forcing; keep the
-	         ! dry unsaturated branch active for wetland tiles.
-	         DEF_METHANE%wetland_dry_unsat_branch = .true.
-	         DEF_METHANE%use_routing_for_soil = .false.
-	         IF (.not. DEF_USE_Dynamic_Wetland) THEN
-	            IF (p_is_master) write(6,*) &
-	               '***** ERROR: dynamic_wtd requires DEF_USE_Dynamic_Wetland = .true.'
-	            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
-	         ENDIF
+       CASE ('dynamic_wtd','dynamic-wtd')
+         DEF_wetland_finundation_scheme = 6
+         DEF_METHANE%enable_wetwat_finundated_override = .false.
+         ! Dynamic wetland hydrology supplies the WTD forcing; keep the
+         ! dry unsaturated branch active for wetland tiles.
+         DEF_METHANE%wetland_dry_unsat_branch = .true.
+         DEF_METHANE%use_routing_for_soil = .false.
+         IF (.not. DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: dynamic_wtd requires DEF_USE_Dynamic_Wetland = .true.'
+            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
+         ENDIF
 
-	      CASE ('hybrid','dh_all_thr05','dyn_routing_hybrid')
-	         ! Recommended production mode (Pantanal validated 2026-05-23).
-	         ! Combines five physics fixes (each informed by literature; specific
-	         ! numeric values are author-selected midpoints, not direct quotes):
-	         !   - dyn_routing_hybrid: wetland sigmoid(zwt) + soil routing fldfrc
-	         !   - biome f_methane lookup (range from Bridgham 2013 GCB review)
-	         !   - biome redoxlag lookup (Pangala 2017 / Whalen 1990 qualitative)
-	         !   - hybrid soil threshold 0.05 (empirical, tuned to Pantanal P/T)
-	         !   - depth attenuation z0=0.30m (within Walter & Heimann 2001 range)
-	         ! Tuned to match Pantanal in-situ flux (Marani & Alvalá 2007).
-	         ! Names dyn_routing_hybrid/hybrid kept as backwards-compatible aliases.
-	         DEF_wetland_finundation_scheme              = 6
-	         DEF_METHANE%enable_wetwat_finundated_override = .false.
-	         DEF_METHANE%wetland_dry_unsat_branch        = .true.
-	         DEF_METHANE%use_routing_for_soil            = .true.
-	         DEF_METHANE%use_biome_f_methane             = .true.
-	         DEF_METHANE%use_biome_redoxlag              = .true.
-	         DEF_METHANE%hybrid_soil_threshold           = 0.05_r8
-	         DEF_METHANE%z0_methane_prod                 = 0.30_r8
-	         IF (.not. DEF_USE_Dynamic_Wetland) THEN
-	            IF (p_is_master) write(6,*) &
-	               '***** ERROR: hybrid mode requires DEF_USE_Dynamic_Wetland = .true.'
-	            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
-	         ENDIF
+       CASE ('hybrid','dh_all_thr05','dyn_routing_hybrid')
+         ! Recommended production mode (Pantanal validated 2026-05-23).
+         ! Combines five physics fixes (each informed by literature; specific
+         ! numeric values are author-selected midpoints, not direct quotes):
+         !   - dyn_routing_hybrid: wetland sigmoid(zwt) + soil routing fldfrc
+         !   - biome f_methane lookup (range from Bridgham 2013 GCB review)
+         !   - biome redoxlag lookup (Pangala 2017 / Whalen 1990 qualitative)
+         !   - hybrid soil threshold 0.05 (empirical, tuned to Pantanal P/T)
+         !   - depth attenuation z0=0.30m (within Walter & Heimann 2001 range)
+         ! Tuned to match Pantanal in-situ flux (Marani & Alvalá 2007).
+         ! Names dyn_routing_hybrid/hybrid kept as backwards-compatible aliases.
+         DEF_wetland_finundation_scheme              = 6
+         DEF_METHANE%enable_wetwat_finundated_override = .false.
+         DEF_METHANE%wetland_dry_unsat_branch        = .true.
+         DEF_METHANE%use_routing_for_soil            = .true.
+         DEF_METHANE%use_biome_f_methane             = .true.
+         DEF_METHANE%use_biome_redoxlag              = .true.
+         DEF_METHANE%hybrid_soil_threshold           = 0.05_r8
+         DEF_METHANE%z0_methane_prod                 = 0.30_r8
+         IF (.not. DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: hybrid mode requires DEF_USE_Dynamic_Wetland = .true.'
+            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
+         ENDIF
 
-	      CASE DEFAULT
-	         IF (p_is_master) write(6,*) &
-	            '***** ERROR: unsupported DEF_METHANE%inundation_mode = ', trim(DEF_METHANE%inundation_mode), &
-	            '; expected wetwat, satellite, routing, dynamic_wtd, or hybrid.'
-	         CALL CoLM_Stop (' ***** ERROR: unsupported methane inundation mode')
-	      END SELECT
+       CASE DEFAULT
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: unsupported DEF_METHANE%inundation_mode = ', trim(DEF_METHANE%inundation_mode), &
+            '; expected wetwat, satellite, routing, dynamic_wtd, or hybrid.'
+         CALL CoLM_Stop (' ***** ERROR: unsupported methane inundation mode')
+      END SELECT
 
-	      IF (p_is_master) write(6,'(A,A,A,I0,A,L1,A,L1)') &
-	         ' CH4 inundation mode: ', trim(mode), &
-	         ' -> scheme=', DEF_wetland_finundation_scheme, &
-	         ' wetwat_override=', DEF_METHANE%enable_wetwat_finundated_override, &
-	         ' dry_unsat=', DEF_METHANE%wetland_dry_unsat_branch
-	   END SUBROUTINE configure_methane_inundation_mode
+      IF (p_is_master) write(6,'(A,A,A,I0,A,L1,A,L1)') &
+         ' CH4 inundation mode: ', trim(mode), &
+         ' -> scheme=', DEF_wetland_finundation_scheme, &
+         ' wetwat_override=', DEF_METHANE%enable_wetwat_finundated_override, &
+         ' dry_unsat=', DEF_METHANE%wetland_dry_unsat_branch
+   END SUBROUTINE configure_methane_inundation_mode
 
-	   SUBROUTINE validate_methane_namelist ()
+   SUBROUTINE validate_methane_namelist ()
       ! Range-check user-overridable methane parameters.  Catches negative
       ! production rates, non-positive Q10 / Michaelis-Menten constants, and
       ! pH window inversions that would otherwise propagate as silent NaNs or
@@ -673,49 +673,49 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_tropical_peat < 0._r8 .or. &
-          DEF_METHANE%f_methane_tropical_peat > 0.5_r8) THEN
+         DEF_METHANE%f_methane_tropical_peat > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_tropical_peat out of [0,0.5]: ', &
             DEF_METHANE%f_methane_tropical_peat
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_tropical_floodplain < 0._r8 .or. &
-          DEF_METHANE%f_methane_tropical_floodplain > 0.5_r8) THEN
+         DEF_METHANE%f_methane_tropical_floodplain > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_tropical_floodplain out of [0,0.5]: ', &
             DEF_METHANE%f_methane_tropical_floodplain
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_floodplain < 0._r8 .or. &
-          DEF_METHANE%f_methane_floodplain > 0.5_r8) THEN
+         DEF_METHANE%f_methane_floodplain > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_floodplain out of [0,0.5]: ', &
             DEF_METHANE%f_methane_floodplain
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_temperate_marsh < 0._r8 .or. &
-          DEF_METHANE%f_methane_temperate_marsh > 0.5_r8) THEN
+         DEF_METHANE%f_methane_temperate_marsh > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_temperate_marsh out of [0,0.5]: ', &
             DEF_METHANE%f_methane_temperate_marsh
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_boreal_fen < 0._r8 .or. &
-          DEF_METHANE%f_methane_boreal_fen > 0.5_r8) THEN
+         DEF_METHANE%f_methane_boreal_fen > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_boreal_fen out of [0,0.5]: ', &
             DEF_METHANE%f_methane_boreal_fen
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_boreal_bog < 0._r8 .or. &
-          DEF_METHANE%f_methane_boreal_bog > 0.5_r8) THEN
+         DEF_METHANE%f_methane_boreal_bog > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_boreal_bog out of [0,0.5]: ', &
             DEF_METHANE%f_methane_boreal_bog
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_rice_paddy < 0._r8 .or. &
-          DEF_METHANE%f_methane_rice_paddy > 0.5_r8) THEN
+         DEF_METHANE%f_methane_rice_paddy > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_rice_paddy out of [0,0.5]: ', &
             DEF_METHANE%f_methane_rice_paddy
          bad = .true.
       ENDIF
       IF (DEF_METHANE%f_methane_upland_soil < 0._r8 .or. &
-          DEF_METHANE%f_methane_upland_soil > 0.5_r8) THEN
+         DEF_METHANE%f_methane_upland_soil > 0.5_r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: f_methane_upland_soil out of [0,0.5]: ', &
             DEF_METHANE%f_methane_upland_soil
          bad = .true.
@@ -759,13 +759,13 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE%lake_vmax_methane_oxid /= -1._r8 .and. &
-          DEF_METHANE%lake_vmax_methane_oxid < 0._r8) THEN
+         DEF_METHANE%lake_vmax_methane_oxid < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: lake_vmax_methane_oxid must be -1 or >= 0: ', &
             DEF_METHANE%lake_vmax_methane_oxid
          bad = .true.
       ENDIF
       IF (DEF_METHANE%lake_oxic_sediment_depth /= -1._r8 .and. &
-          DEF_METHANE%lake_oxic_sediment_depth <= 0._r8) THEN
+         DEF_METHANE%lake_oxic_sediment_depth <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: lake_oxic_sediment_depth must be -1 or > 0: ', &
             DEF_METHANE%lake_oxic_sediment_depth
          bad = .true.
@@ -823,10 +823,10 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE%scale_factor_aere < 0._r8 .or. &
-          DEF_METHANE%scale_factor_gasdiff < 0._r8 .or. &
-          DEF_METHANE%scale_factor_liqdiff < 0._r8 .or. &
-          DEF_METHANE%lake_liqdiff_scale < 0._r8 .or. &
-          DEF_METHANE%lake_o2_liqdiff_scale < 0._r8) THEN
+         DEF_METHANE%scale_factor_gasdiff < 0._r8 .or. &
+         DEF_METHANE%scale_factor_liqdiff < 0._r8 .or. &
+         DEF_METHANE%lake_liqdiff_scale < 0._r8 .or. &
+         DEF_METHANE%lake_o2_liqdiff_scale < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: methane transport/aerenchyma scale factors must be >= 0: ', &
             DEF_METHANE%scale_factor_aere, DEF_METHANE%scale_factor_gasdiff, &
             DEF_METHANE%scale_factor_liqdiff, DEF_METHANE%lake_liqdiff_scale, &
@@ -876,13 +876,13 @@ CONTAINS
 
       ! Rice paddy R1/R2/R4 + SOC short-term-fix range checks.
       IF (DEF_METHANE%rice_paddy_min_finundated < 0._r8 .or. &
-          DEF_METHANE%rice_paddy_min_finundated > 1._r8) THEN
+         DEF_METHANE%rice_paddy_min_finundated > 1._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: rice_paddy_min_finundated must be in [0,1]: ', &
             DEF_METHANE%rice_paddy_min_finundated
          bad = .true.
       ENDIF
       IF (DEF_METHANE%rice_midseason_drained_finundated < 0._r8 .or. &
-          DEF_METHANE%rice_midseason_drained_finundated > 1._r8) THEN
+         DEF_METHANE%rice_midseason_drained_finundated > 1._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: rice_midseason_drained_finundated must be in [0,1]: ', &
             DEF_METHANE%rice_midseason_drained_finundated
          bad = .true.
@@ -926,17 +926,17 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE%K_substrate_methanogen_pool <= 0._r8 .or. &
-          DEF_METHANE%K_inh_O2_methanogen <= 0._r8) THEN
+         DEF_METHANE%K_inh_O2_methanogen <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: microbial half-saturation/inhibition constants must be > 0: ', &
             DEF_METHANE%K_substrate_methanogen_pool, DEF_METHANE%K_inh_O2_methanogen
          bad = .true.
       ENDIF
       IF (DEF_METHANE%B_init_methanogen < 0._r8 .or. DEF_METHANE%B_init_methanotroph < 0._r8 .or. &
-          DEF_METHANE%B_min_methanogen < 0._r8 .or. DEF_METHANE%B_min_methanotroph < 0._r8 .or. &
-          DEF_METHANE%mu_max_methanogen < 0._r8 .or. DEF_METHANE%mu_max_methanotroph < 0._r8 .or. &
-          DEF_METHANE%gamma_methanogen < 0._r8 .or. DEF_METHANE%gamma_methanotroph < 0._r8 .or. &
-          DEF_METHANE%gamma_microbial_dormant < 0._r8 .or. DEF_METHANE%gamma_microbial_freeze < 0._r8 .or. &
-          DEF_METHANE%kappa_m_methanogen < 0._r8 .or. DEF_METHANE%kappa_m_methanotroph < 0._r8) THEN
+         DEF_METHANE%B_min_methanogen < 0._r8 .or. DEF_METHANE%B_min_methanotroph < 0._r8 .or. &
+         DEF_METHANE%mu_max_methanogen < 0._r8 .or. DEF_METHANE%mu_max_methanotroph < 0._r8 .or. &
+         DEF_METHANE%gamma_methanogen < 0._r8 .or. DEF_METHANE%gamma_methanotroph < 0._r8 .or. &
+         DEF_METHANE%gamma_microbial_dormant < 0._r8 .or. DEF_METHANE%gamma_microbial_freeze < 0._r8 .or. &
+         DEF_METHANE%kappa_m_methanogen < 0._r8 .or. DEF_METHANE%kappa_m_methanotroph < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: microbial biomass/rate/loss parameters must be >= 0'
          bad = .true.
       ENDIF
@@ -951,17 +951,17 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE%dormancy_rate_active < 0._r8 .or. DEF_METHANE%dormancy_rate_revive < 0._r8 .or. &
-          DEF_METHANE%dormancy_threshold_methanogen_fS < 0._r8 .or. &
-          DEF_METHANE%dormancy_threshold_methanogen_fO2 < 0._r8 .or. &
-          DEF_METHANE%dormancy_threshold_methanotroph_fS < 0._r8 .or. &
-          DEF_METHANE%dormancy_threshold_methanotroph_fO2 < 0._r8) THEN
+         DEF_METHANE%dormancy_threshold_methanogen_fS < 0._r8 .or. &
+         DEF_METHANE%dormancy_threshold_methanogen_fO2 < 0._r8 .or. &
+         DEF_METHANE%dormancy_threshold_methanotroph_fS < 0._r8 .or. &
+         DEF_METHANE%dormancy_threshold_methanotroph_fO2 < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: microbial dormancy rates/thresholds must be >= 0'
          bad = .true.
       ENDIF
       IF (DEF_METHANE_hydrology%slopemax <= 0._r8 .or. &
-          DEF_METHANE_hydrology%slopebeta == 0._r8 .or. &
-          DEF_METHANE_hydrology%vdcf < 0._r8 .or. &
-          DEF_METHANE_hydrology%pc < 0._r8) THEN
+         DEF_METHANE_hydrology%slopebeta == 0._r8 .or. &
+         DEF_METHANE_hydrology%vdcf < 0._r8 .or. &
+         DEF_METHANE_hydrology%pc < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: methane hydrology parameters invalid: ', &
             DEF_METHANE_hydrology%vdcf, DEF_METHANE_hydrology%slopebeta, &
             DEF_METHANE_hydrology%slopemax, DEF_METHANE_hydrology%pc
@@ -978,7 +978,7 @@ CONTAINS
       methane_atm_mixing_ratio = DEF_METHANE%atm_methane
       IF (.not. DEF_METHANE%use_transient_atm_methane) RETURN
       IF (len_trim(DEF_METHANE%atm_methane_file) == 0 .or. &
-          trim(DEF_METHANE%atm_methane_file) == 'null') RETURN
+         trim(DEF_METHANE%atm_methane_file) == 'null') RETURN
 
       CALL load_methane_atm_file ()
       iy = max(0, min(3000, year))
@@ -1012,29 +1012,29 @@ CONTAINS
          cached_raw  = list
          cached_list = compact_commas(trim(list))
          SELECT CASE (trim(cached_list))
-         CASE ('all','*')
+          CASE ('all','*')
             cached_mode = 1
-         CASE ('none','off','false','.false.')
+          CASE ('none','off','false','.false.')
             cached_mode = 0
-         CASE ('core','default','minimal','fast')
+          CASE ('core','default','minimal','fast')
             cached_mode = 2
-         CASE ('diagnostic','extended','debug')
+          CASE ('diagnostic','extended','debug')
             cached_mode = 3
-         CASE DEFAULT
+          CASE DEFAULT
             cached_mode = 4
          END SELECT
       ENDIF
 
       SELECT CASE (cached_mode)
-      CASE (1)
+       CASE (1)
          methane_history_enabled = .true.
-      CASE (2)
+       CASE (2)
          methane_history_enabled = methane_history_is_core(trim(v))
-      CASE (3)
+       CASE (3)
          methane_history_enabled = methane_history_is_diagnostic(trim(v))
-      CASE (4)
+       CASE (4)
          methane_history_enabled = index(','//trim(cached_list)//',', ','//trim(v)//',') > 0
-      CASE DEFAULT
+       CASE DEFAULT
          methane_history_enabled = .false.
       END SELECT
    END FUNCTION methane_history_enabled
@@ -1045,18 +1045,18 @@ CONTAINS
       ! Keep the default history set intentionally small for global CH4 runs.
       ! Use ch4_history_vars='diagnostic' to recover the previous broad core.
       SELECT CASE (trim(v))
-      CASE ( &
-         'f_methane_surf_flux_tot', &
-         'f_methane_surf_flux_global_total_with_lake', &
-         'f_methane_surf_flux_wetland', &
-         'f_methane_surf_flux_soil', &
-         'f_methane_surf_flux_lake', &
-         'f_methane_surf_flux_rice', &
-         'f_methane_prod_tot', &
-         'f_methane_oxid_tot', &
-         'f_totcol_methane')
+       CASE ( &
+          'f_methane_surf_flux_tot', &
+          'f_methane_surf_flux_global_total_with_lake', &
+          'f_methane_surf_flux_wetland', &
+          'f_methane_surf_flux_soil', &
+          'f_methane_surf_flux_lake', &
+          'f_methane_surf_flux_rice', &
+          'f_methane_prod_tot', &
+          'f_methane_oxid_tot', &
+          'f_totcol_methane')
          methane_history_is_core = .true.
-      CASE DEFAULT
+       CASE DEFAULT
          methane_history_is_core = .false.
       END SELECT
    END FUNCTION methane_history_is_core
@@ -1066,53 +1066,74 @@ CONTAINS
 
       ! Broad diagnostic set preserved from the former 'core' selector.
       SELECT CASE (trim(v))
-      CASE ( &
-         'f_net_methane', &
-         'f_methane_surf_flux_tot', &
-         'f_methane_surf_flux_active_total_without_lake', &
-         'f_methane_surf_flux_global_total_with_lake', &
-         'f_methane_surf_flux_tot_phys', &
-         'f_methane_surf_aere', &
-         'f_methane_surf_ebul', &
-         'f_methane_surf_diff', &
-         'f_methane_surf_diff_phys', &
-         'f_methane_balance_residual', &
-         'f_methane_ch4_clip_credit', &
-         'f_o2_cap_loss', &
-         'f_o2_cap_gain', &
-         'f_methane_prod_tot', &
-         'f_methane_oxid_tot', &
-         'f_co2_decomp_tot', &
-         'f_co2_oxid_tot', &
-         'f_co2_net_tot', &
-         'f_totcol_methane', &
-         'f_grnd_methane_cond', &
-         'f_methane_surf_flux_tot_lake', &
-         'f_methane_surf_ebul_lake', &
-         'f_methane_surf_diff_lake', &
-         'f_methane_prod_tot_lake', &
-         'f_methane_oxid_tot_lake', &
-         'f_co2_net_tot_lake', &
-         'f_totcol_methane_lake', &
-         'f_forc_pmethanem', &
-         'f_layer_sat_lag', &
-         'f_annavg_finrw', &
-         'f_methane_dfsat_tot', &
-         'f_f_h2osfc', &
-         'f_methane_finundated', &
-         'f_methane_soil_finundated', &
-         'f_methane_soil_zwt', &
-         'f_inund_flood_patch', &
-         'f_inund_flood_depth_patch', &
-         'f_wetland_frac_patch', &
-         'f_methane_surf_flux_wetland', &
-         'f_methane_surf_flux_soil', &
-         'f_methane_surf_flux_lake', &
-         'f_methane_surf_flux_lake_intensive', &
-         'f_methane_surf_flux_rice', &
-         'f_methane_surf_flux_rice_intensive')
+       CASE ( &
+          'f_net_methane', &
+          'f_methane_surf_flux_tot', &
+          'f_methane_surf_flux_active_total_without_lake', &
+          'f_methane_surf_flux_global_total_with_lake', &
+          'f_methane_surf_flux_tot_phys', &
+          'f_methane_surf_aere', &
+          'f_methane_surf_ebul', &
+          'f_methane_surf_diff', &
+          'f_methane_surf_diff_phys', &
+          'f_methane_balance_residual', &
+          'f_methane_ch4_clip_credit', &
+          'f_o2_cap_loss', &
+          'f_o2_cap_gain', &
+          'f_methane_prod_tot', &
+          'f_methane_oxid_tot', &
+          'f_co2_decomp_tot', &
+          'f_co2_oxid_tot', &
+          'f_co2_net_tot', &
+          'f_totcol_methane', &
+          'f_grnd_methane_cond', &
+          'f_methane_surf_flux_tot_lake', &
+          'f_methane_surf_ebul_lake', &
+          'f_methane_surf_diff_lake', &
+          'f_methane_prod_tot_lake', &
+          'f_methane_oxid_tot_lake', &
+          'f_co2_net_tot_lake', &
+          'f_totcol_methane_lake', &
+          'f_forc_pmethanem', &
+          'f_layer_sat_lag', &
+          'f_annavg_finrw', &
+          'f_methane_dfsat_tot', &
+          'f_f_h2osfc', &
+          'f_methane_finundated', &
+          'f_methane_soil_finundated', &
+          'f_methane_soil_zwt', &
+          'f_inund_flood_patch', &
+          'f_inund_flood_depth_patch', &
+          'f_wetland_frac_patch', &
+          'f_methane_surf_flux_wetland', &
+          'f_methane_surf_flux_soil', &
+          'f_methane_surf_flux_lake', &
+          'f_methane_surf_flux_lake_intensive', &
+          'f_methane_surf_flux_rice', &
+          'f_methane_surf_flux_rice_intensive', &
+       ! Category-split CH4 budget components (wetland/soil/lake/rice).
+          'f_methane_prod_wetland', &
+          'f_methane_prod_soil', &
+          'f_methane_prod_lake', &
+          'f_methane_oxid_wetland', &
+          'f_methane_oxid_soil', &
+          'f_methane_oxid_lake', &
+          'f_methane_aere_wetland', &
+          'f_methane_aere_soil', &
+          'f_methane_aere_lake', &
+          'f_methane_ebul_wetland', &
+          'f_methane_ebul_soil', &
+          'f_methane_ebul_lake', &
+          'f_methane_diff_wetland', &
+          'f_methane_diff_soil', &
+          'f_methane_diff_lake', &
+          'f_methane_area_wetland', &
+          'f_methane_area_soil', &
+          'f_methane_area_lake', &
+          'f_methane_floodplain_frac', &
+          'f_methane_wetland_type')
          methane_history_is_diagnostic = .true.
-      CASE DEFAULT
+       CASE DEFAULT
          methane_history_is_diagnostic = .false.
       END SELECT
    END FUNCTION methane_history_is_diagnostic
@@ -1162,7 +1183,7 @@ CONTAINS
 
          read(line,*,iostat=ios3) yr, mon, val
          IF (ios3 == 0 .and. yr >= 0 .and. yr <= 3000 .and. &
-             mon >= 1 .and. mon <= 12) THEN
+            mon >= 1 .and. mon <= 12) THEN
             atm_ch4_file_molmol(yr,mon) = methane_atm_to_molmol(val)
          ELSE
             read(line,*,iostat=ios2) yr, val
@@ -1180,13 +1201,13 @@ CONTAINS
 
       units = adjustl(trim(DEF_METHANE%atm_methane_file_units))
       SELECT CASE (units)
-      CASE ('mol/mol','molmol','vmr','MOL/MOL','MOLMOL','VMR')
+       CASE ('mol/mol','molmol','vmr','MOL/MOL','MOLMOL','VMR')
          methane_atm_to_molmol = val
-      CASE ('ppmv','ppm','PPMV','PPM')
+       CASE ('ppmv','ppm','PPMV','PPM')
          methane_atm_to_molmol = val * 1.e-6_r8
-      CASE ('ppbv','ppb','PPBV','PPB')
+       CASE ('ppbv','ppb','PPBV','PPB')
          methane_atm_to_molmol = val * 1.e-9_r8
-      CASE DEFAULT
+       CASE DEFAULT
          ! auto: accept common CH4 conventions: 1700 ppbv, 1.7 ppmv, or 1.7e-6 mol/mol.
          IF (val > 100._r8) THEN
             methane_atm_to_molmol = val * 1.e-9_r8
