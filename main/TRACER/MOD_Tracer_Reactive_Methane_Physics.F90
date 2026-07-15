@@ -41,7 +41,12 @@ module MOD_Tracer_Reactive_Methane_Physics
 		                                     methane_finundated, methane_soil_finundated, &
 		                                     methane_soil_zwt, methane_surf_flux_wetland, &
 		                                     methane_surf_flux_soil, methane_surf_flux_lake, &
-		                                     methane_surf_flux_rice
+		                                     methane_surf_flux_rice, methane_surf_aere_soil, &
+		                                     methane_surf_aere_rice, methane_surf_ebul_soil, &
+		                                     methane_surf_ebul_rice, methane_surf_diff_soil, &
+		                                     methane_surf_diff_rice, methane_prod_tot_soil, &
+		                                     methane_prod_tot_rice, methane_oxid_tot_soil, &
+		                                     methane_oxid_tot_rice
 	!-----------------------------------------------------------------------
 	implicit none
 	save
@@ -122,7 +127,8 @@ contains
 		annavg_agnpp, annavg_bgnpp, annavg_somhr, annavg_finrw, &
 		tempavg_agnpp, tempavg_bgnpp, annsum_counter, tempavg_somhr, tempavg_finrw, &
 		fsat_bef, finundated_lag, methane_dfsat_tot, f_h2osfc, &
-		is_rice_paddy_in, rice_pft_frac_in)
+		is_rice_paddy_in, rice_pft_frac_in, store_patch_diagnostics_in, finundated_used_out, &
+		finundated_default_out)
 
 		!=======================================================================
 		! DESCRIPTION:
@@ -393,6 +399,9 @@ contains
 		! the natural-wetland behaviour completely intact.
 		logical , intent(in), optional :: is_rice_paddy_in
 		real(r8), intent(in), optional :: rice_pft_frac_in
+		logical, intent(in), optional :: store_patch_diagnostics_in
+		real(r8), intent(out), optional :: finundated_used_out
+		real(r8), intent(out), optional :: finundated_default_out
 
 		!=================== Local Variables ============================================
 		integer  :: i,j,s,l                     ! indices
@@ -407,10 +416,7 @@ contains
 		real(r8) :: finundated_rice         ! R1: rice-overridden finundated value
 		real(r8) :: finundated_default      ! R1: scheme-computed natural-wetland finundated
 		logical  :: rice_finundation_active ! true only during live rice or drain-window
-		real(r8) :: rice_flux_area          ! diagnostic flux under paddy-flooded fraction
-		real(r8) :: soil_flux_area          ! diagnostic flux under non-rice soil fraction
-		real(r8) :: rice_soil_flux_sum      ! unscaled area-weighted rice+soil diagnostic flux
-		real(r8) :: rice_soil_flux_scale    ! closure-preserving scale for split diagnostics
+		logical  :: store_patch_diagnostics
 		integer  :: idpp_rice, dsh
 		real(r8) :: ms_start, ms_end, decay, drain_target
 
@@ -441,6 +447,13 @@ contains
         real(r8) :: vol_aqu            (1:nl_soil)
         real(r8) :: vol_aqu_sat        (1:nl_soil)
         real(r8) :: vol_aqu_unsat      (1:nl_soil)
+
+        ! CH4 storage volume.  Liquid water is always included; ice is
+        ! included when freeze-out is disabled and as immobile storage when a
+        ! layer is completely frozen.
+        real(r8) :: vol_ch4_storage       (1:nl_soil)
+        real(r8) :: vol_ch4_storage_sat   (1:nl_soil)
+        real(r8) :: vol_ch4_storage_unsat (1:nl_soil)
 
         ! air volumetric water content ---- air volume/all volume [m3/m3]
         real(r8) :: vol_gas            (1:nl_soil)
@@ -1079,7 +1092,7 @@ contains
 
 				call split_ch4_o2_phases( dz_soisno, wliq_soisno_unsat, wice_soisno_unsat, porsl, &
 					conc_methane_unsat, conc_o2_unsat, k_h_cc, idate, &
-					vol_aqu_unsat, vol_gas_unsat, f_aqu_unsat, f_gas_unsat, &
+					vol_aqu_unsat, vol_ch4_storage_unsat, vol_gas_unsat, f_aqu_unsat, f_gas_unsat, &
 					conc_ch4_gas_unsat, conc_ch4_aqu_unsat, conc_ch4_porsl_unsat, conc_ch4_gas_porsl_unsat, conc_ch4_aqu_porsl_unsat, &
 					conc_o2_gas_unsat, conc_o2_aqu_unsat, conc_o2_porsl_unsat, conc_o2_gas_porsl_unsat, conc_o2_aqu_porsl_unsat )
 
@@ -1129,7 +1142,7 @@ contains
 					lb, snl, jwt_unsat, sat, finundated, &
 					dlon, dlat, deltim, z_soisno, dz_soisno, zi_soisno, t_soisno, t_grnd, forc_us, forc_vs, &
 					porsl, wliq_soisno_unsat, wice_soisno_unsat, wdsrf_unsat, lakedepth, lake_icefrac, bsw, c_atm, methane_prod_depth_unsat, o2_aere_depth_unsat, &
-					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_unsat, conc_ch4_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, vol_aqu_unsat, vol_gas_unsat, &
+					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_unsat, conc_ch4_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, vol_aqu_unsat, vol_ch4_storage_unsat, vol_gas_unsat, &
 					o2stress_unsat, methane_stress_unsat, methane_surf_aere_unsat, methane_surf_ebul_unsat, methane_surf_diff_unsat, methane_ebul_tot_unsat, &
 					methane_oxid_depth_unsat, methane_aere_depth_unsat, methane_tran_depth_unsat, methane_ebul_depth_unsat, &
 						DEF_METHANE%grnd_methane_cond_default, grnd_methane_cond_unsat, &
@@ -1217,7 +1230,7 @@ contains
 
 				call split_ch4_o2_phases( dz_soisno, wliq_soisno_sat, wice_soisno_sat, porsl, &
 					conc_methane_sat, conc_o2_sat, k_h_cc, idate, &
-					vol_aqu_sat, vol_gas_sat, f_aqu_sat, f_gas_sat, &
+					vol_aqu_sat, vol_ch4_storage_sat, vol_gas_sat, f_aqu_sat, f_gas_sat, &
 					conc_ch4_gas_sat, conc_ch4_aqu_sat, conc_ch4_porsl_sat, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, &
 					conc_o2_gas_sat, conc_o2_aqu_sat, conc_o2_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat )
 
@@ -1267,7 +1280,7 @@ contains
 						lb, snl, jwt_sat, sat, finundated, &
 						dlon, dlat, deltim, z_soisno, dz_soisno, zi_soisno, t_soisno, t_grnd, forc_us, forc_vs, &
 						porsl, wliq_soisno_sat, wice_soisno_sat, wdsrf_sat, lakedepth, lake_icefrac, bsw, c_atm, methane_prod_depth_sat, o2_aere_depth_sat, &
-					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat, vol_aqu_sat, vol_gas_sat, &
+					cellorg, t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat, vol_aqu_sat, vol_ch4_storage_sat, vol_gas_sat, &
 					o2stress_sat, methane_stress_sat, methane_surf_aere_sat, methane_surf_ebul_sat, methane_surf_diff_sat, methane_ebul_tot_sat, &
 					methane_oxid_depth_sat, methane_aere_depth_sat, methane_tran_depth_sat, methane_ebul_depth_sat, &
 						DEF_METHANE%grnd_methane_cond_default, grnd_methane_cond_sat, &
@@ -1418,7 +1431,10 @@ contains
 			! inundation signal consumed by the methane physics and split the surface
 			! flux into disjoint patchtype categories so hybrid routing/WTD behavior
 			! can be diagnosed without flux back-calculation.
-			IF (allocated(methane_finundated) .and. ipatch >= 1 .and. ipatch <= size(methane_finundated)) THEN
+			store_patch_diagnostics = .true.
+			IF (present(store_patch_diagnostics_in)) store_patch_diagnostics = store_patch_diagnostics_in
+			IF (store_patch_diagnostics .and. allocated(methane_finundated) .and. &
+			    ipatch >= 1 .and. ipatch <= size(methane_finundated)) THEN
 				methane_finundated(ipatch) = finundated
 				methane_soil_finundated(ipatch) = 0._r8
 				methane_soil_zwt(ipatch) = spval
@@ -1426,43 +1442,28 @@ contains
 				methane_surf_flux_soil(ipatch) = 0._r8
 				methane_surf_flux_lake(ipatch) = 0._r8
 				methane_surf_flux_rice(ipatch) = 0._r8
+				methane_surf_aere_soil(ipatch) = 0._r8
+				methane_surf_aere_rice(ipatch) = 0._r8
+				methane_surf_ebul_soil(ipatch) = 0._r8
+				methane_surf_ebul_rice(ipatch) = 0._r8
+				methane_surf_diff_soil(ipatch) = 0._r8
+				methane_surf_diff_rice(ipatch) = 0._r8
+				methane_prod_tot_soil(ipatch) = 0._r8
+				methane_prod_tot_rice(ipatch) = 0._r8
+				methane_oxid_tot_soil(ipatch) = 0._r8
+				methane_oxid_tot_rice(ipatch) = 0._r8
 
 				IF (patchtype == 2) THEN
 					methane_surf_flux_wetland(ipatch) = methane_surf_flux_tot
 						ELSEIF (patchtype == 0) THEN
 							methane_soil_finundated(ipatch) = finundated_default
 							methane_soil_zwt(ipatch) = zwt
-							IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
-								! Rice is a CFT fraction inside a soil patch.  Do not split
-								! history as rice_frac * mixed_flux: that assigns the paddy-
-								! flooded signature partly to non-rice soil and masks the actual
-								! rice/soil contrast.  Instead form provisional area fluxes from
-								! the saturated/unsaturated branch diagnostics at the natural-soil
-								! and paddy inundation fractions, then scale them to preserve the
-								! prognostic patch-total flux exactly.  This is still one CH4
-								! state pool per CoLM patch; the split is diagnostic-only until
-								! rice and non-rice crop fractions have separate CH4 state pools.
-								soil_flux_area = methane_surf_flux_tot_unsat * (1._r8 - finundated_default) + &
-								                 methane_surf_flux_tot_sat   * finundated_default
-								IF (rice_finundation_active) THEN
-									rice_flux_area = methane_surf_flux_tot_unsat * (1._r8 - finundated_rice) + &
-									                 methane_surf_flux_tot_sat   * finundated_rice
-								ELSE
-									rice_flux_area = soil_flux_area
-								ENDIF
-								rice_soil_flux_sum = (1._r8 - rice_pft_frac) * soil_flux_area + &
-								                     rice_pft_frac * rice_flux_area
-								IF (abs(rice_soil_flux_sum) > 1.e-30_r8) THEN
-									rice_soil_flux_scale = methane_surf_flux_tot / rice_soil_flux_sum
-								ELSE
-									rice_soil_flux_scale = 1._r8
-								ENDIF
-								methane_surf_flux_soil(ipatch) = (1._r8 - rice_pft_frac) * soil_flux_area * &
-								                                  rice_soil_flux_scale
-								methane_surf_flux_rice(ipatch) = methane_surf_flux_tot - methane_surf_flux_soil(ipatch)
-							ELSE
-								methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
-							ENDIF
+							methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
+							methane_surf_aere_soil(ipatch) = methane_surf_aere
+							methane_surf_ebul_soil(ipatch) = methane_surf_ebul
+							methane_surf_diff_soil(ipatch) = methane_surf_diff
+							methane_prod_tot_soil(ipatch) = methane_prod_tot
+							methane_oxid_tot_soil(ipatch) = methane_oxid_tot
 				ELSEIF (patchtype == 4 .and. DEF_METHANE%allowlakeprod) THEN
 					methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
 				ENDIF
@@ -1511,6 +1512,8 @@ contains
 			end if
 		end if
 
+		if (present(finundated_used_out)) finundated_used_out = finundated
+		if (present(finundated_default_out)) finundated_default_out = finundated_default
 		fsat_bef = finundated
 	end subroutine methane
 
@@ -2482,7 +2485,7 @@ contains
 		lb, snl, jwt, sat, finundated,&
 		dlon, dlat, deltim, z_soisno, dz_soisno, zi_soisno,  t_soisno, t_grnd, forc_us, forc_vs, &
 		porsl, wliq_soisno, wice_soisno, wdsrf, lakedepth, lake_icefrac, bsw, c_atm, methane_prod_depth, o2_aere_depth,&
-		cellorg,t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl,conc_ch4_aqu_porsl,conc_o2_gas_porsl,conc_o2_aqu_porsl,vol_aqu,vol_gas,&
+		cellorg,t_h2osfc, organic_max, k_h_cc, conc_ch4_gas_porsl,conc_ch4_aqu_porsl,conc_o2_gas_porsl,conc_o2_aqu_porsl,vol_aqu,vol_ch4_storage,vol_gas,&
 		o2stress, methane_stress, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_ebul_tot, &
 		methane_oxid_depth, methane_aere_depth, methane_tran_depth, methane_ebul_depth, &
 			grnd_methane_cond_base, grnd_methane_cond_effective, o2_oxid_depth, o2_decomp_depth, &
@@ -2555,6 +2558,7 @@ contains
 			conc_o2_gas_porsl (1:nl_soil)   , &! gas phase O2 conc in each porosity (mol/m3)
 			conc_o2_aqu_porsl (1:nl_soil)   , &! aqueous phase O2 conc in each porosity (mol/m3)
 			vol_aqu           (1:nl_soil)   , &
+			vol_ch4_storage   (1:nl_soil)   , &! liquid/ice volume retaining CH4 [m3/m3]
 			vol_gas           (1:nl_soil)   , &
 			grnd_methane_cond_base              ! base conductance before snow/pond resistance [m/s]
 
@@ -2803,19 +2807,18 @@ contains
 						conc_ch4_rel(j) = 0._r8
 						conc_o2_rel(j)  = 0._r8
 					else if (j <= jwt) then  ! Above the WT
-						do s =1,2
-							! Available storage is gas + Henry-equilibrated liquid volume.
-							! vol_gas already excludes ice-filled pores.
-							epsilon_t(j,s) = max(vol_gas(j) + k_h_cc(j,s)*vol_aqu(j), smallnumber)
-						end do
-					conc_ch4_rel(j) = conc_ch4_gas_porsl(j)
+						! CH4 storage follows methane_frzout; O2 remains restricted to
+						! mobile gas/liquid pore space.
+						epsilon_t(j,1) = max(vol_gas(j) + k_h_cc(j,1)*vol_ch4_storage(j), smallnumber)
+						epsilon_t(j,2) = max(vol_gas(j) + k_h_cc(j,2)*vol_aqu(j), smallnumber)
+					conc_ch4_rel(j) = conc_methane(j)/epsilon_t(j,1)
 					conc_o2_rel(j)  = conc_o2_gas_porsl(j)
 					! Partition between the liquid and gas phases. The gas phase will drive the diffusion.
 				else ! Below the WT
-					do s =1,2
-						! Below the water table, diffusion is through liquid water; ice does not store mobile solute.
-						epsilon_t(j,s) = max(vol_aqu(j), smallnumber)
-					end do
+					! Diffusion remains controlled by liquid water below, while the
+					! storage coefficient may retain CH4 in ice.
+					epsilon_t(j,1) = max(vol_ch4_storage(j), smallnumber)
+					epsilon_t(j,2) = max(vol_aqu(j), smallnumber)
 					conc_ch4_rel(j) = conc_methane(j)/epsilon_t(j,1)
 					conc_o2_rel(j)  = conc_o2(j) /epsilon_t(j,2)
 				end if
@@ -3463,7 +3466,7 @@ contains
 
 	subroutine split_ch4_o2_phases( dz_soisno, wliq_soisno, wice_soisno, porsl, &
 									conc_methane, conc_o2, k_h_cc, idate,&
-									vol_aqu,vol_gas,f_aqu,f_gas,&
+									vol_aqu,vol_ch4_storage,vol_gas,f_aqu,f_gas,&
 									conc_ch4_gas,conc_ch4_aqu,conc_ch4_porsl,conc_ch4_gas_porsl,conc_ch4_aqu_porsl,&
 									conc_o2_gas,conc_o2_aqu,conc_o2_porsl,conc_o2_gas_porsl,conc_o2_aqu_porsl)
 
@@ -3479,8 +3482,9 @@ contains
 
 		integer :: j,s
 		real(r8), parameter :: smallnumber = 1.e-12_r8
-		real(r8) :: vol_ice, mobile_pore
+		real(r8) :: vol_ice, mobile_pore, f_ch4_storage
 		real(r8), intent(out) :: vol_aqu(1:nl_soil)          ! liquid volumetric water content [m3/m3]
+		real(r8), intent(out) :: vol_ch4_storage(1:nl_soil)  ! liquid/ice volume retaining CH4 [m3/m3]
 		real(r8), intent(out) :: vol_gas(1:nl_soil)          ! air volumetric water content [m3/m3]
 		real(r8), intent(out) :: f_aqu(1:nl_soil)            ! water-filled proportion [-]
 		real(r8), intent(out) :: f_gas(1:nl_soil)            ! air-filled proportion [-]
@@ -3501,6 +3505,7 @@ contains
 		do j = 1, nl_soil
 			if (porsl(j) <= smallnumber .or. dz_soisno(j) <= smallnumber) then
 				vol_aqu(j) = 0._r8
+				vol_ch4_storage(j) = 0._r8
 				vol_gas(j) = 0._r8
 				f_aqu(j) = 0._r8
 				f_gas(j) = 0._r8
@@ -3524,10 +3529,21 @@ contains
 			! ---- Compute volumetric gas content, excluding ice-filled pores ----
 			vol_gas(j) = max(porsl(j) - vol_aqu(j) - vol_ice, 0._r8)
 			mobile_pore = vol_aqu(j) + vol_gas(j)
+			IF (DEF_METHANE%methane_frzout) THEN
+				vol_ch4_storage(j) = vol_aqu(j)
+			ELSE
+				vol_ch4_storage(j) = vol_aqu(j) + vol_ice
+			ENDIF
+			! A completely frozen layer has no phase into which a freeze-out
+			! pulse can move.  Retain its old bulk inventory as immobile ice
+			! storage instead of collapsing epsilon to zero and exporting the
+			! inventory through the numerical closure flux.
+			IF (mobile_pore <= smallnumber) vol_ch4_storage(j) = vol_ice
 
 			! ---- Compute filled proportions ----
 			f_aqu(j) = vol_aqu(j)/porsl(j)
 			f_gas(j) = vol_gas(j)/porsl(j)
+			f_ch4_storage = vol_ch4_storage(j)/porsl(j)
 
 			! ---- CH4 partitioning between gas and aqueous phases ----
 			if (mobile_pore <= smallnumber) then
@@ -3536,8 +3552,8 @@ contains
 				conc_o2_aqu(j) = 0._r8
 				conc_o2_gas(j) = 0._r8
 			else
-				conc_ch4_aqu(j) = conc_methane(j)/(f_aqu(j)+f_gas(j)/k_h_cc(j,1))
-				conc_ch4_gas(j) = conc_methane(j)/(k_h_cc(j,1)*f_aqu(j)+f_gas(j))
+				conc_ch4_aqu(j) = conc_methane(j)/(f_ch4_storage+f_gas(j)/k_h_cc(j,1))
+				conc_ch4_gas(j) = conc_methane(j)/(k_h_cc(j,1)*f_ch4_storage+f_gas(j))
 
 				! ---- O2 partitioning between gas and aqueous phases ----
 				conc_o2_aqu(j) = conc_o2(j)/(f_aqu(j)+f_gas(j)/k_h_cc(j,2))

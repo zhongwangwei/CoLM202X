@@ -242,7 +242,8 @@ MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
 MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_Const.o \
 				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_Microbes.o \
 				     MOD_Tracer_Reactive_Methane_BgcLink.o
-MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o
+MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o \
+				     MOD_Tracer_Reactive_Methane_State.o
 MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_Tracer_Reactive_Methane_BgcLink.o \
 				     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o \
 				     MOD_HistGridded.o
@@ -793,9 +794,10 @@ MOD_Vars_TimeVariables.o: MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
 MOD_Vars_1DAccFluxes.o: MOD_Tracer_LandPhase.o
 MOD_Tracer_Hist.o: MOD_HistGridded.o MOD_HistSingle.o MOD_HistVector.o
 MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemDecomp.o MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o \
-	MOD_BGC_Soil_BiogeochemPotential.o
+	MOD_BGC_Soil_BiogeochemPotential.o MOD_BGC_CNSummary.o
 MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
-MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o
+MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o \
+	MOD_Tracer_Reactive_Methane_State.o
 MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_Const.o \
 	MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_pH.o
 MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_BgcLink.o \

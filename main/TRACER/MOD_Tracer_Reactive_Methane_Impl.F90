@@ -78,17 +78,18 @@ CONTAINS
 
    END SUBROUTINE ch4_impl_lake_step
 
-   SUBROUTINE ch4_impl_wetland_decomp (ipatch)
+   SUBROUTINE ch4_impl_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
 
       ! Wetland patches use the soil-decomposition cascade so methane
       ! can read patch-level heterotrophic respiration even without PFTs.
       IF (igas_ch4 <= 0) RETURN
       IF (patchtype(ipatch) /= 2) RETURN
 
-      CALL reactive_bgc_run_wetland_decomp (ipatch)
+      CALL reactive_bgc_run_wetland_decomp (ipatch, deltim)
 
    END SUBROUTINE ch4_impl_wetland_decomp
 

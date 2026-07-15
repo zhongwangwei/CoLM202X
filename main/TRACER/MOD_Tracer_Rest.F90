@@ -4,8 +4,10 @@
 MODULE MOD_Tracer_Rest
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, tracers, &
-      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport, tracer_is_nonvolatile_solute
+   USE MOD_Tracer_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, &
+      trc_water_min_for_ratio, tracers, &
+      tracer_uses_delta_diagnostics, tracer_uses_land_water_transport, tracer_is_nonvolatile_solute, &
+      tracer_equilibrate_dissolved
    USE MOD_Tracer_Vars
    USE MOD_LandPatch, only: landpatch
    USE MOD_Block, only: get_filename_block
@@ -125,15 +127,24 @@ CONTAINS
 
       IF (allocated(trc_surface_residue)) trc_surface_residue = 0._r8
       IF (allocated(trc_subsurface_residue)) trc_subsurface_residue = 0._r8
+      IF (allocated(trc_solid_soisno)) trc_solid_soisno = 0._r8
+      IF (allocated(trc_canopy_solid)) trc_canopy_solid = 0._r8
+      IF (allocated(trc_surface_solid)) trc_surface_solid = 0._r8
+      IF (allocated(trc_subsurface_solid)) trc_subsurface_solid = 0._r8
+      IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid = 0._r8
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             trc_ldew_rain(itrc, ip) = ldew_rain(ip) * R_init
             trc_ldew_snow(itrc, ip) = ldew_snow(ip) * R_init
+            CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
+               trc_ldew_rain(itrc, ip), trc_canopy_solid(itrc, ip))
             DO j = maxsnl + 1, nl_soil
                trc_wliq_soisno(itrc, j, ip) = max(wliq_soisno(j, ip), 0._r8) * R_init
                trc_wice_soisno(itrc, j, ip) = max(wice_soisno(j, ip), 0._r8) * R_init
+               CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j, ip), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ip), trc_solid_soisno(itrc, j, ip))
             ENDDO
             ! wa uses the SIGNED water value so a hydrology restart with an
             ! aquifer-debt state (wa<0, recorded by the wetland branch at
@@ -147,6 +158,12 @@ CONTAINS
             trc_wa    (itrc, ip) = wa(ip) * R_init
             trc_wdsrf (itrc, ip) = max(wdsrf(ip),  0._r8) * R_init
             trc_wetwat(itrc, ip) = max(wetwat(ip), 0._r8) * R_init
+            CALL tracer_equilibrate_dissolved(itrc, max(wdsrf(ip), 0._r8), &
+               trc_wdsrf(itrc, ip), trc_surface_solid(itrc, ip))
+            CALL tracer_equilibrate_dissolved(itrc, max(wetwat(ip), 0._r8), &
+               trc_wetwat(itrc, ip), trc_surface_solid(itrc, ip))
+            CALL tracer_equilibrate_dissolved(itrc, wa(ip), &
+               trc_wa(itrc, ip), trc_subsurface_solid(itrc, ip))
             ! Reconstruct snl from the snow layer water content (same
             ! recipe as CoLMMAIN L770-774): snl counts non-empty snow
             ! layers from the top. snl is a runtime scalar, not a
@@ -176,6 +193,8 @@ CONTAINS
             ENDIF
             IF (present(waterstorage) .and. allocated(trc_waterstorage)) THEN
                trc_waterstorage(itrc, ip) = max(waterstorage(ip), 0._r8) * R_init
+               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
+                  trc_waterstorage(itrc, ip), trc_waterstorage_solid(itrc, ip))
             ENDIF
          ENDDO
       ENDDO
@@ -270,6 +289,28 @@ CONTAINS
       ELSE
          IF (has_nonvolatile_solute .and. p_is_io .and. p_iam_io == p_root) WRITE(*,*) &
             'Tracer restart has no trc_subsurface_residue; initializing the optional pool to zero.'
+      ENDIF
+      IF (allocated(trc_solid_soisno)) trc_solid_soisno = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_solid_soisno', &
+                             expect_soilsnow = nl_soil - maxsnl)) THEN
+         CALL ncio_read_vector(file_restart, 'trc_solid_soisno', ntracers, nl_soil-maxsnl, &
+            landpatch, trc_solid_soisno)
+      ENDIF
+      IF (allocated(trc_canopy_solid)) trc_canopy_solid = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_canopy_solid')) THEN
+         CALL ncio_read_vector(file_restart, 'trc_canopy_solid', ntracers, landpatch, trc_canopy_solid)
+      ENDIF
+      IF (allocated(trc_surface_solid)) trc_surface_solid = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_surface_solid')) THEN
+         CALL ncio_read_vector(file_restart, 'trc_surface_solid', ntracers, landpatch, trc_surface_solid)
+      ENDIF
+      IF (allocated(trc_subsurface_solid)) trc_subsurface_solid = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_subsurface_solid')) THEN
+         CALL ncio_read_vector(file_restart, 'trc_subsurface_solid', ntracers, landpatch, trc_subsurface_solid)
+      ENDIF
+      IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid = 0._r8
+      IF (tracer_dim_matches(file_restart, 'trc_waterstorage_solid')) THEN
+         CALL ncio_read_vector(file_restart, 'trc_waterstorage_solid', ntracers, landpatch, trc_waterstorage_solid)
       ENDIF
       IF (tracer_dim_matches(file_restart, 'trc_scv')) THEN
          CALL ncio_read_vector(file_restart, 'trc_scv', ntracers, landpatch, trc_scv)
@@ -465,15 +506,58 @@ CONTAINS
                water_ref = water_ref + max(wice_soisno(j, ip), 0._r8)
                tracer_ref = tracer_ref + max(trc_wice_soisno(itrc, j, ip), 0._r8)
             ENDDO
-            IF (water_ref > trc_tiny) THEN
+            IF (water_ref > trc_water_min_for_ratio) THEN
                ratio = tracer_ref / water_ref
             ELSE
                ratio = R_init
             ENDIF
             trc_waterstorage(itrc, ip) = max(waterstorage(ip), 0._r8) * ratio
+            CALL tracer_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
+               trc_waterstorage(itrc, ip), trc_waterstorage_solid(itrc, ip))
          ENDDO
       ENDDO
    END SUBROUTINE tracer_init_waterstorage_from_ratio
+
+   SUBROUTINE tracer_enforce_solubility_from_water (numpatch, maxsnl, nl_soil, &
+      ldew_rain, wliq_soisno, wa, wdsrf, wetwat, waterstorage)
+      integer, intent(in) :: numpatch, maxsnl, nl_soil
+      real(r8), intent(in) :: ldew_rain(numpatch)
+      real(r8), intent(in) :: wliq_soisno(maxsnl+1:nl_soil, numpatch)
+      real(r8), intent(in) :: wa(numpatch), wdsrf(numpatch), wetwat(numpatch)
+      real(r8), intent(in), optional :: waterstorage(numpatch)
+
+      integer :: itrc, ip, j
+      real(r8) :: surface_water, surface_tracer
+
+      DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+         DO ip = 1, numpatch
+            CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
+               trc_ldew_rain(itrc, ip), trc_canopy_solid(itrc, ip))
+            DO j = maxsnl + 1, nl_soil
+               CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j, ip), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ip), trc_solid_soisno(itrc, j, ip))
+            ENDDO
+            surface_water = max(wdsrf(ip), 0._r8) + max(wetwat(ip), 0._r8)
+            surface_tracer = trc_wdsrf(itrc, ip) + trc_wetwat(itrc, ip)
+            CALL tracer_equilibrate_dissolved(itrc, surface_water, surface_tracer, &
+               trc_surface_solid(itrc, ip))
+            IF (surface_water > trc_water_min_for_ratio) THEN
+               trc_wdsrf(itrc, ip) = surface_tracer * max(wdsrf(ip), 0._r8) / surface_water
+               trc_wetwat(itrc, ip) = surface_tracer * max(wetwat(ip), 0._r8) / surface_water
+            ELSE
+               trc_wdsrf(itrc, ip) = 0._r8
+               trc_wetwat(itrc, ip) = 0._r8
+            ENDIF
+            CALL tracer_equilibrate_dissolved(itrc, wa(ip), trc_wa(itrc, ip), &
+               trc_subsurface_solid(itrc, ip))
+            IF (present(waterstorage) .and. allocated(trc_waterstorage)) THEN
+               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
+                  trc_waterstorage(itrc, ip), trc_waterstorage_solid(itrc, ip))
+            ENDIF
+         ENDDO
+      ENDDO
+   END SUBROUTINE tracer_enforce_solubility_from_water
 
    SUBROUTINE write_land_tracer_restart (file_restart, maxsnl, nl_soil, numpatch, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, waterstorage)
@@ -527,6 +611,12 @@ CONTAINS
       CALL ncio_write_vector(file_restart, 'trc_wice_soisno', 'tracer', ntracers, 'soilsnow', nl_soil-maxsnl, 'patch', landpatch, &
          restart_soilsnow, DEF_REST_CompressLevel)
 
+      restart_soilsnow(:, :, :) = 0._r8
+      IF (allocated(trc_solid_soisno) .and. have_patch_data) &
+         restart_soilsnow(:, :, :) = trc_solid_soisno(:, maxsnl+1:nl_soil, :)
+      CALL ncio_write_vector(file_restart, 'trc_solid_soisno', 'tracer', ntracers, &
+         'soilsnow', nl_soil-maxsnl, 'patch', landpatch, restart_soilsnow, DEF_REST_CompressLevel)
+
       deallocate(restart_soilsnow)
 
       restart_patch(:, :) = 0._r8
@@ -554,6 +644,26 @@ CONTAINS
       IF (allocated(trc_subsurface_residue) .and. have_patch_data) &
          restart_patch(:, :) = trc_subsurface_residue(:, :)
       CALL ncio_write_vector(file_restart, 'trc_subsurface_residue', 'tracer', ntracers, 'patch', landpatch, &
+         restart_patch, DEF_REST_CompressLevel)
+
+      restart_patch(:, :) = 0._r8
+      IF (allocated(trc_canopy_solid) .and. have_patch_data) restart_patch(:, :) = trc_canopy_solid(:, :)
+      CALL ncio_write_vector(file_restart, 'trc_canopy_solid', 'tracer', ntracers, 'patch', landpatch, &
+         restart_patch, DEF_REST_CompressLevel)
+
+      restart_patch(:, :) = 0._r8
+      IF (allocated(trc_surface_solid) .and. have_patch_data) restart_patch(:, :) = trc_surface_solid(:, :)
+      CALL ncio_write_vector(file_restart, 'trc_surface_solid', 'tracer', ntracers, 'patch', landpatch, &
+         restart_patch, DEF_REST_CompressLevel)
+
+      restart_patch(:, :) = 0._r8
+      IF (allocated(trc_subsurface_solid) .and. have_patch_data) restart_patch(:, :) = trc_subsurface_solid(:, :)
+      CALL ncio_write_vector(file_restart, 'trc_subsurface_solid', 'tracer', ntracers, 'patch', landpatch, &
+         restart_patch, DEF_REST_CompressLevel)
+
+      restart_patch(:, :) = 0._r8
+      IF (allocated(trc_waterstorage_solid) .and. have_patch_data) restart_patch(:, :) = trc_waterstorage_solid(:, :)
+      CALL ncio_write_vector(file_restart, 'trc_waterstorage_solid', 'tracer', ntracers, 'patch', landpatch, &
          restart_patch, DEF_REST_CompressLevel)
 
       restart_patch(:, :) = 0._r8

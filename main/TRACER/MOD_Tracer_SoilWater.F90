@@ -8,7 +8,8 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
       trc_delta_sanity_max, &
       tracer_init_water_ratio, tracer_uses_land_water_transport, &
-      tracer_is_nonvolatile_solute
+      tracer_is_nonvolatile_solute, tracer_has_dissolved_limit, &
+      tracer_equilibrate_dissolved
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value, &
       tracer_forcing_has_vapor
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
@@ -18,7 +19,8 @@ MODULE MOD_Tracer_SoilWater
    USE MOD_Tracer_EvapLimit, only: tracer_atmospheric_tracer_loss
       USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
          trc_wa, trc_wdsrf, trc_wetwat, trc_surface_residue, trc_subsurface_residue, &
-         trc_waterstorage, &
+         trc_waterstorage, trc_solid_soisno, trc_surface_solid, &
+         trc_subsurface_solid, trc_waterstorage_solid, &
             a_trc_precip, a_trc_transp_src, tracer_book_evap_loss, &
             TRC_EVAP_KIND_TRANSP, TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL, &
             TRC_EVAP_KIND_WETLAND, &
@@ -241,6 +243,12 @@ CONTAINS
                trc_subsurface_residue(itrc, ipatch)
             trc_subsurface_residue(itrc, ipatch) = 0._r8
          ENDIF
+         CALL tracer_equilibrate_dissolved(itrc, wa_bef, trc_wa(itrc, ipatch), &
+            trc_subsurface_solid(itrc, ipatch))
+         DO j = lb, nl_soil
+            CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno_bef(j), 0._r8), &
+               trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
+         ENDDO
 
          ! The NSS leaf pool stores only an isotope anomaly, not water.
          ! When leaves disappear, return that signed anomaly to the
@@ -592,7 +600,8 @@ CONTAINS
                ENDIF
                qout_snow = min(qout_snow, water_before_flow)
 
-               IF (qout_snow > trc_tiny .and. water_before_flow > trc_tiny .and. trc_before_flow > trc_tiny) THEN
+               IF (qout_snow > trc_tiny .and. water_before_flow > trc_water_min_for_ratio .and. &
+                   trc_before_flow > trc_tiny) THEN
                   ratio_src = trc_before_flow / water_before_flow
                   trc_qout_snow = qout_snow * ratio_src
                   trc_qout_snow = min(trc_qout_snow, trc_before_flow)
@@ -797,8 +806,10 @@ CONTAINS
          IF (qflx_irrig_ground > trc_tiny) THEN
             storage_ratio = R_precip
             IF (allocated(trc_waterstorage) .and. present(waterstorage_patch)) THEN
-               IF (waterstorage_patch > trc_tiny) THEN
-                  storage_ratio = trc_waterstorage(itrc, ipatch) / max(waterstorage_patch, trc_tiny)
+               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage_patch, 0._r8), &
+                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
+               IF (waterstorage_patch > trc_water_min_for_ratio) THEN
+                  storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_patch
                ENDIF
             ENDIF
             trc_flux = qflx_irrig_ground * deltim * storage_ratio
@@ -821,11 +832,14 @@ CONTAINS
          ! infiltration is partitioned. It remains immobile while no resolved
          ! carrier water exists.
          IF (tracer_is_nonvolatile_solute(itrc) .and. &
-             water_pool_total > trc_water_min_for_ratio .and. &
+             (water_pool_total > trc_water_min_for_ratio .or. &
+              tracer_has_dissolved_limit(itrc)) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
             trc_pool_total = trc_pool_total + trc_surface_residue(itrc, ipatch)
             trc_surface_residue(itrc, ipatch) = 0._r8
          ENDIF
+         CALL tracer_equilibrate_dissolved(itrc, water_pool_total, trc_pool_total, &
+            trc_surface_solid(itrc, ipatch))
 
          ! Compute mixed-pool ratio
          IF (water_pool_total > trc_water_min_for_ratio .and. trc_pool_total > trc_tiny) THEN
@@ -961,6 +975,8 @@ CONTAINS
                trc_subsurface_residue(itrc, ipatch)
             trc_subsurface_residue(itrc, ipatch) = 0._r8
          ENDIF
+         CALL tracer_equilibrate_dissolved(itrc, wa, trc_wa(itrc, ipatch), &
+            trc_subsurface_solid(itrc, ipatch))
 
          ! ============================================================
          ! 4. Subsurface runoff: post qlayer/qcharge bottom-layer ratio
@@ -1207,8 +1223,12 @@ CONTAINS
                      ENDIF
                   ENDIF
                      IF (abs(wa) <= trc_water_min_for_ratio) THEN
-                        IF (tracer_is_nonvolatile_solute(itrc) .and. &
+                        IF (tracer_has_dissolved_limit(itrc) .and. &
                             trc_wa(itrc, ipatch) > trc_tiny) THEN
+                           trc_subsurface_solid(itrc, ipatch) = &
+                              trc_subsurface_solid(itrc, ipatch) + trc_wa(itrc, ipatch)
+                        ELSEIF (tracer_is_nonvolatile_solute(itrc) .and. &
+                               trc_wa(itrc, ipatch) > trc_tiny) THEN
                            trc_subsurface_residue(itrc, ipatch) = &
                               trc_subsurface_residue(itrc, ipatch) + trc_wa(itrc, ipatch)
                         ELSEIF (abs(trc_wa(itrc, ipatch)) > trc_tiny) THEN
@@ -1236,6 +1256,20 @@ CONTAINS
                   ' wetwat_bef=', wetwat_bef, ' wetwat=', wetwat
             ENDIF
 #endif
+
+            DO j = lb, nl_soil
+               CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
+            ENDDO
+            CALL tracer_equilibrate_dissolved(itrc, wa, trc_wa(itrc, ipatch), &
+               trc_subsurface_solid(itrc, ipatch))
+            CALL tracer_equilibrate_dissolved(itrc, max(wdsrf, 0._r8), &
+               trc_wdsrf(itrc, ipatch), trc_surface_solid(itrc, ipatch))
+            IF (allocated(trc_waterstorage) .and. present(waterstorage_patch)) THEN
+               CALL tracer_equilibrate_dissolved(itrc, &
+                  max(waterstorage_patch - max(qflx_irrig_ground, 0._r8) * deltim, 0._r8), &
+                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
+            ENDIF
 
          ENDDO
 
@@ -1463,6 +1497,15 @@ CONTAINS
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
+         DO j = lb, nl_soil
+            CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno_bef(j), 0._r8), &
+               trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
+         ENDDO
+         IF (tracer_has_dissolved_limit(itrc)) THEN
+            trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) &
+               + trc_subsurface_solid(itrc, ipatch)
+            trc_subsurface_solid(itrc, ipatch) = 0._r8
+         ENDIF
 
          !--------------------------------------------------------
          ! 1) Snow-top external fluxes + percolation → trc_gwat_snow
@@ -1615,7 +1658,7 @@ CONTAINS
                ENDIF
                qout_snow = min(qout_snow, water_before_flow)
 
-               IF (qout_snow > trc_tiny .and. water_before_flow > trc_tiny &
+               IF (qout_snow > trc_tiny .and. water_before_flow > trc_water_min_for_ratio &
                    .and. trc_before_flow > trc_tiny) THEN
                   ratio_src = trc_before_flow / water_before_flow
                   trc_qout_snow = qout_snow * ratio_src
@@ -1645,7 +1688,7 @@ CONTAINS
                wresi_j = max(wliq_soisno_bef(j) - porsl(j)*dz_soisno(j)*1000._r8, 0._r8)
                IF (wresi_j > trc_tiny) THEN
                   wresi_sum = wresi_sum + wresi_j
-                  IF (wliq_soisno_bef(j) > trc_tiny) THEN
+                  IF (wliq_soisno_bef(j) > trc_water_min_for_ratio) THEN
                      ratio_src = trc_wliq_soisno(itrc, j, ipatch) / wliq_soisno_bef(j)
                      trc_wresi_j = min(wresi_j * ratio_src, &
                         max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
@@ -1745,8 +1788,10 @@ CONTAINS
             pool_water  = pool_water  + qflx_irrig_ground * deltim
             storage_ratio = R_atm
             IF (allocated(trc_waterstorage) .and. present(waterstorage_patch)) THEN
-               IF (waterstorage_patch > trc_tiny) THEN
-                  storage_ratio = trc_waterstorage(itrc, ipatch) / max(waterstorage_patch, trc_tiny)
+               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage_patch, 0._r8), &
+                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
+               IF (waterstorage_patch > trc_water_min_for_ratio) THEN
+                  storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_patch
                ENDIF
             ENDIF
             trc_flux    = qflx_irrig_ground * deltim * storage_ratio
@@ -1789,11 +1834,14 @@ CONTAINS
          ENDIF
 
          IF (tracer_is_nonvolatile_solute(itrc) .and. &
-             pool_water > trc_water_min_for_ratio .and. &
+             (pool_water > trc_water_min_for_ratio .or. &
+              tracer_has_dissolved_limit(itrc)) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
             pool_tracer = pool_tracer + trc_surface_residue(itrc, ipatch)
             trc_surface_residue(itrc, ipatch) = 0._r8
          ENDIF
+         CALL tracer_equilibrate_dissolved(itrc, pool_water, pool_tracer, &
+            trc_surface_solid(itrc, ipatch))
 
          !--------------------------------------------------------
          ! 4) Remove evap/subl at atmospheric-exchange signatures and
@@ -1897,6 +1945,8 @@ CONTAINS
             pool_tracer = pool_tracer - trc_loss
          ENDIF
          pool_water = pool_water - loss_water
+         CALL tracer_equilibrate_dissolved(itrc, pool_water, pool_tracer, &
+            trc_surface_solid(itrc, ipatch))
 
          !--------------------------------------------------------
          ! 5) Redistribute to post-WATER wdsrf / wa / wetwat / rsur.
@@ -1987,6 +2037,15 @@ CONTAINS
                   trc_wa(itrc, ipatch) = trc_wa(itrc, ipatch) - redist_resid
                ENDIF
             ENDIF
+         ENDIF
+         DO j = lb, nl_soil
+            CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+               trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
+         ENDDO
+         IF (allocated(trc_waterstorage) .and. present(waterstorage_patch)) THEN
+            CALL tracer_equilibrate_dissolved(itrc, &
+               max(waterstorage_patch - max(qflx_irrig_ground, 0._r8) * deltim, 0._r8), &
+               trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
          ENDIF
       ENDDO
 

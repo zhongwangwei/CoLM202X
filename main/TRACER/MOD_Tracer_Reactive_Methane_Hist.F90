@@ -19,7 +19,7 @@ CONTAINS
    USE MOD_LandPatch, only: numpatch
    USE MOD_SPMD_Task, only: p_is_worker
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
-   USE MOD_Tracer_Reactive_Methane_BgcLink, only: methane_patch_active_mask, paddy_rice_fraction
+   USE MOD_Tracer_Reactive_Methane_BgcLink, only: methane_patch_active_mask
             USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
 	            USE MOD_Tracer_Reactive_Methane_Const,    only: mhist_on => methane_history_enabled, DEF_METHANE
             USE MOD_Tracer_Reactive_Methane_AccFlux,  only: &
@@ -29,8 +29,13 @@ CONTAINS
                  a_methane_ebul_depth, a_o2stress, a_methane_stress, &
                  a_methane_surf_flux_tot, a_methane_surf_flux_tot_phys, a_methane_surf_aere, a_methane_surf_ebul, &
                     a_methane_surf_diff, a_methane_surf_diff_phys, a_methane_balance_residual, a_methane_ch4_clip_credit, &
+                    a_methane_surf_aere_soil, a_methane_surf_aere_rice, &
+                    a_methane_surf_ebul_soil, a_methane_surf_ebul_rice, &
+                    a_methane_surf_diff_soil, a_methane_surf_diff_rice, &
                     a_o2_cap_loss, a_o2_cap_gain, &
                     a_methane_ebul_tot, a_methane_prod_tot, a_methane_oxid_tot, &
+                    a_methane_prod_tot_soil, a_methane_prod_tot_rice, &
+                    a_methane_oxid_tot_soil, a_methane_oxid_tot_rice, &
                  a_co2_decomp_tot, a_co2_oxid_tot, a_co2_aere_tot, a_co2_net_tot, &
                  a_totcol_methane, a_grnd_methane_cond, a_conc_o2, a_conc_methane, &
                     a_net_methane_unsat, a_net_methane_sat, &
@@ -75,6 +80,7 @@ CONTAINS
                     a_f_inund_flood_patch, a_f_inund_flood_depth_patch, a_wetland_frac_per_patch, &
                     a_methane_surf_flux_wetland, a_methane_surf_flux_soil, &
                     a_methane_surf_flux_lake, a_methane_surf_flux_rice, &
+                    a_methane_rice_fraction, &
                     a_B_methanogen, a_B_methanotroph, &
                  a_B_methanogen_dormant, a_B_methanotroph_dormant, &
                  a_f_T_methanogen, a_f_S_methanogen, a_f_O2_methanogen, a_f_T_methanotroph, &
@@ -94,6 +100,9 @@ CONTAINS
 	   logical, intent(in) :: forcmask_pch(:)
 		   real(r8), allocatable :: hist_ch4_active_without_lake(:)
 		   real(r8), allocatable :: hist_ch4_global_with_lake(:)
+		   real(r8), allocatable :: hist_ch4_global_phys_with_lake(:)
+		   real(r8), allocatable :: hist_ch4_global_balance_with_lake(:)
+		   real(r8), allocatable :: hist_ch4_global_clip_credit_with_lake(:)
 		   real(r8), allocatable :: hist_ch4_land_total_surf(:)
 		   real(r8), allocatable :: hist_ch4_land_flux_wetland(:)
 		   real(r8), allocatable :: hist_ch4_land_flux_soil(:)
@@ -107,6 +116,8 @@ CONTAINS
 		   logical, allocatable :: filter_all_land(:)
 		   integer :: ipatch
 		   logical :: need_active_without_lake, need_global_with_lake
+		   logical :: need_global_phys_with_lake, need_global_balance_with_lake
+		   logical :: need_global_clip_credit_with_lake
 		   logical :: need_lake_intensive, need_rice_intensive, need_derived_ch4
 		   logical :: need_land_flux_total, need_land_flux_wetland, need_land_flux_soil
 		   logical :: need_land_flux_lake, need_land_flux_rice, need_land_flux_split
@@ -114,6 +125,9 @@ CONTAINS
 	            IF (igas_ch4 > 0) THEN
                need_active_without_lake = mhist_on('f_methane_surf_flux_active_total_without_lake')
                need_global_with_lake    = mhist_on('f_methane_surf_flux_global_total_with_lake')
+               need_global_phys_with_lake = mhist_on('f_methane_surf_flux_global_phys_with_lake')
+               need_global_balance_with_lake = mhist_on('f_methane_balance_residual_global_with_lake')
+               need_global_clip_credit_with_lake = mhist_on('f_methane_ch4_clip_credit_global_with_lake')
                need_lake_intensive      = mhist_on('f_methane_surf_flux_lake_intensive')
                need_rice_intensive      = mhist_on('f_methane_surf_flux_rice_intensive')
                need_land_flux_total     = mhist_on('f_methane_surf_flux_tot')
@@ -125,6 +139,8 @@ CONTAINS
                                       need_land_flux_soil .or. need_land_flux_lake .or. &
                                       need_land_flux_rice
                need_derived_ch4 = need_active_without_lake .or. need_global_with_lake .or. &
+                                  need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
+                                  need_global_clip_credit_with_lake .or. &
                                   need_lake_intensive .or. need_rice_intensive .or. &
                                   need_land_flux_split
 	               ! Outer filter (patchtype==0) excludes wetland (patchtype==2) and
@@ -152,11 +168,14 @@ CONTAINS
 	               ENDIF
 
 		               ! Preserve un-normalized accumulators only when one of the
-		               ! derived diagnostics is requested.  The default 'core'
-		               ! history set skips these arrays, masks, and rice loops.
+		               ! derived diagnostics is requested.  Narrow custom sets
+		               ! that omit derived fields skip these arrays and masks.
                IF (need_derived_ch4) THEN
 		               allocate (hist_ch4_active_without_lake(numpatch))
 		               allocate (hist_ch4_global_with_lake(numpatch))
+		               allocate (hist_ch4_global_phys_with_lake(numpatch))
+		               allocate (hist_ch4_global_balance_with_lake(numpatch))
+		               allocate (hist_ch4_global_clip_credit_with_lake(numpatch))
 		               allocate (hist_ch4_land_total_surf(numpatch))
 		               allocate (hist_ch4_land_flux_wetland(numpatch))
 		               allocate (hist_ch4_land_flux_soil(numpatch))
@@ -170,6 +189,9 @@ CONTAINS
 		               allocate (filter_all_land(numpatch))
 		               hist_ch4_active_without_lake(:) = 0._r8
 		               hist_ch4_global_with_lake(:) = 0._r8
+		               hist_ch4_global_phys_with_lake(:) = 0._r8
+		               hist_ch4_global_balance_with_lake(:) = 0._r8
+		               hist_ch4_global_clip_credit_with_lake(:) = 0._r8
 		               hist_ch4_land_total_surf(:) = 0._r8
 		               hist_ch4_land_flux_wetland(:) = 0._r8
 		               hist_ch4_land_flux_soil(:) = 0._r8
@@ -193,15 +215,17 @@ CONTAINS
 	                  ENDIF
 		                  hist_ch4_active_without_lake = a_methane_surf_flux_tot
 		                  hist_ch4_lake_flux_acc = a_methane_surf_flux_lake
-		                  WHERE (filter_active_without_lake .or. &
-		                         ((patchtype == 4) .and. DEF_METHANE%allowlakeprod .and. filter_all_land))
-		                     hist_ch4_global_with_lake = a_methane_surf_flux_tot
-		                  ELSEWHERE
-		                     hist_ch4_global_with_lake = 0._r8
-		                  END WHERE
 		                  DO ipatch = 1, numpatch
 		                     IF (filter_active_without_lake(ipatch) .and. &
 		                         (a_methane_acc_num(ipatch) > 0._r8)) THEN
+		                        hist_ch4_global_with_lake(ipatch) = &
+		                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num(ipatch)
+		                        hist_ch4_global_phys_with_lake(ipatch) = &
+		                           a_methane_surf_flux_tot_phys(ipatch) / a_methane_acc_num(ipatch)
+		                        hist_ch4_global_balance_with_lake(ipatch) = &
+		                           a_methane_balance_residual(ipatch) / a_methane_acc_num(ipatch)
+		                        hist_ch4_global_clip_credit_with_lake(ipatch) = &
+		                           a_methane_ch4_clip_credit(ipatch) / a_methane_acc_num(ipatch)
 		                        hist_ch4_land_total_surf(ipatch) = &
 		                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num(ipatch)
 		                        hist_ch4_land_flux_wetland(ipatch) = &
@@ -211,12 +235,20 @@ CONTAINS
 		                        hist_ch4_land_flux_rice(ipatch) = &
 		                           a_methane_surf_flux_rice(ipatch) / a_methane_acc_num(ipatch)
 		                        hist_ch4_rice_flux_mean(ipatch) = &
-		                           a_methane_surf_flux_rice(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_rice_area_frac(ipatch) = paddy_rice_fraction(ipatch)
+		                           a_methane_surf_flux_rice(ipatch)
+		                        hist_ch4_rice_area_frac(ipatch) = a_methane_rice_fraction(ipatch)
 		                     ENDIF
 		                     IF ((patchtype(ipatch) == 4) .and. DEF_METHANE%allowlakeprod .and. &
 		                         filter_all_land(ipatch) .and. &
 		                         (a_methane_acc_num_lake(ipatch) > 0._r8)) THEN
+		                        hist_ch4_global_with_lake(ipatch) = &
+		                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num_lake(ipatch)
+		                        hist_ch4_global_phys_with_lake(ipatch) = &
+		                           a_methane_surf_flux_tot_phys(ipatch) / a_methane_acc_num_lake(ipatch)
+		                        hist_ch4_global_balance_with_lake(ipatch) = &
+		                           a_methane_balance_residual(ipatch) / a_methane_acc_num_lake(ipatch)
+		                        hist_ch4_global_clip_credit_with_lake(ipatch) = &
+		                           a_methane_ch4_clip_credit(ipatch) / a_methane_acc_num_lake(ipatch)
 		                        hist_ch4_land_total_surf(ipatch) = &
 		                           a_methane_surf_flux_tot_lake(ipatch) / a_methane_acc_num_lake(ipatch)
 		                        hist_ch4_land_flux_lake(ipatch) = &
@@ -299,9 +331,35 @@ CONTAINS
                   'f_methane_surf_ebul', itime_in_file, sumarea, filter, &
                   'CH4 surface ebullition flux', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_aere_soil'), a_methane_surf_aere_soil, file_hist, &
+                  'f_methane_surf_aere_soil', itime_in_file, sumarea, filter, &
+                  'non-rice CH4 aerenchyma flux contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_aere_rice'), a_methane_surf_aere_rice, file_hist, &
+                  'f_methane_surf_aere_rice', itime_in_file, sumarea, filter, &
+                  'rice CH4 aerenchyma flux contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_ebul_soil'), a_methane_surf_ebul_soil, file_hist, &
+                  'f_methane_surf_ebul_soil', itime_in_file, sumarea, filter, &
+                  'non-rice CH4 ebullition flux contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_ebul_rice'), a_methane_surf_ebul_rice, file_hist, &
+                  'f_methane_surf_ebul_rice', itime_in_file, sumarea, filter, &
+                  'rice CH4 ebullition flux contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
                      CALL write_history_variable_2d (mhist_on('f_methane_surf_diff'), a_methane_surf_diff, file_hist, &
                         'f_methane_surf_diff', itime_in_file, sumarea, filter, &
                         'CH4 diffusive surface flux plus inundated-fraction and closure adjustments', 'mol/m2/s', &
+                        acc_num=a_methane_acc_num)
+                     CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_soil'), &
+                        a_methane_surf_diff_soil, file_hist, &
+                        'f_methane_surf_diff_soil', itime_in_file, sumarea, filter, &
+                        'non-rice CH4 diffusive flux contribution per land area', 'mol/m2/s', &
+                        acc_num=a_methane_acc_num)
+                     CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_rice'), &
+                        a_methane_surf_diff_rice, file_hist, &
+                        'f_methane_surf_diff_rice', itime_in_file, sumarea, filter, &
+                        'rice CH4 diffusive flux contribution per land area', 'mol/m2/s', &
                         acc_num=a_methane_acc_num)
                      CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_phys'), a_methane_surf_diff_phys, file_hist, &
                         'f_methane_surf_diff_phys', itime_in_file, sumarea, filter, &
@@ -334,6 +392,22 @@ CONTAINS
                CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot'), a_methane_oxid_tot, file_hist, &
                   'f_methane_oxid_tot', itime_in_file, sumarea, filter, &
                   'CH4 column oxidation', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_prod_tot_soil'), a_methane_prod_tot_soil, file_hist, &
+                  'f_methane_prod_tot_soil', itime_in_file, sumarea, filter, &
+                  'non-rice CH4 production contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_prod_tot_rice'), a_methane_prod_tot_rice, file_hist, &
+                  'f_methane_prod_tot_rice', itime_in_file, sumarea, filter, &
+                  'rice CH4 production contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot_soil'), a_methane_oxid_tot_soil, file_hist, &
+                  'f_methane_oxid_tot_soil', itime_in_file, sumarea, filter, &
+                  'non-rice CH4 oxidation contribution per land area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot_rice'), a_methane_oxid_tot_rice, file_hist, &
+                  'f_methane_oxid_tot_rice', itime_in_file, sumarea, filter, &
+                  'rice CH4 oxidation contribution per land area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_co2_decomp_tot'), a_co2_decomp_tot, file_hist, &
                   'f_co2_decomp_tot', itime_in_file, sumarea, filter, &
@@ -657,8 +731,10 @@ CONTAINS
 	               ! Land-area denominator diagnostics for global integrations.
 	               ! active_total_without_lake = wetland + soil + rice, excluding lake.
 	               ! global_total_with_lake    = wetland + soil + rice + lake.
-	               IF ((need_active_without_lake .or. need_global_with_lake .or. &
-                       need_land_flux_split) .and. &
+		               IF ((need_active_without_lake .or. need_global_with_lake .or. &
+		                       need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
+		                       need_global_clip_credit_with_lake .or. &
+		                       need_land_flux_split) .and. &
                        HistForm == 'Gridded') THEN
 	                  CALL mp2g_hist%get_sumarea (sumarea, filter_all_land)
 	               ENDIF
@@ -710,13 +786,40 @@ CONTAINS
 	                     'active CH4 total surface flux excluding lake; land-area mean contribution', 'mol/m2/s', &
 	                     acc_num=a_methane_acc_num)
 	               ENDIF
-	               IF (need_global_with_lake) THEN
+		               IF (need_global_with_lake) THEN
 	                  CALL write_history_variable_2d (.true., &
 	                     hist_ch4_global_with_lake, file_hist, &
 	                     'f_methane_surf_flux_global_total_with_lake', itime_in_file, &
-	                     sumarea, filter_all_land, &
-	                     'global CH4 total surface flux including lake; land-area mean contribution', 'mol/m2/s')
-	               ENDIF
+		                     sumarea, filter_all_land, &
+		                     'global CH4 total surface flux including lake; land-area mean contribution', 'mol/m2/s', &
+			                     acc_num=hist_ch4_acc_one)
+			               ENDIF
+		               ! Closure identity on the same all-land denominator:
+		               ! corrected = physical + balance residual + CH4 clip credit.
+			               IF (need_global_phys_with_lake) THEN
+		                  CALL write_history_variable_2d (.true., &
+		                     hist_ch4_global_phys_with_lake, file_hist, &
+		                     'f_methane_surf_flux_global_phys_with_lake', itime_in_file, &
+		                     sumarea, filter_all_land, &
+		                     'pure-physics CH4 surface flux including lake; land-area mean contribution', &
+		                     'mol/m2/s', acc_num=hist_ch4_acc_one)
+		               ENDIF
+		               IF (need_global_clip_credit_with_lake) THEN
+		                  CALL write_history_variable_2d (.true., &
+		                     hist_ch4_global_clip_credit_with_lake, file_hist, &
+		                     'f_methane_ch4_clip_credit_global_with_lake', itime_in_file, &
+		                     sumarea, filter_all_land, &
+		                     'CH4 nonnegative-concentration clip credit including lake; land-area mean contribution', &
+		                     'mol/m2/s', acc_num=hist_ch4_acc_one)
+		               ENDIF
+		               IF (need_global_balance_with_lake) THEN
+		                  CALL write_history_variable_2d (.true., &
+		                     hist_ch4_global_balance_with_lake, file_hist, &
+		                     'f_methane_balance_residual_global_with_lake', itime_in_file, &
+		                     sumarea, filter_all_land, &
+		                     'CH4 surface balance residual including lake; land-area mean contribution', &
+		                     'mol/m2/s', acc_num=hist_ch4_acc_one)
+		               ENDIF
 
 
 	               ! lake diagnostics (CTSM lake CH4 path) — swap to lake-only filter
@@ -884,11 +987,11 @@ CONTAINS
 	                     'f_methane_surf_flux_rice', itime_in_file, sumarea, filter, &
 	                     'rice-paddy contribution to total CH4 surface flux (active-mean)', 'mol/m2/s', &
 	                     acc_num=a_methane_acc_num)
-	                  ! Rice is a CFT fraction inside soil patches.  The contribution
-	                  ! field above remains additive with wetland/soil/lake totals;
-	                  ! this intensive diagnostic divides time-mean rice flux
-	                  ! contribution by rice area fraction after gridding, so it is
-	                  ! paddy-area weighted and robust to per-patch acc_num changes.
+	                  ! Rice is a CFT fraction inside soil patches.  This diagnostic
+	                  ! divides the accumulated rice flux contribution by the rice
+	                  ! area fraction accumulated over the same samples.  The ratio
+	                  ! therefore remains paddy-area intensive when that fraction
+	                  ! changes during a history interval.
 	                  IF (need_rice_intensive) THEN
 	                     CALL write_history_tracer_ratio_2d (.true., &
 	                        hist_ch4_rice_flux_mean, hist_ch4_rice_area_frac, file_hist, &

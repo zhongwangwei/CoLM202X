@@ -41,6 +41,7 @@ MODULE MOD_Tracer_Reactive_Methane_pH
 
    USE MOD_Precision
    USE MOD_SPMD_Task
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
    IMPLICIT NONE
    SAVE
@@ -86,7 +87,6 @@ CONTAINS
       USE MOD_LandPatch,    only: landpatch
       character(len=*), intent(in) :: file_ph_patch
       integer, intent(in) :: numpatch
-      logical :: has_nonfallback_ph
       integer :: n_nonfallback, n_local_patch
       integer :: n_global_nonfallback, n_global_patch
       integer :: local_has_i, global_has_i
@@ -100,13 +100,11 @@ CONTAINS
          methane_ph_patch, defval = methane_ph_fallback)
 
       IF (allocated(methane_ph_patch)) THEN
-         WHERE (methane_ph_patch < 2._r8 .or. methane_ph_patch > 10._r8)
+         WHERE (.not. ieee_is_finite(methane_ph_patch) .or. &
+                methane_ph_patch < 2._r8 .or. methane_ph_patch > 10._r8)
             methane_ph_patch = methane_ph_fallback
          END WHERE
       ENDIF
-      has_nonfallback_ph = .false.
-      IF (allocated(methane_ph_patch)) &
-         has_nonfallback_ph = any(abs(methane_ph_patch - methane_ph_fallback) > 1.e-12_r8)
 
       n_local_patch = 0
       n_nonfallback = 0

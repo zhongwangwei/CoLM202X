@@ -65,6 +65,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 !=======================================================================
 	USE MOD_Precision
 	USE MOD_Tracer_Defs, only: tracer_lower
+	USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
 	IMPLICIT NONE
 
@@ -81,6 +82,9 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 	integer :: iloop  ! loop index
 
 	integer, public, parameter :: ngases      =   3     ! CH4, O2, & CO2
+	integer, public, parameter :: METHANE_COMP_SOIL = 1
+	integer, public, parameter :: METHANE_COMP_RICE = 2
+	integer, public, parameter :: N_METHANE_COMP    = 2
 
 	!------------------------------------------------------------------
 
@@ -212,18 +216,21 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: lake_vmax_methane_oxid = -1.0_r8  ! >=0 overrides vmax_methane_oxid for lake oxidation only
       real(r8) :: lake_oxic_sediment_depth = -1.0_r8 ! m; >0 limits lake sediment oxidation to this top depth, -1 disables
 
-      ! optional microbial-pool dynamics (default off; flux impact only when override is explicitly enabled)
+      ! Experimental microbial-pool state.  Runtime validation rejects
+      ! enabling it until biomass growth/loss is coupled to donor/sink carbon.
       logical  :: use_microbial_pools = .false.
       logical  :: use_microbial_flux_override = .false.
-      logical  :: use_microbial_dormancy = .true.
+      logical  :: use_microbial_dormancy = .false.
       real(r8) :: B_init_methanogen = 1.0_r8
       real(r8) :: B_init_methanotroph = 1.0_r8
       real(r8) :: B_min_methanogen = 1.0e-3_r8
       real(r8) :: B_min_methanotroph = 1.0e-3_r8
-      ! Biomass caps as fractions of local layer organic carbon
-      ! (cellorg [kg OM m-3] * 580 gC kgOM-1).  Set <=0 to disable the cap.
-      real(r8) :: B_max_fraction_methanogen = -1.0_r8
-      real(r8) :: B_max_fraction_methanotroph = -1.0_r8
+      ! Biomass caps as finite positive fractions of local layer organic
+      ! carbon (cellorg [kg OM m-3] * 580 gC kgOM-1).  They are mandatory
+      ! whenever microbial pools are enabled because microbial growth does
+      ! not debit the represented substrate pool.
+      real(r8) :: B_max_fraction_methanogen = 0.01_r8
+      real(r8) :: B_max_fraction_methanotroph = 0.01_r8
       real(r8) :: mu_max_methanogen = 0.2_r8
       real(r8) :: mu_max_methanotroph = 0.5_r8
       real(r8) :: gamma_methanogen = 0.05_r8
@@ -377,10 +384,9 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       logical :: anoxicmicrosites = .false. ! Use Arah & Stephen 1998 expression to allow production above the water table
                                     ! Currently hardwired off; expression is crude.
 
-      logical :: methane_frzout = .false.    ! Exclude CH4 from frozen fraction of soil pore H2O, to simulate "freeze-out" pulse
-                                 ! as in Mastepanov 2008.
-                                 ! Causes slight increase in emissions in the fall and decrease in the spring.
-                                 ! Currently hardwired off; small impact.
+      logical :: methane_frzout = .false.    ! Exclude CH4 from partially frozen pore water to simulate a freeze-out pulse.
+                                 ! Fully frozen layers retain an immobile CH4 inventory so phase collapse cannot
+                                 ! be converted into a numerical surface flux.
 
       ! public :: methane_conrd ! Read and initialize CH4 constants
 
@@ -472,10 +478,6 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       !   blended with scheme-computed finundated using max() so already-wet
       !   patches are never lowered (e.g. wetland tile with rice CFT mixed).
       real(r8) :: rice_paddy_min_finundated = 0.85_r8
-      ! Reserved for R5 — paddy floodwater depth still left to CoLM hydrology
-      ! + the existing wdsrf pressure term inside methane_ebul.
-      real(r8) :: rice_paddy_min_wdsrf_mm   = 50._r8
-
       ! R2 (methane-only): midseason drying — applied whenever rice paddy
       ! CH4 is enabled (no separate switch).  Emulates the common Asian
       ! paddy management practice of draining 7-10 days around 30-40 days
@@ -511,10 +513,8 @@ MODULE MOD_Tracer_Reactive_Methane_Const
    END type Methane_type
 
    type Methane_hydrology_type
-            real(r8) :: vdcf = 2._r8
       real(r8) :: slopebeta = -3._r8
       real(r8) :: slopemax = 0.4_r8
-      real(r8) :: pc = 0.4_r8
    END type Methane_hydrology_type
 
    type (Methane_type) :: DEF_METHANE
@@ -539,6 +539,18 @@ CONTAINS
    integer :: unit_nml
 
    namelist /nl_colm_methane_parameter/ DEF_METHANE,DEF_METHANE_hydrology
+
+      ! A model instance may be finalized and initialized again in the same
+      ! process.  Reconstruct both parameter objects so fields omitted by the
+      ! next namelist cannot inherit overrides from the previous instance.
+      DEF_METHANE = Methane_type()
+      DEF_METHANE_hydrology = Methane_hydrology_type()
+      ! The forcing filename and contents are namelist state, so a new read
+      ! must also invalidate the saved file cache even when the path is
+      ! unchanged.
+      atm_ch4_file_loaded = .false.
+      atm_ch4_file_warned = .false.
+      atm_ch4_file_molmol(:,:) = -1._r8
 
       ! Read on every rank so all workers use the same methane constants.
       ! The previous master-only read left non-master ranks at default values
@@ -946,6 +958,34 @@ CONTAINS
          IF (p_is_master) write(6,*) '***** ERROR: microbial biomass/rate/loss parameters must be >= 0'
          bad = .true.
       ENDIF
+      IF (DEF_METHANE%use_microbial_flux_override .and. &
+          .not. DEF_METHANE%use_microbial_pools) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: use_microbial_flux_override requires use_microbial_pools.'
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%use_microbial_dormancy .and. &
+          .not. DEF_METHANE%use_microbial_pools) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: use_microbial_dormancy requires use_microbial_pools.'
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%use_microbial_pools) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: microbial pools are disabled until biomass growth/loss has donor/sink carbon coupling.'
+         bad = .true.
+         IF (.not. ieee_is_finite(DEF_METHANE%B_max_fraction_methanogen) .or. &
+             .not. ieee_is_finite(DEF_METHANE%B_max_fraction_methanotroph) .or. &
+             DEF_METHANE%B_max_fraction_methanogen <= 0._r8 .or. &
+             DEF_METHANE%B_max_fraction_methanotroph <= 0._r8 .or. &
+             DEF_METHANE%B_max_fraction_methanogen > 1._r8 .or. &
+             DEF_METHANE%B_max_fraction_methanotroph > 1._r8) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: microbial pools require finite B_max fractions in (0,1]: ', &
+               DEF_METHANE%B_max_fraction_methanogen, DEF_METHANE%B_max_fraction_methanotroph
+            bad = .true.
+         ENDIF
+      ENDIF
       IF (DEF_METHANE%max_microbe_prod_multiplier <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: max_microbe_prod_multiplier must be > 0: ', &
             DEF_METHANE%max_microbe_prod_multiplier
@@ -965,12 +1005,9 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE_hydrology%slopemax <= 0._r8 .or. &
-          DEF_METHANE_hydrology%slopebeta == 0._r8 .or. &
-          DEF_METHANE_hydrology%vdcf < 0._r8 .or. &
-          DEF_METHANE_hydrology%pc < 0._r8) THEN
+          DEF_METHANE_hydrology%slopebeta == 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: methane hydrology parameters invalid: ', &
-            DEF_METHANE_hydrology%vdcf, DEF_METHANE_hydrology%slopebeta, &
-            DEF_METHANE_hydrology%slopemax, DEF_METHANE_hydrology%pc
+            DEF_METHANE_hydrology%slopebeta, DEF_METHANE_hydrology%slopemax
          bad = .true.
       ENDIF
 
@@ -1055,6 +1092,9 @@ CONTAINS
          'f_methane_surf_flux_tot', &
          'f_methane_surf_flux_tot_active', &
          'f_methane_surf_flux_global_total_with_lake', &
+	     'f_methane_surf_flux_global_phys_with_lake', &
+	     'f_methane_balance_residual_global_with_lake', &
+	     'f_methane_ch4_clip_credit_global_with_lake', &
          'f_methane_surf_flux_tot_phys', &
          'f_methane_balance_residual', &
          'f_methane_ch4_clip_credit', &
@@ -1084,17 +1124,30 @@ CONTAINS
          'f_methane_surf_flux_tot_active', &
          'f_methane_surf_flux_active_total_without_lake', &
          'f_methane_surf_flux_global_total_with_lake', &
+	     'f_methane_surf_flux_global_phys_with_lake', &
+	     'f_methane_balance_residual_global_with_lake', &
+	     'f_methane_ch4_clip_credit_global_with_lake', &
          'f_methane_surf_flux_tot_phys', &
          'f_methane_surf_aere', &
+         'f_methane_surf_aere_soil', &
+         'f_methane_surf_aere_rice', &
          'f_methane_surf_ebul', &
+         'f_methane_surf_ebul_soil', &
+         'f_methane_surf_ebul_rice', &
          'f_methane_surf_diff', &
+         'f_methane_surf_diff_soil', &
+         'f_methane_surf_diff_rice', &
          'f_methane_surf_diff_phys', &
          'f_methane_balance_residual', &
          'f_methane_ch4_clip_credit', &
          'f_o2_cap_loss', &
          'f_o2_cap_gain', &
          'f_methane_prod_tot', &
+         'f_methane_prod_tot_soil', &
+         'f_methane_prod_tot_rice', &
          'f_methane_oxid_tot', &
+         'f_methane_oxid_tot_soil', &
+         'f_methane_oxid_tot_rice', &
          'f_co2_decomp_tot', &
          'f_co2_oxid_tot', &
          'f_co2_net_tot', &
