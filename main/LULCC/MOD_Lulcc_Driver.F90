@@ -200,7 +200,7 @@ MODULE MOD_Lulcc_Driver
       ENDIF
       ! GIEMS broadcasts and spatial-pH vector I/O use global collectives;
       ! reload them after the worker-local state remap with every rank present.
-      CALL tracer_reactive_reload_lulcc_inputs ()
+      CALL tracer_reactive_reload_lulcc_inputs (dir_landdata, jdate(1))
 #endif
 
 

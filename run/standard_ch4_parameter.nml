@@ -68,10 +68,10 @@
     ! All CH4-private controls belong here.
     DEF_METHANE%inundation_mode  = 'hybrid'
     DEF_METHANE%enable_rice_paddy = .true.
-    ! Standard global CH4 split: run soil-column CH4 only on natural
-    ! wetlands and paddy-rice soil patches.  Lake CH4 is handled by the
-    ! separate WATERBODY substep below.  Keeping ordinary non-rice soil off
-    ! avoids folding background soil CH4 into the rice diagnostic split.
+    ! Standard global CH4 scope: run every supported patchtype-0 soil column
+    ! plus natural wetland columns.  Paddy rice is an independent sub-column
+    ! within patchtype 0, not a replacement for ordinary non-rice soil.  Lake
+    ! CH4 is handled by the separate WATERBODY substep below.
     DEF_METHANE%only_wetland      = .false.
     DEF_METHANE%use_spatial_ph   = .true.
 
@@ -240,8 +240,10 @@
     ! ------------------------------------------------------------------
     ! 7. Lake CH4 production
     ! ------------------------------------------------------------------
-    ! Disabled by default for backward-compatible global budgets.  If enabled,
-    ! lake sediment CH4 production uses DEF_METHANE%f_methane above.
+    ! Enabled in this standard configuration.  This is a reduced-order lake
+    ! sediment-column-to-atmosphere parameterization; it does not resolve a
+    ! prognostic lake-water CH4/O2 column.  Sediment production uses
+    ! DEF_METHANE%f_methane above.
     DEF_METHANE%allowlakeprod         = .true.
     DEF_METHANE%lake_zero_depth_fatal = .false.
     DEF_METHANE%lake_decomp_fact      = 9.e-11
@@ -275,23 +277,24 @@
     ! Use 'all' for legacy full diagnostics, 'core' for global production
     ! runs, 'none' to suppress, or a comma-separated list of f_* variables.
     DEF_METHANE%write_ch4_history = .true.
-    DEF_METHANE%ch4_history_vars  = 'diagnostic'
+    DEF_METHANE%ch4_history_vars  = 'core'
 
     ! ------------------------------------------------------------------
     ! 10. Optional microbial-pool diagnostics / flux override
     ! ------------------------------------------------------------------
-    ! Disabled by default so legacy CH4 production/oxidation budgets remain
-    ! unchanged unless explicitly enabled.
+    ! Disabled: biomass growth, mortality, and freeze loss are not yet coupled
+    ! to donor/sink carbon pools, so validation rejects enabling these
+    ! experimental microbial states or their flux override/dormancy options.
     DEF_METHANE%use_microbial_pools         = .false.
     DEF_METHANE%use_microbial_flux_override = .false.
-    DEF_METHANE%use_microbial_dormancy      = .true.
+    DEF_METHANE%use_microbial_dormancy      = .false.
 
     DEF_METHANE%B_init_methanogen  = 1.0
     DEF_METHANE%B_init_methanotroph = 1.0
     DEF_METHANE%B_min_methanogen   = 1.0e-3
     DEF_METHANE%B_min_methanotroph = 1.0e-3
-    DEF_METHANE%B_max_fraction_methanogen  = -1.0
-    DEF_METHANE%B_max_fraction_methanotroph = -1.0
+    DEF_METHANE%B_max_fraction_methanogen  = 0.01
+    DEF_METHANE%B_max_fraction_methanotroph = 0.01
 
     DEF_METHANE%mu_max_methanogen    = 0.2
     DEF_METHANE%mu_max_methanotroph  = 0.5

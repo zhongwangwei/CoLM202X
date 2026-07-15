@@ -77,6 +77,7 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_methane_acc_num_microbe
    PUBLIC :: a_methane_acc_num_sat
    PUBLIC :: a_methane_acc_num_unsat
+	PUBLIC :: a_methane_rice_fraction
    PUBLIC :: a_methane_aere_depth
    PUBLIC :: a_methane_aere_depth_sat
    PUBLIC :: a_methane_aere_depth_unsat
@@ -97,6 +98,8 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_methane_oxid_depth_sat
    PUBLIC :: a_methane_oxid_depth_unsat
    PUBLIC :: a_methane_oxid_tot
+   PUBLIC :: a_methane_oxid_tot_rice
+   PUBLIC :: a_methane_oxid_tot_soil
    PUBLIC :: a_methane_oxid_tot_lake
    PUBLIC :: a_methane_oxid_tot_sat
    PUBLIC :: a_methane_oxid_tot_unsat
@@ -105,6 +108,8 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_methane_prod_depth_sat
    PUBLIC :: a_methane_prod_depth_unsat
    PUBLIC :: a_methane_prod_tot
+   PUBLIC :: a_methane_prod_tot_rice
+   PUBLIC :: a_methane_prod_tot_soil
    PUBLIC :: a_methane_prod_tot_lake
    PUBLIC :: a_methane_prod_tot_sat
    PUBLIC :: a_methane_prod_tot_unsat
@@ -114,14 +119,20 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_methane_stress_sat
    PUBLIC :: a_methane_stress_unsat
    PUBLIC :: a_methane_surf_aere
+   PUBLIC :: a_methane_surf_aere_rice
+   PUBLIC :: a_methane_surf_aere_soil
    PUBLIC :: a_methane_surf_aere_sat
    PUBLIC :: a_methane_surf_aere_unsat
    PUBLIC :: a_methane_surf_diff
+   PUBLIC :: a_methane_surf_diff_rice
+   PUBLIC :: a_methane_surf_diff_soil
    PUBLIC :: a_methane_surf_diff_lake
    PUBLIC :: a_methane_surf_diff_phys
    PUBLIC :: a_methane_surf_diff_sat
    PUBLIC :: a_methane_surf_diff_unsat
    PUBLIC :: a_methane_surf_ebul
+   PUBLIC :: a_methane_surf_ebul_rice
+   PUBLIC :: a_methane_surf_ebul_soil
    PUBLIC :: a_methane_surf_ebul_lake
    PUBLIC :: a_methane_surf_ebul_sat
    PUBLIC :: a_methane_surf_ebul_unsat
@@ -192,6 +203,9 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_surf_aere     (:)
    real(r8), allocatable :: a_methane_surf_ebul     (:)
    real(r8), allocatable :: a_methane_surf_diff     (:)
+   real(r8), allocatable :: a_methane_surf_aere_soil(:), a_methane_surf_aere_rice(:)
+   real(r8), allocatable :: a_methane_surf_ebul_soil(:), a_methane_surf_ebul_rice(:)
+   real(r8), allocatable :: a_methane_surf_diff_soil(:), a_methane_surf_diff_rice(:)
    real(r8), allocatable :: a_methane_surf_diff_phys(:)
    real(r8), allocatable :: a_methane_balance_residual (:)
    real(r8), allocatable :: a_methane_ch4_clip_credit (:)
@@ -200,6 +214,8 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_ebul_tot      (:)
    real(r8), allocatable :: a_methane_prod_tot      (:)
    real(r8), allocatable :: a_methane_oxid_tot      (:)
+   real(r8), allocatable :: a_methane_prod_tot_soil (:), a_methane_prod_tot_rice(:)
+   real(r8), allocatable :: a_methane_oxid_tot_soil (:), a_methane_oxid_tot_rice(:)
    real(r8), allocatable :: a_co2_decomp_tot        (:)
    real(r8), allocatable :: a_co2_oxid_tot          (:)
    real(r8), allocatable :: a_co2_aere_tot          (:)
@@ -340,9 +356,36 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_acc_num_extra (:)
    real(r8), allocatable :: a_methane_acc_num_microbe (:)
    real(r8), allocatable :: a_annavg_finrw_acc_num (:)
-
+	real(r8), allocatable :: a_methane_rice_fraction (:)
 
 CONTAINS
+
+   !-------------------------------------------------------------------
+   integer(i8) FUNCTION methane_history_selector_fingerprint()
+      ! A deterministic 52-bit fingerprint is exactly representable in r8,
+      ! so it can use the existing vector restart path without a new NetCDF
+      ! type.  Whitespace and ASCII case are normalized to match selector
+      ! parsing; write-history and microbial-pool flags are part of the
+      ! accumulation contract as well.
+      integer(i8), parameter :: hash_mask = int(z'000FFFFFFFFFFFFF', i8)
+      integer :: i, code
+
+      methane_history_selector_fingerprint = 5381_i8
+      DO i = 1, len_trim(DEF_METHANE%ch4_history_vars)
+         code = iachar(DEF_METHANE%ch4_history_vars(i:i))
+         IF (code <= 32) CYCLE
+         IF (code >= iachar('A') .and. code <= iachar('Z')) code = code + 32
+         methane_history_selector_fingerprint = iand( &
+            ieor(ishftc(methane_history_selector_fingerprint, 7, 52), int(code, i8)), &
+            hash_mask)
+      ENDDO
+      code = merge(257, 256, DEF_METHANE%write_ch4_history)
+      methane_history_selector_fingerprint = iand( &
+         ieor(ishftc(methane_history_selector_fingerprint, 7, 52), int(code, i8)), hash_mask)
+      code = merge(513, 512, DEF_METHANE%use_microbial_pools)
+      methane_history_selector_fingerprint = iand( &
+         ieor(ishftc(methane_history_selector_fingerprint, 7, 52), int(code, i8)), hash_mask)
+   END FUNCTION methane_history_selector_fingerprint
 
    !-------------------------------------------------------------------
    SUBROUTINE allocate_methane_acc_fluxes (numpatch)
@@ -368,6 +411,9 @@ CONTAINS
       allocate (a_methane_surf_aere     (numpatch))
       allocate (a_methane_surf_ebul     (numpatch))
       allocate (a_methane_surf_diff     (numpatch))
+      allocate (a_methane_surf_aere_soil(numpatch), a_methane_surf_aere_rice(numpatch))
+      allocate (a_methane_surf_ebul_soil(numpatch), a_methane_surf_ebul_rice(numpatch))
+      allocate (a_methane_surf_diff_soil(numpatch), a_methane_surf_diff_rice(numpatch))
       allocate (a_methane_surf_diff_phys(numpatch))
       allocate (a_methane_balance_residual (numpatch))
       allocate (a_methane_ch4_clip_credit (numpatch))
@@ -376,6 +422,8 @@ CONTAINS
       allocate (a_methane_ebul_tot      (numpatch))
       allocate (a_methane_prod_tot      (numpatch))
       allocate (a_methane_oxid_tot      (numpatch))
+      allocate (a_methane_prod_tot_soil (numpatch), a_methane_prod_tot_rice(numpatch))
+      allocate (a_methane_oxid_tot_soil (numpatch), a_methane_oxid_tot_rice(numpatch))
       allocate (a_co2_decomp_tot        (numpatch))
       allocate (a_co2_oxid_tot          (numpatch))
       allocate (a_co2_aere_tot          (numpatch))
@@ -506,6 +554,7 @@ CONTAINS
 	      allocate (a_methane_acc_num_lake    (numpatch))
 	      allocate (a_methane_acc_num_extra   (numpatch))
 	      allocate (a_annavg_finrw_acc_num     (numpatch))
+	      allocate (a_methane_rice_fraction    (numpatch))
 
       CALL flush_methane_acc_fluxes ()
 
@@ -533,6 +582,12 @@ CONTAINS
       a_methane_surf_aere     (:)   = 0._r8
       a_methane_surf_ebul     (:)   = 0._r8
       a_methane_surf_diff     (:)   = 0._r8
+      a_methane_surf_aere_soil(:)   = 0._r8
+      a_methane_surf_aere_rice(:)   = 0._r8
+      a_methane_surf_ebul_soil(:)   = 0._r8
+      a_methane_surf_ebul_rice(:)   = 0._r8
+      a_methane_surf_diff_soil(:)   = 0._r8
+      a_methane_surf_diff_rice(:)   = 0._r8
       a_methane_surf_diff_phys(:)   = 0._r8
       a_methane_balance_residual (:) = 0._r8
       a_methane_ch4_clip_credit (:) = 0._r8
@@ -541,6 +596,10 @@ CONTAINS
       a_methane_ebul_tot      (:)   = 0._r8
       a_methane_prod_tot      (:)   = 0._r8
       a_methane_oxid_tot      (:)   = 0._r8
+      a_methane_prod_tot_soil (:)   = 0._r8
+      a_methane_prod_tot_rice (:)   = 0._r8
+      a_methane_oxid_tot_soil (:)   = 0._r8
+      a_methane_oxid_tot_rice (:)   = 0._r8
       a_co2_decomp_tot        (:)   = 0._r8
       a_co2_oxid_tot          (:)   = 0._r8
       a_co2_aere_tot          (:)   = 0._r8
@@ -668,6 +727,7 @@ CONTAINS
       a_methane_acc_num_lake    (:) = 0._r8
       a_methane_acc_num_extra   (:) = 0._r8
 	      a_annavg_finrw_acc_num   (:) = 0._r8
+	      a_methane_rice_fraction  (:) = 0._r8
 	      IF (allocated(a_methane_acc_num_microbe)) a_methane_acc_num_microbe (:) = 0._r8
 
    END SUBROUTINE flush_methane_acc_fluxes
@@ -681,6 +741,9 @@ CONTAINS
            methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, &
            methane_ebul_depth, o2stress, methane_stress, &
            methane_surf_flux_tot, methane_surf_flux_tot_phys, methane_surf_aere, methane_surf_ebul, methane_surf_diff, methane_surf_diff_phys, &
+           methane_surf_aere_soil, methane_surf_aere_rice, methane_surf_ebul_soil, methane_surf_ebul_rice, &
+           methane_surf_diff_soil, methane_surf_diff_rice, methane_prod_tot_soil, methane_prod_tot_rice, &
+           methane_oxid_tot_soil, methane_oxid_tot_rice, rice_fraction_prev, &
            methane_balance_residual, methane_ch4_clip_credit, o2_cap_loss, o2_cap_gain, &
            methane_ebul_tot, methane_prod_tot, methane_oxid_tot, &
 	           co2_decomp_tot, co2_oxid_tot, co2_aere_tot, co2_net_tot, &
@@ -731,7 +794,8 @@ CONTAINS
 	           f_inund_flood_patch, f_inund_flood_depth_patch, wetland_frac_per_patch, &
 	           methane_surf_flux_wetland, methane_surf_flux_soil, methane_surf_flux_lake, &
 	           methane_surf_flux_rice
-      USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
+      USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE, &
+           mhist_on => methane_history_enabled
       USE MOD_Tracer_Reactive_Methane_Microbes, only: &
            B_methanogen, B_methanotroph, B_methanogen_dormant, B_methanotroph_dormant, &
            f_T_methanogen, f_S_methanogen, f_O2_methanogen, f_T_methanotroph, &
@@ -746,6 +810,13 @@ CONTAINS
       ! create a circular module dependency at compile time.
 
       logical, save, allocatable :: methane_active_mask(:)
+      logical, save :: need_main_layers, need_main_surface, need_main_totals
+      logical, save :: need_main_concentrations, need_unsat_sat, need_lake
+      logical, save :: need_extras, need_microbes
+      logical, save :: history_groups_initialized = .false.
+      logical, save :: cached_write_history = .false., cached_microbial_pools = .false.
+      character(len=4096), save :: cached_history_vars = ' '
+      logical :: need_active_count, need_patch_mask, need_any, selector_changed
 
       ! Only worker ranks own local land-patch physics/invariants.  IO and
       ! aggregator ranks can still have methane accumulator buffers sized to
@@ -768,22 +839,155 @@ CONTAINS
          CALL abort
       ENDIF
 
+      ! History selection is fixed by the methane namelist.  Compute coarse
+      ! dependency groups once per accumulation call and skip whole families
+      ! of arrays that cannot be written.  Allocation and restart I/O remain
+      ! unconditional, preserving the restart schema.
+      selector_changed = history_groups_initialized .and. ( &
+         (cached_write_history .neqv. DEF_METHANE%write_ch4_history) .or. &
+         (cached_microbial_pools .neqv. DEF_METHANE%use_microbial_pools) .or. &
+         trim(cached_history_vars) /= trim(DEF_METHANE%ch4_history_vars))
+      IF (.not. history_groups_initialized .or. selector_changed) THEN
+      ! Runtime changes are unusual, but use the same clean-window policy as
+      ! restart changes rather than mixing old numerators/counts.
+      IF (selector_changed) CALL flush_methane_acc_fluxes ()
+      need_main_layers = any([ &
+         mhist_on('f_net_methane'), &
+         mhist_on('f_methane_prod_depth'), mhist_on('f_o2_decomp_depth'), &
+         mhist_on('f_co2_decomp_depth'), mhist_on('f_methane_oxid_depth'), &
+         mhist_on('f_o2_oxid_depth'), mhist_on('f_co2_oxid_depth'), &
+         mhist_on('f_methane_aere_depth'), mhist_on('f_methane_tran_depth'), &
+         mhist_on('f_o2_aere_depth'), mhist_on('f_co2_aere_depth'), &
+         mhist_on('f_methane_ebul_depth'), mhist_on('f_o2stress'), &
+         mhist_on('f_methane_stress')])
+
+      need_main_surface = any([ &
+         mhist_on('f_methane_surf_flux_tot_active'), mhist_on('f_methane_surf_flux_tot'), &
+         mhist_on('f_methane_surf_flux_active_total_without_lake'), &
+         mhist_on('f_methane_surf_flux_global_total_with_lake'), &
+         mhist_on('f_methane_surf_flux_global_phys_with_lake'), &
+         mhist_on('f_methane_balance_residual_global_with_lake'), &
+         mhist_on('f_methane_ch4_clip_credit_global_with_lake'), &
+         mhist_on('f_methane_surf_flux_tot_phys'), mhist_on('f_methane_surf_aere'), &
+         mhist_on('f_methane_surf_ebul'), mhist_on('f_methane_surf_diff'), &
+         mhist_on('f_methane_surf_aere_soil'), mhist_on('f_methane_surf_aere_rice'), &
+         mhist_on('f_methane_surf_ebul_soil'), mhist_on('f_methane_surf_ebul_rice'), &
+         mhist_on('f_methane_surf_diff_soil'), mhist_on('f_methane_surf_diff_rice'), &
+         mhist_on('f_methane_surf_diff_phys'), mhist_on('f_methane_balance_residual'), &
+         mhist_on('f_methane_ch4_clip_credit'), mhist_on('f_o2_cap_loss'), &
+         mhist_on('f_o2_cap_gain')])
+
+      need_main_totals = any([ &
+         mhist_on('f_methane_ebul_tot'), mhist_on('f_methane_prod_tot'), &
+         mhist_on('f_methane_oxid_tot'), mhist_on('f_methane_prod_tot_soil'), &
+         mhist_on('f_methane_prod_tot_rice'), mhist_on('f_methane_oxid_tot_soil'), &
+         mhist_on('f_methane_oxid_tot_rice'), mhist_on('f_co2_decomp_tot'), &
+         mhist_on('f_co2_oxid_tot'), mhist_on('f_co2_aere_tot'), &
+         mhist_on('f_co2_net_tot'), mhist_on('f_totcol_methane'), &
+         mhist_on('f_grnd_methane_cond')])
+
+      need_main_concentrations = any([ &
+         mhist_on('f_conc_o2'), mhist_on('f_conc_methane')])
+
+      need_unsat_sat = any([ &
+         mhist_on('f_net_methane_unsat'), mhist_on('f_net_methane_sat'), &
+         mhist_on('f_methane_prod_depth_unsat'), mhist_on('f_methane_prod_depth_sat'), &
+         mhist_on('f_methane_oxid_depth_unsat'), mhist_on('f_methane_oxid_depth_sat'), &
+         mhist_on('f_o2_decomp_depth_unsat'), mhist_on('f_o2_decomp_depth_sat'), &
+         mhist_on('f_o2_oxid_depth_unsat'), mhist_on('f_o2_oxid_depth_sat'), &
+         mhist_on('f_o2_aere_depth_unsat'), mhist_on('f_o2_aere_depth_sat'), &
+         mhist_on('f_o2stress_unsat'), mhist_on('f_o2stress_sat'), &
+         mhist_on('f_methane_stress_unsat'), mhist_on('f_methane_stress_sat'), &
+         mhist_on('f_methane_aere_depth_unsat'), mhist_on('f_methane_aere_depth_sat'), &
+         mhist_on('f_methane_tran_depth_unsat'), mhist_on('f_methane_tran_depth_sat'), &
+         mhist_on('f_methane_ebul_depth_unsat'), mhist_on('f_methane_ebul_depth_sat'), &
+         mhist_on('f_co2_decomp_depth_unsat'), mhist_on('f_co2_decomp_depth_sat'), &
+         mhist_on('f_co2_oxid_depth_unsat'), mhist_on('f_co2_oxid_depth_sat'), &
+         mhist_on('f_co2_aere_depth_unsat'), mhist_on('f_co2_aere_depth_sat'), &
+         mhist_on('f_co2_decomp_tot_unsat'), mhist_on('f_co2_decomp_tot_sat'), &
+         mhist_on('f_co2_oxid_tot_unsat'), mhist_on('f_co2_oxid_tot_sat'), &
+         mhist_on('f_co2_net_tot_unsat'), mhist_on('f_co2_net_tot_sat'), &
+         mhist_on('f_methane_surf_flux_tot_unsat'), mhist_on('f_methane_surf_flux_tot_sat'), &
+         mhist_on('f_methane_surf_aere_unsat'), mhist_on('f_methane_surf_aere_sat'), &
+         mhist_on('f_methane_surf_ebul_unsat'), mhist_on('f_methane_surf_ebul_sat'), &
+         mhist_on('f_methane_surf_diff_unsat'), mhist_on('f_methane_surf_diff_sat'), &
+         mhist_on('f_methane_ebul_tot_unsat'), mhist_on('f_methane_ebul_tot_sat'), &
+         mhist_on('f_methane_prod_tot_unsat'), mhist_on('f_methane_prod_tot_sat'), &
+         mhist_on('f_methane_oxid_tot_unsat'), mhist_on('f_methane_oxid_tot_sat'), &
+         mhist_on('f_totcol_methane_unsat'), mhist_on('f_totcol_methane_sat'), &
+         mhist_on('f_grnd_methane_cond_unsat'), mhist_on('f_grnd_methane_cond_sat'), &
+         mhist_on('f_conc_o2_unsat'), mhist_on('f_conc_o2_sat'), &
+         mhist_on('f_conc_methane_unsat'), mhist_on('f_conc_methane_sat')])
+
+      need_lake = any([ &
+         mhist_on('f_methane_prod_depth_lake'), mhist_on('f_methane_oxid_depth_lake'), &
+         mhist_on('f_co2_decomp_depth_lake'), mhist_on('f_co2_oxid_depth_lake'), &
+         mhist_on('f_methane_ebul_depth_lake'), mhist_on('f_methane_surf_ebul_lake'), &
+         mhist_on('f_methane_surf_diff_lake'), mhist_on('f_methane_surf_flux_tot_lake'), &
+         mhist_on('f_methane_prod_tot_lake'), mhist_on('f_methane_oxid_tot_lake'), &
+         mhist_on('f_methane_ebul_tot_lake'), mhist_on('f_co2_decomp_tot_lake'), &
+         mhist_on('f_co2_oxid_tot_lake'), mhist_on('f_co2_net_tot_lake'), &
+         mhist_on('f_totcol_methane_lake'), mhist_on('f_grnd_methane_cond_lake'), &
+         mhist_on('f_conc_o2_lake'), mhist_on('f_conc_methane_lake'), &
+         mhist_on('f_methane_surf_flux_tot'), mhist_on('f_methane_surf_flux_lake'), &
+         mhist_on('f_methane_surf_flux_lake_intensive'), &
+         mhist_on('f_methane_surf_flux_global_total_with_lake'), &
+         mhist_on('f_methane_surf_flux_global_phys_with_lake'), &
+         mhist_on('f_methane_balance_residual_global_with_lake'), &
+         mhist_on('f_methane_ch4_clip_credit_global_with_lake')])
+
+      need_extras = any([ &
+         mhist_on('f_forc_pmethanem'), mhist_on('f_layer_sat_lag'), &
+         mhist_on('f_annavg_agnpp'), mhist_on('f_annavg_bgnpp'), &
+         mhist_on('f_annavg_somhr'), mhist_on('f_annavg_finrw'), &
+         mhist_on('f_methane_dfsat_tot'), mhist_on('f_f_h2osfc'), &
+         mhist_on('f_methane_finundated'), mhist_on('f_methane_soil_finundated'), &
+         mhist_on('f_methane_soil_zwt'), mhist_on('f_inund_flood_patch'), &
+         mhist_on('f_inund_flood_depth_patch'), mhist_on('f_wetland_frac_patch'), &
+         mhist_on('f_methane_surf_flux_wetland'), mhist_on('f_methane_surf_flux_soil'), &
+         mhist_on('f_methane_surf_flux_lake'), mhist_on('f_methane_surf_flux_rice'), &
+         mhist_on('f_methane_surf_flux_lake_intensive'), &
+         mhist_on('f_methane_surf_flux_rice_intensive')])
+
+      need_microbes = DEF_METHANE%use_microbial_pools .and. any([ &
+         mhist_on('f_methane_B_methanogen'), mhist_on('f_methane_B_methanotroph'), &
+         mhist_on('f_methane_B_methanogen_dormant'), mhist_on('f_methane_B_methanotroph_dormant'), &
+         mhist_on('f_methane_microbe_f_T_methanogen'), mhist_on('f_methane_microbe_f_S_methanogen'), &
+         mhist_on('f_methane_microbe_f_O2_methanogen'), mhist_on('f_methane_microbe_f_T_methanotroph'), &
+         mhist_on('f_methane_methanogen_growth_rate'), mhist_on('f_methane_methanotroph_growth_rate'), &
+         mhist_on('f_methane_microbial_prod_potential'), mhist_on('f_methane_microbial_oxid_potential')])
+
+      cached_write_history = DEF_METHANE%write_ch4_history
+      cached_microbial_pools = DEF_METHANE%use_microbial_pools
+      cached_history_vars = DEF_METHANE%ch4_history_vars
+      history_groups_initialized = .true.
+      ENDIF
+
+      need_active_count = need_main_layers .or. need_main_surface .or. need_main_totals .or. &
+                          need_main_concentrations .or. need_extras
+      need_patch_mask = need_active_count .or. need_unsat_sat
+      need_any = need_active_count .or. need_unsat_sat .or. need_lake .or. need_microbes
+      IF (.not. need_any) RETURN
+
 	      ! Build the methane-active patch mask once via BgcLink helper so
 	      ! AccFlux / history filters match the driver gate (CoLMDRIVER.F90
 	      ! ~line 380) exactly, including the rice paddy override on patchtype==0
 	      ! rice tiles.
 	      ! Base wetland/soil mask: (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
 	      ! save attribute amortises allocation across CN timesteps.
-	      IF (allocated(methane_active_mask)) THEN
-	         IF (size(methane_active_mask) /= size(patchtype)) deallocate(methane_active_mask)
+	      IF (need_patch_mask) THEN
+	         IF (allocated(methane_active_mask)) THEN
+	            IF (size(methane_active_mask) /= size(patchtype)) deallocate(methane_active_mask)
+	         ENDIF
+	         IF (.not. allocated(methane_active_mask)) allocate(methane_active_mask(size(patchtype)))
+	         methane_active_mask = (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
+	         CALL methane_patch_active_mask (size(patchtype), DEF_METHANE%only_wetland, &
+	                                          DEF_METHANE%enable_rice_paddy, patchtype, &
+	                                          methane_active_mask)
 	      ENDIF
-	      IF (.not. allocated(methane_active_mask)) allocate(methane_active_mask(size(patchtype)))
-	      methane_active_mask = (patchtype == 2) .or. ((.not. DEF_METHANE%only_wetland) .and. patchtype == 0)
-	      CALL methane_patch_active_mask (size(patchtype), DEF_METHANE%only_wetland, &
-	                                       DEF_METHANE%enable_rice_paddy, patchtype, &
-	                                       methane_active_mask)
 
       ! sum data
+      IF (need_main_layers) THEN
       CALL acc1d (net_methane           , a_net_methane           )
       CALL acc2d (methane_prod_depth    , a_methane_prod_depth    )
       CALL acc2d (o2_decomp_depth       , a_o2_decomp_depth       )
@@ -798,37 +1002,57 @@ CONTAINS
       CALL acc2d (methane_ebul_depth    , a_methane_ebul_depth    )
       CALL acc2d (o2stress              , a_o2stress              )
       CALL acc2d (methane_stress        , a_methane_stress        )
+      ENDIF
+      IF (need_main_surface) THEN
       CALL acc1d (methane_surf_flux_tot , a_methane_surf_flux_tot )
       CALL acc1d (methane_surf_flux_tot_phys, a_methane_surf_flux_tot_phys)
       CALL acc1d (methane_surf_aere     , a_methane_surf_aere     )
       CALL acc1d (methane_surf_ebul     , a_methane_surf_ebul     )
       CALL acc1d (methane_surf_diff     , a_methane_surf_diff     )
+      CALL acc1d (methane_surf_aere_soil, a_methane_surf_aere_soil)
+      CALL acc1d (methane_surf_aere_rice, a_methane_surf_aere_rice)
+      CALL acc1d (methane_surf_ebul_soil, a_methane_surf_ebul_soil)
+      CALL acc1d (methane_surf_ebul_rice, a_methane_surf_ebul_rice)
+      CALL acc1d (methane_surf_diff_soil, a_methane_surf_diff_soil)
+      CALL acc1d (methane_surf_diff_rice, a_methane_surf_diff_rice)
       CALL acc1d (methane_surf_diff_phys, a_methane_surf_diff_phys)
       CALL acc1d (methane_balance_residual, a_methane_balance_residual)
       CALL acc1d (methane_ch4_clip_credit, a_methane_ch4_clip_credit)
       CALL acc1d (o2_cap_loss, a_o2_cap_loss)
       CALL acc1d (o2_cap_gain, a_o2_cap_gain)
+      ENDIF
+      IF (need_main_totals) THEN
       CALL acc1d (methane_ebul_tot      , a_methane_ebul_tot      )
       CALL acc1d (methane_prod_tot      , a_methane_prod_tot      )
       CALL acc1d (methane_oxid_tot      , a_methane_oxid_tot      )
+      CALL acc1d (methane_prod_tot_soil , a_methane_prod_tot_soil )
+      CALL acc1d (methane_prod_tot_rice , a_methane_prod_tot_rice )
+      CALL acc1d (methane_oxid_tot_soil , a_methane_oxid_tot_soil )
+      CALL acc1d (methane_oxid_tot_rice , a_methane_oxid_tot_rice )
       CALL acc1d (co2_decomp_tot        , a_co2_decomp_tot        )
       CALL acc1d (co2_oxid_tot          , a_co2_oxid_tot          )
       CALL acc1d (co2_aere_tot          , a_co2_aere_tot          )
       CALL acc1d (co2_net_tot           , a_co2_net_tot           )
       CALL acc1d (totcol_methane        , a_totcol_methane        )
       CALL acc1d (grnd_methane_cond     , a_grnd_methane_cond     )
+      ENDIF
+      IF (need_main_concentrations) THEN
       CALL acc2d (conc_o2               , a_conc_o2               )
       CALL acc2d (conc_methane          , a_conc_methane          )
+      ENDIF
       ! Match the exact driver gate at CoLMDRIVER.F90:381-384:
       !   only_wetland=.true.  -> patchtype == 2 only
       !   only_wetland=.false. -> patchtype == 2 .or. patchtype == 0
       ! Urban (1) is NEVER an active CH4 patch; the previous "patchtype<=2"
       ! mask wrongly counted urban (and counted soil even under only_wetland),
       ! diluting per-grid-cell averages at history time.
-      CALL acc_count1d_masked (totcol_methane, a_methane_acc_num, &
-                               methane_active_mask)
+      IF (need_active_count) THEN
+         CALL acc_count1d_masked (totcol_methane, a_methane_acc_num, &
+                                  methane_active_mask)
+      ENDIF
 
       ! unsat/sat data
+      IF (need_unsat_sat) THEN
       CALL acc1d (net_methane_unsat        , a_net_methane_unsat        )
       CALL acc1d (net_methane_sat          , a_net_methane_sat          )
       CALL acc2d (methane_prod_depth_unsat , a_methane_prod_depth_unsat )
@@ -889,8 +1113,10 @@ CONTAINS
                                methane_active_mask)
       CALL acc_count1d_masked (totcol_methane_sat,   a_methane_acc_num_sat,   &
                                methane_active_mask)
+      ENDIF
 
       ! lake data
+      IF (need_lake) THEN
       CALL acc2d (methane_prod_depth_lake , a_methane_prod_depth_lake )
       CALL acc2d (methane_oxid_depth_lake , a_methane_oxid_depth_lake )
       CALL acc2d (methane_ebul_depth_lake , a_methane_ebul_depth_lake )
@@ -917,8 +1143,10 @@ CONTAINS
       ! but a clean lake-only count avoids relying on the filter for math.
       CALL acc_count1d_masked (totcol_methane_lake, a_methane_acc_num_lake, &
                                patchtype == 4 .and. DEF_METHANE%allowlakeprod)
+      ENDIF
 
       ! extras
+      IF (need_extras) THEN
       CALL acc1d (forc_pmethanem    , a_forc_pmethanem    )
       CALL acc2d (layer_sat_lag     , a_layer_sat_lag     )
       CALL acc1d (annavg_agnpp      , a_annavg_agnpp      )
@@ -938,10 +1166,12 @@ CONTAINS
 	      CALL acc1d (methane_surf_flux_soil    , a_methane_surf_flux_soil    )
 	      CALL acc1d (methane_surf_flux_lake    , a_methane_surf_flux_lake    )
 	      CALL acc1d (methane_surf_flux_rice    , a_methane_surf_flux_rice    )
+	      CALL acc1d (rice_fraction_prev        , a_methane_rice_fraction     )
 	      CALL acc_count1d (forc_pmethanem, a_methane_acc_num_extra)
+      ENDIF
 
       ! optional microbial-pool diagnostics
-      IF (DEF_METHANE%use_microbial_pools) THEN
+      IF (need_microbes) THEN
          CALL acc2d (B_methanogen             , a_B_methanogen             )
          CALL acc2d (B_methanotroph           , a_B_methanotroph           )
          CALL acc2d (B_methanogen_dormant     , a_B_methanogen_dormant     )
@@ -963,10 +1193,24 @@ CONTAINS
    SUBROUTINE write_methane_accflux_restart (file_restart, compress)
       USE MOD_LandPatch,    only: landpatch
       USE MOD_NetCDFVector, only: ncio_write_vector
+      USE MOD_SPMD_Task,    only: p_is_worker
       character(len=*), intent(in) :: file_restart
       integer,          intent(in) :: compress
+      real(r8), allocatable :: selector_marker(:)
+      real(r8) :: selector_fingerprint
 
       IF (.not. allocated(a_methane_acc_num)) RETURN
+
+      selector_fingerprint = real(methane_history_selector_fingerprint(), r8)
+      IF (p_is_worker) THEN
+         allocate(selector_marker(landpatch%nset))
+         selector_marker(:) = selector_fingerprint
+      ELSE
+         allocate(selector_marker(0))
+      ENDIF
+      CALL ncio_write_vector(file_restart, 'ch4_acc_history_selector_hash', &
+         'patch', landpatch, selector_marker, compress)
+      deallocate(selector_marker)
 
       IF (allocated(a_net_methane)) CALL ncio_write_vector (file_restart, 'ch4_a_net_methane', &
          'patch', landpatch, a_net_methane, compress)
@@ -1006,6 +1250,18 @@ CONTAINS
          'patch', landpatch, a_methane_surf_ebul, compress)
       IF (allocated(a_methane_surf_diff)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff', &
          'patch', landpatch, a_methane_surf_diff, compress)
+      IF (allocated(a_methane_surf_aere_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_aere_soil', &
+         'patch', landpatch, a_methane_surf_aere_soil, compress)
+      IF (allocated(a_methane_surf_aere_rice)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_aere_rice', &
+         'patch', landpatch, a_methane_surf_aere_rice, compress)
+      IF (allocated(a_methane_surf_ebul_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_ebul_soil', &
+         'patch', landpatch, a_methane_surf_ebul_soil, compress)
+      IF (allocated(a_methane_surf_ebul_rice)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_ebul_rice', &
+         'patch', landpatch, a_methane_surf_ebul_rice, compress)
+      IF (allocated(a_methane_surf_diff_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_soil', &
+         'patch', landpatch, a_methane_surf_diff_soil, compress)
+      IF (allocated(a_methane_surf_diff_rice)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_rice', &
+         'patch', landpatch, a_methane_surf_diff_rice, compress)
       IF (allocated(a_methane_surf_diff_phys)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_surf_diff_phys', &
          'patch', landpatch, a_methane_surf_diff_phys, compress)
       IF (allocated(a_methane_balance_residual)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_balance_residual', &
@@ -1022,6 +1278,14 @@ CONTAINS
          'patch', landpatch, a_methane_prod_tot, compress)
       IF (allocated(a_methane_oxid_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot', &
          'patch', landpatch, a_methane_oxid_tot, compress)
+      IF (allocated(a_methane_prod_tot_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_tot_soil', &
+         'patch', landpatch, a_methane_prod_tot_soil, compress)
+      IF (allocated(a_methane_prod_tot_rice)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_prod_tot_rice', &
+         'patch', landpatch, a_methane_prod_tot_rice, compress)
+      IF (allocated(a_methane_oxid_tot_soil)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot_soil', &
+         'patch', landpatch, a_methane_oxid_tot_soil, compress)
+      IF (allocated(a_methane_oxid_tot_rice)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_oxid_tot_rice', &
+         'patch', landpatch, a_methane_oxid_tot_rice, compress)
       IF (allocated(a_co2_decomp_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_decomp_tot', &
          'patch', landpatch, a_co2_decomp_tot, compress)
       IF (allocated(a_co2_oxid_tot)) CALL ncio_write_vector (file_restart, 'ch4_a_co2_oxid_tot', &
@@ -1258,6 +1522,8 @@ CONTAINS
          'patch', landpatch, a_methane_acc_num_extra, compress)
       IF (allocated(a_annavg_finrw_acc_num)) CALL ncio_write_vector (file_restart, 'ch4_a_annavg_finrw_acc_num', &
          'patch', landpatch, a_annavg_finrw_acc_num, compress)
+	  IF (allocated(a_methane_rice_fraction)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_rice_fraction', &
+	     'patch', landpatch, a_methane_rice_fraction, compress)
       IF (allocated(a_methane_acc_num_microbe)) CALL ncio_write_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
          'patch', landpatch, a_methane_acc_num_microbe, compress)
    END SUBROUTINE write_methane_accflux_restart
@@ -1267,14 +1533,52 @@ CONTAINS
       USE MOD_LandPatch,    only: landpatch
       USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete, &
          ncio_vector_var_present
-      USE MOD_SPMD_Task,    only: p_is_master
+#ifdef USEMPI
+      USE MOD_SPMD_Task,    only: p_is_master, p_is_worker, p_comm_glb, p_err, &
+         MPI_IN_PLACE, MPI_LOGICAL, MPI_LOR
+#else
+      USE MOD_SPMD_Task,    only: p_is_master, p_is_worker
+#endif
+	  USE MOD_Tracer_Reactive_Methane_State, only: rice_fraction_prev
       character(len=*), intent(in) :: file_restart
-      logical :: has_microbe_accumulator
+      logical :: has_microbe_accumulator, has_rice_fraction_accumulator
+      logical :: has_history_selector_marker, history_selector_changed
+      real(r8), allocatable :: selector_marker(:)
+      real(r8) :: selector_fingerprint
 
       IF (.not. allocated(a_methane_acc_num)) RETURN
 
+      selector_fingerprint = real(methane_history_selector_fingerprint(), r8)
+      has_history_selector_marker = ncio_vector_var_present( &
+         file_restart, 'ch4_acc_history_selector_hash', landpatch)
+      history_selector_changed = .false.
+      IF (has_history_selector_marker) THEN
+         CALL ncio_read_vector(file_restart, 'ch4_acc_history_selector_hash', &
+            landpatch, selector_marker)
+         IF (p_is_worker .and. allocated(selector_marker)) THEN
+            history_selector_changed = any(selector_marker /= selector_fingerprint)
+         ENDIF
+#ifdef USEMPI
+         CALL mpi_allreduce(MPI_IN_PLACE, history_selector_changed, 1, MPI_LOGICAL, MPI_LOR, &
+            p_comm_glb, p_err)
+#endif
+         IF (allocated(selector_marker)) deallocate(selector_marker)
+      ELSE
+         IF (p_is_master) WRITE(*,'(A)') &
+            'WARNING: legacy restart has no CH4 history-selector marker; assuming its accumulators were ' // &
+            'produced by the pre-gating all-fields path and preserving the partial history window.'
+      ENDIF
+      IF (history_selector_changed) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'WARNING: CH4 history selection changed across restart; starting a clean accumulation window.'
+         CALL flush_methane_acc_fluxes ()
+         RETURN
+      ENDIF
+
       has_microbe_accumulator = ncio_vector_var_present( &
          file_restart, 'ch4_a_methane_acc_num_microbe', landpatch)
+	  has_rice_fraction_accumulator = ncio_vector_var_present( &
+	     file_restart, 'ch4_a_methane_rice_fraction', landpatch)
       IF (p_is_master) THEN
          IF (DEF_METHANE%use_microbial_pools) THEN
             IF (.not. has_microbe_accumulator) THEN
@@ -1327,6 +1631,18 @@ CONTAINS
          landpatch, a_methane_surf_ebul, defval = 0._r8)
       IF (allocated(a_methane_surf_diff)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff', &
          landpatch, a_methane_surf_diff, defval = 0._r8)
+      IF (allocated(a_methane_surf_aere_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_aere_soil', &
+         landpatch, a_methane_surf_aere_soil, defval = 0._r8)
+      IF (allocated(a_methane_surf_aere_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_aere_rice', &
+         landpatch, a_methane_surf_aere_rice, defval = 0._r8)
+      IF (allocated(a_methane_surf_ebul_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_ebul_soil', &
+         landpatch, a_methane_surf_ebul_soil, defval = 0._r8)
+      IF (allocated(a_methane_surf_ebul_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_ebul_rice', &
+         landpatch, a_methane_surf_ebul_rice, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_soil', &
+         landpatch, a_methane_surf_diff_soil, defval = 0._r8)
+      IF (allocated(a_methane_surf_diff_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_rice', &
+         landpatch, a_methane_surf_diff_rice, defval = 0._r8)
       IF (allocated(a_methane_surf_diff_phys)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_diff_phys', &
          landpatch, a_methane_surf_diff_phys, defval = 0._r8)
       IF (allocated(a_methane_balance_residual)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_balance_residual', &
@@ -1343,6 +1659,14 @@ CONTAINS
          landpatch, a_methane_prod_tot, defval = 0._r8)
       IF (allocated(a_methane_oxid_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot', &
          landpatch, a_methane_oxid_tot, defval = 0._r8)
+      IF (allocated(a_methane_prod_tot_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_tot_soil', &
+         landpatch, a_methane_prod_tot_soil, defval = 0._r8)
+      IF (allocated(a_methane_prod_tot_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_prod_tot_rice', &
+         landpatch, a_methane_prod_tot_rice, defval = 0._r8)
+      IF (allocated(a_methane_oxid_tot_soil)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot_soil', &
+         landpatch, a_methane_oxid_tot_soil, defval = 0._r8)
+      IF (allocated(a_methane_oxid_tot_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_oxid_tot_rice', &
+         landpatch, a_methane_oxid_tot_rice, defval = 0._r8)
       IF (allocated(a_co2_decomp_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_decomp_tot', &
          landpatch, a_co2_decomp_tot, defval = 0._r8)
       IF (allocated(a_co2_oxid_tot)) CALL ncio_read_vector (file_restart, 'ch4_a_co2_oxid_tot', &
@@ -1579,6 +1903,11 @@ CONTAINS
          landpatch, a_methane_acc_num_extra, defval = 0._r8)
       IF (allocated(a_annavg_finrw_acc_num)) CALL ncio_read_vector (file_restart, 'ch4_a_annavg_finrw_acc_num', &
          landpatch, a_annavg_finrw_acc_num, defval = 0._r8)
+	  IF (allocated(a_methane_rice_fraction)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_rice_fraction', &
+	     landpatch, a_methane_rice_fraction, defval = 0._r8)
+	  IF (allocated(a_methane_rice_fraction) .and. .not. has_rice_fraction_accumulator) THEN
+	     a_methane_rice_fraction = a_methane_acc_num*rice_fraction_prev
+	  ENDIF
       IF (allocated(a_methane_acc_num_microbe)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
          landpatch, a_methane_acc_num_microbe, defval = 0._r8)
    END SUBROUTINE read_methane_accflux_restart
@@ -1606,6 +1935,12 @@ CONTAINS
       IF (allocated(a_methane_surf_aere    )) deallocate (a_methane_surf_aere    )
       IF (allocated(a_methane_surf_ebul    )) deallocate (a_methane_surf_ebul    )
       IF (allocated(a_methane_surf_diff    )) deallocate (a_methane_surf_diff    )
+      IF (allocated(a_methane_surf_aere_soil)) deallocate (a_methane_surf_aere_soil)
+      IF (allocated(a_methane_surf_aere_rice)) deallocate (a_methane_surf_aere_rice)
+      IF (allocated(a_methane_surf_ebul_soil)) deallocate (a_methane_surf_ebul_soil)
+      IF (allocated(a_methane_surf_ebul_rice)) deallocate (a_methane_surf_ebul_rice)
+      IF (allocated(a_methane_surf_diff_soil)) deallocate (a_methane_surf_diff_soil)
+      IF (allocated(a_methane_surf_diff_rice)) deallocate (a_methane_surf_diff_rice)
       IF (allocated(a_methane_surf_diff_phys)) deallocate (a_methane_surf_diff_phys)
       IF (allocated(a_methane_balance_residual)) deallocate (a_methane_balance_residual)
       IF (allocated(a_methane_ch4_clip_credit)) deallocate (a_methane_ch4_clip_credit)
@@ -1614,6 +1949,10 @@ CONTAINS
       IF (allocated(a_methane_ebul_tot     )) deallocate (a_methane_ebul_tot     )
       IF (allocated(a_methane_prod_tot     )) deallocate (a_methane_prod_tot     )
       IF (allocated(a_methane_oxid_tot     )) deallocate (a_methane_oxid_tot     )
+      IF (allocated(a_methane_prod_tot_soil)) deallocate (a_methane_prod_tot_soil)
+      IF (allocated(a_methane_prod_tot_rice)) deallocate (a_methane_prod_tot_rice)
+      IF (allocated(a_methane_oxid_tot_soil)) deallocate (a_methane_oxid_tot_soil)
+      IF (allocated(a_methane_oxid_tot_rice)) deallocate (a_methane_oxid_tot_rice)
       IF (allocated(a_co2_decomp_tot       )) deallocate (a_co2_decomp_tot       )
       IF (allocated(a_co2_oxid_tot         )) deallocate (a_co2_oxid_tot         )
       IF (allocated(a_co2_aere_tot         )) deallocate (a_co2_aere_tot         )
@@ -1740,6 +2079,7 @@ CONTAINS
       IF (allocated(a_methane_acc_num_lake   )) deallocate (a_methane_acc_num_lake   )
       IF (allocated(a_methane_acc_num_extra  )) deallocate (a_methane_acc_num_extra  )
       IF (allocated(a_annavg_finrw_acc_num    )) deallocate (a_annavg_finrw_acc_num    )
+	  IF (allocated(a_methane_rice_fraction   )) deallocate (a_methane_rice_fraction   )
       IF (allocated(a_methane_acc_num_microbe)) deallocate (a_methane_acc_num_microbe)
 
    END SUBROUTINE deallocate_methane_acc_fluxes

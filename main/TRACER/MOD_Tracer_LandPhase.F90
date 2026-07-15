@@ -169,6 +169,7 @@ CONTAINS
       ! Fortran's "already allocated" runtime check, OR the save-level
       ! snap_* arrays in MOD_Tracer_Conservation would keep the old
       ! numpatch and then misalign with the new tracer arrays.
+      CALL tracer_reactive_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
       CALL tracer_defs_init()
@@ -253,12 +254,13 @@ CONTAINS
 
    END SUBROUTINE tracer_lake_step
 
-   SUBROUTINE tracer_wetland_decomp (ipatch)
+   SUBROUTINE tracer_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
 
-      CALL tracer_reactive_wetland_decomp (ipatch)
+      CALL tracer_reactive_wetland_decomp (ipatch, deltim)
 
    END SUBROUTINE tracer_wetland_decomp
 

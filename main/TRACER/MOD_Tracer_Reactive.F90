@@ -54,8 +54,10 @@ MODULE MOD_Tracer_Reactive
          integer,  intent(in) :: nsub
       END SUBROUTINE reactive_lake_step_if
 
-      SUBROUTINE reactive_wetland_decomp_if (ipatch)
+      SUBROUTINE reactive_wetland_decomp_if (ipatch, deltim)
+         USE MOD_Precision
          integer, intent(in) :: ipatch
+         real(r8), intent(in) :: deltim
       END SUBROUTINE reactive_wetland_decomp_if
 
       SUBROUTINE reactive_soil_step_if (istep_local, ipatch, idate, deltim)
@@ -91,6 +93,11 @@ MODULE MOD_Tracer_Reactive
          real(r8), intent(in), optional :: old_patch_area(:)
       END SUBROUTINE reactive_remap_lulcc_if
 
+      SUBROUTINE reactive_reload_lulcc_if (dir_landdata, lc_year)
+         character(len=*), intent(in) :: dir_landdata
+         integer, intent(in) :: lc_year
+      END SUBROUTINE reactive_reload_lulcc_if
+
       SUBROUTINE reactive_publish_levee_flood_if (fldfrc_patch)
          USE MOD_Precision
          real(r8), intent(in) :: fldfrc_patch(:)
@@ -124,7 +131,7 @@ MODULE MOD_Tracer_Reactive
       procedure(reactive_history_if),         pointer, nopass :: history => null()
       procedure(reactive_noarg_if),           pointer, nopass :: save_lulcc => null()
       procedure(reactive_remap_lulcc_if),     pointer, nopass :: remap_lulcc => null()
-      procedure(reactive_noarg_if),           pointer, nopass :: reload_lulcc => null()
+      procedure(reactive_reload_lulcc_if),    pointer, nopass :: reload_lulcc => null()
       procedure(reactive_publish_levee_flood_if), pointer, nopass :: publish_levee_flood => null()
       procedure(reactive_publish_flood_if),    pointer, nopass :: publish_flood => null()
       procedure(reactive_noarg_if),           pointer, nopass :: final => null()
@@ -201,7 +208,7 @@ CONTAINS
       procedure(reactive_history_if),        optional :: history_fn
       procedure(reactive_noarg_if),          optional :: save_lulcc_fn
       procedure(reactive_remap_lulcc_if),    optional :: remap_lulcc_fn
-      procedure(reactive_noarg_if),          optional :: reload_lulcc_fn
+      procedure(reactive_reload_lulcc_if),   optional :: reload_lulcc_fn
       procedure(reactive_publish_levee_flood_if), optional :: publish_levee_flood_fn
       procedure(reactive_publish_flood_if),  optional :: publish_flood_fn
       procedure(reactive_noarg_if),          optional :: final_fn
@@ -502,17 +509,18 @@ CONTAINS
 
    END SUBROUTINE tracer_reactive_lake_step
 
-   SUBROUTINE tracer_reactive_wetland_decomp (ipatch)
+   SUBROUTINE tracer_reactive_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
       integer :: i
 
       CALL prepare_reactive_dispatch ()
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%wetland_decomp)) THEN
-            CALL reactive_callbacks(i)%wetland_decomp (ipatch)
+            CALL reactive_callbacks(i)%wetland_decomp (ipatch, deltim)
          ENDIF
       ENDDO
 
@@ -655,16 +663,18 @@ CONTAINS
 
    END SUBROUTINE tracer_reactive_remap_lulcc_state
 
-   SUBROUTINE tracer_reactive_reload_lulcc_inputs ()
+   SUBROUTINE tracer_reactive_reload_lulcc_inputs (dir_landdata, lc_year)
 
       IMPLICIT NONE
+      character(len=*), intent(in) :: dir_landdata
+      integer, intent(in) :: lc_year
       integer :: i
 
       CALL prepare_reactive_dispatch ()
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%reload_lulcc)) THEN
-            CALL reactive_callbacks(i)%reload_lulcc ()
+            CALL reactive_callbacks(i)%reload_lulcc (dir_landdata, lc_year)
          ENDIF
       ENDDO
 

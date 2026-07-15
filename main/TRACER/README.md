@@ -46,6 +46,29 @@ Current CH4 legacy raw-array boundaries are intentionally narrow:
   facade/history boundary. History output is the only current external reader
   of those accumulator arrays.
 
+## Methane model contract
+
+The implemented CH4 model is an offline land diagnostic. It predicts soil,
+wetland, rice-paddy, and reduced-order lake-sediment CH4 fluxes, but it does
+not feed those fluxes back into an atmospheric CH4 state. Wetland production
+uses the BGC decomposition cascade and debits its donor C/N pools at source;
+the emitted CH4 flux does not apply a second carbon-budget debit.
+`DEF_METHANE%methane_offline` must therefore remain true; requesting online
+coupling is rejected instead of silently running the offline equations.
+
+Lake CH4 is a reduced-order sediment-column-to-atmosphere calculation. The
+soil-like lake sediment column represents production, oxidation, diffusion,
+and ebullition below the interface. There is no resolved lake-water CH4/O2
+column, storage, overturning, ice-cover transport, or air-water piston model.
+`allowlakeprod` enables this reduced-order pathway only; it must not be read as
+enabling a complete aquatic methane model.
+
+The physical surface-flux diagnostics exclude numerical concentration clipping
+and column-balance corrections. Corrected diagnostics include those terms so
+that restart-to-restart inventory budgets close. Both forms, together with the
+explicit correction terms, must remain observable; numerical closure must not
+be mistaken for a physical emission process.
+
 ## Isotope fractionation physics
 
 Conservative/isotope tracer transport stays generic over `itrc = 1, ntracers`.

@@ -241,11 +241,11 @@ CONTAINS
       USE MOD_NetCDFVector, only: ncio_vector_var_present
       IMPLICIT NONE
       character(len=*), intent(in) :: file_restart
-      logical :: file_has_pools
+      logical :: file_has_pools, component_state_required
 
       IF (.not. ch4_reactive_has()) RETURN
-      CALL validate_methane_restart_transaction (file_restart)
-      CALL read_methane_restart (file_restart)
+      CALL validate_methane_restart_transaction (file_restart, component_state_required)
+      CALL read_methane_restart (file_restart, component_state_required)
       CALL read_methane_accflux_restart (file_restart)
 
       ! C4: warn on a microbial-pool restart<->runtime-flag mismatch. The read
@@ -265,7 +265,7 @@ CONTAINS
       ENDIF
 
       IF (DEF_METHANE%use_microbial_pools) THEN
-         CALL read_methane_microbes_restart (file_restart)
+         CALL read_methane_microbes_restart (file_restart, component_state_required .and. file_has_pools)
       ENDIF
 
    END SUBROUTINE ch4_reactive_read_restart
@@ -281,7 +281,7 @@ CONTAINS
       ! final marker is written only after state, accumulators and optional
       ! microbial pools have all completed on every vector block.
       CALL write_methane_restart_marker(file_restart, 'ch4_restart_complete', 0._r8, compress)
-      CALL write_methane_restart_marker(file_restart, 'ch4_restart_schema', 1._r8, compress)
+      CALL write_methane_restart_marker(file_restart, 'ch4_restart_schema', 2._r8, compress)
       CALL write_methane_restart(file_restart, compress)
       CALL write_methane_accflux_restart(file_restart, compress)
       CALL write_methane_microbes_restart(file_restart, compress)
@@ -310,7 +310,7 @@ CONTAINS
 
    END SUBROUTINE write_methane_restart_marker
 
-   SUBROUTINE validate_methane_restart_transaction (file_restart)
+   SUBROUTINE validate_methane_restart_transaction (file_restart, component_state_required)
 
       USE MOD_LandPatch, only: landpatch
       USE MOD_NetCDFVector, only: ncio_read_vector_complete, ncio_vector_var_present
@@ -322,13 +322,16 @@ CONTAINS
 #endif
       IMPLICIT NONE
       character(len=*), intent(in) :: file_restart
+      logical, intent(out) :: component_state_required
       real(r8), allocatable :: schema(:), committed(:)
       logical :: has_schema, has_commit, invalid_marker
+      logical :: schema_v1_present, schema_v2_present
 
       ! Both markers absent identifies a legacy restart.  Any one-sided marker
       ! is an interrupted new-format write and must never fall back to legacy.
       has_schema = ncio_vector_var_present(file_restart, 'ch4_restart_schema', landpatch)
       has_commit = ncio_vector_var_present(file_restart, 'ch4_restart_complete', landpatch)
+      component_state_required = .false.
       IF (.not. has_schema .and. .not. has_commit) RETURN
       IF (.not. has_schema .or. .not. has_commit) THEN
          IF (p_is_master) WRITE(*,'(A)') &
@@ -339,13 +342,27 @@ CONTAINS
       CALL ncio_read_vector_complete(file_restart, 'ch4_restart_schema', landpatch, schema)
       CALL ncio_read_vector_complete(file_restart, 'ch4_restart_complete', landpatch, committed)
       invalid_marker = .false.
+      schema_v1_present = .false.
+      schema_v2_present = .false.
       IF (p_is_worker) THEN
-         IF (allocated(schema)) invalid_marker = invalid_marker .or. any(schema /= 1._r8)
+         IF (allocated(schema)) THEN
+            schema_v1_present = any(abs(schema-1._r8) <= epsilon(1._r8))
+            schema_v2_present = any(abs(schema-2._r8) <= epsilon(1._r8))
+            invalid_marker = invalid_marker .or. &
+               any(schema /= schema .or. &
+                   (abs(schema-1._r8) > epsilon(1._r8) .and. &
+                    abs(schema-2._r8) > epsilon(1._r8)))
+         ENDIF
          IF (allocated(committed)) invalid_marker = invalid_marker .or. any(committed /= 1._r8)
       ENDIF
 #ifdef USEMPI
       CALL mpi_allreduce(MPI_IN_PLACE, invalid_marker, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, schema_v1_present, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, schema_v2_present, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
 #endif
+      invalid_marker = invalid_marker .or. &
+         (schema_v1_present .eqv. schema_v2_present)
+      component_state_required = schema_v2_present
       IF (invalid_marker) THEN
          IF (p_is_master) WRITE(*,'(A)') &
             'ERROR: methane restart transaction is uncommitted or has an unsupported schema.'
@@ -372,12 +389,13 @@ CONTAINS
 
    END SUBROUTINE ch4_reactive_lake_step
 
-   SUBROUTINE ch4_reactive_wetland_decomp (ipatch)
+   SUBROUTINE ch4_reactive_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
 
-      IF (ch4_reactive_has()) CALL ch4_impl_wetland_decomp (ipatch)
+      IF (ch4_reactive_has()) CALL ch4_impl_wetland_decomp (ipatch, deltim)
 
    END SUBROUTINE ch4_reactive_wetland_decomp
 
@@ -463,10 +481,13 @@ CONTAINS
 
    END SUBROUTINE ch4_reactive_remap_lulcc_state
 
-   SUBROUTINE ch4_reactive_reload_lulcc_inputs ()
+   SUBROUTINE ch4_reactive_reload_lulcc_inputs (dir_landdata_lulcc, lc_year_lulcc)
 
       IMPLICIT NONE
+      character(len=*), intent(in) :: dir_landdata_lulcc
+      integer, intent(in) :: lc_year_lulcc
       integer :: nnew
+      character(len=256) :: cyear_lulcc
       real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
@@ -497,7 +518,13 @@ CONTAINS
 
       CALL deallocate_methane_ph ()
       CALL allocate_methane_ph (nnew)
-      IF (DEF_METHANE%use_spatial_ph .and. len_trim(last_methane_ph_patch_file) > 0) THEN
+      IF (DEF_METHANE%use_spatial_ph) THEN
+         IF (len_trim(dir_landdata_lulcc) <= 0 .or. lc_year_lulcc <= 0) THEN
+            CALL CoLM_stop (' ***** ERROR: methane LULCC pH reload requires current landdata directory and year.')
+         ENDIF
+         write(cyear_lulcc,'(i4.4)') lc_year_lulcc
+         last_methane_ph_patch_file = trim(dir_landdata_lulcc)//'/soil/'//trim(cyear_lulcc)// &
+            '/methane_ph_patches.nc'
          CALL read_methane_ph_patch (trim(last_methane_ph_patch_file), nnew)
       ENDIF
 
@@ -529,7 +556,6 @@ CONTAINS
       IMPLICIT NONE
 
       registry_init_reported = .false.
-      IF (.not. ch4_reactive_has()) RETURN
 
       CALL deallocate_methane_acc_fluxes ()
       CALL deallocate_wetland_aere_overrides ()
@@ -537,6 +563,7 @@ CONTAINS
       CALL deallocate_methane_giems ()
       CALL deallocate_methane_microbes_state ()
       CALL deallocate_methane_state ()
+      last_methane_ph_patch_file = ''
 
    END SUBROUTINE ch4_reactive_final
 
