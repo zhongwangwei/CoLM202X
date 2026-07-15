@@ -2158,8 +2158,8 @@ contains
       ! These variables help us swap between saturated and unsaturated boundary conditions
          conc_methane (1:nl_soil)        , &! CH4 conc in each soil layer (mol/m3)
          methane_prod_depth (1:nl_soil)  , &! production of CH4 in each soil layer (mol/m3/s)
-         methane_oxid_depth (1:nl_soil)  , &! oxidation of CH4 already claimed in each soil layer (mol/m3/s)
-         methane_ebul_depth (1:nl_soil)  , &! ebullition CH4 already claimed in each soil layer (mol/m3/s)
+         methane_oxid_depth (1:nl_soil)  , &! oxidation of CH4 (mol/m3/s); retained for interface, no longer used in the aere cap (competition now resolved in methane_tran)
+         methane_ebul_depth (1:nl_soil)  , &! ebullition CH4 (mol/m3/s); retained for interface, no longer used in the aere cap (competition now resolved in methane_tran)
 
          conc_ch4_aqu       (1:nl_soil) , &! aqueous phase CH4 concentration [mol/m3 water]
          conc_ch4_aqu_porsl (1:nl_soil) , &! aqueous phase CH4 conc in each porosity [mol/m3]
@@ -2233,9 +2233,17 @@ contains
          tran_neg = min(tranloss(j), 0._r8)
          aeretran_requested = aere_pos + tran_pos
          if (aeretran_requested > 0._r8) then
+            ! Cap aerenchyma+transpiration loss at the CH4 available this step,
+            ! conc/dt + prod, exactly as CLM4Me does (CTSM ch4_aere).  Do NOT
+            ! subtract oxidation or ebullition here: those are competing sinks,
+            ! and methane_tran already resolves the full oxid/aere/ebul
+            ! competition by scaling every sink by methane_stress when demand
+            ! exceeds supply.  Subtracting them here as well double-limited
+            ! aerenchyma and gave ebullition (and oxidation) an implicit
+            ! priority the CLM4Me scheme does not have; the change makes the
+            ! three sinks compete symmetrically in methane_tran.
             aeretran = min(aeretran_requested, max(0._r8, conc_methane(j)/deltim + &
-               methane_prod_depth(j) - max(methane_oxid_depth(j), 0._r8) - &
-               max(methane_ebul_depth(j), 0._r8)))
+               methane_prod_depth(j)))
             aeretran_scale = aeretran / aeretran_requested
          else
             aeretran_scale = 1._r8
