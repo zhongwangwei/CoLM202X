@@ -69,6 +69,25 @@ that restart-to-restart inventory budgets close. Both forms, together with the
 explicit correction terms, must remain observable; numerical closure must not
 be mistaken for a physical emission process.
 
+## Dissolved concentration limits
+
+Generic nonvolatile land-water solutes may declare a positive
+`DEF_TRACER%max_dissolved_conc` in their mapped parameter file. The default is
+`huge()`, which disables the limit and preserves legacy behavior. The standard
+chloride parameter file sets `1.0e-2 kg Cl / kg water` as the historical model
+safety ceiling.
+
+When a liquid land pool exceeds its capacity, TRACER transfers the excess to a
+location-preserving immobile solid inventory instead of clipping mass. The
+solid inventory is included in restart, LULCC remapping, decay, conservation,
+and history accounting, and redissolves when the same pool rewets. Snow-layer
+solid mass follows the same combine/divide topology as liquid and ice tracer.
+
+This is a constant saturation ceiling, not a thermodynamic salt model. It does
+not represent temperature-dependent solubility, brine rejection, ion activity,
+electroneutrality, or a river/lake solid phase. River/lake transport retains
+its existing dissolved-only ratio bookkeeping.
+
 ## Isotope fractionation physics
 
 Conservative/isotope tracer transport stays generic over `itrc = 1, ntracers`.

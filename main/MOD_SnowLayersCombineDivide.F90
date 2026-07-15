@@ -252,7 +252,7 @@ CONTAINS
    SUBROUTINE snowlayerscombine (lb,snl, &
               z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno,scv,snowdp &
 #ifdef TRACER
-              ,trc_wliq, trc_wice, trc_scv &
+              ,trc_wliq, trc_wice, trc_solid, trc_scv &
 #endif
               )
 
@@ -289,6 +289,7 @@ CONTAINS
    ! Optional TRACER mass arrays aligned with wliq/wice/scv.
    real(r8), intent(inout), optional :: trc_wliq(:, lb:)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
+   real(r8), intent(inout), optional :: trc_solid(:, lb:)
    real(r8), intent(inout), optional :: trc_scv(:)
 #endif
 
@@ -308,7 +309,7 @@ CONTAINS
 
 #ifdef TRACER
    ! TRACER aggregates for the snowdp<0.01 collapse branch
-   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:)
+   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:), zwtrc_solid(:)
    integer :: ntr            ! number of tracers (inferred from trc_wliq shape)
    integer :: itrc
 #endif
@@ -319,8 +320,8 @@ CONTAINS
 #ifdef TRACER
       IF (present(trc_wliq) .and. present(trc_wice)) THEN
          ntr = size(trc_wliq, 1)
-         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr))
-         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8
+         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr), zwtrc_solid(ntr))
+         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8; zwtrc_solid = 0._r8
       ENDIF
 #endif
 
@@ -336,6 +337,8 @@ CONTAINS
                DO itrc = 1, ntr
                   trc_wliq(itrc, j+1) = trc_wliq(itrc, j+1) + trc_wliq(itrc, j)
                   trc_wice(itrc, j+1) = trc_wice(itrc, j+1) + trc_wice(itrc, j)
+                  IF (present(trc_solid)) trc_solid(itrc, j+1) = &
+                     trc_solid(itrc, j+1) + trc_solid(itrc, j)
                ENDDO
             ENDIF
 #endif
@@ -352,6 +355,7 @@ CONTAINS
                      DO itrc = 1, ntr
                         trc_wliq(itrc, i) = trc_wliq(itrc, i-1)
                         trc_wice(itrc, i) = trc_wice(itrc, i-1)
+                        IF (present(trc_solid)) trc_solid(itrc, i) = trc_solid(itrc, i-1)
                      ENDDO
                   ENDIF
 #endif
@@ -360,6 +364,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   trc_wliq(:, snl+1) = 0._r8
                   trc_wice(:, snl+1) = 0._r8
+                  IF (present(trc_solid)) trc_solid(:, snl+1) = 0._r8
                ENDIF
 #endif
             ENDIF
@@ -370,6 +375,7 @@ CONTAINS
                IF (snl >= lb) THEN
                   trc_wliq(:, lb:snl) = 0._r8
                   trc_wice(:, lb:snl) = 0._r8
+                  IF (present(trc_solid)) trc_solid(:, lb:snl) = 0._r8
                ENDIF
             ENDIF
 #endif
@@ -384,7 +390,8 @@ CONTAINS
          snowdp = 0.
 !*       write(6,*) 'all snow has gone'
 #ifdef TRACER
-         IF (present(trc_wliq) .and. present(trc_wice)) deallocate(zwtrc_ice, zwtrc_liq)
+         IF (present(trc_wliq) .and. present(trc_wice)) &
+            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
 #endif
          RETURN
       ELSE
@@ -402,6 +409,8 @@ CONTAINS
                DO itrc = 1, ntr
                   zwtrc_ice(itrc) = zwtrc_ice(itrc) + trc_wice(itrc, j)
                   zwtrc_liq(itrc) = zwtrc_liq(itrc) + trc_wliq(itrc, j)
+                  IF (present(trc_solid)) zwtrc_solid(itrc) = &
+                     zwtrc_solid(itrc) + trc_solid(itrc, j)
                ENDDO
             ENDIF
 #endif
@@ -424,10 +433,13 @@ CONTAINS
             IF (present(trc_scv)) trc_scv(:) = zwtrc_ice(:)
             DO itrc = 1, ntr
                trc_wliq(itrc, 1) = trc_wliq(itrc, 1) + zwtrc_liq(itrc)
+               IF (present(trc_solid)) trc_solid(itrc, 1) = &
+                  trc_solid(itrc, 1) + zwtrc_solid(itrc)
             ENDDO
             trc_wliq(:, lb:0) = 0._r8
             trc_wice(:, lb:0) = 0._r8
-            deallocate(zwtrc_ice, zwtrc_liq)
+            IF (present(trc_solid)) trc_solid(:, lb:0) = 0._r8
+            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
          ENDIF
 #endif
          RETURN
@@ -472,6 +484,8 @@ CONTAINS
                      DO itrc = 1, ntr
                         trc_wliq(itrc, j) = trc_wliq(itrc, j) + trc_wliq(itrc, l)
                         trc_wice(itrc, j) = trc_wice(itrc, j) + trc_wice(itrc, l)
+                        IF (present(trc_solid)) trc_solid(itrc, j) = &
+                           trc_solid(itrc, j) + trc_solid(itrc, l)
                      ENDDO
                   ENDIF
 #endif
@@ -489,6 +503,7 @@ CONTAINS
                            DO itrc = 1, ntr
                               trc_wliq(itrc, k) = trc_wliq(itrc, k-1)
                               trc_wice(itrc, k) = trc_wice(itrc, k-1)
+                              IF (present(trc_solid)) trc_solid(itrc, k) = trc_solid(itrc, k-1)
                            ENDDO
                         ENDIF
 #endif
@@ -505,6 +520,7 @@ CONTAINS
                      IF (snl >= lb) THEN
                         trc_wliq(:, lb:snl) = 0._r8
                         trc_wice(:, lb:snl) = 0._r8
+                        IF (present(trc_solid)) trc_solid(:, lb:snl) = 0._r8
                      ENDIF
                   ENDIF
 #endif
@@ -533,7 +549,8 @@ CONTAINS
       ENDIF                       !!! snow layers combined
 
 #ifdef TRACER
-      IF (present(trc_wliq) .and. present(trc_wice)) deallocate(zwtrc_ice, zwtrc_liq)
+      IF (present(trc_wliq) .and. present(trc_wice)) &
+         deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
 #endif
 
    END SUBROUTINE snowlayerscombine
@@ -542,7 +559,7 @@ CONTAINS
 
    SUBROUTINE snowlayersdivide(lb,snl,z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno &
 #ifdef TRACER
-                               ,trc_wliq, trc_wice &
+                               ,trc_wliq, trc_wice, trc_solid &
 #endif
                                )
 
@@ -571,6 +588,7 @@ CONTAINS
 #ifdef TRACER
    real(r8), intent(inout), optional :: trc_wliq(:, lb:)  ! (ntracers, lb:0)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
+   real(r8), intent(inout), optional :: trc_solid(:, lb:)
 #endif
 
 !-------------------------- Local Variables ----------------------------
@@ -589,8 +607,8 @@ CONTAINS
 
 #ifdef TRACER
    ! TRACER locals mirror swice/swliq/zwice/zwliq.
-   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:)
-   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:)
+   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:), strc_solid(:,:)
+   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:), z_strc_solid(:)
    integer :: ntr, itrc
 #endif
 
@@ -599,10 +617,10 @@ CONTAINS
 #ifdef TRACER
       IF (present(trc_wliq) .and. present(trc_wice)) THEN
          ntr = size(trc_wliq, 1)
-         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5))
-         allocate(z_strc_wice(ntr), z_strc_wliq(ntr))
-         strc_wice = 0._r8; strc_wliq = 0._r8
-         z_strc_wice = 0._r8; z_strc_wliq = 0._r8
+         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5), strc_solid(ntr, 5))
+         allocate(z_strc_wice(ntr), z_strc_wliq(ntr), z_strc_solid(ntr))
+         strc_wice = 0._r8; strc_wliq = 0._r8; strc_solid = 0._r8
+         z_strc_wice = 0._r8; z_strc_wliq = 0._r8; z_strc_solid = 0._r8
       ENDIF
 #endif
 
@@ -617,6 +635,7 @@ CONTAINS
             DO itrc = 1, ntr
                strc_wice(itrc, k) = trc_wice(itrc, k + snl)
                strc_wliq(itrc, k) = trc_wliq(itrc, k + snl)
+               IF (present(trc_solid)) strc_solid(itrc, k) = trc_solid(itrc, k + snl)
             ENDDO
          ENDIF
 #endif
@@ -633,6 +652,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 1) = strc_wice(:, 1) / 2._r8
             strc_wliq(:, 1) = strc_wliq(:, 1) / 2._r8
+            IF (present(trc_solid)) strc_solid(:, 1) = strc_solid(:, 1) / 2._r8
          ENDIF
 #endif
 
@@ -644,6 +664,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 2) = strc_wice(:, 1)
             strc_wliq(:, 2) = strc_wliq(:, 1)
+            IF (present(trc_solid)) strc_solid(:, 2) = strc_solid(:, 1)
          ENDIF
 #endif
 !        write(6,*)'Subdivided Top Node into two layer (1/2)'
@@ -660,6 +681,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             z_strc_wice(:) = propor * strc_wice(:, 1)
             z_strc_wliq(:) = propor * strc_wliq(:, 1)
+            IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 1)
          ENDIF
 #endif
 
@@ -670,6 +692,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 1) = propor * strc_wice(:, 1)
             strc_wliq(:, 1) = propor * strc_wliq(:, 1)
+            IF (present(trc_solid)) strc_solid(:, 1) = propor * strc_solid(:, 1)
          ENDIF
 #endif
          dzsno(1) = 0.02
@@ -680,6 +703,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 2) = strc_wice(:, 2) + z_strc_wice(:)
             strc_wliq(:, 2) = strc_wliq(:, 2) + z_strc_wliq(:)
+            IF (present(trc_solid)) strc_solid(:, 2) = strc_solid(:, 2) + z_strc_solid(:)
          ENDIF
 #endif
 
@@ -696,6 +720,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 2) = strc_wice(:, 2) / 2._r8
                strc_wliq(:, 2) = strc_wliq(:, 2) / 2._r8
+               IF (present(trc_solid)) strc_solid(:, 2) = strc_solid(:, 2) / 2._r8
             ENDIF
 #endif
 
@@ -707,6 +732,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 3) = strc_wice(:, 2)
                strc_wliq(:, 3) = strc_wliq(:, 2)
+               IF (present(trc_solid)) strc_solid(:, 3) = strc_solid(:, 2)
             ENDIF
 #endif
          ENDIF
@@ -723,6 +749,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             z_strc_wice(:) = propor * strc_wice(:, 2)
             z_strc_wliq(:) = propor * strc_wliq(:, 2)
+            IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 2)
          ENDIF
 #endif
 
@@ -733,6 +760,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 2) = propor * strc_wice(:, 2)
             strc_wliq(:, 2) = propor * strc_wliq(:, 2)
+            IF (present(trc_solid)) strc_solid(:, 2) = propor * strc_solid(:, 2)
          ENDIF
 #endif
          dzsno(2) = 0.05
@@ -743,6 +771,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 3) = strc_wice(:, 3) + z_strc_wice(:)
             strc_wliq(:, 3) = strc_wliq(:, 3) + z_strc_wliq(:)
+            IF (present(trc_solid)) strc_solid(:, 3) = strc_solid(:, 3) + z_strc_solid(:)
          ENDIF
 #endif
 
@@ -759,6 +788,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 3) = strc_wice(:, 3) / 2._r8
                strc_wliq(:, 3) = strc_wliq(:, 3) / 2._r8
+               IF (present(trc_solid)) strc_solid(:, 3) = strc_solid(:, 3) / 2._r8
             ENDIF
 #endif
 
@@ -770,6 +800,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 4) = strc_wice(:, 3)
                strc_wliq(:, 4) = strc_wliq(:, 3)
+               IF (present(trc_solid)) strc_solid(:, 4) = strc_solid(:, 3)
             ENDIF
 #endif
          ENDIF
@@ -786,6 +817,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             z_strc_wice(:) = propor * strc_wice(:, 3)
             z_strc_wliq(:) = propor * strc_wliq(:, 3)
+            IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 3)
          ENDIF
 #endif
 
@@ -796,6 +828,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 3) = propor * strc_wice(:, 3)
             strc_wliq(:, 3) = propor * strc_wliq(:, 3)
+            IF (present(trc_solid)) strc_solid(:, 3) = propor * strc_solid(:, 3)
          ENDIF
 #endif
          dzsno(3) = 0.11
@@ -806,6 +839,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 4) = strc_wice(:, 4) + z_strc_wice(:)
             strc_wliq(:, 4) = strc_wliq(:, 4) + z_strc_wliq(:)
+            IF (present(trc_solid)) strc_solid(:, 4) = strc_solid(:, 4) + z_strc_solid(:)
          ENDIF
 #endif
 
@@ -822,6 +856,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 4) = strc_wice(:, 4) / 2._r8
                strc_wliq(:, 4) = strc_wliq(:, 4) / 2._r8
+               IF (present(trc_solid)) strc_solid(:, 4) = strc_solid(:, 4) / 2._r8
             ENDIF
 #endif
 
@@ -833,6 +868,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 5) = strc_wice(:, 4)
                strc_wliq(:, 5) = strc_wliq(:, 4)
+               IF (present(trc_solid)) strc_solid(:, 5) = strc_solid(:, 4)
             ENDIF
 #endif
          ENDIF
@@ -849,6 +885,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             z_strc_wice(:) = propor * strc_wice(:, 4)
             z_strc_wliq(:) = propor * strc_wliq(:, 4)
+            IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 4)
          ENDIF
 #endif
 
@@ -859,6 +896,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 4) = propor * strc_wice(:, 4)
             strc_wliq(:, 4) = propor * strc_wliq(:, 4)
+            IF (present(trc_solid)) strc_solid(:, 4) = propor * strc_solid(:, 4)
          ENDIF
 #endif
          dzsno(4) = 0.23
@@ -869,6 +907,7 @@ CONTAINS
          IF (present(trc_wliq) .and. present(trc_wice)) THEN
             strc_wice(:, 5) = strc_wice(:, 5) + z_strc_wice(:)
             strc_wliq(:, 5) = strc_wliq(:, 5) + z_strc_wliq(:)
+            IF (present(trc_solid)) strc_solid(:, 5) = strc_solid(:, 5) + z_strc_solid(:)
          ENDIF
 #endif
 
@@ -889,6 +928,7 @@ CONTAINS
             DO itrc = 1, ntr
                trc_wice(itrc, k) = strc_wice(itrc, k - snl)
                trc_wliq(itrc, k) = strc_wliq(itrc, k - snl)
+               IF (present(trc_solid)) trc_solid(itrc, k) = strc_solid(itrc, k - snl)
             ENDDO
          ENDIF
 #endif
@@ -902,7 +942,8 @@ CONTAINS
 
 #ifdef TRACER
       IF (present(trc_wliq) .and. present(trc_wice)) THEN
-         deallocate(strc_wice, strc_wliq, z_strc_wice, z_strc_wliq)
+         deallocate(strc_wice, strc_wliq, strc_solid, &
+            z_strc_wice, z_strc_wliq, z_strc_solid)
       ENDIF
 #endif
 
@@ -982,7 +1023,7 @@ CONTAINS
               mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 &
 ! Aerosol Fluxes (Jan. 07, 2023)
 #ifdef TRACER
-              ,trc_wliq, trc_wice, trc_scv &
+              ,trc_wliq, trc_wice, trc_solid, trc_scv &
 #endif
               )
 
@@ -1031,6 +1072,7 @@ CONTAINS
    ! Optional TRACER arrays aligned with wliq/wice/scv.
    real(r8), intent(inout), optional :: trc_wliq(:, lb:)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
+   real(r8), intent(inout), optional :: trc_solid(:, lb:)
    real(r8), intent(inout), optional :: trc_scv(:)
 #endif
 
@@ -1050,7 +1092,7 @@ CONTAINS
 
 #ifdef TRACER
    ! TRACER aggregates for the snowdp<0.01 collapse branch
-   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:)
+   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:), zwtrc_solid(:)
    integer :: ntr, itrc
 #endif
 
@@ -1060,8 +1102,8 @@ CONTAINS
 #ifdef TRACER
       IF (present(trc_wliq) .and. present(trc_wice)) THEN
          ntr = size(trc_wliq, 1)
-         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr))
-         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8
+         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr), zwtrc_solid(ntr))
+         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8; zwtrc_solid = 0._r8
       ENDIF
 #endif
 
@@ -1077,6 +1119,8 @@ CONTAINS
                DO itrc = 1, ntr
                   trc_wliq(itrc, j+1) = trc_wliq(itrc, j+1) + trc_wliq(itrc, j)
                   trc_wice(itrc, j+1) = trc_wice(itrc, j+1) + trc_wice(itrc, j)
+                  IF (present(trc_solid)) trc_solid(itrc, j+1) = &
+                     trc_solid(itrc, j+1) + trc_solid(itrc, j)
                ENDDO
             ENDIF
 #endif
@@ -1107,6 +1151,7 @@ CONTAINS
                      DO itrc = 1, ntr
                         trc_wliq(itrc, i) = trc_wliq(itrc, i-1)
                         trc_wice(itrc, i) = trc_wice(itrc, i-1)
+                        IF (present(trc_solid)) trc_solid(itrc, i) = trc_solid(itrc, i-1)
                      ENDDO
                   ENDIF
 #endif
@@ -1126,6 +1171,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   trc_wliq(:, snl+1) = 0._r8
                   trc_wice(:, snl+1) = 0._r8
+                  IF (present(trc_solid)) trc_solid(:, snl+1) = 0._r8
                ENDIF
 #endif
             ENDIF
@@ -1136,6 +1182,7 @@ CONTAINS
                IF (snl >= lb) THEN
                   trc_wliq(:, lb:snl) = 0._r8
                   trc_wice(:, lb:snl) = 0._r8
+                  IF (present(trc_solid)) trc_solid(:, lb:snl) = 0._r8
                ENDIF
             ENDIF
 #endif
@@ -1162,7 +1209,8 @@ CONTAINS
 
 !*       write(6,*) 'all snow has gone'
 #ifdef TRACER
-         IF (present(trc_wliq) .and. present(trc_wice)) deallocate(zwtrc_ice, zwtrc_liq)
+         IF (present(trc_wliq) .and. present(trc_wice)) &
+            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
 #endif
          RETURN
       ELSE
@@ -1180,6 +1228,8 @@ CONTAINS
                DO itrc = 1, ntr
                   zwtrc_ice(itrc) = zwtrc_ice(itrc) + trc_wice(itrc, j)
                   zwtrc_liq(itrc) = zwtrc_liq(itrc) + trc_wliq(itrc, j)
+                  IF (present(trc_solid)) zwtrc_solid(itrc) = &
+                     zwtrc_solid(itrc) + trc_solid(itrc, j)
                ENDDO
             ENDIF
 #endif
@@ -1213,10 +1263,13 @@ CONTAINS
             IF (present(trc_scv)) trc_scv(:) = zwtrc_ice(:)
             DO itrc = 1, ntr
                trc_wliq(itrc, 1) = trc_wliq(itrc, 1) + zwtrc_liq(itrc)
+               IF (present(trc_solid)) trc_solid(itrc, 1) = &
+                  trc_solid(itrc, 1) + zwtrc_solid(itrc)
             ENDDO
             trc_wliq(:, lb:0) = 0._r8
             trc_wice(:, lb:0) = 0._r8
-            deallocate(zwtrc_ice, zwtrc_liq)
+            IF (present(trc_solid)) trc_solid(:, lb:0) = 0._r8
+            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
          ENDIF
 #endif
          RETURN
@@ -1261,6 +1314,8 @@ CONTAINS
                      DO itrc = 1, ntr
                         trc_wliq(itrc, j) = trc_wliq(itrc, j) + trc_wliq(itrc, l)
                         trc_wice(itrc, j) = trc_wice(itrc, j) + trc_wice(itrc, l)
+                        IF (present(trc_solid)) trc_solid(itrc, j) = &
+                           trc_solid(itrc, j) + trc_solid(itrc, l)
                      ENDDO
                   ENDIF
 #endif
@@ -1290,6 +1345,7 @@ CONTAINS
                            DO itrc = 1, ntr
                               trc_wliq(itrc, k) = trc_wliq(itrc, k-1)
                               trc_wice(itrc, k) = trc_wice(itrc, k-1)
+                              IF (present(trc_solid)) trc_solid(itrc, k) = trc_solid(itrc, k-1)
                            ENDDO
                         ENDIF
 #endif
@@ -1317,6 +1373,7 @@ CONTAINS
                      IF (snl >= lb) THEN
                         trc_wliq(:, lb:snl) = 0._r8
                         trc_wice(:, lb:snl) = 0._r8
+                        IF (present(trc_solid)) trc_solid(:, lb:snl) = 0._r8
                      ENDIF
                   ENDIF
 #endif
@@ -1345,7 +1402,8 @@ CONTAINS
       ENDIF                       !!! snow layers combined
 
 #ifdef TRACER
-      IF (present(trc_wliq) .and. present(trc_wice)) deallocate(zwtrc_ice, zwtrc_liq)
+      IF (present(trc_wliq) .and. present(trc_wice)) &
+         deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
 #endif
 
    END SUBROUTINE SnowLayersCombine_snicar
@@ -1360,7 +1418,7 @@ CONTAINS
                                        mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 &
 ! Aerosol Fluxes (Jan. 07, 2023)
 #ifdef TRACER
-                                       ,trc_wliq, trc_wice &
+                                       ,trc_wliq, trc_wice, trc_solid &
 #endif
                                        )
 
@@ -1402,6 +1460,7 @@ CONTAINS
 #ifdef TRACER
    real(r8), intent(inout), optional :: trc_wliq(:, lb:)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
+   real(r8), intent(inout), optional :: trc_solid(:, lb:)
 #endif
 
 !-------------------------- Local Variables ----------------------------
@@ -1424,8 +1483,8 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 
 #ifdef TRACER
-   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:)
-   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:)
+   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:), strc_solid(:,:)
+   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:), z_strc_solid(:)
    integer :: ntr, itrc
 #endif
 
@@ -1434,10 +1493,10 @@ CONTAINS
 #ifdef TRACER
       IF (present(trc_wliq) .and. present(trc_wice)) THEN
          ntr = size(trc_wliq, 1)
-         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5))
-         allocate(z_strc_wice(ntr), z_strc_wliq(ntr))
-         strc_wice = 0._r8; strc_wliq = 0._r8
-         z_strc_wice = 0._r8; z_strc_wliq = 0._r8
+         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5), strc_solid(ntr, 5))
+         allocate(z_strc_wice(ntr), z_strc_wliq(ntr), z_strc_solid(ntr))
+         strc_wice = 0._r8; strc_wliq = 0._r8; strc_solid = 0._r8
+         z_strc_wice = 0._r8; z_strc_wliq = 0._r8; z_strc_solid = 0._r8
       ENDIF
 #endif
 
@@ -1464,6 +1523,7 @@ CONTAINS
             DO itrc = 1, ntr
                strc_wice(itrc, k) = trc_wice(itrc, k + snl)
                strc_wliq(itrc, k) = trc_wliq(itrc, k + snl)
+               IF (present(trc_solid)) strc_solid(itrc, k) = trc_solid(itrc, k + snl)
             ENDDO
          ENDIF
 #endif
@@ -1484,6 +1544,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 1) = strc_wice(:, 1) / 2._r8
                strc_wliq(:, 1) = strc_wliq(:, 1) / 2._r8
+               IF (present(trc_solid)) strc_solid(:, 1) = strc_solid(:, 1) / 2._r8
             ENDIF
 #endif
 
@@ -1497,6 +1558,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 2) = strc_wice(:, 1)
                strc_wliq(:, 2) = strc_wliq(:, 1)
+               IF (present(trc_solid)) strc_solid(:, 2) = strc_solid(:, 1)
             ENDIF
 #endif
 
@@ -1519,6 +1581,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                z_strc_wice(:) = propor * strc_wice(:, 1)
                z_strc_wliq(:) = propor * strc_wliq(:, 1)
+               IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 1)
             ENDIF
 #endif
 
@@ -1532,6 +1595,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 1) = propor * strc_wice(:, 1)
                strc_wliq(:, 1) = propor * strc_wliq(:, 1)
+               IF (present(trc_solid)) strc_solid(:, 1) = propor * strc_solid(:, 1)
             ENDIF
 #endif
 
@@ -1547,6 +1611,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 2) = strc_wice(:, 2) + z_strc_wice(:)
                strc_wliq(:, 2) = strc_wliq(:, 2) + z_strc_wliq(:)
+               IF (present(trc_solid)) strc_solid(:, 2) = strc_solid(:, 2) + z_strc_solid(:)
             ENDIF
 #endif
 
@@ -1566,6 +1631,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   strc_wice(:, 2) = strc_wice(:, 2) / 2._r8
                   strc_wliq(:, 2) = strc_wliq(:, 2) / 2._r8
+                  IF (present(trc_solid)) strc_solid(:, 2) = strc_solid(:, 2) / 2._r8
                ENDIF
 #endif
 
@@ -1579,6 +1645,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   strc_wice(:, 3) = strc_wice(:, 2)
                   strc_wliq(:, 3) = strc_wliq(:, 2)
+                  IF (present(trc_solid)) strc_solid(:, 3) = strc_solid(:, 2)
                ENDIF
 #endif
 
@@ -1600,6 +1667,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                z_strc_wice(:) = propor * strc_wice(:, 2)
                z_strc_wliq(:) = propor * strc_wliq(:, 2)
+               IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 2)
             ENDIF
 #endif
 
@@ -1613,6 +1681,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 2) = propor * strc_wice(:, 2)
                strc_wliq(:, 2) = propor * strc_wliq(:, 2)
+               IF (present(trc_solid)) strc_solid(:, 2) = propor * strc_solid(:, 2)
             ENDIF
 #endif
 
@@ -1628,6 +1697,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 3) = strc_wice(:, 3) + z_strc_wice(:)
                strc_wliq(:, 3) = strc_wliq(:, 3) + z_strc_wliq(:)
+               IF (present(trc_solid)) strc_solid(:, 3) = strc_solid(:, 3) + z_strc_solid(:)
             ENDIF
 #endif
 
@@ -1647,6 +1717,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   strc_wice(:, 3) = strc_wice(:, 3) / 2._r8
                   strc_wliq(:, 3) = strc_wliq(:, 3) / 2._r8
+                  IF (present(trc_solid)) strc_solid(:, 3) = strc_solid(:, 3) / 2._r8
                ENDIF
 #endif
 
@@ -1660,6 +1731,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   strc_wice(:, 4) = strc_wice(:, 3)
                   strc_wliq(:, 4) = strc_wliq(:, 3)
+                  IF (present(trc_solid)) strc_solid(:, 4) = strc_solid(:, 3)
                ENDIF
 #endif
 
@@ -1682,6 +1754,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                z_strc_wice(:) = propor * strc_wice(:, 3)
                z_strc_wliq(:) = propor * strc_wliq(:, 3)
+               IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 3)
             ENDIF
 #endif
 
@@ -1695,6 +1768,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 3) = propor * strc_wice(:, 3)
                strc_wliq(:, 3) = propor * strc_wliq(:, 3)
+               IF (present(trc_solid)) strc_solid(:, 3) = propor * strc_solid(:, 3)
             ENDIF
 #endif
 
@@ -1710,6 +1784,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 4) = strc_wice(:, 4) + z_strc_wice(:)
                strc_wliq(:, 4) = strc_wliq(:, 4) + z_strc_wliq(:)
+               IF (present(trc_solid)) strc_solid(:, 4) = strc_solid(:, 4) + z_strc_solid(:)
             ENDIF
 #endif
 
@@ -1729,6 +1804,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   strc_wice(:, 4) = strc_wice(:, 4) / 2._r8
                   strc_wliq(:, 4) = strc_wliq(:, 4) / 2._r8
+                  IF (present(trc_solid)) strc_solid(:, 4) = strc_solid(:, 4) / 2._r8
                ENDIF
 #endif
 
@@ -1742,6 +1818,7 @@ CONTAINS
                IF (present(trc_wliq) .and. present(trc_wice)) THEN
                   strc_wice(:, 5) = strc_wice(:, 4)
                   strc_wliq(:, 5) = strc_wliq(:, 4)
+                  IF (present(trc_solid)) strc_solid(:, 5) = strc_solid(:, 4)
                ENDIF
 #endif
 
@@ -1764,6 +1841,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                z_strc_wice(:) = propor * strc_wice(:, 4)
                z_strc_wliq(:) = propor * strc_wliq(:, 4)
+               IF (present(trc_solid)) z_strc_solid(:) = propor * strc_solid(:, 4)
             ENDIF
 #endif
 
@@ -1777,6 +1855,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 4) = propor * strc_wice(:, 4)
                strc_wliq(:, 4) = propor * strc_wliq(:, 4)
+               IF (present(trc_solid)) strc_solid(:, 4) = propor * strc_solid(:, 4)
             ENDIF
 #endif
 
@@ -1792,6 +1871,7 @@ CONTAINS
             IF (present(trc_wliq) .and. present(trc_wice)) THEN
                strc_wice(:, 5) = strc_wice(:, 5) + z_strc_wice(:)
                strc_wliq(:, 5) = strc_wliq(:, 5) + z_strc_wliq(:)
+               IF (present(trc_solid)) strc_solid(:, 5) = strc_solid(:, 5) + z_strc_solid(:)
             ENDIF
 #endif
 
@@ -1825,6 +1905,7 @@ CONTAINS
             DO itrc = 1, ntr
                trc_wice(itrc, k) = strc_wice(itrc, k - snl)
                trc_wliq(itrc, k) = strc_wliq(itrc, k - snl)
+               IF (present(trc_solid)) trc_solid(itrc, k) = strc_solid(itrc, k - snl)
             ENDDO
          ENDIF
 #endif
@@ -1839,7 +1920,8 @@ CONTAINS
 
 #ifdef TRACER
       IF (present(trc_wliq) .and. present(trc_wice)) THEN
-         deallocate(strc_wice, strc_wliq, z_strc_wice, z_strc_wliq)
+         deallocate(strc_wice, strc_wliq, strc_solid, &
+            z_strc_wice, z_strc_wliq, z_strc_solid)
       ENDIF
 #endif
 

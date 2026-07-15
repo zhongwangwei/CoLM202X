@@ -127,6 +127,13 @@ CONTAINS
             trc_surface_residue(itrc, ipatch)
          a_trc_subsurface_residue_mass(itrc, ipatch) = a_trc_subsurface_residue_mass(itrc, ipatch) + &
             trc_subsurface_residue(itrc, ipatch)
+         a_trc_solid_mass(itrc, ipatch) = a_trc_solid_mass(itrc, ipatch) + &
+            trc_canopy_solid(itrc, ipatch) + trc_surface_solid(itrc, ipatch) + &
+            trc_subsurface_solid(itrc, ipatch) + trc_waterstorage_solid(itrc, ipatch)
+         DO j = max(snl + 1, lbound(trc_solid_soisno, 2)), nl_soil
+            a_trc_solid_mass(itrc, ipatch) = a_trc_solid_mass(itrc, ipatch) + &
+               trc_solid_soisno(itrc, j, ipatch)
+         ENDDO
          IF (snl == 0 .and. scv > trc_tiny) THEN
             a_trc_scv_mass(itrc, ipatch) = a_trc_scv_mass(itrc, ipatch) + trc_scv(itrc, ipatch)
          ENDIF
@@ -393,6 +400,13 @@ CONTAINS
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
                         a_trc_layer_dry_mass(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+
+                     write(trc_varname , '(A,A)') 'f_trc_solid_inventory_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'precipitated solid tracer inventory (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
+                        a_trc_solid_mass(itrc_loc, :), file_hist, trim(trc_varname), &
                         itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
                   ENDIF
 

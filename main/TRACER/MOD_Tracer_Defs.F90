@@ -27,6 +27,9 @@ MODULE MOD_Tracer_Defs
       real(r8)          :: init_conc
       real(r8)          :: precip_default_conc
       real(r8)          :: vapor_default_conc
+      ! Positive dissolved concentration ceiling. huge() disables saturation
+      ! for backward-compatible species that do not declare a solubility.
+      real(r8)          :: max_dissolved_conc = huge(1.0_r8)
       real(r8)          :: reactive_decay_rate
       ! Ionic charge is registry metadata; no electroneutrality solver exists.
       integer           :: charge = 0
@@ -46,6 +49,7 @@ MODULE MOD_Tracer_Defs
       real(r8) :: init_conc = huge(1.0_r8)
       real(r8) :: precip_default_conc = huge(1.0_r8)
       real(r8) :: vapor_default_conc = huge(1.0_r8)
+      real(r8) :: max_dissolved_conc = huge(1.0_r8)
       real(r8) :: reactive_decay_rate = 0.0_r8
       integer  :: charge = 0
       logical  :: uses_generic_land_water_transport = .true.
@@ -107,6 +111,7 @@ MODULE MOD_Tracer_Defs
    PUBLIC :: mass_to_delta, delta_to_R, R_to_mass
    PUBLIC :: tracer_is_isotope, tracer_is_conservative, tracer_is_reactive
    PUBLIC :: tracer_is_particle, tracer_is_nonvolatile_solute, tracer_uses_land_water_transport
+   PUBLIC :: tracer_has_dissolved_limit, tracer_equilibrate_dissolved
    PUBLIC :: tracer_set_land_water_transport
    PUBLIC :: tracer_uses_delta_diagnostics, tracer_can_use_fixed_signature
    PUBLIC :: tracer_concentration_units
@@ -316,6 +321,7 @@ CONTAINS
       DEF_TRACER%init_conc           = huge(1.0_r8)
       DEF_TRACER%precip_default_conc = huge(1.0_r8)
       DEF_TRACER%vapor_default_conc  = huge(1.0_r8)
+      DEF_TRACER%max_dissolved_conc  = tracers(itrc)%max_dissolved_conc
       DEF_TRACER%reactive_decay_rate = tracers(itrc)%reactive_decay_rate
       DEF_TRACER%charge              = tracers(itrc)%charge
       DEF_TRACER%uses_generic_land_water_transport = tracers(itrc)%uses_land_water_transport
@@ -348,6 +354,7 @@ CONTAINS
          tracers(itrc)%precip_default_conc = DEF_TRACER%precip_default_conc
       IF (DEF_TRACER%vapor_default_conc /= huge(1.0_r8)) &
          tracers(itrc)%vapor_default_conc = DEF_TRACER%vapor_default_conc
+      tracers(itrc)%max_dissolved_conc  = DEF_TRACER%max_dissolved_conc
       tracers(itrc)%reactive_decay_rate = DEF_TRACER%reactive_decay_rate
       tracers(itrc)%charge              = DEF_TRACER%charge
       tracers(itrc)%uses_land_water_transport = DEF_TRACER%uses_generic_land_water_transport
@@ -535,6 +542,7 @@ CONTAINS
       tracers(itrc)%uses_land_water_transport = .true.
       tracers(itrc)%is_nonvolatile = .false.
       tracers(itrc)%uses_reaction = .false.
+      tracers(itrc)%max_dissolved_conc = huge(1.0_r8)
 
       SELECT CASE (trim(tracers(itrc)%category))
       CASE ('isotope')
@@ -585,6 +593,9 @@ CONTAINS
       IF (.not. ieee_is_finite(tracers(itrc)%vapor_default_conc)) THEN
          CALL tracer_descriptor_error(itrc, 'vapor_default_conc', 'must be finite')
       ENDIF
+      IF (.not. ieee_is_finite(tracers(itrc)%max_dissolved_conc)) THEN
+         CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', 'must be finite')
+      ENDIF
       IF (.not. ieee_is_finite(tracers(itrc)%reactive_decay_rate)) THEN
          CALL tracer_descriptor_error(itrc, 'reactive_decay_rate', 'must be finite')
       ENDIF
@@ -608,6 +619,9 @@ CONTAINS
          IF (tracers(itrc)%vapor_default_conc < 0._r8) THEN
             CALL tracer_descriptor_error(itrc, 'vapor_default_conc', 'must be non-negative')
          ENDIF
+      ENDIF
+      IF (tracers(itrc)%max_dissolved_conc <= 0._r8) THEN
+         CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', 'must be positive')
       ENDIF
       IF (tracer_is_isotope(itrc) .and. trim(tracers(itrc)%unit_kind) /= 'ratio') THEN
          CALL tracer_descriptor_error(itrc, 'unit_kind', 'isotope tracers require ratio')
@@ -638,6 +652,11 @@ CONTAINS
           .not. tracers(itrc)%uses_land_water_transport) THEN
          CALL tracer_descriptor_error(itrc, 'is_nonvolatile', &
             'requires generic land-water transport')
+      ENDIF
+      IF (tracers(itrc)%max_dissolved_conc < huge(1.0_r8) .and. &
+          .not. tracer_is_nonvolatile_solute(itrc)) THEN
+         CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', &
+            'requires a nonvolatile land-water solute')
       ENDIF
       IF (tracer_is_reactive(itrc) .neqv. tracers(itrc)%uses_reaction) THEN
          CALL tracer_descriptor_error(itrc, 'uses_reaction', &
@@ -706,6 +725,35 @@ CONTAINS
       tracer_is_nonvolatile_solute = tracer_uses_land_water_transport(itrc) .and. &
          tracers(itrc)%is_nonvolatile
    END FUNCTION tracer_is_nonvolatile_solute
+
+   logical FUNCTION tracer_has_dissolved_limit (itrc)
+      integer, intent(in) :: itrc
+
+      tracer_has_dissolved_limit = .false.
+      IF (.not. allocated(tracers)) RETURN
+      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      tracer_has_dissolved_limit = tracer_is_nonvolatile_solute(itrc) .and. &
+         tracers(itrc)%max_dissolved_conc < huge(1.0_r8)
+   END FUNCTION tracer_has_dissolved_limit
+
+   SUBROUTINE tracer_equilibrate_dissolved (itrc, water_mass, dissolved_mass, solid_mass)
+      integer,  intent(in)    :: itrc
+      real(r8), intent(in)    :: water_mass
+      real(r8), intent(inout) :: dissolved_mass, solid_mass
+      real(r8) :: capacity, total_mass
+
+      IF (.not. tracer_has_dissolved_limit(itrc)) RETURN
+      ! Signed aquifer debt is accounting state, not a precipitating solution.
+      IF (dissolved_mass < 0._r8 .or. solid_mass < 0._r8) RETURN
+
+      total_mass = dissolved_mass + solid_mass
+      capacity = 0._r8
+      IF (water_mass > trc_water_min_for_ratio) THEN
+         capacity = tracers(itrc)%max_dissolved_conc * water_mass
+      ENDIF
+      dissolved_mass = min(total_mass, capacity)
+      solid_mass = total_mass - dissolved_mass
+   END SUBROUTINE tracer_equilibrate_dissolved
 
    logical FUNCTION tracer_is_particle (itrc)
       ! Particle tracers (e.g. suspended sediment) carry concentration per

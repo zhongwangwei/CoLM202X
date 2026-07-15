@@ -11,17 +11,14 @@
     ! mass_fraction means kg Cl per kg water; for dilute water this is
     ! approximately mg/L divided by 1.0e6. River/lake amount diagnostics still
     ! use the model's legacy ratio*m3 scaling, so this file is a conservative
-    ! hydrologic-tracer configuration, not yet a full salt-budget setup. Keep
+    ! hydrologic-tracer configuration, not yet a full salt-budget setup.
     ! Explicit initial/forcing concentrations are separate.  init_delta is
     ! retained only as the backward-compatible fallback for older files.
     !
-    ! No hard concentration cap is enabled.  The current model has no solid
-    ! salt pool, plant uptake/harvest ledger, or physical excess-export flux,
-    ! so those controls are not exposed as namelist options yet. Chloride mass
-    ! is never silently removed by a concentration cap. Near-dry numerical
-    ! residue is retained without deleting mass: exhausted snow/soil phases
-    ! keep it in their original layer, while unresolved surface mixed-pool and
-    ! aquifer mass use separate immobile inventories until those pools rewet.
+    ! Dissolved chloride is limited to 1.0e-2 kg/kg water, restoring the
+    ! historical ChlorideWetDep safety ceiling. Excess mass is transferred to
+    ! location-preserving solid inventories and redissolves only up to the
+    ! available water capacity; no chloride mass is silently clipped.
     ! Internal freeze/thaw still uses the generic bulk-water phase bookkeeping;
     ! brine rejection, salt precipitation, ion activity, and electroneutrality
     ! require a future coupled salinity/chemistry model.
@@ -33,6 +30,7 @@
     DEF_TRACER%init_conc           = 0.0        ! initial water [kg Cl / kg water]
     DEF_TRACER%precip_default_conc = 0.0        ! when no precip field is configured
     DEF_TRACER%vapor_default_conc  = 0.0        ! when no vapor field is configured
+    DEF_TRACER%max_dissolved_conc  = 1.0e-2     ! kg Cl / kg water
     DEF_TRACER%reactive_decay_rate = 0.0
     DEF_TRACER%charge              = -1
 

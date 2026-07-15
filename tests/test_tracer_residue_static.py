@@ -38,7 +38,7 @@ def test_residue_restart_is_optional_and_round_trips():
 
 def test_residue_is_a_conserved_storage_component():
     conservation = source("MOD_Tracer_Conservation.F90")
-    assert "n_storage_diag = 11" in conservation
+    assert "n_storage_diag = 12" in conservation
     assert "storage_comp(10) = trc_surface_residue" in conservation
     assert "storage_comp(11) = trc_subsurface_residue" in conservation
     assert "storage_comp_end(10) = trc_surface_residue" in conservation
@@ -132,7 +132,7 @@ def test_residue_history_is_inventory_not_concentration():
     assert "f_trc_surface_residue_" in history
     assert "f_trc_subsurface_residue_" in history
     assert "f_trc_layer_dry_inventory_" in history
-    assert history.count("'tracer amount/m2'") == 3
+    assert history.count("'tracer amount/m2'") == 4
 
 
 def test_internal_transfer_identity():
