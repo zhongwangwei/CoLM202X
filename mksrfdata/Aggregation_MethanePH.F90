@@ -33,9 +33,7 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
 #ifdef USEMPI
    USE MOD_SPMD_Task, only: p_comm_glb, p_err, p_is_master, p_is_io, p_is_worker, &
       p_address_master, p_np_worker, p_np_io, p_address_worker, p_address_io, &
-      p_stat, mpi_tag_data, CoLM_Stop
-   USE MPI, only: mpi_bcast, mpi_barrier, mpi_allreduce, mpi_send, mpi_recv, &
-      MPI_LOGICAL, MPI_INTEGER, MPI_REAL8, MPI_SUM
+      p_stat, mpi_tag_data, MPI_LOGICAL, MPI_INTEGER, MPI_REAL8, MPI_SUM, CoLM_Stop
 #else
    USE MOD_SPMD_Task, only: p_is_master, p_is_io, p_is_worker, p_np_worker, p_np_io, CoLM_Stop
 #endif

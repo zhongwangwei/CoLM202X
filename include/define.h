@@ -107,7 +107,8 @@
 ! 12b. If defined, extended canopy interception schemes are enabled.
 #undef extend_interception
 
-! 13. If defined, water tracer module is enabled (e.g. delta-18O, delta-D).
+! 13. If defined, the tracer subsystem is enabled (isotope, solute,
+!     particle, and gas families).
 !     Default is OFF for production-safe builds; change to #define TRACER
 !     only when water tracers / particle tracer species are explicitly needed.
 #define TRACER
@@ -124,12 +125,12 @@
 #error "TRACER requires GridRiverLakeFlow to be defined in include/define.h"
 #endif
 
-! 13b. Methane reactive tracer.
+! 13b. Methane gas provider.
 !     Activation is runtime: register a tracer named "CH4" or "METHANE"
-!     with category="reactive" in the &nl_colm DEF_TRACER_NAMES /
-!     DEF_TRACER_TYPES namelist. The methane module is compiled whenever
-!     both TRACER and BGC are defined; the registry resolves igas_ch4 at
-!     run time and switches all methane logic on/off accordingly.
+!     with type="gas" in the &nl_colm DEF_TRACER_NAMES / DEF_TRACER_TYPES
+!     namelist. The methane module is compiled whenever both TRACER and BGC
+!     are defined; its lifecycle registrar attaches the CH4 hooks and index.
+!     A configured CH4 row without that compiled provider fails at startup.
 !     Additional dependency: requires LULC_IGBP_PFT or LULC_IGBP_PC for
 !     pftfrac access (per-PFT NPP and root-respiration aggregation).
 #if (defined TRACER) && (defined BGC)

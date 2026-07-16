@@ -26,14 +26,19 @@ def test_residue_pools_have_complete_state_lifecycle():
         assert f"CALL accumulate_lulcc_mass_2d({name}" in variables
 
 
-def test_residue_restart_is_optional_and_round_trips():
+def test_residue_restart_is_required_in_committed_transaction_and_round_trips():
     restart = source("MOD_Tracer_Rest.F90")
-    required = restart.split("Tracer restart ntracers/soilsnow mismatch", 1)[0]
+    reader = routine(restart, "read_land_tracer_restart")
+    writer = routine(restart, "write_land_tracer_restart")
+    preflight = reader.split("! A committed current transaction", 1)[1].split(
+        "CALL read_transport_patch_field", 1
+    )[0]
     for name in ("trc_surface_residue", "trc_subsurface_residue"):
-        assert f"'{name}'" not in required
-        assert f"IF (tracer_dim_matches(file_restart, '{name}'))" in restart
-        assert f"CALL ncio_read_vector(file_restart, '{name}'" in restart
-        assert f"CALL ncio_write_vector(file_restart, '{name}'" in restart
+        assert f"tracer_dim_matches(file_restart, '{name}')" in preflight
+        assert f"read_transport_patch_field(file_restart, '{name}'" in reader
+        assert f"ncio_write_vector(file_restart, '{name}'" in writer
+        assert f"pack_transport_patch({name}, restart_patch)" in writer
+    assert "incomplete or malformed committed generic land tracer restart" in reader
 
 
 def test_residue_is_a_conserved_storage_component():

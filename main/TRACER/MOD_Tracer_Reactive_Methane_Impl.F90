@@ -9,6 +9,7 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
 
    USE MOD_Precision
    USE MOD_Const_Physical, only: denh2o, denice
+   USE MOD_Namelist,       only: DEF_USE_Dynamic_Lake
    USE MOD_Const_LC,       only: rootfr_lc => rootfr
    USE MOD_Vars_Global, only: maxsnl, nl_soil, nl_lake, PI, &
       z_soi, dz_soi, zi_soi
@@ -21,10 +22,14 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
    USE MOD_Vars_1DFluxes, only: rsur, etr, frcsat
    USE MOD_Tracer_Reactive_Methane_Driver,   only: methane_driver
    USE MOD_Tracer_Reactive_Methane_State,    only: f_h2osfc, compute_f_h2osfc, &
+      handle_methane_dry_lake_substep, reset_methane_inactive_lake_diagnostics, &
       accumulate_methane_lake_substep_diagnostics
    USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
    USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
    USE MOD_Tracer_Reactive_Methane_BgcLink,  only: paddy_rice_fraction, PADDY_RICE_FRAC_MIN
+   USE MOD_Tracer_Reactive_Methane_Microbes, only: &
+      reset_methane_inactive_lake_microbe_diagnostics, &
+      accumulate_methane_lake_microbe_substep_diagnostics
    USE MOD_Tracer_Reactive_BgcShim,  only: reactive_bgc_run_wetland_decomp
 
    IMPLICIT NONE
@@ -55,7 +60,27 @@ CONTAINS
       ! sediment-carbon tendencies use the same deltim as lake physics.
       IF (igas_ch4 <= 0) RETURN
       IF (patchtype(ipatch) /= 4) RETURN
-      IF (.not. DEF_METHANE%allowlakeprod) RETURN
+      IF (.not. DEF_METHANE%allowlakeprod) THEN
+         ! The lake pathway is inactive, but AccFlux still samples the shared
+         ! diagnostic arrays.  Replace restart/previous-step process values
+         ! with zero on every WATERBODY substep without changing inventories.
+         CALL reset_methane_inactive_lake_diagnostics(ipatch)
+         CALL reset_methane_inactive_lake_microbe_diagnostics(ipatch)
+         CALL accumulate_methane_lake_microbe_substep_diagnostics( &
+            ipatch, deltim_phy, isub, nsub)
+         CALL accumulate_methane_lake_substep_diagnostics(ipatch, deltim_phy, isub, nsub)
+         RETURN
+      ENDIF
+
+      IF (DEF_USE_Dynamic_Lake .and. &
+         (wdsrf(ipatch) < 100._r8 .or. zwt(ipatch) > 0._r8)) THEN
+         CALL handle_methane_dry_lake_substep(ipatch, deltim_phy)
+         CALL reset_methane_inactive_lake_microbe_diagnostics(ipatch)
+         CALL accumulate_methane_lake_microbe_substep_diagnostics( &
+            ipatch, deltim_phy, isub, nsub)
+         CALL accumulate_methane_lake_substep_diagnostics(ipatch, deltim_phy, isub, nsub)
+         RETURN
+      ENDIF
 
       CALL compute_f_h2osfc (ipatch, slpratio(ipatch), wdsrf(ipatch))
       CALL methane_soisno_geometry (ipatch, lb, snl_loc, z_soisno_m, dz_soisno_m, zi_soisno_m)
@@ -76,6 +101,8 @@ CONTAINS
          porsl(1:nl_soil,ipatch), lai(ipatch), sai(ipatch), rootr(1:nl_soil,ipatch), &
          fsatmax(ipatch), fsatdcf(ipatch), frcsat(ipatch), f_h2osfc(ipatch))
 
+      CALL accumulate_methane_lake_microbe_substep_diagnostics( &
+         ipatch, deltim_phy, isub, nsub)
       CALL accumulate_methane_lake_substep_diagnostics(ipatch, deltim_phy, isub, nsub)
 
    END SUBROUTINE ch4_impl_lake_step

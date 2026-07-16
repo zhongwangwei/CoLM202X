@@ -50,6 +50,14 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
    real(r8), allocatable :: microbial_prod_potential(:,:)
    real(r8), allocatable :: microbial_oxid_potential(:,:)
 
+   ! Lake methane follows WATERBODY substeps, whereas history accumulation is
+   ! once per land timestep.  Keep only diagnostic means here; prognostic
+   ! biomass pools remain at their final substep state.
+   integer, parameter :: methane_lake_microbe_substep_ndiag = 8
+   real(r8), allocatable :: methane_lake_microbe_substep_acc(:,:)
+   integer :: methane_lake_microbe_substep_cached_ipatch = -1
+   integer :: methane_lake_microbe_substep_next_isub = 1
+
    ! Independent soil/rice microbial columns.  The legacy 2-D arrays above
    ! remain area-aggregated diagnostics and restart-compatibility fields.
    real(r8), allocatable :: B_methanogen_comp(:,:,:)
@@ -103,7 +111,9 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
    real(r8), allocatable :: lulcc_rice_fraction_prev_old(:)
 
    PUBLIC :: allocate_methane_microbes_state
+   PUBLIC :: accumulate_methane_lake_microbe_substep_diagnostics
    PUBLIC :: deallocate_methane_microbes_state
+   PUBLIC :: reset_methane_inactive_lake_microbe_diagnostics
    PUBLIC :: methane_microbes_step
    PUBLIC :: aggregate_methane_microbes
    PUBLIC :: repartition_methane_microbes
@@ -211,8 +221,108 @@ CONTAINS
       IF (allocated(methanotroph_growth_rate_comp)) deallocate(methanotroph_growth_rate_comp)
       IF (allocated(microbial_prod_potential_comp)) deallocate(microbial_prod_potential_comp)
       IF (allocated(microbial_oxid_potential_comp)) deallocate(microbial_oxid_potential_comp)
+      IF (allocated(methane_lake_microbe_substep_acc)) &
+         deallocate(methane_lake_microbe_substep_acc)
+      methane_lake_microbe_substep_cached_ipatch = -1
+      methane_lake_microbe_substep_next_isub = 1
       CALL clear_methane_microbes_lulcc_snapshot()
    END SUBROUTINE deallocate_methane_microbes_state
+
+
+   SUBROUTINE reset_methane_inactive_lake_microbe_diagnostics (ipatch)
+      integer, intent(in) :: ipatch
+
+      IF (.not. allocated(f_T_methanogen)) RETURN
+      IF (ipatch < lbound(f_T_methanogen,2) .or. &
+          ipatch > ubound(f_T_methanogen,2)) RETURN
+
+      ! Biomass remains with the sediment carrier; only per-substep microbial
+      ! rates and response factors are inactive when lake microbial pools are
+      ! bypassed (wet lake) or the dynamic lake is dry.
+      f_T_methanogen(:,ipatch)           = 0._r8
+      f_S_methanogen(:,ipatch)           = 0._r8
+      f_O2_methanogen(:,ipatch)          = 0._r8
+      f_T_methanotroph(:,ipatch)         = 0._r8
+      methanogen_growth_rate(:,ipatch)   = 0._r8
+      methanotroph_growth_rate(:,ipatch) = 0._r8
+      microbial_prod_potential(:,ipatch) = 0._r8
+      microbial_oxid_potential(:,ipatch) = 0._r8
+
+   END SUBROUTINE reset_methane_inactive_lake_microbe_diagnostics
+
+
+   SUBROUTINE accumulate_methane_lake_microbe_substep_diagnostics &
+      (ipatch, substep_dt, isub, nsub)
+      integer,  intent(in) :: ipatch
+      real(r8), intent(in) :: substep_dt
+      integer,  intent(in) :: isub
+      integer,  intent(in) :: nsub
+
+      real(r8) :: total_dt
+
+      IF (nsub <= 1) RETURN
+      IF (substep_dt <= 0._r8) RETURN
+      IF (.not. allocated(f_T_methanogen)) RETURN
+      IF (ipatch < lbound(f_T_methanogen,2) .or. &
+          ipatch > ubound(f_T_methanogen,2)) RETURN
+
+      IF (.not. allocated(methane_lake_microbe_substep_acc)) THEN
+         allocate(methane_lake_microbe_substep_acc( &
+            nl_soil, methane_lake_microbe_substep_ndiag))
+      ENDIF
+
+      IF (isub <= 1 .or. &
+          ipatch /= methane_lake_microbe_substep_cached_ipatch .or. &
+          isub /= methane_lake_microbe_substep_next_isub) THEN
+         methane_lake_microbe_substep_acc(:,:) = 0._r8
+      ENDIF
+      methane_lake_microbe_substep_cached_ipatch = ipatch
+
+      CALL add2d(1, f_T_methanogen(:,ipatch))
+      CALL add2d(2, f_S_methanogen(:,ipatch))
+      CALL add2d(3, f_O2_methanogen(:,ipatch))
+      CALL add2d(4, f_T_methanotroph(:,ipatch))
+      CALL add2d(5, methanogen_growth_rate(:,ipatch))
+      CALL add2d(6, methanotroph_growth_rate(:,ipatch))
+      CALL add2d(7, microbial_prod_potential(:,ipatch))
+      CALL add2d(8, microbial_oxid_potential(:,ipatch))
+
+      IF (isub == nsub) THEN
+         total_dt = substep_dt * real(nsub, r8)
+         IF (total_dt > 0._r8) THEN
+            CALL finish2d(1, f_T_methanogen(:,ipatch))
+            CALL finish2d(2, f_S_methanogen(:,ipatch))
+            CALL finish2d(3, f_O2_methanogen(:,ipatch))
+            CALL finish2d(4, f_T_methanotroph(:,ipatch))
+            CALL finish2d(5, methanogen_growth_rate(:,ipatch))
+            CALL finish2d(6, methanotroph_growth_rate(:,ipatch))
+            CALL finish2d(7, microbial_prod_potential(:,ipatch))
+            CALL finish2d(8, microbial_oxid_potential(:,ipatch))
+         ENDIF
+         methane_lake_microbe_substep_cached_ipatch = -1
+         methane_lake_microbe_substep_next_isub = 1
+      ELSE
+         methane_lake_microbe_substep_next_isub = isub + 1
+      ENDIF
+
+   CONTAINS
+
+      SUBROUTINE add2d (icol, var)
+         integer,  intent(in) :: icol
+         real(r8), intent(in) :: var(1:nl_soil)
+
+         methane_lake_microbe_substep_acc(:,icol) = &
+            methane_lake_microbe_substep_acc(:,icol) + var(:) * substep_dt
+      END SUBROUTINE add2d
+
+      SUBROUTINE finish2d (icol, var)
+         integer,  intent(in)    :: icol
+         real(r8), intent(inout) :: var(1:nl_soil)
+
+         var(:) = methane_lake_microbe_substep_acc(:,icol) / total_dt
+      END SUBROUTINE finish2d
+
+   END SUBROUTINE accumulate_methane_lake_microbe_substep_diagnostics
 
 
    SUBROUTINE methane_microbes_step(ipatch, component, deltim, t_soisno, conc_o2, conc_ch4, hr_vr, cellorg)

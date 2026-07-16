@@ -19,7 +19,7 @@ def subroutine_body(text: str, name: str) -> str:
 def test_wetland_decomposition_debits_state_once_with_timestep() -> None:
     driver = source("main/CoLMDRIVER.F90")
     land = source("main/TRACER/MOD_Tracer_LandPhase.F90")
-    reactive = source("main/TRACER/MOD_Tracer_Reactive.F90")
+    lifecycle = source("main/TRACER/MOD_Tracer_Lifecycle.F90")
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
     impl = source("main/TRACER/MOD_Tracer_Reactive_Methane_Impl.F90")
     shim = source("main/TRACER/MOD_Tracer_Reactive_BgcShim.F90")
@@ -27,9 +27,9 @@ def test_wetland_decomposition_debits_state_once_with_timestep() -> None:
 
     assert "CALL tracer_wetland_decomp (i, deltim)" in driver
     assert "SUBROUTINE tracer_wetland_decomp (ipatch, deltim)" in land
-    assert "CALL tracer_reactive_wetland_decomp (ipatch, deltim)" in land
-    assert "SUBROUTINE reactive_wetland_decomp_if (ipatch, deltim)" in reactive
-    assert "CALL reactive_callbacks(i)%wetland_decomp (ipatch, deltim)" in reactive
+    assert "CALL tracer_lifecycle_wetland_decomp (ipatch, deltim)" in land
+    assert "SUBROUTINE lifecycle_wetland_decomp_if (ipatch, deltim)" in lifecycle
+    assert "CALL lifecycle(i)%wetland_decomp(ipatch, deltim)" in lifecycle
     assert "SUBROUTINE ch4_reactive_wetland_decomp (ipatch, deltim)" in methane
     assert "CALL ch4_impl_wetland_decomp (ipatch, deltim)" in methane
     assert "SUBROUTINE ch4_impl_wetland_decomp (ipatch, deltim)" in impl
@@ -107,17 +107,15 @@ def test_nitrification_branch_preserves_total_mineral_n_with_nh4_first() -> None
 
 def test_lulcc_refreshes_spatial_ph_context_before_collective_reload() -> None:
     driver = source("main/LULCC/MOD_Lulcc_Driver.F90")
-    reactive = source("main/TRACER/MOD_Tracer_Reactive.F90")
+    lifecycle = source("main/TRACER/MOD_Tracer_Lifecycle.F90")
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
 
     reload_call = driver.index(
-        "CALL tracer_reactive_reload_lulcc_inputs (jdate(1), dir_landdata)"
+        "CALL tracer_lifecycle_land_reload_lulcc_inputs (jdate(1), dir_landdata)"
     )
-    remap_call = driver.index("CALL tracer_reactive_remap_lulcc_state")
+    remap_call = driver.index("CALL tracer_lifecycle_land_remap_lulcc_state")
     assert remap_call < reload_call
-    assert "SUBROUTINE reactive_reload_lulcc_if (lc_year, dir_landdata)" in reactive
-    assert "reactive_lulcc_dir_landdata" not in reactive
-    assert "tracer_reactive_get_lulcc_context" not in reactive
+    assert "SUBROUTINE lifecycle_land_reload_lulcc_if (lc_year, dir_landdata)" in lifecycle
 
     reload_body = subroutine_body(methane, "ch4_reactive_reload_lulcc_inputs")
     assert "integer, intent(in) :: lc_year" in reload_body
@@ -153,13 +151,18 @@ def test_restart_schema_is_uniform_across_all_mpi_ranks() -> None:
 def test_inactive_final_and_reentry_still_release_methane_state() -> None:
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
     land = source("main/TRACER/MOD_Tracer_LandPhase.F90")
+    lifecycle = source("main/TRACER/MOD_Tracer_Lifecycle.F90")
 
     final_body = subroutine_body(methane, "ch4_reactive_final")
     assert "ch4_reactive_has" not in final_body
     assert "CALL deallocate_methane_state ()" in final_body
     assert "last_methane_ph_patch_file = ''" in final_body
 
+    lifecycle_final = subroutine_body(lifecycle, "tracer_lifecycle_land_final")
+    assert "associated(lifecycle(i)%land_final)" in lifecycle_final
+    assert "CALL lifecycle(i)%land_final()" in lifecycle_final
+
     reentry_body = subroutine_body(land, "tracer_init_from_arrays")
-    reactive_final = reentry_body.index("CALL tracer_reactive_final ()")
+    provider_final = reentry_body.index("CALL tracer_lifecycle_land_final ()")
     defs_init = reentry_body.index("CALL tracer_defs_init()")
-    assert reactive_final < defs_init
+    assert provider_final < defs_init

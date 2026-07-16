@@ -93,10 +93,8 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Lulcc_MassEnergyConserve
    USE MOD_Namelist
 #ifdef TRACER
-   USE MOD_Tracer_Reactive, only: tracer_reactive_save_lulcc_state, &
-      tracer_reactive_remap_lulcc_state, tracer_reactive_reload_lulcc_inputs
-   USE MOD_Tracer_Particle, only: tracer_particle_save_lulcc_state, &
-      tracer_particle_remap_lulcc_state
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_land_save_lulcc_state, &
+      tracer_lifecycle_land_remap_lulcc_state, tracer_lifecycle_land_reload_lulcc_inputs
    USE MOD_Tracer_Vars, only: save_land_tracer_lulcc_state, &
       remap_land_tracer_lulcc_state
    USE MOD_Tracer_Conservation, only: deallocate_tracer_conservation
@@ -124,8 +122,7 @@ MODULE MOD_Lulcc_Driver
       CALL SAVE_LulccTimeVariables
 #ifdef TRACER
       CALL save_land_tracer_lulcc_state ()
-      CALL tracer_reactive_save_lulcc_state ()
-      CALL tracer_particle_save_lulcc_state ()
+      CALL tracer_lifecycle_land_save_lulcc_state ()
 #endif
 
       ! =============================================================
@@ -176,25 +173,19 @@ MODULE MOD_Lulcc_Driver
                CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
                   patchclass_, landpatch_%eindex, lccpct_patches, &
                   landpatch%pctshared, landpatch_%pctshared)
-               CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
+               CALL tracer_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
                   patchclass_, landpatch_%eindex, lccpct_patches, &
                   landpatch%pctshared, landpatch_%pctshared)
-               CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
-                  patchclass_, landpatch_%eindex, lccpct_patches, landpatch_%pctshared)
             ELSE
                CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
                   patchclass_, landpatch_%eindex, lccpct_patches)
-               CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
-                  patchclass_, landpatch_%eindex, lccpct_patches)
-               CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
+               CALL tracer_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
                   patchclass_, landpatch_%eindex, lccpct_patches)
             ENDIF
          ELSE
             CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
-            CALL tracer_reactive_remap_lulcc_state (patchclass, landpatch%eindex, &
-               patchclass_, landpatch_%eindex)
-            CALL tracer_particle_remap_lulcc_state (patchclass, landpatch%eindex, &
+            CALL tracer_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
          ENDIF
       ENDIF
@@ -202,7 +193,7 @@ MODULE MOD_Lulcc_Driver
       ! reload them after the worker-local state remap with every rank present.
       ! Pass the current LULCC year and landdata root so all spatial inputs are
       ! rebuilt from the same year-specific patch map.
-      CALL tracer_reactive_reload_lulcc_inputs (jdate(1), dir_landdata)
+      CALL tracer_lifecycle_land_reload_lulcc_inputs (jdate(1), dir_landdata)
 #endif
 
 

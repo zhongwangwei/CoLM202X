@@ -50,10 +50,10 @@
    DEF_LAI_CHANGE_YEARLY = .false.
 
 
-   ! Register CH4 reactive tracer.
+   ! Activate the CH4 gas provider.
    DEF_TRACER_NUM                 = 1
    DEF_TRACER_NAMES               = "CH4"
-   DEF_TRACER_TYPES               = "reactive"
+   DEF_TRACER_TYPES               = "gas"
    DEF_TRACER_MRAT                = "16.04"
    ! Per-tracer generic ref_ratio/init_delta/reactive_decay_rate are read
    ! from the file listed here; multiple tracers use a comma-separated list.

@@ -15,7 +15,6 @@ MODULE MOD_Tracer_EvapLimit
    PRIVATE
 
    real(r8), parameter :: evaplimit_default_max_loss_fraction = 0.10_r8
-   real(r8), parameter :: evaplimit_default_max_pool_water = 5.0_r8
    integer,  parameter :: evaplimit_default_max_substeps = 80
 
    abstract interface
@@ -99,8 +98,7 @@ CONTAINS
       ! vapour leaves with the pool's own ratio, so tracer loss remains matched
       ! to water loss and the residual pool R stops increasing.
       IF (r_max > 0._r8 .and. source_ratio > r_max) flux_ratio = source_ratio
-      IF (pool_water > evaplimit_default_max_pool_water .or. &
-          water_loss <= evaplimit_default_max_loss_fraction * pool_water .or. &
+      IF (water_loss <= evaplimit_default_max_loss_fraction * pool_water .or. &
           abs(flux_ratio - source_ratio) <= 1.e-12_r8 * max(source_ratio, trc_tiny)) THEN
          tracer_evaporative_tracer_loss = min(water_loss * flux_ratio, max(pool_trc, 0._r8))
          RETURN

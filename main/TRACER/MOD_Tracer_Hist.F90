@@ -148,7 +148,7 @@ CONTAINS
    USE MOD_SPMD_Task, only: p_is_worker
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
    USE MOD_Namelist, only: DEF_hist_vars
-   USE MOD_Tracer_Reactive, only: tracer_reactive_history
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_land_history
 
    IMPLICIT NONE
 
@@ -568,7 +568,7 @@ CONTAINS
                            leaf_mass_pat, leaf_water_pat)
             ENDIF
 
-      CALL tracer_reactive_history (file_hist, itime_in_file, sumarea, filter, &
+      CALL tracer_lifecycle_land_history (file_hist, itime_in_file, sumarea, filter, &
          nl_soil, forcing_has_missing_value, forcmask_pch)
 
    END SUBROUTINE tracer_hist_out

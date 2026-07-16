@@ -178,7 +178,7 @@ def test_schema3_component_groups_are_atomic_and_batch_probed() -> None:
     state = text("MOD_Tracer_Reactive_Methane_State.F90")
     microbes = text("MOD_Tracer_Reactive_Methane_Microbes.F90")
 
-    assert "METHANE_RESTART_SCHEMA_VERSION = 4" in facade
+    assert "METHANE_RESTART_SCHEMA_VERSION = 5" in facade
     assert "nmicrobe_restart_fields = 25" in facade
     assert "n_microbe_component_fields = count(microbe_field_present(5:12))" in facade
     assert "restart_schema >= 3 .and. (file_has_pools .neqv. file_has_component_pools)" in facade

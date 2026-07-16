@@ -34,6 +34,19 @@ def function_body(text: str, name: str) -> str:
 
 
 class ReactiveArchitectureStaticTests(unittest.TestCase):
+    def test_retired_family_registries_and_stubs_are_deleted(self):
+        retired = (
+            TRACER / "MOD_Tracer_Reactive.F90",
+            TRACER / "MOD_Tracer_Particle.F90",
+            ROOT / "include" / "tracer_reactive_species.inc",
+            ROOT / "include" / "tracer_particle_species.inc",
+            ROOT / "mkinidata" / "MOD_Tracer_Reactive_Registrations_Stubs.F90",
+            ROOT / "mkinidata" / "MOD_Tracer_Particle_Registrations_Stubs.F90",
+        )
+        for path in retired:
+            with self.subTest(path=path):
+                self.assertFalse(path.exists())
+
     def test_land_phase_facade_is_private_by_default(self):
         land_phase = source("MOD_Tracer_LandPhase.F90")
         declarations = land_phase[: land_phase.index("CONTAINS")]
@@ -54,35 +67,82 @@ class ReactiveArchitectureStaticTests(unittest.TestCase):
         )
         self.assertNotRegex(declarations, r"(?mi)^\s*PUBLIC\s*::[^\n]*lulcc_trc_")
 
-    def test_species_can_disable_generic_land_water_transport(self):
+    def test_state_owner_controls_generic_land_water_transport(self):
         defs = source("MOD_Tracer_Defs.F90")
-        registry = source("MOD_Tracer_Reactive_Methane_Registry.F90")
+        lifecycle = source("MOD_Tracer_Lifecycle.F90")
         land_phase = source("MOD_Tracer_LandPhase.F90")
 
-        self.assertIn("logical           :: uses_land_water_transport = .true.", defs)
-        self.assertIn("PUBLIC :: tracer_set_land_water_transport", defs)
         uses_body = function_body(defs, "tracer_uses_land_water_transport")
-        self.assertIn("tracers(itrc)%uses_land_water_transport", uses_body)
-        self.assertIn("CALL tracer_set_land_water_transport (i, .false.)", registry)
+        self.assertIn(
+            "tracers(itrc)%state_owner == STATE_OWNER_GENERIC_WATER", uses_body
+        )
+        registration = subroutine_body(lifecycle, "register_tracer_provider")
+        self.assertIn("tracers(itrc)%state_owner = declared_owner", registration)
         init_body = subroutine_body(land_phase, "tracer_init_from_arrays")
         self.assertLess(
-            init_body.index("CALL tracer_reactive_init"),
+            init_body.index("CALL tracer_lifecycle_init()"),
             init_body.index("CALL allocate_Tracer_Vars"),
         )
 
-    def test_particle_final_does_not_requery_activation(self):
-        body = subroutine_body(source("MOD_Tracer_Particle.F90"), "tracer_particle_final")
-        self.assertNotIn("particle_callback_enabled", body)
-        self.assertIn("associated(particle_callbacks(i)%final)", body)
+    def test_provider_owned_rows_do_not_retain_generic_land_water_state(self):
+        variables = source("MOD_Tracer_Vars.F90")
+        restart = source("MOD_Tracer_Rest.F90")
+        body = subroutine_body(
+            variables, "zero_provider_owned_land_tracer_state"
+        )
 
-    def test_reactive_history_callbacks_receive_private_workspaces(self):
-        body = subroutine_body(source("MOD_Tracer_Reactive.F90"), "tracer_reactive_history")
+        self.assertIn("IF (tracer_uses_land_water_transport(itrc)) CYCLE", body)
+        self.assertNotIn("tracer_is_particle", body)
+        # Cold start, pre-read clearing, post-unpack clearing, and write all
+        # enforce the same ownership boundary. Provider rows are never packed
+        # into the compact generic restart transaction.
+        self.assertEqual(
+            restart.count("CALL zero_provider_owned_land_tracer_state()"), 4
+        )
+        self.assertIn("tracer_build_descriptor_identity(expected, transport_only=.true.)", restart)
+        self.assertIn("IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE", restart)
+        self.assertNotIn("zero_particle_land_tracer_state", variables + restart)
+
+    def test_route_final_uses_registered_rows_without_requerying_names(self):
+        body = subroutine_body(
+            source("MOD_Tracer_Lifecycle.F90"), "tracer_lifecycle_route_final"
+        )
+        self.assertIn("lifecycle_row_registered(i)", body)
+        self.assertIn("associated(lifecycle(i)%route_final)", body)
+        self.assertIn("CALL lifecycle(i)%route_final()", body)
+        self.assertNotIn("tracer_index_for_name", body)
+
+    def test_multiple_lifecycle_history_providers_receive_private_workspaces(self):
+        body = subroutine_body(
+            source("MOD_Tracer_Lifecycle.F90"), "tracer_lifecycle_land_history"
+        )
         self.assertIn("callback_sumarea = sumarea", body)
         self.assertIn("callback_filter = filter", body)
-        self.assertIn("callback_sumarea, callback_filter", body)
-        self.assertNotIn(
-            "CALL reactive_callbacks(i)%history (file_hist, itime_in_file, sumarea, filter",
+        self.assertIn(
+            "%land_history(file_hist, itime_in_file, callback_sumarea, callback_filter",
             body,
+        )
+        self.assertNotIn(
+            "CALL lifecycle(i)%land_history(file_hist, itime_in_file, sumarea, filter",
+            body,
+        )
+
+    def test_compiled_providers_share_one_manifest_and_registrar(self):
+        manifest = (ROOT / "include" / "tracer_lifecycle_providers.inc").read_text()
+        registrar = source("MOD_Tracer_Lifecycle_Registrations.F90")
+
+        self.assertIn("ch4_register_tracer_provider", manifest)
+        self.assertIn("register_sediment_tracer_provider", manifest)
+        self.assertEqual(registrar.count('#include "tracer_lifecycle_providers.inc"'), 2)
+        self.assertIn("CALL register_fn ()", registrar)
+
+    def test_methane_parameter_lookup_accepts_both_name_aliases(self):
+        body = subroutine_body(
+            source("MOD_Tracer_Reactive_Methane.F90"),
+            "ch4_reactive_resolve_param_file",
+        )
+        self.assertIn(
+            "tracer_param_file_for_index (igas_ch4, 'CH4,METHANE'", body
         )
 
     def test_generic_reactive_tracers_keep_generic_history(self):

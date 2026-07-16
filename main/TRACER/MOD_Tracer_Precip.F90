@@ -45,7 +45,7 @@ CONTAINS
       ldew_rain_old, ldew_snow_old, qflx_irrig_sprinkler, &
       gross_intr_rain, gross_intr_snow, &
       xsc_rain_out, xsc_snow_out, &
-      ldew_smelt_mass, ldew_frzc_mass, waterstorage_patch)
+      ldew_smelt_mass, ldew_frzc_mass, waterstorage_before)
 
       IMPLICIT NONE
       integer,  intent(in) :: ipatch
@@ -93,7 +93,9 @@ CONTAINS
       ! under-report the melt signal).
       real(r8), intent(in) :: ldew_smelt_mass
       real(r8), intent(in) :: ldew_frzc_mass
-      real(r8), intent(in), optional :: waterstorage_patch
+      ! Reservoir water before sprinkler withdrawal. The bulk irrigation
+      ! routine has already debited waterstorage by the time this routine runs.
+      real(r8), intent(in), optional :: waterstorage_before
 
       integer  :: itrc
       real(r8) :: R_input, storage_ratio, R_rain_input
@@ -103,6 +105,7 @@ CONTAINS
       real(r8) :: trc_rain_ground, trc_snow_ground
       real(r8) :: rain_total           ! forc_rain + sprinkler [mm/s]
       real(r8) :: sprinkler_rate       ! non-negative sprinkler water input [mm/s]
+      real(r8) :: sprinkler_water      ! sprinkler water transferred this step [mm]
       real(r8) :: xsc_mass             ! pre-mix release in this step [mm]
       real(r8) :: trc_xsc              ! pre-mix release tracer mass
       real(r8) :: R_canopy_pre         ! canopy signature BEFORE mix
@@ -121,6 +124,7 @@ CONTAINS
       real(r8) :: canopy_trc_beg, canopy_trc_end, canopy_input_trc
       real(r8) :: canopy_resid, ground_trc_total, desired_ground_total
       real(r8) :: sprinkler_trc
+      real(r8) :: canopy_old_water, canopy_release_trc
 
       IF (ntracers <= 0) RETURN
 
@@ -130,6 +134,7 @@ CONTAINS
       ! ≡ rain_total*deltim) and the system-input accounting covers
       ! both natural precipitation and sprinkler irrigation.
       sprinkler_rate = max(qflx_irrig_sprinkler, 0._r8)
+      sprinkler_water = sprinkler_rate * deltim
       rain_total = max(forc_rain, 0._r8) + sprinkler_rate
 
       DO itrc = 1, ntracers
@@ -153,19 +158,27 @@ CONTAINS
             + (forc_rain + forc_snow) * R_input * deltim
 
          IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
-            IF (present(waterstorage_patch)) THEN
-               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage_patch, 0._r8), &
+            IF (present(waterstorage_before)) THEN
+               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage_before, 0._r8), &
                   trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
-               IF (waterstorage_patch > trc_water_min_for_ratio) THEN
-                  storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_patch
+               IF (waterstorage_before > trc_water_min_for_ratio) THEN
+                  storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_before
                ENDIF
             ENDIF
-            sprinkler_trc = qflx_irrig_sprinkler * storage_ratio * deltim
+            sprinkler_trc = sprinkler_water * storage_ratio
             sprinkler_trc = min(max(sprinkler_trc, 0._r8), max(trc_waterstorage(itrc, ipatch), 0._r8))
             trc_waterstorage(itrc, ipatch) = trc_waterstorage(itrc, ipatch) &
                - sprinkler_trc
+            ! The canopy must receive exactly the tracer actually removed,
+            ! including near-dry and dissolved-inventory-limited withdrawals.
+            IF (sprinkler_water > trc_tiny) storage_ratio = sprinkler_trc / sprinkler_water
+            IF (present(waterstorage_before)) THEN
+               CALL tracer_equilibrate_dissolved(itrc, &
+                  max(waterstorage_before - sprinkler_water, 0._r8), &
+                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
+            ENDIF
          ELSE
-            sprinkler_trc = max(qflx_irrig_sprinkler, 0._r8) * storage_ratio * deltim
+            sprinkler_trc = sprinkler_water * storage_ratio
          ENDIF
 
          R_rain_input = R_input
@@ -185,12 +198,12 @@ CONTAINS
          ! block below would see d_ldew < 0 (for melt) and falsely
          ! classify ldew_smelt_mass as drip to trc_pg_snow_ground, while
          ! the rain pool would silently lose the meltwater's signature.
-         ! Clamp masses to the (post-clamp) old-pool to survive small
-         ! caller-side float noise.
+         ! Clamp each mass to the pool available when that transfer runs;
+         ! melt precedes freeze in this aggregate, well-mixed canopy state.
          ldew_rain_old_eff = max(0._r8, ldew_rain_old)
          ldew_snow_old_eff = max(0._r8, ldew_snow_old)
          smelt_mass = min(max(0._r8, ldew_smelt_mass), ldew_snow_old_eff)
-         frzc_mass  = min(max(0._r8, ldew_frzc_mass),  ldew_rain_old_eff)
+         frzc_mass  = max(0._r8, ldew_frzc_mass)
 
          IF (smelt_mass > 0._r8) THEN
             IF (ldew_snow_old_eff > trc_tiny) THEN
@@ -206,7 +219,11 @@ CONTAINS
             ldew_rain_old_eff = ldew_rain_old_eff + smelt_mass
          ENDIF
 
+         frzc_mass = min(frzc_mass, ldew_rain_old_eff)
          IF (frzc_mass > 0._r8) THEN
+            ! ponytail: interception exposes aggregate phase mass but no
+            ! freeze-event temperature (and PFTs can differ); keep this
+            ! transfer conservative until temperature-weighted diagnostics exist.
             IF (ldew_rain_old_eff > trc_tiny) THEN
                R_rain_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
             ELSE
@@ -218,6 +235,41 @@ CONTAINS
             trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_frzc
             ldew_rain_old_eff = ldew_rain_old_eff - frzc_mass
             ldew_snow_old_eff = ldew_snow_old_eff + frzc_mass
+         ENDIF
+
+         ! LEAF_interception has a carrier-empty branch for lai+sai~=0 that
+         ! releases the entire old single-bucket canopy store as rain or snow
+         ! according to tleaf, then zeros both ldew phase pools.  Its xsc
+         ! diagnostic therefore names the RELEASE phase, not necessarily the
+         ! phase in which the old water/tracer entered this routine.  Repack the
+         ! complete old canopy inventory into that host-selected phase before
+         ! the ordinary xsc calculation.  Otherwise old snow released as rain
+         ! remains stranded in trc_ldew_snow (and old rain released as snow is
+         ! precipitated into trc_canopy_solid when the now-empty liquid carrier
+         ! is equilibrated below).
+         canopy_old_water = ldew_rain_old_eff + ldew_snow_old_eff
+         IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= trc_water_min_for_ratio .and. &
+             canopy_old_water > trc_water_min_for_ratio .and. &
+             (((max(xsc_rain_out, 0._r8) * deltim > trc_water_min_for_ratio) .and. &
+                (max(xsc_snow_out, 0._r8) * deltim <= trc_water_min_for_ratio)) .or. &
+              ((max(xsc_snow_out, 0._r8) * deltim > trc_water_min_for_ratio) .and. &
+                (max(xsc_rain_out, 0._r8) * deltim <= trc_water_min_for_ratio))) .and. &
+             (max(xsc_rain_out, 0._r8) + max(xsc_snow_out, 0._r8)) * deltim &
+                >= canopy_old_water - trc_water_min_for_ratio) THEN
+            canopy_release_trc = trc_ldew_rain(itrc, ipatch) + &
+               trc_ldew_snow(itrc, ipatch) + trc_canopy_solid(itrc, ipatch)
+            trc_canopy_solid(itrc, ipatch) = 0._r8
+            IF (max(xsc_rain_out, 0._r8) * deltim > trc_water_min_for_ratio) THEN
+               trc_ldew_rain(itrc, ipatch) = canopy_release_trc
+               trc_ldew_snow(itrc, ipatch) = 0._r8
+               ldew_rain_old_eff = canopy_old_water
+               ldew_snow_old_eff = 0._r8
+            ELSE
+               trc_ldew_rain(itrc, ipatch) = 0._r8
+               trc_ldew_snow(itrc, ipatch) = canopy_release_trc
+               ldew_rain_old_eff = 0._r8
+               ldew_snow_old_eff = canopy_old_water
+            ENDIF
          ENDIF
 
          ! ---- Rain component (2-stage isotope attribution) ----

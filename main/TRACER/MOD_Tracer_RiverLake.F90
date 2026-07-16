@@ -25,14 +25,25 @@ MODULE MOD_Tracer_RiverLake
    ! Share the single authoritative `ntracers` from MOD_Tracer_Defs to
    ! avoid the land/river tracer modules holding two independent copies
    ! that could silently diverge on re-init.
-   USE MOD_Tracer_Defs, only: ntracers, tracer_is_particle, tracer_uses_land_water_transport, &
-                              tracer_concentration_units
+   USE MOD_Tracer_Defs, only: ntracers, tracer_uses_land_water_transport, &
+                              tracer_concentration_units, tracer_build_descriptor_identity, &
+                              TRACER_DESCRIPTOR_IDENTITY_WIDTH
    IMPLICIT NONE
 
    !-------------------------------------------------------------------------------------
    ! Module variables
    !-------------------------------------------------------------------------------------
    character(len=32), allocatable :: tracer_names(:)  ! Tracer names
+
+   ! Schema 1 is the first river/lake tracer restart contract that carries
+   ! the complete physical descriptor, rather than only count + name hash.
+   integer, parameter :: RIVER_TRACER_RESTART_SCHEMA_VERSION = 1
+   real(r8), parameter :: TRC_RESTART_NEGATIVE_DUST = 1.0e-12_r8
+   ! The coupled donor limiter iterates dimensionless rates in [0,1].  Every
+   ! iterate is conservative, but stopping before a fixed point would add
+   ! avoidable numerical diffusion, so a material non-convergence is fatal.
+   real(r8), parameter :: TRC_LIMITER_RATE_TOL = 1.0e-12_r8
+   real(r8), parameter :: TRC_LIMITER_OUT_TINY = 1.0e-30_r8
 
    ! State variables (prognostic)
    ! trc_mass is built from R_default * water_volume, so its units are
@@ -69,8 +80,6 @@ MODULE MOD_Tracer_RiverLake
    ! Display/history diagnostics should not let bathtub-scale residual
    ! volumes dominate isotope delta min/max. This does not alter state.
    real(r8), parameter :: trc_delta_diag_vmin = 1._r8
-   real(r8), parameter :: inp_cap_factor = 1._r8
-
 	   ! History accumulators
 	   real(r8), allocatable :: a_trc_conc   (:,:) ! Accumulated tracer conc [mass/m3 * s] (ntracers, numucat)
 	   real(r8), allocatable :: a_trc_storage_mass(:,:) ! Accumulated visible storage tracer [R*m3*s]
@@ -126,6 +135,9 @@ MODULE MOD_Tracer_RiverLake
    PRIVATE :: ensure_tracer_substep_workspace, release_tracer_substep_workspace
    PRIVATE :: ensure_real1_workspace, ensure_real2_workspace
    PRIVATE :: tracer_bif_path_levee_sides
+   PRIVATE :: riverlake_restart_descriptor_compatible
+   PRIVATE :: probe_riverlake_restart_vector
+   PRIVATE :: validate_riverlake_restart_state
 
    PUBLIC :: river_lake_tracer_init
    PUBLIC :: tracer_init_from_water
@@ -350,8 +362,8 @@ CONTAINS
       ! sign filter — both positive and negative rnof contributions are
       ! summed. The previous `IF (rnof_uc_depth > 0)` guard here let
       ! FP-noise negatives drift the water/tracer accumulators apart,
-      ! biasing the m_cap ratio (acc_trc_inp/acc_rnof_ref) used in
-      ! tracer_substep when the accumulators desynchronize.
+      ! which would make restart recovery and levee pending-pool
+      ! repartition use inconsistent water and tracer windows.
       DO i = 1, numucat_in
          acc_rnof_ref(i) = acc_rnof_ref(i) + rnof_uc_depth(i)
          DO itrc = 1, ntracers
@@ -456,35 +468,26 @@ CONTAINS
    ! a uniform pool-ratio split which homogenises the two compartments).
    !-------------------------------------------------------------------------------------
    SUBROUTINE levee_tracer_repartition (icell, vis_vol_bef, levsto_bef, vis_vol_aft, levsto_aft, &
-                                        pending_trc_pool, pending_water_ref)
+                                        pending_trc_pool)
 
-   USE MOD_Tracer_Defs, only: trc_tiny, tracers
+   USE MOD_Tracer_Defs, only: trc_tiny
    IMPLICIT NONE
    integer,  intent(in) :: icell
    real(r8), intent(in) :: vis_vol_bef, levsto_bef
    real(r8), intent(in) :: vis_vol_aft, levsto_aft
    ! Optional pool of period-accumulated runoff tracer that is conceptually on
    ! the visible side (its water has already been folded into vis_vol_bef) but
-   ! has not yet been merged into trc_mass. Caller passes acc_trc_inp(:, icell)
+   ! has not yet been merged into trc_mass. Caller passes trc_inp_buf(:, icell)
    ! at the pre-tracer-substep call site so the visible-side ratio reflects
    ! the post-input state. Without this, the ratio is diluted
    ! (denominator includes runoff water but numerator does not include the
    ! matching runoff tracer), leaking the Phase-1 R_init invariant.
    real(r8), intent(inout), optional :: pending_trc_pool(:)
-   ! Water-side counterpart of pending_trc_pool. When the
-   ! overflow path debits pending tracer (trc_move > trc_mass), this
-   ! reference water amount must shrink by the same fraction so the
-   ! m_cap ratio (acc_trc_inp / acc_rnof_ref) used in tracer_substep
-   ! stays stable. Without this companion debit, m_cap drifts below
-   ! R_init and the buffer release cap silently under-injects on the
-   ! next routing period for cells that hit a large levee transfer.
-   real(r8), intent(inout), optional :: pending_water_ref
 
    integer  :: itrc
    real(r8) :: d_lev, ratio, trc_move
    real(r8) :: vis_pending, vis_total
    real(r8) :: debit_mass, debit_pending
-   real(r8) :: water_factor
 
       IF (.not. allocated(trc_mass) .or. .not. allocated(trc_levsto)) RETURN
       IF (icell < 1 .or. icell > size(trc_mass, 2)) RETURN
@@ -493,12 +496,12 @@ CONTAINS
 
       IF (abs(d_lev) < trc_tiny) RETURN
 
-      water_factor = 0._r8
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          vis_pending = 0._r8
          IF (present(pending_trc_pool)) THEN
-            IF (itrc <= size(pending_trc_pool)) vis_pending = pending_trc_pool(itrc)
+            IF (itrc <= size(pending_trc_pool)) &
+               vis_pending = max(pending_trc_pool(itrc), 0._r8)
          ENDIF
          IF (d_lev > 0._r8) THEN
             ! Visible -> protected. Use post-input ratio (trc_mass + pending) /
@@ -535,17 +538,6 @@ CONTAINS
             IF (present(pending_trc_pool) .and. abs(debit_pending) > 0._r8) THEN
                IF (itrc <= size(pending_trc_pool)) THEN
                   pending_trc_pool(itrc) = pending_trc_pool(itrc) - debit_pending
-                  ! Track the proportional debit so we can sync the water
-                  ! reference after the per-tracer loop. In Phase 1 all
-                  ! tracers share the same fraction (vis_pending and
-                  ! debit_pending scale with R_init); use the largest
-                  ! seen so the water debit doesn't under-shoot when
-                  ! tracer-specific effects (Phase 2) make the fractions
-                  ! diverge slightly.
-                  IF (abs(vis_pending) > trc_tiny) THEN
-                     water_factor = max(water_factor, &
-                        min(abs(debit_pending) / abs(vis_pending), 1._r8))
-                  ENDIF
                ENDIF
             ENDIF
          ELSE
@@ -566,21 +558,6 @@ CONTAINS
             trc_mass  (itrc, icell) = trc_mass  (itrc, icell) + trc_move
          ENDIF
       ENDDO
-
-      ! Debit the runoff water reference by the same
-      ! fraction the pending tracer pool was reduced. The tracer-side
-      ! debit on `pending_trc_pool` represents period-runoff tracer mass
-      ! that physically crossed the levee with the d_lev water; the
-      ! companion runoff WATER (acc_rnof_ref(icell)) must shrink by the
-      ! same fraction so the m_cap ratio in tracer_substep stays
-      ! anchored at R_init under Phase 1 (and tracks the true mixed
-      ! ratio under Phase 2). Without this, m_cap drifts low after a
-      ! large levee transfer and the buffer release on the next
-      ! routing period is silently over-throttled.
-      IF (present(pending_water_ref) .and. water_factor > 0._r8) THEN
-         pending_water_ref = pending_water_ref * (1._r8 - water_factor)
-         pending_water_ref = max(pending_water_ref, 0._r8)
-      ENDIF
 
    END SUBROUTINE levee_tracer_repartition
 
@@ -653,6 +630,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE tracer_diag_accumulate_substep (dt_all, irivsys, ucatfilter, wdsrf, volresv_in, ucat2resv_in)
 
+	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 	   USE MOD_Grid_RiverLakeNetwork, only: numucat
 	   USE MOD_Grid_RiverLakeLevee,   only: has_levee, levsto
 	   USE MOD_Tracer_Defs, only: trc_tiny
@@ -678,6 +656,17 @@ CONTAINS
          IF (volwater <= trc_v_dry_off) THEN
             DO itrc = 1, ntracers
                IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+               ! Dry cleanup is a budgeted sink for non-negative physical mass,
+               ! not a way to erase an invalid state before the watchdog sees it.
+               IF (.not. ieee_is_finite(trc_mass(itrc, i))) THEN
+                  CALL CoLM_stop('non-finite river tracer mass reached dry-cell cleanup')
+               ELSEIF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
+                  CALL CoLM_stop('negative river tracer mass reached dry-cell cleanup')
+               ELSEIF (trc_mass(itrc, i) < 0._r8) THEN
+                  trc_mass(itrc, i) = 0._r8
+               ENDIF
+               IF (.not. ieee_is_finite(trc_inp_buf(itrc, i))) &
+                  CALL CoLM_stop('non-finite signed river tracer buffer reached dry-cell cleanup')
                ! NEG_RUNOFF_DEBT: a negative pending runoff tracer is a
                ! signed correction tied to future same-cell runoff input, not
                ! a physical negative river outflow.  Dry-cell cleanup drains
@@ -686,8 +675,14 @@ CONTAINS
                ! cancel it with the correct source signature.
                dry_drain = max(trc_mass(itrc, i), 0._r8) + max(trc_inp_buf(itrc, i), 0._r8)
                IF (dry_drain > trc_tiny) THEN
-                  IF (dt_i > 0._r8) trc_flux_out(itrc, i) = trc_flux_out(itrc, i) + dry_drain / dt_i
                   IF (allocated(trc_dry_drain)) trc_dry_drain(itrc, i) = trc_dry_drain(itrc, i) + dry_drain
+                  ! Keep advective outflux and the internal dry-cell sink
+                  ! separate. CoLMDEBUG books trc_flux_out at river mouths and
+                  ! adds trc_dry_drain globally; folding the sink into both
+                  ! arrays counted a dry mouth twice. Preserve the existing
+                  ! history diagnostic explicitly without contaminating flux.
+                  IF (dt_i > 0._r8 .and. ucatfilter(i)) &
+                     a_trc_out(itrc, i) = a_trc_out(itrc, i) + dry_drain
                ENDIF
                trc_mass(itrc, i)    = 0._r8
                trc_inp_buf(itrc, i) = min(trc_inp_buf(itrc, i), 0._r8)
@@ -876,18 +871,19 @@ CONTAINS
       volresv, ucat2resv, is_built_resv, &
       do_bif, bif_hflux_lev_in, npthout_local_in)
 
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_next, &
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_next, &
       floodplain_curve, lake_type, push_ups2ucat, push_next2ucat, &
       npthlev_bif, pth_upst_local, pth_down_local, &
-      push_bif_influx, push_bif_dn2pth
+      push_bif_influx, push_bif_dn2pth, rivsys_by_multiple_procs
+#ifdef USEMPI
+   USE MOD_Grid_RiverLakeNetwork, only: p_comm_rivsys
+#endif
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto
    USE MOD_Grid_RiverLakeTimeVars, only: volwater_ucat
    USE MOD_WorkerPushData
    USE MOD_Tracer_Defs, only: trc_tiny, &
-      tracer_init_water_ratio, tracer_can_use_fixed_signature, &
-      tracer_reactive_decay_fraction
-   USE MOD_Tracer_Frac, only: tracer_fractionation_active
-   USE MOD_Tracer_Vars, only: trc_runtime_forced
+      tracer_init_water_ratio, tracer_reactive_decay_fraction
    IMPLICIT NONE
 
    real(r8), intent(in) :: dt_ref
@@ -904,19 +900,17 @@ CONTAINS
    real(r8), intent(in), optional :: bif_hflux_lev_in(:,:)
    integer,  intent(in), optional :: npthout_local_in
 
-   integer  :: i, itrc, ipth, i_up, i_dn, ilev
-   real(r8) :: volwater, volwater_next, volflux, dt_i, dt_donor, trc_pth_fl
-   real(r8) :: layer_wflux, trc_rate
+   integer  :: i, itrc, ipth, i_up, i_dn, ilev, limiter_iter, limiter_max_iter
+   real(r8) :: volwater, volflux, dt_i, dt_donor, trc_pth_fl
+   real(r8) :: layer_wflux, trc_rate, limiter_rate_new
+   real(r8) :: limiter_delta, limiter_delta_global
    logical  :: upstream_has_levee, downstream_has_levee, can_use_levee_tracer
-   logical  :: can_snap_fixed
-   logical  :: fixed_signature_transport
-   real(r8) :: trc_inj_tau, m_cap, m_room, m_tau, release, R_cap, R_fill, inj_frac
-   real(r8) :: trc_mass_new, ratio_next, ratio_snap_tol
+   logical  :: limiter_converged
+   real(r8) :: release, R_fill
+   real(r8) :: trc_mass_new
    real(r8) :: decay_fraction, reactive_src
    logical  :: bif_workspace_active
    integer  :: npth_bif, nlev_bif
-   ! 1e-6 relative ratio tolerance equals 1e-3 permil for isotope ratios.
-   real(r8), parameter :: fixed_sig_rel_tol = 1.e-6_r8
 
       npth_bif = 0
       nlev_bif = 0
@@ -927,11 +921,23 @@ CONTAINS
          bif_workspace_active = do_bif
       ENDIF
 
+      ! A Jacobi fixed point can move donor-rate information only one graph
+      ! edge per iteration. The water-side BIF aggregate limiter reserves
+      ! ordinary gross outflow before authorising BIF outflow, separately for
+      ! visible/protected pools. With the same well-mixed concentration used
+      ! here, every nonzero BIF sender therefore starts at tracer rate one;
+      ! sub-unit-rate dependencies propagate only along the ordinary river
+      ! forest. Visible/protected pools give at most 2*N vertices, so 2*N+1 is
+      ! a conservative topology-derived bound rather than an arbitrary cycle
+      ! iteration budget. A material residual at that bound is fatal.
+      IF (totalnumucat < 0 .or. totalnumucat > (huge(limiter_max_iter) - 1) / 2) &
+         CALL CoLM_stop('invalid river topology size for tracer donor limiter')
+      limiter_max_iter = 2 * totalnumucat + 1
+
       IF (numucat <= 0 .and. npth_bif <= 0 .and. .not. bif_workspace_active) RETURN
 
       CALL ensure_tracer_substep_workspace(numucat, npth_bif, nlev_bif, bif_workspace_active)
 
-      trc_inj_tau = dt_ref
       can_use_levee_tracer = DEF_USE_LEVEE .and. allocated(has_levee) .and. &
          allocated(trc_levsto) .and. allocated(levsto)
 
@@ -957,71 +963,78 @@ CONTAINS
          DO itrc = 1, ntracers
             IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
             R_fill = tracer_init_water_ratio(itrc)
-            fixed_signature_transport = tracer_can_use_fixed_signature(itrc) .and. &
-               .not. tracer_fractionation_active(itrc)
-            IF (allocated(trc_runtime_forced)) THEN
-               fixed_signature_transport = fixed_signature_transport .and. .not. trc_runtime_forced(itrc)
-            ENDIF
 
          ! --- 1. Concentration from pre-update single-pool state ---
          DO i = 1, numucat
             CALL get_cell_volume(i, wdsrf(i), volresv, ucat2resv, volwater)
             dt_i = 0._r8
             IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
-            IF (dt_ref > 0._r8) THEN
-               inj_frac = dt_i / dt_ref
-            ELSE
-               inj_frac = 0._r8
+            ! The restart/state contract admits only sub-tolerance negative
+            ! roundoff. Canonicalize it before forming a concentration: a
+            ! negative flux would violate the limiter's nonnegative monotone
+            ! map even if the underlying mass error is numerically tiny.
+            IF (.not. ieee_is_finite(trc_mass(itrc, i))) THEN
+               CALL CoLM_stop('non-finite river tracer mass before transport')
+            ELSEIF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
+               CALL CoLM_stop('negative river tracer mass before transport')
+            ELSEIF (trc_mass(itrc, i) < 0._r8) THEN
+               trc_mass(itrc, i) = 0._r8
             ENDIF
-            trc_inp_buf(itrc, i) = trc_inp_buf(itrc, i) + acc_trc_inp(itrc, i) * inj_frac
-            ! Do not release buffer into a dry cell. Without water,
-            ! released mass has nowhere to host a concentration
-            ! (update_tracer_concentration below would zero trc_conc and
-            ! leave trc_mass as hidden inventory). The dry-drain pass in
-            ! Section 10 below folds any orphan trc_mass + trc_inp_buf into
-            ! trc_flux_out as an exit flux.
-            IF (volwater > trc_v_dry_off) THEN
-                  ! m_cap caps release only while this period has fresh input.
-                  ! Use the pre-consumption snapshot so runtime-forced tracers
-                  ! keep their actual runoff signature instead of falling back
-                  ! to the fixed-signature baseline after acc_trc_inp is reset.
-                  IF (acc_trc_inp(itrc, i) > trc_tiny .and. acc_rnof_ref(i) > trc_tiny) THEN
-                     m_cap = inp_cap_factor * (acc_trc_inp(itrc, i) / max(acc_rnof_ref(i), 1.e-30_r8)) * volwater
-                     m_room = max(0._r8, m_cap - trc_mass(itrc, i))
-                  ELSE
-                  ! Residual buffer from a previous routing period must
-                  ! respect the current host-cell water volume.  Use the
-                  ! type-specific initial water ratio/concentration as the
-                  ! default lower cap; fixed-signature tracers additionally
-                  ! preserve the precomputed fill ratio below.
-                     R_cap = max(tracer_init_water_ratio(itrc), &
-                        max(trc_mass(itrc, i), 0._r8) / max(volwater, trc_v_dry_off))
-                     IF (fixed_signature_transport) R_cap = max(R_cap, R_fill)
-                     m_cap = inp_cap_factor * R_cap * volwater
-                     m_room = max(0._r8, m_cap - trc_mass(itrc, i))
+            IF (allocated(trc_levsto)) THEN
+               IF (i <= size(trc_levsto, 2)) THEN
+                  IF (.not. ieee_is_finite(trc_levsto(itrc, i))) THEN
+                     CALL CoLM_stop('non-finite protected tracer mass before transport')
+                  ELSEIF (trc_levsto(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
+                     CALL CoLM_stop('negative protected tracer mass before transport')
+                  ELSEIF (trc_levsto(itrc, i) < 0._r8) THEN
+                     trc_levsto(itrc, i) = 0._r8
                   ENDIF
-               m_tau = trc_inp_buf(itrc, i) * dt_i / max(trc_inj_tau, dt_i)
-               ! Signed runoff tracer corrections can leave a negative
-               ! pending pool. Keep that debt attached to the runoff input
-               ! buffer so it can cancel later same-cell positive runoff;
-               ! do not borrow tracer from the current river cell, whose
-               ! concentration is not the source signature of the debt.
-               IF (trc_inp_buf(itrc, i) < -trc_tiny) THEN
-                  release = 0._r8
-               ELSE
-                  release = max(0._r8, min(trc_inp_buf(itrc, i), min(m_room, m_tau)))
                ENDIF
-               trc_inp_buf(itrc, i) = trc_inp_buf(itrc, i) - release
-               trc_mass(itrc, i) = trc_mass(itrc, i) + release
             ENDIF
+            ! Release every positive pending input in the first substep,
+            ! even when the pre-update cell is dry. Water can arrive during
+            ! this same substep; if it remains dry, the post-update dry-drain
+            ! path removes the orphan mass. Signed debt stays in the buffer
+            ! to cancel later same-cell runoff rather than borrowing from
+            ! the current river inventory.
+            release = max(trc_inp_buf(itrc, i), 0._r8)
+            trc_inp_buf(itrc, i) = trc_inp_buf(itrc, i) - release
+            trc_mass(itrc, i) = trc_mass(itrc, i) + release
             CALL update_tracer_concentration(itrc, i, volwater)
-            volflux = max(volwater, abs(hflux_fc(i)) * dt_i)
-            trc_conc_flux(i) = trc_mass(itrc, i) / max(volflux, trc_v_dry_off)
+            IF (volwater > trc_v_dry_off) THEN
+               ! Use the actual well-mixed pool concentration. Inflating the
+               ! denominator to an outgoing edge volume breaks the constant-
+               ! state invariant whenever same-step inflow balances gross
+               ! outflow; the coupled donor limiter now handles that demand.
+               trc_conc_flux(i) = trc_mass(itrc, i) / volwater
+            ELSE
+               ! A dry cell has no physical concentration. Retain the bounded
+               ! edge-volume fallback only to transport explicitly queued mass
+               ! without division by zero; the limiter remains authoritative.
+               volflux = max(abs(hflux_fc(i)) * dt_i, trc_v_dry_off)
+               trc_conc_flux(i) = trc_mass(itrc, i) / volflux
+            ENDIF
             trc_prot_conc_flux(i) = trc_conc_flux(i)
             IF (can_use_levee_tracer) THEN
                IF (i <= size(has_levee) .and. i <= size(levsto) .and. i <= size(trc_levsto, 2)) THEN
-                  IF (has_levee(i) .and. levsto(i) > trc_v_dry_off) THEN
-                     trc_prot_conc_flux(i) = trc_levsto(itrc, i) / max(levsto(i), trc_v_dry_off)
+                  IF (has_levee(i)) THEN
+                     IF (.not. ieee_is_finite(levsto(i)) .or. levsto(i) < 0._r8) &
+                        CALL CoLM_stop('invalid protected water storage before tracer transport')
+                     ! A real protected compartment keeps its own signature even
+                     ! below the dry threshold. Falling back to visible C here
+                     ! can make protected tracer demand exceed protected mass
+                     ! and creates a spurious sub-unit BIF donor dependency.
+                     IF (levsto(i) > 0._r8) THEN
+                        ! Use the true pool volume even below the diagnostic dry
+                        ! threshold. The water limiter guarantees Q*dt<=V, so a
+                        ! complete tiny-pool drain exports exactly its tracer mass
+                        ! instead of leaving an orphan inventory behind.
+                        trc_prot_conc_flux(i) = trc_levsto(itrc, i) / levsto(i)
+                        IF (.not. ieee_is_finite(trc_prot_conc_flux(i))) &
+                           CALL CoLM_stop('non-finite protected tracer concentration')
+                     ELSE
+                        trc_prot_conc_flux(i) = 0._r8
+                     ENDIF
                   ENDIF
                ENDIF
             ENDIF
@@ -1119,104 +1132,13 @@ CONTAINS
             ENDDO
          ENDIF
 
-         ! --- 7. Mass-based flux limiter ---
-         ! CFL constrains NET water flux (outflow - inflow), while tracer
-         ! outflow is based on GROSS outflow. The limiter therefore has to
-         ! count same-substep incoming tracer as available donor mass;
-         ! otherwise a uniform concentration field is artificially diluted
-         ! whenever gross outflow exceeds the pre-substep local storage but
-         ! is balanced by simultaneous inflow.
+         ! --- 7. Coupled mass-based flux limiter ---
+         ! Water CFL limits NET storage change, while a tracer donor can have
+         ! several simultaneous outgoing faces.  Build the raw gross donor
+         ! demand first; the coupled iteration below authorises it only from
+         ! mass that upstream donor rates actually deliver in this substep.
 
-         trc_in_mass(:) = 0._r8
-         trc_in_mass_lev(:) = 0._r8
-
-         ! Main-channel gross incoming mass. Positive hflux enters the
-         ! downstream cell through flux_ups; negative hflux enters the
-         ! current cell through -trc_flux.
-         rate_cell(:) = 0._r8
-         DO i = 1, numucat
-            IF (hflux_fc(i) >= 0._r8) rate_cell(i) = max(trc_flux(i), 0._r8)
-         ENDDO
-         CALL worker_push_data (push_ups2ucat, rate_cell, rate_next, fillvalue = 0._r8, mode = 'sum')
-         DO i = 1, numucat
-            IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) THEN
-               dt_i = dt_all(irivsys(i))
-            ELSE
-               dt_i = 0._r8
-            ENDIF
-            IF (dt_i <= 0._r8) CYCLE
-            trc_in_mass(i) = trc_in_mass(i) + max(rate_next(i), 0._r8) * dt_i
-            IF (hflux_fc(i) < 0._r8) trc_in_mass(i) = trc_in_mass(i) &
-               + max(-trc_flux(i), 0._r8) * dt_i
-         ENDDO
-
-         ! Bifurcation gross incoming mass.  Do not use signed net flux
-         ! here: multiple bifurcation paths can enter and leave the same
-         ! ucat in one substep.  Netting those paths hides same-substep
-         ! incoming tracer from the donor limiter and breaks the uniform
-         ! concentration invariant.  Rebuild gross receiver-side amounts
-         ! from the per-path, per-layer fluxes.
-         IF (bif_workspace_active) THEN
-            trc_pth_1trc(:) = 0._r8
-            trc_pth_lev(:) = 0._r8
-            DO ipth = 1, npth_bif
-               i_up = pth_upst_local(ipth)
-               IF (i_up < 1 .or. i_up > numucat) CYCLE
-               IF (.not. (irivsys(i_up) > 0 .and. irivsys(i_up) <= size(dt_all))) CYCLE
-               dt_i = dt_all(irivsys(i_up))
-               IF (dt_i <= 0._r8) CYCLE
-
-               i_dn = pth_down_local(ipth)
-               CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
-                  upstream_has_levee, downstream_has_levee)
-
-               DO ilev = 1, nlev_bif
-                  layer_wflux = bif_hflux_lev_in(ilev, ipth)
-                  trc_pth_fl = trc_pth_levtrc(ilev, ipth)
-                  IF (abs(layer_wflux) <= trc_tiny .or. abs(trc_pth_fl) <= trc_tiny) CYCLE
-
-                  IF (layer_wflux >= 0._r8) THEN
-                     ! upstream -> downstream: receiver is i_dn.
-                     dt_donor = 0._r8
-                     IF (i_dn > 0 .and. i_dn <= numucat) THEN
-                        IF (irivsys(i_dn) > 0 .and. irivsys(i_dn) <= size(dt_all)) &
-                           dt_donor = dt_all(irivsys(i_dn))
-                        IF (dt_donor <= 0._r8) CYCLE
-                        IF (ilev > 1 .and. downstream_has_levee) THEN
-                           trc_in_mass_lev(i_dn) = trc_in_mass_lev(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
-                        ELSE
-                           trc_in_mass(i_dn) = trc_in_mass(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
-                        ENDIF
-                     ELSE
-                        dt_donor = dt_dn_pth(ipth)
-                        IF (dt_donor <= 0._r8) CYCLE
-                        IF (ilev > 1 .and. downstream_has_levee) THEN
-                           trc_pth_lev(ipth) = trc_pth_lev(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
-                        ELSE
-                           trc_pth_1trc(ipth) = trc_pth_1trc(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
-                        ENDIF
-                     ENDIF
-                  ELSE
-                     ! downstream -> upstream: receiver is local i_up.
-                     IF (ilev > 1 .and. upstream_has_levee) THEN
-                        trc_in_mass_lev(i_up) = trc_in_mass_lev(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
-                     ELSE
-                        trc_in_mass(i_up) = trc_in_mass(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
-                     ENDIF
-                  ENDIF
-               ENDDO
-            ENDDO
-            CALL worker_push_data (push_bif_influx, trc_pth_1trc, bif_recv, &
-               fillvalue = 0._r8, mode = 'sum')
-            CALL worker_push_data (push_bif_influx, trc_pth_lev, bif_lev_recv, &
-               fillvalue = 0._r8, mode = 'sum')
-            DO i = 1, numucat
-               trc_in_mass(i) = trc_in_mass(i) + max(bif_recv(i), 0._r8)
-               trc_in_mass_lev(i) = trc_in_mass_lev(i) + max(bif_lev_recv(i), 0._r8)
-            ENDDO
-         ENDIF
-
-         ! 6a: P2STOOUT — total outgoing |tracer| per cell (water-direction)
+         ! 7a: P2STOOUT — total outgoing |tracer| per cell (water-direction)
          ! Guard dt_all(irivsys(i)) the same way as section 0/8 so a
          ! corrupt/uninitialised irivsys doesn't segfault here even if the
          ! water-flow main loop happens to skip it via ucatfilter. See
@@ -1229,7 +1151,11 @@ CONTAINS
                trc_out_mass(i) = 0._r8
             ENDIF
          ENDDO
-         ! Reverse flow: downstream cell is donor → push to its P2STOOUT
+         ! Reverse flow: downstream cell is donor → push to its P2STOOUT.
+         ! A normal river edge cannot cross river systems: Network assigns an
+         ! upstream cell the same rivermouth label as ucat_next, and Flow uses
+         ! one dt_all entry per label (reduced on p_comm_rivsys when split).
+         ! Therefore this edge/receiver dt is also the downstream donor dt.
          DO i = 1, numucat
             IF (hflux_fc(i) < 0._r8 .and. &
                 irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) THEN
@@ -1293,38 +1219,231 @@ CONTAINS
             ENDDO
          ENDIF
 
-         ! 6b: D2RATE per cell
-         ! Clamp donor mass to [0, ...): a spuriously negative trc_mass
-         ! must NOT authorise positive outflow scaled to its magnitude
-         ! (the old `abs(trc_mass)` let a -5e-10 cell still export at
-         ! half-rate of a 1e-9 cell, pushing trc_mass further negative
-         ! rather than stopping the leak). True transport bugs that
-         ! produce large negative mass are still surfaced via the
-         ! check_tracer_state watchdog at trc_mass_neg_warn; this
-         ! change just prevents the limiter from papering over them.
+         ! 7b: D2RATE fixed point per cell
+         ! Start at T(0): only pre-substep donor mass is authorised.  This is
+         ! the first iterate of a monotone-from-zero fixed point, not a guess
+         ! based on unscaled same-step inflow.  Given a conservative old rate,
+         ! T(old) is also conservative because its larger rate can only increase
+         ! every receiver's incoming mass.  Therefore every iterate is safe;
+         ! convergence recovers same-step pass-through without ever permitting
+         ! a downstream cell to spend inflow that its upstream donor later cuts.
          DO i = 1, numucat
-            IF (trc_out_mass(i) > 1.e-30_r8) THEN
-               rate_cell(i) = min((max(trc_mass(itrc, i), 0._r8) &
-                  + max(trc_in_mass(i), 0._r8)) / trc_out_mass(i), 1._r8)
+            IF (.not. ieee_is_finite(trc_mass(itrc, i)) .or. &
+                .not. ieee_is_finite(trc_out_mass(i)) .or. &
+                .not. ieee_is_finite(trc_out_mass_lev(i))) &
+               CALL CoLM_stop('non-finite river tracer donor limiter state')
+            IF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) &
+               CALL CoLM_stop('negative river tracer mass entered donor limiter')
+            IF (trc_out_mass(i) < 0._r8 .or. trc_out_mass_lev(i) < 0._r8) &
+               CALL CoLM_stop('negative river tracer gross outflow demand')
+
+            IF (trc_out_mass(i) > TRC_LIMITER_OUT_TINY) THEN
+               rate_cell(i) = min(max(trc_mass(itrc, i), 0._r8) / trc_out_mass(i), 1._r8)
             ELSE
                rate_cell(i) = 1._r8
             ENDIF
-            IF (trc_out_mass_lev(i) > 1.e-30_r8 .and. allocated(trc_levsto)) THEN
-               IF (i <= size(trc_levsto, 2)) THEN
-                  rate_cell_lev(i) = min((max(trc_levsto(itrc, i), 0._r8) &
-                     + max(trc_in_mass_lev(i), 0._r8)) / trc_out_mass_lev(i), 1._r8)
+            IF (trc_out_mass_lev(i) > TRC_LIMITER_OUT_TINY) THEN
+               IF (.not. allocated(trc_levsto)) THEN
+                  CALL CoLM_stop('protected tracer outflow has no protected donor pool')
+               ELSEIF (i > size(trc_levsto, 2)) THEN
+                  CALL CoLM_stop('protected tracer outflow has no protected donor pool')
                ELSE
-                  rate_cell_lev(i) = 0._r8
+                  IF (.not. ieee_is_finite(trc_levsto(itrc, i))) &
+                     CALL CoLM_stop('non-finite protected tracer donor limiter state')
+                  IF (trc_levsto(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) &
+                     CALL CoLM_stop('negative protected tracer mass entered donor limiter')
+                  rate_cell_lev(i) = min(max(trc_levsto(itrc, i), 0._r8) / trc_out_mass_lev(i), 1._r8)
                ENDIF
             ELSE
                rate_cell_lev(i) = 1._r8
             ENDIF
          ENDDO
 
-         ! 6c: Get downstream cell rate (for reverse main flow)
+         ! Skip communication entirely when T(0)==1 everywhere.  BIF mode is
+         ! globally lock-stepped and includes empty workers.  Without BIF,
+         ! independent river systems can take different numbers of substeps;
+         ! only a river system actually split across ranks may reduce here.
+         limiter_delta = 0._r8
+         DO i = 1, numucat
+            limiter_delta = max(limiter_delta, 1._r8 - rate_cell(i), &
+               1._r8 - rate_cell_lev(i))
+         ENDDO
+         limiter_delta_global = limiter_delta
+#ifdef USEMPI
+         IF (bif_workspace_active) THEN
+            CALL mpi_allreduce(limiter_delta, limiter_delta_global, 1, MPI_REAL8, MPI_MAX, &
+               p_comm_worker, p_err)
+         ELSEIF (rivsys_by_multiple_procs) THEN
+            CALL mpi_allreduce(limiter_delta, limiter_delta_global, 1, MPI_REAL8, MPI_MAX, &
+               p_comm_rivsys, p_err)
+         ENDIF
+#endif
+         IF (.not. ieee_is_finite(limiter_delta_global)) &
+            CALL CoLM_stop('non-finite river tracer donor limiter residual')
+         limiter_converged = limiter_delta_global <= TRC_LIMITER_RATE_TOL
+
+         DO limiter_iter = 1, limiter_max_iter
+            IF (limiter_converged) EXIT
+
+            ! Main-channel actual incoming mass under the current sender rates.
+            CALL worker_push_data(push_next2ucat, rate_cell, rate_next, fillvalue = 1._r8)
+            trc_in_mass(:) = 0._r8
+            trc_in_mass_lev(:) = 0._r8
+            trc_inp_step(:) = 0._r8
+            DO i = 1, numucat
+               dt_i = 0._r8
+               IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
+               IF (dt_i <= 0._r8) CYCLE
+               IF (hflux_fc(i) >= 0._r8) THEN
+                  trc_inp_step(i) = max(trc_flux(i) * rate_cell(i), 0._r8)
+               ELSE
+                  trc_in_mass(i) = trc_in_mass(i) + &
+                     max(-trc_flux(i) * rate_next(i), 0._r8) * dt_i
+               ENDIF
+            ENDDO
+            CALL worker_push_data(push_ups2ucat, trc_inp_step, flux_ups, &
+               fillvalue = 0._r8, mode = 'sum')
+            DO i = 1, numucat
+               dt_i = 0._r8
+               IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
+               IF (dt_i > 0._r8) trc_in_mass(i) = trc_in_mass(i) + max(flux_ups(i), 0._r8) * dt_i
+            ENDDO
+
+            ! Bifurcation actual incoming mass.  Rebuild gross receiver-side
+            ! amounts path by path: signed net BIF flux can hide simultaneous
+            ! incoming and outgoing transfers at the same cell.
+            IF (bif_workspace_active) THEN
+               CALL worker_push_data(push_bif_dn2pth, rate_cell, rate_dn_pth, fillvalue = 1._r8)
+               CALL worker_push_data(push_bif_dn2pth, rate_cell_lev, rate_dn_pth_lev, fillvalue = 1._r8)
+               trc_pth_1trc(:) = 0._r8
+               trc_pth_lev(:) = 0._r8
+               DO ipth = 1, npth_bif
+                  i_up = pth_upst_local(ipth)
+                  IF (i_up < 1 .or. i_up > numucat) CYCLE
+                  IF (.not. (irivsys(i_up) > 0 .and. irivsys(i_up) <= size(dt_all))) CYCLE
+                  dt_i = dt_all(irivsys(i_up))
+                  IF (dt_i <= 0._r8) CYCLE
+
+                  i_dn = pth_down_local(ipth)
+                  CALL tracer_bif_path_levee_sides(can_use_levee_tracer, i_up, i_dn, ipth, numucat, &
+                     upstream_has_levee, downstream_has_levee)
+
+                  DO ilev = 1, nlev_bif
+                     layer_wflux = bif_hflux_lev_in(ilev, ipth)
+                     trc_pth_fl = trc_pth_levtrc(ilev, ipth)
+                     IF (abs(layer_wflux) <= trc_tiny .or. abs(trc_pth_fl) <= trc_tiny) CYCLE
+
+                     IF (layer_wflux >= 0._r8) THEN
+                        IF (ilev > 1 .and. upstream_has_levee) THEN
+                           trc_rate = rate_cell_lev(i_up)
+                        ELSE
+                           trc_rate = rate_cell(i_up)
+                        ENDIF
+                        trc_pth_fl = trc_pth_fl * trc_rate
+                        ! upstream -> downstream: receiver is i_dn.
+                        dt_donor = 0._r8
+                        IF (i_dn > 0 .and. i_dn <= numucat) THEN
+                           IF (irivsys(i_dn) > 0 .and. irivsys(i_dn) <= size(dt_all)) &
+                              dt_donor = dt_all(irivsys(i_dn))
+                           IF (dt_donor <= 0._r8) CYCLE
+                           IF (ilev > 1 .and. downstream_has_levee) THEN
+                              trc_in_mass_lev(i_dn) = trc_in_mass_lev(i_dn) + &
+                                 max(trc_pth_fl, 0._r8) * dt_donor
+                           ELSE
+                              trc_in_mass(i_dn) = trc_in_mass(i_dn) + max(trc_pth_fl, 0._r8) * dt_donor
+                           ENDIF
+                        ELSE
+                           dt_donor = dt_dn_pth(ipth)
+                           IF (dt_donor <= 0._r8) CYCLE
+                           IF (ilev > 1 .and. downstream_has_levee) THEN
+                              trc_pth_lev(ipth) = trc_pth_lev(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
+                           ELSE
+                              trc_pth_1trc(ipth) = trc_pth_1trc(ipth) + max(trc_pth_fl, 0._r8) * dt_donor
+                           ENDIF
+                        ENDIF
+                     ELSE
+                        IF (ilev > 1 .and. downstream_has_levee) THEN
+                           trc_rate = rate_dn_pth_lev(ipth)
+                        ELSE
+                           trc_rate = rate_dn_pth(ipth)
+                        ENDIF
+                        trc_pth_fl = trc_pth_fl * trc_rate
+                        ! downstream -> upstream: receiver is local i_up.
+                        IF (ilev > 1 .and. upstream_has_levee) THEN
+                           trc_in_mass_lev(i_up) = trc_in_mass_lev(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
+                        ELSE
+                           trc_in_mass(i_up) = trc_in_mass(i_up) + max(-trc_pth_fl, 0._r8) * dt_i
+                        ENDIF
+                     ENDIF
+                  ENDDO
+               ENDDO
+               CALL worker_push_data(push_bif_influx, trc_pth_1trc, bif_recv, &
+                  fillvalue = 0._r8, mode = 'sum')
+               CALL worker_push_data(push_bif_influx, trc_pth_lev, bif_lev_recv, &
+                  fillvalue = 0._r8, mode = 'sum')
+               DO i = 1, numucat
+                  trc_in_mass(i) = trc_in_mass(i) + max(bif_recv(i), 0._r8)
+                  trc_in_mass_lev(i) = trc_in_mass_lev(i) + max(bif_lev_recv(i), 0._r8)
+               ENDDO
+            ENDIF
+
+            limiter_delta = 0._r8
+            DO i = 1, numucat
+               IF (.not. ieee_is_finite(trc_in_mass(i)) .or. &
+                   .not. ieee_is_finite(trc_in_mass_lev(i)) .or. &
+                   trc_in_mass(i) < 0._r8 .or. trc_in_mass_lev(i) < 0._r8) &
+                  CALL CoLM_stop('invalid actual incoming mass in river tracer donor limiter')
+
+               IF (trc_out_mass(i) > TRC_LIMITER_OUT_TINY) THEN
+                  limiter_rate_new = min((max(trc_mass(itrc, i), 0._r8) + trc_in_mass(i)) / &
+                     trc_out_mass(i), 1._r8)
+                  IF (.not. ieee_is_finite(limiter_rate_new)) &
+                     CALL CoLM_stop('non-finite visible river tracer donor rate')
+                  IF (limiter_rate_new + TRC_LIMITER_RATE_TOL < rate_cell(i)) &
+                     CALL CoLM_stop('river tracer donor limiter lost monotonicity')
+                  limiter_rate_new = max(rate_cell(i), limiter_rate_new)
+                  limiter_delta = max(limiter_delta, limiter_rate_new - rate_cell(i))
+                  rate_cell(i) = limiter_rate_new
+               ENDIF
+
+               IF (trc_out_mass_lev(i) > TRC_LIMITER_OUT_TINY) THEN
+                  limiter_rate_new = min((max(trc_levsto(itrc, i), 0._r8) + trc_in_mass_lev(i)) / &
+                     trc_out_mass_lev(i), 1._r8)
+                  IF (.not. ieee_is_finite(limiter_rate_new)) &
+                     CALL CoLM_stop('non-finite protected river tracer donor rate')
+                  IF (limiter_rate_new + TRC_LIMITER_RATE_TOL < rate_cell_lev(i)) &
+                     CALL CoLM_stop('protected tracer donor limiter lost monotonicity')
+                  limiter_rate_new = max(rate_cell_lev(i), limiter_rate_new)
+                  limiter_delta = max(limiter_delta, limiter_rate_new - rate_cell_lev(i))
+                  rate_cell_lev(i) = limiter_rate_new
+               ENDIF
+            ENDDO
+
+            limiter_delta_global = limiter_delta
+#ifdef USEMPI
+            IF (bif_workspace_active) THEN
+               CALL mpi_allreduce(limiter_delta, limiter_delta_global, 1, MPI_REAL8, MPI_MAX, &
+                  p_comm_worker, p_err)
+            ELSEIF (rivsys_by_multiple_procs) THEN
+               CALL mpi_allreduce(limiter_delta, limiter_delta_global, 1, MPI_REAL8, MPI_MAX, &
+                  p_comm_rivsys, p_err)
+            ENDIF
+#endif
+            IF (.not. ieee_is_finite(limiter_delta_global)) &
+               CALL CoLM_stop('non-finite river tracer donor limiter residual')
+            limiter_converged = limiter_delta_global <= TRC_LIMITER_RATE_TOL
+         ENDDO
+
+         IF (.not. limiter_converged) THEN
+            WRITE(*,'(A,I0,A,I0,A,ES12.4)') 'ERROR tracer donor limiter: tracer=', itrc, &
+               ' iterations=', limiter_max_iter, ' residual=', limiter_delta_global
+            CALL CoLM_stop('river tracer donor limiter did not converge')
+         ENDIF
+
+         ! 7c: Get downstream cell rate (for reverse main flow)
          CALL worker_push_data (push_next2ucat, rate_cell, rate_next, fillvalue = 1._r8)
 
-         ! 6d: Scale main-channel flux by sender rate (water direction)
+         ! 7d: Scale main-channel flux by sender rate (water direction)
          DO i = 1, numucat
             IF (hflux_fc(i) >= 0._r8) THEN
                trc_flux(i) = trc_flux(i) * rate_cell(i)
@@ -1333,7 +1452,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-         ! 6e: Scale bif pathway flux by sender rate (water direction)
+         ! 7e: Scale bif pathway flux by sender rate (water direction)
          IF (bif_workspace_active) THEN
             CALL worker_push_data (push_bif_dn2pth, rate_cell, rate_dn_pth, fillvalue = 1._r8)
             CALL worker_push_data (push_bif_dn2pth, rate_cell_lev, rate_dn_pth_lev, fillvalue = 1._r8)
@@ -1420,45 +1539,23 @@ CONTAINS
 
             trc_mass_new = trc_mass(itrc, i) &
                + (- trc_flux(i) + flux_ups(i) - bif_net(i)) * dt_i
+            IF (.not. ieee_is_finite(trc_mass_new)) &
+               CALL CoLM_stop('non-finite river tracer mass after coupled donor limiter')
+            IF (trc_mass_new < -TRC_RESTART_NEGATIVE_DUST) &
+               CALL CoLM_stop('negative river tracer mass after coupled donor limiter')
 
-            CALL get_cell_volume(i, wdsrf(i), volresv, ucat2resv, volwater)
-            IF (i <= size(sum_hflux_riv)) THEN
-               volwater_next = max(volwater - sum_hflux_riv(i) * dt_i, 0._r8)
-            ELSE
-               volwater_next = volwater
-            ENDIF
-
-            IF (volwater_next > trc_v_dry_off) THEN
-               ratio_next = trc_mass_new / volwater_next
-               ratio_snap_tol = max(abs(R_fill) * fixed_sig_rel_tol, trc_tiny)
-               can_snap_fixed = fixed_signature_transport
-               IF (can_snap_fixed .and. can_use_levee_tracer) THEN
-                  IF (i <= size(has_levee)) THEN
-                     ! Leveed cells have visible/protected compartments;
-                     ! sum_hflux_riv can include protected-side bifurcation
-                     ! fluxes, so a single visible-volume denominator is not
-                     ! reliable enough for exact fixed-signature snapping.
-                     IF (has_levee(i)) can_snap_fixed = .false.
-                  ENDIF
-               ENDIF
-               IF (can_snap_fixed .and. &
-                   abs(ratio_next - R_fill) <= ratio_snap_tol) THEN
-                  ! Preserve the no-fractionation / conservative invariant
-                  ! exactly. The ordinary tracer path sums conc*hflux
-                  ! separately from the water path's hflux reductions, which
-                  ! leaves tiny local roundoff in a perfectly uniform test.
-                  ! Active fractionation, runtime forcing, and reactive
-                  ! tracers must not be snapped to the initial signature.
-                  trc_mass(itrc, i) = R_fill * volwater_next
-               ELSE
-                  trc_mass(itrc, i) = trc_mass_new
-               ENDIF
-            ELSE
-               trc_mass(itrc, i) = trc_mass_new
-            ENDIF
+            ! Transport owns only conservative edge transfers.  Never snap the
+            ! result back to R_fill: doing so is an unbooked source/sink and can
+            ! erase a legitimate restart or upstream isotope gradient.
+            trc_mass(itrc, i) = max(trc_mass_new, 0._r8)
             IF (allocated(trc_levsto)) THEN
                IF (i <= size(trc_levsto, 2)) THEN
                   trc_levsto(itrc, i) = trc_levsto(itrc, i) - trc_bif_lev_net(i) * dt_i
+                  IF (.not. ieee_is_finite(trc_levsto(itrc, i))) &
+                     CALL CoLM_stop('non-finite protected tracer mass after coupled donor limiter')
+                  IF (trc_levsto(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) &
+                     CALL CoLM_stop('negative protected tracer mass after coupled donor limiter')
+                  trc_levsto(itrc, i) = max(trc_levsto(itrc, i), 0._r8)
                ENDIF
             ENDIF
 
@@ -1517,69 +1614,240 @@ CONTAINS
       source_sink = source_sink + pool - before
    END SUBROUTINE decay_river_pool
 
-   integer FUNCTION riverlake_tracer_count_meta ()
+   logical FUNCTION riverlake_restart_descriptor_compatible (file_restart)
+      USE MOD_NetCDFSerial, only: ncio_var_exist, ncio_inquire_varsize, ncio_read_serial
       IMPLICIT NONE
-      integer :: itrc
+      character(len=*), intent(in) :: file_restart
 
-      riverlake_tracer_count_meta = 0
-      DO itrc = 1, ntracers
-         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-         riverlake_tracer_count_meta = riverlake_tracer_count_meta + 1
-      ENDDO
+      integer :: flags(4), status, schema, descriptor_count, identity_count, complete
+      integer, allocatable :: expected(:,:), ondisk(:,:), varsize(:)
 
-   END FUNCTION riverlake_tracer_count_meta
+      ! status: 1=current and matching, 0=legacy/incompatible (cold start),
+      !        -1=malformed/incomplete metadata (fatal). A complete descriptor
+      ! from another schema or tracer configuration is safe but incompatible;
+      ! inconsistent ranks, fixed width, or internal counts indicate damage.
+      CALL tracer_build_descriptor_identity(expected, transport_only=.true.)
+      flags = 0
+      status = 0
+      IF (p_is_master) THEN
+         IF (ncio_var_exist(file_restart, 'trc_river_restart_schema', readflag=.false.)) flags(1) = 1
+         IF (ncio_var_exist(file_restart, 'trc_river_descriptor_count', readflag=.false.)) flags(2) = 1
+         IF (ncio_var_exist(file_restart, 'trc_river_descriptor_identity', readflag=.false.)) flags(3) = 1
+         IF (ncio_var_exist(file_restart, 'trc_river_restart_complete', readflag=.false.)) flags(4) = 1
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast(flags, 4, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
 
-   real(r8) FUNCTION riverlake_tracer_namehash_meta ()
+      ! No commit marker means a pre-transaction/legacy schema. Even if an
+      ! earlier build wrote descriptor-like fields, their atomicity cannot be
+      ! established, so never scatter their state.
+      IF (flags(4) == 0) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            '  NOTE read_tracer_restart: restart has no tracer commit marker; cold-starting river tracers.'
+         riverlake_restart_descriptor_compatible = .false.
+         deallocate(expected)
+         RETURN
+      ENDIF
+
+      IF (flags(1) /= 1 .or. flags(2) /= 1) THEN
+         status = -1
+      ELSEIF (p_is_master) THEN
+         status = 1
+         identity_count = -1
+
+         CALL ncio_inquire_varsize(file_restart, 'trc_river_restart_schema', varsize)
+         IF (.not. allocated(varsize)) THEN
+            status = -1
+         ELSE
+            IF (size(varsize) /= 0) status = -1
+            deallocate(varsize)
+         ENDIF
+         CALL ncio_inquire_varsize(file_restart, 'trc_river_descriptor_count', varsize)
+         IF (.not. allocated(varsize)) THEN
+            status = -1
+         ELSE
+            IF (size(varsize) /= 0) status = -1
+            deallocate(varsize)
+         ENDIF
+         CALL ncio_inquire_varsize(file_restart, 'trc_river_restart_complete', varsize)
+         IF (.not. allocated(varsize)) THEN
+            status = -1
+         ELSE
+            IF (size(varsize) /= 0) status = -1
+            deallocate(varsize)
+         ENDIF
+
+         IF (status == 1) THEN
+            CALL ncio_read_serial(file_restart, 'trc_river_restart_complete', complete)
+            IF (complete /= 1) status = -1
+         ENDIF
+         IF (status == 1) THEN
+            CALL ncio_read_serial(file_restart, 'trc_river_restart_schema', schema)
+            CALL ncio_read_serial(file_restart, 'trc_river_descriptor_count', descriptor_count)
+            IF (descriptor_count < 0 .or. descriptor_count > 1000) status = -1
+         ENDIF
+         IF (status == 1) THEN
+            IF (schema /= RIVER_TRACER_RESTART_SCHEMA_VERSION) THEN
+               status = 0
+            ELSEIF (descriptor_count == 0) THEN
+               ! Coherent empty transaction: provider-only configurations have
+               ! no generic river state and therefore no zero-length identity
+               ! variable. A stale identity variable in a reused NetCDF target
+               ! is ignored because committed count=0 is authoritative.
+               status = merge(1, 0, size(expected, 2) == 0)
+            ELSEIF (flags(3) /= 1) THEN
+               status = -1
+            ELSE
+               CALL ncio_inquire_varsize(file_restart, 'trc_river_descriptor_identity', varsize)
+               IF (.not. allocated(varsize)) THEN
+                  status = -1
+               ELSE
+                  IF (size(varsize) /= 2) THEN
+                     status = -1
+                  ELSEIF (varsize(1) /= TRACER_DESCRIPTOR_IDENTITY_WIDTH) THEN
+                     status = -1
+                  ELSE
+                     identity_count = varsize(2)
+                     IF (identity_count /= descriptor_count) status = -1
+                  ENDIF
+                  deallocate(varsize)
+               ENDIF
+               IF (status == 1) THEN
+                  CALL ncio_read_serial(file_restart, 'trc_river_descriptor_identity', ondisk)
+                  IF (.not. allocated(ondisk)) THEN
+                     status = -1
+                  ELSE
+                     IF (size(ondisk, 1) /= TRACER_DESCRIPTOR_IDENTITY_WIDTH .or. &
+                         size(ondisk, 2) /= descriptor_count) THEN
+                        status = -1
+                     ELSEIF (descriptor_count /= size(expected, 2)) THEN
+                        status = 0
+                     ELSEIF (.not. all(ondisk == expected)) THEN
+                        status = 0
+                     ENDIF
+                     deallocate(ondisk)
+                  ENDIF
+               ENDIF
+            ENDIF
+         ENDIF
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast(status, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+
+      IF (status < 0) THEN
+         CALL CoLM_stop('malformed/incomplete river tracer restart descriptor metadata')
+      ELSEIF (status == 0) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            '  NOTE read_tracer_restart: tracer descriptor changed; cold-starting river tracers.'
+      ENDIF
+      riverlake_restart_descriptor_compatible = status == 1
+      deallocate(expected)
+   END FUNCTION riverlake_restart_descriptor_compatible
+
+   SUBROUTINE probe_riverlake_restart_vector (file_restart, varname, required, present_on_disk)
+      USE MOD_NetCDFSerial, only: ncio_var_exist, ncio_inquire_varsize
+      USE MOD_Grid_RiverLakeNetwork, only: totalnumucat
       IMPLICIT NONE
-      integer :: itrc, k, jtrc
+      character(len=*), intent(in) :: file_restart, varname
+      logical, intent(in) :: required
+      logical, intent(out) :: present_on_disk
 
-      riverlake_tracer_namehash_meta = 0._r8
-      jtrc = 0
-      IF (.not. allocated(tracer_names)) RETURN
-      DO itrc = 1, ntracers
-         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-         jtrc = jtrc + 1
-         riverlake_tracer_namehash_meta = riverlake_tracer_namehash_meta + &
-            real(jtrc * 1000003, r8)
-         DO k = 1, len_trim(tracer_names(itrc))
-            riverlake_tracer_namehash_meta = riverlake_tracer_namehash_meta + &
-               real(jtrc * 1009 + k * 37 + iachar(tracer_names(itrc)(k:k)), r8)
+      integer :: status
+      integer, allocatable :: varsize(:)
+
+      ! status: 1=present with the exact ucatch-vector shape, 0=absent,
+      !        -1=present but malformed. Probe every required state field before
+      ! the first scatter so a complete=1 file is loaded atomically or not at all.
+      status = 0
+      IF (p_is_master) THEN
+         IF (ncio_var_exist(file_restart, trim(varname), readflag=.false.)) THEN
+            status = 1
+            CALL ncio_inquire_varsize(file_restart, trim(varname), varsize)
+            IF (.not. allocated(varsize)) THEN
+               status = -1
+            ELSE
+               IF (size(varsize) /= 1) THEN
+                  status = -1
+               ELSEIF (varsize(1) /= totalnumucat) THEN
+                  status = -1
+               ENDIF
+               deallocate(varsize)
+            ENDIF
+         ENDIF
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast(status, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+
+      IF (status < 0 .or. (required .and. status == 0)) THEN
+         IF (p_is_master) WRITE(*,'(3A)') &
+            'ERROR read_tracer_restart: required/current river tracer vector "', &
+            trim(varname), '" is absent or has the wrong rank/ucatch extent.'
+         CALL CoLM_stop('incomplete or malformed committed river tracer restart')
+      ENDIF
+      present_on_disk = status == 1
+   END SUBROUTINE probe_riverlake_restart_vector
+
+   SUBROUTINE validate_riverlake_restart_state ()
+      USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+      USE MOD_Grid_RiverLakeNetwork, only: numucat
+      IMPLICIT NONE
+
+      integer :: invalid_counts(7)
+      integer :: i, itrc
+
+      ! [nonfinite mass, negative mass, nonfinite signed buffer,
+      !  nonfinite signed tracer accumulator, nonfinite runoff reference,
+      !  nonfinite levee mass, negative levee mass]
+      invalid_counts = 0
+      IF (p_is_worker .and. numucat > 0) THEN
+         DO i = 1, numucat
+            IF (.not. ieee_is_finite(acc_rnof_ref(i))) invalid_counts(5) = invalid_counts(5) + 1
+            DO itrc = 1, ntracers
+               IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+               IF (.not. ieee_is_finite(trc_mass(itrc, i))) THEN
+                  invalid_counts(1) = invalid_counts(1) + 1
+               ELSEIF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
+                  invalid_counts(2) = invalid_counts(2) + 1
+               ENDIF
+               IF (.not. ieee_is_finite(trc_inp_buf(itrc, i))) &
+                  invalid_counts(3) = invalid_counts(3) + 1
+               IF (.not. ieee_is_finite(acc_trc_inp(itrc, i))) &
+                  invalid_counts(4) = invalid_counts(4) + 1
+               IF (.not. ieee_is_finite(trc_levsto(itrc, i))) THEN
+                  invalid_counts(6) = invalid_counts(6) + 1
+               ELSEIF (trc_levsto(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
+                  invalid_counts(7) = invalid_counts(7) + 1
+               ENDIF
+            ENDDO
          ENDDO
-      ENDDO
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, invalid_counts, size(invalid_counts), &
+         MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
 
-   END FUNCTION riverlake_tracer_namehash_meta
+      IF (any(invalid_counts > 0)) THEN
+         IF (p_is_master) THEN
+            WRITE(*,'(A,7(I0,1X))') 'ERROR read_tracer_restart invalid state counts '// &
+               '[mass_nan mass_neg buffer_nan accinp_nan runoff_nan levee_nan levee_neg]: ', invalid_counts
+         ENDIF
+         CALL CoLM_stop('invalid river/lake tracer restart state')
+      ENDIF
 
-   integer FUNCTION riverlake_legacy_tracer_count_meta ()
-      IMPLICIT NONE
-      integer :: itrc
-
-      riverlake_legacy_tracer_count_meta = 0
-      DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
-         riverlake_legacy_tracer_count_meta = riverlake_legacy_tracer_count_meta + 1
-      ENDDO
-
-   END FUNCTION riverlake_legacy_tracer_count_meta
-
-   real(r8) FUNCTION riverlake_legacy_tracer_namehash_meta ()
-      IMPLICIT NONE
-      integer :: itrc, k, jtrc
-
-      riverlake_legacy_tracer_namehash_meta = 0._r8
-      jtrc = 0
-      IF (.not. allocated(tracer_names)) RETURN
-      DO itrc = 1, ntracers
-         IF (tracer_is_particle(itrc)) CYCLE
-         jtrc = jtrc + 1
-         riverlake_legacy_tracer_namehash_meta = riverlake_legacy_tracer_namehash_meta + &
-            real(jtrc * 1000003, r8)
-         DO k = 1, len_trim(tracer_names(itrc))
-            riverlake_legacy_tracer_namehash_meta = riverlake_legacy_tracer_namehash_meta + &
-               real(jtrc * 1009 + k * 37 + iachar(tracer_names(itrc)(k:k)), r8)
+      ! Canonicalize only sub-picomass negative roundoff admitted by the
+      ! domain check above. Signed runoff buffers/accumulators are prognostic
+      ! correction state and must never be clipped.
+      IF (p_is_worker .and. numucat > 0) THEN
+         DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            WHERE (trc_mass(itrc, :) < 0._r8) trc_mass(itrc, :) = 0._r8
+            WHERE (trc_levsto(itrc, :) < 0._r8) trc_levsto(itrc, :) = 0._r8
          ENDDO
-      ENDDO
-
-   END FUNCTION riverlake_legacy_tracer_namehash_meta
+      ENDIF
+   END SUBROUTINE validate_riverlake_restart_state
 
 
    !-------------------------------------------------------------------------------------
@@ -1595,7 +1863,7 @@ CONTAINS
       ! each routing period in MOD_Grid_RiverLakeFlow.F90:1263-1264. Resetting
       ! acc_rnof_ref here too would leave acc_trc_inp / acc_rnof_ref with
       ! mismatched windows when history flushes happen between routing periods
-      ! (acctime_rnof_max > deltim), inflating m_cap on the next substep.
+      ! (acctime_rnof_max > deltim), corrupting restart recovery.
 	      IF (numucat > 0) THEN
 	         IF (allocated(a_trc_conc  )) a_trc_conc   = 0._r8
 		         IF (allocated(a_trc_storage_mass)) a_trc_storage_mass = 0._r8
@@ -1613,56 +1881,91 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE read_tracer_restart (file_restart, found_restart, missing_mask)
 
-   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
-   USE MOD_NetCDFSerial,          only: ncio_var_exist, ncio_inquire_length
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
-      ucat_gdid, ucat_next, lake_type_bf => lake_type
-   USE MOD_Grid_RiverLakeLevee, only: has_levee_bf => has_levee, levsto_bf => levsto
-   USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_bf => wdsrf_ucat, volresv_bf_in => volresv
-   USE MOD_Grid_Reservoir, only: ucat2resv_bf_in => ucat2resv
-   USE MOD_Tracer_Defs, only: tracer_init_water_ratio
+      ucat_gdid, ucat_next
+   USE MOD_Grid_RiverLakeLevee, only: has_levee_bf => has_levee
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
-   ! .true. iff every tracer's trc_mass* variable was loaded from the file.
-   ! Missing variables fall back to zero here but the caller uses this flag
-   ! to trigger an init-from-water cold start so non-zero river storage
-   ! does not start at zero tracer mass.
+   ! .true. when no generic transport row exists, or when the complete current
+   ! transaction was loaded. Legacy/descriptor-incompatible files cold-start
+   ! every generic row and report .false. only when such rows are configured.
    logical, optional, intent(out) :: found_restart
-   ! Per-tracer selector, sized (ntracers). On exit, .true. for tracers
-   ! whose trc_mass* variable was not present in the file — the caller
-   ! then cold-starts only those, preserving successfully loaded ones.
-   ! Previously a single missing tracer would clobber every tracer via
-   ! the all_found global switch.
+   ! Retained for caller ABI compatibility. A cold start marks every generic
+   ! transport row; committed transactions never default individual rows.
    logical, optional, intent(out) :: missing_mask(:)
 
-	   integer :: itrc, has_flag
-	   integer :: ondisk_numucat, dimchk_flag
-	   integer :: expected_trc_n, legacy_expected_trc_n
+	   integer :: itrc
 	   integer :: ii_bf, itrc_bf
-	   logical :: has_var, has_active, has_inactive, invalid_protected_mass, meta_bad
-	   logical :: has_trc_n_meta, has_namehash_meta
-	   logical :: meta_matches_current, meta_matches_legacy, legacy_meta_complete
-	   logical :: has_gdid_meta, has_next_meta
-	   logical :: network_meta_complete, network_meta_matches
-	   logical :: all_found
-	   logical :: reported_bf
-	   logical, allocatable :: has_accinp(:)
-	   integer, allocatable :: ucat2resv_bf(:)
+	   logical :: network_meta_matches, field_present
+	   logical :: has_transport_tracer, descriptor_compatible
 	   character(len=64) :: varname
 	   real(r8), allocatable :: tmpvec(:)
-	   real(r8), allocatable :: volresv_bf(:)
-	   real(r8) :: R_bf, visvol_bf, ratio_bf, expected_namehash, legacy_expected_namehash
 
-	      all_found = .true.
 	      IF (present(missing_mask)) missing_mask = .false.
 	      IF (ntracers <= 0) THEN
 	         IF (present(found_restart)) found_restart = .true.
 	         RETURN
 	      ENDIF
-	      allocate(has_accinp(ntracers))
-	      has_accinp(:) = .false.
+	      ! Provider-owned tracers have no generic river vectors, but an existing
+	      ! generic-river transaction must still be structurally valid.  Validate
+	      ! its commit metadata before the provider-only early return so complete=0
+	      ! or partial schema/count metadata cannot be silently accepted.  A
+	      ! coherent empty, legacy, or descriptor-incompatible transaction remains
+	      ! harmless here because no generic state will be probed or consumed.
+	      descriptor_compatible = riverlake_restart_descriptor_compatible(file_restart)
+	      has_transport_tracer = .false.
+	      DO itrc = 1, ntracers
+	         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+	         has_transport_tracer = .true.
+	      ENDDO
+	      IF (.not. has_transport_tracer) THEN
+	         IF (present(found_restart)) found_restart = .true.
+	         RETURN
+	      ENDIF
+
+      ! Count/name-only metadata cannot prove that the loaded numbers retain
+      ! the same units and physics. Older schemas are therefore an explicit
+      ! whole-domain cold start; a complete current descriptor is required
+      ! before any river tracer state is scattered.
+	      IF (.not. descriptor_compatible) THEN
+         IF (present(missing_mask)) THEN
+            DO itrc = 1, ntracers
+               IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+               missing_mask(itrc) = .true.
+            ENDDO
+         ENDIF
+         IF (p_is_worker) THEN
+            IF (allocated(trc_mass)) trc_mass = 0._r8
+            IF (allocated(trc_conc)) trc_conc = 0._r8
+            IF (allocated(trc_inp_buf)) trc_inp_buf = 0._r8
+            IF (allocated(acc_trc_inp)) acc_trc_inp = 0._r8
+            IF (allocated(acc_rnof_ref)) acc_rnof_ref = 0._r8
+            IF (allocated(trc_levsto)) trc_levsto = 0._r8
+         ENDIF
+         IF (present(found_restart)) found_restart = .false.
+         RETURN
+      ENDIF
+
+      ! A committed current transaction must contain every required vector with
+      ! the exact ucatch extent. Complete this whole preflight before the first
+      ! scatter so no rank can observe a partially loaded tracer state.
+      CALL probe_riverlake_restart_vector(file_restart, 'trc_numucat_meta', .true., field_present)
+      CALL probe_riverlake_restart_vector(file_restart, 'trc_ucat_gdid_meta', .true., field_present)
+      CALL probe_riverlake_restart_vector(file_restart, 'trc_ucat_next_meta', .true., field_present)
+      DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+         write(varname, '(A,A)') 'trc_mass_', trim(tracer_names(itrc))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .true., field_present)
+         write(varname, '(A,A)') 'trc_inpbuf_', trim(tracer_names(itrc))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .true., field_present)
+         write(varname, '(A,A)') 'trc_accinp_', trim(tracer_names(itrc))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .true., field_present)
+         write(varname, '(A,A)') 'trc_levsto_', trim(tracer_names(itrc))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .true., field_present)
+      ENDDO
+      CALL probe_riverlake_restart_vector(file_restart, 'acc_rnof_ref', .true., field_present)
 
       ! vector_read_and_scatter contains mpi_barrier(p_comm_glb), so
       ! ALL ranks (master, workers, IO) must enter this routine.
@@ -1672,354 +1975,71 @@ CONTAINS
          allocate (tmpvec(0))
       ENDIF
 
-      ! C3: catchment-dimension guard. acc_rnof_ref is always written along the
-      ! 'ucatch' dimension (length = totalnumucat). A restart written for a
-      ! different river-network size would let the per-cell scatter below place
-      ! tracer mass into the wrong catchments with no error. Mirror the sediment
-      ! meta-guard (sed_n_meta/sed_totlyrnum_meta) and abort on mismatch. Probe
-      ! on master only (matches the per-variable probe pattern below), then bcast.
-      dimchk_flag = 0
-      IF (p_is_master) THEN
-         IF (ncio_var_exist(file_restart, 'acc_rnof_ref', readflag = .false.)) THEN
-            CALL ncio_inquire_length (file_restart, 'acc_rnof_ref', ondisk_numucat)
-            IF (ondisk_numucat /= totalnumucat) dimchk_flag = 1
-         ENDIF
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_bcast (dimchk_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-      IF (dimchk_flag /= 0) THEN
-         IF (p_is_master) WRITE(*,'(A)') &
-            'ERROR: river/lake tracer restart catchment dimension does not match '// &
-            'current totalnumucat (probed via acc_rnof_ref); aborting to avoid '// &
-            'silent tracer-mass misalignment.'
-         CALL CoLM_stop ()
-      ENDIF
-
-      ! New-format files carry the stable grid-cell identity and downstream
-      ! global UCID for every ucatch.  Count alone cannot distinguish two
-      ! networks of equal size, while this pair catches both reordered cells
-      ! and changed routing topology.  Both fields absent is the legacy path;
-      ! one present without the other is an interrupted/incomplete contract.
-      has_gdid_meta = .false.
-      has_next_meta = .false.
+      ! Stable grid-cell identity plus downstream global UCID catch both
+      ! reordered cells and changed routing topology at equal network size.
       network_meta_matches = .true.
-      IF (p_is_master) THEN
-         has_var = ncio_var_exist(file_restart, 'trc_ucat_gdid_meta', readflag=.false.)
-         has_flag = merge(1, 0, has_var)
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_bcast(has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-      has_gdid_meta = has_flag /= 0
-      IF (has_gdid_meta) THEN
-         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
-            'trc_ucat_gdid_meta', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) &
-            network_meta_matches = all(nint(tmpvec(:)) == ucat_gdid(:))
-      ENDIF
-
-      IF (p_is_master) THEN
-         has_var = ncio_var_exist(file_restart, 'trc_ucat_next_meta', readflag=.false.)
-         has_flag = merge(1, 0, has_var)
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_bcast(has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-      has_next_meta = has_flag /= 0
-      IF (has_next_meta) THEN
-         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
-            'trc_ucat_next_meta', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) &
-            network_meta_matches = network_meta_matches .and. all(nint(tmpvec(:)) == ucat_next(:))
-      ENDIF
-
-      network_meta_complete = has_gdid_meta .and. has_next_meta
+      CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
+         'trc_ucat_gdid_meta', ucat_data_address)
+      IF (p_is_worker .and. numucat > 0) &
+         network_meta_matches = all(nint(tmpvec(:)) == ucat_gdid(:))
+      CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
+         'trc_ucat_next_meta', ucat_data_address)
+      IF (p_is_worker .and. numucat > 0) &
+         network_meta_matches = network_meta_matches .and. all(nint(tmpvec(:)) == ucat_next(:))
 #ifdef USEMPI
       CALL mpi_allreduce(MPI_IN_PLACE, network_meta_matches, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
 #endif
-      IF (has_gdid_meta .neqv. has_next_meta) THEN
-         IF (p_is_master) WRITE(*,'(A)') &
-            'ERROR: incomplete river-network identity metadata in tracer restart; aborting.'
-         CALL CoLM_stop()
-      ENDIF
-      IF (network_meta_complete .and. .not. network_meta_matches) THEN
+      IF (.not. network_meta_matches) THEN
          IF (p_is_master) WRITE(*,'(A)') &
             'ERROR: river/lake tracer restart belongs to a different catchment network; aborting.'
          CALL CoLM_stop()
       ENDIF
 
-      ! Strict metadata for new-format river/lake tracer restarts. These
-      ! ucatch-length vectors are written by write_tracer_restart so a file
-      ! produced on a different river network or with a different generic
-      ! land-water tracer set fails before any per-tracer scatter can silently
-      ! misalign state. Restarts from the immediately preceding format used a
-      ! non-particle signature (and therefore included species-owned CH4); that
-      ! exact count/hash pair remains readable, while state loading below still
-      ! follows the current land-water transport capability. Older restarts
-      ! without metadata keep the per-variable fallback path above/below.
-      expected_trc_n = riverlake_tracer_count_meta()
-      expected_namehash = riverlake_tracer_namehash_meta()
-      legacy_expected_trc_n = riverlake_legacy_tracer_count_meta()
-      legacy_expected_namehash = riverlake_legacy_tracer_namehash_meta()
-      meta_bad = .false.
-      meta_matches_current = .true.
-      meta_matches_legacy = .true.
-      has_trc_n_meta = .false.
-      has_namehash_meta = .false.
-      IF (p_is_master) THEN
-         has_var = ncio_var_exist(file_restart, 'trc_numucat_meta', readflag = .false.)
-         has_flag = merge(1, 0, has_var)
-      ENDIF
+      CALL vector_read_and_scatter(file_restart, tmpvec, numucat, &
+         'trc_numucat_meta', ucat_data_address)
+      field_present = .true.
+      IF (p_is_worker .and. numucat > 0) &
+         field_present = all(nint(tmpvec(:)) == totalnumucat)
 #ifdef USEMPI
-      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, field_present, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
 #endif
-      IF (has_flag /= 0) THEN
-         IF (p_is_master) THEN
-            CALL ncio_inquire_length (file_restart, 'trc_numucat_meta', ondisk_numucat)
-            IF (ondisk_numucat /= totalnumucat) dimchk_flag = 1
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_bcast (dimchk_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_numucat_meta', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) meta_bad = any(nint(tmpvec(:)) /= totalnumucat)
-      ENDIF
-
-      IF (p_is_master) THEN
-         has_var = ncio_var_exist(file_restart, 'trc_n_meta', readflag = .false.)
-         has_flag = merge(1, 0, has_var)
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-      has_trc_n_meta = has_flag /= 0
-      IF (has_flag /= 0) THEN
-         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_n_meta', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) THEN
-            meta_matches_current = all(nint(tmpvec(:)) == expected_trc_n)
-            meta_matches_legacy = all(nint(tmpvec(:)) == legacy_expected_trc_n)
-         ENDIF
-      ENDIF
-
-      IF (p_is_master) THEN
-         has_var = ncio_var_exist(file_restart, 'trc_namehash_meta', readflag = .false.)
-         has_flag = merge(1, 0, has_var)
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-      has_namehash_meta = has_flag /= 0
-      IF (has_flag /= 0) THEN
-         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'trc_namehash_meta', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) THEN
-            meta_matches_current = meta_matches_current .and. &
-               all(abs(tmpvec(:) - expected_namehash) <= 0.5_r8)
-            meta_matches_legacy = meta_matches_legacy .and. &
-               all(abs(tmpvec(:) - legacy_expected_namehash) <= 0.5_r8)
-         ENDIF
-      ENDIF
-
-#ifdef USEMPI
-      CALL mpi_allreduce(MPI_IN_PLACE, meta_matches_current, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, meta_matches_legacy, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
-#endif
-      legacy_meta_complete = has_trc_n_meta .and. has_namehash_meta
-      meta_bad = meta_bad .or. (.not. meta_matches_current .and. &
-         .not. (legacy_meta_complete .and. meta_matches_legacy))
-#ifdef USEMPI
-      CALL mpi_allreduce(MPI_IN_PLACE, meta_bad, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
-#endif
-      IF (meta_bad .or. dimchk_flag /= 0) THEN
+      IF (.not. field_present) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            'ERROR: river/lake tracer restart metadata mismatch '// &
-            '(trc_numucat_meta/trc_n_meta/trc_namehash_meta); aborting.'
-         CALL CoLM_stop ()
+            'ERROR: river/lake tracer restart catchment-count metadata is inconsistent.'
+         CALL CoLM_stop()
       ENDIF
+
+      ! The full descriptor is the single tracer-identity source of truth.
+      ! Network size/identity are independently guarded above; duplicating
+      ! count/name hashes here creates a second, weaker schema that can drift.
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          write(varname, '(A,A)') 'trc_mass_', trim(tracer_names(itrc))
-
-         ! Master-only file probe + broadcast to avoid concurrent opens.
-         IF (p_is_master) THEN
-            has_var = ncio_var_exist(file_restart, trim(varname), readflag = .false.)
-            has_flag = merge(1, 0, has_var)
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-         IF (has_flag /= 0) THEN
-            CALL vector_read_and_scatter (file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-            IF (p_is_worker .and. numucat > 0) trc_mass(itrc, :) = tmpvec(:)
-         ELSE
-            IF (p_is_master) THEN
-               write(varname, '(A,A)') 'trc_mass_active_', trim(tracer_names(itrc))
-               has_var = ncio_var_exist(file_restart, trim(varname), readflag = .false.)
-               has_flag = merge(1, 0, has_var)
-            ENDIF
-#ifdef USEMPI
-            CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-            has_active = (has_flag /= 0)
-
-            IF (has_active) THEN
-               write(varname, '(A,A)') 'trc_mass_inactive_', trim(tracer_names(itrc))
-               IF (p_is_master) THEN
-                  has_var = ncio_var_exist(file_restart, trim(varname), readflag = .false.)
-                  has_flag = merge(1, 0, has_var)
-               ENDIF
-#ifdef USEMPI
-               CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-               has_inactive = (has_flag /= 0)
-
-               write(varname, '(A,A)') 'trc_mass_active_', trim(tracer_names(itrc))
-               CALL vector_read_and_scatter (file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-               IF (p_is_worker .and. numucat > 0) trc_mass(itrc, :) = tmpvec(:)
-
-               IF (has_inactive) THEN
-                  write(varname, '(A,A)') 'trc_mass_inactive_', trim(tracer_names(itrc))
-                  CALL vector_read_and_scatter (file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-                  IF (p_is_worker .and. numucat > 0) trc_mass(itrc, :) = trc_mass(itrc, :) + tmpvec(:)
-               ENDIF
-            ELSE
-               IF (p_is_master) THEN
-                  write(*,'(A,A,A)') '  Tracer restart variable "', trim(varname), '" not found, cold start from water.'
-               ENDIF
-               IF (p_is_worker .and. numucat > 0) trc_mass(itrc, :) = 0._r8
-               all_found = .false.
-               IF (present(missing_mask)) THEN
-                  IF (itrc <= size(missing_mask)) missing_mask(itrc) = .true.
-               ENDIF
-            ENDIF
-         ENDIF
+         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) trc_mass(itrc, :) = tmpvec(:)
 
          write(varname, '(A,A)') 'trc_inpbuf_', trim(tracer_names(itrc))
-         IF (p_is_master) THEN
-            has_var = ncio_var_exist(file_restart, trim(varname), readflag = .false.)
-            has_flag = merge(1, 0, has_var)
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-         IF (has_flag /= 0) THEN
-            CALL vector_read_and_scatter (file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-            IF (p_is_worker .and. numucat > 0) trc_inp_buf(itrc, :) = tmpvec(:)
-         ELSE
-            ! trc_inpbuf_* missing on an otherwise-complete restart
-            ! (typical when upgrading from a pre-persistence build) used to
-            ! silently reset trc_inp_buf to zero, dropping whatever runoff
-            ! mass was queued for release at write time. Warn so the user
-            ! knows the per-period buffer was dropped.
-            !
-            ! Do NOT flip missing_mask here: trc_mass_* / trc_levsto_* may
-            ! have loaded successfully, and the caller cold-starts the
-            ! whole tracer when the mask fires — overwriting valid state.
-            ! The worst case (lost pending runoff buffer) is contained:
-            ! its mass re-enters via the next tracer_input_from_runoff.
-            IF (p_is_master) THEN
-               write(*,'(A,A,A)') &
-                  ' WARNING read_tracer_restart: "', trim(varname), &
-                  '" absent; trc_inp_buf reset to 0 (prognostic state kept).'
-            ENDIF
-            IF (p_is_worker .and. numucat > 0) trc_inp_buf(itrc, :) = 0._r8
-         ENDIF
+         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) trc_inp_buf(itrc, :) = tmpvec(:)
 
-         ! Protected-side tracer pool. If the variable is absent in an
-         ! old restart, recover it from the same ucat's visible-side ratio
-         ! when possible. Falling straight back to R_init is only safe for
-         ! fixed-signature tracers and corrupts active/runtime-forced ones.
          write(varname, '(A,A)') 'trc_levsto_', trim(tracer_names(itrc))
-         IF (p_is_master) THEN
-            has_var = ncio_var_exist(file_restart, trim(varname), readflag = .false.)
-            has_flag = merge(1, 0, has_var)
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-         IF (has_flag /= 0) THEN
-            CALL vector_read_and_scatter (file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-            IF (p_is_worker .and. numucat > 0) trc_levsto(itrc, :) = tmpvec(:)
-         ELSE
-            reported_bf = .false.
-            IF (DEF_USE_LEVEE .and. p_is_worker .and. numucat > 0 &
-                .and. allocated(levsto_bf) .and. allocated(has_levee_bf)) THEN
-               R_bf = tracer_init_water_ratio(itrc)
-               IF (allocated(volresv_bf_in)) THEN
-                  allocate(volresv_bf(size(volresv_bf_in)))
-                  volresv_bf(:) = volresv_bf_in(:)
-               ELSE
-                  allocate(volresv_bf(0))
-               ENDIF
-               IF (allocated(ucat2resv_bf_in)) THEN
-                  allocate(ucat2resv_bf(size(ucat2resv_bf_in)))
-                  ucat2resv_bf(:) = ucat2resv_bf_in(:)
-               ELSE
-                  allocate(ucat2resv_bf(0))
-               ENDIF
-               DO ii_bf = 1, numucat
-                  IF (has_levee_bf(ii_bf) .and. lake_type_bf(ii_bf) /= 2 .and. levsto_bf(ii_bf) > 0._r8) THEN
-                     ratio_bf = R_bf
-                     IF (allocated(wdsrf_bf)) THEN
-                        IF (ii_bf <= size(wdsrf_bf)) THEN
-                           CALL get_cell_volume(ii_bf, wdsrf_bf(ii_bf), volresv_bf, ucat2resv_bf, visvol_bf)
-                           IF (visvol_bf > trc_v_dry_off) THEN
-                              ratio_bf = max(trc_mass(itrc, ii_bf), 0._r8) / visvol_bf
-                           ENDIF
-                        ENDIF
-                     ENDIF
-                     trc_levsto(itrc, ii_bf) = levsto_bf(ii_bf) * ratio_bf
-                     reported_bf = .true.
-                  ENDIF
-               ENDDO
-               deallocate(volresv_bf, ucat2resv_bf)
-            ENDIF
-            IF (p_is_master) THEN
-               write(*,'(A,A,A)') &
-                  ' NOTE read_tracer_restart: "', trim(varname), &
-                  '" absent; trc_levsto inferred from visible-side ratio where possible.'
-            ENDIF
-         ENDIF
+         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) trc_levsto(itrc, :) = tmpvec(:)
 
-         invalid_protected_mass = .false.
-         IF (p_is_worker .and. numucat > 0) THEN
-            DO ii_bf = 1, numucat
-               IF (.not. ieee_is_finite(trc_levsto(itrc, ii_bf))) THEN
-                  invalid_protected_mass = .true.
-               ELSEIF (trc_levsto(itrc, ii_bf) < 0._r8) THEN
-                  invalid_protected_mass = .true.
-               ENDIF
-               IF (invalid_protected_mass) EXIT
-            ENDDO
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, invalid_protected_mass, 1, MPI_LOGICAL, MPI_LOR, p_comm_glb, p_err)
-#endif
-         IF (invalid_protected_mass) THEN
-            IF (p_is_master) write(*,'(A,A,A)') 'ERROR read_tracer_restart: "trc_levsto_', &
-               trim(tracer_names(itrc)), '" contains a negative or non-finite value.'
-            CALL CoLM_stop()
-         ENDIF
-
-         ! Per-tracer routing-period accumulator. Absent in old-format
-         ! restarts: keep the zero initialisation so behaviour is unchanged
-         ! when the file predates this persistence.
          write(varname, '(A,A)') 'trc_accinp_', trim(tracer_names(itrc))
-         IF (p_is_master) THEN
-            has_var = ncio_var_exist(file_restart, trim(varname), readflag = .false.)
-            has_flag = merge(1, 0, has_var)
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-	         IF (has_flag /= 0) THEN
-	            CALL vector_read_and_scatter (file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-	            IF (p_is_worker .and. numucat > 0) acc_trc_inp(itrc, :) = tmpvec(:)
-	            has_accinp(itrc) = .true.
-	         ENDIF
+         CALL vector_read_and_scatter(file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
+         IF (p_is_worker .and. numucat > 0) acc_trc_inp(itrc, :) = tmpvec(:)
 
       ENDDO
+
+      CALL vector_read_and_scatter(file_restart, tmpvec, numucat, 'acc_rnof_ref', ucat_data_address)
+      IF (p_is_worker .and. numucat > 0) acc_rnof_ref(:) = tmpvec(:)
+
+      ! Reject corrupt loaded rows before the levee-configuration migration can
+      ! fold protected mass into the visible pool and thereby hide its origin.
+      ! This same validator is run again after levee migration below.
+      CALL validate_riverlake_restart_state()
 
       ! The water restart reader folds protected storage into visible storage
       ! whenever the current configuration has no levee for a cell.  Mirror
@@ -2033,7 +2053,7 @@ CONTAINS
                   DO itrc_bf = 1, ntracers
                      IF (.not. tracer_uses_land_water_transport(itrc_bf)) CYCLE
                      trc_mass(itrc_bf, ii_bf) = trc_mass(itrc_bf, ii_bf) &
-                        + max(trc_levsto(itrc_bf, ii_bf), 0._r8)
+                        + trc_levsto(itrc_bf, ii_bf)
                      trc_levsto(itrc_bf, ii_bf) = 0._r8
                   ENDDO
                ENDIF
@@ -2041,68 +2061,13 @@ CONTAINS
          ENDDO
       ENDIF
 
-      ! Shared-across-tracers runoff reference for the routing period.
-      ! Mirrors the per-tracer accinp recovery above.
-      !
-      ! Warn on desync with the water-side routing accumulator: if the file
-      ! contains `acc_rnof_uc` (water accumulator, read by
-      ! MOD_Grid_RiverLakeTimeVars.F90:114-120) but is missing
-      ! `acc_rnof_ref` (tracer accumulator), the first routing period after
-      ! restart will route water that was already accumulated last period
-      ! with zero tracer input — producing a spurious dilution pulse
-      ! downstream. Most often this happens with mixed-origin restarts
-      ! (hand-edited file, tracer enabled mid-run, or a restart written by
-      ! an older build without this persistence).
-      IF (p_is_master) THEN
-         has_var = ncio_var_exist(file_restart, 'acc_rnof_ref', readflag = .false.)
-         has_flag = merge(1, 0, has_var)
-      ENDIF
-#ifdef USEMPI
-      CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-      IF (has_flag /= 0) THEN
-         CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'acc_rnof_ref', ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) acc_rnof_ref(:) = tmpvec(:)
-      ELSE
-         ! acc_rnof_ref absent — check whether water side has acc_rnof_uc.
-         ! If present, backfill: set acc_rnof_ref = acc_rnof_uc and
-         ! approximate acc_trc_inp(itrc,:) = acc_rnof_uc(:) * R_default(itrc)
-         ! so the already-accumulated runoff water carries its R_init tracer
-         ! instead of zero. Under Phase 1 (constant R) this is exact; under
-         ! Phase 2 the actual R during the missing period may have differed,
-         ! but it's still far better than the zero that would otherwise
-         ! produce a one-period dilution pulse downstream.
-         IF (p_is_master) THEN
-            has_var = ncio_var_exist(file_restart, 'acc_rnof_uc', readflag = .false.)
-            has_flag = merge(1, 0, has_var)
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_bcast (has_flag, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-#endif
-         IF (has_flag /= 0) THEN
-            CALL vector_read_and_scatter (file_restart, tmpvec, numucat, 'acc_rnof_uc', ucat_data_address)
-            IF (p_is_worker .and. numucat > 0) THEN
-               acc_rnof_ref(:) = tmpvec(:)
-	               DO itrc_bf = 1, ntracers
-	                  IF (.not. tracer_uses_land_water_transport(itrc_bf)) CYCLE
-	                  IF (.not. has_accinp(itrc_bf)) THEN
-	                     R_bf = tracer_init_water_ratio(itrc_bf)
-	                     acc_trc_inp(itrc_bf, :) = acc_rnof_ref(:) * R_bf
-	                  ENDIF
-	               ENDDO
-            ENDIF
-            IF (p_is_master) THEN
-               write(*,'(A)') '  NOTE (read_tracer_restart): acc_rnof_ref missing but acc_rnof_uc present.'
-	               write(*,'(A)') '    Backfilled acc_rnof_ref from acc_rnof_uc. Existing trc_accinp_*'
-	               write(*,'(A)') '    variables were preserved; only missing ones were approximated using R_init.'
-	            ENDIF
-	         ENDIF
-	      ENDIF
+      ! Levee migration may have added two large finite pools. Recheck for
+      ! overflow after the transformation before transport can consume state.
+      CALL validate_riverlake_restart_state()
 
 	      deallocate (tmpvec)
-	      deallocate (has_accinp)
 
-      IF (present(found_restart)) found_restart = all_found
+      IF (present(found_restart)) found_restart = .true.
 
    END SUBROUTINE read_tracer_restart
 
@@ -2113,6 +2078,7 @@ CONTAINS
    SUBROUTINE write_tracer_restart (file_restart)
 
    USE MOD_Vector_ReadWrite
+   USE MOD_NetCDFSerial, only: ncio_define_dimension, ncio_write_serial
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
       ucat_gdid, ucat_next
    IMPLICIT NONE
@@ -2122,6 +2088,7 @@ CONTAINS
    integer :: itrc
    character(len=64) :: varname
    real(r8), allocatable :: tmpvec(:)
+   integer, allocatable :: descriptor_identity(:,:)
 
       ! Guard: tracer module may not be initialised (e.g. mkinidata).
       ! tracer_names is allocated on ALL ranks by river_lake_tracer_init (before the
@@ -2130,7 +2097,36 @@ CONTAINS
       ! but vector_gather_and_write has mpi_barrier(p_comm_glb) that
       ! requires ALL ranks to participate.
       IF (.not. allocated(tracer_names)) RETURN
-      IF (p_is_worker .and. (.not. allocated(trc_mass))) RETURN
+      ! Never return on a worker-only allocation predicate: every rank must
+      ! enter the gather collectives below in the same order. Initialization
+      ! allocates zero-length routing state on empty workers.
+
+      ! A count/name hash cannot distinguish tracers whose units, ownership, or
+      ! physical parameters changed. Build the exact shared descriptor once;
+      ! it is committed only after every distributed state field is durable.
+      CALL tracer_build_descriptor_identity(descriptor_identity, transport_only=.true.)
+      IF (size(descriptor_identity, 2) <= 0) THEN
+         ! Provider-only configurations carry no generic state. Commit an
+         ! explicit empty transaction instead of leaving complete=0: a later
+         ! run that adds a transport tracer must cold-start cleanly rather than
+         ! misclassifying this intentional absence as an interrupted write.
+         IF (p_is_master) THEN
+            CALL ncio_write_serial(file_restart, 'trc_river_restart_complete', 0)
+            CALL ncio_write_serial(file_restart, 'trc_river_descriptor_count', 0)
+            CALL ncio_write_serial(file_restart, 'trc_river_restart_schema', &
+               RIVER_TRACER_RESTART_SCHEMA_VERSION)
+            CALL ncio_write_serial(file_restart, 'trc_river_restart_complete', 1)
+         ENDIF
+         deallocate(descriptor_identity)
+         RETURN
+      ENDIF
+
+      ! Never persist a poisoned checkpoint. This is the same collective state
+      ! contract enforced after reads, so all ranks must enter before master I/O.
+      CALL validate_riverlake_restart_state()
+      IF (p_is_master) THEN
+         CALL ncio_write_serial(file_restart, 'trc_river_restart_complete', 0)
+      ENDIF
 
       IF (p_is_worker .and. numucat > 0) THEN
          allocate (tmpvec(numucat))
@@ -2143,14 +2139,6 @@ CONTAINS
       IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(totalnumucat, r8)
       CALL vector_gather_and_write ( &
          tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_numucat_meta', 'ucatch')
-
-      IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(riverlake_tracer_count_meta(), r8)
-      CALL vector_gather_and_write ( &
-         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_n_meta', 'ucatch')
-
-      IF (p_is_worker .and. numucat > 0) tmpvec(:) = riverlake_tracer_namehash_meta()
-      CALL vector_gather_and_write ( &
-         tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'trc_namehash_meta', 'ucatch')
 
       IF (p_is_worker .and. numucat > 0) tmpvec(:) = real(ucat_gdid(:), r8)
       CALL vector_gather_and_write ( &
@@ -2187,18 +2175,16 @@ CONTAINS
          CALL vector_gather_and_write ( &
             tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, trim(varname), 'ucatch')
 
-	         IF (DEF_USE_LEVEE) THEN
-	            IF (p_is_worker .and. numucat > 0) THEN
-	               IF (allocated(trc_levsto)) THEN
-	                  tmpvec(:) = trc_levsto(itrc, :)
-	               ELSE
-	                  tmpvec(:) = 0._r8
-	               ENDIF
-	            ENDIF
-	            write(varname, '(A,A)') 'trc_levsto_', trim(tracer_names(itrc))
-	            CALL vector_gather_and_write ( &
-	               tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, trim(varname), 'ucatch')
-	         ENDIF
+         ! Always persist the protected-side row, even when levees are disabled
+         ! (then it is zero). This makes schema completeness independent of a
+         ! runtime levee toggle and preserves mass when a leveed restart is read
+         ! by a non-leveed configuration that folds the pool into visible water.
+         IF (p_is_worker .and. numucat > 0) THEN
+            tmpvec(:) = trc_levsto(itrc, :)
+         ENDIF
+         write(varname, '(A,A)') 'trc_levsto_', trim(tracer_names(itrc))
+         CALL vector_gather_and_write ( &
+            tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, trim(varname), 'ucatch')
       ENDDO
 
       ! Shared runoff reference paired with acc_trc_inp for the active
@@ -2209,7 +2195,24 @@ CONTAINS
       CALL vector_gather_and_write ( &
          tmpvec, numucat, totalnumucat, ucat_data_address, file_restart, 'acc_rnof_ref', 'ucatch')
 
+      ! Commit metadata last. If any state/descriptor write above is interrupted,
+      ! complete remains zero and the reader refuses the mixed-generation file.
+      IF (p_is_master) THEN
+         CALL ncio_define_dimension(file_restart, 'trc_river_descriptor_field', &
+            TRACER_DESCRIPTOR_IDENTITY_WIDTH)
+         CALL ncio_define_dimension(file_restart, 'trc_river_transport_tracer', &
+            size(descriptor_identity, 2))
+         CALL ncio_write_serial(file_restart, 'trc_river_descriptor_count', &
+            size(descriptor_identity, 2))
+         CALL ncio_write_serial(file_restart, 'trc_river_descriptor_identity', &
+            descriptor_identity, 'trc_river_descriptor_field', 'trc_river_transport_tracer')
+         CALL ncio_write_serial(file_restart, 'trc_river_restart_schema', &
+            RIVER_TRACER_RESTART_SCHEMA_VERSION)
+         CALL ncio_write_serial(file_restart, 'trc_river_restart_complete', 1)
+      ENDIF
+
       deallocate (tmpvec)
+      deallocate (descriptor_identity)
 
    END SUBROUTINE write_tracer_restart
 

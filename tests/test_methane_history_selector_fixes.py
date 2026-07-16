@@ -67,7 +67,7 @@ def test_restart_resets_partial_window_when_accumulation_mode_changes():
 
     assert "'ch4_history_accumulation_mode'" in writer
     assert "ncio_vector_group_presence" in validator
-    assert "restart_metadata_fields(3)" in validator
+    assert "restart_metadata_fields(4)" in validator
     assert "ncio_read_vector_complete" in validator
     assert "history_mode_changed = .not. has_history_mode" in validator
     assert "MPI_LOR" in validator

@@ -202,21 +202,17 @@ TRACER_REACTIVE_REGISTERED_SPECIES_OBJS =
 TRACER_REACTIVE_BGC_SHIM_OBJS =
 endif
 
-TRACER_REACTIVE_MAIN_OBJS = \
-				$(TRACER_REACTIVE_BGC_SHIM_OBJS)          \
-				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
-				MOD_Tracer_Reactive_Registrations.o
 TRACER_PARTICLE_REGISTERED_SPECIES_OBJS = \
 				  MOD_Tracer_Particle_Sediment.o
 
-TRACER_PARTICLE_MAIN_OBJS = \
+TRACER_PROVIDER_MAIN_OBJS = \
+				$(TRACER_REACTIVE_BGC_SHIM_OBJS)           \
+				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				$(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS) \
-				MOD_Tracer_Particle_Registrations.o
-TRACER_PARTICLE_CORE_OBJS = \
-				MOD_Tracer_Particle.o
+				MOD_Tracer_Lifecycle_Registrations.o
 ifeq (${TRACER_ENABLED},YES)
 TRACER_BASIC_PRE_ROUTING_OBJS = \
-				 $(TRACER_PARTICLE_CORE_OBJS)
+				 MOD_Tracer_Lifecycle.o
 
 TRACER_BASIC_PRE_FORCING_OBJS = \
 				 $(TRACER_ISOTOPE_MAIN_OBJS)    \
@@ -234,7 +230,6 @@ TRACER_BASIC_POST_FORCING_OBJS = \
 				 MOD_Tracer_Evapo.o             \
 				 MOD_Tracer_SoilWater.o         \
 				 MOD_Tracer_Snow.o              \
-				 MOD_Tracer_Reactive.o          \
 				 MOD_Tracer_Rest.o
 
 TRACER_BASIC_OBJS = \
@@ -247,8 +242,7 @@ TRACER_MAIN_PRE_HISTORY_OBJS = \
 
 TRACER_MAIN_POST_HISTORY_OBJS = \
 				MOD_Tracer_Hist.o                         \
-				$(TRACER_REACTIVE_MAIN_OBJS)              \
-				$(TRACER_PARTICLE_MAIN_OBJS)              \
+				$(TRACER_PROVIDER_MAIN_OBJS)              \
 				MOD_Tracer_SpecialPatches.o
 
 TRACER_MAIN_OBJS = \
@@ -256,13 +250,12 @@ TRACER_MAIN_OBJS = \
 				$(TRACER_MAIN_POST_HISTORY_OBJS)
 
 TRACER_MKINIDATA_OBJS = \
-				  MOD_Tracer_Reactive_Registrations_Stubs.o \
-				  MOD_Tracer_Particle_Registrations_Stubs.o
+				  MOD_Tracer_Lifecycle_Registrations_Stubs.o
 
 MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc \
 				     $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS)
 MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
-MOD_Tracer_Particle.o: MOD_Tracer_Defs.o
+MOD_Tracer_Lifecycle.o: MOD_Tracer_Defs.o
 MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
@@ -277,8 +270,8 @@ MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.
 				     MOD_Tracer_Frac.o MOD_Tracer_EvapLimit.o MOD_Tracer_Vars.o
 MOD_Tracer_Snow.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o
 MOD_Tracer_Conservation.o: MOD_Tracer_Defs.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o
-MOD_Tracer_Rest.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Reactive.o
-MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Reactive.o
+MOD_Tracer_Rest.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Lifecycle.o
+MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Lifecycle.o
 MOD_HistVector.o: MOD_Vars_1DAccFluxes.o MOD_HRUVector.o MOD_ElmVector.o \
 				     MOD_LandElm.o MOD_LandHRU.o MOD_LandPatch.o
 MOD_HistSingle.o: MOD_Vars_1DAccFluxes.o MOD_SingleSrfdata.o MOD_LandPatch.o \
@@ -289,14 +282,13 @@ MOD_HistGridded.o: MOD_HistWriteBack.o MOD_Vars_1DAccFluxes.o MOD_Forcing.o \
 # from MOD_Vars_1DAccFluxes; those objects are listed later in OBJS_MAIN, so a
 # clean serial build needs their .mod present first. Without this rule the build
 # only succeeds when a stale .mod from a previous build happens to exist.
-MOD_Tracer_Hist.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Reactive.o \
+MOD_Tracer_Hist.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Lifecycle.o \
 				     MOD_HistGridded.o MOD_HistVector.o MOD_HistSingle.o MOD_Vars_1DAccFluxes.o
-MOD_Tracer_Reactive_Registrations.o: include/tracer_reactive_species.inc \
-				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS)
-MOD_Tracer_Particle_Registrations.o: include/tracer_particle_species.inc \
+MOD_Tracer_Lifecycle_Registrations.o: include/tracer_lifecycle_providers.inc \
+				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				     $(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS)
-MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Particle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_Grid_RiverLakeFlow.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Particle.o
+MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Lifecycle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_Grid_RiverLakeFlow.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Lifecycle.o
 MOD_Tracer_RiverLake.o: MOD_Tracer_Defs.o MOD_Grid_RiverLakeLevee.o
 MOD_Tracer_RiverLake.o MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o
 MOD_Vars_TimeVariables.o: MOD_Tracer_Defs.o MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
@@ -819,8 +811,8 @@ HistConcatenate.o: MOD_Concatenate.o
 POST_Vector2Grid.o: MOD_Vector2Grid.o
 
 ifeq (${TRACER_ENABLED},YES)
-MOD_Tracer_Particle.o: MOD_Tracer_Defs.o
-MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Particle.o
+MOD_Tracer_Lifecycle.o: MOD_Tracer_Defs.o
+MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Lifecycle.o
 MOD_Tracer_Isotope_Registry.o: MOD_Tracer_Defs.o
 MOD_Tracer_Isotope_O18.o: MOD_Tracer_Isotope_Registry.o
 MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
@@ -836,11 +828,10 @@ MOD_Tracer_Precip.o: MOD_Tracer_Forcing.o
 MOD_Tracer_Evapo.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o
 MOD_Tracer_SoilWater.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o
 MOD_Tracer_Snow.o: MOD_Tracer_Vars.o
-MOD_Tracer_Reactive.o: MOD_Tracer_Defs.o
-MOD_Tracer_Rest.o: MOD_Tracer_Reactive.o MOD_Tracer_Vars.o
+MOD_Tracer_Rest.o: MOD_Tracer_Lifecycle.o MOD_Tracer_Vars.o
 MOD_Vars_TimeVariables.o: MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
 MOD_Vars_1DAccFluxes.o: MOD_Tracer_LandPhase.o
-MOD_Tracer_Hist.o: MOD_HistGridded.o MOD_HistSingle.o MOD_HistVector.o
+MOD_Tracer_Hist.o: MOD_Tracer_Lifecycle.o MOD_HistGridded.o MOD_HistSingle.o MOD_HistVector.o
 MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemCompetition.o MOD_BGC_Soil_BiogeochemDecomp.o \
 	MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o MOD_BGC_Soil_BiogeochemPotential.o
 MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
@@ -868,7 +859,7 @@ MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_AccFlux.o \
 	MOD_Tracer_Reactive_Methane_GIEMS.o MOD_Tracer_Reactive_Methane_Hist.o \
 	MOD_Tracer_Reactive_Methane_Impl.o MOD_Tracer_Reactive_Methane_Microbes.o \
 	MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_State.o \
-	MOD_Tracer_Reactive_Methane_VegOverride.o
+	MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Lifecycle.o
 MOD_Tracer_SpecialPatches.o: MOD_Tracer_Hist.o
 MOD_Hist.o: MOD_Tracer_Hist.o
 CoLMDRIVER.o: MOD_Tracer_LandPhase.o
@@ -943,7 +934,9 @@ lib : mksrfdata.x mkinidata.x colm.x postprocess.x
 	@echo ''
 	@echo 'making CoLM static library >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	mkdir -p lib
-	cd lib && find ../.bld -name "*.o" ! -name "CoLM.o" ! -name "MKSRFDATA.o" ! -name "CoLMINI.o" -exec ln -sf {} ./ \;
+	rm -f lib/*.o lib/libcolm.a
+	cd lib && find ../.bld -name "*.o" ! -name "CoLM.o" ! -name "MKSRFDATA.o" ! -name "CoLMINI.o" \
+		! -name "MOD_Tracer_Lifecycle_Registrations_Stubs.o" -exec ln -sf {} ./ \;
 	cd lib && ar rc libcolm.a *.o && ranlib libcolm.a
 	ln -sf lib/libcolm.a ./libcolm.a
 # ------End of Target 5: static libs --------

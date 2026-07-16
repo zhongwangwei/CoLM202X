@@ -15,7 +15,7 @@ def routine(text: str, name: str) -> str:
     )[0]
 
 
-def test_methane_restart_schema4_preserves_legacy_migration_boundaries() -> None:
+def test_methane_restart_schema5_preserves_legacy_migration_boundaries() -> None:
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
     state = source("main/TRACER/MOD_Tracer_Reactive_Methane_State.F90")
     accflux = source("main/TRACER/MOD_Tracer_Reactive_Methane_AccFlux.F90")
@@ -24,13 +24,15 @@ def test_methane_restart_schema4_preserves_legacy_migration_boundaries() -> None
     state_reader = routine(state, "read_methane_restart")
     acc_reader = routine(accflux, "read_methane_accflux_restart")
 
-    assert "METHANE_RESTART_SCHEMA_VERSION = 4" in methane
+    assert "METHANE_RESTART_SCHEMA_VERSION = 5" in methane
     assert "real(METHANE_RESTART_SCHEMA_VERSION, r8)" in routine(
         methane, "ch4_reactive_write_restart"
     )
     assert "integer, intent(out) :: restart_schema" in validator
     normalized_validator = " ".join(validator.replace("&", " ").split())
     assert "restart_schema /= 1 .and. restart_schema /= 2 .and. restart_schema /= 3" in normalized_validator
+    assert "restart_schema /= 4" in normalized_validator
+    assert "any(schema == 4._r8)" in validator
     assert "any(schema == 3._r8)" in validator
     assert "restart_schema /= METHANE_RESTART_SCHEMA_VERSION" in validator
     assert "read_methane_restart (file_restart, strict_restart, restart_schema)" in callback
@@ -69,6 +71,89 @@ def test_methane_restart_schema4_preserves_legacy_migration_boundaries() -> None
     assert "ncio_set_complete_require_present (.false.)" in acc_reader
     assert "ncio_set_complete_require_present (.true.)" in acc_reader
     assert "IF (restart_schema_active < 3) THEN" in acc_reader
+
+
+def test_schema5_microbe_feature_marker_is_authoritative_for_reused_target() -> None:
+    methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
+    reader = routine(methane, "ch4_reactive_read_restart")
+    writer = routine(methane, "ch4_reactive_write_restart")
+    validator = routine(methane, "validate_methane_restart_transaction")
+
+    invalidate = writer.index(
+        "write_methane_restart_marker(file_restart, 'ch4_restart_complete', 0._r8"
+    )
+    feature = writer.index(
+        "write_methane_restart_marker(file_restart, 'ch4_feature_microbe_pools'"
+    )
+    first_payload = writer.index("write_methane_restart(file_restart")
+    commit = writer.rindex(
+        "write_methane_restart_marker(file_restart, 'ch4_restart_complete', 1._r8"
+    )
+    assert invalidate < feature < first_payload < commit
+    assert "merge(1._r8, 0._r8, DEF_METHANE%use_microbial_pools)" in writer
+
+    assert "checkpoint_has_microbe_pools" in validator
+    assert "restart_schema >= 5 .and. .not. has_microbe_feature" in validator
+    assert "ncio_read_vector_complete(file_restart, 'ch4_feature_microbe_pools'" in validator
+    assert "microbe_feature_has_zero .eqv. microbe_feature_has_one" in validator
+
+    # ON -> OFF on a reused target may leave the old ON variables physically
+    # present.  Schema 5 must accept the OFF marker as authoritative without
+    # probing (and therefore without resurrecting) that stale feature group.
+    off_branch = reader.split(
+        "IF (restart_schema >= 5 .and. .not. checkpoint_has_microbe_pools) THEN", 1
+    )[1].split("ELSE", 1)[0]
+    assert "ncio_vector_group_presence" not in off_branch
+    assert "file_has_pools = .false." in off_branch
+    assert "file_has_component_pools = .false." in off_branch
+    assert "file_has_microbe_accumulators = .false." in off_branch
+
+    # A later OFF -> ON transaction flips the marker before payload writes and
+    # is accepted only after all state, component and accumulator members exist.
+    marker_on_branch = reader.split(off_branch, 1)[1].split(
+        "! Legacy schemas predate the authoritative feature marker.", 1
+    )[0]
+    assert "n_microbe_state_fields /= 4" in marker_on_branch
+    assert "n_microbe_component_fields /= 8" in marker_on_branch
+    assert "n_microbe_accumulator_fields /= nmicrobe_restart_fields - 12" in marker_on_branch
+    assert "file_has_pools = .true." in marker_on_branch
+
+    # Schemas 0-4 intentionally retain field-presence inference.
+    legacy_branch = reader.split(
+        "! Legacy schemas predate the authoritative feature marker.", 1
+    )[1]
+    assert "file_has_pools = n_microbe_state_fields == 4" in legacy_branch
+    assert "file_has_component_pools = n_microbe_component_fields == 8" in legacy_branch
+
+
+def test_methane_transaction_metadata_orphans_cannot_fall_back_to_legacy() -> None:
+    methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
+    reader = routine(methane, "ch4_reactive_read_restart")
+    validator = routine(methane, "validate_methane_restart_transaction")
+
+    # The facade must invoke the validator even when an orphaned history marker
+    # is the only provider metadata present; otherwise its early cold-start
+    # return would bypass the fail-closed metadata gate below.
+    assert "provider_restart_probe_fields(5)" in reader
+    assert "provider_restart_probe_present(5)" in reader
+    assert "'ch4_history_accumulation_mode'" in reader
+
+    legacy_gate = validator.index(
+        "IF (.not. has_schema .and. .not. has_commit) THEN"
+    )
+    orphan_gate = validator.index(
+        "IF (has_history_mode .or. has_microbe_feature) THEN", legacy_gate
+    )
+    stop = validator.index("CALL CoLM_stop()", orphan_gate)
+    legacy_return = validator.index("RETURN", stop)
+    one_sided_gate = validator.index(
+        "IF (.not. has_schema .or. .not. has_commit) THEN", legacy_return
+    )
+
+    assert validator.index("has_history_mode = restart_metadata_present(3)") < legacy_gate
+    assert validator.index("has_microbe_feature = restart_metadata_present(4)") < legacy_gate
+    assert "orphaned methane restart transaction metadata" in validator
+    assert legacy_gate < orphan_gate < stop < legacy_return < one_sided_gate
 
 
 def test_restart_write_read_names_remain_symmetric() -> None:
@@ -147,17 +232,17 @@ def test_initial_history_init_preserves_reactive_restart_accumulators() -> None:
 
 
 def test_lulcc_reload_uses_current_land_year_path() -> None:
-    reactive = source("main/TRACER/MOD_Tracer_Reactive.F90")
+    lifecycle = source("main/TRACER/MOD_Tracer_Lifecycle.F90")
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
     driver = source("main/LULCC/MOD_Lulcc_Driver.F90")
-    dispatch = routine(reactive, "tracer_reactive_reload_lulcc_inputs")
+    dispatch = routine(lifecycle, "tracer_lifecycle_land_reload_lulcc_inputs")
     reload = routine(methane, "ch4_reactive_reload_lulcc_inputs")
 
-    assert "SUBROUTINE reactive_reload_lulcc_if (lc_year, dir_landdata)" in reactive
-    assert "CALL tracer_reactive_reload_lulcc_inputs (jdate(1), dir_landdata)" in driver
+    assert "SUBROUTINE lifecycle_land_reload_lulcc_if (lc_year, dir_landdata)" in lifecycle
+    assert "CALL tracer_lifecycle_land_reload_lulcc_inputs (jdate(1), dir_landdata)" in driver
     assert "integer, intent(in) :: lc_year" in dispatch
     assert "character(len=*), intent(in) :: dir_landdata" in dispatch
-    assert "%reload_lulcc (lc_year, dir_landdata)" in dispatch
+    assert "%land_reload_lulcc(lc_year, dir_landdata)" in dispatch
     assert "write(cyear_lulcc,'(i4.4)') lc_year" in reload
     assert re.search(
         r"last_methane_ph_patch_file\s*=\s*trim\(dir_landdata\).*?"

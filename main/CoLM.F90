@@ -103,6 +103,8 @@ PROGRAM CoLM
    USE MOD_ParameterOptimization
 #ifdef TRACER
    USE MOD_Tracer_LandPhase, only: land_tracer_init, land_tracer_final
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_reset
+   USE MOD_Tracer_Defs, only: tracer_defs_final
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &
@@ -715,6 +717,11 @@ PROGRAM CoLM
 
 #if (defined GridRiverLakeFlow)
       CALL grid_riverlake_flow_final ()
+#endif
+
+#ifdef TRACER
+      CALL tracer_lifecycle_reset ()
+      CALL tracer_defs_final ()
 #endif
 
       CALL forcing_final ()

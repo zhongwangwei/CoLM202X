@@ -13,7 +13,7 @@ MODULE MOD_Grid_RiverLakeHist
    USE MOD_Precision
    USE MOD_Grid_RiverLakeHistState
 #ifdef TRACER
-   USE MOD_Tracer_Particle, only: tracer_particle_write_history, tracer_particle_flush_history
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_route_write_history, tracer_lifecycle_route_flush_history
 #endif
 #ifdef TRACER
    USE MOD_Tracer_RiverLake, only: write_tracer_history, tracer_flush_acc
@@ -630,7 +630,7 @@ CONTAINS
       IF (allocated (bifflw_wdata   )) deallocate (bifflw_wdata   )
 
 #ifdef TRACER
-      CALL tracer_particle_write_history (file_hist_ucat, itime_in_file_ucat)
+      CALL tracer_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
 #endif
 
       ! ----- tracer variables -----
@@ -748,7 +748,7 @@ CONTAINS
 #endif
 
 #ifdef TRACER
-            CALL tracer_particle_flush_history()
+            CALL tracer_lifecycle_route_flush_history()
 #endif
 
       ENDIF

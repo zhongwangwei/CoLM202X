@@ -68,9 +68,7 @@ CONTAINS
       real(r8) :: ratio, trc_flux, R_atm, R_vapor
 	      real(r8) :: d_rain, d_snow, d_wliq, d_wice, water_loss, trc_resid
       real(r8) :: thaw_amt, freeze_amt
-      ! Post-internal-transfer pool sizes used as the denominator for
-      ! evaporation / sublimation. Using *_soisno_bef would mix a post-thaw
-      ! tracer numerator with a pre-thaw water denominator.
+      ! Post-internal-transfer pool sizes used for soil evaporation/sublimation.
       real(r8) :: wliq_post_phase, wice_post_phase
       ! Canopy phase-change detection variables.
       ! Mirrors the soil-layer thaw/freeze handling at L94-119: separate
@@ -81,7 +79,7 @@ CONTAINS
       ! canopy snow", inflating both a_trc_precip and a_trc_evap and
       ! polluting trc_ldew_rain with R_atm signature instead of the
       ! original snow signature R_canopy_snow.
-      real(r8) :: ldew_rain_post_phase, ldew_snow_post_phase
+      real(r8) :: ldew_rain_pre_phase, ldew_snow_pre_phase
       real(r8) :: d_rain_external, d_snow_external
       IF (ntracers <= 0) RETURN
       lb = snl + 1
@@ -91,7 +89,10 @@ CONTAINS
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          R_vapor = R_atm
 
-         ! --- Canopy rain & snow: detect INTERNAL phase transfer first ---
+         ! LeafTemperature applies atmospheric canopy exchange first and only
+         ! then melts/freezes the remaining carrier.  Preserve that ordering:
+         ! fractionating evaporation/sublimation does not commute with a later
+         ! internal phase transfer.
          d_rain = ldew_rain - ldew_rain_bef
          d_snow = ldew_snow - ldew_snow_bef
 
@@ -104,19 +105,15 @@ CONTAINS
          ! qmelt - qevpl < qmelt; min picks d_rain instead of qmelt).
          ! Phase-1 invariant hides this because all R = R_atm = R_init,
          ! but Phase 2 (time-varying R_atm) would mis-charge the missing
-         ! qmelt fraction to sublimation/dew. Clamp to the matching pool
-         ! so caller-side rounding noise can't push the migration past
-         ! the actual mass that crossed.
+         ! qmelt fraction to sublimation/dew.
          thaw_amt   = 0._r8   ! snow→rain (canopy melt)
          freeze_amt = 0._r8   ! rain→snow (canopy refreeze)
          IF (present(canopy_smelt_mass_th) .or. present(canopy_frzc_mass_th)) THEN
             IF (present(canopy_smelt_mass_th)) THEN
                thaw_amt = max(canopy_smelt_mass_th, 0._r8)
-               thaw_amt = min(thaw_amt, max(ldew_snow_bef, 0._r8))
             ENDIF
             IF (present(canopy_frzc_mass_th)) THEN
                freeze_amt = max(canopy_frzc_mass_th, 0._r8)
-               freeze_amt = min(freeze_amt, max(ldew_rain_bef, 0._r8))
             ENDIF
          ELSE
             ! Legacy heuristic — used only when the caller has not
@@ -131,39 +128,16 @@ CONTAINS
             ENDIF
          ENDIF
 
-         ! --- Internal MELT: trc_ldew_snow → trc_ldew_rain ---
-         IF (thaw_amt > trc_tiny) THEN
-            IF (ldew_snow_bef > trc_tiny) THEN
-               ratio = trc_ldew_snow(itrc, ipatch) / ldew_snow_bef
-               trc_flux = min(thaw_amt * ratio, max(trc_ldew_snow(itrc, ipatch), 0._r8))
-               trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) - trc_flux
-               trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_flux
-            ENDIF
-         ENDIF
-
-         ! --- Internal FREEZE: trc_ldew_rain → trc_ldew_snow ---
-         IF (freeze_amt > trc_tiny) THEN
-            IF (ldew_rain_bef > trc_tiny) THEN
-               trc_flux = tracer_rayleigh_freezing_loss(itrc, trc_ldew_rain(itrc, ipatch), &
-                  ldew_rain_bef, freeze_amt, canopy_temp())
-               trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) - trc_flux
-               trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_flux
-            ENDIF
-         ENDIF
-
-         ! Reconstruct the canopy pool sizes that participate in the
-         ! external phase changes below: rain pool after melt-in /
-         ! freeze-out is ldew_rain_bef + thaw - freeze.
-         ldew_rain_post_phase = max(ldew_rain_bef + thaw_amt - freeze_amt, 0._r8)
-         ldew_snow_post_phase = max(ldew_snow_bef - thaw_amt + freeze_amt, 0._r8)
-
-         ! --- Canopy rain: net change beyond phase = evap/dew ---
+         ! Remove the explicit internal phase contribution from the total delta.
          d_rain_external = d_rain - thaw_amt + freeze_amt
+         d_snow_external = d_snow + thaw_amt - freeze_amt
+
+         ! --- Canopy rain external exchange: evap/dew (host operation 1) ---
          IF (d_rain_external < -trc_tiny) THEN
             ! Net rain loss = canopy evaporation
-            IF (ldew_rain_post_phase > trc_tiny) THEN
+            IF (ldew_rain_bef > trc_tiny) THEN
 	               trc_flux = evaporative_tracer_loss(trc_ldew_rain(itrc, ipatch), &
-	                  ldew_rain_post_phase, abs(d_rain_external), canopy_temp(), .false.)
+	                  ldew_rain_bef, abs(d_rain_external), canopy_temp(), .false.)
 	               trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) - trc_flux
 	               CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, abs(d_rain_external), &
 	                  TRC_EVAP_KIND_CANOPYEVAP)
@@ -177,13 +151,12 @@ CONTAINS
          ENDIF
          trc_ldew_rain(itrc, ipatch) = max(trc_ldew_rain(itrc, ipatch), 0._r8)
 
-         ! --- Canopy snow: net change beyond phase = sublim/frost ---
-         d_snow_external = d_snow + thaw_amt - freeze_amt
+         ! --- Canopy snow external exchange: sublim/frost (host operation 1) ---
          IF (d_snow_external < -trc_tiny) THEN
             ! Net snow loss = canopy sublimation
-            IF (ldew_snow_post_phase > trc_tiny) THEN
+            IF (ldew_snow_bef > trc_tiny) THEN
 	               trc_flux = evaporative_tracer_loss(trc_ldew_snow(itrc, ipatch), &
-	                  ldew_snow_post_phase, abs(d_snow_external), canopy_temp(), .true.)
+	                  ldew_snow_bef, abs(d_snow_external), canopy_temp(), .true.)
 	               trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) - trc_flux
 	               CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, abs(d_snow_external), &
 	                  TRC_EVAP_KIND_SUBL)
@@ -196,6 +169,31 @@ CONTAINS
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
          ENDIF
          trc_ldew_snow(itrc, ipatch) = max(trc_ldew_snow(itrc, ipatch), 0._r8)
+
+         ! Phase-change carrier sizes after external exchange.  The explicit
+         ! THERMAL masses are already limited by these host pools; retain a
+         ! defensive clamp for roundoff and third-party direct callers.
+         ldew_rain_pre_phase = max(ldew_rain_bef + d_rain_external, 0._r8)
+         ldew_snow_pre_phase = max(ldew_snow_bef + d_snow_external, 0._r8)
+         thaw_amt = min(thaw_amt, ldew_snow_pre_phase)
+         freeze_amt = min(freeze_amt, ldew_rain_pre_phase + thaw_amt)
+
+         ! --- Internal MELT: snow → rain (host operation 2) ---
+         IF (thaw_amt > trc_tiny .and. ldew_snow_pre_phase > trc_tiny) THEN
+            ratio = trc_ldew_snow(itrc, ipatch) / ldew_snow_pre_phase
+            trc_flux = min(thaw_amt * ratio, max(trc_ldew_snow(itrc, ipatch), 0._r8))
+            trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) - trc_flux
+            trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_flux
+         ENDIF
+
+         ! --- Internal FREEZE: rain → snow (host operation 2) ---
+         IF (freeze_amt > trc_tiny .and. ldew_rain_pre_phase + thaw_amt > trc_tiny) THEN
+            trc_flux = tracer_rayleigh_freezing_loss(itrc, trc_ldew_rain(itrc, ipatch), &
+               ldew_rain_pre_phase + thaw_amt, freeze_amt, canopy_temp())
+            trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) - trc_flux
+            trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_flux
+         ENDIF
+
          CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
 
