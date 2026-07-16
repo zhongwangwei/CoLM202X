@@ -61,9 +61,16 @@ CONTAINS
 
    character(len=*) , intent(in) :: dir_hist
    logical, optional, intent(in) :: lulcc_call
+   logical :: flush_reactive
 
       CALL allocate_acc_fluxes ()
-      CALL FLUSH_acc_fluxes ()
+      ! land_tracer_init runs before the first hist_init and may have restored
+      ! a partial reactive-history window from restart.  Preserve it here;
+      ! cold starts are already zeroed at allocation.  LULCC explicitly
+      ! rebuilds methane accumulators, so that reinitialization may flush.
+      flush_reactive = .false.
+      IF (present(lulcc_call)) flush_reactive = lulcc_call
+      CALL FLUSH_acc_fluxes (flush_reactive=flush_reactive)
 #ifdef TRACER
       CALL flush_Tracer_Acc ()
 #endif

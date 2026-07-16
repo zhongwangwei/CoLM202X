@@ -4,6 +4,7 @@ include include/Makeoptions
 LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
 TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
+METHANE_ENABLED := $(shell printf '\043include "include/define.h"\n\043if defined(TRACER) && defined(BGC)\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -75,14 +76,73 @@ ${OBJS_SHARED} : %.o : %.F90 ${HEADER} | mkdir_build
 
 OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 
+ifeq (${TRACER_ENABLED},YES)
+TRACER_CONFIG_OBJS = \
+				  MOD_Tracer_Defs.o
+
+TRACER_INIT_CONFIG_OBJS = \
+				  MOD_Tracer_Defs.o
+
+TRACER_RUNTIME_CONFIG_OBJS = \
+				  MOD_Tracer_Defs.o
+
+TRACER_MKSRFDATA_CONFIG_OBJS = \
+				  MOD_Tracer_Defs.o
+
+TRACER_MKSRFDATA_SPECIES_OBJS =
+
+ifeq (${METHANE_ENABLED},YES)
+TRACER_CONFIG_OBJS += \
+				  MOD_Tracer_Reactive_Methane_Const.o \
+				  MOD_Tracer_Reactive_Methane_Registry.o \
+				  MOD_Tracer_Reactive_Methane_Preprocessing.o
+
+TRACER_RUNTIME_CONFIG_OBJS += \
+				  MOD_Tracer_Reactive_Methane_Const.o \
+				  MOD_Tracer_Reactive_Methane_Registry.o
+
+TRACER_MKSRFDATA_CONFIG_OBJS += \
+				  MOD_Tracer_Reactive_Methane_Const.o \
+				  MOD_Tracer_Reactive_Methane_Registry.o \
+				  MOD_Tracer_Reactive_Methane_Preprocessing.o
+
+TRACER_MKSRFDATA_SPECIES_OBJS = \
+					  MOD_Tracer_Reactive_Methane_PHMapping.o \
+					  Aggregation_LakeSoilC.o \
+					  Aggregation_MethanePH.o
+
+MOD_Tracer_Reactive_Methane_Const.o \
+MOD_Tracer_Reactive_Methane_Registry.o: MOD_Tracer_Defs.o
+
+MOD_Tracer_Reactive_Methane_Preprocessing.o: \
+	MOD_Tracer_Defs.o \
+	MOD_Tracer_Reactive_Methane_Const.o \
+	MOD_Tracer_Reactive_Methane_Registry.o
+
+MKSRFDATA.o: MOD_Tracer_Reactive_Methane_Preprocessing.o
+endif
+
+$(TRACER_CONFIG_OBJS) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+else
+TRACER_CONFIG_OBJS =
+TRACER_INIT_CONFIG_OBJS =
+TRACER_RUNTIME_CONFIG_OBJS =
+TRACER_MKSRFDATA_CONFIG_OBJS =
+TRACER_MKSRFDATA_SPECIES_OBJS =
+endif
+
+TRACER_INIT_CONFIG_OBJS_T = $(addprefix .bld/,${TRACER_INIT_CONFIG_OBJS})
+TRACER_RUNTIME_CONFIG_OBJS_T = $(addprefix .bld/,${TRACER_RUNTIME_CONFIG_OBJS})
+TRACER_MKSRFDATA_CONFIG_OBJS_T = $(addprefix .bld/,${TRACER_MKSRFDATA_CONFIG_OBJS})
+
 OBJS_MKSRFDATA = \
 				  Aggregation_PercentagesPFT.o      \
 				  Aggregation_LAI.o                 \
 				  Aggregation_SoilHyperAlbedo.o     \
 					  Aggregation_SoilBrightness.o      \
 					  Aggregation_LakeDepth.o           \
-					  Aggregation_LakeSoilC.o          \
-					  Aggregation_MethanePH.o          \
+						  $(TRACER_MKSRFDATA_SPECIES_OBJS) \
 					  Aggregation_ForestHeight.o        \
 				  Aggregation_SoilParameters.o      \
 				  Aggregation_DBedrock.o            \
@@ -101,11 +161,12 @@ $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 OBJS_MKSRFDATA_T = $(addprefix .bld/,${OBJS_MKSRFDATA})
 
 # ------- Target 1: mksrfdata --------
-mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MKSRFDATA}
+mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${TRACER_MKSRFDATA_CONFIG_OBJS} ${OBJS_MKSRFDATA}
 	@echo ''
 	@echo 'making CoLM surface data start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${OBJS_MKSRFDATA_T} -o run/mksrfdata.x ${LDFLAGS}
+	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${TRACER_MKSRFDATA_CONFIG_OBJS_T} \
+		${OBJS_MKSRFDATA_T} -o run/mksrfdata.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM surface data completed!'
 	@echo ''
@@ -120,8 +181,9 @@ TRACER_ISOTOPE_MAIN_OBJS = \
 				 $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS) \
 				 MOD_Tracer_Isotope_Registrations.o
 
+ifeq (${METHANE_ENABLED},YES)
 TRACER_REACTIVE_METHANE_OBJ_SUFFIXES = \
-				 Const Registry GIEMS pH VegOverride State Microbes \
+				 GIEMS pH VegOverride State Microbes \
 				 BgcLink AccFlux Physics Driver Hist Impl
 
 TRACER_REACTIVE_METHANE_OBJS = \
@@ -131,9 +193,17 @@ TRACER_REACTIVE_METHANE_OBJS = \
 
 TRACER_REACTIVE_REGISTERED_SPECIES_OBJS = \
 				  $(TRACER_REACTIVE_METHANE_OBJS)
+TRACER_REACTIVE_BGC_SHIM_OBJS = \
+				  MOD_Tracer_Reactive_BgcShim.o
+else
+TRACER_REACTIVE_METHANE_OBJ_SUFFIXES =
+TRACER_REACTIVE_METHANE_OBJS =
+TRACER_REACTIVE_REGISTERED_SPECIES_OBJS =
+TRACER_REACTIVE_BGC_SHIM_OBJS =
+endif
 
 TRACER_REACTIVE_MAIN_OBJS = \
-				MOD_Tracer_Reactive_BgcShim.o             \
+				$(TRACER_REACTIVE_BGC_SHIM_OBJS)          \
 				$(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				MOD_Tracer_Reactive_Registrations.o
 TRACER_PARTICLE_REGISTERED_SPECIES_OBJS = \
@@ -146,7 +216,6 @@ TRACER_PARTICLE_CORE_OBJS = \
 				MOD_Tracer_Particle.o
 ifeq (${TRACER_ENABLED},YES)
 TRACER_BASIC_PRE_ROUTING_OBJS = \
-				 MOD_Tracer_Defs.o              \
 				 $(TRACER_PARTICLE_CORE_OBJS)
 
 TRACER_BASIC_PRE_FORCING_OBJS = \
@@ -222,31 +291,6 @@ MOD_HistGridded.o: MOD_HistWriteBack.o MOD_Vars_1DAccFluxes.o MOD_Forcing.o \
 # only succeeds when a stale .mod from a previous build happens to exist.
 MOD_Tracer_Hist.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Reactive.o \
 				     MOD_HistGridded.o MOD_HistVector.o MOD_HistSingle.o MOD_Vars_1DAccFluxes.o
-MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_Impl.o MOD_Tracer_Reactive_Methane_Hist.o \
-				     MOD_Tracer_Reactive_Methane_AccFlux.o MOD_Tracer_Reactive_Methane_Microbes.o \
-				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_GIEMS.o \
-				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
-MOD_Tracer_Reactive_Methane_Impl.o: MOD_Tracer_Reactive_Methane_Driver.o \
-				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_Registry.o \
-				     MOD_Tracer_Reactive_Methane_Const.o MOD_Tracer_Reactive_Methane_BgcLink.o \
-				     MOD_Tracer_Reactive_BgcShim.o MOD_Tracer_Conservation.o
-MOD_Tracer_Reactive_Methane_Driver.o: MOD_Tracer_Reactive_Methane_Physics.o \
-				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_BgcLink.o \
-				     MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_Microbes.o
-MOD_Tracer_Reactive_Methane_Physics.o: MOD_Tracer_Reactive_Methane_Const.o \
-				     MOD_Tracer_Reactive_Methane_GIEMS.o MOD_Tracer_Reactive_Methane_BgcLink.o \
-				     MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_State.o
-MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_Const.o \
-				     MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_VegOverride.o
-MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
-MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_Const.o \
-				     MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_Microbes.o \
-				     MOD_Tracer_Reactive_Methane_BgcLink.o
-MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o \
-				     MOD_Tracer_Reactive_Methane_State.o
-MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_Tracer_Reactive_Methane_BgcLink.o \
-				     MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_AccFlux.o \
-				     MOD_HistGridded.o
 MOD_Tracer_Reactive_Registrations.o: include/tracer_reactive_species.inc \
 				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS)
 MOD_Tracer_Particle_Registrations.o: include/tracer_particle_species.inc \
@@ -370,11 +414,12 @@ $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_b
 OBJS_MKINIDATA_T = $(addprefix .bld/,${OBJS_MKINIDATA})
 
 # -------- Target 2: mkinidata -------
-mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MKINIDATA}
+mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${TRACER_INIT_CONFIG_OBJS} ${OBJS_BASIC} ${OBJS_MKINIDATA}
 	@echo ''
 	@echo 'making CoLM initial data start >>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_MKINIDATA_T} -o run/mkinidata.x ${LDFLAGS}
+	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${TRACER_INIT_CONFIG_OBJS_T} \
+		${OBJS_BASIC_T} ${OBJS_MKINIDATA_T} -o run/mkinidata.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM initial data completed!'
 	@echo ''
@@ -556,21 +601,23 @@ colm.x : run/colm.x
 
 ifneq (${CaMa},YES)# Compile CoLM decoupled without river routing scheme (CaMa-Flood)
 
-run/colm.x : ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MAIN} | mkdir_build
+run/colm.x : ${HEADER} ${OBJS_SHARED} ${TRACER_RUNTIME_CONFIG_OBJS} ${OBJS_BASIC} ${OBJS_MAIN} | mkdir_build
 	@echo ''
 	@echo 'making CoLM start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
+	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${TRACER_RUNTIME_CONFIG_OBJS_T} \
+		${OBJS_BASIC_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM completed!'
 	@echo ''
 
 else
-run/colm.x : ${HEADER} ${OBJS_SHARED} ${OBJECTS_CAMA} ${OBJS_BASIC} ${OBJS_MAIN} | mkdir_build
+run/colm.x : ${HEADER} ${OBJS_SHARED} ${TRACER_RUNTIME_CONFIG_OBJS} ${OBJECTS_CAMA} ${OBJS_BASIC} ${OBJS_MAIN} | mkdir_build
 	@echo ''
 	@echo 'making CoLM with CaMa start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_CAMA_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
+	${FF} ${LINK_FOPTS} ${OBJS_SHARED_T} ${TRACER_RUNTIME_CONFIG_OBJS_T} \
+		${OBJS_BASIC_T} ${OBJS_CAMA_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
 
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM with CaMa completed!'
@@ -641,6 +688,7 @@ MOD_ElmVector.o: MOD_LandCrop.o
 MOD_HRUVector.o: MOD_ElmVector.o
 MOD_MeshFilter.o: MOD_AggregationRequestData.o MOD_LandElm.o
 MOD_RegionClip.o: MOD_Pixel.o
+Aggregation_MethanePH.o: MOD_Tracer_Reactive_Methane_PHMapping.o
 MKSRFDATA.o: MOD_Lulcc_TransferTrace.o
 MOD_tav_abs.o: MOD_dataSpec_PDB.o
 MOD_prospect_DB.o: MOD_tav_abs.o
@@ -793,24 +841,34 @@ MOD_Tracer_Rest.o: MOD_Tracer_Reactive.o MOD_Tracer_Vars.o
 MOD_Vars_TimeVariables.o: MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
 MOD_Vars_1DAccFluxes.o: MOD_Tracer_LandPhase.o
 MOD_Tracer_Hist.o: MOD_HistGridded.o MOD_HistSingle.o MOD_HistVector.o
-MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemDecomp.o MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o \
-	MOD_BGC_Soil_BiogeochemPotential.o MOD_BGC_CNSummary.o
+MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemCompetition.o MOD_BGC_Soil_BiogeochemDecomp.o \
+	MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o MOD_BGC_Soil_BiogeochemPotential.o
 MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
 MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_Const.o \
 	MOD_Tracer_Reactive_Methane_State.o
 MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_Const.o \
-	MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_pH.o
+	MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_pH.o \
+	MOD_Vars_TimeVariables.o MOD_Vars_TimeInvariants.o \
+	MOD_BGC_CNCStateUpdate1.o MOD_BGC_Soil_BiogeochemNStateUpdate1.o MOD_BGC_CNSummary.o
 MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_BgcLink.o \
-	MOD_Tracer_Reactive_Methane_Microbes.o MOD_Tracer_Reactive_Methane_State.o
+	MOD_Tracer_Reactive_Methane_Const.o MOD_Tracer_Reactive_Methane_Microbes.o \
+	MOD_Tracer_Reactive_Methane_State.o
 MOD_Tracer_Reactive_Methane_Physics.o: MOD_Tracer_Reactive_Methane_BgcLink.o \
-	MOD_Tracer_Reactive_Methane_GIEMS.o MOD_Tracer_Reactive_Methane_State.o
+	MOD_Tracer_Reactive_Methane_Const.o MOD_Tracer_Reactive_Methane_GIEMS.o \
+	MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Reactive_Methane_VegOverride.o
 MOD_Tracer_Reactive_Methane_Driver.o: MOD_Tracer_Reactive_Methane_Microbes.o \
-	MOD_Tracer_Reactive_Methane_Physics.o
+	MOD_Tracer_Reactive_Methane_Physics.o MOD_Tracer_Reactive_Methane_State.o \
+	MOD_Tracer_Reactive_Methane_BgcLink.o MOD_Tracer_Reactive_Methane_VegOverride.o
 MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_Tracer_Reactive_Methane_AccFlux.o \
-	MOD_Tracer_Reactive_Methane_Registry.o
+	MOD_Tracer_Reactive_Methane_BgcLink.o MOD_Tracer_Reactive_Methane_Registry.o MOD_HistGridded.o
 MOD_Tracer_Reactive_Methane_Impl.o: MOD_Tracer_Reactive_BgcShim.o MOD_Tracer_Reactive_Methane_Driver.o \
-	MOD_Tracer_Reactive_Methane_Registry.o
-MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_Hist.o MOD_Tracer_Reactive_Methane_Impl.o
+	MOD_Tracer_Reactive_Methane_BgcLink.o MOD_Tracer_Reactive_Methane_Const.o \
+	MOD_Tracer_Reactive_Methane_Registry.o MOD_Tracer_Reactive_Methane_State.o MOD_Tracer_Conservation.o
+MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_AccFlux.o \
+	MOD_Tracer_Reactive_Methane_GIEMS.o MOD_Tracer_Reactive_Methane_Hist.o \
+	MOD_Tracer_Reactive_Methane_Impl.o MOD_Tracer_Reactive_Methane_Microbes.o \
+	MOD_Tracer_Reactive_Methane_pH.o MOD_Tracer_Reactive_Methane_State.o \
+	MOD_Tracer_Reactive_Methane_VegOverride.o
 MOD_Tracer_SpecialPatches.o: MOD_Tracer_Hist.o
 MOD_Hist.o: MOD_Tracer_Hist.o
 CoLMDRIVER.o: MOD_Tracer_LandPhase.o

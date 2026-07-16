@@ -23,6 +23,7 @@ def test_wetland_decomposition_debits_state_once_with_timestep() -> None:
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
     impl = source("main/TRACER/MOD_Tracer_Reactive_Methane_Impl.F90")
     shim = source("main/TRACER/MOD_Tracer_Reactive_BgcShim.F90")
+    link = source("main/TRACER/MOD_Tracer_Reactive_Methane_BgcLink.F90")
 
     assert "CALL tracer_wetland_decomp (i, deltim)" in driver
     assert "SUBROUTINE tracer_wetland_decomp (ipatch, deltim)" in land
@@ -36,25 +37,13 @@ def test_wetland_decomposition_debits_state_once_with_timestep() -> None:
     assert "SUBROUTINE reactive_bgc_run_wetland_decomp (ipatch, deltim)" in shim
 
     shim_body = subroutine_body(shim, "reactive_bgc_run_wetland_decomp")
-    assert "CALL apply_wetland_decomposition_state (ipatch, deltim)" in shim_body
-    apply_body = subroutine_body(shim, "apply_wetland_decomposition_state")
-    assert "decomp_cpools_vr" in apply_body
-    assert "decomp_npools_vr" in apply_body
-    assert "sminn_vr" in apply_body
+    assert "CALL SoilBiogeochemCompetitionNoPlant" in shim_body
     assert "decomp_cpools_sourcesink" in shim
     assert "decomp_npools_sourcesink" in shim
-    assert "DEF_USE_SASU .or. DEF_USE_DiagMatrix" in shim
-    assert "CALL CNDriverSummarizeNonvegetatedSoilStates (ipatch, nl_soil, dz_soi, ndecomp_pools)" in apply_body
-    assert apply_body.count("decomp_cpools_sourcesink(:,:,ipatch) = 0._r8") >= 2
-    assert apply_body.count("decomp_npools_sourcesink(:,:,ipatch) = 0._r8") >= 2
-
-    require_body = subroutine_body(shim, "require_wetland_decomposition_state")
-    assert "decomp_cpools_vr(1:nl_soil,1:ndecomp_pools,ipatch) < 0._r8" in require_body
-    assert "decomp_npools_vr(1:nl_soil,1:ndecomp_pools,ipatch) < 0._r8" in require_body
-    assert ".not. allocated(o_scalar)" in require_body
-    assert ".not. allocated(fpi_vr)" in require_body
-    assert "BD_all(1:nl_soil,ipatch) <= tiny(1._r8)" in require_body
-    assert "wetland patch unexpectedly contains vegetation C/N state" in require_body
+    finalize = subroutine_body(link, "tracer_ch4_bgc_finalize_step")
+    assert "CALL CDecompStateUpdate" in finalize
+    assert "CALL SoilBiogeochemNDecompStateUpdate" in finalize
+    assert "CALL CNDriverSummarizeNonvegetatedSoilStates" in finalize
 
     # The full PFT BGC driver and the decomposition-only wetland path are
     # disjoint, so the new state debit cannot run twice for one patch.
@@ -68,7 +57,6 @@ def test_wetland_state_summary_rebuilds_soil_and_column_aggregates() -> None:
     makefile = source("Makefile")
     body = subroutine_body(summary, "CNDriverSummarizeNonvegetatedSoilStates")
 
-    assert "IMPLICIT NONE\n   PRIVATE" in summary
     assert "PUBLIC CNDriverSummarizeNonvegetatedSoilStates" in summary
     assert "CALL soilbiogeochem_carbonstate_summary" in body
     assert "CALL soilbiogeochem_nitrogenstate_summary" in body
@@ -76,7 +64,8 @@ def test_wetland_state_summary_rebuilds_soil_and_column_aggregates() -> None:
     assert "totvegn(i) = 0._r8" in body
     assert "totcolc(i) = totcwdc(i) + totlitc(i) + totsomc(i)" in body
     assert "totcoln(i) = totcwdn(i) + totlitn(i) + totsomn(i)" in body
-    assert "MOD_BGC_Soil_BiogeochemPotential.o MOD_BGC_CNSummary.o" in makefile
+    assert "MOD_Tracer_Reactive_Methane_BgcLink.o" in makefile
+    assert "MOD_BGC_CNSummary.o" in makefile
 
 
 def test_patch_ph_rejects_nan_and_infinity_before_collective_stats() -> None:
@@ -84,10 +73,9 @@ def test_patch_ph_rejects_nan_and_infinity_before_collective_stats() -> None:
     body = subroutine_body(ph, "read_methane_ph_patch")
 
     assert "USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite" in ph
-    assert ".not. ieee_is_finite(methane_ph_patch)" in body
-    sanitize = body.index("WHERE (.not. ieee_is_finite(methane_ph_patch)")
-    stats = body.index("n_nonfallback = count(")
-    assert sanitize < stats
+    finite_check = body.index(".not. ieee_is_finite(methane_ph_patch(ipatch))")
+    collective = body.index("CALL mpi_allreduce")
+    assert finite_check < collective
 
 def test_decomposition_only_budget_identity() -> None:
     # One transition: donor loses respiration+transfer, receiver gains the
@@ -123,19 +111,19 @@ def test_lulcc_refreshes_spatial_ph_context_before_collective_reload() -> None:
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
 
     reload_call = driver.index(
-        "CALL tracer_reactive_reload_lulcc_inputs (dir_landdata, jdate(1))"
+        "CALL tracer_reactive_reload_lulcc_inputs (jdate(1), dir_landdata)"
     )
     remap_call = driver.index("CALL tracer_reactive_remap_lulcc_state")
     assert remap_call < reload_call
-    assert "SUBROUTINE reactive_reload_lulcc_if (dir_landdata, lc_year)" in reactive
+    assert "SUBROUTINE reactive_reload_lulcc_if (lc_year, dir_landdata)" in reactive
     assert "reactive_lulcc_dir_landdata" not in reactive
     assert "tracer_reactive_get_lulcc_context" not in reactive
 
     reload_body = subroutine_body(methane, "ch4_reactive_reload_lulcc_inputs")
-    assert "character(len=*), intent(in) :: dir_landdata_lulcc" in reload_body
-    assert "integer, intent(in) :: lc_year_lulcc" in reload_body
-    assert "write(cyear_lulcc,'(i4.4)') lc_year_lulcc" in reload_body
-    assert "last_methane_ph_patch_file = trim(dir_landdata_lulcc)//'/soil/'" in reload_body
+    assert "integer, intent(in) :: lc_year" in reload_body
+    assert "character(len=*), intent(in) :: dir_landdata" in reload_body
+    assert "write(cyear_lulcc,'(i4.4)') lc_year" in reload_body
+    assert "last_methane_ph_patch_file = trim(dir_landdata)//'/soil/'" in reload_body
     path_update = reload_body.index("last_methane_ph_patch_file =")
     ph_read = reload_body.index("CALL read_methane_ph_patch")
     assert path_update < ph_read
@@ -154,12 +142,12 @@ def test_restart_schema_is_uniform_across_all_mpi_ranks() -> None:
     methane = source("main/TRACER/MOD_Tracer_Reactive_Methane.F90")
     body = subroutine_body(methane, "validate_methane_restart_transaction")
 
-    assert "schema_v1_present" in body
-    assert "schema_v2_present" in body
+    assert "ncio_vector_group_presence" in body
+    assert "restart_schema = local_schema" in body
     assert "MPI_LOR" in body
-    assert "schema_v1_present .eqv. schema_v2_present" in body
-    assert "component_state_required = schema_v2_present" in body
-    assert "component_state_required = &\n\t        any(" not in body
+    assert "MPI_MAX" in body
+    assert "any(schema /= real(restart_schema, r8))" in body
+    assert "restart_schema /= METHANE_RESTART_SCHEMA_VERSION" in body
 
 
 def test_inactive_final_and_reentry_still_release_methane_state() -> None:

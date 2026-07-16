@@ -64,6 +64,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 ! [Marani & Alvalá 2007].
 !=======================================================================
 	USE MOD_Precision
+	USE MOD_SPMD_Task, only: CoLM_Stop, p_is_master
 	USE MOD_Tracer_Defs, only: tracer_lower
 	USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
@@ -73,6 +74,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 	PUBLIC :: DEF_METHANE, DEF_METHANE_hydrology
 	PUBLIC :: read_methane_namelist, configure_methane_inundation_mode
 	PUBLIC :: methane_atm_mixing_ratio, methane_history_enabled
+	PUBLIC :: methane_history_accumulation_mode
 
 	!------------------------------------------------------------------
 	! Constants for the Methane reactive tracer
@@ -225,12 +227,11 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: B_init_methanotroph = 1.0_r8
       real(r8) :: B_min_methanogen = 1.0e-3_r8
       real(r8) :: B_min_methanotroph = 1.0e-3_r8
-      ! Biomass caps as finite positive fractions of local layer organic
-      ! carbon (cellorg [kg OM m-3] * 580 gC kgOM-1).  They are mandatory
-      ! whenever microbial pools are enabled because microbial growth does
-      ! not debit the represented substrate pool.
-      real(r8) :: B_max_fraction_methanogen = 0.01_r8
-      real(r8) :: B_max_fraction_methanotroph = 0.01_r8
+      ! Biomass caps as fractions of local layer organic carbon
+      ! (cellorg [kg OM m-3] * 580 gC kgOM-1).  Set <=0 to disable only
+      ! this stricter fractional limit; the shared physical C ceiling remains.
+      real(r8) :: B_max_fraction_methanogen = -1.0_r8
+      real(r8) :: B_max_fraction_methanotroph = -1.0_r8
       real(r8) :: mu_max_methanogen = 0.2_r8
       real(r8) :: mu_max_methanotroph = 0.5_r8
       real(r8) :: gamma_methanogen = 0.05_r8
@@ -270,8 +271,8 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: scale_factor_liqdiff = 1._r8   ! For sensitivity tests; convection would allow this to be > 1(? params:1.) (doc:fD0 Basline:1 Range:1,10 Unit:m2 s-1)
       real(r8) :: lake_liqdiff_scale = 1._r8      ! Lake-only multiplier on saturated/liquid CH4 diffusivity
       real(r8) :: lake_o2_liqdiff_scale = 1._r8   ! Lake-only multiplier on saturated/liquid O2 diffusivity
-      ! ponytail: simplified atmospheric CH4/O2 boundary conductance [m/s].
-      ! Full aerodynamic coupling belongs in a later interface pass.
+      ! Fallback atmospheric CH4/O2 boundary conductance [m/s], used only
+      ! when current CoLM Monin-Obukhov state is absent or invalid.
       real(r8) :: grnd_methane_cond_default = 1.e-6_r8
 
       ! -------------------------------------------------- Invariant parameter ----------------------------------------------------
@@ -326,7 +327,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
                                  ! Note: switching this off turns off ALL lake methane biogeochem. However, 0 values
                                  ! will still be averaged into the concentration _sat history fields.
 
-	      logical :: usephfact = .true.  ! Switch to use pH factor in methane production; falls back to neutral pH 6.2 if spatial pH file is missing. Standard namelist also sets .true. — keep defaults aligned.
+	      logical :: usephfact = .true.  ! Switch to use pH factor in methane production; spatial pH input is required when use_spatial_ph is true.
 
       ! Smooth WTD->finundated transition for scheme 6 (logistic S-curve).
       ! Replaces the original step function (zwt<=0.30 -> 1, else 0).
@@ -366,11 +367,9 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! gates out only the driest months.
       real(r8) :: hybrid_soil_threshold    = 0._r8
 
-      logical :: replenishlakec = .true. ! Switch for keeping carbon storage under lakes constant
-                                    ! so that lakes do not affect the carbon balance
-                                    ! Good for long term rather than transient warming experiments
-            ! NOTE SWITCHING THIS OFF ASSUMES TRANSIENT CARBON SUPPLY FROM LAKES; COUPLED MODEL WILL NOT CONSERVE CARBON
-            ! IN THIS MODE.
+      logical :: replenishlakec = .false. ! Finite lake-sediment carbon stock by default.
+                                    ! Enabling replenishment imposes an external carbon source
+                                    ! and is therefore suitable only for explicit sensitivity tests.
 
       logical :: methane_offline = .true.    ! Only offline land CH4 is implemented in this repository.
                                  ! Setting false is rejected during validation until a host atmosphere
@@ -384,9 +383,8 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       logical :: anoxicmicrosites = .false. ! Use Arah & Stephen 1998 expression to allow production above the water table
                                     ! Currently hardwired off; expression is crude.
 
-      logical :: methane_frzout = .false.    ! Exclude CH4 from partially frozen pore water to simulate a freeze-out pulse.
-                                 ! Fully frozen layers retain an immobile CH4 inventory so phase collapse cannot
-                                 ! be converted into a numerical surface flux.
+      logical :: methane_frzout = .false.    ! Retired compatibility flag; must remain false.
+                                 ! Ice is always excluded from mobile CH4 storage.
 
       ! public :: methane_conrd ! Read and initialize CH4 constants
 
@@ -413,6 +411,10 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       !   comma-separated NetCDF variable names for an exact custom set.
       logical :: write_ch4_history = .true.
       character(len=4096) :: ch4_history_vars = 'core'
+      ! A positive value aborts the whole MPI job when any single-timestep
+      ! CH4/O2 numerical correction exceeds this mol/m2 threshold.  A
+      ! non-positive value keeps the existing diagnostic-only behavior.
+      real(r8) :: numerical_correction_fatal_threshold = -1._r8
       ! By default a missing/non-positive lake depth emits one warning and
       ! continues.  Set true for production global runs to fail fast when
       ! lake CH4 is enabled but landdata lacks valid lakedepth.
@@ -437,62 +439,8 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! finundated is supplied by a seasonal area signal.
       logical :: wetland_dry_unsat_branch = .false.
 
-      ! Area-forcing modes (satellite/GIEMS and routing) provide inundated
-      ! fraction before they provide a methane-column water depth.  Satellite
-      ! has no depth product, while routing can provide floodplain depth but may
-      ! report very shallow positive flood fractions.  If an area-forcing mode
-      ! reports positive inundation, use this saturated-branch depth floor.
-      ! Routing still uses physical flood depth when it is larger.  Set to 0 to
-      ! disable the floor.
-      real(r8) :: area_forcing_min_water_depth_mm = 50._r8
-
-      ! ---------------- Rice paddy CH4 (R1 hydrology-gated extension) ------
-      ! Scope of R1: a *hydrology gate* — patches that contain paddy-irrigated
-      ! rice (CFT 61 / 62 with irrig_method_paddy) have finundated raised to
-      ! rice_paddy_min_finundated while CN reports the crop alive
-      ! (croplive_p=.true.).  Everything else (carbon substrate, aerenchyma
-      ! transport, drainage CH4 pulse) is left to the existing wetland/soil
-      ! CH4 physics — conc_methane + methane_ebul naturally produce the
-      ! drainage spike when the column dries out (vol_aqu collapse pushes
-      ! vgc past the ebullition threshold).
-      !
-      ! What's IMPLEMENTED (R1 hydrology + R2 management + R4 aerenchyma):
-      !   - rice paddy detection (R1) — pftclass + paddy irrig + croplive
-      !   - rice paddy finundated floor (R1) — max(default, paddy_min)
-      !   - midseason drying (R2) — always on under enable_rice_paddy;
-      !     timing via rice_midseason_{start,drain}_days
-      !   - post-harvest drain window (R2) — always on under enable_rice_paddy;
-      !     window via rice_drain_window_days
-      !   - rice-specific aerenchyma (R4) — get_rice_veg_proxy Zone 6
-      !   - rice substrate boost (short-term SOC fix) — see rice_substrate_boost
-      !
-      ! NOT YET DONE (deferred to R3+):
-      !   - SAEA (alternate electron acceptor) buffer pool — CoLM has
-      !     simplified 30d EMA via layer_sat_lag + finundated_lag already,
-      !     not species-specific
-      !   - rice-cultivar parameters (DSSAT P1/P2R/P5/G1...) — mxmat=150
-      !     one-size-fits-all
-      !   - double-cropping rice (one plant/harvest per year)
-      !
-      ! rice_paddy_min_finundated: floor on finundated for live paddy rice;
-      !   blended with scheme-computed finundated using max() so already-wet
-      !   patches are never lowered (e.g. wetland tile with rice CFT mixed).
-      real(r8) :: rice_paddy_min_finundated = 0.85_r8
-      ! R2 (methane-only): midseason drying — applied whenever rice paddy
-      ! CH4 is enabled (no separate switch).  Emulates the common Asian
-      ! paddy management practice of draining 7-10 days around 30-40 days
-      ! after planting.  Done entirely inside methane(); CN/crop hydrology
-      ! is NOT changed.  Tunable timing/intensity below.
-      real(r8) :: rice_midseason_start_days       = 35._r8
-      real(r8) :: rice_midseason_drain_days       = 10._r8
-      real(r8) :: rice_midseason_drained_finundated = 0.30_r8
-
-      ! R2 (methane-only): post-harvest drainage window — applied whenever
-      ! rice paddy CH4 is enabled.  Linearly decays the rice tile finundated
-      ! to 0 over rice_drain_window_days after CN flips croplive_p to .false.,
-      ! letting the existing ebullition physics (vol_aqu collapse -> vgc
-      ! spike) produce a couple-weeks drain pulse rather than an instantaneous
-      ! flush.
+      ! Rice physiology/aerenchyma can remain active briefly after harvest,
+      ! but inundation and water depth always come from host hydrology/routing.
       real(r8) :: rice_drain_window_days        = 30._r8
 
       ! R2 short-term SOC fix (methane-only): paddy soils accumulate SOC
@@ -504,17 +452,21 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! at harvest), which slightly over-estimates substrate input; net of
       ! the two is ~ -30% to -50% on rice CH4 production.
       !
-      ! rice_substrate_boost used to lift methane_prod_depth by a fraction-
-      ! weighted multiplier on rice paddy tiles. That creates methane substrate
-      ! without debiting BGC carbon when >1, so validation below now rejects
-      ! rice_substrate_boost > 1 unless a future explicit carbon-debit path is
-      ! implemented. Keep the global-budget default at 1.0 (disabled).
+      ! Reserved compatibility parameter.  The former methane-only production
+      ! multiplier was not carbon conservative because it did not debit the
+      ! BGC substrate pool.  Validation therefore requires exactly 1 until a
+      ! coupled carbon-debit path is implemented.
       real(r8) :: rice_substrate_boost          = 1.0_r8
    END type Methane_type
 
    type Methane_hydrology_type
+      ! vdcf and pc remain in the namelist only for backward compatibility.
+      ! The current CLM fill-and-spill formulation uses slopebeta/slopemax;
+      ! non-default values for the retired knobs are rejected below.
+      real(r8) :: vdcf = 2._r8
       real(r8) :: slopebeta = -3._r8
       real(r8) :: slopemax = 0.4_r8
+      real(r8) :: pc = 0.4_r8
    END type Methane_hydrology_type
 
    type (Methane_type) :: DEF_METHANE
@@ -522,13 +474,11 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 
    real(r8), save :: atm_ch4_file_molmol(0:3000,12)
    logical,  save :: atm_ch4_file_loaded = .false.
-   logical,  save :: atm_ch4_file_warned = .false.
 
 CONTAINS
 
 	   SUBROUTINE read_methane_namelist (nlfile)
 
-   USE MOD_SPMD_Task
    USE MOD_Namelist
    IMPLICIT NONE
 
@@ -549,7 +499,6 @@ CONTAINS
       ! must also invalidate the saved file cache even when the path is
       ! unchanged.
       atm_ch4_file_loaded = .false.
-      atm_ch4_file_warned = .false.
       atm_ch4_file_molmol(:,:) = -1._r8
 
       ! Read on every rank so all workers use the same methane constants.
@@ -579,12 +528,19 @@ CONTAINS
 	      !   wetwat, satellite/giems, routing, dynamic_wtd, hybrid.
 	      USE MOD_Namelist, only: DEF_wetland_finundation_scheme, &
 	                              DEF_USE_Dynamic_Wetland
-	      USE MOD_SPMD_Task
 	      IMPLICIT NONE
 
 	      character(len=32) :: mode
 
 	      mode = tracer_lower(adjustl(trim(DEF_METHANE%inundation_mode)))
+
+	      ! Reset only hydrology-mode-owned switches before dispatch so repeated
+	      ! calls cannot retain a previous mode.  Biome production, redox,
+	      ! vertical profile and numeric flood thresholds remain independent
+	      ! namelist choices.
+	      DEF_METHANE%enable_wetwat_finundated_override = .false.
+	      DEF_METHANE%wetland_dry_unsat_branch = .true.
+	      DEF_METHANE%use_routing_for_soil = .false.
 
 	      SELECT CASE (trim(mode))
 	      CASE ('wetwat')
@@ -631,9 +587,12 @@ CONTAINS
 	         ENDIF
 
 	      CASE ('hybrid','dh_all_thr05','dyn_routing_hybrid')
-	         ! Recommended production mode (Pantanal validated 2026-05-23).
-	         ! Combines five physics fixes (each informed by literature; specific
-	         ! numeric values are author-selected midpoints, not direct quotes):
+		         ! Site-calibrated hybrid mode; not a globally validated default.
+	         ! Combines routing and dynamic-WTD hydrology.  Biome yield,
+	         ! redox lag and vertical source attenuation are independent
+	         ! namelist controls; the standard parameter file enables their
+	         ! recommended values explicitly.
+	         ! Numeric values below are author-selected midpoints, not direct quotes:
 	         !   - dyn_routing_hybrid: wetland sigmoid(zwt) + soil routing fldfrc
 	         !   - biome f_methane lookup (range from Bridgham 2013 GCB review)
 	         !   - biome redoxlag lookup (Pangala 2017 / Whalen 1990 qualitative)
@@ -645,10 +604,6 @@ CONTAINS
 	         DEF_METHANE%enable_wetwat_finundated_override = .false.
 	         DEF_METHANE%wetland_dry_unsat_branch        = .true.
 	         DEF_METHANE%use_routing_for_soil            = .true.
-	         DEF_METHANE%use_biome_f_methane             = .true.
-	         DEF_METHANE%use_biome_redoxlag              = .true.
-	         DEF_METHANE%hybrid_soil_threshold           = 0.05_r8
-	         DEF_METHANE%z0_methane_prod                 = 0.30_r8
 	         IF (.not. DEF_USE_Dynamic_Wetland) THEN
 	            IF (p_is_master) write(6,*) &
 	               '***** ERROR: hybrid mode requires DEF_USE_Dynamic_Wetland = .true.'
@@ -674,15 +629,73 @@ CONTAINS
       ! production rates, non-positive Q10 / Michaelis-Menten constants, and
       ! pH window inversions that would otherwise propagate as silent NaNs or
       ! negative fluxes.
-      USE MOD_SPMD_Task
-      IMPLICIT NONE
+	      IMPLICIT NONE
       logical :: bad
 
       bad = .false.
 
+      ! Ordered comparisons do not reject NaN: every comparison with NaN is
+      ! false.  Check the complete real-valued namelist surface once before
+      ! the semantic range checks below so no user override can silently
+      ! inject a non-finite rate, scale, threshold, or temperature.
+      IF (.not. all(ieee_is_finite([ &
+         DEF_METHANE%q10methane, DEF_METHANE%f_methane, DEF_METHANE%f_methane_tropical_peat, &
+         DEF_METHANE%f_methane_tropical_floodplain, DEF_METHANE%f_methane_floodplain, &
+         DEF_METHANE%f_methane_temperate_marsh, DEF_METHANE%f_methane_boreal_fen, &
+         DEF_METHANE%f_methane_boreal_bog, DEF_METHANE%f_methane_rice_paddy, &
+         DEF_METHANE%f_methane_upland_soil, DEF_METHANE%redoxlag_tropical_peat, &
+         DEF_METHANE%redoxlag_tropical_floodplain, DEF_METHANE%redoxlag_temperate_marsh, &
+         DEF_METHANE%redoxlag_boreal_fen, DEF_METHANE%redoxlag_boreal_bog, &
+         DEF_METHANE%redoxlag_rice_paddy, DEF_METHANE%redoxlag_upland_soil, &
+         DEF_METHANE%z0_methane_prod, DEF_METHANE%vmax_methane_oxid, &
+         DEF_METHANE%vmax_oxid_unsat, DEF_METHANE%k_m, DEF_METHANE%k_m_unsat, &
+         DEF_METHANE%k_m_o2, DEF_METHANE%q10_methane_oxid, DEF_METHANE%lake_oxid_scale, &
+         DEF_METHANE%lake_k_m_o2, DEF_METHANE%lake_vmax_methane_oxid, &
+         DEF_METHANE%lake_oxic_sediment_depth, DEF_METHANE%B_init_methanogen, &
+         DEF_METHANE%B_init_methanotroph, DEF_METHANE%B_min_methanogen, &
+         DEF_METHANE%B_min_methanotroph, DEF_METHANE%B_max_fraction_methanogen, &
+         DEF_METHANE%B_max_fraction_methanotroph, DEF_METHANE%mu_max_methanogen, &
+         DEF_METHANE%mu_max_methanotroph, DEF_METHANE%gamma_methanogen, &
+         DEF_METHANE%gamma_methanotroph, DEF_METHANE%gamma_microbial_dormant, &
+         DEF_METHANE%gamma_microbial_freeze, DEF_METHANE%K_substrate_methanogen_pool, &
+         DEF_METHANE%K_inh_O2_methanogen, DEF_METHANE%kappa_m_methanogen, &
+         DEF_METHANE%kappa_m_methanotroph, DEF_METHANE%max_microbe_prod_multiplier, &
+         DEF_METHANE%q10_microbe_growth, DEF_METHANE%T_ref_microbe, &
+         DEF_METHANE%dormancy_rate_active, DEF_METHANE%dormancy_rate_revive, &
+         DEF_METHANE%dormancy_threshold_methanogen_fS, &
+         DEF_METHANE%dormancy_threshold_methanogen_fO2, &
+         DEF_METHANE%dormancy_threshold_methanotroph_fS, &
+         DEF_METHANE%dormancy_threshold_methanotroph_fO2, DEF_METHANE%vgc_max, &
+         DEF_METHANE%nongrassporosratio, DEF_METHANE%poros_tiller, &
+         DEF_METHANE%unsat_aere_ratio, DEF_METHANE%porosmin, DEF_METHANE%aere_radius, &
+         DEF_METHANE%rob, DEF_METHANE%scale_factor_aere, DEF_METHANE%scale_factor_gasdiff, &
+         DEF_METHANE%scale_factor_liqdiff, DEF_METHANE%lake_liqdiff_scale, &
+         DEF_METHANE%lake_o2_liqdiff_scale, DEF_METHANE%grnd_methane_cond_default, &
+         DEF_METHANE%mino2lim, DEF_METHANE%q10methane_base, DEF_METHANE%q10lakebase, &
+         DEF_METHANE%cnscalefactor, DEF_METHANE%redoxlag, DEF_METHANE%lake_decomp_fact, &
+         DEF_METHANE%redoxlag_vertical, DEF_METHANE%pHmax, DEF_METHANE%pHmin, &
+         DEF_METHANE%oxinhib, DEF_METHANE%smp_crit, DEF_METHANE%bubble_f, &
+         DEF_METHANE%aereoxid, DEF_METHANE%tiller_C, DEF_METHANE%satpow, &
+         DEF_METHANE%capthick, DEF_METHANE%atm_methane, DEF_METHANE%om_frac_sf, &
+         DEF_METHANE%wtd_inflection, DEF_METHANE%wtd_steepness, &
+         DEF_METHANE%wtd_inflection_soil, DEF_METHANE%wtd_steepness_soil, &
+         DEF_METHANE%hybrid_soil_threshold, DEF_METHANE%rice_drain_window_days, &
+         DEF_METHANE%rice_substrate_boost, DEF_METHANE%numerical_correction_fatal_threshold, &
+         DEF_METHANE_hydrology%vdcf, &
+         DEF_METHANE_hydrology%slopebeta, DEF_METHANE_hydrology%slopemax, &
+         DEF_METHANE_hydrology%pc]))) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: methane namelist contains a NaN or infinite real parameter.'
+         bad = .true.
+      ENDIF
+
       IF (.not. DEF_METHANE%methane_offline) THEN
          IF (p_is_master) write(6,*) &
             '***** ERROR: methane_offline=.false. requires an online atmosphere/NEE coupling that is not implemented.'
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%methane_frzout) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: methane_frzout is retired; ice is always excluded from mobile CH4 storage.'
          bad = .true.
       ENDIF
 
@@ -812,6 +825,31 @@ CONTAINS
          IF (p_is_master) write(6,*) '***** ERROR: wtd_steepness must be > 0: ', DEF_METHANE%wtd_steepness
          bad = .true.
       ENDIF
+      IF (.not. ieee_is_finite(DEF_METHANE%wtd_inflection_soil) .or. &
+          DEF_METHANE%wtd_inflection_soil < 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: wtd_inflection_soil must be finite and >= 0 m: ', &
+            DEF_METHANE%wtd_inflection_soil
+         bad = .true.
+      ENDIF
+      IF (.not. ieee_is_finite(DEF_METHANE%wtd_steepness_soil) .or. &
+          DEF_METHANE%wtd_steepness_soil <= 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: wtd_steepness_soil must be finite and > 0 m: ', &
+            DEF_METHANE%wtd_steepness_soil
+         bad = .true.
+      ENDIF
+      IF (.not. ieee_is_finite(DEF_METHANE%hybrid_soil_threshold) .or. &
+          DEF_METHANE%hybrid_soil_threshold < 0._r8 .or. &
+          DEF_METHANE%hybrid_soil_threshold > 1._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: hybrid_soil_threshold must be finite and in [0,1]: ', &
+            DEF_METHANE%hybrid_soil_threshold
+         bad = .true.
+      ENDIF
+      IF (.not. ieee_is_finite(DEF_METHANE%z0_methane_prod) .or. &
+          DEF_METHANE%z0_methane_prod < 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: z0_methane_prod must be finite and >= 0 m: ', &
+            DEF_METHANE%z0_methane_prod
+         bad = .true.
+      ENDIF
       IF (DEF_METHANE%vgc_max <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: vgc_max must be > 0: ', DEF_METHANE%vgc_max
          bad = .true.
@@ -870,6 +908,24 @@ CONTAINS
             DEF_METHANE%redoxlag, DEF_METHANE%redoxlag_vertical
          bad = .true.
       ENDIF
+      IF (min(DEF_METHANE%redoxlag_tropical_peat, &
+              DEF_METHANE%redoxlag_tropical_floodplain, &
+              DEF_METHANE%redoxlag_temperate_marsh, DEF_METHANE%redoxlag_boreal_fen, &
+              DEF_METHANE%redoxlag_boreal_bog, DEF_METHANE%redoxlag_rice_paddy, &
+              DEF_METHANE%redoxlag_upland_soil) < 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: biome redox lags must be >= 0 days.'
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%oxinhib < 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: oxinhib must be >= 0 m3 mol-1: ', DEF_METHANE%oxinhib
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%B_max_fraction_methanogen > 1._r8 .or. &
+          DEF_METHANE%B_max_fraction_methanotroph > 1._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: enabled microbial biomass fractions must be <= 1: ', &
+            DEF_METHANE%B_max_fraction_methanogen, DEF_METHANE%B_max_fraction_methanotroph
+         bad = .true.
+      ENDIF
       IF (DEF_METHANE%lake_decomp_fact < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: lake_decomp_fact must be >= 0: ', DEF_METHANE%lake_decomp_fact
          bad = .true.
@@ -886,47 +942,15 @@ CONTAINS
          IF (p_is_master) write(6,*) '***** ERROR: capthick must be >= 0: ', DEF_METHANE%capthick
          bad = .true.
       ENDIF
-      IF (DEF_METHANE%area_forcing_min_water_depth_mm < 0._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: area_forcing_min_water_depth_mm must be >= 0: ', &
-            DEF_METHANE%area_forcing_min_water_depth_mm
-         bad = .true.
-      ENDIF
-
-      ! Rice paddy R1/R2/R4 + SOC short-term-fix range checks.
-      IF (DEF_METHANE%rice_paddy_min_finundated < 0._r8 .or. &
-          DEF_METHANE%rice_paddy_min_finundated > 1._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: rice_paddy_min_finundated must be in [0,1]: ', &
-            DEF_METHANE%rice_paddy_min_finundated
-         bad = .true.
-      ENDIF
-      IF (DEF_METHANE%rice_midseason_drained_finundated < 0._r8 .or. &
-          DEF_METHANE%rice_midseason_drained_finundated > 1._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: rice_midseason_drained_finundated must be in [0,1]: ', &
-            DEF_METHANE%rice_midseason_drained_finundated
-         bad = .true.
-      ENDIF
-      IF (DEF_METHANE%rice_midseason_start_days < 0._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: rice_midseason_start_days must be >= 0: ', &
-            DEF_METHANE%rice_midseason_start_days
-         bad = .true.
-      ENDIF
-      IF (DEF_METHANE%rice_midseason_drain_days < 0._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: rice_midseason_drain_days must be >= 0: ', &
-            DEF_METHANE%rice_midseason_drain_days
-         bad = .true.
-      ENDIF
+      ! Rice physiology and reserved substrate-control range checks.
       IF (DEF_METHANE%rice_drain_window_days <= 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: rice_drain_window_days must be > 0: ', &
             DEF_METHANE%rice_drain_window_days
          bad = .true.
       ENDIF
-      IF (DEF_METHANE%rice_substrate_boost <= 0._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: rice_substrate_boost must be > 0: ', &
-            DEF_METHANE%rice_substrate_boost
-         bad = .true.
-      ENDIF
-      IF (DEF_METHANE%rice_substrate_boost > 1._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: rice_substrate_boost > 1 would create methane substrate without debiting BGC carbon: ', &
+      IF (abs(DEF_METHANE%rice_substrate_boost - 1._r8) > 10._r8 * epsilon(1._r8)) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: rice_substrate_boost must remain 1 until methane production debits BGC carbon: ', &
             DEF_METHANE%rice_substrate_boost
          bad = .true.
       ENDIF
@@ -1005,9 +1029,24 @@ CONTAINS
          bad = .true.
       ENDIF
       IF (DEF_METHANE_hydrology%slopemax <= 0._r8 .or. &
-          DEF_METHANE_hydrology%slopebeta == 0._r8) THEN
-         IF (p_is_master) write(6,*) '***** ERROR: methane hydrology parameters invalid: ', &
-            DEF_METHANE_hydrology%slopebeta, DEF_METHANE_hydrology%slopemax
+          DEF_METHANE_hydrology%slopebeta >= 0._r8) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: methane hydrology requires slopemax > 0 and slopebeta < 0: ', &
+            DEF_METHANE_hydrology%slopemax, DEF_METHANE_hydrology%slopebeta
+         bad = .true.
+      ENDIF
+      IF (abs(DEF_METHANE_hydrology%vdcf - 2._r8) > 64._r8 * epsilon(1._r8) .or. &
+          abs(DEF_METHANE_hydrology%pc - 0.4_r8) > 64._r8 * epsilon(1._r8)) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: retired methane hydrology knobs vdcf/pc must retain defaults 2.0/0.4: ', &
+            DEF_METHANE_hydrology%vdcf, DEF_METHANE_hydrology%pc
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%use_transient_atm_methane .and. &
+          (len_trim(DEF_METHANE%atm_methane_file) == 0 .or. &
+           trim(tracer_lower(adjustl(DEF_METHANE%atm_methane_file))) == 'null')) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: transient atmospheric CH4 requires atm_methane_file.'
          bad = .true.
       ENDIF
 
@@ -1020,16 +1059,42 @@ CONTAINS
 
       methane_atm_mixing_ratio = DEF_METHANE%atm_methane
       IF (.not. DEF_METHANE%use_transient_atm_methane) RETURN
-      IF (len_trim(DEF_METHANE%atm_methane_file) == 0 .or. &
-          trim(DEF_METHANE%atm_methane_file) == 'null') RETURN
+
+      IF (year < 0 .or. year > 3000 .or. month < 1 .or. month > 12) THEN
+         write(6,*) 'ERROR: atmospheric CH4 request is outside file-table bounds: ', year, month
+         CALL CoLM_Stop ('invalid transient atmospheric CH4 date')
+      ENDIF
 
       CALL load_methane_atm_file ()
-      iy = max(0, min(3000, year))
-      im = max(1, min(12, month))
-      IF (atm_ch4_file_molmol(iy,im) > 0._r8) THEN
-         methane_atm_mixing_ratio = atm_ch4_file_molmol(iy,im)
+      iy = year
+      im = month
+      IF (.not. ieee_is_finite(atm_ch4_file_molmol(iy,im)) .or. &
+          atm_ch4_file_molmol(iy,im) <= 0._r8) THEN
+         write(6,*) 'ERROR: transient atmospheric CH4 table has no valid value for ', iy, im
+         CALL CoLM_Stop ('incomplete transient atmospheric CH4 table')
       ENDIF
+      methane_atm_mixing_ratio = atm_ch4_file_molmol(iy,im)
    END FUNCTION methane_atm_mixing_ratio
+
+   integer FUNCTION methane_history_accumulation_mode ()
+      ! AccFlux has three coarse storage modes.  The mode marker distinguishes
+      ! off/core/custom, while AccFlux also stores an exact selector fingerprint
+      ! because distinct custom selectors can accumulate different families.
+      character(len=4096) :: selector
+
+      methane_history_accumulation_mode = 0
+      IF (.not. DEF_METHANE%write_ch4_history) RETURN
+
+      selector = tracer_lower(adjustl(trim(DEF_METHANE%ch4_history_vars)))
+      SELECT CASE (trim(selector))
+      CASE ('none', 'off', 'false', '.false.')
+         methane_history_accumulation_mode = 0
+      CASE ('core', 'default', 'minimal', 'fast')
+         methane_history_accumulation_mode = 1
+      CASE DEFAULT
+         methane_history_accumulation_mode = 2
+      END SELECT
+   END FUNCTION methane_history_accumulation_mode
 
    logical FUNCTION methane_history_enabled (varname)
       ! Runtime per-variable gate for methane history output.
@@ -1160,6 +1225,12 @@ CONTAINS
          'f_methane_oxid_tot_lake', &
          'f_co2_net_tot_lake', &
          'f_totcol_methane_lake', &
+         'f_lake_water_ch4_stock', &
+         'f_lake_water_o2_stock', &
+         'f_lake_water_ch4_oxid', &
+         'f_lake_sed_ch4_flux', &
+         'f_lake_sed_o2_flux', &
+         'f_lake_air_o2_flux', &
          'f_forc_pmethanem', &
          'f_layer_sat_lag', &
          'f_annavg_finrw', &
@@ -1200,9 +1271,9 @@ CONTAINS
 
    SUBROUTINE load_methane_atm_file ()
       character(len=512) :: line
-      integer :: iu, ios, ios3, ios2
+      integer :: iu, ios, ios3, ios2, line_number
       integer :: yr, mon
-      real(r8) :: val
+      real(r8) :: val, val_molmol
 
       IF (atm_ch4_file_loaded) RETURN
       atm_ch4_file_loaded = .true.
@@ -1211,32 +1282,51 @@ CONTAINS
       open(newunit=iu, file=trim(DEF_METHANE%atm_methane_file), &
          status='old', action='read', iostat=ios)
       IF (ios /= 0) THEN
-         IF (.not. atm_ch4_file_warned) THEN
-            write(6,*) 'WARNING: cannot open CH4 atmospheric file; using DEF_METHANE%atm_methane: ', &
-               trim(DEF_METHANE%atm_methane_file)
-            atm_ch4_file_warned = .true.
-         ENDIF
-         RETURN
+         write(6,*) 'ERROR: cannot open transient CH4 atmospheric file: ', &
+            trim(DEF_METHANE%atm_methane_file)
+         CALL CoLM_Stop ('cannot open transient atmospheric CH4 file')
       ENDIF
 
+      line_number = 0
       DO
          read(iu,'(A)',iostat=ios) line
          IF (ios /= 0) EXIT
+         line_number = line_number + 1
          line = adjustl(line)
          IF (len_trim(line) == 0) CYCLE
          IF (line(1:1) == '#' .or. line(1:1) == '!') CYCLE
 
          read(line,*,iostat=ios3) yr, mon, val
-         IF (ios3 == 0 .and. yr >= 0 .and. yr <= 3000 .and. &
-             mon >= 1 .and. mon <= 12) THEN
-            atm_ch4_file_molmol(yr,mon) = methane_atm_to_molmol(val)
+         IF (ios3 == 0) THEN
+            IF (yr < 0 .or. yr > 3000 .or. mon < 1 .or. mon > 12) THEN
+               write(6,*) 'ERROR: invalid atmospheric CH4 date at table line ', line_number
+               CALL CoLM_Stop ('invalid transient atmospheric CH4 table date')
+            ENDIF
+            val_molmol = methane_atm_to_molmol(val)
+            IF (.not. ieee_is_finite(val_molmol) .or. val_molmol <= 0._r8) THEN
+               write(6,*) 'ERROR: invalid atmospheric CH4 value at table line ', line_number
+               CALL CoLM_Stop ('invalid transient atmospheric CH4 value')
+            ENDIF
+            atm_ch4_file_molmol(yr,mon) = val_molmol
          ELSE
             read(line,*,iostat=ios2) yr, val
             IF (ios2 == 0 .and. yr >= 0 .and. yr <= 3000) THEN
-               atm_ch4_file_molmol(yr,:) = methane_atm_to_molmol(val)
+               val_molmol = methane_atm_to_molmol(val)
+               IF (.not. ieee_is_finite(val_molmol) .or. val_molmol <= 0._r8) THEN
+                  write(6,*) 'ERROR: invalid atmospheric CH4 value at table line ', line_number
+                  CALL CoLM_Stop ('invalid transient atmospheric CH4 value')
+               ENDIF
+               atm_ch4_file_molmol(yr,:) = val_molmol
+            ELSE
+               write(6,*) 'ERROR: malformed atmospheric CH4 table line ', line_number, ': ', trim(line)
+               CALL CoLM_Stop ('malformed transient atmospheric CH4 table')
             ENDIF
          ENDIF
       ENDDO
+      IF (ios > 0) THEN
+         write(6,*) 'ERROR: failed while reading atmospheric CH4 table after line ', line_number
+         CALL CoLM_Stop ('transient atmospheric CH4 table read failure')
+      ENDIF
       close(iu)
    END SUBROUTINE load_methane_atm_file
 

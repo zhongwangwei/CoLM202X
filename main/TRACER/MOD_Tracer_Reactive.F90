@@ -71,6 +71,11 @@ MODULE MOD_Tracer_Reactive
       SUBROUTINE reactive_noarg_if ()
       END SUBROUTINE reactive_noarg_if
 
+      SUBROUTINE reactive_reload_lulcc_if (lc_year, dir_landdata)
+         integer, intent(in) :: lc_year
+         character(len=*), intent(in) :: dir_landdata
+      END SUBROUTINE reactive_reload_lulcc_if
+
       SUBROUTINE reactive_history_if (file_hist, itime_in_file, sumarea, filter, &
          nl_soil, forcing_has_missing_value, forcmask_pch)
          USE MOD_DataType, only: block_data_real8_2d
@@ -92,11 +97,6 @@ MODULE MOD_Tracer_Reactive
          real(r8), intent(in), optional :: new_patch_area(:)
          real(r8), intent(in), optional :: old_patch_area(:)
       END SUBROUTINE reactive_remap_lulcc_if
-
-      SUBROUTINE reactive_reload_lulcc_if (dir_landdata, lc_year)
-         character(len=*), intent(in) :: dir_landdata
-         integer, intent(in) :: lc_year
-      END SUBROUTINE reactive_reload_lulcc_if
 
       SUBROUTINE reactive_publish_levee_flood_if (fldfrc_patch)
          USE MOD_Precision
@@ -601,11 +601,29 @@ CONTAINS
       integer, intent(in) :: nl_soil
       logical, intent(in) :: forcing_has_missing_value
       logical, intent(in) :: forcmask_pch(:)
-      integer :: i
+      integer :: i, active_history_callbacks, sole_history_callback
       type(block_data_real8_2d) :: callback_sumarea
       logical, allocatable :: callback_filter(:)
 
       CALL prepare_reactive_dispatch ()
+
+      active_history_callbacks = 0
+      sole_history_callback = 0
+      DO i = 1, n_reactive_callbacks
+         IF (reactive_callback_enabled(i) .and. &
+             associated(reactive_callbacks(i)%history)) THEN
+            active_history_callbacks = active_history_callbacks + 1
+            sole_history_callback = i
+         ENDIF
+      ENDDO
+
+      IF (active_history_callbacks == 0) RETURN
+      IF (active_history_callbacks == 1) THEN
+         CALL reactive_callbacks(sole_history_callback)%history (file_hist, itime_in_file, sumarea, filter, &
+            nl_soil, forcing_has_missing_value, forcmask_pch)
+         RETURN
+      ENDIF
+
       allocate(callback_filter(size(filter)))
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
@@ -663,18 +681,18 @@ CONTAINS
 
    END SUBROUTINE tracer_reactive_remap_lulcc_state
 
-   SUBROUTINE tracer_reactive_reload_lulcc_inputs (dir_landdata, lc_year)
+   SUBROUTINE tracer_reactive_reload_lulcc_inputs (lc_year, dir_landdata)
 
       IMPLICIT NONE
-      character(len=*), intent(in) :: dir_landdata
       integer, intent(in) :: lc_year
+      character(len=*), intent(in) :: dir_landdata
       integer :: i
 
       CALL prepare_reactive_dispatch ()
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%reload_lulcc)) THEN
-            CALL reactive_callbacks(i)%reload_lulcc (dir_landdata, lc_year)
+            CALL reactive_callbacks(i)%reload_lulcc (lc_year, dir_landdata)
          ENDIF
       ENDDO
 

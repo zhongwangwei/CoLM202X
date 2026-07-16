@@ -14,7 +14,9 @@ def test_effective_conductance_does_not_feed_next_timestep() -> None:
     assert "grnd_methane_cond_base, grnd_methane_cond_effective" in physics
     assert "grnd_methane_cond_effective = spec_grnd_cond(1)" in physics
     assert "grnd_cond_base = max(grnd_methane_cond" not in physics
-    assert physics.count("DEF_METHANE%grnd_methane_cond_default, grnd_methane_cond_") == 2
+    assert "grnd_methane_cond_base, grnd_methane_cond_unsat" in physics
+    assert "grnd_methane_cond_base, grnd_methane_cond_sat" in physics
+    assert "grnd_methane_cond_base = vonkar * ustar_in / fq_in" in physics
 
 
 def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
@@ -23,7 +25,7 @@ def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
 
     worker_remap = driver.index("IF (p_is_worker .and. allocated(patchclass)")
     reload_call = driver.index(
-        "CALL tracer_reactive_reload_lulcc_inputs (dir_landdata, jdate(1))"
+        "CALL tracer_reactive_reload_lulcc_inputs (jdate(1), dir_landdata)"
     )
     assert worker_remap < reload_call
     assert "ENDIF\n      ! GIEMS broadcasts" in driver[worker_remap:reload_call]

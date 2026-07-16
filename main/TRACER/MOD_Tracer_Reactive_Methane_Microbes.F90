@@ -17,6 +17,10 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
 ! potentials are therefore an explicit-Euler tendency based on start-of-step
 ! CH4/O2/carbon states, not an implicit solve against post-transport
 ! concentrations.
+! Biomass here is an activity-state proxy, not an additional conserved BGC
+! carbon pool.  A shared local organic-C ceiling prevents oversized proxy
+! pools; optional flux overrides are separately bounded by host substrate,
+! CH4, and O2 availability.
 !=======================================================================
 
    USE MOD_Precision
@@ -61,6 +65,16 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
    real(r8), allocatable :: microbial_prod_potential_comp(:,:,:)
    real(r8), allocatable :: microbial_oxid_potential_comp(:,:,:)
 
+   integer, parameter :: N_MICROBE_STATE_RESTART_FIELDS = 12
+   character(len=40), parameter :: MICROBE_STATE_RESTART_FIELDS(N_MICROBE_STATE_RESTART_FIELDS) = &
+      [character(len=40) :: &
+       'ch4_B_methanogen', 'ch4_B_methanotroph', &
+       'ch4_B_methanogen_dormant', 'ch4_B_methanotroph_dormant', &
+       'ch4_B_methanogen_soil', 'ch4_B_methanogen_rice', &
+       'ch4_B_methanotroph_soil', 'ch4_B_methanotroph_rice', &
+       'ch4_B_methanogen_dormant_soil', 'ch4_B_methanogen_dormant_rice', &
+       'ch4_B_methanotroph_dormant_soil', 'ch4_B_methanotroph_dormant_rice']
+
    logical :: methane_microbes_lulcc_snapshot_valid = .false.
    real(r8), allocatable :: lulcc_B_methanogen_old(:,:)
    real(r8), allocatable :: lulcc_B_methanotroph_old(:,:)
@@ -94,6 +108,7 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
    PUBLIC :: aggregate_methane_microbes
    PUBLIC :: repartition_methane_microbes
    PUBLIC :: read_methane_microbes_restart
+   PUBLIC :: validate_methane_microbes_restart_values
    PUBLIC :: write_methane_microbes_restart
    PUBLIC :: save_methane_microbes_lulcc_state
    PUBLIC :: remap_methane_microbes_lulcc_state
@@ -213,8 +228,8 @@ CONTAINS
       real(r8) :: dt_day, tempfac, sub_pool, sub_rate, f_s, f_o2, ch4_mm, o2_mm
 	      real(r8) :: mu_m, mu_o, loss_m, loss_o, to_dormant, from_dormant
 	      real(r8) :: prod_pot, oxid_pot, carbon_cap, ch4_cap, o2_cap, freeze_loss
-	      real(r8) :: growth_factor, dormant_loss
-	      real(r8) :: B_cap_methanogen, B_cap_methanotroph, organic_c_layer
+	      real(r8) :: growth_factor, dormant_loss, dormant_available
+	      real(r8) :: organic_c_layer
       real(r8), parameter :: small = 1.e-30_r8
 
       IF (.not. DEF_METHANE%use_microbial_pools) RETURN
@@ -226,6 +241,7 @@ CONTAINS
       dt_day = deltim / secspday
 
       DO j = 1, nl_soil
+	         organic_c_layer = max(cellorg(j), 0._r8) * 580._r8
 	         IF (t_soisno(j) <= tfrz) THEN
 	            freeze_loss = min(1._r8, max(0._r8, DEF_METHANE%gamma_microbial_freeze * dt_day))
 	            B_methanogen_comp(j,component,ipatch) = max(DEF_METHANE%B_min_methanogen, &
@@ -236,6 +252,7 @@ CONTAINS
 	               B_methanogen_dormant_comp(j,component,ipatch) * (1._r8 - freeze_loss))
 	            B_methanotroph_dormant_comp(j,component,ipatch) = max(0._r8, &
 	               B_methanotroph_dormant_comp(j,component,ipatch) * (1._r8 - freeze_loss))
+	            CALL cap_microbe_biomass_layer(j, component, ipatch, organic_c_layer)
 
             f_T_methanogen_comp(j,component,ipatch) = 0._r8
             f_S_methanogen_comp(j,component,ipatch) = 0._r8
@@ -270,7 +287,11 @@ CONTAINS
 	         IF (DEF_METHANE%use_microbial_dormancy) THEN
 	            IF (f_s < DEF_METHANE%dormancy_threshold_methanogen_fS .or. &
 	                f_o2 < DEF_METHANE%dormancy_threshold_methanogen_fO2) THEN
-	               to_dormant = min(B_methanogen_comp(j,component,ipatch), &
+	               ! B_min is a numerical seed pool, not transferable biomass.
+	               ! Restrict dormancy transfer to the active surplus so moving
+	               ! biomass cannot trigger floor replacement and create carbon.
+	               to_dormant = min(max(B_methanogen_comp(j,component,ipatch) - &
+	                  DEF_METHANE%B_min_methanogen, 0._r8), &
 	                  max(0._r8, DEF_METHANE%dormancy_rate_active * &
 	                  B_methanogen_comp(j,component,ipatch) * dt_day))
 	            ELSE
@@ -280,14 +301,13 @@ CONTAINS
 		            ENDIF
 		         ENDIF
 
-		         B_methanogen_comp(j,component,ipatch) = max(DEF_METHANE%B_min_methanogen, &
-            B_methanogen_comp(j,component,ipatch) - to_dormant + from_dormant)
-	         dormant_loss = min(B_methanogen_dormant_comp(j,component,ipatch), &
+	         B_methanogen_comp(j,component,ipatch) = max(DEF_METHANE%B_min_methanogen, &
+	            B_methanogen_comp(j,component,ipatch) - to_dormant + from_dormant)
+	         dormant_available = max(B_methanogen_dormant_comp(j,component,ipatch) - from_dormant, 0._r8)
+	         dormant_loss = min(dormant_available, &
 	            max(0._r8, DEF_METHANE%gamma_microbial_dormant * tempfac * &
-	            B_methanogen_dormant_comp(j,component,ipatch) * dt_day))
-	         B_methanogen_dormant_comp(j,component,ipatch) = &
-	            B_methanogen_dormant_comp(j,component,ipatch) + &
-	            to_dormant - from_dormant - dormant_loss
+	            dormant_available * dt_day))
+	         B_methanogen_dormant_comp(j,component,ipatch) = dormant_available + to_dormant - dormant_loss
 	         B_methanogen_dormant_comp(j,component,ipatch) = &
 	            max(B_methanogen_dormant_comp(j,component,ipatch), 0._r8)
 
@@ -304,7 +324,8 @@ CONTAINS
 	         IF (DEF_METHANE%use_microbial_dormancy) THEN
 	            IF (ch4_mm < DEF_METHANE%dormancy_threshold_methanotroph_fS .or. &
 	                o2_mm < DEF_METHANE%dormancy_threshold_methanotroph_fO2) THEN
-	               to_dormant = min(B_methanotroph_comp(j,component,ipatch), &
+	               to_dormant = min(max(B_methanotroph_comp(j,component,ipatch) - &
+	                  DEF_METHANE%B_min_methanotroph, 0._r8), &
 	                  max(0._r8, DEF_METHANE%dormancy_rate_active * &
 	                  B_methanotroph_comp(j,component,ipatch) * dt_day))
 	            ELSE
@@ -314,34 +335,18 @@ CONTAINS
 	            ENDIF
 	         ENDIF
 	         B_methanotroph_comp(j,component,ipatch) = max(DEF_METHANE%B_min_methanotroph, &
-            B_methanotroph_comp(j,component,ipatch) - to_dormant + from_dormant)
-	         dormant_loss = min(B_methanotroph_dormant_comp(j,component,ipatch), &
+	            B_methanotroph_comp(j,component,ipatch) - to_dormant + from_dormant)
+	         dormant_available = max(B_methanotroph_dormant_comp(j,component,ipatch) - from_dormant, 0._r8)
+	         dormant_loss = min(dormant_available, &
 	            max(0._r8, DEF_METHANE%gamma_microbial_dormant * tempfac * &
-	            B_methanotroph_dormant_comp(j,component,ipatch) * dt_day))
-	         B_methanotroph_dormant_comp(j,component,ipatch) = &
-	            B_methanotroph_dormant_comp(j,component,ipatch) + &
-	            to_dormant - from_dormant - dormant_loss
-	         B_methanotroph_comp(j,component,ipatch) = max(B_methanotroph_comp(j,component,ipatch), &
-	            DEF_METHANE%B_min_methanotroph)
+	            dormant_available * dt_day))
+	         B_methanotroph_dormant_comp(j,component,ipatch) = dormant_available + to_dormant - dormant_loss
+	         B_methanotroph_comp(j,component,ipatch) = &
+	            max(B_methanotroph_comp(j,component,ipatch), DEF_METHANE%B_min_methanotroph)
 	         B_methanotroph_dormant_comp(j,component,ipatch) = &
 	            max(B_methanotroph_dormant_comp(j,component,ipatch), 0._r8)
 
-         ! Constrain microbial biomass by local organic carbon.  Without this
-         ! bound, positive net growth can compound exponentially while the
-         ! represented substrate pool is not depleted by microbial growth.
-         organic_c_layer = max(cellorg(j), 0._r8) * 580._r8
-         IF (DEF_METHANE%B_max_fraction_methanogen > 0._r8) THEN
-            B_cap_methanogen = max(DEF_METHANE%B_min_methanogen, &
-               DEF_METHANE%B_max_fraction_methanogen * organic_c_layer)
-            B_methanogen_comp(j,component,ipatch) = &
-               min(B_methanogen_comp(j,component,ipatch), B_cap_methanogen)
-         ENDIF
-         IF (DEF_METHANE%B_max_fraction_methanotroph > 0._r8) THEN
-            B_cap_methanotroph = max(DEF_METHANE%B_min_methanotroph, &
-               DEF_METHANE%B_max_fraction_methanotroph * organic_c_layer)
-            B_methanotroph_comp(j,component,ipatch) = &
-               min(B_methanotroph_comp(j,component,ipatch), B_cap_methanotroph)
-         ENDIF
+	         CALL cap_microbe_biomass_layer(j, component, ipatch, organic_c_layer)
 
 	         ! B_* pools are stored as [gC biomass m-3 soil].  Treat kappa_m_*
 	         ! as first-order biomass-C turnover [day-1] and convert biomass C
@@ -370,6 +375,56 @@ CONTAINS
          microbial_oxid_potential_comp(j,component,ipatch) = oxid_pot
       END DO
    END SUBROUTINE methane_microbes_step
+
+
+   SUBROUTINE cap_microbe_biomass_layer(j, component, ipatch, organic_c_layer)
+      ! The biomass pools are diagnostic proxies and are not debited from
+      ! cellorg.  Enforce both per-guild limits and one shared organic-C
+      ! ceiling so two guilds cannot each claim the full represented pool.
+      integer, intent(in) :: j, component, ipatch
+      real(r8), intent(in) :: organic_c_layer
+      real(r8) :: cap_m, cap_o, total_cap, seed_total
+      real(r8) :: surplus, allowed_surplus, scale
+
+      cap_m = max(DEF_METHANE%B_min_methanogen, organic_c_layer)
+      IF (DEF_METHANE%B_max_fraction_methanogen > 0._r8) &
+         cap_m = min(cap_m, max(DEF_METHANE%B_min_methanogen, &
+            DEF_METHANE%B_max_fraction_methanogen * organic_c_layer))
+	  B_methanogen_comp(j,component,ipatch) = min(max(B_methanogen_comp(j,component,ipatch), &
+         DEF_METHANE%B_min_methanogen), cap_m)
+	  B_methanogen_dormant_comp(j,component,ipatch) = &
+	     min(max(B_methanogen_dormant_comp(j,component,ipatch), 0._r8), &
+	         max(cap_m - B_methanogen_comp(j,component,ipatch), 0._r8))
+
+      cap_o = max(DEF_METHANE%B_min_methanotroph, organic_c_layer)
+      IF (DEF_METHANE%B_max_fraction_methanotroph > 0._r8) &
+         cap_o = min(cap_o, max(DEF_METHANE%B_min_methanotroph, &
+            DEF_METHANE%B_max_fraction_methanotroph * organic_c_layer))
+	  B_methanotroph_comp(j,component,ipatch) = min(max(B_methanotroph_comp(j,component,ipatch), &
+         DEF_METHANE%B_min_methanotroph), cap_o)
+	  B_methanotroph_dormant_comp(j,component,ipatch) = &
+	     min(max(B_methanotroph_dormant_comp(j,component,ipatch), 0._r8), &
+	         max(cap_o - B_methanotroph_comp(j,component,ipatch), 0._r8))
+
+      seed_total = DEF_METHANE%B_min_methanogen + DEF_METHANE%B_min_methanotroph
+      total_cap = max(seed_total, organic_c_layer)
+	  surplus = max(B_methanogen_comp(j,component,ipatch) - DEF_METHANE%B_min_methanogen, 0._r8) + &
+	         B_methanogen_dormant_comp(j,component,ipatch) + &
+	         max(B_methanotroph_comp(j,component,ipatch) - DEF_METHANE%B_min_methanotroph, 0._r8) + &
+	         B_methanotroph_dormant_comp(j,component,ipatch)
+      allowed_surplus = max(total_cap - seed_total, 0._r8)
+      IF (surplus > allowed_surplus .and. surplus > 0._r8) THEN
+         scale = allowed_surplus / surplus
+	     B_methanogen_comp(j,component,ipatch) = DEF_METHANE%B_min_methanogen + &
+	            (B_methanogen_comp(j,component,ipatch) - DEF_METHANE%B_min_methanogen) * scale
+	     B_methanogen_dormant_comp(j,component,ipatch) = &
+	        B_methanogen_dormant_comp(j,component,ipatch) * scale
+	     B_methanotroph_comp(j,component,ipatch) = DEF_METHANE%B_min_methanotroph + &
+	            (B_methanotroph_comp(j,component,ipatch) - DEF_METHANE%B_min_methanotroph) * scale
+	     B_methanotroph_dormant_comp(j,component,ipatch) = &
+	        B_methanotroph_dormant_comp(j,component,ipatch) * scale
+      ENDIF
+   END SUBROUTINE cap_microbe_biomass_layer
 
 
    SUBROUTINE aggregate_methane_microbes(ipatch, rice_fraction)
@@ -404,8 +459,9 @@ CONTAINS
          ELSEIF (rice_weight >= 1._r8) THEN
             aggregate_values = component_values(:,METHANE_COMP_RICE,ipatch)
          ELSE
-            aggregate_values = (1._r8 - rice_weight) * component_values(:,METHANE_COMP_SOIL,ipatch) + &
-               rice_weight * component_values(:,METHANE_COMP_RICE,ipatch)
+            aggregate_values = (1._r8 - rice_weight) * &
+               component_values(:,METHANE_COMP_SOIL,ipatch) + rice_weight * &
+               component_values(:,METHANE_COMP_RICE,ipatch)
          ENDIF
       END SUBROUTINE aggregate_field
    END SUBROUTINE aggregate_methane_microbes
@@ -490,17 +546,29 @@ CONTAINS
    END SUBROUTINE write_methane_microbes_restart
 
 
-   SUBROUTINE read_methane_microbes_restart(file_restart, require_component_state)
+   SUBROUTINE read_methane_microbes_restart(file_restart, strict_restart, require_component_state, &
+         component_state_present)
       USE MOD_LandPatch,    only: landpatch
       USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete, &
-         ncio_vector_var_present
-      USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
+         ncio_vector_group_presence
+#ifdef USEMPI
+      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, p_comm_glb, p_err, &
+         MPI_IN_PLACE, MPI_INTEGER, MPI_SUM, CoLM_stop
+#else
+      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, CoLM_stop
+#endif
       character(len=*), intent(in) :: file_restart
+      logical, intent(in), optional :: strict_restart
       logical, intent(in), optional :: require_component_state
-      logical :: component_fields_present(8), require_components
+      logical, intent(in), optional :: component_state_present
+      logical :: strict_restart_active, require_components
+      logical :: component_fields_present(8)
+      integer :: invalid_biomass_values
 
       IF (.not. allocated(B_methanogen)) RETURN
       IF (.not. DEF_METHANE%use_microbial_pools) RETURN
+      strict_restart_active = .false.
+      IF (present(strict_restart)) strict_restart_active = strict_restart
       require_components = .false.
       IF (present(require_component_state)) require_components = require_component_state
 
@@ -512,6 +580,30 @@ CONTAINS
          B_methanogen_dormant, defval=0._r8)
       CALL ncio_read_vector(file_restart, 'ch4_B_methanotroph_dormant', nl_soil, landpatch, &
          B_methanotroph_dormant, defval=0._r8)
+
+      invalid_biomass_values = 0
+      IF (p_is_worker) THEN
+         invalid_biomass_values = &
+            count(ieee_is_nan(B_methanogen) .or. abs(B_methanogen) > 1.e30_r8 .or. B_methanogen < 0._r8) + &
+            count(ieee_is_nan(B_methanotroph) .or. abs(B_methanotroph) > 1.e30_r8 .or. B_methanotroph < 0._r8) + &
+            count(ieee_is_nan(B_methanogen_dormant) .or. abs(B_methanogen_dormant) > 1.e30_r8 .or. &
+                  B_methanogen_dormant < 0._r8) + &
+            count(ieee_is_nan(B_methanotroph_dormant) .or. abs(B_methanotroph_dormant) > 1.e30_r8 .or. &
+                  B_methanotroph_dormant < 0._r8)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, invalid_biomass_values, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (invalid_biomass_values > 0) THEN
+         IF (strict_restart_active) THEN
+            IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR: committed methane restart contains ', &
+               invalid_biomass_values, ' invalid microbial biomass values.'
+            CALL CoLM_stop()
+         ELSEIF (p_is_master) THEN
+            WRITE(*,'(A,I0,A)') 'WARNING: legacy methane restart sanitizes ', &
+               invalid_biomass_values, ' invalid microbial biomass values.'
+         ENDIF
+      ENDIF
 
       ! Clean spval/NaN/negative biomass from restart.  defval only fires
       ! on completely-missing fields, but a malformed restart could still
@@ -537,14 +629,12 @@ CONTAINS
       B_methanotroph_dormant_comp(:,METHANE_COMP_SOIL,:) = B_methanotroph_dormant
       B_methanotroph_dormant_comp(:,METHANE_COMP_RICE,:) = B_methanotroph_dormant
 
-      component_fields_present(1) = ncio_vector_var_present(file_restart, 'ch4_B_methanogen_soil', landpatch)
-      component_fields_present(2) = ncio_vector_var_present(file_restart, 'ch4_B_methanogen_rice', landpatch)
-      component_fields_present(3) = ncio_vector_var_present(file_restart, 'ch4_B_methanotroph_soil', landpatch)
-      component_fields_present(4) = ncio_vector_var_present(file_restart, 'ch4_B_methanotroph_rice', landpatch)
-      component_fields_present(5) = ncio_vector_var_present(file_restart, 'ch4_B_methanogen_dormant_soil', landpatch)
-      component_fields_present(6) = ncio_vector_var_present(file_restart, 'ch4_B_methanogen_dormant_rice', landpatch)
-      component_fields_present(7) = ncio_vector_var_present(file_restart, 'ch4_B_methanotroph_dormant_soil', landpatch)
-      component_fields_present(8) = ncio_vector_var_present(file_restart, 'ch4_B_methanotroph_dormant_rice', landpatch)
+      IF (present(component_state_present)) THEN
+         component_fields_present(:) = component_state_present
+      ELSE
+         CALL ncio_vector_group_presence(file_restart, MICROBE_STATE_RESTART_FIELDS(5:12), &
+            landpatch, component_fields_present)
+      ENDIF
 
       IF ((require_components .and. .not. all(component_fields_present)) .or. &
           (any(component_fields_present) .and. .not. all(component_fields_present))) THEN
@@ -572,6 +662,32 @@ CONTAINS
             B_methanotroph_dormant_comp(:,METHANE_COMP_RICE,:))
       ENDIF
 
+      invalid_biomass_values = 0
+      IF (p_is_worker) THEN
+         invalid_biomass_values = &
+            count(ieee_is_nan(B_methanogen_comp) .or. abs(B_methanogen_comp) > 1.e30_r8 .or. &
+                  B_methanogen_comp < 0._r8) + &
+            count(ieee_is_nan(B_methanotroph_comp) .or. abs(B_methanotroph_comp) > 1.e30_r8 .or. &
+                  B_methanotroph_comp < 0._r8) + &
+            count(ieee_is_nan(B_methanogen_dormant_comp) .or. &
+                  abs(B_methanogen_dormant_comp) > 1.e30_r8 .or. B_methanogen_dormant_comp < 0._r8) + &
+            count(ieee_is_nan(B_methanotroph_dormant_comp) .or. &
+                  abs(B_methanotroph_dormant_comp) > 1.e30_r8 .or. B_methanotroph_dormant_comp < 0._r8)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, invalid_biomass_values, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (invalid_biomass_values > 0) THEN
+         IF (strict_restart_active) THEN
+            IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR: committed methane restart contains ', &
+               invalid_biomass_values, ' invalid component microbial biomass values.'
+            CALL CoLM_stop()
+         ELSEIF (p_is_master) THEN
+            WRITE(*,'(A,I0,A)') 'WARNING: legacy methane restart sanitizes ', &
+               invalid_biomass_values, ' invalid component microbial biomass values.'
+         ENDIF
+      ENDIF
+
       WHERE (ieee_is_nan(B_methanogen_comp) .or. abs(B_methanogen_comp) > 1.e30_r8 .or. &
              B_methanogen_comp < 0._r8) B_methanogen_comp = DEF_METHANE%B_init_methanogen
       WHERE (ieee_is_nan(B_methanotroph_comp) .or. abs(B_methanotroph_comp) > 1.e30_r8 .or. &
@@ -595,6 +711,56 @@ CONTAINS
          deallocate(values)
       END SUBROUTINE read_component_field
    END SUBROUTINE read_methane_microbes_restart
+
+
+   SUBROUTINE validate_methane_microbes_restart_values(file_restart, strict_restart, include_components)
+      ! Validate persisted optional microbial state even when the resumed run
+      ! disables microbial pools.  Runtime flags may choose not to retain the
+      ! state, but cannot weaken a committed restart transaction.
+      USE MOD_LandPatch,    only: landpatch
+      USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete
+#ifdef USEMPI
+      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, p_comm_glb, p_err, &
+         MPI_IN_PLACE, MPI_INTEGER, MPI_SUM, CoLM_stop
+#else
+      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, CoLM_stop
+#endif
+      character(len=*), intent(in) :: file_restart
+      logical, intent(in) :: strict_restart, include_components
+      real(r8), allocatable :: values(:,:)
+      integer :: nfield, ifield, invalid_values
+
+      nfield = merge(N_MICROBE_STATE_RESTART_FIELDS, 4, include_components)
+      IF (p_is_worker) THEN
+         allocate(values(nl_soil, landpatch%nset))
+      ELSE
+         ! landpatch%nset is worker-owned metadata and is not guaranteed to be
+         ! initialized on master-only/I/O ranks.  All ranks still participate
+         ! in vector I/O, so give non-workers an explicit zero extent.
+         allocate(values(nl_soil, 0))
+      ENDIF
+      invalid_values = 0
+      DO ifield = 1, nfield
+         CALL ncio_read_vector(file_restart, MICROBE_STATE_RESTART_FIELDS(ifield), &
+            nl_soil, landpatch, values)
+         IF (p_is_worker) invalid_values = invalid_values + &
+            count(ieee_is_nan(values) .or. abs(values) > 1.e30_r8 .or. values < 0._r8)
+      ENDDO
+      deallocate(values)
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, invalid_values, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (invalid_values > 0) THEN
+         IF (strict_restart) THEN
+            IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR: committed methane restart contains ', &
+               invalid_values, ' invalid ignored microbial biomass values.'
+            CALL CoLM_stop()
+         ELSEIF (p_is_master) THEN
+            WRITE(*,'(A,I0,A)') 'WARNING: legacy methane restart ignores ', &
+               invalid_values, ' invalid microbial biomass values.'
+         ENDIF
+      ENDIF
+   END SUBROUTINE validate_methane_microbes_restart_values
 
 
    SUBROUTINE save_methane_microbes_lulcc_state()

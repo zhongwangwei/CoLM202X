@@ -51,9 +51,9 @@ CONTAINS
 
 	SUBROUTINE methane_driver (istep,i,idate,patchclass,patchtype,deltim,lb,snl,dlon,dlat,&!input
 		z_soisno,dz_soisno,zi_soisno,t_soisno,t_grnd,wliq_soisno,wice_soisno,&
-			forc_t,forc_pbot,forc_po2m,forc_pco2m,forc_us,forc_vs,&
-		zwt,rootfr,snowdp,wat,rsur,etr,lakedepth,lake_icefrac,wdsrf,wetwat,bsw,&
-		smp,porsl,lai,rootr,fsatmax,fsatdcf,frcsat,f_h2osfc, &
+			forc_t,forc_pbot,forc_po2m,forc_pco2m,forc_us,forc_vs,ustar,fq,&
+		zwt,rootfr,snowdp,wat,rsur,etr,lakedepth,dz_lake,t_lake,lake_icefrac,wdsrf,wetwat,bsw,&
+		smp,porsl,lai,sai,rootr,fsatmax,fsatdcf,frcsat,f_h2osfc, &
 		is_rice_paddy_in, rice_pft_frac_in)
 
 		use MOD_Precision
@@ -65,9 +65,10 @@ CONTAINS
 		use MOD_Tracer_Reactive_Methane_Physics
 		use MOD_SPMD_Task
 			USE MOD_Tracer_Reactive_Methane_BgcLink, only: tracer_ch4_bgc_patch_inputs, &
+			     tracer_ch4_bgc_component_veg_inputs, &
 			     get_wetland_veg_proxy, get_rice_veg_proxy, is_paddy_rice_live, &
 			     rice_days_since_harvest, organic_max, get_biome_f_methane, &
-			     get_biome_redoxlag
+			     get_biome_redoxlag, tracer_ch4_bgc_finalize_step
 			USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_active
 		USE MOD_Tracer_Reactive_Methane_Microbes, only: methane_microbes_step, &
 		     aggregate_methane_microbes, repartition_methane_microbes, &
@@ -117,13 +118,16 @@ CONTAINS
 		     methane_prod_tot_lake, methane_oxid_tot_lake, methane_ebul_tot_lake, &
 		     co2_decomp_tot_lake, co2_oxid_tot_lake, co2_net_tot_lake, &
 		     totcol_methane_lake, grnd_methane_cond_lake, conc_o2_lake, conc_methane_lake, &
+		     lake_water_ch4_stock, lake_water_o2_stock, lake_frozen_ch4_stock, lake_frozen_o2_stock, &
+		     lake_liquid_fraction_prev, lake_water_ch4_oxid, &
+		     lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux, &
 		     c_atm, forc_pmethanem, layer_sat_lag, lake_soilc, &
 		     annavg_agnpp, annavg_bgnpp, annavg_somhr, annavg_finrw, &
 		     tempavg_agnpp, tempavg_bgnpp, annsum_counter, &
 		     tempavg_somhr, tempavg_finrw, &
 		     fsat_bef, finundated_lag, methane_dfsat_tot, &
 		     biome_f_methane_patch, biome_redoxlag_patch, &
-		     f_inund_flood_patch, &
+		     f_inund_flood_patch, wetland_frac_per_patch, &
 		     conc_o2_unsat_component, conc_o2_sat_component, &
 		     conc_methane_unsat_component, conc_methane_sat_component, &
 		     layer_sat_lag_component, annavg_agnpp_component, annavg_bgnpp_component, &
@@ -167,20 +171,25 @@ CONTAINS
 					forc_pco2m                    , &! partial pressure of CO2 at observational height [Pa]
 					forc_us                       , &! eastward wind speed [m/s], used as U10 proxy for lake gas exchange
 					forc_vs                       , &! northward wind speed [m/s], used as U10 proxy for lake gas exchange
+					ustar                         , &! current friction velocity [m/s]
+					fq                            , &! Monin-Obukhov moisture profile integral [-]
 					zwt                           , &! the depth to water table [m]
 				rootfr     (1:nl_soil)        , &! fraction of roots in each soil layer
 				snowdp                        , &! snow depth (m)
 				wat                           , &! total water storage [mm] (reserved interface)
 				rsur                          , &! surface runoff [mm H2O/s] (reserved interface)
 				etr                           , &! transpiration rate [mm/s]
-				lakedepth                     , &! lake depth (m), used by CTSM-aligned lake CH4 ebullition pressure
-				lake_icefrac(1:nl_lake)       , &! lake frozen mass fraction for lake CH4 ebullition suppression
+				lakedepth                     , &! static/capacity lake depth [m]
+				dz_lake     (1:nl_lake)       , &! current lake layer thickness [m]
+				t_lake      (1:nl_lake)       , &! current lake layer temperature [K]
+				lake_icefrac(1:nl_lake)       , &! lake frozen mass fraction for lake CH4 exchange
 				wdsrf                         , &! depth of surface water [mm]
 		wetwat                        , &! water storage in wetland [mm]
 				bsw         (1:nl_soil)       , &! clapp and hornbereger "b" parameter [-]
 				smp         (1:nl_soil)       , &! soil matrix potential [mm]
 				porsl       (1:nl_soil)       , &! fraction of soil that is voids [-]
 				lai                           , &! leaf area index
+				sai                           , &! stem area index
 				rootr       (1:nl_soil)       , &! water exchange between soil and root. Positive: soil->root [?]
 
 				fsatmax                       , &! maximum saturated area fraction [-]
@@ -218,6 +227,14 @@ CONTAINS
 				real(r8) :: forc_us_eff, forc_vs_eff
 			real(r8) :: fprev
 			real(r8) :: rice_weight
+			real(r8) :: component_fraction(N_METHANE_COMP)
+			real(r8) :: component_lai(N_METHANE_COMP)
+			real(r8) :: component_crootfr(1:nl_soil,N_METHANE_COMP)
+			real(r8) :: component_rr(N_METHANE_COMP)
+			real(r8) :: component_agnpp(N_METHANE_COMP)
+			real(r8) :: component_bgnpp(N_METHANE_COMP)
+			real(r8) :: component_annsum_npp(N_METHANE_COMP)
+			logical :: component_veg_ready(N_METHANE_COMP)
 			logical  :: bgc_inputs_ready
 			TYPE(methane_column_result_type) :: soil_column, rice_column
 			logical, save :: warned_missing_bgc_inputs = .false.
@@ -248,7 +265,7 @@ CONTAINS
 		rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
 		rice_parameter_active = is_rice_paddy .and. rice_pft_frac > 0._r8
 		IF (rice_parameter_active .and. .not. is_paddy_rice_live(i)) THEN
-		   rice_dsh = rice_days_since_harvest(i, idate(2))
+			   rice_dsh = rice_days_since_harvest(i, idate(2), idate(1))
 		   rice_parameter_active = rice_dsh >= 0 .and. &
 		      real(rice_dsh, r8) < DEF_METHANE%rice_drain_window_days
 		ENDIF
@@ -278,8 +295,22 @@ CONTAINS
 			CALL tracer_ch4_bgc_patch_inputs (i, rootfr, crootfr, pH, cellorg, &
 			     somhr_loc, lithr_loc, hr_vr_loc, rr_loc, agnpp_loc, bgnpp_loc, &
 			     annsum_npp_loc, fphr_loc, o_scalar_loc, pot_f_nit_vr_loc, bgc_inputs_ready)
+			component_fraction = 0._r8
+			component_fraction(METHANE_COMP_SOIL) = 1._r8
+			component_lai = 0._r8
+			component_crootfr = 0._r8
+			component_rr = 0._r8
+			component_agnpp = 0._r8
+			component_bgnpp = 0._r8
+			component_annsum_npp = 0._r8
+			component_veg_ready = .false.
+			IF (patchtype == 0 .and. is_rice_paddy) THEN
+				CALL tracer_ch4_bgc_component_veg_inputs(i, rootfr, component_fraction, &
+				   component_lai, component_crootfr, component_rr, component_agnpp, &
+				   component_bgnpp, component_annsum_npp, component_veg_ready)
+			ENDIF
 			IF (patchtype == 0 .and. .not. bgc_inputs_ready) THEN
-				IF (p_is_master .and. .not. warned_missing_bgc_inputs) THEN
+				IF (p_iam_worker == 0 .and. .not. warned_missing_bgc_inputs) THEN
 					write(6,*) 'WARNING: Soil methane running with sanitized BGC defaults before BGC/PFT inputs are initialized.'
 					warned_missing_bgc_inputs = .true.
 				ENDIF
@@ -345,13 +376,20 @@ CONTAINS
 			! biome_f_methane_patch(i) which methane_prod consumes when
 			! DEF_METHANE%use_biome_f_methane is true; otherwise returns
 			! the legacy DEF_METHANE%f_methane scalar (backwards compatible).
-			IF (patchtype /= 0 .and. allocated(biome_f_methane_patch) .and. &
+			is_floodplain_active = .false.
+			IF (patchtype == 0 .and. DEF_METHANE%use_routing_for_soil .and. &
+			    allocated(f_inund_flood_patch) .and. allocated(wetland_frac_per_patch)) THEN
+				IF (i >= 1 .and. i <= size(f_inund_flood_patch) .and. &
+				    i <= size(wetland_frac_per_patch)) &
+					! Physics allocates grid flood to static wetland first.  Apply
+					! floodplain biome parameters only when a positive soil residual
+					! remains, and preserve the user threshold on the grid fraction.
+					is_floodplain_active = &
+						f_inund_flood_patch(i) > DEF_METHANE%hybrid_soil_threshold .and. &
+						f_inund_flood_patch(i) > wetland_frac_per_patch(i)
+			ENDIF
+			IF (allocated(biome_f_methane_patch) .and. &
 			    i >= 1 .and. i <= size(biome_f_methane_patch)) THEN
-				is_floodplain_active = patchtype == 0 .and. &
-				                       DEF_METHANE%use_routing_for_soil .and. &
-				                       allocated(f_inund_flood_patch) .and. &
-				                       i >= 1 .and. i <= size(f_inund_flood_patch) .and. &
-				                       f_inund_flood_patch(i) > DEF_METHANE%hybrid_soil_threshold
 				biome_f_methane_patch(i) = get_biome_f_methane (patchtype, dlat, cellorg(1), &
 				                                                is_rice_paddy, rice_pft_frac, &
 				                                                rice_parameter_active, is_floodplain_active)
@@ -365,7 +403,7 @@ CONTAINS
 			    i >= 1 .and. i <= size(biome_redoxlag_patch)) THEN
 				biome_redoxlag_patch(i) = get_biome_redoxlag (patchtype, dlat, cellorg(1), &
 				                                              is_rice_paddy, rice_pft_frac, &
-				                                              rice_parameter_active)
+				                                              rice_parameter_active, is_floodplain_active)
 			ENDIF
 
 			! Soil patches use two independent methane-process columns.  Each
@@ -376,6 +414,10 @@ CONTAINS
 				rice_weight = min(max(rice_weight, 0._r8), 1._r8)
 				IF (rice_weight <= 1.e-14_r8) rice_weight = 0._r8
 				IF (rice_weight >= 1._r8-1.e-14_r8) rice_weight = 1._r8
+				IF (any(component_veg_ready) .and. &
+				    abs(component_fraction(METHANE_COMP_RICE)-rice_weight) > 1.e-8_r8) THEN
+					CALL CoLM_stop(' ***** ERROR: rice methane component fraction disagrees with PFT bridge')
+				ENDIF
 				CALL repartition_methane_column_state(i, rice_fraction_prev(i), rice_weight)
 				CALL repartition_methane_microbes(i, rice_fraction_prev(i), rice_weight)
 				IF (rice_weight <= 1.e-14_r8) THEN
@@ -390,6 +432,7 @@ CONTAINS
 				ENDIF
 				CALL aggregate_methane_microbes(i, rice_weight)
 				CALL aggregate_methane_columns(soil_column, rice_column, rice_weight)
+				CALL tracer_ch4_bgc_finalize_step(i, patchtype, deltim, net_methane(i))
 				rice_fraction_prev(i) = rice_weight
 				RETURN
 			ENDIF
@@ -439,8 +482,8 @@ CONTAINS
 		z_soisno(maxsnl+1:),dz_soisno(maxsnl+1:),zi_soisno(maxsnl:),t_soisno(maxsnl+1:),&
 		t_grnd,wliq_soisno(maxsnl+1:),wice_soisno(maxsnl+1:),&
 			forc_t_eff,forc_pbot_eff,forc_po2m_eff,forc_pco2m_eff,forc_us_eff,forc_vs_eff,&
-		zwt,rootfr_eff,snowdp,wat,rsur,etr,lakedepth,lake_icefrac,wdsrf,wetwat,bsw,&
-		smp,porsl,lai_eff,rootr_eff,&
+		zwt,rootfr_eff,snowdp,wat,rsur,etr,lakedepth,dz_lake,t_lake,lake_icefrac,wdsrf,wetwat,bsw,&
+		smp,porsl,lai_eff,sai,rootr_eff,&
 		annsum_npp_loc, rr_loc,&
 		fsatmax,fsatdcf,frcsat,&
 		agnpp_loc, bgnpp_loc, somhr_loc,&
@@ -504,12 +547,17 @@ CONTAINS
 		methane_prod_tot_lake(i), methane_oxid_tot_lake(i), methane_ebul_tot_lake(i), &
 		co2_decomp_tot_lake(i), co2_oxid_tot_lake(i), co2_net_tot_lake(i), &
 		totcol_methane_lake(i), grnd_methane_cond_lake(i), conc_o2_lake(1:nl_soil,i), conc_methane_lake(1:nl_soil,i), &
+		lake_water_ch4_stock(i), lake_water_o2_stock(i), lake_frozen_ch4_stock(i), lake_frozen_o2_stock(i), &
+		lake_liquid_fraction_prev(i), lake_water_ch4_oxid(i), &
+		lake_sed_ch4_flux(i), lake_sed_o2_flux(i), lake_air_o2_flux(i), &
 		!!!! --------------------------------------------------------------------------------------------------------
 		c_atm(1:3,i), forc_pmethanem(i), layer_sat_lag(1:nl_soil,i), lake_soilc(1:nl_soil,i), &
 		annavg_agnpp(i), annavg_bgnpp(i), annavg_somhr(i), annavg_finrw(i), &
 		tempavg_agnpp(i), tempavg_bgnpp(i), annsum_counter(i), tempavg_somhr(i), &
 		tempavg_finrw(i), fsat_bef(i), finundated_lag(i), methane_dfsat_tot(i), f_h2osfc, &
-		is_rice_paddy_in=is_rice_paddy, rice_pft_frac_in=rice_pft_frac)
+			is_rice_paddy_in=is_rice_paddy, rice_pft_frac_in=rice_pft_frac, &
+			ustar_in=ustar, fq_in=fq)
+			CALL tracer_ch4_bgc_finalize_step(i, patchtype, deltim, net_methane(i))
 
 	CONTAINS
 
@@ -523,18 +571,37 @@ CONTAINS
 			real(r8) :: column_dfsat_tot
 			real(r8) :: column_conc_o2(nl_soil), column_conc_ch4(nl_soil)
 			real(r8) :: finundated_used, finundated_default_used
+			real(r8) :: column_lai, column_crootfr(nl_soil)
+			real(r8) :: column_rr, column_agnpp, column_bgnpp, column_annsum_npp
 
 			column_fraction = merge(1._r8, 0._r8, rice_column_active)
+			column_lai = lai_eff
+			column_crootfr = crootfr
+			column_rr = rr_loc
+			column_agnpp = agnpp_loc
+			column_bgnpp = bgnpp_loc
+			column_annsum_npp = annsum_npp_loc
+			IF (component_veg_ready(component)) THEN
+				column_lai = component_lai(component)
+				column_crootfr = component_crootfr(:,component)
+				column_rr = component_rr(component)
+				column_agnpp = component_agnpp(component)
+				column_bgnpp = component_bgnpp(component)
+				column_annsum_npp = component_annsum_npp(component)
+			ENDIF
 			IF (allocated(wetland_aere_active)) wetland_aere_active(i) = .false.
 			IF (rice_column_active .and. is_paddy_rice_live(i)) THEN
-				CALL get_rice_veg_proxy(lai, i, 1._r8)
+				CALL get_rice_veg_proxy(column_lai, i, 1._r8)
 			ENDIF
 
 			is_floodplain_active = .false.
 			IF (.not. rice_column_active) THEN
 				is_floodplain_active = DEF_METHANE%use_routing_for_soil .and. &
-				   allocated(f_inund_flood_patch) .and. i <= size(f_inund_flood_patch) .and. &
-				   f_inund_flood_patch(i) > DEF_METHANE%hybrid_soil_threshold
+				   allocated(f_inund_flood_patch) .and. allocated(wetland_frac_per_patch) .and. &
+				   i >= 1 .and. i <= size(f_inund_flood_patch) .and. &
+				   i <= size(wetland_frac_per_patch) .and. &
+				   f_inund_flood_patch(i) > DEF_METHANE%hybrid_soil_threshold .and. &
+				   f_inund_flood_patch(i) > wetland_frac_per_patch(i)
 			ENDIF
 			IF (allocated(biome_f_methane_patch)) THEN
 				biome_f_methane_patch(i) = get_biome_f_methane(patchtype, dlat, cellorg(1), &
@@ -543,7 +610,8 @@ CONTAINS
 			ENDIF
 			IF (allocated(biome_redoxlag_patch)) THEN
 				biome_redoxlag_patch(i) = get_biome_redoxlag(patchtype, dlat, cellorg(1), &
-				   rice_column_active, column_fraction, rice_column_active .and. rice_parameter_active)
+				   rice_column_active, column_fraction, rice_column_active .and. rice_parameter_active, &
+				   is_floodplain_active)
 			ENDIF
 
 			column_fsat = fsat_bef_component(component,i)
@@ -588,9 +656,9 @@ CONTAINS
 			z_soisno(maxsnl+1:),dz_soisno(maxsnl+1:),zi_soisno(maxsnl:),t_soisno(maxsnl+1:),&
 			t_grnd,wliq_soisno(maxsnl+1:),wice_soisno(maxsnl+1:),&
 			forc_t_eff,forc_pbot_eff,forc_po2m_eff,forc_pco2m_eff,forc_us_eff,forc_vs_eff,&
-			zwt,rootfr_eff,snowdp,wat,rsur,etr,lakedepth,lake_icefrac,wdsrf,wetwat,bsw,&
-			smp,porsl,lai_eff,rootr_eff,annsum_npp_loc,rr_loc,fsatmax,fsatdcf,frcsat,&
-			agnpp_loc,bgnpp_loc,somhr_loc,crootfr,lithr_loc,hr_vr_loc,o_scalar_loc,&
+			zwt,rootfr_eff,snowdp,wat,rsur,etr,lakedepth,dz_lake,t_lake,lake_icefrac,wdsrf,wetwat,bsw,&
+			smp,porsl,column_lai,sai,rootr_eff,column_annsum_npp,column_rr,fsatmax,fsatdcf,frcsat,&
+			column_agnpp,column_bgnpp,somhr_loc,column_crootfr,lithr_loc,hr_vr_loc,o_scalar_loc,&
 			fphr_loc,pot_f_nit_vr_loc,pH,cellorg,t_h2osfc,organic_max,&
 			microbial_prod_potential_eff,microbial_oxid_potential_eff,&
 			net_methane(i),methane_prod_depth(:,i),o2_decomp_depth(:,i),co2_decomp_depth(:,i),&
@@ -635,6 +703,9 @@ CONTAINS
 			methane_oxid_tot_lake(i),methane_ebul_tot_lake(i),co2_decomp_tot_lake(i),&
 			co2_oxid_tot_lake(i),co2_net_tot_lake(i),totcol_methane_lake(i),&
 			grnd_methane_cond_lake(i),conc_o2_lake(:,i),conc_methane_lake(:,i),&
+			lake_water_ch4_stock(i),lake_water_o2_stock(i),lake_frozen_ch4_stock(i),lake_frozen_o2_stock(i),&
+			lake_liquid_fraction_prev(i),lake_water_ch4_oxid(i),&
+			lake_sed_ch4_flux(i),lake_sed_o2_flux(i),lake_air_o2_flux(i),&
 			c_atm(:,i),forc_pmethanem(i),layer_sat_lag_component(:,component,i),lake_soilc(:,i),&
 			annavg_agnpp_component(component,i),annavg_bgnpp_component(component,i),&
 			annavg_somhr_component(component,i),annavg_finrw_component(component,i),&
@@ -643,6 +714,7 @@ CONTAINS
 			tempavg_finrw_component(component,i),fsat_bef_component(component,i),&
 			finundated_lag_component(component,i),column_dfsat_tot,f_h2osfc,&
 			is_rice_paddy_in=rice_column_active,rice_pft_frac_in=column_fraction,&
+			ustar_in=ustar,fq_in=fq,&
 			store_patch_diagnostics_in=.false.,finundated_used_out=finundated_used,&
 			finundated_default_out=finundated_default_used)
 

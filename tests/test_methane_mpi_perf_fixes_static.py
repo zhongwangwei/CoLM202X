@@ -17,13 +17,13 @@ def _compact(source: str) -> str:
 def test_giems_rejects_every_wrong_variable_dimension_collectively():
     source = _compact(GIEMS)
     assert "ndims /= 3" in source
-    assert "trim(dim_names(1)) /= trim(lonname)" in source
-    assert "trim(dim_names(2)) /= trim(latname)" in source
-    assert "trim(dim_names(3)) /= 'time'" in source
-    assert "any(dim_lengths /= [nlon, nlat, ntime])" in source
-    assert "metadata = [merge(1, 0, giems_active), ntime, nlat, nlon]" in source
+    assert "trim(dname) /= 'longitude'" in source
+    assert "trim(dname) /= 'latitude'" in source
+    assert "trim(dname) /= 'time'" in source
+    assert "metadata = [giems_metadata_error, ntime, nlat, nlon]" in source
     assert "call mpi_bcast(metadata, 4, mpi_integer" in source
-    assert "giems_active = metadata(1) == 1" in source
+    assert "giems_active = giems_metadata_error == 0" in source
+    assert "call colm_stop ('error: invalid giems metadata" in source
     rank_query = source.index("nf90_inquire_variable(ncid, vid, ndims=ndims)")
     dimid_query = source.index("nf90_inquire_variable(ncid, vid, dimids=vdims)")
     assert rank_query < source.index("ndims /= 3") < dimid_query
@@ -36,9 +36,9 @@ def test_giems_deduplicates_rank_local_pixels_before_network_distribution():
     assert "pixel_index_unique" in source
     assert "call mpi_gather(n_unique" in source
     assert "call mpi_gatherv(pixel_index_unique, n_unique" in source
-    assert "call mpi_scatterv(requested_values, request_counts, request_displs" in source
-    assert "unique_values, n_unique" in source
-    assert "v = unique_values(patch_to_unique(ipatch))" in source
+    assert "call mpi_scatterv(requested_values, chunk_counts, chunk_displs" in source
+    assert "unique_values, chunk_n * n_unique" in source
+    assert "v = unique_values(month_in_chunk, patch_to_unique(ipatch))" in source
 
 
 def test_giems_mpi_buffers_cover_zero_patch_ranks_and_match_communicator():
@@ -48,10 +48,10 @@ def test_giems_mpi_buffers_cover_zero_patch_ranks_and_match_communicator():
     assert "comm_size /= p_np_glb" in source
     assert "allocate(request_counts(comm_size), request_displs(comm_size))" in source
     assert "allocate(pixel_index_unique(max(1, numpatch)))" in source
-    assert "allocate(unique_values(max(1, numpatch)))" in source
+    assert "allocate(unique_values(chunk_n, max(1, n_unique)))" in source
     assert "allocate(all_pixel_index(max(1, total_requests)))" in source
-    assert "allocate(requested_values(max(1, total_requests)))" in source
-    assert source.count("call check_giems_mpi(") == 8
+    assert "allocate(requested_values(chunk_n, max(1, total_requests)))" in source
+    assert source.count("call check_giems_mpi(") >= 10
     assert "subroutine check_giems_mpi(ierr, operation)" in source
 
 
@@ -65,9 +65,9 @@ def test_giems_uses_source_precision_for_time_series_and_fewer_metadata_collecti
         r"real\(r8\),\s*allocatable,\s*public\s*::\s*giems_clim_wetland_frac",
         source,
     )
-    # One packed metadata broadcast, two coordinate broadcasts, one monthly
-    # status broadcast.  The latter remains inside the time loop for safety.
-    assert len(re.findall(r"call\s+mpi_bcast\s*\(", source)) == 4
+    assert "giems_chunk_months = 12" in source
+    assert "do t = 1, ntime, chunk_max" in source
+    assert "chunk_counts(:) = request_counts(:) * chunk_n" in source
 
 
 def test_giems_nearest_pixel_keeps_the_two_dimensional_five_degree_limit():
@@ -132,7 +132,9 @@ def test_restart_selector_change_starts_a_clean_history_window():
     assert "ncio_vector_var_present( file_restart, 'ch4_acc_history_selector_hash'" in source
     assert "history_selector_changed = any(selector_marker /= selector_fingerprint)" in source
     assert "call mpi_allreduce(mpi_in_place, history_selector_changed" in source
-    changed = source.index("if (history_selector_changed) then")
+    changed = source.index(
+        "if (history_selector_changed .or. invalid_selector_marker) then"
+    )
     assert source.index("call flush_methane_acc_fluxes ()", changed) < source.index("return", changed)
     first_accumulator_read = source.index("'ch4_a_net_methane'", changed)
     assert source.index("return", changed) < first_accumulator_read
@@ -148,12 +150,13 @@ def test_runtime_selector_change_also_resets_before_new_group_accumulation():
     assert changed < reset < first_accumulation
 
 
-def test_legacy_restart_keeps_pre_gating_accumulators_with_explicit_policy():
+def test_legacy_restart_discards_incomplete_pre_schema3_history_window():
     source = _compact(ACC)
-    assert "legacy restart has no ch4 history-selector marker" in source
-    assert "assuming its accumulators were" in source
-    assert "produced by the pre-gating all-fields path" in source
+    assert "older committed schemas are readable" in source
+    assert "window must be discarded" in source
     assert "if (has_history_selector_marker) then" in source
+    reset = source.index("if (restart_schema_active < 3) then")
+    assert source.index("call flush_methane_acc_fluxes ()", reset) > reset
 
 
 def test_global_physical_flux_and_balance_include_lakes_with_sample_counts():

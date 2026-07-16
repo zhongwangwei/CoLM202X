@@ -1602,55 +1602,63 @@ CONTAINS
       real(r8), intent(in) :: total_floodarea_in(:)
       real(r8), intent(in) :: total_flooddepth_in(:)
       real(r8), allocatable :: fldfrc_uc(:), fldfrc_gd(:)
-      real(r8), allocatable :: flddph_uc(:), flddph_gd(:)
-      real(r8), allocatable :: fldfrc_patch(:), flddph_patch(:)
+      real(r8), allocatable :: fldwat_uc(:), fldwat_gd(:)
+      real(r8), allocatable :: fldfrc_patch(:), fldwat_patch(:), flddph_patch(:)
       integer :: i
 
             IF (.not. p_is_worker) RETURN
             IF (.not. tracer_reactive_has_flood_publisher()) RETURN
 
       IF (numucat > 0) THEN
-         allocate (fldfrc_uc(numucat), flddph_uc(numucat))
-         flddph_uc(:) = 0._r8
+         allocate (fldfrc_uc(numucat), fldwat_uc(numucat))
+         fldwat_uc(:) = 0._r8
          DO i = 1, numucat
             IF (topo_area(i) > 0._r8 .and. i <= size(total_floodarea_in)) THEN
                fldfrc_uc(i) = min(1._r8, max(0._r8, &
                   total_floodarea_in(i) / topo_area(i)))
                IF (i <= size(total_flooddepth_in)) THEN
-                  flddph_uc(i) = max(0._r8, total_flooddepth_in(i))
-               ELSE
-                  flddph_uc(i) = 0._r8
+                  ! Remap patch-mean floodwater depth f*d, not conditional
+                  ! depth d independently from its flooded-area fraction f.
+                  fldwat_uc(i) = fldfrc_uc(i) * max(0._r8, total_flooddepth_in(i))
                ENDIF
             ELSE
                fldfrc_uc(i) = 0._r8
-               flddph_uc(i) = 0._r8
+               fldwat_uc(i) = 0._r8
             ENDIF
          ENDDO
       ELSE
-         allocate (fldfrc_uc(0), flddph_uc(0))
+         allocate (fldfrc_uc(0), fldwat_uc(0))
       ENDIF
 
       IF (numinpm > 0) THEN
-         allocate (fldfrc_gd(numinpm), flddph_gd(numinpm))
+         allocate (fldfrc_gd(numinpm), fldwat_gd(numinpm))
       ELSE
-         allocate (fldfrc_gd(0), flddph_gd(0))
+         allocate (fldfrc_gd(0), fldwat_gd(0))
       ENDIF
             CALL worker_push_data (push_ucat2inpm, fldfrc_uc, fldfrc_gd, &
                fillvalue = RIVERLAKE_FLOOD_MISSING_VALUE, mode = 'average')
 
-            allocate(fldfrc_patch(max(0,numpatch)), flddph_patch(max(0,numpatch)))
+            allocate(fldfrc_patch(max(0,numpatch)), fldwat_patch(max(0,numpatch)), &
+               flddph_patch(max(0,numpatch)))
             CALL worker_remap_data_grid2pset (remap_patch2inpm, fldfrc_gd, &
                fldfrc_patch, fillvalue = RIVERLAKE_FLOOD_MISSING_VALUE, mode = 'average')
             WHERE (fldfrc_patch == RIVERLAKE_FLOOD_MISSING_VALUE) fldfrc_patch = 0._r8
 
-            CALL worker_push_data (push_ucat2inpm, flddph_uc, flddph_gd, &
+            CALL worker_push_data (push_ucat2inpm, fldwat_uc, fldwat_gd, &
                fillvalue = RIVERLAKE_FLOOD_MISSING_VALUE, mode = 'average')
-            CALL worker_remap_data_grid2pset (remap_patch2inpm, flddph_gd, &
-               flddph_patch, fillvalue = RIVERLAKE_FLOOD_MISSING_VALUE, mode = 'average')
-            WHERE (flddph_patch == RIVERLAKE_FLOOD_MISSING_VALUE) flddph_patch = 0._r8
+            CALL worker_remap_data_grid2pset (remap_patch2inpm, fldwat_gd, &
+               fldwat_patch, fillvalue = RIVERLAKE_FLOOD_MISSING_VALUE, mode = 'average')
+            WHERE (fldwat_patch == RIVERLAKE_FLOOD_MISSING_VALUE) fldwat_patch = 0._r8
+            flddph_patch = 0._r8
+            DO i = 1, numpatch
+               IF (fldfrc_patch(i) > 0._r8) THEN
+                  flddph_patch(i) = max(0._r8, fldwat_patch(i)) / fldfrc_patch(i)
+               ENDIF
+            ENDDO
             CALL tracer_reactive_publish_flood_patch (fldfrc_patch, flddph_patch)
 
-         deallocate(fldfrc_uc, fldfrc_gd, flddph_uc, flddph_gd, fldfrc_patch, flddph_patch)
+         deallocate(fldfrc_uc, fldfrc_gd, fldwat_uc, fldwat_gd, &
+            fldfrc_patch, fldwat_patch, flddph_patch)
 
    END SUBROUTINE publish_fldfrc_to_patches
 #endif

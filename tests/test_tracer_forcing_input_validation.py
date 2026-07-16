@@ -1,9 +1,10 @@
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
 import pytest
+
+from fortran_test_support import require_runnable_fortran_compiler
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,12 +13,9 @@ FORCING_INPUT = ROOT / "main" / "TRACER" / "MOD_Tracer_ForcingInput.F90"
 
 @pytest.fixture(scope="module")
 def forcing_input_driver():
-    compiler = shutil.which("mpif90") or shutil.which("gfortran")
-    if compiler is None:
-        pytest.skip("Fortran compiler is not available")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
+        compiler = require_runnable_fortran_compiler(tmp)
         (tmp / "define.h").write_text("#define TRACER\n", encoding="utf-8")
         (tmp / "precision.f90").write_text(
             """
@@ -117,6 +115,7 @@ end program forcing_input_driver
             check=True,
             capture_output=True,
             text=True,
+            timeout=30,
         )
         yield executable, tmp
 
@@ -126,7 +125,11 @@ def run_forcing_driver(forcing_input_driver, text):
     parameter_file = tmp / "forcing_parameter.nml"
     parameter_file.write_text(text, encoding="utf-8")
     return subprocess.run(
-        [str(executable), str(parameter_file)], cwd=tmp, capture_output=True, text=True
+        [str(executable), str(parameter_file)],
+        cwd=tmp,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
 
 

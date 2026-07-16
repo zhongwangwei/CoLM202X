@@ -8,12 +8,15 @@ MODULE MOD_Tracer_Reactive_Methane_Hist
 
    PUBLIC :: methane_reactive_history
 
+   integer, save :: methane_history_match_count = 0
+
 CONTAINS
 
    SUBROUTINE methane_reactive_history (file_hist, itime_in_file, sumarea, filter, &
       nl_soil, forcing_has_missing_value, forcmask_pch)
    USE MOD_Tracer_Hist, only: HistForm, write_history_variable_2d, write_history_variable_3d, &
       write_history_tracer_ratio_2d
+   USE MOD_Tracer_Defs, only: tracer_lower
    USE MOD_HistGridded
    USE MOD_DataType
    USE MOD_LandPatch, only: numpatch
@@ -21,7 +24,7 @@ CONTAINS
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
    USE MOD_Tracer_Reactive_Methane_BgcLink, only: methane_patch_active_mask
             USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
-	            USE MOD_Tracer_Reactive_Methane_Const,    only: mhist_on => methane_history_enabled, DEF_METHANE
+	            USE MOD_Tracer_Reactive_Methane_Const,    only: DEF_METHANE
             USE MOD_Tracer_Reactive_Methane_AccFlux,  only: &
                  a_net_methane, a_methane_prod_depth, a_o2_decomp_depth, a_co2_decomp_depth, &
                  a_methane_oxid_depth, a_o2_oxid_depth, a_co2_oxid_depth, &
@@ -73,6 +76,9 @@ CONTAINS
                  a_co2_decomp_tot_lake, a_co2_oxid_tot_lake, a_co2_net_tot_lake, &
                  a_totcol_methane_lake, a_grnd_methane_cond_lake, &
                  a_conc_o2_lake, a_conc_methane_lake, &
+                 a_lake_water_ch4_stock, a_lake_water_o2_stock, &
+                 a_lake_water_ch4_oxid, a_lake_sed_ch4_flux, &
+                 a_lake_sed_o2_flux, a_lake_air_o2_flux, &
                     a_forc_pmethanem, a_layer_sat_lag, &
                     a_annavg_agnpp, a_annavg_bgnpp, a_annavg_somhr, a_annavg_finrw, &
                     a_methane_dfsat_tot, a_f_h2osfc, &
@@ -118,10 +124,17 @@ CONTAINS
 		   logical :: need_active_without_lake, need_global_with_lake
 		   logical :: need_global_phys_with_lake, need_global_balance_with_lake
 		   logical :: need_global_clip_credit_with_lake
-		   logical :: need_lake_intensive, need_rice_intensive, need_derived_ch4
-		   logical :: need_land_flux_total, need_land_flux_wetland, need_land_flux_soil
-		   logical :: need_land_flux_lake, need_land_flux_rice, need_land_flux_split
+			   logical :: need_lake_intensive, need_rice_intensive, need_derived_ch4
+			   logical :: need_land_flux_total, need_land_flux_wetland, need_land_flux_soil
+			   logical :: need_land_flux_lake, need_land_flux_rice, need_land_flux_split
+			   logical :: need_lake_history, need_extra_history, need_soil_history
+			   logical :: need_active_history
 
+	            IF (igas_ch4 <= 0) RETURN
+	            IF (.not. DEF_METHANE%write_ch4_history) RETURN
+	            IF (methane_history_selector_is_off(DEF_METHANE%ch4_history_vars)) RETURN
+	            methane_history_match_count = 0
+	            need_active_history = .not. methane_history_all_land_only(DEF_METHANE%ch4_history_vars)
 	            IF (igas_ch4 > 0) THEN
                need_active_without_lake = mhist_on('f_methane_surf_flux_active_total_without_lake')
                need_global_with_lake    = mhist_on('f_methane_surf_flux_global_total_with_lake')
@@ -138,6 +151,50 @@ CONTAINS
                need_land_flux_split = need_land_flux_total .or. need_land_flux_wetland .or. &
                                       need_land_flux_soil .or. need_land_flux_lake .or. &
                                       need_land_flux_rice
+	               ! Keep one selector-function reference per statement: mhist_on
+	               ! records whether the configured selector matched a real write.
+	               need_lake_history = need_lake_intensive
+	               need_lake_history = mhist_on('f_methane_prod_depth_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_oxid_depth_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_co2_decomp_depth_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_co2_oxid_depth_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_ebul_depth_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_surf_ebul_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_surf_diff_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_surf_flux_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_prod_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_oxid_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_methane_ebul_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_co2_decomp_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_co2_oxid_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_co2_net_tot_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_totcol_methane_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_grnd_methane_cond_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_conc_o2_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_conc_methane_lake') .or. need_lake_history
+	               need_lake_history = mhist_on('f_lake_water_ch4_stock') .or. need_lake_history
+	               need_lake_history = mhist_on('f_lake_water_o2_stock') .or. need_lake_history
+	               need_lake_history = mhist_on('f_lake_water_ch4_oxid') .or. need_lake_history
+	               need_lake_history = mhist_on('f_lake_sed_ch4_flux') .or. need_lake_history
+	               need_lake_history = mhist_on('f_lake_sed_o2_flux') .or. need_lake_history
+	               need_lake_history = mhist_on('f_lake_air_o2_flux') .or. need_lake_history
+
+	               need_extra_history = need_rice_intensive
+	               need_extra_history = mhist_on('f_forc_pmethanem') .or. need_extra_history
+	               need_extra_history = mhist_on('f_layer_sat_lag') .or. need_extra_history
+	               need_extra_history = mhist_on('f_annavg_agnpp') .or. need_extra_history
+	               need_extra_history = mhist_on('f_annavg_bgnpp') .or. need_extra_history
+	               need_extra_history = mhist_on('f_annavg_somhr') .or. need_extra_history
+	               need_extra_history = mhist_on('f_annavg_'//'finrw') .or. need_extra_history
+	               need_extra_history = mhist_on('f_methane_dfsat_tot') .or. need_extra_history
+	               need_extra_history = mhist_on('f_f_h2osfc') .or. need_extra_history
+	               need_extra_history = mhist_on('f_methane_finundated') .or. need_extra_history
+	               need_extra_history = mhist_on('f_inund_flood_patch') .or. need_extra_history
+	               need_extra_history = mhist_on('f_inund_flood_depth_patch') .or. need_extra_history
+	               need_extra_history = mhist_on('f_wetland_frac_patch') .or. need_extra_history
+
+	               need_soil_history = mhist_on('f_methane_soil_zwt')
+	               need_soil_history = mhist_on('f_methane_soil_finundated') .or. need_soil_history
                need_derived_ch4 = need_active_without_lake .or. need_global_with_lake .or. &
                                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
                                   need_global_clip_credit_with_lake .or. &
@@ -163,44 +220,54 @@ CONTAINS
                   filter = filter .and. patchmask
                   IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
                ENDIF
-	               IF (HistForm == 'Gridded') THEN
-	                  CALL mp2g_hist%get_sumarea (sumarea, filter)
-	               ENDIF
+		               IF (need_active_history .and. HistForm == 'Gridded') THEN
+		                  CALL mp2g_hist%get_sumarea (sumarea, filter)
+		               ENDIF
 
-		               ! Preserve un-normalized accumulators only when one of the
-		               ! derived diagnostics is requested.  Narrow custom sets
-		               ! that omit derived fields skip these arrays and masks.
+		               ! Allocate only the derived vectors selected for this write.
+		               ! In particular, core history avoids lake-intensive and rice-
+		               ! intensive temporaries while retaining its land-flux split.
                IF (need_derived_ch4) THEN
-		               allocate (hist_ch4_active_without_lake(numpatch))
-		               allocate (hist_ch4_global_with_lake(numpatch))
-		               allocate (hist_ch4_global_phys_with_lake(numpatch))
-		               allocate (hist_ch4_global_balance_with_lake(numpatch))
-		               allocate (hist_ch4_global_clip_credit_with_lake(numpatch))
-		               allocate (hist_ch4_land_total_surf(numpatch))
-		               allocate (hist_ch4_land_flux_wetland(numpatch))
-		               allocate (hist_ch4_land_flux_soil(numpatch))
-		               allocate (hist_ch4_land_flux_lake(numpatch))
-		               allocate (hist_ch4_land_flux_rice(numpatch))
-		               allocate (hist_ch4_lake_flux_acc(numpatch))
-		               allocate (hist_ch4_rice_flux_mean(numpatch))
-		               allocate (hist_ch4_rice_area_frac(numpatch))
-		               allocate (hist_ch4_acc_one(numpatch))
-		               allocate (filter_active_without_lake(numpatch))
-		               allocate (filter_all_land(numpatch))
-		               hist_ch4_active_without_lake(:) = 0._r8
-		               hist_ch4_global_with_lake(:) = 0._r8
-		               hist_ch4_global_phys_with_lake(:) = 0._r8
-		               hist_ch4_global_balance_with_lake(:) = 0._r8
-		               hist_ch4_global_clip_credit_with_lake(:) = 0._r8
-		               hist_ch4_land_total_surf(:) = 0._r8
-		               hist_ch4_land_flux_wetland(:) = 0._r8
-		               hist_ch4_land_flux_soil(:) = 0._r8
-		               hist_ch4_land_flux_lake(:) = 0._r8
-		               hist_ch4_land_flux_rice(:) = 0._r8
-		               hist_ch4_lake_flux_acc(:) = 0._r8
-		               hist_ch4_rice_flux_mean(:) = 0._r8
-		               hist_ch4_rice_area_frac(:) = 0._r8
-		               hist_ch4_acc_one(:) = 1._r8
+		               IF (need_active_without_lake) allocate (hist_ch4_active_without_lake(numpatch))
+		               IF (need_global_with_lake) allocate (hist_ch4_global_with_lake(numpatch))
+		               IF (need_global_phys_with_lake) allocate (hist_ch4_global_phys_with_lake(numpatch))
+		               IF (need_global_balance_with_lake) allocate (hist_ch4_global_balance_with_lake(numpatch))
+		               IF (need_global_clip_credit_with_lake) allocate (hist_ch4_global_clip_credit_with_lake(numpatch))
+			               IF (need_land_flux_total) allocate (hist_ch4_land_total_surf(numpatch))
+			               IF (need_land_flux_wetland) allocate (hist_ch4_land_flux_wetland(numpatch))
+			               IF (need_land_flux_soil) allocate (hist_ch4_land_flux_soil(numpatch))
+			               IF (need_land_flux_lake) allocate (hist_ch4_land_flux_lake(numpatch))
+			               IF (need_land_flux_rice) allocate (hist_ch4_land_flux_rice(numpatch))
+			               IF (need_lake_intensive) allocate (hist_ch4_lake_flux_acc(numpatch))
+			               IF (need_rice_intensive) THEN
+			                  allocate (hist_ch4_rice_flux_mean(numpatch))
+			                  allocate (hist_ch4_rice_area_frac(numpatch))
+			               ENDIF
+		               IF (need_land_flux_split .or. need_global_with_lake .or. &
+		                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
+		                   need_global_clip_credit_with_lake) &
+		                  allocate (hist_ch4_acc_one(numpatch))
+			               allocate (filter_active_without_lake(numpatch))
+			               allocate (filter_all_land(numpatch))
+		               IF (need_active_without_lake) hist_ch4_active_without_lake(:) = 0._r8
+		               IF (need_global_with_lake) hist_ch4_global_with_lake(:) = 0._r8
+		               IF (need_global_phys_with_lake) hist_ch4_global_phys_with_lake(:) = 0._r8
+		               IF (need_global_balance_with_lake) hist_ch4_global_balance_with_lake(:) = 0._r8
+		               IF (need_global_clip_credit_with_lake) hist_ch4_global_clip_credit_with_lake(:) = 0._r8
+			               IF (need_land_flux_total) hist_ch4_land_total_surf(:) = 0._r8
+			               IF (need_land_flux_wetland) hist_ch4_land_flux_wetland(:) = 0._r8
+			               IF (need_land_flux_soil) hist_ch4_land_flux_soil(:) = 0._r8
+			               IF (need_land_flux_lake) hist_ch4_land_flux_lake(:) = 0._r8
+			               IF (need_land_flux_rice) hist_ch4_land_flux_rice(:) = 0._r8
+			               IF (need_lake_intensive) hist_ch4_lake_flux_acc(:) = 0._r8
+			               IF (need_rice_intensive) THEN
+			                  hist_ch4_rice_flux_mean(:) = 0._r8
+			                  hist_ch4_rice_area_frac(:) = 0._r8
+			               ENDIF
+		               IF (need_land_flux_split .or. need_global_with_lake .or. &
+		                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
+		                   need_global_clip_credit_with_lake) &
+		                  hist_ch4_acc_one(:) = 1._r8
 	               filter_active_without_lake(:) = .false.
 	               filter_all_land(:) = .false.
 	               IF ((p_is_worker) .and. (numpatch > 0)) THEN
@@ -213,54 +280,58 @@ CONTAINS
 	                     filter_active_without_lake = filter_active_without_lake .and. forcmask_pch
 	                     filter_all_land = filter_all_land .and. forcmask_pch
 	                  ENDIF
-		                  hist_ch4_active_without_lake = a_methane_surf_flux_tot
-		                  hist_ch4_lake_flux_acc = a_methane_surf_flux_lake
-		                  DO ipatch = 1, numpatch
-		                     IF (filter_active_without_lake(ipatch) .and. &
-		                         (a_methane_acc_num(ipatch) > 0._r8)) THEN
-		                        hist_ch4_global_with_lake(ipatch) = &
+			                  IF (need_active_without_lake) hist_ch4_active_without_lake = a_methane_surf_flux_tot
+			                  IF (need_lake_intensive) hist_ch4_lake_flux_acc = a_methane_surf_flux_lake
+			                  DO ipatch = 1, numpatch
+			                     IF (filter_active_without_lake(ipatch) .and. &
+			                         (a_methane_acc_num(ipatch) > 0._r8)) THEN
+		                        IF (need_global_with_lake) hist_ch4_global_with_lake(ipatch) = &
 		                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_global_phys_with_lake(ipatch) = &
+		                        IF (need_global_phys_with_lake) hist_ch4_global_phys_with_lake(ipatch) = &
 		                           a_methane_surf_flux_tot_phys(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_global_balance_with_lake(ipatch) = &
+		                        IF (need_global_balance_with_lake) hist_ch4_global_balance_with_lake(ipatch) = &
 		                           a_methane_balance_residual(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_global_clip_credit_with_lake(ipatch) = &
+		                        IF (need_global_clip_credit_with_lake) hist_ch4_global_clip_credit_with_lake(ipatch) = &
 		                           a_methane_ch4_clip_credit(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_land_total_surf(ipatch) = &
-		                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_land_flux_wetland(ipatch) = &
-		                           a_methane_surf_flux_wetland(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_land_flux_soil(ipatch) = &
-		                           a_methane_surf_flux_soil(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_land_flux_rice(ipatch) = &
-		                           a_methane_surf_flux_rice(ipatch) / a_methane_acc_num(ipatch)
-		                        hist_ch4_rice_flux_mean(ipatch) = &
-		                           a_methane_surf_flux_rice(ipatch)
-		                        hist_ch4_rice_area_frac(ipatch) = a_methane_rice_fraction(ipatch)
-		                     ENDIF
-		                     IF ((patchtype(ipatch) == 4) .and. DEF_METHANE%allowlakeprod .and. &
-		                         filter_all_land(ipatch) .and. &
-		                         (a_methane_acc_num_lake(ipatch) > 0._r8)) THEN
-		                        hist_ch4_global_with_lake(ipatch) = &
-		                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num_lake(ipatch)
-		                        hist_ch4_global_phys_with_lake(ipatch) = &
-		                           a_methane_surf_flux_tot_phys(ipatch) / a_methane_acc_num_lake(ipatch)
-		                        hist_ch4_global_balance_with_lake(ipatch) = &
-		                           a_methane_balance_residual(ipatch) / a_methane_acc_num_lake(ipatch)
-		                        hist_ch4_global_clip_credit_with_lake(ipatch) = &
-		                           a_methane_ch4_clip_credit(ipatch) / a_methane_acc_num_lake(ipatch)
-		                        hist_ch4_land_total_surf(ipatch) = &
+			                        IF (need_land_flux_total) hist_ch4_land_total_surf(ipatch) = &
+			                           a_methane_surf_flux_tot(ipatch) / a_methane_acc_num(ipatch)
+			                        IF (need_land_flux_wetland) hist_ch4_land_flux_wetland(ipatch) = &
+			                           a_methane_surf_flux_wetland(ipatch) / a_methane_acc_num(ipatch)
+			                        IF (need_land_flux_soil) hist_ch4_land_flux_soil(ipatch) = &
+			                           a_methane_surf_flux_soil(ipatch) / a_methane_acc_num(ipatch)
+			                        IF (need_land_flux_rice) hist_ch4_land_flux_rice(ipatch) = &
+			                           a_methane_surf_flux_rice(ipatch) / a_methane_acc_num(ipatch)
+						IF (need_rice_intensive) THEN
+						   ! Preserve the raw same-window sums.  The history ratio
+						   ! writer maps numerator and denominator separately before
+						   ! dividing, yielding a paddy-area-weighted grid mean.
+						   hist_ch4_rice_flux_mean(ipatch) = a_methane_surf_flux_rice(ipatch)
+						   hist_ch4_rice_area_frac(ipatch) = a_methane_rice_fraction(ipatch)
+						ENDIF
+			                     ENDIF
+			                     IF ((patchtype(ipatch) == 4) .and. DEF_METHANE%allowlakeprod .and. &
+			                         filter_all_land(ipatch) .and. &
+			                         (a_methane_acc_num_lake(ipatch) > 0._r8)) THEN
+		                        IF (need_global_with_lake) hist_ch4_global_with_lake(ipatch) = &
 		                           a_methane_surf_flux_tot_lake(ipatch) / a_methane_acc_num_lake(ipatch)
-		                        hist_ch4_land_flux_lake(ipatch) = &
-		                           a_methane_surf_flux_lake(ipatch) / a_methane_acc_num_lake(ipatch)
-		                     ENDIF
+		                        IF (need_global_phys_with_lake) hist_ch4_global_phys_with_lake(ipatch) = &
+		                           a_methane_surf_flux_tot_phys(ipatch) / a_methane_acc_num_lake(ipatch)
+		                        IF (need_global_balance_with_lake) hist_ch4_global_balance_with_lake(ipatch) = &
+		                           a_methane_balance_residual(ipatch) / a_methane_acc_num_lake(ipatch)
+		                        IF (need_global_clip_credit_with_lake) hist_ch4_global_clip_credit_with_lake(ipatch) = &
+		                           a_methane_ch4_clip_credit(ipatch) / a_methane_acc_num_lake(ipatch)
+			                        IF (need_land_flux_total) hist_ch4_land_total_surf(ipatch) = &
+			                           a_methane_surf_flux_tot_lake(ipatch) / a_methane_acc_num_lake(ipatch)
+			                        IF (need_land_flux_lake) hist_ch4_land_flux_lake(ipatch) = &
+			                           a_methane_surf_flux_lake(ipatch) / a_methane_acc_num_lake(ipatch)
+			                     ENDIF
 			                  ENDDO
 			               ENDIF
                ENDIF
 
 	               CALL write_history_variable_2d (mhist_on('f_net_methane'), a_net_methane, file_hist, &
                   'f_net_methane', itime_in_file, sumarea, filter, &
-                  'average net methane correction to CO2 flux', 'mol/m2/s', &
+                  'CH4 oxidation minus production; applied to soil/wetland BGC CO2 respiration', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_3d (mhist_on('f_methane_prod_depth'), a_methane_prod_depth, file_hist, &
                   'f_methane_prod_depth', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
@@ -504,11 +575,11 @@ CONTAINS
                ! unsat / sat
                CALL write_history_variable_2d (mhist_on('f_net_methane_unsat'), a_net_methane_unsat, file_hist, &
                   'f_net_methane_unsat', itime_in_file, sumarea, filter, &
-                  'average net methane correction (unsaturated)', 'mol/m2/s', &
+                  'CH4 oxidation minus production (unsaturated subcolumn)', 'mol/m2/s', &
                   acc_num=a_methane_acc_num_unsat)
                CALL write_history_variable_2d (mhist_on('f_net_methane_sat'), a_net_methane_sat, file_hist, &
                   'f_net_methane_sat', itime_in_file, sumarea, filter, &
-                  'average net methane correction (saturated)', 'mol/m2/s', &
+                  'CH4 oxidation minus production (saturated subcolumn)', 'mol/m2/s', &
                   acc_num=a_methane_acc_num_sat)
                CALL write_history_variable_3d (mhist_on('f_methane_prod_depth_unsat'), a_methane_prod_depth_unsat, file_hist, &
                   'f_methane_prod_depth_unsat', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
@@ -790,36 +861,34 @@ CONTAINS
 	                  CALL write_history_variable_2d (.true., &
 	                     hist_ch4_global_with_lake, file_hist, &
 	                     'f_methane_surf_flux_global_total_with_lake', itime_in_file, &
-		                     sumarea, filter_all_land, &
-		                     'global CH4 total surface flux including lake; land-area mean contribution', 'mol/m2/s', &
-			                     acc_num=hist_ch4_acc_one)
-			               ENDIF
-		               ! Closure identity on the same all-land denominator:
-		               ! corrected = physical + balance residual + CH4 clip credit.
-			               IF (need_global_phys_with_lake) THEN
-		                  CALL write_history_variable_2d (.true., &
-		                     hist_ch4_global_phys_with_lake, file_hist, &
-		                     'f_methane_surf_flux_global_phys_with_lake', itime_in_file, &
-		                     sumarea, filter_all_land, &
-		                     'pure-physics CH4 surface flux including lake; land-area mean contribution', &
-		                     'mol/m2/s', acc_num=hist_ch4_acc_one)
-		               ENDIF
-		               IF (need_global_clip_credit_with_lake) THEN
-		                  CALL write_history_variable_2d (.true., &
-		                     hist_ch4_global_clip_credit_with_lake, file_hist, &
-		                     'f_methane_ch4_clip_credit_global_with_lake', itime_in_file, &
-		                     sumarea, filter_all_land, &
-		                     'CH4 nonnegative-concentration clip credit including lake; land-area mean contribution', &
-		                     'mol/m2/s', acc_num=hist_ch4_acc_one)
-		               ENDIF
-		               IF (need_global_balance_with_lake) THEN
-		                  CALL write_history_variable_2d (.true., &
-		                     hist_ch4_global_balance_with_lake, file_hist, &
-		                     'f_methane_balance_residual_global_with_lake', itime_in_file, &
-		                     sumarea, filter_all_land, &
-		                     'CH4 surface balance residual including lake; land-area mean contribution', &
-		                     'mol/m2/s', acc_num=hist_ch4_acc_one)
-		               ENDIF
+	                     sumarea, filter_all_land, &
+	                     'global CH4 total surface flux including lake; land-area mean contribution', 'mol/m2/s', &
+	                     acc_num=hist_ch4_acc_one)
+	               ENDIF
+	               IF (need_global_phys_with_lake) THEN
+	                  CALL write_history_variable_2d (.true., &
+	                     hist_ch4_global_phys_with_lake, file_hist, &
+	                     'f_methane_surf_flux_global_phys_with_lake', itime_in_file, &
+	                     sumarea, filter_all_land, &
+	                     'physical CH4 surface flux including lake; land-area mean contribution', 'mol/m2/s', &
+	                     acc_num=hist_ch4_acc_one)
+	               ENDIF
+	               IF (need_global_balance_with_lake) THEN
+	                  CALL write_history_variable_2d (.true., &
+	                     hist_ch4_global_balance_with_lake, file_hist, &
+	                     'f_methane_balance_residual_global_with_lake', itime_in_file, &
+	                     sumarea, filter_all_land, &
+	                     'CH4 column balance residual including lake; land-area mean contribution', 'mol/m2/s', &
+	                     acc_num=hist_ch4_acc_one)
+	               ENDIF
+	               IF (need_global_clip_credit_with_lake) THEN
+	                  CALL write_history_variable_2d (.true., &
+	                     hist_ch4_global_clip_credit_with_lake, file_hist, &
+	                     'f_methane_ch4_clip_credit_global_with_lake', itime_in_file, &
+	                     sumarea, filter_all_land, &
+	                     'CH4 nonnegative-storage correction including lake; land-area mean contribution', 'mol/m2/s', &
+	                     acc_num=hist_ch4_acc_one)
+	               ENDIF
 
 
 	               ! lake diagnostics (CTSM lake CH4 path) — swap to lake-only filter
@@ -827,7 +896,7 @@ CONTAINS
                   filter = (patchtype == 4) .and. patchmask
                   IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
                ENDIF
-               IF (HistForm == 'Gridded') THEN
+               IF (need_lake_history .and. HistForm == 'Gridded') THEN
                   CALL mp2g_hist%get_sumarea (sumarea, filter)
                ENDIF
 
@@ -915,6 +984,30 @@ CONTAINS
                   'f_conc_methane_lake', itime_in_file, 'soil', 1, nl_soil, sumarea, filter, &
                   'lake CH4 concentration per sediment layer', 'mol/m3', &
                   acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (mhist_on('f_lake_water_ch4_stock'), a_lake_water_ch4_stock, file_hist, &
+                  'f_lake_water_ch4_stock', itime_in_file, sumarea, filter, &
+                  'dissolved CH4 stock in the well-mixed lake water column', 'mol/m2', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (mhist_on('f_lake_water_o2_stock'), a_lake_water_o2_stock, file_hist, &
+                  'f_lake_water_o2_stock', itime_in_file, sumarea, filter, &
+                  'dissolved O2 stock in the well-mixed lake water column', 'mol/m2', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (mhist_on('f_lake_water_ch4_oxid'), a_lake_water_ch4_oxid, file_hist, &
+                  'f_lake_water_ch4_oxid', itime_in_file, sumarea, filter, &
+                  'lake-water CH4 oxidation sink', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (mhist_on('f_lake_sed_ch4_flux'), a_lake_sed_ch4_flux, file_hist, &
+                  'f_lake_sed_ch4_flux', itime_in_file, sumarea, filter, &
+                  'diffusive CH4 flux from sediment to lake water', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (mhist_on('f_lake_sed_o2_flux'), a_lake_sed_o2_flux, file_hist, &
+                  'f_lake_sed_o2_flux', itime_in_file, sumarea, filter, &
+                  'diffusive O2 flux from sediment to lake water (positive upward)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
+               CALL write_history_variable_2d (mhist_on('f_lake_air_o2_flux'), a_lake_air_o2_flux, file_hist, &
+                  'f_lake_air_o2_flux', itime_in_file, sumarea, filter, &
+                  'lake-water to atmosphere O2 exchange flux (positive upward)', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num_lake)
 
                ! extras + microbe diagnostics — swap back to active CH4 mask
                IF ((p_is_worker) .and. (numpatch > 0)) THEN
@@ -927,7 +1020,7 @@ CONTAINS
                   filter = filter .and. patchmask
                   IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
                ENDIF
-               IF (HistForm == 'Gridded') THEN
+               IF (need_extra_history .and. HistForm == 'Gridded') THEN
                   CALL mp2g_hist%get_sumarea (sumarea, filter)
                ENDIF
 
@@ -1003,7 +1096,7 @@ CONTAINS
                      filter = (patchtype == 0) .and. patchmask
                      IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
                   ENDIF
-                  IF (HistForm == 'Gridded') THEN
+                  IF (need_soil_history .and. HistForm == 'Gridded') THEN
                      CALL mp2g_hist%get_sumarea (sumarea, filter)
                   ENDIF
                   CALL write_history_variable_2d (mhist_on('f_methane_soil_zwt'), a_methane_soil_zwt, file_hist, &
@@ -1016,7 +1109,88 @@ CONTAINS
                      acc_num=a_methane_acc_num)
                ENDIF
 
+	            IF (methane_history_match_count == 0) THEN
+	               CALL CoLM_stop (' ***** ERROR: ch4_history_vars selects no known methane history variable: '// &
+	                  trim(DEF_METHANE%ch4_history_vars))
+	            ENDIF
+
    END SUBROUTINE methane_reactive_history
+
+   logical FUNCTION mhist_on (varname)
+
+      USE MOD_Tracer_Reactive_Methane_Const, only: methane_history_enabled
+      IMPLICIT NONE
+      character(len=*), intent(in) :: varname
+
+      mhist_on = methane_history_enabled(varname)
+      IF (mhist_on) methane_history_match_count = methane_history_match_count + 1
+
+   END FUNCTION mhist_on
+
+   logical FUNCTION methane_history_selector_is_off (raw_selector)
+
+      USE MOD_Tracer_Defs, only: tracer_lower
+      IMPLICIT NONE
+      character(len=*), intent(in) :: raw_selector
+      character(len=len(raw_selector)) :: selector
+
+      selector = tracer_lower(adjustl(trim(raw_selector)))
+      SELECT CASE (trim(selector))
+      CASE ('none', 'off', 'false', '.false.')
+         methane_history_selector_is_off = .true.
+      CASE DEFAULT
+         methane_history_selector_is_off = .false.
+      END SELECT
+
+   END FUNCTION methane_history_selector_is_off
+
+   logical FUNCTION methane_history_all_land_only (raw_selector)
+
+      USE MOD_Tracer_Defs, only: tracer_lower
+      IMPLICIT NONE
+      character(len=*), intent(in) :: raw_selector
+      character(len=len(raw_selector)) :: list, token
+      integer :: i, n, comma
+
+      list = ' '
+      n = 0
+      DO i = 1, len_trim(raw_selector)
+         IF (raw_selector(i:i) == ' ' .or. raw_selector(i:i) == char(9)) CYCLE
+         n = n + 1
+         list(n:n) = raw_selector(i:i)
+      ENDDO
+      list = tracer_lower(list)
+      methane_history_all_land_only = .false.
+      IF (len_trim(list) == 0) RETURN
+
+      DO
+         comma = index(list, ',')
+         IF (comma > 0) THEN
+            IF (comma == 1) RETURN
+            token = list(:comma-1)
+            list = list(comma+1:)
+         ELSE
+            token = list
+         ENDIF
+         SELECT CASE (trim(token))
+         CASE ('f_methane_surf_flux_tot', &
+               'f_methane_surf_flux_wetland', &
+               'f_methane_surf_flux_soil', &
+               'f_methane_surf_flux_lake', &
+               'f_methane_surf_flux_rice', &
+               'f_methane_surf_flux_active_total_without_lake', &
+               'f_methane_surf_flux_global_total_with_lake', &
+               'f_methane_surf_flux_global_phys_with_lake', &
+               'f_methane_balance_residual_global_with_lake', &
+               'f_methane_ch4_clip_credit_global_with_lake')
+         CASE DEFAULT
+            RETURN
+         END SELECT
+         IF (comma == 0) EXIT
+      ENDDO
+      methane_history_all_land_only = .true.
+
+   END FUNCTION methane_history_all_land_only
 
 END MODULE MOD_Tracer_Reactive_Methane_Hist
 #endif

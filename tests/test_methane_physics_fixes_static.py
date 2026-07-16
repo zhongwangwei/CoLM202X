@@ -11,16 +11,16 @@ def source(name: str) -> str:
     return (TRACER / name).read_text(encoding="utf-8")
 
 
-def test_freezeout_switch_controls_ch4_ice_storage() -> None:
+def test_soil_ice_is_excluded_from_mobile_ch4_storage() -> None:
     physics = source("MOD_Tracer_Reactive_Methane_Physics.F90")
+    const = source("MOD_Tracer_Reactive_Methane_Const.F90")
     split = physics.split("subroutine split_ch4_o2_phases", 1)[1].split(
         "end subroutine split_ch4_o2_phases", 1
     )[0]
 
-    assert "DEF_METHANE%methane_frzout" in split
     assert "vol_ch4_storage" in split
-    assert "vol_ch4_storage(j) = vol_aqu(j) + vol_ice" in split
     assert "vol_ch4_storage(j) = vol_aqu(j)" in split
+    assert "methane_frzout is retired" in const
 
 
 def test_fully_frozen_ch4_storage_is_not_zeroed_by_transport() -> None:
@@ -40,23 +40,24 @@ def test_slpratio_has_one_ratio_contract_without_value_based_unit_guessing() -> 
         "END SUBROUTINE compute_f_h2osfc", 1
     )[0]
 
-    assert "slope_angle = atan(max(slpratio_in, 0._r8))" in compute
+    assert "slope_arg = max(slpratio_in, 0._r8)" in compute
+    assert "slope_angle = atan(slope_arg)" in compute
     assert "ELSEIF (slope_arg" not in compute
     assert "slope_arg / 100._r8" not in compute
     assert "slope_arg * PI / 180._r8" not in compute
 
 
-def test_unimplemented_methane_parameters_are_not_exposed() -> None:
+def test_retired_hydrology_parameters_are_inert_and_fail_closed() -> None:
     const = source("MOD_Tracer_Reactive_Methane_Const.F90")
     state = source("MOD_Tracer_Reactive_Methane_State.F90")
     standard = (ROOT / "run" / "standard_ch4_parameter.nml").read_text(
         encoding="utf-8"
     )
 
-    for name in ("vdcf", "rice_paddy_min_wdsrf_mm"):
-        assert name not in const
-        assert name not in standard
-    assert "real(r8) :: pc" not in const
+    assert "vdcf and pc remain in the namelist only for backward compatibility" in const
+    assert "retired methane hydrology knobs vdcf/pc must retain defaults" in const
+    assert "rice_paddy_min_wdsrf_mm" not in const
+    assert "rice_paddy_min_wdsrf_mm" not in standard
     assert "DEF_METHANE_hydrology%pc" not in state
 
 
@@ -78,8 +79,8 @@ def test_uncoupled_microbial_pools_and_dependent_options_fail_fast() -> None:
     assert "DEF_METHANE%use_microbial_pools         = .false." in standard
     assert "DEF_METHANE%use_microbial_flux_override = .false." in standard
     assert "DEF_METHANE%use_microbial_dormancy      = .false." in standard
-    assert "B_max_fraction_methanogen  = 0.01" in standard
-    assert "B_max_fraction_methanotroph = 0.01" in standard
+    assert "B_max_fraction_methanogen  = -1.0" in standard
+    assert "B_max_fraction_methanotroph = -1.0" in standard
 
 
 def test_lulcc_remap_builds_and_reuses_one_patch_mapping() -> None:
@@ -234,8 +235,8 @@ def test_reentry_resets_transient_atmospheric_methane_cache() -> None:
     assert "DEF_METHANE = Methane_type()" in reader
     assert "DEF_METHANE_hydrology = Methane_hydrology_type()" in reader
     assert "atm_ch4_file_loaded = .false." in reader
-    assert "atm_ch4_file_warned = .false." in reader
     assert "atm_ch4_file_molmol(:,:) = -1._r8" in reader
+    assert "atm_ch4_file_warned" not in const
 
 
 def test_offline_only_contract_still_fails_fast() -> None:
@@ -258,14 +259,13 @@ def test_default_history_exposes_global_physical_and_residual_fluxes() -> None:
     assert "'f_methane_balance_residual_global_with_lake'" in core
 
 
-def test_standard_comments_match_enabled_soil_and_reduced_order_lake_scope() -> None:
+def test_standard_comments_match_enabled_soil_and_prognostic_lake_scope() -> None:
     standard = (ROOT / "run" / "standard_ch4_parameter.nml").read_text(
         encoding="utf-8"
     )
 
-    assert "run every supported patchtype-0 soil column" in standard
+    assert "routing-connected soil columns" in standard
     assert "DEF_METHANE%only_wetland      = .false." in standard
-    assert "reduced-order lake" in standard
-    assert "does not resolve a" in standard
+    assert "explicit well-mixed water-column stock" in standard
     assert "DEF_METHANE%allowlakeprod         = .true." in standard
     assert "DEF_METHANE%ch4_history_vars  = 'core'" in standard

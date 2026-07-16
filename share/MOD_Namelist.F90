@@ -12,6 +12,7 @@ MODULE MOD_Namelist
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
+   USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
    IMPLICIT NONE
    SAVE
 
@@ -1326,7 +1327,15 @@ CONTAINS
          DEF_HIST_mode = 'one'
 #endif
 
-         IF (DEF_simulation_time%timestep > 3600.) THEN
+         IF (.not. ieee_is_finite(DEF_simulation_time%timestep)) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: timestep must be finite and greater than zero.'
+            CALL CoLM_Stop ()
+         ELSEIF (DEF_simulation_time%timestep <= 0._r8) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: timestep must be finite and greater than zero.'
+            CALL CoLM_Stop ()
+         ELSEIF (DEF_simulation_time%timestep > 3600._r8) THEN
             write(*,*) '                  *****                  '
             write(*,*) 'Warning: timestep should be less than or equal to 3600 seconds.'
             CALL CoLM_Stop ()

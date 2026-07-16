@@ -13,17 +13,23 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
 
    USE MOD_Precision
    USE MOD_SPMD_Task, only: CoLM_stop
-   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
+   USE MOD_TimeManager, only: isleapyear
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan
    USE MOD_Vars_Global, only: nl_soil, dz_soi, spval
-   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, catomw, &
+      METHANE_COMP_SOIL, METHANE_COMP_RICE, N_METHANE_COMP
    USE MOD_Tracer_Reactive_Methane_pH, only: get_ph_for_patch
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
-   USE MOD_Vars_PFTimeInvariants,  only: pftfrac
+   USE MOD_Vars_PFTimeInvariants,  only: pftfrac, pftclass
+   USE MOD_Vars_PFTimeVariables,   only: lai_p, irrig_method_p
    USE MOD_BGC_Vars_TimeInvariants, only: organic_max, &
       i_met_lit, i_cel_lit, i_lig_lit, i_cwd, i_soil1, i_soil2, i_soil3, &
       donor_pool, is_litter, is_soil, is_cwd
-   USE MOD_BGC_Vars_1DFluxes,       only: decomp_hr_vr, pot_f_nit_vr
+   USE MOD_BGC_Vars_1DFluxes,       only: decomp_hr_vr, decomp_hr, pot_f_nit_vr, ar, er
    USE MOD_BGC_Vars_TimeVariables,  only: decomp_cpools_vr, o_scalar
+   USE MOD_BGC_CNCStateUpdate1, only: CDecompStateUpdate
+   USE MOD_BGC_Soil_BiogeochemNStateUpdate1, only: SoilBiogeochemNDecompStateUpdate
+   USE MOD_BGC_CNSummary, only: CNDriverSummarizeNonvegetatedSoilStates
    USE MOD_BGC_Vars_PFTimeVariables, only: annsum_npp_p, cinput_rootfr_p
    USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_poros, wetland_aere_radius, &
                                               wetland_aere_tillerC, wetland_aere_scale, &
@@ -43,6 +49,8 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    IMPLICIT NONE
    PRIVATE
    PUBLIC :: tracer_ch4_bgc_patch_inputs
+   PUBLIC :: tracer_ch4_bgc_component_veg_inputs
+   PUBLIC :: tracer_ch4_bgc_finalize_step
    PUBLIC :: get_wetland_veg_proxy
    PUBLIC :: get_rice_veg_proxy
    PUBLIC :: paddy_rice_fraction
@@ -63,6 +71,42 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    real(r8), parameter :: O_SCALAR_CONTRACT_TOL = 1.e-8_r8
 
 CONTAINS
+
+   SUBROUTINE tracer_ch4_bgc_finalize_step(ipatch, patchtype, deltim, net_methane)
+
+      integer,  intent(in) :: ipatch, patchtype
+      real(r8), intent(in) :: deltim, net_methane
+      real(r8) :: co2_hr, total_hr
+
+      IF (patchtype /= 0 .and. patchtype /= 2) RETURN
+
+      IF (patchtype == 2) THEN
+         CALL CDecompStateUpdate(ipatch, deltim, nl_soil, size(decomp_hr_vr,2), .true.)
+         CALL SoilBiogeochemNDecompStateUpdate(ipatch, deltim, nl_soil, &
+            size(decomp_hr_vr,2), .true.)
+         CALL CNDriverSummarizeNonvegetatedSoilStates(ipatch, nl_soil, dz_soi, &
+            size(decomp_cpools_vr,2))
+      ENDIF
+
+      total_hr = sum(sum(decomp_hr_vr(1:nl_soil,:,ipatch), dim=2) * dz_soi(1:nl_soil))
+      IF (.not. ieee_is_finite(total_hr) .or. total_hr < -1.e-12_r8 .or. &
+          .not. ieee_is_finite(net_methane)) THEN
+         CALL CoLM_stop(' ***** ERROR: CH4/BGC carbon partition received invalid respiration')
+      ENDIF
+      co2_hr = total_hr + catomw * net_methane
+      IF (.not. ieee_is_finite(co2_hr) .or. co2_hr < -1.e-12_r8) THEN
+         CALL CoLM_stop(' ***** ERROR: CH4/BGC carbon partition produced negative CO2 respiration')
+      ENDIF
+
+      ! BGC pool loss remains total_hr.  Publish only CO2-C through the
+      ! legacy HR/ER diagnostics; f_net_methane is the already-applied
+      ! molar correction and must not be added to offline CO2 ER/NEE again.
+      ! Total decomposed pool C is f_hr - catomw * f_net_methane.
+      decomp_hr(ipatch) = max(co2_hr, 0._r8)
+      IF (patchtype == 2) ar(ipatch) = 0._r8
+      er(ipatch) = ar(ipatch) + decomp_hr(ipatch)
+
+   END SUBROUTINE tracer_ch4_bgc_finalize_step
 
    SUBROUTINE tracer_ch4_bgc_patch_inputs (ipatch, rootfr, crootfr, pH, cellorg, &
       somhr, lithr, hr_vr, rr, agnpp, bgnpp, annsum_npp, fphr, &
@@ -273,6 +317,145 @@ CONTAINS
       ! not expose an equivalent field, so use full HR contribution while the
       ! rest of BGC coupling remains field-for-field reconstructed above.
    END SUBROUTINE tracer_ch4_bgc_patch_inputs
+
+
+   SUBROUTINE tracer_ch4_bgc_component_veg_inputs(ipatch, rootfr_fallback, &
+      component_fraction, lai_component, crootfr_component, rr_component, &
+      agnpp_component, bgnpp_component, annsum_npp_component, ready)
+      ! Reconstruct intensive PFT-driven vegetation forcing for the independent
+      ! non-paddy and paddy methane columns.  Patch-soil quantities stay in the
+      ! patch bridge above; only fields that actually retain a PFT dimension are
+      ! split here.  One PFT scan computes both columns and introduces no MPI.
+      integer, intent(in) :: ipatch
+      real(r8), intent(in) :: rootfr_fallback(1:nl_soil)
+      real(r8), intent(out) :: component_fraction(N_METHANE_COMP)
+      real(r8), intent(out) :: lai_component(N_METHANE_COMP)
+      real(r8), intent(out) :: crootfr_component(1:nl_soil,N_METHANE_COMP)
+      real(r8), intent(out) :: rr_component(N_METHANE_COMP)
+      real(r8), intent(out) :: agnpp_component(N_METHANE_COMP)
+      real(r8), intent(out) :: bgnpp_component(N_METHANE_COMP)
+      real(r8), intent(out) :: annsum_npp_component(N_METHANE_COMP)
+      logical, intent(out) :: ready(N_METHANE_COMP)
+
+      integer :: ps, pe, m, j, component
+      real(r8) :: frac, rice_area, total_pft_area, profile_sum
+      real(r8) :: agnpp_pft, bgnpp_pft, rr_pft
+      logical :: is_rice
+
+      component_fraction = 0._r8
+      component_fraction(METHANE_COMP_SOIL) = 1._r8
+      lai_component = 0._r8
+      crootfr_component = 0._r8
+      rr_component = 0._r8
+      agnpp_component = 0._r8
+      bgnpp_component = 0._r8
+      annsum_npp_component = 0._r8
+      ready = .false.
+
+      ps = -1
+      pe = -1
+      IF (allocated(patch_pft_s) .and. allocated(patch_pft_e)) THEN
+         IF (ipatch >= 1 .and. ipatch <= size(patch_pft_s) .and. &
+             ipatch <= size(patch_pft_e)) THEN
+            ps = patch_pft_s(ipatch)
+            pe = patch_pft_e(ipatch)
+         ENDIF
+      ENDIF
+      IF (.not. pft_arrays_ready(ps, pe)) RETURN
+      IF (.not. allocated(pftclass) .or. .not. allocated(lai_p) .or. &
+          .not. allocated(irrig_method_p)) RETURN
+      IF (pe > size(pftclass) .or. pe > size(lai_p) .or. pe > size(irrig_method_p)) RETURN
+
+      rice_area = 0._r8
+      total_pft_area = 0._r8
+      DO m = ps, pe
+         ! A partially initialized PFT record must not be renormalized away;
+         ! fall back to the already-sanitized patch inputs instead.
+         IF (.not. valid_bgc_value(pftfrac(m)) .or. pftfrac(m) < 0._r8 .or. &
+             .not. valid_bgc_value(lai_p(m)) .or. lai_p(m) < 0._r8 .or. &
+             .not. valid_bgc_value(annsum_npp_p(m)) .or. &
+             any(.not. valid_bgc_value(cinput_rootfr_p(1:nl_soil,m))) .or. &
+             .not. valid_component_pft_fluxes(m)) RETURN
+         frac = pftfrac(m)
+         total_pft_area = total_pft_area + frac
+         is_rice = ch4_rice_pft_is_paddy(pftclass(m), irrig_method_p(m))
+         IF (is_rice) rice_area = rice_area + frac
+         component = merge(METHANE_COMP_RICE, METHANE_COMP_SOIL, is_rice)
+
+         agnpp_pft = &
+            safe_nonnegative(cpool_to_leafc_p(m)) + safe_nonnegative(cpool_to_leafc_storage_p(m)) + &
+            safe_nonnegative(cpool_to_livestemc_p(m)) + safe_nonnegative(cpool_to_livestemc_storage_p(m)) + &
+            safe_nonnegative(cpool_to_deadstemc_p(m)) + safe_nonnegative(cpool_to_deadstemc_storage_p(m))
+         bgnpp_pft = &
+            safe_nonnegative(cpool_to_frootc_p(m)) + safe_nonnegative(cpool_to_frootc_storage_p(m)) + &
+            safe_nonnegative(cpool_to_livecrootc_p(m)) + safe_nonnegative(cpool_to_livecrootc_storage_p(m)) + &
+            safe_nonnegative(cpool_to_deadcrootc_p(m)) + safe_nonnegative(cpool_to_deadcrootc_storage_p(m))
+         rr_pft = safe_nonnegative(froot_mr_p(m)) + safe_nonnegative(cpool_froot_gr_p(m)) + &
+            safe_nonnegative(cpool_froot_storage_gr_p(m)) + safe_nonnegative(cpool_livecroot_gr_p(m)) + &
+            safe_nonnegative(cpool_livecroot_storage_gr_p(m)) + safe_nonnegative(cpool_deadcroot_gr_p(m)) + &
+            safe_nonnegative(cpool_deadcroot_storage_gr_p(m)) + safe_nonnegative(transfer_froot_gr_p(m)) + &
+            safe_nonnegative(transfer_livecroot_gr_p(m)) + safe_nonnegative(transfer_deadcroot_gr_p(m))
+
+         lai_component(component) = lai_component(component) + frac * lai_p(m)
+         agnpp_component(component) = agnpp_component(component) + frac * agnpp_pft
+         bgnpp_component(component) = bgnpp_component(component) + frac * bgnpp_pft
+         rr_component(component) = rr_component(component) + frac * rr_pft
+         annsum_npp_component(component) = annsum_npp_component(component) + &
+            frac * safe_nonnegative(annsum_npp_p(m))
+         DO j = 1, nl_soil
+            crootfr_component(j,component) = crootfr_component(j,component) + &
+               frac * max(cinput_rootfr_p(j,m), 0._r8) * dz_soi(j)
+         ENDDO
+      ENDDO
+      IF (total_pft_area > 1._r8 + 1.e-8_r8) RETURN
+
+      rice_area = min(max(rice_area, 0._r8), 1._r8)
+      component_fraction(METHANE_COMP_RICE) = rice_area
+      component_fraction(METHANE_COMP_SOIL) = 1._r8 - rice_area
+
+      DO component = 1, N_METHANE_COMP
+         IF (component_fraction(component) <= 1.e-14_r8) CYCLE
+         lai_component(component) = lai_component(component) / component_fraction(component)
+         agnpp_component(component) = agnpp_component(component) / component_fraction(component)
+         bgnpp_component(component) = bgnpp_component(component) / component_fraction(component)
+         rr_component(component) = rr_component(component) / component_fraction(component)
+         annsum_npp_component(component) = annsum_npp_component(component) / component_fraction(component)
+
+         profile_sum = sum(crootfr_component(:,component))
+         IF (profile_sum <= 0._r8) THEN
+            DO j = 1, nl_soil
+               IF (valid_bgc_value(rootfr_fallback(j))) &
+                  crootfr_component(j,component) = max(rootfr_fallback(j), 0._r8)
+            ENDDO
+            profile_sum = sum(crootfr_component(:,component))
+         ENDIF
+         IF (profile_sum > 0._r8) THEN
+            crootfr_component(:,component) = crootfr_component(:,component) / profile_sum
+         ELSE
+            crootfr_component(1,component) = 1._r8
+         ENDIF
+         ready(component) = .true.
+      ENDDO
+   END SUBROUTINE tracer_ch4_bgc_component_veg_inputs
+
+
+   LOGICAL FUNCTION valid_component_pft_fluxes(m)
+      integer, intent(in) :: m
+      real(r8) :: values(22)
+
+      values = [froot_mr_p(m), &
+         cpool_to_leafc_p(m), cpool_to_leafc_storage_p(m), &
+         cpool_to_livestemc_p(m), cpool_to_livestemc_storage_p(m), &
+         cpool_to_deadstemc_p(m), cpool_to_deadstemc_storage_p(m), &
+         cpool_to_frootc_p(m), cpool_to_frootc_storage_p(m), &
+         cpool_to_livecrootc_p(m), cpool_to_livecrootc_storage_p(m), &
+         cpool_to_deadcrootc_p(m), cpool_to_deadcrootc_storage_p(m), &
+         cpool_froot_gr_p(m), cpool_froot_storage_gr_p(m), &
+         cpool_livecroot_gr_p(m), cpool_livecroot_storage_gr_p(m), &
+         cpool_deadcroot_gr_p(m), cpool_deadcroot_storage_gr_p(m), &
+         transfer_froot_gr_p(m), transfer_livecroot_gr_p(m), transfer_deadcroot_gr_p(m)]
+      valid_component_pft_fluxes = all(valid_bgc_value(values))
+   END FUNCTION valid_component_pft_fluxes
 
 
    SUBROUTINE methane_check_anoxia_contract (o_scalar_patch)
@@ -728,22 +911,29 @@ CONTAINS
 
    !---------------------------------------------------------------------------
    ! Days past planting / since harvest for the first paddy rice CFT in the
-   ! patch, using CoLM's standard "idpp = jday - idop + dayspyr (if wrap)"
-   ! convention from MOD_BGC_Veg_CNPhenology.F90.  Returns -1 when info is
-   ! unavailable (no paddy rice, harvdate=NOT_Harvested, etc).
+   ! patch.  A wrapped event belongs to the previous calendar year, so its
+   ! year length can differ from the current year across a leap-year boundary.
+   ! Returns -1 when info is unavailable (no paddy rice,
+   ! harvdate=NOT_Harvested, invalid day-of-year, etc).
    !---------------------------------------------------------------------------
-   integer function rice_days_past_planting(ipatch, jday) result(idpp)
+   integer function rice_days_past_planting(ipatch, jday, year) result(idpp)
 #ifdef CROP
       USE MOD_BGC_Vars_PFTimeVariables, only: croplive_p, idop_p
       USE MOD_LandPFT,             only: patch_pft_s, patch_pft_e
       USE MOD_Vars_PFTimeVariables,  only: irrig_method_p
       USE MOD_Vars_PFTimeInvariants, only: pftclass
       integer :: m_loc, ps_loc, pe_loc, n_pft_max
-      integer, parameter :: dayspyr = 365
 #endif
       integer, intent(in) :: ipatch, jday
+      integer, intent(in), optional :: year
+      integer :: dayspyr, event_dayspyr
 
       idpp = -1
+      dayspyr = 365
+      IF (present(year)) THEN
+         IF (isleapyear(year)) dayspyr = 366
+      ENDIF
+      IF (jday < 1 .or. jday > dayspyr) RETURN
 #ifdef CROP
       IF (.not. allocated(patch_pft_s) .or. .not. allocated(patch_pft_e)) RETURN
       IF (.not. allocated(pftclass) .or. .not. allocated(irrig_method_p)) RETURN
@@ -758,11 +948,16 @@ CONTAINS
       DO m_loc = ps_loc, pe_loc
          IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc)) .and. &
              croplive_p(m_loc)) THEN
-            IF (idop_p(m_loc) >= 1 .and. idop_p(m_loc) <= dayspyr) THEN
-               IF (jday >= idop_p(m_loc)) THEN
+            IF (idop_p(m_loc) >= 1) THEN
+               IF (jday >= idop_p(m_loc) .and. idop_p(m_loc) <= dayspyr) THEN
                   idpp = jday - idop_p(m_loc)
                ELSE
-                  idpp = dayspyr + jday - idop_p(m_loc)
+                  event_dayspyr = 365
+                  IF (present(year)) THEN
+                     IF (isleapyear(year - 1)) event_dayspyr = 366
+                  ENDIF
+                  IF (idop_p(m_loc) > event_dayspyr) CYCLE
+                  idpp = event_dayspyr + jday - idop_p(m_loc)
                ENDIF
                RETURN
             ENDIF
@@ -771,19 +966,25 @@ CONTAINS
 #endif
    END FUNCTION rice_days_past_planting
 
-   integer function rice_days_since_harvest(ipatch, jday) result(dsh)
+   integer function rice_days_since_harvest(ipatch, jday, year) result(dsh)
 #ifdef CROP
       USE MOD_BGC_Vars_PFTimeVariables, only: harvdate_p
       USE MOD_LandPFT,             only: patch_pft_s, patch_pft_e
       USE MOD_Vars_PFTimeVariables,  only: irrig_method_p
       USE MOD_Vars_PFTimeInvariants, only: pftclass
       integer :: m_loc, ps_loc, pe_loc, n_pft_max
-      integer, parameter :: dayspyr = 365
       integer, parameter :: NOT_Harvested = 999
 #endif
       integer, intent(in) :: ipatch, jday
+      integer, intent(in), optional :: year
+      integer :: dayspyr, event_dayspyr
 
       dsh = -1
+      dayspyr = 365
+      IF (present(year)) THEN
+         IF (isleapyear(year)) dayspyr = 366
+      ENDIF
+      IF (jday < 1 .or. jday > dayspyr) RETURN
 #ifdef CROP
       IF (.not. allocated(patch_pft_s) .or. .not. allocated(patch_pft_e)) RETURN
       IF (.not. allocated(pftclass) .or. .not. allocated(irrig_method_p)) RETURN
@@ -797,10 +998,15 @@ CONTAINS
       DO m_loc = ps_loc, pe_loc
          IF (ch4_rice_pft_is_paddy(pftclass(m_loc), irrig_method_p(m_loc))) THEN
             IF (harvdate_p(m_loc) >= 1 .and. harvdate_p(m_loc) < NOT_Harvested) THEN
-               IF (jday >= harvdate_p(m_loc)) THEN
+               IF (jday >= harvdate_p(m_loc) .and. harvdate_p(m_loc) <= dayspyr) THEN
                   dsh = jday - harvdate_p(m_loc)
                ELSE
-                  dsh = dayspyr + jday - harvdate_p(m_loc)
+                  event_dayspyr = 365
+                  IF (present(year)) THEN
+                     IF (isleapyear(year - 1)) event_dayspyr = 366
+                  ENDIF
+                  IF (harvdate_p(m_loc) > event_dayspyr) CYCLE
+                  dsh = event_dayspyr + jday - harvdate_p(m_loc)
                ENDIF
                RETURN
             ENDIF
@@ -938,7 +1144,7 @@ CONTAINS
 
    !---------------------------------------------------------------------------
    real(r8) FUNCTION get_biome_redoxlag (patchtype, dlat, cellorg_top, &
-      is_rice_paddy, rice_fraction, rice_parameter_active)
+      is_rice_paddy, rice_fraction, rice_parameter_active, is_floodplain)
    !
    ! Biome-specific redoxlag (microbial response time, days) lookup.
    ! Mirrors get_wetland_veg_proxy 5-zone classification.  Concept: faster
@@ -977,9 +1183,11 @@ CONTAINS
    logical,  intent(in) :: is_rice_paddy
    real(r8), intent(in) :: rice_fraction
    logical,  intent(in) :: rice_parameter_active
+   logical,  intent(in), optional :: is_floodplain
 
    real(r8), parameter :: peat_om_threshold       = 150._r8
    real(r8), parameter :: tropical_peat_threshold = 80._r8
+   logical :: floodplain_active
    real(r8) :: rice_frac
    real(r8) :: nonrice_redoxlag
 
@@ -989,11 +1197,15 @@ CONTAINS
       RETURN
    ENDIF
 
+   floodplain_active = .false.
+   IF (present(is_floodplain)) floodplain_active = is_floodplain
    rice_frac = min(max(rice_fraction, 0._r8), 1._r8)
 
    ! Compute the non-rice background response time, then blend the paddy
    ! rapid-response parameter by rice area fraction for mixed soil patches.
-   IF (patchtype /= 2) THEN
+   IF (floodplain_active) THEN
+      nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_floodplain
+   ELSE IF (patchtype /= 2) THEN
       nonrice_redoxlag = DEF_METHANE%redoxlag_upland_soil
    ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
       nonrice_redoxlag = DEF_METHANE%redoxlag_tropical_peat

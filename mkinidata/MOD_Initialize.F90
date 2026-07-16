@@ -116,6 +116,7 @@ CONTAINS
    real(r8) :: wetland_tot_c
    real(r8) :: wetland_existing_c
    real(r8), parameter :: wetland_cn_ratio = 15._r8
+   real(r8), parameter :: carbon_per_kg_om = 580._r8
 #endif
 
    ! for SOIL INIT of water, temperature, snow depth
@@ -381,7 +382,14 @@ ENDIF
       lndname = trim(dir_landdata)//'/soil/'//trim(cyear)//'/lake_soilc_patches.nc'
       CALL ncio_read_vector (lndname, 'lake_soilc_patches', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
 #else
-      IF (p_is_worker .and. numpatch > 0) lake_soilc_srf(:,:) = 0._r8
+      IF (p_is_worker .and. numpatch > 0) THEN
+         lake_soilc_srf(:,:) = 0._r8
+         DO ipatch = 1, numpatch
+            IF (patchtype(ipatch) == 4) THEN
+               lake_soilc_srf(:,ipatch) = carbon_per_kg_om * max(OM_density(:,ipatch), 0._r8)
+            ENDIF
+         ENDDO
+      ENDIF
 #endif
 #endif
 

@@ -7,9 +7,10 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
 !=======================================================================
 
    USE MOD_Precision
-	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
+	   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan
 	   USE MOD_Vars_Global, only: nl_soil, spval
-	   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+	   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, methane_history_accumulation_mode
+	   USE MOD_SPMD_Task, only: CoLM_stop
 
    IMPLICIT NONE
    SAVE
@@ -70,6 +71,12 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    PUBLIC :: a_grnd_methane_cond_lake
    PUBLIC :: a_grnd_methane_cond_sat
    PUBLIC :: a_grnd_methane_cond_unsat
+   PUBLIC :: a_lake_air_o2_flux
+   PUBLIC :: a_lake_sed_ch4_flux
+   PUBLIC :: a_lake_sed_o2_flux
+   PUBLIC :: a_lake_water_ch4_oxid
+   PUBLIC :: a_lake_water_ch4_stock
+   PUBLIC :: a_lake_water_o2_stock
    PUBLIC :: a_layer_sat_lag
    PUBLIC :: a_methane_acc_num
    PUBLIC :: a_methane_acc_num_extra
@@ -203,9 +210,12 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_surf_aere     (:)
    real(r8), allocatable :: a_methane_surf_ebul     (:)
    real(r8), allocatable :: a_methane_surf_diff     (:)
-   real(r8), allocatable :: a_methane_surf_aere_soil(:), a_methane_surf_aere_rice(:)
-   real(r8), allocatable :: a_methane_surf_ebul_soil(:), a_methane_surf_ebul_rice(:)
-   real(r8), allocatable :: a_methane_surf_diff_soil(:), a_methane_surf_diff_rice(:)
+   real(r8), allocatable :: a_methane_surf_aere_soil(:)
+   real(r8), allocatable :: a_methane_surf_aere_rice(:)
+   real(r8), allocatable :: a_methane_surf_ebul_soil(:)
+   real(r8), allocatable :: a_methane_surf_ebul_rice(:)
+   real(r8), allocatable :: a_methane_surf_diff_soil(:)
+   real(r8), allocatable :: a_methane_surf_diff_rice(:)
    real(r8), allocatable :: a_methane_surf_diff_phys(:)
    real(r8), allocatable :: a_methane_balance_residual (:)
    real(r8), allocatable :: a_methane_ch4_clip_credit (:)
@@ -214,8 +224,11 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_ebul_tot      (:)
    real(r8), allocatable :: a_methane_prod_tot      (:)
    real(r8), allocatable :: a_methane_oxid_tot      (:)
-   real(r8), allocatable :: a_methane_prod_tot_soil (:), a_methane_prod_tot_rice(:)
-   real(r8), allocatable :: a_methane_oxid_tot_soil (:), a_methane_oxid_tot_rice(:)
+   real(r8), allocatable :: a_methane_prod_tot_soil (:)
+   real(r8), allocatable :: a_methane_prod_tot_rice (:)
+   real(r8), allocatable :: a_methane_oxid_tot_soil (:)
+   real(r8), allocatable :: a_methane_oxid_tot_rice (:)
+   real(r8), allocatable :: a_methane_rice_fraction (:)
    real(r8), allocatable :: a_co2_decomp_tot        (:)
    real(r8), allocatable :: a_co2_oxid_tot          (:)
    real(r8), allocatable :: a_co2_aere_tot          (:)
@@ -306,6 +319,12 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_grnd_methane_cond_lake  (:)
    real(r8), allocatable :: a_conc_o2_lake            (:,:)
    real(r8), allocatable :: a_conc_methane_lake       (:,:)
+   real(r8), allocatable :: a_lake_water_ch4_stock     (:)
+   real(r8), allocatable :: a_lake_water_o2_stock      (:)
+   real(r8), allocatable :: a_lake_water_ch4_oxid      (:)
+   real(r8), allocatable :: a_lake_sed_ch4_flux        (:)
+   real(r8), allocatable :: a_lake_sed_o2_flux         (:)
+   real(r8), allocatable :: a_lake_air_o2_flux         (:)
 
    !!!! ----------------------------------------------------------------
    !!!!                         extras
@@ -356,17 +375,27 @@ MODULE MOD_Tracer_Reactive_Methane_AccFlux
    real(r8), allocatable :: a_methane_acc_num_extra (:)
    real(r8), allocatable :: a_methane_acc_num_microbe (:)
    real(r8), allocatable :: a_annavg_finrw_acc_num (:)
-	real(r8), allocatable :: a_methane_rice_fraction (:)
+
+   ! Every accumulator restart read goes through this local generic so a
+   ! committed checkpoint is checked immediately after each collective vector
+   ! read.  This keeps validation coverage mechanically coupled to the read
+   ! list instead of maintaining a second 152-field list by hand.
+   INTERFACE ncio_read_vector
+      MODULE PROCEDURE read_accflux_restart_vector_1d
+      MODULE PROCEDURE read_accflux_restart_vector_2d
+   END INTERFACE ncio_read_vector
+
+   logical :: restart_accflux_corrupt_local = .false.
+
 
 CONTAINS
 
    !-------------------------------------------------------------------
    integer(i8) FUNCTION methane_history_selector_fingerprint()
-      ! A deterministic 52-bit fingerprint is exactly representable in r8,
-      ! so it can use the existing vector restart path without a new NetCDF
-      ! type.  Whitespace and ASCII case are normalized to match selector
-      ! parsing; write-history and microbial-pool flags are part of the
-      ! accumulation contract as well.
+      ! Exact custom selectors can accumulate different array families even
+      ! though they share the same coarse full-history mode.  Persist a
+      ! deterministic 52-bit fingerprint, which is exactly representable in
+      ! r8 and therefore uses the existing vector restart path.
       integer(i8), parameter :: hash_mask = int(z'000FFFFFFFFFFFFF', i8)
       integer :: i, code
 
@@ -510,6 +539,12 @@ CONTAINS
       allocate (a_grnd_methane_cond_lake  (numpatch))
       allocate (a_conc_o2_lake            (nl_soil,numpatch))
       allocate (a_conc_methane_lake       (nl_soil,numpatch))
+      allocate (a_lake_water_ch4_stock     (numpatch))
+      allocate (a_lake_water_o2_stock      (numpatch))
+      allocate (a_lake_water_ch4_oxid      (numpatch))
+      allocate (a_lake_sed_ch4_flux        (numpatch))
+      allocate (a_lake_sed_o2_flux         (numpatch))
+      allocate (a_lake_air_o2_flux         (numpatch))
 
       ! extras
       allocate (a_forc_pmethanem    (numpatch))
@@ -686,6 +721,12 @@ CONTAINS
       a_grnd_methane_cond_lake  (:)   = 0._r8
       a_conc_o2_lake            (:,:) = 0._r8
       a_conc_methane_lake       (:,:) = 0._r8
+      a_lake_water_ch4_stock     (:)   = 0._r8
+      a_lake_water_o2_stock      (:)   = 0._r8
+      a_lake_water_ch4_oxid      (:)   = 0._r8
+      a_lake_sed_ch4_flux        (:)   = 0._r8
+      a_lake_sed_o2_flux         (:)   = 0._r8
+      a_lake_air_o2_flux         (:)   = 0._r8
 
       ! extras
       a_forc_pmethanem    (:)   = 0._r8
@@ -786,6 +827,9 @@ CONTAINS
 	           co2_decomp_tot_lake, co2_oxid_tot_lake, co2_net_tot_lake, &
            totcol_methane_lake, grnd_methane_cond_lake, &
            conc_o2_lake, conc_methane_lake, &
+	           lake_water_ch4_stock, lake_water_o2_stock, lake_frozen_ch4_stock, lake_frozen_o2_stock, &
+	           lake_water_ch4_oxid, &
+	           lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux, &
 	           ! extras
 	           forc_pmethanem, layer_sat_lag, &
 	           annavg_agnpp, annavg_bgnpp, annavg_somhr, annavg_finrw, &
@@ -817,6 +861,12 @@ CONTAINS
       logical, save :: cached_write_history = .false., cached_microbial_pools = .false.
       character(len=4096), save :: cached_history_vars = ' '
       logical :: need_active_count, need_patch_mask, need_any, selector_changed
+      logical :: core_history_only
+      integer :: history_mode
+
+      history_mode = methane_history_accumulation_mode ()
+      IF (history_mode == 0) RETURN
+      core_history_only = history_mode == 1
 
       ! Only worker ranks own local land-patch physics/invariants.  IO and
       ! aggregator ranks can still have methane accumulator buffers sized to
@@ -827,16 +877,16 @@ CONTAINS
       IF (size(patchtype) /= size(totcol_methane)) THEN
          write(6,*) 'accumulate_methane_fluxes: worker patchtype/state size mismatch=', &
             size(patchtype), size(totcol_methane)
-         CALL abort
+         CALL CoLM_stop ('accumulate_methane_fluxes: worker patchtype/state size mismatch')
       ENDIF
       IF (.not. allocated(a_totcol_methane)) THEN
          write(6,*) 'accumulate_methane_fluxes: methane accumulator is not allocated.'
-         CALL abort
+         CALL CoLM_stop ('accumulate_methane_fluxes: methane accumulator is not allocated')
       ENDIF
       IF (size(a_totcol_methane) /= size(totcol_methane)) THEN
          write(6,*) 'accumulate_methane_fluxes: worker state/accumulator size mismatch=', &
             size(totcol_methane), size(a_totcol_methane)
-         CALL abort
+         CALL CoLM_stop ('accumulate_methane_fluxes: worker state/accumulator size mismatch')
       ENDIF
 
       ! History selection is fixed by the methane namelist.  Compute coarse
@@ -929,6 +979,9 @@ CONTAINS
          mhist_on('f_co2_oxid_tot_lake'), mhist_on('f_co2_net_tot_lake'), &
          mhist_on('f_totcol_methane_lake'), mhist_on('f_grnd_methane_cond_lake'), &
          mhist_on('f_conc_o2_lake'), mhist_on('f_conc_methane_lake'), &
+         mhist_on('f_lake_water_ch4_stock'), mhist_on('f_lake_water_o2_stock'), &
+         mhist_on('f_lake_water_ch4_oxid'), mhist_on('f_lake_sed_ch4_flux'), &
+         mhist_on('f_lake_sed_o2_flux'), mhist_on('f_lake_air_o2_flux'), &
          mhist_on('f_methane_surf_flux_tot'), mhist_on('f_methane_surf_flux_lake'), &
          mhist_on('f_methane_surf_flux_lake_intensive'), &
          mhist_on('f_methane_surf_flux_global_total_with_lake'), &
@@ -985,6 +1038,29 @@ CONTAINS
 	                                          DEF_METHANE%enable_rice_paddy, patchtype, &
 	                                          methane_active_mask)
 	      ENDIF
+
+      ! The production selector needs only these fields.  Avoid touching the
+      ! remaining O(npatch*nl_soil) diagnostic arrays on every model step.
+      IF (core_history_only) THEN
+         CALL acc1d (methane_surf_flux_tot,      a_methane_surf_flux_tot)
+         CALL acc1d (methane_surf_flux_tot_phys, a_methane_surf_flux_tot_phys)
+         CALL acc1d (methane_balance_residual,   a_methane_balance_residual)
+         CALL acc1d (methane_ch4_clip_credit,    a_methane_ch4_clip_credit)
+         CALL acc1d (o2_cap_loss,                 a_o2_cap_loss)
+         CALL acc1d (o2_cap_gain,                 a_o2_cap_gain)
+         CALL acc1d (methane_prod_tot,            a_methane_prod_tot)
+         CALL acc1d (methane_oxid_tot,            a_methane_oxid_tot)
+         CALL acc1d (totcol_methane,              a_totcol_methane)
+         CALL acc1d (methane_surf_flux_wetland,   a_methane_surf_flux_wetland)
+         CALL acc1d (methane_surf_flux_soil,      a_methane_surf_flux_soil)
+         CALL acc1d (methane_surf_flux_lake,      a_methane_surf_flux_lake)
+         CALL acc1d (methane_surf_flux_rice,      a_methane_surf_flux_rice)
+         CALL acc1d (methane_surf_flux_tot_lake,  a_methane_surf_flux_tot_lake)
+         CALL acc_count1d_masked (totcol_methane, a_methane_acc_num, methane_active_mask)
+         CALL acc_count1d_masked (totcol_methane_lake, a_methane_acc_num_lake, &
+            patchtype == 4 .and. DEF_METHANE%allowlakeprod)
+         RETURN
+      ENDIF
 
       ! sum data
       IF (need_main_layers) THEN
@@ -1135,6 +1211,12 @@ CONTAINS
       CALL acc1d (grnd_methane_cond_lake  , a_grnd_methane_cond_lake  )
       CALL acc2d (conc_o2_lake            , a_conc_o2_lake            )
       CALL acc2d (conc_methane_lake       , a_conc_methane_lake       )
+      CALL acc1d (lake_water_ch4_stock + lake_frozen_ch4_stock, a_lake_water_ch4_stock)
+      CALL acc1d (lake_water_o2_stock + lake_frozen_o2_stock, a_lake_water_o2_stock)
+      CALL acc1d (lake_water_ch4_oxid      , a_lake_water_ch4_oxid      )
+      CALL acc1d (lake_sed_ch4_flux        , a_lake_sed_ch4_flux        )
+      CALL acc1d (lake_sed_o2_flux         , a_lake_sed_o2_flux         )
+      CALL acc1d (lake_air_o2_flux         , a_lake_air_o2_flux         )
       ! Only active lake patches contribute to the lake count.  Without this
       ! mask, every non-lake patch with totcol_methane_lake=0 (its initial
       ! value, never touched by methane_driver) would increment the denominator
@@ -1450,6 +1532,18 @@ CONTAINS
          'soil', nl_soil, 'patch', landpatch, a_conc_o2_lake, compress)
       IF (allocated(a_conc_methane_lake)) CALL ncio_write_vector (file_restart, 'ch4_a_conc_methane_lake', &
          'soil', nl_soil, 'patch', landpatch, a_conc_methane_lake, compress)
+      IF (allocated(a_lake_water_ch4_stock)) CALL ncio_write_vector (file_restart, 'ch4_a_lake_water_ch4_stock', &
+         'patch', landpatch, a_lake_water_ch4_stock, compress)
+      IF (allocated(a_lake_water_o2_stock)) CALL ncio_write_vector (file_restart, 'ch4_a_lake_water_o2_stock', &
+         'patch', landpatch, a_lake_water_o2_stock, compress)
+      IF (allocated(a_lake_water_ch4_oxid)) CALL ncio_write_vector (file_restart, 'ch4_a_lake_water_ch4_oxid', &
+         'patch', landpatch, a_lake_water_ch4_oxid, compress)
+      IF (allocated(a_lake_sed_ch4_flux)) CALL ncio_write_vector (file_restart, 'ch4_a_lake_sed_ch4_flux', &
+         'patch', landpatch, a_lake_sed_ch4_flux, compress)
+      IF (allocated(a_lake_sed_o2_flux)) CALL ncio_write_vector (file_restart, 'ch4_a_lake_sed_o2_flux', &
+         'patch', landpatch, a_lake_sed_o2_flux, compress)
+      IF (allocated(a_lake_air_o2_flux)) CALL ncio_write_vector (file_restart, 'ch4_a_lake_air_o2_flux', &
+         'patch', landpatch, a_lake_air_o2_flux, compress)
       IF (allocated(a_forc_pmethanem)) CALL ncio_write_vector (file_restart, 'ch4_a_forc_pmethanem', &
          'patch', landpatch, a_forc_pmethanem, compress)
       IF (allocated(a_layer_sat_lag)) CALL ncio_write_vector (file_restart, 'ch4_a_layer_sat_lag', &
@@ -1529,56 +1623,99 @@ CONTAINS
    END SUBROUTINE write_methane_accflux_restart
 
    !-------------------------------------------------------------------
-   SUBROUTINE read_methane_accflux_restart (file_restart)
+   SUBROUTINE read_methane_accflux_restart (file_restart, checkpoint_has_microbe_pools, &
+         checkpoint_has_microbe_accumulators, strict_restart, restart_schema)
       USE MOD_LandPatch,    only: landpatch
-      USE MOD_NetCDFVector, only: ncio_read_vector => ncio_read_vector_complete, &
-         ncio_vector_var_present
+      USE MOD_NetCDFVector, only: ncio_vector_var_present, ncio_set_complete_require_present
 #ifdef USEMPI
-      USE MOD_SPMD_Task,    only: p_is_master, p_is_worker, p_comm_glb, p_err, &
-         MPI_IN_PLACE, MPI_LOGICAL, MPI_LOR
+      USE MOD_SPMD_Task,    only: p_is_worker, p_is_master, p_comm_glb, p_err, &
+         MPI_IN_PLACE, MPI_LOGICAL, MPI_LOR, CoLM_stop
 #else
-      USE MOD_SPMD_Task,    only: p_is_master, p_is_worker
+      USE MOD_SPMD_Task,    only: p_is_worker, p_is_master, CoLM_stop
 #endif
-	  USE MOD_Tracer_Reactive_Methane_State, only: rice_fraction_prev
       character(len=*), intent(in) :: file_restart
-      logical :: has_microbe_accumulator, has_rice_fraction_accumulator
-      logical :: has_history_selector_marker, history_selector_changed
+      logical, intent(in), optional :: checkpoint_has_microbe_pools
+      logical, intent(in), optional :: checkpoint_has_microbe_accumulators, strict_restart
+      integer, intent(in), optional :: restart_schema
+      logical :: has_microbe_accumulator, read_microbe_fields, strict_restart_active
+      logical :: corrupt_accumulator_values, has_history_selector_marker
+      logical :: history_selector_changed, invalid_selector_marker
+      integer :: restart_schema_active
+      real(r8), allocatable :: discarded_microbe_accumulator_1d(:)
+      real(r8), allocatable :: discarded_microbe_accumulator_2d(:,:)
       real(r8), allocatable :: selector_marker(:)
       real(r8) :: selector_fingerprint
 
       IF (.not. allocated(a_methane_acc_num)) RETURN
 
+      IF (present(checkpoint_has_microbe_accumulators)) THEN
+         has_microbe_accumulator = checkpoint_has_microbe_accumulators
+      ELSE
+         has_microbe_accumulator = ncio_vector_var_present( &
+            file_restart, 'ch4_a_methane_acc_num_microbe', landpatch)
+      ENDIF
+      read_microbe_fields = .false.
+      IF (present(checkpoint_has_microbe_pools)) read_microbe_fields = checkpoint_has_microbe_pools
+      strict_restart_active = .false.
+      IF (present(strict_restart)) strict_restart_active = strict_restart
+      restart_schema_active = 0
+      IF (present(restart_schema)) restart_schema_active = restart_schema
+      restart_accflux_corrupt_local = .false.
+
+      ! Schema 3 is the first transaction that contains every current
+      ! accumulator, including the soil/rice split and accumulated rice-area
+      ! denominator.  Older committed schemas are readable, but their partial
+      ! window must be discarded after optional/defaulted fields are loaded.
+      IF (strict_restart_active .and. restart_schema_active < 3) THEN
+         CALL ncio_set_complete_require_present (.false.)
+      ENDIF
+
       selector_fingerprint = real(methane_history_selector_fingerprint(), r8)
       has_history_selector_marker = ncio_vector_var_present( &
          file_restart, 'ch4_acc_history_selector_hash', landpatch)
+      IF (strict_restart_active .and. restart_schema_active >= 3 .and. &
+          .not. has_history_selector_marker) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: schema-3 methane restart is missing the history-selector fingerprint.'
+         CALL CoLM_stop()
+      ENDIF
       history_selector_changed = .false.
+      invalid_selector_marker = .false.
       IF (has_history_selector_marker) THEN
          CALL ncio_read_vector(file_restart, 'ch4_acc_history_selector_hash', &
             landpatch, selector_marker)
          IF (p_is_worker .and. allocated(selector_marker)) THEN
+            invalid_selector_marker = any(.not. ieee_is_finite(selector_marker)) .or. &
+               any(abs(selector_marker) >= 0.5_r8*abs(spval))
             history_selector_changed = any(selector_marker /= selector_fingerprint)
          ENDIF
 #ifdef USEMPI
-         CALL mpi_allreduce(MPI_IN_PLACE, history_selector_changed, 1, MPI_LOGICAL, MPI_LOR, &
-            p_comm_glb, p_err)
+         CALL mpi_allreduce(MPI_IN_PLACE, invalid_selector_marker, 1, MPI_LOGICAL, &
+            MPI_LOR, p_comm_glb, p_err)
+         CALL mpi_allreduce(MPI_IN_PLACE, history_selector_changed, 1, MPI_LOGICAL, &
+            MPI_LOR, p_comm_glb, p_err)
 #endif
          IF (allocated(selector_marker)) deallocate(selector_marker)
-      ELSE
-         IF (p_is_master) WRITE(*,'(A)') &
-            'WARNING: legacy restart has no CH4 history-selector marker; assuming its accumulators were ' // &
-            'produced by the pre-gating all-fields path and preserving the partial history window.'
       ENDIF
-      IF (history_selector_changed) THEN
+      IF (invalid_selector_marker .and. strict_restart_active .and. restart_schema_active >= 3) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            'WARNING: CH4 history selection changed across restart; starting a clean accumulation window.'
+            'ERROR: schema-3 methane restart has an invalid history-selector fingerprint.'
+         CALL CoLM_stop()
+      ENDIF
+      IF (history_selector_changed .or. invalid_selector_marker) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'WARNING: methane history selection changed across restart; resetting the partial window.'
          CALL flush_methane_acc_fluxes ()
+         IF (strict_restart_active .and. restart_schema_active < 3) &
+            CALL ncio_set_complete_require_present (.true.)
          RETURN
       ENDIF
-
-      has_microbe_accumulator = ncio_vector_var_present( &
-         file_restart, 'ch4_a_methane_acc_num_microbe', landpatch)
-	  has_rice_fraction_accumulator = ncio_vector_var_present( &
-	     file_restart, 'ch4_a_methane_rice_fraction', landpatch)
+      IF (strict_restart_active .and. &
+          (has_microbe_accumulator .neqv. read_microbe_fields)) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: methane restart microbial state/accumulator feature groups are inconsistent.'
+         CALL CoLM_stop()
+      ENDIF
       IF (p_is_master) THEN
          IF (DEF_METHANE%use_microbial_pools) THEN
             IF (.not. has_microbe_accumulator) THEN
@@ -1831,6 +1968,18 @@ CONTAINS
          nl_soil, landpatch, a_conc_o2_lake, defval = 0._r8)
       IF (allocated(a_conc_methane_lake)) CALL ncio_read_vector (file_restart, 'ch4_a_conc_methane_lake', &
          nl_soil, landpatch, a_conc_methane_lake, defval = 0._r8)
+      IF (allocated(a_lake_water_ch4_stock)) CALL ncio_read_vector (file_restart, 'ch4_a_lake_water_ch4_stock', &
+         landpatch, a_lake_water_ch4_stock, defval = 0._r8)
+      IF (allocated(a_lake_water_o2_stock)) CALL ncio_read_vector (file_restart, 'ch4_a_lake_water_o2_stock', &
+         landpatch, a_lake_water_o2_stock, defval = 0._r8)
+      IF (allocated(a_lake_water_ch4_oxid)) CALL ncio_read_vector (file_restart, 'ch4_a_lake_water_ch4_oxid', &
+         landpatch, a_lake_water_ch4_oxid, defval = 0._r8)
+      IF (allocated(a_lake_sed_ch4_flux)) CALL ncio_read_vector (file_restart, 'ch4_a_lake_sed_ch4_flux', &
+         landpatch, a_lake_sed_ch4_flux, defval = 0._r8)
+      IF (allocated(a_lake_sed_o2_flux)) CALL ncio_read_vector (file_restart, 'ch4_a_lake_sed_o2_flux', &
+         landpatch, a_lake_sed_o2_flux, defval = 0._r8)
+      IF (allocated(a_lake_air_o2_flux)) CALL ncio_read_vector (file_restart, 'ch4_a_lake_air_o2_flux', &
+         landpatch, a_lake_air_o2_flux, defval = 0._r8)
       IF (allocated(a_forc_pmethanem)) CALL ncio_read_vector (file_restart, 'ch4_a_forc_pmethanem', &
          landpatch, a_forc_pmethanem, defval = 0._r8)
       IF (allocated(a_layer_sat_lag)) CALL ncio_read_vector (file_restart, 'ch4_a_layer_sat_lag', &
@@ -1867,30 +2016,65 @@ CONTAINS
          landpatch, a_methane_surf_flux_lake, defval = 0._r8)
       IF (allocated(a_methane_surf_flux_rice)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_surf_flux_rice', &
          landpatch, a_methane_surf_flux_rice, defval = 0._r8)
-      IF (allocated(a_B_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen', &
-         nl_soil, landpatch, a_B_methanogen, defval = 0._r8)
-      IF (allocated(a_B_methanotroph)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph', &
-         nl_soil, landpatch, a_B_methanotroph, defval = 0._r8)
-      IF (allocated(a_B_methanogen_dormant)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen_dormant', &
-         nl_soil, landpatch, a_B_methanogen_dormant, defval = 0._r8)
-      IF (allocated(a_B_methanotroph_dormant)) CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph_dormant', &
-         nl_soil, landpatch, a_B_methanotroph_dormant, defval = 0._r8)
-      IF (allocated(a_f_T_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanogen', &
-         nl_soil, landpatch, a_f_T_methanogen, defval = 0._r8)
-      IF (allocated(a_f_S_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_f_S_methanogen', &
-         nl_soil, landpatch, a_f_S_methanogen, defval = 0._r8)
-      IF (allocated(a_f_O2_methanogen)) CALL ncio_read_vector (file_restart, 'ch4_a_f_O2_methanogen', &
-         nl_soil, landpatch, a_f_O2_methanogen, defval = 0._r8)
-      IF (allocated(a_f_T_methanotroph)) CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanotroph', &
-         nl_soil, landpatch, a_f_T_methanotroph, defval = 0._r8)
-      IF (allocated(a_methanogen_growth_rate)) CALL ncio_read_vector (file_restart, 'ch4_a_methanogen_growth_rate', &
-         nl_soil, landpatch, a_methanogen_growth_rate, defval = 0._r8)
-      IF (allocated(a_methanotroph_growth_rate)) CALL ncio_read_vector (file_restart, 'ch4_a_methanotroph_growth_rate', &
-         nl_soil, landpatch, a_methanotroph_growth_rate, defval = 0._r8)
-      IF (allocated(a_microbial_prod_potential)) CALL ncio_read_vector (file_restart, 'ch4_a_microbial_prod_potential', &
-         nl_soil, landpatch, a_microbial_prod_potential, defval = 0._r8)
-      IF (allocated(a_microbial_oxid_potential)) CALL ncio_read_vector (file_restart, 'ch4_a_microbial_oxid_potential', &
-         nl_soil, landpatch, a_microbial_oxid_potential, defval = 0._r8)
+	      IF (read_microbe_fields) THEN
+	         IF (allocated(a_B_methanogen)) THEN
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen', &
+	               nl_soil, landpatch, a_B_methanogen, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph', &
+	               nl_soil, landpatch, a_B_methanotroph, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen_dormant', &
+	               nl_soil, landpatch, a_B_methanogen_dormant, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph_dormant', &
+	               nl_soil, landpatch, a_B_methanotroph_dormant, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanogen', &
+	               nl_soil, landpatch, a_f_T_methanogen, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_S_methanogen', &
+	               nl_soil, landpatch, a_f_S_methanogen, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_O2_methanogen', &
+	               nl_soil, landpatch, a_f_O2_methanogen, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanotroph', &
+	               nl_soil, landpatch, a_f_T_methanotroph, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_methanogen_growth_rate', &
+	               nl_soil, landpatch, a_methanogen_growth_rate, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_methanotroph_growth_rate', &
+	               nl_soil, landpatch, a_methanotroph_growth_rate, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_microbial_prod_potential', &
+	               nl_soil, landpatch, a_microbial_prod_potential, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_microbial_oxid_potential', &
+	               nl_soil, landpatch, a_microbial_oxid_potential, defval = 0._r8)
+	         ELSE
+	            ! The feature group remains part of the committed file even when
+	            ! the current run disables microbial pools.  Read each ignored
+	            ! field through one reusable buffer so corruption is still
+	            ! rejected without retaining twelve unused nl_soil*npatch arrays.
+	            allocate(discarded_microbe_accumulator_2d(nl_soil, size(a_methane_acc_num)))
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanogen_dormant', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_B_methanotroph_dormant', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanogen', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_S_methanogen', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_O2_methanogen', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_f_T_methanotroph', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_methanogen_growth_rate', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_methanotroph_growth_rate', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_microbial_prod_potential', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            CALL ncio_read_vector (file_restart, 'ch4_a_microbial_oxid_potential', &
+	               nl_soil, landpatch, discarded_microbe_accumulator_2d, defval = 0._r8)
+	            deallocate(discarded_microbe_accumulator_2d)
+	         ENDIF
+	      ENDIF
       IF (allocated(a_methane_acc_num)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num', &
          landpatch, a_methane_acc_num, defval = 0._r8)
       IF (allocated(a_methane_acc_num_unsat)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_unsat', &
@@ -1905,12 +2089,112 @@ CONTAINS
          landpatch, a_annavg_finrw_acc_num, defval = 0._r8)
 	  IF (allocated(a_methane_rice_fraction)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_rice_fraction', &
 	     landpatch, a_methane_rice_fraction, defval = 0._r8)
-	  IF (allocated(a_methane_rice_fraction) .and. .not. has_rice_fraction_accumulator) THEN
-	     a_methane_rice_fraction = a_methane_acc_num*rice_fraction_prev
-	  ENDIF
-      IF (allocated(a_methane_acc_num_microbe)) CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
-         landpatch, a_methane_acc_num_microbe, defval = 0._r8)
+	      IF (read_microbe_fields) THEN
+	         IF (allocated(a_methane_acc_num_microbe)) THEN
+	            CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
+	               landpatch, a_methane_acc_num_microbe, defval = 0._r8)
+	         ELSE
+	            allocate(discarded_microbe_accumulator_1d(size(a_methane_acc_num)))
+	            CALL ncio_read_vector (file_restart, 'ch4_a_methane_acc_num_microbe', &
+	               landpatch, discarded_microbe_accumulator_1d, defval = 0._r8)
+	            IF (p_is_worker) restart_accflux_corrupt_local = restart_accflux_corrupt_local .or. &
+	               any(discarded_microbe_accumulator_1d < 0._r8)
+	            deallocate(discarded_microbe_accumulator_1d)
+	         ENDIF
+	      ENDIF
+
+      ! Accumulator sums may legitimately be signed, but none may be NaN,
+      ! infinite, or a missing-value sentinel.  Sample counters additionally
+      ! must be non-negative.  Reduce the verdict across all ranks before any
+      ! legacy reset so a committed schema-2 checkpoint is never repaired in
+      ! place or accepted differently by different ranks.
+      IF (p_is_worker) THEN
+         restart_accflux_corrupt_local = restart_accflux_corrupt_local .or. &
+            any(a_methane_acc_num < 0._r8) .or. &
+            any(a_methane_acc_num_unsat < 0._r8) .or. &
+            any(a_methane_acc_num_sat < 0._r8) .or. &
+            any(a_methane_acc_num_lake < 0._r8) .or. &
+            any(a_methane_acc_num_extra < 0._r8) .or. &
+            any(a_annavg_finrw_acc_num < 0._r8) .or. &
+            any(a_methane_rice_fraction < 0._r8) .or. &
+            any(a_methane_rice_fraction > a_methane_acc_num + 1.e-10_r8)
+         IF (allocated(a_methane_acc_num_microbe)) THEN
+            restart_accflux_corrupt_local = restart_accflux_corrupt_local .or. &
+               any(a_methane_acc_num_microbe < 0._r8)
+         ENDIF
+      ENDIF
+      corrupt_accumulator_values = restart_accflux_corrupt_local
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, corrupt_accumulator_values, 1, MPI_LOGICAL, &
+         MPI_LOR, p_comm_glb, p_err)
+#endif
+      IF (strict_restart_active .and. restart_schema_active >= 1 .and. &
+          corrupt_accumulator_values) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'ERROR: committed methane restart contains invalid accumulator sums or counters.'
+         CALL CoLM_stop()
+      ENDIF
+
+      IF (strict_restart_active .and. restart_schema_active < 3) THEN
+         CALL ncio_set_complete_require_present (.true.)
+      ENDIF
+
+      ! Schemas 1 and 2 predate part of the current accumulator transaction.
+      ! Keeping old partial sums while defaulting new fields would dilute or
+      ! bias the first post-upgrade history record, so start a fresh window.
+      IF (restart_schema_active < 3) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            'WARNING: legacy methane restart resets the in-progress CH4 history accumulation window.'
+         CALL flush_methane_acc_fluxes ()
+      ELSEIF (corrupt_accumulator_values) THEN
+         ! Defensive compatibility for a non-strict direct caller: do not let
+         ! malformed partial sums contaminate the first history interval.
+         IF (p_is_master) WRITE(*,'(A)') &
+            'WARNING: non-strict methane restart resets corrupt CH4 history accumulators.'
+         CALL flush_methane_acc_fluxes ()
+      ENDIF
    END SUBROUTINE read_methane_accflux_restart
+
+
+   !-------------------------------------------------------------------
+   SUBROUTINE read_accflux_restart_vector_1d (filename, dataname, pixelset, rdata, defval)
+      USE MOD_Pixelset,     only: pixelset_type
+      USE MOD_NetCDFVector, only: ncio_read_vector_complete
+      USE MOD_SPMD_Task,    only: p_is_worker
+      character(len=*), intent(in) :: filename, dataname
+      type(pixelset_type), intent(in) :: pixelset
+      real(r8), allocatable, intent(inout) :: rdata(:)
+      real(r8), intent(in), optional :: defval
+
+      IF (present(defval)) THEN
+         CALL ncio_read_vector_complete (filename, dataname, pixelset, rdata, defval)
+      ELSE
+         CALL ncio_read_vector_complete (filename, dataname, pixelset, rdata)
+      ENDIF
+      IF (p_is_worker) restart_accflux_corrupt_local = restart_accflux_corrupt_local .or. &
+         any(invalid_accflux_restart_value(rdata))
+   END SUBROUTINE read_accflux_restart_vector_1d
+
+
+   !-------------------------------------------------------------------
+   SUBROUTINE read_accflux_restart_vector_2d (filename, dataname, ndim1, pixelset, rdata, defval)
+      USE MOD_Pixelset,     only: pixelset_type
+      USE MOD_NetCDFVector, only: ncio_read_vector_complete
+      USE MOD_SPMD_Task,    only: p_is_worker
+      character(len=*), intent(in) :: filename, dataname
+      integer, intent(in) :: ndim1
+      type(pixelset_type), intent(in) :: pixelset
+      real(r8), allocatable, intent(inout) :: rdata(:,:)
+      real(r8), intent(in), optional :: defval
+
+      IF (present(defval)) THEN
+         CALL ncio_read_vector_complete (filename, dataname, ndim1, pixelset, rdata, defval)
+      ELSE
+         CALL ncio_read_vector_complete (filename, dataname, ndim1, pixelset, rdata)
+      ENDIF
+      IF (p_is_worker) restart_accflux_corrupt_local = restart_accflux_corrupt_local .or. &
+         any(invalid_accflux_restart_value(rdata))
+   END SUBROUTINE read_accflux_restart_vector_2d
 
 
    !-------------------------------------------------------------------
@@ -2039,6 +2323,12 @@ CONTAINS
       IF (allocated(a_grnd_methane_cond_lake )) deallocate (a_grnd_methane_cond_lake )
       IF (allocated(a_conc_o2_lake           )) deallocate (a_conc_o2_lake           )
       IF (allocated(a_conc_methane_lake      )) deallocate (a_conc_methane_lake      )
+      IF (allocated(a_lake_water_ch4_stock   )) deallocate (a_lake_water_ch4_stock   )
+      IF (allocated(a_lake_water_o2_stock    )) deallocate (a_lake_water_o2_stock    )
+      IF (allocated(a_lake_water_ch4_oxid    )) deallocate (a_lake_water_ch4_oxid    )
+      IF (allocated(a_lake_sed_ch4_flux      )) deallocate (a_lake_sed_ch4_flux      )
+      IF (allocated(a_lake_sed_o2_flux       )) deallocate (a_lake_sed_o2_flux       )
+      IF (allocated(a_lake_air_o2_flux       )) deallocate (a_lake_air_o2_flux       )
 
       ! extras
       IF (allocated(a_forc_pmethanem   )) deallocate (a_forc_pmethanem   )
@@ -2135,7 +2425,7 @@ CONTAINS
       IF (size(var) /= size(n) .or. size(var) /= size(mask)) THEN
          write(6,*) 'acc_count1d_masked: size mismatch var/n/mask=', &
             size(var), size(n), size(mask)
-         CALL abort
+         CALL CoLM_stop ('acc_count1d_masked: size mismatch')
       ENDIF
       DO k = 1, size(var)
          ivar  = lbound(var,  1) + k - 1
@@ -2163,6 +2453,15 @@ CONTAINS
       real(r8), intent(in) :: x
       valid_acc_value = (.not. ieee_is_nan(x)) .and. abs(x) < 0.5_r8 * abs(spval)
    END FUNCTION valid_acc_value
+
+   ELEMENTAL LOGICAL FUNCTION invalid_accflux_restart_value (x)
+      real(r8), intent(in) :: x
+      IF (.not. ieee_is_finite(x)) THEN
+         invalid_accflux_restart_value = .true.
+      ELSE
+         invalid_accflux_restart_value = abs(x) >= 0.5_r8 * abs(spval)
+      ENDIF
+   END FUNCTION invalid_accflux_restart_value
 
 END MODULE MOD_Tracer_Reactive_Methane_AccFlux
 #endif
