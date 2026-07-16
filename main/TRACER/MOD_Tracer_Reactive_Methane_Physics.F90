@@ -1519,39 +1519,12 @@ contains
             ! Driver overrides it with (1-rice) and sets methane_area_rice for paddy.
             methane_area_soil(ipatch) = 1._r8
 
-            ! Pre-existing net-surface-flux split into non-rice soil vs rice
-            ! paddy (feeds f_methane_surf_flux_soil / _rice).  Left as-is.  NOTE
-            ! these two are the non-rice / rice split, whereas the *_soil
-            ! component vars above fold rice in, so aere_soil+ebul_soil+
-            ! diff_soil+tran equals the FULL patch surface flux, not
-            ! surf_flux_soil.
-            IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
-               soil_flux_area = methane_surf_flux_tot_unsat * (1._r8 - finundated_default) + &
-                  methane_surf_flux_tot_sat   * finundated_default
-               IF (rice_finundation_active) THEN
-                  rice_flux_area = methane_surf_flux_tot_unsat * (1._r8 - finundated_rice) + &
-                     methane_surf_flux_tot_sat   * finundated_rice
-               ELSE
-                  rice_flux_area = soil_flux_area
-               ENDIF
-               rice_soil_flux_sum = (1._r8 - rice_pft_frac) * soil_flux_area + &
-                  rice_pft_frac * rice_flux_area
-               IF (abs(rice_soil_flux_sum) > 1.e-30_r8) THEN
-                  rice_soil_flux_scale = methane_surf_flux_tot / rice_soil_flux_sum
-               ELSE
-                  rice_soil_flux_scale = 1._r8
-               ENDIF
-               methane_surf_flux_soil(ipatch) = (1._r8 - rice_pft_frac) * soil_flux_area * &
-                  rice_soil_flux_scale
-               methane_surf_flux_rice(ipatch) = methane_surf_flux_tot - methane_surf_flux_soil(ipatch)
-            ELSE
                methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
 							methane_surf_aere_soil(ipatch) = methane_surf_aere
 							methane_surf_ebul_soil(ipatch) = methane_surf_ebul
 							methane_surf_diff_soil(ipatch) = methane_surf_diff
 							methane_prod_tot_soil(ipatch) = methane_prod_tot
 							methane_oxid_tot_soil(ipatch) = methane_oxid_tot
-            ENDIF
          ELSEIF (patchtype == 4 .and. DEF_METHANE%allowlakeprod) THEN
             methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
             ! lake process outputs come from base methane_{prod_tot,oxid_tot,
@@ -2253,11 +2226,8 @@ contains
          annavg_agnpp           , &! annual avg aboveground NPP (gC/m2/s)
          annavg_bgnpp           , &! annual avg belowground NPP (gC/m2/s)
 
-      ! These variables help us swap between saturated and unsaturated boundary conditions
-         conc_methane (1:nl_soil)        , &! CH4 conc in each soil layer (mol/m3)
-         methane_prod_depth (1:nl_soil)  , &! production of CH4 in each soil layer (mol/m3/s)
-         methane_oxid_depth (1:nl_soil)  , &! oxidation of CH4 (mol/m3/s); retained for interface, no longer used in the aere cap (competition now resolved in methane_tran)
-         methane_ebul_depth (1:nl_soil)  , &! ebullition CH4 (mol/m3/s); retained for interface, no longer used in the aere cap (competition now resolved in methane_tran)
+      ! conc_methane / methane_{prod,oxid,ebul}_depth removed from methane_aere
+      ! args: aerenchyma competition is resolved in methane_tran, not here.
 
          conc_ch4_aqu       (1:nl_soil) , &! aqueous phase CH4 concentration [mol/m3 water]
          conc_ch4_aqu_porsl (1:nl_soil) , &! aqueous phase CH4 conc in each porosity [mol/m3]

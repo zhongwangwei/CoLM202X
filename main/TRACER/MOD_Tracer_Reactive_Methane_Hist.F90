@@ -868,10 +868,9 @@ CONTAINS
          ! active_total_without_lake = wetland + soil + rice, excluding lake.
          ! global_total_with_lake    = wetland + soil + rice + lake.
          IF ((need_active_without_lake .or. need_global_with_lake .or. &
-            need_land_flux_split .or. need_cat_split) .and. &
-		                       need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
-		                       need_global_clip_credit_with_lake .or. &
-		                       need_land_flux_split) .and. &
+            need_land_flux_split .or. need_cat_split .or. &
+            need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
+            need_global_clip_credit_with_lake) .and. &
             HistForm == 'Gridded') THEN
             CALL mp2g_hist%get_sumarea (sumarea, filter_all_land)
          ENDIF
