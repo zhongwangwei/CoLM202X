@@ -20,12 +20,12 @@ MODULE MOD_Tracer_Reactive_Methane_GIEMS
 ! INIT ALGORITHM (called once during methane init):
 !   1. Master opens file, reads dims + lat/lon coords (small).
 !   2. Broadcast dims + coords; allocate per-rank ts (small).
-!   3. Each rank computes nearest-pixel (best_ix, best_iy) per patch.
-!      Those cached pixel indices are gathered to master once.
+!   3. Each rank computes nearest-pixel (best_ix, best_iy) per patch and
+!      deduplicates pixels shared by its local patches.
 !   4. Streaming loop in chunks of at most 12 months:
 !      a. Master reads one (nlon, nlat) slab (~4 MB) per month.
-!      b. Master packs only values requested by patches on each rank.
-!      c. One MPI_Scatterv per chunk sends each rank its local values.
+!      b. Master packs only unique values requested by each rank.
+!      c. One MPI_Scatterv per chunk sends each rank its unique values.
 !   5. Build 12-month climatology fallback from full ts.
 !
 ! RUNTIME:
@@ -35,10 +35,9 @@ MODULE MOD_Tracer_Reactive_Methane_GIEMS
 !   - Else: 12-month climatology fallback
 !
 ! Notes:
-!   - Master also holds one flattened pixel index per global patch and a
+!   - Master holds one flattened pixel index per rank-local unique request and a
 !     bounded packed-value chunk (target <=64 MiB when one month fits).
-!   - Per-rank storage: 348 * numpatch_local * 8 bytes
-!     (10K patches -> 28 MB; SA test trivial).
+!   - The source series uses real(r4); climatology sums remain real(r8).
 !   - GIEMS-MC v1.1 is a 0.25 x 0.25 degree product.  This interface
 !     receives patch centres only, so it samples the nearest source cell.
 !     A conservative area average cannot be reconstructed from a centre:
@@ -56,7 +55,7 @@ MODULE MOD_Tracer_Reactive_Methane_GIEMS
 
    ! Public state
    ! True monthly time series, 1992-01-01 .. 2020-12-01 (348 months)
-   real(r8), allocatable, public :: giems_ts_wetland_frac(:,:)   ! (ntime, numpatch) [0-1]
+   real(r4), allocatable, public :: giems_ts_wetland_frac(:,:)   ! (ntime, numpatch) [0-1]
    ! 12-month climatology fallback for years outside 1992-2020
    real(r8), allocatable, public :: giems_clim_wetland_frac(:,:) ! (12, numpatch) [0-1]
    integer,  public :: giems_year_start = 1992    ! GIEMS-MC v1.1 first year
@@ -117,15 +116,18 @@ CONTAINS
       integer :: giems_mapping_error, giems_mapping_error_glb
       integer :: giems_value_error, giems_value_error_glb
       integer :: total_requests, chunk_n, chunk_max, failed_t
+      integer :: pixel, n_unique, comm_size
+      integer :: metadata(4)
       real(r4), allocatable :: slab(:,:)
-      real(r4), allocatable :: patch_values(:,:), requested_values(:,:)
+      real(r4), allocatable :: unique_values(:,:), requested_values(:,:)
       real(r8), allocatable :: lat_g(:), lon_g(:)
       integer,  allocatable :: best_ix(:), best_iy(:)
-      integer,  allocatable :: pixel_index(:), all_pixel_index(:)
+      integer,  allocatable :: patch_to_unique(:), pixel_index_unique(:)
+      integer,  allocatable :: pixel_to_unique(:), all_pixel_index(:)
       integer,  allocatable :: request_counts(:), request_displs(:)
       integer,  allocatable :: chunk_counts(:), chunk_displs(:)
       integer,  allocatable :: ccnt(:,:)            ! valid-count per (month, patch) for climatology
-      real(r8) :: lat_deg, lon_deg, dlatd, dlond, dmin
+      real(r8) :: lat_deg, lon_deg, dlatd, dlond, dmin, dlat_min, dlon_min
       logical  :: fexists, found_match
       character(len=256) :: dname
       real(r4) :: v
@@ -140,6 +142,7 @@ CONTAINS
       ntime = 0
       nlat = 0
       nlon = 0
+      metadata = 0
 
       ! ---- Step 1: master opens file, reads coords ----
       IF (p_is_master) THEN
@@ -262,18 +265,23 @@ CONTAINS
          ENDIF
       ENDIF
 
+      IF (p_is_master) metadata = [giems_metadata_error, ntime, nlat, nlon]
 #ifdef USEMPI
-      CALL MPI_Bcast(giems_metadata_error, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(giems_active, 1, MPI_LOGICAL, p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(ntime,        1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(nlat,         1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
-      CALL MPI_Bcast(nlon,         1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
+      CALL MPI_Bcast(metadata, 4, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
+      CALL check_giems_mpi(ierr, 'metadata broadcast')
+      giems_metadata_error = metadata(1)
+      ntime = metadata(2)
+      nlat = metadata(3)
+      nlon = metadata(4)
+      giems_active = giems_metadata_error == 0
       IF (giems_active) THEN
          IF (.not. p_is_master) THEN
             allocate(lat_g(nlat), lon_g(nlon))
          ENDIF
          CALL MPI_Bcast(lat_g, nlat, MPI_DOUBLE_PRECISION, p_address_master, p_comm_glb, ierr)
+         CALL check_giems_mpi(ierr, 'latitude broadcast')
          CALL MPI_Bcast(lon_g, nlon, MPI_DOUBLE_PRECISION, p_address_master, p_comm_glb, ierr)
+         CALL check_giems_mpi(ierr, 'longitude broadcast')
       ENDIF
 #endif
 
@@ -337,7 +345,8 @@ CONTAINS
                best_iy(ipatch) = ilat
             ENDIF
          ENDDO
-         IF (dmin > 5._r8) THEN
+         dlat_min = dmin
+         IF (dlat_min > 5._r8) THEN
             best_iy(ipatch) = -1
             giems_mapping_error = 1
             CYCLE
@@ -352,7 +361,8 @@ CONTAINS
                best_ix(ipatch) = ilon
             ENDIF
          ENDDO
-         IF (dmin <= 5._r8) found_match = .true.
+         dlon_min = dmin
+         IF (sqrt(dlat_min**2 + dlon_min**2) <= 5._r8) found_match = .true.
          IF (.not. found_match) THEN
             best_ix(ipatch) = -1
             best_iy(ipatch) = -1
@@ -363,6 +373,7 @@ CONTAINS
 #ifdef USEMPI
       CALL MPI_Allreduce(giems_mapping_error, giems_mapping_error_glb, 1, MPI_INTEGER, &
          MPI_MAX, p_comm_glb, ierr)
+      CALL check_giems_mpi(ierr, 'patch mapping validation')
 #else
       giems_mapping_error_glb = giems_mapping_error
 #endif
@@ -375,7 +386,7 @@ CONTAINS
       ! ---- Step 3: allocate per-rank time series + climatology accumulator ----
       IF (allocated(giems_ts_wetland_frac)) deallocate(giems_ts_wetland_frac)
       allocate(giems_ts_wetland_frac(ntime, numpatch))
-      giems_ts_wetland_frac(:,:) = 0._r8
+      giems_ts_wetland_frac(:,:) = 0._r4
 
       IF (allocated(giems_clim_wetland_frac)) THEN
          IF (size(giems_clim_wetland_frac,1) /= 12 .or. size(giems_clim_wetland_frac,2) /= numpatch) THEN
@@ -389,35 +400,57 @@ CONTAINS
       allocate(ccnt(12, numpatch))
       ccnt(:,:) = 0
 
-      ! Cache the local flattened GIEMS pixel requested by each patch, then
-      ! gather that routing map once.  The master reuses it for every month;
-      ! only the selected patch values cross the network.
-      allocate(pixel_index(max(1, numpatch)))
-      pixel_index(:) = 0
+      ! Deduplicate rank-local requests before they cross the network.
+      allocate(patch_to_unique(max(1, numpatch)))
+      allocate(pixel_index_unique(max(1, numpatch)))
+      allocate(pixel_to_unique(max(1, nlon*nlat)))
+      patch_to_unique(:) = 0
+      pixel_index_unique(:) = 0
+      pixel_to_unique(:) = 0
+      n_unique = 0
       DO ipatch = 1, numpatch
          IF (best_ix(ipatch) > 0 .and. best_iy(ipatch) > 0) THEN
-            pixel_index(ipatch) = (best_iy(ipatch) - 1) * nlon + best_ix(ipatch)
+            pixel = (best_iy(ipatch) - 1) * nlon + best_ix(ipatch)
+            IF (pixel_to_unique(pixel) == 0) THEN
+               n_unique = n_unique + 1
+               pixel_index_unique(n_unique) = pixel
+               pixel_to_unique(pixel) = n_unique
+            ENDIF
+            patch_to_unique(ipatch) = pixel_to_unique(pixel)
          ENDIF
       ENDDO
+      deallocate(pixel_to_unique, best_ix, best_iy)
+      deallocate(lat_g, lon_g)
 
-      allocate(request_counts(p_np_glb), request_displs(p_np_glb))
-      allocate(chunk_counts(p_np_glb), chunk_displs(p_np_glb))
+      comm_size = 1
+#ifdef USEMPI
+      CALL MPI_Comm_size(p_comm_glb, comm_size, ierr)
+      CALL check_giems_mpi(ierr, 'communicator size query')
+      IF (comm_size /= p_np_glb) THEN
+         write(*,'(A,I0,A,I0)') ' ERROR: GIEMS communicator/task-count mismatch: MPI size=', &
+            comm_size, ' p_np_glb=', p_np_glb
+         CALL CoLM_stop ()
+      ENDIF
+#endif
+      allocate(request_counts(comm_size), request_displs(comm_size))
+      allocate(chunk_counts(comm_size), chunk_displs(comm_size))
       request_counts(:) = 0
       request_displs(:) = 0
       chunk_counts(:) = 0
       chunk_displs(:) = 0
 #ifdef USEMPI
-      CALL MPI_Gather(numpatch, 1, MPI_INTEGER, request_counts, 1, MPI_INTEGER, &
+      CALL MPI_Gather(n_unique, 1, MPI_INTEGER, request_counts, 1, MPI_INTEGER, &
          p_address_master, p_comm_glb, ierr)
+      CALL check_giems_mpi(ierr, 'unique request count gather')
 #else
-      request_counts(1) = numpatch
+      request_counts(1) = n_unique
 #endif
 
       total_requests = 0
       giems_count_error = 0
       chunk_max = min(giems_chunk_months, ntime)
       IF (p_is_master) THEN
-         DO irequest = 1, p_np_glb
+         DO irequest = 1, comm_size
             IF (request_counts(irequest) < 0) THEN
                giems_count_error = 1
                EXIT
@@ -437,11 +470,13 @@ CONTAINS
       ENDIF
 #ifdef USEMPI
       CALL MPI_Bcast(chunk_max, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
+      CALL check_giems_mpi(ierr, 'chunk size broadcast')
 #endif
-      IF (numpatch > huge(numpatch) / chunk_max) giems_count_error = 1
+      IF (n_unique > huge(n_unique) / chunk_max) giems_count_error = 1
 #ifdef USEMPI
       CALL MPI_Allreduce(giems_count_error, giems_count_error_glb, 1, MPI_INTEGER, &
          MPI_MAX, p_comm_glb, ierr)
+      CALL check_giems_mpi(ierr, 'request count validation')
 #else
       giems_count_error_glb = giems_count_error
 #endif
@@ -463,11 +498,12 @@ CONTAINS
       all_pixel_index(:) = 0
 
 #ifdef USEMPI
-      CALL MPI_Gatherv(pixel_index, numpatch, MPI_INTEGER, all_pixel_index, &
+      CALL MPI_Gatherv(pixel_index_unique, n_unique, MPI_INTEGER, all_pixel_index, &
          request_counts, request_displs, MPI_INTEGER, p_address_master, &
          p_comm_glb, ierr)
+      CALL check_giems_mpi(ierr, 'unique pixel index gather')
 #else
-      IF (numpatch > 0) all_pixel_index(1:numpatch) = pixel_index(1:numpatch)
+      IF (n_unique > 0) all_pixel_index(1:n_unique) = pixel_index_unique(1:n_unique)
 #endif
 
       ! ---- Step 4: streaming monthly reads + chunked directed distribution ----
@@ -483,13 +519,13 @@ CONTAINS
 
       DO t = 1, ntime, chunk_max
          chunk_n = min(chunk_max, ntime - t + 1)
-         allocate(patch_values(chunk_n, max(1, numpatch)))
+         allocate(unique_values(chunk_n, max(1, n_unique)))
          IF (p_is_master) THEN
             allocate(requested_values(chunk_n, max(1, total_requests)))
          ELSE
             allocate(requested_values(chunk_n, 1))
          ENDIF
-         patch_values(:,:) = 0._r4
+         unique_values(:,:) = 0._r4
          requested_values(:,:) = 0._r4
          chunk_counts(:) = request_counts(:) * chunk_n
          chunk_displs(:) = request_displs(:) * chunk_n
@@ -519,6 +555,7 @@ CONTAINS
          ENDIF
 #ifdef USEMPI
          CALL MPI_Bcast(giems_block_error, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr_bc)
+         CALL check_giems_mpi(ierr_bc, 'monthly NetCDF status broadcast')
 #endif
          IF (giems_block_error /= NF90_NOERR) THEN
             ! Silent zeroing of a failed monthly slab would look like "no
@@ -534,22 +571,22 @@ CONTAINS
          ENDIF
 
 #ifdef USEMPI
-         ! requested_values and patch_values are real(r4); MPI_REAL4 keeps the
-         ! NetCDF slab ABI explicit while sending only local patch requests.
+         ! Keep the NetCDF slab ABI explicit and send only unique requests.
          CALL MPI_Scatterv(requested_values, chunk_counts, chunk_displs, MPI_REAL4, &
-            patch_values, chunk_n * numpatch, MPI_REAL4, p_address_master, p_comm_glb, ierr)
+            unique_values, chunk_n * n_unique, MPI_REAL4, p_address_master, p_comm_glb, ierr)
+         CALL check_giems_mpi(ierr, 'monthly unique value scatter')
 #else
-         IF (numpatch > 0) patch_values(:,1:numpatch) = requested_values(:,1:numpatch)
+         IF (n_unique > 0) unique_values(:,1:n_unique) = requested_values(:,1:n_unique)
 #endif
 
          giems_value_error = 0
          DO ipatch = 1, numpatch
-            IF (pixel_index(ipatch) <= 0) CYCLE
+            IF (patch_to_unique(ipatch) <= 0) CYCLE
             DO month_in_chunk = 1, chunk_n
                mo = mod(t + month_in_chunk - 2, 12) + 1
-               v = patch_values(month_in_chunk, ipatch)
+               v = unique_values(month_in_chunk, patch_to_unique(ipatch))
                IF (v >= 0._r4 .and. v <= 1._r4) THEN
-                  giems_ts_wetland_frac(t + month_in_chunk - 1, ipatch) = real(v, r8)
+                  giems_ts_wetland_frac(t + month_in_chunk - 1, ipatch) = v
                   giems_clim_wetland_frac(mo, ipatch) = &
                      giems_clim_wetland_frac(mo, ipatch) + real(v, r8)
                ELSEIF (.not. ieee_is_nan(v) .and. v /= -999._r4 .and. &
@@ -566,6 +603,7 @@ CONTAINS
 #ifdef USEMPI
          CALL MPI_Allreduce(giems_value_error, giems_value_error_glb, 1, MPI_INTEGER, &
             MPI_MAX, p_comm_glb, ierr)
+         CALL check_giems_mpi(ierr, 'wetland value validation')
 #else
          giems_value_error_glb = giems_value_error
 #endif
@@ -574,7 +612,7 @@ CONTAINS
                ' ERROR: GIEMS contains a selected wetland fraction outside [0,1] or documented fill flags.'
             CALL CoLM_stop ()
          ENDIF
-         deallocate(patch_values, requested_values)
+         deallocate(unique_values, requested_values)
       ENDDO
 
       ! Finalize climatology (per-patch monthly mean)
@@ -590,9 +628,8 @@ CONTAINS
       IF (p_is_master) ierr = nf90_close(ncid)
 
       IF (allocated(slab)) deallocate(slab)
-      deallocate(ccnt, best_ix, best_iy, pixel_index)
+      deallocate(ccnt, patch_to_unique, pixel_index_unique)
       deallocate(all_pixel_index, request_counts, request_displs, chunk_counts, chunk_displs)
-      deallocate(lat_g, lon_g)
 
       IF (p_is_master) write(*,'(A,I0,A,I0,A,I0,A)') &
          ' GIEMS monthly time series loaded (', ntime, ' months, ', &
@@ -731,6 +768,29 @@ CONTAINS
          giems_finundated = giems_clim_wetland_frac(mon, ipatch)
       ENDIF
    END FUNCTION giems_finundated
+
+#ifdef USEMPI
+   SUBROUTINE check_giems_mpi(ierr, operation)
+      USE MPI
+      integer, intent(in) :: ierr
+      character(len=*), intent(in) :: operation
+      integer :: error_length, ierr_string
+      character(len=MPI_MAX_ERROR_STRING) :: error_message
+
+      IF (ierr == MPI_SUCCESS) RETURN
+      error_message = 'unknown MPI error'
+      error_length = len_trim(error_message)
+      CALL MPI_Error_string(ierr, error_message, error_length, ierr_string)
+      IF (ierr_string == MPI_SUCCESS) THEN
+         write(*,'(A,A,A,A)') ' ERROR: GIEMS MPI failure during ', trim(operation), ': ', &
+            trim(error_message(1:max(1, error_length)))
+      ELSE
+         write(*,'(A,A,A,I0,A,I0)') ' ERROR: GIEMS MPI failure during ', trim(operation), &
+            ': code=', ierr, '; MPI_Error_string code=', ierr_string
+      ENDIF
+      CALL CoLM_stop ()
+   END SUBROUTINE check_giems_mpi
+#endif
 
    SUBROUTINE get_dim(ncid, name, n)
       USE netcdf

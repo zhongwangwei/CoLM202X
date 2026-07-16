@@ -4,10 +4,12 @@
 MODULE MOD_Tracer_Precip
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, trc_water_min_for_ratio, &
+      tracer_uses_land_water_transport, tracer_equilibrate_dissolved
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value
    USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
-      trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage
+      trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage, &
+      trc_canopy_solid, trc_surface_solid, trc_waterstorage_solid
 
    IMPLICIT NONE
 
@@ -134,7 +136,10 @@ CONTAINS
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          R_input = tracer_forcing_precip_value(itrc, ipatch)
          storage_ratio = R_input
-         canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+         CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain_old, 0._r8), &
+            trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
+         canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
+            + trc_canopy_solid(itrc, ipatch)
 
          ! Atmospheric precipitation is external input; count into the
          ! precip accumulator. Sprinkler irrigation also reaches the
@@ -149,8 +154,10 @@ CONTAINS
 
          IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
             IF (present(waterstorage_patch)) THEN
-               IF (waterstorage_patch > trc_tiny) THEN
-                  storage_ratio = trc_waterstorage(itrc, ipatch) / max(waterstorage_patch, trc_tiny)
+               CALL tracer_equilibrate_dissolved(itrc, max(waterstorage_patch, 0._r8), &
+                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
+               IF (waterstorage_patch > trc_water_min_for_ratio) THEN
+                  storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_patch
                ENDIF
             ENDIF
             sprinkler_trc = qflx_irrig_sprinkler * storage_ratio * deltim
@@ -302,7 +309,10 @@ CONTAINS
          ! Preserve the prognostic canopy pools and put the tiny correction
          ! on the internal ground flux consumed by tracer_soil_water /
          ! tracer_wetland; atmospheric a_trc_precip remains unchanged.
-         canopy_trc_end = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+         CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
+            trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
+         canopy_trc_end = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
+            + trc_canopy_solid(itrc, ipatch)
          canopy_input_trc = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_input
          canopy_resid = canopy_trc_end - canopy_trc_beg - canopy_input_trc &
                       + trc_rain_ground + trc_snow_ground
@@ -318,6 +328,12 @@ CONTAINS
                trc_snow_ground = desired_ground_total
             ENDIF
          ENDIF
+
+         ! Ground rain is a liquid mobile pool. Excess solute precipitates
+         ! directly into the surface solid inventory; existing surface solid
+         ! may redissolve only up to the rainwater capacity.
+         CALL tracer_equilibrate_dissolved(itrc, max(pg_rain, 0._r8) * deltim, &
+            trc_rain_ground, trc_surface_solid(itrc, ipatch))
 
         ! Store rain/snow tracer separately: rain feeds the surface mixed
         ! pool in tracer_soil_water; snow feeds trc_scv in tracer_newsnow.

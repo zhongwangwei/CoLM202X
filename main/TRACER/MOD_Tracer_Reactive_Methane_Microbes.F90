@@ -454,9 +454,15 @@ CONTAINS
          real(r8), intent(in)  :: component_values(:,:,:)
          real(r8), intent(out) :: aggregate_values(:)
 
-         aggregate_values = (1._r8 - rice_weight) * &
-            component_values(:,METHANE_COMP_SOIL,ipatch) + rice_weight * &
-            component_values(:,METHANE_COMP_RICE,ipatch)
+         IF (rice_weight <= 0._r8) THEN
+            aggregate_values = component_values(:,METHANE_COMP_SOIL,ipatch)
+         ELSEIF (rice_weight >= 1._r8) THEN
+            aggregate_values = component_values(:,METHANE_COMP_RICE,ipatch)
+         ELSE
+            aggregate_values = (1._r8 - rice_weight) * &
+               component_values(:,METHANE_COMP_SOIL,ipatch) + rice_weight * &
+               component_values(:,METHANE_COMP_RICE,ipatch)
+         ENDIF
       END SUBROUTINE aggregate_field
    END SUBROUTINE aggregate_methane_microbes
 
@@ -471,7 +477,7 @@ CONTAINS
 
       old_rice = min(1._r8, max(0._r8, old_rice_fraction))
       new_rice = min(1._r8, max(0._r8, new_rice_fraction))
-      IF (abs(new_rice-old_rice) <= epsilon(1._r8)) RETURN
+      IF (.not. (new_rice > old_rice .or. new_rice < old_rice)) RETURN
 
       CALL repartition_field(B_methanogen_comp)
       CALL repartition_field(B_methanotroph_comp)

@@ -44,6 +44,19 @@ def test_soil_and_rice_keep_independent_prognostic_and_microbe_state() -> None:
     assert "B_methanogen_comp(j,component,ipatch)" in step
 
 
+def test_microbe_component_aggregation_handles_endpoints_and_exact_repartition() -> None:
+    microbes = text("MOD_Tracer_Reactive_Methane_Microbes.F90")
+    aggregate = routine(microbes, "aggregate_field")
+    repartition = routine(microbes, "repartition_methane_microbes")
+
+    assert "IF (rice_weight <= 0._r8) THEN" in aggregate
+    assert "aggregate_values = component_values(:,METHANE_COMP_SOIL,ipatch)" in aggregate
+    assert "ELSEIF (rice_weight >= 1._r8) THEN" in aggregate
+    assert "aggregate_values = component_values(:,METHANE_COMP_RICE,ipatch)" in aggregate
+    assert "IF (.not. (new_rice > old_rice .or. new_rice < old_rice)) RETURN" in repartition
+    assert "epsilon(1._r8)" not in repartition
+
+
 def test_driver_solves_pure_columns_then_weights_once_and_finalizes_once() -> None:
     driver = text("MOD_Tracer_Reactive_Methane_Driver.F90")
     physics = text("MOD_Tracer_Reactive_Methane_Physics.F90")

@@ -4,9 +4,10 @@
 MODULE MOD_Tracer_Snow
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
+      tracer_equilibrate_dissolved
 	   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
-	      trc_scv, trc_wetwat
+	      trc_scv, trc_wetwat, trc_solid_soisno
 
    IMPLICIT NONE
 
@@ -173,6 +174,13 @@ CONTAINS
                ! Warm wetland: newsnow transferred scv → wetwat, scv=0
                trc_wetwat(itrc, ipatch) = trc_wetwat(itrc, ipatch) + trc_scv(itrc, ipatch)
                trc_scv(itrc, ipatch) = 0._r8
+            ENDIF
+         ENDIF
+         IF (snl < 0 .and. present(wliq_soisno)) THEN
+            j = snl + 1
+            IF (size(wliq_soisno) > 0) THEN
+               CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(1), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
             ENDIF
          ENDIF
       ENDDO

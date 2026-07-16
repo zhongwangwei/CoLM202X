@@ -6,7 +6,8 @@ MODULE MOD_Tracer_Conservation
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_TRACER_BALANCE_ABORT_NBAD, DEF_TRACER_RESID_ABORT_NBAD
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
-      tracer_reactive_decay_fraction, tracer_can_use_fixed_signature, tracer_uses_land_water_transport
+      tracer_reactive_decay_fraction, tracer_can_use_fixed_signature, &
+      tracer_has_dissolved_limit, tracer_uses_land_water_transport
    USE MOD_Tracer_Frac, only: tracer_fractionation_active
    USE MOD_Tracer_Vars
 
@@ -23,7 +24,7 @@ MODULE MOD_Tracer_Conservation
    ! MOD_Tracer_SoilWater instead of hidden behind a local tolerance waiver.
    real(r8), parameter :: trc_balance_abs_tol = 5.0e-6_r8
    real(r8), parameter :: trc_balance_rel_tol = 1.0e-12_r8
-   integer, parameter :: n_storage_diag = 11
+   integer, parameter :: n_storage_diag = 12
    integer, parameter :: n_flux_diag = 7
 
    ! Per-step accumulator snapshots (saved at start of each timestep)
@@ -139,7 +140,8 @@ CONTAINS
          ! R_init so the ratio is constant. When fractionation is active, do
          ! not overwrite the reservoir isotope state with the initial delta.
          fixed_signature_storage = tracer_can_use_fixed_signature(itrc) .and. &
-            .not. tracer_fractionation_active(itrc)
+            .not. tracer_fractionation_active(itrc) .and. &
+            .not. tracer_has_dissolved_limit(itrc)
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature_storage = fixed_signature_storage .and. .not. trc_runtime_forced(itrc)
          ENDIF
@@ -177,6 +179,19 @@ CONTAINS
          IF (allocated(trc_subsurface_residue)) THEN
             storage_comp(11) = trc_subsurface_residue(itrc, ipatch)
          ENDIF
+         IF (allocated(trc_solid_soisno)) THEN
+            DO j = lb_store, nl_soil
+               storage_comp(12) = storage_comp(12) + trc_solid_soisno(itrc, j, ipatch)
+            ENDDO
+         ENDIF
+         IF (allocated(trc_canopy_solid)) &
+            storage_comp(12) = storage_comp(12) + trc_canopy_solid(itrc, ipatch)
+         IF (allocated(trc_surface_solid)) &
+            storage_comp(12) = storage_comp(12) + trc_surface_solid(itrc, ipatch)
+         IF (allocated(trc_subsurface_solid)) &
+            storage_comp(12) = storage_comp(12) + trc_subsurface_solid(itrc, ipatch)
+         IF (allocated(trc_waterstorage_solid)) &
+            storage_comp(12) = storage_comp(12) + trc_waterstorage_solid(itrc, ipatch)
          snap_storage_comp(:, itrc, ipatch) = storage_comp
          trc_storage_beg(itrc, ipatch) = sum(storage_comp)
 
@@ -236,6 +251,19 @@ CONTAINS
          IF (allocated(trc_subsurface_residue)) THEN
             CALL decay_pool(trc_subsurface_residue(itrc, ipatch), decay_fraction, source_sink)
          ENDIF
+         IF (allocated(trc_solid_soisno)) THEN
+            DO j = lb_store, nl_soil
+               CALL decay_pool(trc_solid_soisno(itrc, j, ipatch), decay_fraction, source_sink)
+            ENDDO
+         ENDIF
+         IF (allocated(trc_canopy_solid)) &
+            CALL decay_pool(trc_canopy_solid(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(trc_surface_solid)) &
+            CALL decay_pool(trc_surface_solid(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(trc_subsurface_solid)) &
+            CALL decay_pool(trc_subsurface_solid(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(trc_waterstorage_solid)) &
+            CALL decay_pool(trc_waterstorage_solid(itrc, ipatch), decay_fraction, source_sink)
 
          trc_reactive_source_step(itrc, ipatch) = trc_reactive_source_step(itrc, ipatch) &
             + source_sink
@@ -323,6 +351,19 @@ CONTAINS
          IF (allocated(trc_subsurface_residue)) THEN
             storage_comp_end(11) = trc_subsurface_residue(itrc, ipatch)
          ENDIF
+         IF (allocated(trc_solid_soisno)) THEN
+            DO j = lb_store, nl_soil
+               storage_comp_end(12) = storage_comp_end(12) + trc_solid_soisno(itrc, j, ipatch)
+            ENDDO
+         ENDIF
+         IF (allocated(trc_canopy_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + trc_canopy_solid(itrc, ipatch)
+         IF (allocated(trc_surface_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + trc_surface_solid(itrc, ipatch)
+         IF (allocated(trc_subsurface_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + trc_subsurface_solid(itrc, ipatch)
+         IF (allocated(trc_waterstorage_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + trc_waterstorage_solid(itrc, ipatch)
          storage_end = sum(storage_comp_end)
          storage_comp_beg = snap_storage_comp(:, itrc, ipatch)
          storage_comp_dS = storage_comp_end - storage_comp_beg
@@ -674,7 +715,7 @@ CONTAINS
             ' evap_minus_water_R=', balance_worst_diag(18), &
             ' rnof_minus_water_R=', balance_worst_diag(19)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
-                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
+                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
             'TRC_BAL_DCOMP @ipatch=', balance_worst_ipatch, &
             ' itrc=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
@@ -688,7 +729,8 @@ CONTAINS
             ' d_waterstorage=', balance_worst_sds(8), &
             ' d_leaf_iso=', balance_worst_sds(9), &
             ' d_surface_residue=', balance_worst_sds(10), &
-            ' d_subsurface_residue=', balance_worst_sds(11)
+            ' d_subsurface_residue=', balance_worst_sds(11), &
+            ' d_solid=', balance_worst_sds(12)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5)') &
             'TRC_BAL_FCOMP @ipatch=', balance_worst_ipatch, &
@@ -702,7 +744,7 @@ CONTAINS
             ' qinfl=', balance_worst_fcomp(6), &
             ' qcharge=', balance_worst_fcomp(7)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
-                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
+                  &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
             'TRC_BAL_SEND @ipatch=', balance_worst_ipatch, &
             ' itrc=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
@@ -716,7 +758,8 @@ CONTAINS
             ' waterstorage=', balance_worst_send(8), &
             ' leaf_iso=', balance_worst_send(9), &
             ' surface_residue=', balance_worst_send(10), &
-            ' subsurface_residue=', balance_worst_send(11)
+            ' subsurface_residue=', balance_worst_send(11), &
+            ' solid=', balance_worst_send(12)
       ENDIF
 
       IF (print_me .and. resid_nbad_total > 0) THEN

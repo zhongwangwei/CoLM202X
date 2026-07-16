@@ -41,7 +41,7 @@ MODULE MOD_Tracer_LandPhase
    PUBLIC :: tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland
    PUBLIC :: tracer_newsnow, tracer_save_storage, tracer_balance_check
    PUBLIC :: tracer_apply_reactive_processes
-   PUBLIC :: trc_wliq_soisno, trc_wice_soisno, trc_scv
+   PUBLIC :: trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv
    PUBLIC :: trc_ldew_rain, trc_ldew_snow, trc_sm_carry
 
    ! -- Element phase: per-step orchestration, called from CoLMDRIVER;
@@ -169,6 +169,7 @@ CONTAINS
       ! Fortran's "already allocated" runtime check, OR the save-level
       ! snap_* arrays in MOD_Tracer_Conservation would keep the old
       ! numpatch and then misalign with the new tracer arrays.
+      CALL tracer_reactive_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
       CALL tracer_defs_init()
@@ -226,6 +227,13 @@ CONTAINS
                wliq_soisno, wice_soisno, scv)
          ENDIF
          CALL tracer_reactive_read_restart(file_restart)
+      ENDIF
+      IF (present(waterstorage)) THEN
+         CALL tracer_enforce_solubility_from_water(numpatch, maxsnl, nl_soil, &
+            ldew_rain, wliq_soisno, wa, wdsrf, wetwat, waterstorage)
+      ELSE
+         CALL tracer_enforce_solubility_from_water(numpatch, maxsnl, nl_soil, &
+            ldew_rain, wliq_soisno, wa, wdsrf, wetwat)
       ENDIF
    END SUBROUTINE tracer_init_from_arrays
 

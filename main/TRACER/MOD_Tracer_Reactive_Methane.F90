@@ -621,6 +621,10 @@ CONTAINS
       real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
+      IF (DEF_METHANE%use_spatial_ph .and. &
+          (lc_year <= 0 .or. len_trim(dir_landdata) == 0)) THEN
+         CALL CoLM_stop (' ***** ERROR: methane LULCC pH reload requires current landdata directory and year.')
+      ENDIF
 
       ! GIEMS and spatial-pH loading are collective.  Derive the worker-local
       ! size here so non-worker ranks participate with zero-length vectors.
@@ -707,7 +711,7 @@ CONTAINS
       IMPLICIT NONE
 
       registry_init_reported = .false.
-      IF (.not. ch4_reactive_has()) RETURN
+      last_methane_ph_patch_file = ''
 
       CALL deallocate_methane_acc_fluxes ()
       CALL deallocate_wetland_aere_overrides ()

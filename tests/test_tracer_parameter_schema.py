@@ -98,6 +98,7 @@ program descriptor_driver
   character(len=256) :: tracer_name, tracer_category
   character(len=32) :: action, tracer_num_text
   integer :: i
+  real(r8) :: dissolved, solid
 
   call get_command_argument(1, parameter_file)
   call get_command_argument(2, tracer_name)
@@ -114,6 +115,19 @@ program descriptor_driver
 #ifdef BGC
   if (trim(action) == 'methane') call methane_registry_init()
 #endif
+  if (trim(action) == 'max') then
+    write(*,'(A,ES24.16)') 'MAXC=', tracers(1)%max_dissolved_conc
+    stop
+  endif
+  if (trim(action) == 'equilibrate') then
+    dissolved = 2.0e-2_r8
+    solid = 0.0_r8
+    call tracer_equilibrate_dissolved(1, 1.0_r8, dissolved, solid)
+    write(*,'(A,2(ES24.16,1X))') 'DRY=', dissolved, solid
+    call tracer_equilibrate_dissolved(1, 2.0_r8, dissolved, solid)
+    write(*,'(A,2(ES24.16,1X))') 'REWET=', dissolved, solid
+    stop
+  endif
   do i = 1, ntracers
     write(*,'(A)') 'NAME=' // trim(tracers(i)%name)
   enddo
@@ -228,6 +242,47 @@ def test_explicit_chloride_descriptor_is_loaded(descriptor_driver):
         "-1",
         "T T F",
     ]
+
+
+def test_chloride_restores_the_historical_dissolved_concentration_limit(
+    descriptor_driver,
+):
+    result = run_driver(
+        descriptor_driver,
+        STANDARD_CHLORIDE.read_text(encoding="utf-8"),
+        action="max",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    line = next(line for line in result.stdout.splitlines() if line.startswith("MAXC="))
+    assert float(line.removeprefix("MAXC=")) == pytest.approx(1.0e-2)
+
+
+def test_dissolved_limit_precipitates_and_redissolves_without_losing_mass(
+    descriptor_driver,
+):
+    result = run_driver(
+        descriptor_driver,
+        STANDARD_CHLORIDE.read_text(encoding="utf-8"),
+        action="equilibrate",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    lines = result.stdout.splitlines()
+    dry = [
+        float(value)
+        for value in next(line for line in lines if line.startswith("DRY="))
+        .removeprefix("DRY=")
+        .split()
+    ]
+    rewet = [
+        float(value)
+        for value in next(line for line in lines if line.startswith("REWET="))
+        .removeprefix("REWET=")
+        .split()
+    ]
+    assert dry == pytest.approx([1.0e-2, 1.0e-2])
+    assert rewet == pytest.approx([2.0e-2, 0.0])
+    assert sum(dry) == pytest.approx(2.0e-2)
+    assert sum(rewet) == pytest.approx(2.0e-2)
 
 
 @pytest.mark.parametrize(
@@ -483,6 +538,8 @@ def test_ch4_aliases_cannot_both_be_registered(descriptor_driver):
         ("init_conc", "-1.0", "CL", "conservative"),
         ("precip_default_conc", "-1.0", "CL", "conservative"),
         ("vapor_default_conc", "-1.0", "CL", "conservative"),
+        ("max_dissolved_conc", "0.0", "CL", "conservative"),
+        ("max_dissolved_conc", "NaN", "CL", "conservative"),
         ("mol_weight", "NaN", "CL", "conservative"),
         ("mol_weight", "Inf", "CL", "conservative"),
         ("reactive_decay_rate", "NaN", "NO3", "reactive"),

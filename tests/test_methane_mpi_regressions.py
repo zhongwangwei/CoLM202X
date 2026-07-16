@@ -32,7 +32,7 @@ def test_giems_rejects_wrong_rank_and_dimension_order_collectively() -> None:
             re.IGNORECASE | re.DOTALL,
         )
 
-    error_bcast = read.index("MPI_Bcast(giems_metadata_error")
+    error_bcast = read.index("MPI_Bcast(metadata")
     stop = read.index("CALL CoLM_stop", error_bcast)
     assert error_bcast < stop
 
@@ -68,9 +68,9 @@ def test_giems_counts_documented_zero_flags_in_climatology_and_rejects_corruptio
     giems = source("main/TRACER/MOD_Tracer_Reactive_Methane_GIEMS.F90")
     read = routine(giems, "read_methane_giems")
 
-    value_branch = read.split("v = patch_values(month_in_chunk, ipatch)", 1)[1].split(
-        "deallocate(patch_values, requested_values)", 1
-    )[0]
+    value_branch = read.split(
+        "v = unique_values(month_in_chunk, patch_to_unique(ipatch))", 1
+    )[1].split("deallocate(unique_values, requested_values)", 1)[0]
     assert "ieee_is_nan(v)" in value_branch
     for flag in ("-999._r4", "-998._r4", "-997._r4"):
         assert flag in value_branch
@@ -99,11 +99,11 @@ def test_giems_chunks_monthly_reads_and_distributions_by_twelve() -> None:
         chunk,
     )
     assert re.search(
-        r"allocate\(patch_values\(chunk_n,\s*max\(1,\s*numpatch\)\)\)", chunk
+        r"allocate\(unique_values\(chunk_n,\s*max\(1,\s*n_unique\)\)\)", chunk
     )
     assert "chunk_counts(:) = request_counts(:) * chunk_n" in chunk
     assert "chunk_displs(:) = request_displs(:) * chunk_n" in chunk
-    assert "chunk_n * numpatch" in chunk
+    assert "chunk_n * n_unique" in chunk
 
     slab_read = chunk.index("nf90_get_var")
     error_bcast = chunk.index("MPI_Bcast(giems_block_error")
@@ -129,7 +129,7 @@ def test_giems_checks_chunked_mpi_counts_before_distribution() -> None:
 
     assert "total_requests > huge(total_requests) - request_counts(irequest)" in read
     assert "total_requests > huge(total_requests) / chunk_max" in read
-    assert "numpatch > huge(numpatch) / chunk_max" in read
+    assert "n_unique > huge(n_unique) / chunk_max" in read
     allreduce = read.index("MPI_Allreduce(giems_count_error")
     stop = read.index("CALL CoLM_stop", allreduce)
     gather = read.index("MPI_Gatherv(pixel_index")
@@ -143,7 +143,7 @@ def test_giems_rejects_unrepresentable_pixels_and_invalid_patch_mapping() -> Non
     overflow_guard = "int(nlat, i8) * int(nlon, i8) > int(huge(0), i8)"
     assert overflow_guard in read
     assert read.index(overflow_guard) < read.index(
-        "pixel_index(ipatch) = (best_iy(ipatch) - 1) * nlon + best_ix(ipatch)"
+        "pixel = (best_iy(ipatch) - 1) * nlon + best_ix(ipatch)"
     )
 
     assert "ieee_is_finite(patchlatr_in(ipatch))" in read
