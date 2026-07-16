@@ -127,7 +127,7 @@ CONTAINS
          tempavg_somhr, tempavg_finrw, &
          fsat_bef, finundated_lag, methane_dfsat_tot, &
          biome_f_methane_patch, biome_redoxlag_patch, methane_wetland_type, &
-         methane_area_floodplain, &
+         methane_area_floodplain, methane_area_soil, methane_area_rice, &
          f_inund_flood_patch, wetland_frac_per_patch, &
          conc_o2_unsat_component, conc_o2_sat_component, &
          conc_methane_unsat_component, conc_methane_sat_component, &
@@ -1029,6 +1029,11 @@ CONTAINS
 			methane_prod_tot_rice(i) = wr*rice%prod_tot
 			methane_oxid_tot_soil(i) = ws*soil%oxid_tot
 			methane_oxid_tot_rice(i) = wr*rice%oxid_tot
+			! Category area fractions of the patchtype==0 tile (paddy patches):
+			! non-rice soil = 1-rice, rice = rice.  Overrides the Physics default
+			! (soil=1) so soil/rice category totals do not double-count area.
+			methane_area_soil(i) = ws
+			methane_area_rice(i) = wr
 		END SUBROUTINE aggregate_methane_columns
 
 		SUBROUTINE repartition_methane_column_state(ipatch, old_fraction, new_fraction)

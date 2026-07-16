@@ -1249,23 +1249,14 @@ CONTAINS
           'f_methane_surf_flux_rice', &
           'f_methane_surf_flux_rice_intensive', &
        ! Category-split CH4 budget components (wetland/soil/lake/rice).
-          'f_methane_prod_wetland', &
-          'f_methane_prod_soil', &
-          'f_methane_prod_lake', &
-          'f_methane_oxid_wetland', &
-          'f_methane_oxid_soil', &
-          'f_methane_oxid_lake', &
-          'f_methane_aere_wetland', &
-          'f_methane_aere_soil', &
-          'f_methane_aere_lake', &
-          'f_methane_ebul_wetland', &
-          'f_methane_ebul_soil', &
-          'f_methane_ebul_lake', &
-          'f_methane_diff_wetland', &
-          'f_methane_diff_soil', &
-          'f_methane_diff_lake', &
+          'f_methane_prod_tot_wetland', &
+          'f_methane_oxid_tot_wetland', &
+          'f_methane_surf_aere_wetland', &
+          'f_methane_surf_ebul_wetland', &
+          'f_methane_surf_diff_wetland', &
           'f_methane_area_wetland', &
           'f_methane_area_soil', &
+          'f_methane_area_rice', &
           'f_methane_area_lake', &
           'f_methane_floodplain_frac', &
           'f_methane_wetland_type')

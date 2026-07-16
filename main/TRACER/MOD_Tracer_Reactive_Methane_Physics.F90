@@ -40,12 +40,9 @@ module MOD_Tracer_Reactive_Methane_Physics
       methane_soil_zwt, methane_surf_flux_wetland, &
       methane_surf_flux_soil, methane_surf_flux_lake, &
       methane_surf_flux_rice, &
-      methane_prod_wetland, methane_prod_soil, methane_prod_lake, &
-      methane_oxid_wetland, methane_oxid_soil, methane_oxid_lake, &
-      methane_aere_wetland, methane_aere_soil, methane_aere_lake, &
-      methane_ebul_wetland, methane_ebul_soil, methane_ebul_lake, &
-      methane_diff_wetland, methane_diff_soil, methane_diff_lake, &
-      methane_area_wetland, methane_area_soil, methane_area_lake
+      methane_prod_tot_wetland, methane_oxid_tot_wetland, &
+      methane_surf_aere_wetland, methane_surf_ebul_wetland, methane_surf_diff_wetland, &
+      methane_area_wetland, methane_area_soil, methane_area_rice, methane_area_lake, &
 		                                     methane_surf_aere_soil, &
 		                                     methane_surf_aere_rice, methane_surf_ebul_soil, &
 		                                     methane_surf_ebul_rice, methane_surf_diff_soil, &
@@ -1488,20 +1485,16 @@ contains
 				methane_oxid_tot_soil(ipatch) = 0._r8
 				methane_oxid_tot_rice(ipatch) = 0._r8
 
-         ! Category-split budget components.  Reset every step: a patch
-         ! contributes to exactly one of wetland/soil/lake, so the other
-         ! categories must read back as zero.
-         methane_prod_wetland(ipatch) = 0._r8 ; methane_prod_soil(ipatch) = 0._r8
-         methane_prod_lake   (ipatch) = 0._r8
-         methane_oxid_wetland(ipatch) = 0._r8 ; methane_oxid_soil(ipatch) = 0._r8
-         methane_oxid_lake   (ipatch) = 0._r8
-         methane_aere_wetland(ipatch) = 0._r8 ; methane_aere_soil(ipatch) = 0._r8
-         methane_aere_lake   (ipatch) = 0._r8
-         methane_ebul_wetland(ipatch) = 0._r8 ; methane_ebul_soil(ipatch) = 0._r8
-         methane_ebul_lake   (ipatch) = 0._r8
-         methane_diff_wetland(ipatch) = 0._r8 ; methane_diff_soil(ipatch) = 0._r8
-         methane_diff_lake   (ipatch) = 0._r8
+         ! wetland process budget components: reset every step (a patch is
+         ! wetland/soil/rice/lake exclusive).  soil/rice/lake process outputs
+         ! come from teacher/base vars; only the areas span all four categories.
+         methane_prod_tot_wetland(ipatch) = 0._r8
+         methane_oxid_tot_wetland(ipatch) = 0._r8
+         methane_surf_aere_wetland(ipatch) = 0._r8
+         methane_surf_ebul_wetland(ipatch) = 0._r8
+         methane_surf_diff_wetland(ipatch) = 0._r8
          methane_area_wetland(ipatch) = 0._r8 ; methane_area_soil(ipatch) = 0._r8
+         methane_area_rice   (ipatch) = 0._r8
          methane_area_lake   (ipatch) = 0._r8
          ! methane_area_floodplain and methane_wetland_type are published by
          ! methane_driver before this routine runs -- do NOT reset them here.
@@ -1509,26 +1502,21 @@ contains
          IF (patchtype == 2) THEN
             methane_surf_flux_wetland(ipatch) = methane_surf_flux_tot
             ! Wetland is its own patch, so the split is exact.
-            methane_prod_wetland(ipatch) = methane_prod_tot
-            methane_oxid_wetland(ipatch) = methane_oxid_tot
-            methane_aere_wetland(ipatch) = methane_surf_aere
-            methane_ebul_wetland(ipatch) = methane_surf_ebul
-            methane_diff_wetland(ipatch) = methane_surf_diff
+            methane_prod_tot_wetland(ipatch) = methane_prod_tot
+            methane_oxid_tot_wetland(ipatch) = methane_oxid_tot
+            methane_surf_aere_wetland(ipatch) = methane_surf_aere
+            methane_surf_ebul_wetland(ipatch) = methane_surf_ebul
+            methane_surf_diff_wetland(ipatch) = methane_surf_diff
             methane_area_wetland(ipatch) = 1._r8
          ELSEIF (patchtype == 0) THEN
             methane_soil_finundated(ipatch) = finundated_default
             methane_soil_zwt(ipatch) = zwt
 
-            ! The whole patchtype==0 patch is ONE "soil" category here.
-            ! Rice is a CFT fraction inside it and is deliberately NOT split
-            ! out: the rice/non-rice pool separation is being done separately.
-            ! Folding rice in keeps the category budget EXACT -- wetland + soil
-            ! + lake == patch total for every component, no reconstruction.
-            methane_prod_soil(ipatch) = methane_prod_tot
-            methane_oxid_soil(ipatch) = methane_oxid_tot
-            methane_aere_soil(ipatch) = methane_surf_aere
-            methane_ebul_soil(ipatch) = methane_surf_ebul
-            methane_diff_soil(ipatch) = methane_surf_diff
+            ! soil/rice process outputs come from teacher's
+            ! methane_{surf_aere,surf_ebul,surf_diff,prod_tot,oxid_tot}_{soil,rice}
+            ! (non-rice branch below; Driver aggregate_methane_columns for paddy).
+            ! Here we only set the non-rice soil area fraction (=1 by default);
+            ! Driver overrides it with (1-rice) and sets methane_area_rice for paddy.
             methane_area_soil(ipatch) = 1._r8
 
             ! Pre-existing net-surface-flux split into non-rice soil vs rice
@@ -1566,14 +1554,9 @@ contains
             ENDIF
          ELSEIF (patchtype == 4 .and. DEF_METHANE%allowlakeprod) THEN
             methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
-            ! The generic scalars were overwritten with the lake-path values
-            ! above, so they are already lake-correct here.  Lakes have no
-            ! aerenchyma.
-            methane_prod_lake(ipatch) = methane_prod_tot
-            methane_oxid_lake(ipatch) = methane_oxid_tot
-            methane_aere_lake(ipatch) = 0._r8
-            methane_ebul_lake(ipatch) = methane_surf_ebul
-            methane_diff_lake(ipatch) = methane_surf_diff
+            ! lake process outputs come from base methane_{prod_tot,oxid_tot,
+            ! surf_ebul,surf_diff}_lake (set on the lake path above; lakes have
+            ! no aerenchyma).  Here we only mark the lake area fraction.
             methane_area_lake(ipatch) = 1._r8
 
          ENDIF
