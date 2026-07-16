@@ -72,6 +72,7 @@ CONTAINS
 			USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_active
 		USE MOD_Tracer_Reactive_Methane_Microbes, only: methane_microbes_step, &
 		     aggregate_methane_microbes, repartition_methane_microbes, &
+		     reset_methane_inactive_lake_microbe_diagnostics, &
 		     microbial_prod_potential, microbial_oxid_potential, &
 		     microbial_prod_potential_comp, microbial_oxid_potential_comp
 		! ----- Methane tracer state (module-level allocatables) -----
@@ -457,15 +458,9 @@ CONTAINS
 							CALL aggregate_methane_microbes(i, 0._r8)
 						ELSE
 							! Lake CH4 bypasses the optional soil microbial-pool override.
-							! Clear per-layer potentials so accumulated diagnostics do not
-							! retain spval/restart values on lake patches.
-							IF (allocated(microbial_prod_potential) .and. allocated(microbial_oxid_potential)) THEN
-								IF (i >= lbound(microbial_prod_potential,2) .and. i <= ubound(microbial_prod_potential,2) .and. &
-								    i >= lbound(microbial_oxid_potential,2) .and. i <= ubound(microbial_oxid_potential,2)) THEN
-									microbial_prod_potential(1:nl_soil,i) = 0._r8
-									microbial_oxid_potential(1:nl_soil,i) = 0._r8
-								ENDIF
-							ENDIF
+							! Reset every inactive per-step diagnostic through its owner;
+							! prognostic biomass remains carried by the lake sediment.
+							CALL reset_methane_inactive_lake_microbe_diagnostics(i)
 						ENDIF
 
 						microbial_prod_potential_eff(:) = 0._r8

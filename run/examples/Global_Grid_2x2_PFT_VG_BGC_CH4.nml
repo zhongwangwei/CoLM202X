@@ -66,14 +66,14 @@
    DEF_hist_vars_namelist = '/share/home/dq010/CoLM/CoLM202X-CROP/cases/GlobalBGCPFTnoCROPHist1851-2014-newPHS/history.nml'
    DEF_hist_vars_out_default = .true.
 
-   ! ----- Methane reactive tracer -----
+   ! ----- Methane gas provider -----
    ! Requires #define TRACER, #define BGC, and #define CROP in include/define.h
    ! because standard_ch4_parameter.nml enables rice-paddy methane.
    ! CH4 runtime activation is species-driven; no #define CH4 is used.
    DEF_USE_Dynamic_Wetland = .true.
    DEF_TRACER_NUM         = 1
    DEF_TRACER_NAMES       = "CH4"
-   DEF_TRACER_TYPES       = "reactive"
+   DEF_TRACER_TYPES       = "gas"
    DEF_TRACER_MRAT        = "16.04"
    DEF_TRACER_REF_RATIO   = "1.0"
    DEF_TRACER_INIT_DELTA  = "0.0"

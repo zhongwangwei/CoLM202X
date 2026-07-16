@@ -11,9 +11,6 @@
     DEF_TRACER%ref_ratio           = 1.0        ! n/a (no isotope ratio)
     DEF_TRACER%init_delta          = 0.0        ! reserved for particle species
     DEF_TRACER%reactive_decay_rate = 0.0        ! no generic reactive loss
-    DEF_TRACER%uses_generic_land_water_transport = .false. ! sediment owns its state
-    DEF_TRACER%is_nonvolatile      = .false.
-    DEF_TRACER%uses_reaction       = .false.
 /
 
 &nl_colm_sediment_parameter

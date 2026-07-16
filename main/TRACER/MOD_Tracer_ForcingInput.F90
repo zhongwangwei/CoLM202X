@@ -136,13 +136,33 @@ CONTAINS
                ENDIF
                CALL CoLM_stop()
             ENDIF
+            forcing_tintalgo(k) = tracer_lower(adjustl(forcing_tintalgo(k)))
+            SELECT CASE (trim(forcing_tintalgo(k)))
+            CASE ('linear', 'nearest')
+            CASE DEFAULT
+               IF (p_is_master) WRITE(*,'(A,I0,5A)') &
+                  'ERROR tracer_forcing_input_load: forcing_tintalgo(', k, ') for tracer "', &
+                  trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_tintalgo(k)), '".'
+               CALL CoLM_stop()
+            END SELECT
+            forcing_input_mode(k) = tracer_lower(adjustl(forcing_input_mode(k)))
+            SELECT CASE (trim(forcing_input_mode(k)))
+            CASE ('direct', 'value', 'raw', 'delta', &
+                  'heavy_over_total', 'ratio_to_total', 'over_total', &
+                  'normalized_over_total', 'normalized_ratio', 'isogsm', 'standard_over_total')
+            CASE DEFAULT
+               IF (p_is_master) WRITE(*,'(A,I0,5A)') &
+                  'ERROR tracer_forcing_input_load: forcing_input_mode(', k, ') for tracer "', &
+                  trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_input_mode(k)), '".'
+               CALL CoLM_stop()
+            END SELECT
             tracer_forcing_specs(k,itrc)%role       = adjustl(forcing_role(k))
             tracer_forcing_specs(k,itrc)%fprefix    = adjustl(forcing_fprefix(k))
             tracer_forcing_specs(k,itrc)%vname      = adjustl(forcing_vname(k))
-            tracer_forcing_specs(k,itrc)%tintalgo   = adjustl(forcing_tintalgo(k))
+            tracer_forcing_specs(k,itrc)%tintalgo   = forcing_tintalgo(k)
             tracer_forcing_specs(k,itrc)%dtime      = forcing_dtime(k)
             tracer_forcing_specs(k,itrc)%offset     = forcing_offset(k)
-            tracer_forcing_specs(k,itrc)%input_mode = adjustl(forcing_input_mode(k))
+            tracer_forcing_specs(k,itrc)%input_mode = forcing_input_mode(k)
          ENDDO
 
          IF (p_is_master) write(*,'(A,I0,A,A,A,I0,A)') &

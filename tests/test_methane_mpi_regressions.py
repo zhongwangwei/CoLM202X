@@ -237,7 +237,7 @@ def test_methane_scoped_runtime_checks_use_colm_stop_not_local_abort() -> None:
         "main/TRACER/MOD_Tracer_Reactive_Methane_Driver.F90",
         "main/TRACER/MOD_Tracer_Reactive_Methane_AccFlux.F90",
         "main/TRACER/MOD_Tracer_Reactive_Methane_Hist.F90",
-        "main/TRACER/MOD_Tracer_Reactive.F90",
+        "main/TRACER/MOD_Tracer_Lifecycle.F90",
     )
     combined = "\n".join(source(path) for path in files)
     assert not re.search(r"(?i)\bcall\s+abort\b", combined)
@@ -390,10 +390,10 @@ def test_history_writeback_memory_limit_counts_real8_bytes_prospectively() -> No
     assert "TotalMemSize = TotalMemSize + buffer_mem_size" in body
 
 
-def test_single_reactive_history_callback_avoids_defensive_deep_copies() -> None:
-    reactive = source("main/TRACER/MOD_Tracer_Reactive.F90")
-    history = routine(reactive, "tracer_reactive_history")
+def test_single_lifecycle_history_provider_avoids_defensive_deep_copies() -> None:
+    lifecycle = source("main/TRACER/MOD_Tracer_Lifecycle.F90")
+    history = routine(lifecycle, "tracer_lifecycle_land_history")
 
-    assert "active_history_callbacks == 1" in history
-    direct = history.split("active_history_callbacks == 1", 1)[1].split("ELSE", 1)[0]
-    assert "%history (file_hist, itime_in_file, sumarea, filter" in direct
+    assert "active == 1" in history
+    direct = history.split("active == 1", 1)[1].split("ENDIF", 1)[0]
+    assert "%land_history(file_hist, itime_in_file, sumarea, filter" in direct

@@ -1,9 +1,10 @@
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
 import pytest
+
+from fortran_test_support import SMOKE_TIMEOUT, require_runnable_fortran_compiler
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,12 +12,9 @@ SNOW_TOPOLOGY = ROOT / "main" / "MOD_SnowLayersCombineDivide.F90"
 
 
 def test_snow_layer_combine_and_divide_conserve_solid_tracer_inventory():
-    compiler = shutil.which("mpif90") or shutil.which("gfortran")
-    if compiler is None:
-        pytest.skip("Fortran compiler is not available")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
+        compiler = require_runnable_fortran_compiler(tmp)
         (tmp / "define.h").write_text("#define TRACER\n", encoding="utf-8")
         (tmp / "precision.f90").write_text(
             """
@@ -99,9 +97,21 @@ end program snow_solid_topology_driver
             "-o",
             str(executable),
         ]
-        subprocess.run(command, cwd=tmp, check=True, capture_output=True, text=True)
+        subprocess.run(
+            command,
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=SMOKE_TIMEOUT,
+        )
         result = subprocess.run(
-            [str(executable)], cwd=tmp, check=True, capture_output=True, text=True
+            [str(executable)],
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=SMOKE_TIMEOUT,
         )
 
     lines = result.stdout.splitlines()

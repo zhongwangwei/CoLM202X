@@ -12,7 +12,7 @@ MODULE MOD_Grid_RiverLakeTimeVars
 
    USE MOD_Precision
 #ifdef TRACER
-   USE MOD_Tracer_Particle, only: tracer_particle_write_restart
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_route_write_restart
 #endif
    USE MOD_Grid_RiverLakeBifurcation, only: write_bifurcation_restart
    IMPLICIT NONE
@@ -657,7 +657,7 @@ CONTAINS
       ! Note: tracer restart is read separately in grid_riverlake_flow_init
       ! after river_lake_tracer_init() allocates the arrays. Same pattern as others.
 
-      ! Note: particle-tracer restart is read through MOD_Tracer_Particle,
+      ! Note: particle-tracer restart is read through MOD_Tracer_Lifecycle,
       ! called from grid_riverlake_flow_init after particle species are initialized.
 
    END SUBROUTINE READ_GridRiverLakeTimeVars
@@ -740,7 +740,7 @@ CONTAINS
       ENDIF
 
 #ifdef TRACER
-      CALL tracer_particle_write_restart(file_restart)
+      CALL tracer_lifecycle_route_write_restart(file_restart)
 #endif
 
    END SUBROUTINE WRITE_GridRiverLakeTimeVars

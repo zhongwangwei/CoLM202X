@@ -101,6 +101,8 @@ def test_mksrfdata_ph_is_sparse_area_weighted_and_fail_closed() -> None:
     assert "SUBROUTINE spatial_mapping_build_arealweighted (this, fgrid, pixelset)" in spatial_mapping
     assert "type, PUBLIC :: methane_ph_mapping_type" in ph_mapping
     assert "SUBROUTINE build_methane_ph_areal_mapping" in ph_mapping
+    assert "USE MPI, only:" not in ph_mapping
+    assert "USE MPI, only:" not in aggregate
     assert "area = areaquad(lat_s, lat_n, lon_w, lon_e)" in ph_mapping
     assert "areagrid" not in ph_mapping
     assert "allocate_block_data" not in ph_mapping
@@ -285,5 +287,5 @@ def test_standard_config_conserves_lake_carbon_and_example_declares_dependencies
     assert "logical :: replenishlakec = .false." in const
     assert "falls back to pH=6.2" not in standard
     assert "DEF_USE_Dynamic_Wetland = .true." in example
-    methane_comment = example.split("! ----- Methane reactive tracer -----", 1)[1]
+    methane_comment = example.split("! ----- Methane gas provider -----", 1)[1]
     assert "CROP" in methane_comment.split("DEF_TRACER_NUM", 1)[0]

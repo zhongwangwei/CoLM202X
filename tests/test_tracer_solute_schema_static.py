@@ -51,16 +51,18 @@ def test_legacy_init_delta_is_the_per_field_fallback():
         assert f"tracers(itrc)%{field}=DEF_TRACER%{field}" in compact
 
 
-def test_nonvolatile_capability_is_tied_to_generic_land_water_state():
+def test_nonvolatile_solute_is_derived_from_family_and_state_owner():
     helper = function_body(DEFS, "tracer_is_nonvolatile_solute")
+    assert "tracer_is_solute(itrc)" in helper
     assert "tracer_uses_land_water_transport(itrc)" in helper
-    assert "tracers(itrc)%is_nonvolatile" in helper
     assert "tracer_is_conservative(itrc)" not in helper
 
+    transport = function_body(DEFS, "tracer_uses_land_water_transport")
+    assert "tracers(itrc)%state_owner == STATE_OWNER_GENERIC_WATER" in transport
+
     validator = subroutine_body(DEFS, "validate_tracer_descriptor")
-    assert "is only implemented for category=conservative" not in validator
-    assert "tracer_is_conservative(itrc) .or. tracer_is_reactive(itrc)" in validator
-    assert "requires generic land-water transport" in validator
+    assert "isotope and solute tracers require generic land-water transport" in validator
+    assert "first-order decay is supported only by solute tracers" in validator
 
 
 def test_reactive_decay_includes_dry_residue_in_source_sink_ledger():

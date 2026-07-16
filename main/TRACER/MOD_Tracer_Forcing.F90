@@ -61,6 +61,7 @@ MODULE MOD_Tracer_Forcing
    character(len=256), allocatable :: trc_var_fprefix(:)
    character(len=256), allocatable :: trc_var_vname(:)
    character(len=256), allocatable :: trc_var_tintalgo(:)
+   character(len=256), allocatable :: trc_var_timelog(:)
    type(timestamp), allocatable :: trc_tstamp_LB(:)
    type(timestamp), allocatable :: trc_tstamp_UB(:)
 
@@ -217,6 +218,7 @@ CONTAINS
       allocate(trc_var_fprefix(2*ntracers + 6))
       allocate(trc_var_vname(2*ntracers + 6))
       allocate(trc_var_tintalgo(2*ntracers + 6))
+      allocate(trc_var_timelog(2*ntracers + 6))
       allocate(trc_tstamp_LB(2*ntracers + 6))
       allocate(trc_tstamp_UB(2*ntracers + 6))
       allocate(has_precip(ntracers), has_vapor(ntracers))
@@ -228,6 +230,7 @@ CONTAINS
       has_vapor(:) = .false.
       trc_tstamp_LB(:) = timestamp(-1, -1, -1)
       trc_tstamp_UB(:) = timestamp(-1, -1, -1)
+      trc_var_timelog(:) = 'instant'
 
       ! Per-species forcing: each tracer declares its own precip/vapor inputs
       ! in &nl_colm_tracer_forcing (loaded above by MOD_Tracer_ForcingInput).
@@ -275,6 +278,7 @@ CONTAINS
       IF (allocated(trc_var_fprefix)) deallocate(trc_var_fprefix)
       IF (allocated(trc_var_vname)) deallocate(trc_var_vname)
       IF (allocated(trc_var_tintalgo)) deallocate(trc_var_tintalgo)
+      IF (allocated(trc_var_timelog)) deallocate(trc_var_timelog)
       IF (allocated(trc_tstamp_LB)) deallocate(trc_tstamp_LB)
       IF (allocated(trc_tstamp_UB)) deallocate(trc_tstamp_UB)
    END SUBROUTINE tracer_forcing_deallocate_config
@@ -306,6 +310,7 @@ CONTAINS
       trc_var_fprefix(n_trc_forc_vars) = trim(fprefix)
       trc_var_vname(n_trc_forc_vars) = trim(vname)
       trc_var_tintalgo(n_trc_forc_vars) = trim(tintalgo)
+      trc_var_timelog(n_trc_forc_vars) = 'instant'
       trc_var_dtime(n_trc_forc_vars) = dtime
       trc_var_offset(n_trc_forc_vars) = offset
    END SUBROUTINE tracer_forcing_add_var
@@ -330,7 +335,8 @@ CONTAINS
             trc_var_total(idx_total_precip) = 0
             trc_var_fprefix(idx_total_precip) = trim(DEF_forcing%fprefix(4))
             trc_var_vname(idx_total_precip) = trim(DEF_forcing%vname(4))
-            trc_var_tintalgo(idx_total_precip) = trim(DEF_forcing%tintalgo(4))
+            trc_var_tintalgo(idx_total_precip) = trim(tracer_lower(DEF_forcing%tintalgo(4)))
+            trc_var_timelog(idx_total_precip) = trim(tracer_lower(DEF_forcing%timelog(4)))
             trc_var_dtime(idx_total_precip) = DEF_forcing%dtime(4)
             trc_var_offset(idx_total_precip) = DEF_forcing%offset(4)
          ENDIF
@@ -351,7 +357,8 @@ CONTAINS
             trc_var_total(idx_total_vapor) = 0
             trc_var_fprefix(idx_total_vapor) = trim(DEF_forcing%fprefix(2))
             trc_var_vname(idx_total_vapor) = trim(DEF_forcing%vname(2))
-            trc_var_tintalgo(idx_total_vapor) = trim(DEF_forcing%tintalgo(2))
+            trc_var_tintalgo(idx_total_vapor) = trim(tracer_lower(DEF_forcing%tintalgo(2)))
+            trc_var_timelog(idx_total_vapor) = trim(tracer_lower(DEF_forcing%timelog(2)))
             trc_var_dtime(idx_total_vapor) = DEF_forcing%dtime(2)
             trc_var_offset(idx_total_vapor) = DEF_forcing%offset(2)
          ENDIF
@@ -417,7 +424,7 @@ CONTAINS
             ENDIF
          ENDIF
 
-         IF (trc_tstamp_UB(iv) == 'NULL' .or. trc_tstamp_UB(iv) <= mtstamp) THEN
+         DO WHILE (trc_tstamp_UB(iv) == 'NULL' .or. trc_tstamp_UB(iv) <= mtstamp)
             IF (.not. (trc_tstamp_UB(iv) == 'NULL')) THEN
                IF (p_is_io) CALL block_data_copy(trc_forcn_UB(iv), trc_forcn_LB(iv))
             ENDIF
@@ -428,7 +435,7 @@ CONTAINS
                CALL ncio_read_block_time(filename, trim(trc_var_vname(iv)), trc_gforc, time_i, trc_metdata)
                CALL block_data_copy(trc_metdata, trc_forcn_UB(iv))
             ENDIF
-         ENDIF
+         ENDDO
       ENDDO
    END SUBROUTINE tracer_forcing_read_LBUB
 
@@ -462,8 +469,20 @@ CONTAINS
          ELSE
             CALL block_data_copy(trc_forcn_UB(iv), trc_forcn(iv))
          ENDIF
+      ELSEIF (trim(trc_var_tintalgo(iv)) == 'uniform') THEN
+         ! Match MOD_Forcing exactly: interval means logged forward belong
+         ! to the lower timestamp; backward (and other non-forward logs)
+         ! belong to the upper timestamp.
+         IF (trim(trc_var_timelog(iv)) == 'forward') THEN
+            CALL block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))
+         ELSE
+            CALL block_data_copy(trc_forcn_UB(iv), trc_forcn(iv))
+         ENDIF
       ELSE
-         CALL block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))
+         IF (p_is_master) WRITE(*,'(A,I0,3A)') &
+            'ERROR tracer_forcing_interpolate_var: variable ', iv, &
+            ' has invalid interpolation mode "', trim(trc_var_tintalgo(iv)), '".'
+         CALL CoLM_stop()
       ENDIF
    END SUBROUTINE tracer_forcing_interpolate_var
 
@@ -1060,7 +1079,12 @@ CONTAINS
       ELSEIF (trim(low) == 'normalized_over_total' .or. trim(low) == 'normalized_ratio' .or. &
               trim(low) == 'isogsm' .or. trim(low) == 'standard_over_total') THEN
          tracer_forcing_parse_mode = MODE_NORMALIZED_OVER_TOTAL
+      ELSEIF (trim(low) == 'direct' .or. trim(low) == 'value' .or. trim(low) == 'raw') THEN
+         tracer_forcing_parse_mode = MODE_VALUE
       ELSE
+         IF (p_is_master) WRITE(*,'(3A)') &
+            'ERROR tracer_forcing_parse_mode: unknown forcing_input_mode "', trim(token), '".'
+         CALL CoLM_stop()
          tracer_forcing_parse_mode = MODE_VALUE
       ENDIF
    END FUNCTION tracer_forcing_parse_mode

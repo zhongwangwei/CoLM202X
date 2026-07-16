@@ -15,11 +15,12 @@ MODULE MOD_Tracer_LandPhase
    USE MOD_Tracer_SoilInit
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_IRRIGATION
-   USE MOD_Tracer_Reactive, only: tracer_reactive_init, tracer_reactive_final, &
-      tracer_reactive_resolve_step, tracer_reactive_lake_step, &
-      tracer_reactive_wetland_decomp, tracer_reactive_soil_step, &
-      tracer_reactive_report, tracer_reactive_flush_acc_fluxes, &
-      tracer_reactive_accumulate_fluxes, tracer_reactive_read_restart
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_init, &
+      tracer_lifecycle_land_init, tracer_lifecycle_land_final, &
+      tracer_lifecycle_lake_step, &
+      tracer_lifecycle_wetland_decomp, tracer_lifecycle_soil_step, &
+      tracer_lifecycle_land_report, tracer_lifecycle_land_flush_acc_fluxes, &
+      tracer_lifecycle_land_accumulate_fluxes, tracer_lifecycle_land_read_restart
 
    IMPLICIT NONE
    PRIVATE
@@ -29,7 +30,7 @@ MODULE MOD_Tracer_LandPhase
    ! drivers do not USE every low-level tracer module directly. NOTE: this
    ! is a facade, not the engine -- per-step driving lives in the called
    ! modules. River/lake ROUTING tracers are driven separately in HYDRO
-   ! (MOD_Grid_RiverLakeFlow -> MOD_Tracer_Particle) and are NOT re-exported
+   ! (MOD_Grid_RiverLakeFlow -> MOD_Tracer_Lifecycle) and are NOT re-exported
    ! here. PUBLIC declarations below are grouped by consuming host phase.
 
    ! -- Lifecycle: one-shot init/final, called from CoLM.F90 --------------
@@ -169,13 +170,14 @@ CONTAINS
       ! Fortran's "already allocated" runtime check, OR the save-level
       ! snap_* arrays in MOD_Tracer_Conservation would keep the old
       ! numpatch and then misalign with the new tracer arrays.
-      CALL tracer_reactive_final ()
+      CALL tracer_lifecycle_land_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
       CALL tracer_defs_init()
+      CALL tracer_lifecycle_init()
       IF (present(lc_year) .and. present(jdate) .and. present(casename) .and. &
           present(dir_restart) .and. present(dir_landdata)) THEN
-         CALL tracer_reactive_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
+         CALL tracer_lifecycle_land_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
       ENDIF
       IF (ntracers <= 0) RETURN
       CALL allocate_Tracer_Vars(numpatch, maxsnl, nl_soil)
@@ -226,8 +228,11 @@ CONTAINS
             CALL tracer_init_scv_from_water(numpatch, maxsnl, nl_soil, &
                wliq_soisno, wice_soisno, scv)
          ENDIF
-         CALL tracer_reactive_read_restart(file_restart)
       ENDIF
+      ! Provider-owned state has its own restart schema and must not be gated
+      ! by the generic land-water descriptor.  Each provider probes its own
+      ! mandatory fields and no-ops when the checkpoint has no provider state.
+      IF (present(file_restart)) CALL tracer_lifecycle_land_read_restart(file_restart)
       IF (present(waterstorage)) THEN
          CALL tracer_enforce_solubility_from_water(numpatch, maxsnl, nl_soil, &
             ldew_rain, wliq_soisno, wa, wdsrf, wetwat, waterstorage)
@@ -243,7 +248,8 @@ CONTAINS
       integer, intent(in),  optional :: istep_in
       integer, intent(out)           :: istep_local
 
-      CALL tracer_reactive_resolve_step (istep_in, istep_local)
+      istep_local = 1
+      IF (present(istep_in)) istep_local = istep_in
 
    END SUBROUTINE tracer_resolve_step
 
@@ -257,7 +263,7 @@ CONTAINS
       integer,  intent(in) :: isub
       integer,  intent(in) :: nsub
 
-      CALL tracer_reactive_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
+      CALL tracer_lifecycle_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
 
    END SUBROUTINE tracer_lake_step
 
@@ -267,7 +273,7 @@ CONTAINS
       integer, intent(in) :: ipatch
       real(r8), intent(in) :: deltim
 
-      CALL tracer_reactive_wetland_decomp (ipatch, deltim)
+      CALL tracer_lifecycle_wetland_decomp (ipatch, deltim)
 
    END SUBROUTINE tracer_wetland_decomp
 
@@ -279,7 +285,7 @@ CONTAINS
       integer,  intent(in) :: idate(3)
       real(r8), intent(in) :: deltim
 
-      CALL tracer_reactive_soil_step (istep_local, ipatch, idate, deltim)
+      CALL tracer_lifecycle_soil_step (istep_local, ipatch, idate, deltim)
 
    END SUBROUTINE tracer_soil_step
 
@@ -288,7 +294,7 @@ CONTAINS
       IMPLICIT NONE
 
       CALL tracer_balance_report ()
-      CALL tracer_reactive_report ()
+      CALL tracer_lifecycle_land_report ()
 
    END SUBROUTINE tracer_report
 
@@ -296,7 +302,7 @@ CONTAINS
 
       IMPLICIT NONE
 
-      CALL tracer_reactive_flush_acc_fluxes ()
+      CALL tracer_lifecycle_land_flush_acc_fluxes ()
 
    END SUBROUTINE tracer_flush_acc_fluxes
 
@@ -304,15 +310,14 @@ CONTAINS
 
       IMPLICIT NONE
 
-      CALL tracer_reactive_accumulate_fluxes ()
+      CALL tracer_lifecycle_land_accumulate_fluxes ()
 
    END SUBROUTINE tracer_accumulate_fluxes
 
    SUBROUTINE land_tracer_final ()
-      CALL tracer_reactive_final ()
+      CALL tracer_lifecycle_land_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
-      CALL tracer_defs_final()
    END SUBROUTINE land_tracer_final
 
 END MODULE MOD_Tracer_LandPhase

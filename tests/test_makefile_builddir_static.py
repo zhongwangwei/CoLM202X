@@ -82,6 +82,13 @@ def explicit_object_graph() -> dict[str, set[str]]:
 
 
 class MakefileBuildDirectoryTests(unittest.TestCase):
+    def test_static_library_excludes_mkinidata_lifecycle_stub(self):
+        makefile = (ROOT / "Makefile").read_text()
+        self.assertIn(
+            '! -name "MOD_Tracer_Lifecycle_Registrations_Stubs.o"', makefile
+        )
+        self.assertIn("rm -f lib/*.o lib/libcolm.a", makefile)
+
     def test_every_object_recipe_waits_for_build_directory(self):
         makefile = (ROOT / "Makefile").read_text()
         rules = re.findall(
@@ -102,7 +109,7 @@ class MakefileBuildDirectoryTests(unittest.TestCase):
         # Representative forward edges must be encoded by the actual module
         # relationship, without serializing unrelated objects in a stage.
         for edge in (
-            "MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Reactive.o",
+            "MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Lifecycle.o",
             "MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o",
             "MOD_Vars_TimeVariables.o: MOD_Tracer_Defs.o",
         ):

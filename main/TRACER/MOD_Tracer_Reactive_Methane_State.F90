@@ -78,6 +78,8 @@ MODULE MOD_Tracer_Reactive_Methane_State
    PUBLIC :: grnd_methane_cond_lake
    PUBLIC :: grnd_methane_cond_sat
    PUBLIC :: grnd_methane_cond_unsat
+   PUBLIC :: handle_methane_dry_lake_substep
+   PUBLIC :: reset_methane_inactive_lake_diagnostics
    PUBLIC :: init_methane_wetland_fraction_cache
    PUBLIC :: initialize_methane_lake_soilc_from_surface
    PUBLIC :: lake_air_o2_flux
@@ -510,7 +512,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   ! them.  Prognostic states such as concentrations and lake_soilc are
 	   ! intentionally left at their final substep values.
 	   integer, parameter :: methane_lake_substep_n2d = 44
-	   integer, parameter :: methane_lake_substep_n1d = 56
+	   integer, parameter :: methane_lake_substep_n1d = 57
 	   real(r8), allocatable :: methane_lake_substep_acc2d(:,:)
 	   real(r8), allocatable :: methane_lake_substep_acc1d(:)
 	   integer :: methane_lake_substep_cached_ipatch = -1
@@ -1055,6 +1057,213 @@ CONTAINS
 	   END SUBROUTINE deallocate_methane_state
 
 
+	   SUBROUTINE handle_methane_dry_lake_substep (ipatch, substep_dt)
+	      integer,  intent(in) :: ipatch
+	      real(r8), intent(in) :: substep_dt
+
+	      real(r8) :: drydown_ch4_stock
+	      real(r8) :: drydown_o2_stock
+	      real(r8) :: drydown_ch4_flux
+
+	      IF (.not. allocated(lake_water_ch4_stock)) RETURN
+	      IF (ipatch < lbound(lake_water_ch4_stock,1) .or. &
+	          ipatch > ubound(lake_water_ch4_stock,1)) RETURN
+
+	      ! A dynamic dry lake follows the host soil-ground branch, so none of
+	      ! the previous wet-lake process rates may survive into this substep.
+	      ! Reset first; the one-time drydown exports are installed below.
+	      CALL reset_methane_inactive_lake_diagnostics(ipatch)
+
+	      ! Do not debit a prognostic inventory when no positive integration
+	      ! interval exists to carry the compensating boundary flux.
+	      IF (substep_dt <= 0._r8) RETURN
+
+	      drydown_ch4_stock = max(lake_water_ch4_stock(ipatch), 0._r8) + &
+	         max(lake_frozen_ch4_stock(ipatch), 0._r8)
+	      drydown_o2_stock = max(lake_water_o2_stock(ipatch), 0._r8) + &
+	         max(lake_frozen_o2_stock(ipatch), 0._r8)
+
+	      lake_water_ch4_stock(ipatch)  = 0._r8
+	      lake_frozen_ch4_stock(ipatch) = 0._r8
+	      lake_water_o2_stock(ipatch)   = 0._r8
+	      lake_frozen_o2_stock(ipatch)  = 0._r8
+
+	      ! The sediment column retains a physical carrier.  The generic lake
+	      ! inventory is redundant, so remove only the exported water/ice stock
+	      ! and leave the sediment state and concentrations untouched.
+	      totcol_methane(ipatch)       = totcol_methane_lake(ipatch)
+	      totcol_methane_sat(ipatch)   = totcol_methane_lake(ipatch)
+	      totcol_methane_unsat(ipatch) = 0._r8
+
+	      IF (drydown_ch4_stock > 0._r8) THEN
+	         drydown_ch4_flux = drydown_ch4_stock / substep_dt
+	         methane_surf_diff(ipatch)          = drydown_ch4_flux
+	         methane_surf_diff_phys(ipatch)     = drydown_ch4_flux
+	         methane_surf_flux_tot(ipatch)      = drydown_ch4_flux
+	         methane_surf_flux_tot_phys(ipatch) = drydown_ch4_flux
+	         methane_surf_diff_lake(ipatch)     = drydown_ch4_flux
+	         methane_surf_flux_tot_lake(ipatch) = drydown_ch4_flux
+	         methane_surf_flux_lake(ipatch)     = drydown_ch4_flux
+	      ENDIF
+
+	      IF (drydown_o2_stock > 0._r8) &
+	         lake_air_o2_flux(ipatch) = drydown_o2_stock / substep_dt
+
+	      ! Force a deterministic water-column cold start after rewetting.  The
+	      ! exported water/ice inventory must not be reconstructed from stale
+	      ! inundation or phase-partition memory.
+	      fsat_bef(ipatch)                   = spval
+	      finundated_lag(ipatch)             = spval
+	      layer_sat_lag(:,ipatch)            = spval
+	      lake_liquid_fraction_prev(ipatch)  = spval
+
+	   END SUBROUTINE handle_methane_dry_lake_substep
+
+
+	   SUBROUTINE reset_methane_inactive_lake_diagnostics (ipatch)
+	      integer, intent(in) :: ipatch
+
+	      IF (.not. allocated(net_methane)) RETURN
+	      IF (ipatch < lbound(net_methane,1) .or. &
+	          ipatch > ubound(net_methane,1)) RETURN
+
+	      ! Clear only instantaneous process and patch diagnostics.  Lake water,
+	      ! frozen-water, and sediment inventories/concentrations are prognostic
+	      ! and must survive a temporarily inactive lake-production pathway.
+
+	      net_methane(ipatch) = 0._r8
+	      methane_prod_depth(:,ipatch) = 0._r8
+	      o2_decomp_depth(:,ipatch) = 0._r8
+	      co2_decomp_depth(:,ipatch) = 0._r8
+	      methane_oxid_depth(:,ipatch) = 0._r8
+	      o2_oxid_depth(:,ipatch) = 0._r8
+	      co2_oxid_depth(:,ipatch) = 0._r8
+	      methane_aere_depth(:,ipatch) = 0._r8
+	      methane_tran_depth(:,ipatch) = 0._r8
+	      o2_aere_depth(:,ipatch) = 0._r8
+	      co2_aere_depth(:,ipatch) = 0._r8
+	      methane_ebul_depth(:,ipatch) = 0._r8
+	      o2stress(:,ipatch) = 0._r8
+	      methane_stress(:,ipatch) = 0._r8
+
+	      methane_surf_flux_tot(ipatch) = 0._r8
+	      methane_surf_flux_tot_phys(ipatch) = 0._r8
+	      methane_surf_aere(ipatch) = 0._r8
+	      methane_surf_ebul(ipatch) = 0._r8
+	      methane_surf_diff(ipatch) = 0._r8
+	      methane_surf_diff_phys(ipatch) = 0._r8
+	      methane_balance_residual(ipatch) = 0._r8
+	      methane_ch4_clip_credit(ipatch) = 0._r8
+	      o2_cap_loss(ipatch) = 0._r8
+	      o2_cap_gain(ipatch) = 0._r8
+	      methane_ebul_tot(ipatch) = 0._r8
+	      methane_prod_tot(ipatch) = 0._r8
+	      methane_oxid_tot(ipatch) = 0._r8
+	      co2_decomp_tot(ipatch) = 0._r8
+	      co2_oxid_tot(ipatch) = 0._r8
+	      co2_aere_tot(ipatch) = 0._r8
+	      co2_net_tot(ipatch) = 0._r8
+	      ! Conductances are restart state, not process-rate diagnostics.  Keep
+	      ! every inactive/dry reset inside the committed-restart write domain:
+	      ! the strict reader requires all four values to remain finite and > 0.
+	      grnd_methane_cond(ipatch) = DEF_METHANE%grnd_methane_cond_default
+
+	      net_methane_unsat(ipatch) = 0._r8
+	      net_methane_sat(ipatch) = 0._r8
+	      methane_prod_depth_unsat(:,ipatch) = 0._r8
+	      methane_prod_depth_sat(:,ipatch) = 0._r8
+	      o2_decomp_depth_unsat(:,ipatch) = 0._r8
+	      o2_decomp_depth_sat(:,ipatch) = 0._r8
+	      co2_decomp_depth_unsat(:,ipatch) = 0._r8
+	      co2_decomp_depth_sat(:,ipatch) = 0._r8
+	      methane_oxid_depth_unsat(:,ipatch) = 0._r8
+	      methane_oxid_depth_sat(:,ipatch) = 0._r8
+	      o2_oxid_depth_unsat(:,ipatch) = 0._r8
+	      o2_oxid_depth_sat(:,ipatch) = 0._r8
+	      co2_oxid_depth_unsat(:,ipatch) = 0._r8
+	      co2_oxid_depth_sat(:,ipatch) = 0._r8
+	      methane_aere_depth_unsat(:,ipatch) = 0._r8
+	      methane_aere_depth_sat(:,ipatch) = 0._r8
+	      methane_tran_depth_unsat(:,ipatch) = 0._r8
+	      methane_tran_depth_sat(:,ipatch) = 0._r8
+	      o2_aere_depth_unsat(:,ipatch) = 0._r8
+	      o2_aere_depth_sat(:,ipatch) = 0._r8
+	      co2_aere_depth_unsat(:,ipatch) = 0._r8
+	      co2_aere_depth_sat(:,ipatch) = 0._r8
+	      methane_ebul_depth_unsat(:,ipatch) = 0._r8
+	      methane_ebul_depth_sat(:,ipatch) = 0._r8
+	      o2stress_unsat(:,ipatch) = 0._r8
+	      o2stress_sat(:,ipatch) = 0._r8
+	      methane_stress_unsat(:,ipatch) = 0._r8
+	      methane_stress_sat(:,ipatch) = 0._r8
+	      methane_surf_flux_tot_unsat(ipatch) = 0._r8
+	      methane_surf_flux_tot_sat(ipatch) = 0._r8
+	      methane_surf_aere_unsat(ipatch) = 0._r8
+	      methane_surf_aere_sat(ipatch) = 0._r8
+	      methane_surf_ebul_unsat(ipatch) = 0._r8
+	      methane_surf_ebul_sat(ipatch) = 0._r8
+	      methane_surf_diff_unsat(ipatch) = 0._r8
+	      methane_surf_diff_sat(ipatch) = 0._r8
+	      methane_surf_diff_phys_unsat(ipatch) = 0._r8
+	      methane_surf_diff_phys_sat(ipatch) = 0._r8
+	      methane_ebul_tot_unsat(ipatch) = 0._r8
+	      methane_ebul_tot_sat(ipatch) = 0._r8
+	      methane_prod_tot_unsat(ipatch) = 0._r8
+	      methane_prod_tot_sat(ipatch) = 0._r8
+	      methane_oxid_tot_unsat(ipatch) = 0._r8
+	      methane_oxid_tot_sat(ipatch) = 0._r8
+	      co2_decomp_tot_unsat(ipatch) = 0._r8
+	      co2_decomp_tot_sat(ipatch) = 0._r8
+	      co2_oxid_tot_unsat(ipatch) = 0._r8
+	      co2_oxid_tot_sat(ipatch) = 0._r8
+	      co2_net_tot_unsat(ipatch) = 0._r8
+	      co2_net_tot_sat(ipatch) = 0._r8
+	      grnd_methane_cond_unsat(ipatch) = DEF_METHANE%grnd_methane_cond_default
+	      grnd_methane_cond_sat(ipatch) = DEF_METHANE%grnd_methane_cond_default
+
+	      methane_prod_depth_lake(:,ipatch) = 0._r8
+	      methane_oxid_depth_lake(:,ipatch) = 0._r8
+	      methane_ebul_depth_lake(:,ipatch) = 0._r8
+	      co2_decomp_depth_lake(:,ipatch) = 0._r8
+	      co2_oxid_depth_lake(:,ipatch) = 0._r8
+	      methane_surf_ebul_lake(ipatch) = 0._r8
+	      methane_surf_diff_lake(ipatch) = 0._r8
+	      methane_surf_flux_tot_lake(ipatch) = 0._r8
+	      methane_prod_tot_lake(ipatch) = 0._r8
+	      methane_oxid_tot_lake(ipatch) = 0._r8
+	      methane_ebul_tot_lake(ipatch) = 0._r8
+	      co2_decomp_tot_lake(ipatch) = 0._r8
+	      co2_oxid_tot_lake(ipatch) = 0._r8
+	      co2_net_tot_lake(ipatch) = 0._r8
+	      grnd_methane_cond_lake(ipatch) = DEF_METHANE%grnd_methane_cond_default
+	      lake_water_ch4_oxid(ipatch) = 0._r8
+	      lake_sed_ch4_flux(ipatch) = 0._r8
+	      lake_sed_o2_flux(ipatch) = 0._r8
+	      lake_air_o2_flux(ipatch) = 0._r8
+
+	      methane_dfsat_tot(ipatch) = 0._r8
+	      f_h2osfc(ipatch) = 0._r8
+	      methane_finundated(ipatch) = 0._r8
+	      methane_soil_finundated(ipatch) = 0._r8
+	      methane_soil_zwt(ipatch) = spval
+	      methane_surf_flux_wetland(ipatch) = 0._r8
+	      methane_surf_flux_soil(ipatch) = 0._r8
+	      methane_surf_flux_lake(ipatch) = 0._r8
+	      methane_surf_flux_rice(ipatch) = 0._r8
+	      methane_surf_aere_soil(ipatch) = 0._r8
+	      methane_surf_aere_rice(ipatch) = 0._r8
+	      methane_surf_ebul_soil(ipatch) = 0._r8
+	      methane_surf_ebul_rice(ipatch) = 0._r8
+	      methane_surf_diff_soil(ipatch) = 0._r8
+	      methane_surf_diff_rice(ipatch) = 0._r8
+	      methane_prod_tot_soil(ipatch) = 0._r8
+	      methane_prod_tot_rice(ipatch) = 0._r8
+	      methane_oxid_tot_soil(ipatch) = 0._r8
+	      methane_oxid_tot_rice(ipatch) = 0._r8
+
+	   END SUBROUTINE reset_methane_inactive_lake_diagnostics
+
+
 	   SUBROUTINE accumulate_methane_lake_substep_diagnostics (ipatch, substep_dt, isub, nsub)
 	      integer,  intent(in) :: ipatch
 	      real(r8), intent(in) :: substep_dt
@@ -1182,6 +1391,7 @@ CONTAINS
 	      CALL add1d(54, grnd_methane_cond(ipatch))
 	      CALL add1d(55, grnd_methane_cond_sat(ipatch))
 	      CALL add1d(56, grnd_methane_cond_lake(ipatch))
+	      CALL add1d(57, methane_surf_diff_phys(ipatch))
 
 	      IF (isub == nsub) THEN
 	         total_dt = substep_dt * real(nsub, r8)
@@ -1287,6 +1497,7 @@ CONTAINS
 	            CALL finish1d(54, grnd_methane_cond(ipatch))
 	            CALL finish1d(55, grnd_methane_cond_sat(ipatch))
 	            CALL finish1d(56, grnd_methane_cond_lake(ipatch))
+	            CALL finish1d(57, methane_surf_diff_phys(ipatch))
 	         ENDIF
 	         methane_lake_substep_cached_ipatch = -1
 	         methane_lake_substep_next_isub = 1

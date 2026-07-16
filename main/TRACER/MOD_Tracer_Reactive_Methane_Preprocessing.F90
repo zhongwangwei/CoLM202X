@@ -4,10 +4,10 @@
 MODULE MOD_Tracer_Reactive_Methane_Preprocessing
 
    USE MOD_SPMD_Task, only: CoLM_stop
-   USE MOD_Tracer_Defs, only: tracer_defs_init, tracer_param_file_for_index
+   USE MOD_Tracer_Defs, only: tracer_defs_init, tracer_index_for_name, tracer_param_file_for_index, &
+      tracer_is_gas
    USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, read_methane_namelist
-   USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4, methane_is_active, &
-      methane_registry_refresh
+   USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4, methane_is_active
 
    IMPLICIT NONE
    PRIVATE
@@ -27,12 +27,15 @@ CONTAINS
       requires_spatial_ph = .false.
 
       CALL tracer_defs_init ()
-      CALL methane_registry_refresh ()
+      igas_ch4 = tracer_index_for_name('CH4', 'METHANE')
       IF (.not. methane_is_active()) RETURN
+      IF (.not. tracer_is_gas(igas_ch4)) THEN
+         CALL CoLM_stop (' ***** ERROR: CH4/METHANE preprocessing descriptor must use family=gas')
+      ENDIF
 
       ! Use the runtime parser so keyed aliases, positional files, separators,
       ! and null handling cannot drift between mksrfdata and colm.x.
-      CALL tracer_param_file_for_index (igas_ch4, 'METHANE', file_param, found)
+      CALL tracer_param_file_for_index (igas_ch4, 'CH4,METHANE', file_param, found)
       IF (.not. found) THEN
          CALL CoLM_stop (' ***** ERROR: CH4 requires DEF_TRACER_PARAM_FILES to include a CH4 parameter file')
       ENDIF

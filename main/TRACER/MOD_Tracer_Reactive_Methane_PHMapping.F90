@@ -40,8 +40,7 @@ CONTAINS
 #ifdef USEMPI
       USE MOD_SPMD_Task, only: p_address_io, p_comm_glb, p_err, p_iam_glb, p_is_io, &
          p_is_master, p_is_worker, p_itis_io, p_itis_worker, p_np_io, p_np_worker, &
-         p_stat, mpi_tag_data, mpi_tag_mesg, CoLM_Stop
-      USE MPI, only: mpi_recv, mpi_send, MPI_ANY_SOURCE, MPI_INTEGER
+         p_stat, mpi_tag_data, mpi_tag_mesg, MPI_ANY_SOURCE, MPI_INTEGER, CoLM_Stop
 #else
       USE MOD_SPMD_Task, only: p_is_io, p_is_master, p_is_worker, p_np_io, p_np_worker, CoLM_Stop
 #endif

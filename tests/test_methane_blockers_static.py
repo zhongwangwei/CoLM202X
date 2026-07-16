@@ -25,7 +25,7 @@ def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
 
     worker_remap = driver.index("IF (p_is_worker .and. allocated(patchclass)")
     reload_call = driver.index(
-        "CALL tracer_reactive_reload_lulcc_inputs (jdate(1), dir_landdata)"
+        "CALL tracer_lifecycle_land_reload_lulcc_inputs (jdate(1), dir_landdata)"
     )
     assert worker_remap < reload_call
     assert "ENDIF\n      ! GIEMS broadcasts" in driver[worker_remap:reload_call]
@@ -44,7 +44,7 @@ def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
 
 def test_reactive_lulcc_area_order_is_new_then_old() -> None:
     files = (
-        "main/TRACER/MOD_Tracer_Reactive.F90",
+        "main/TRACER/MOD_Tracer_Lifecycle.F90",
         "main/TRACER/MOD_Tracer_Reactive_Methane.F90",
         "main/TRACER/MOD_Tracer_Reactive_Methane_State.F90",
         "main/TRACER/MOD_Tracer_Reactive_Methane_Microbes.F90",

@@ -4,7 +4,7 @@
     !
     ! Main &nl_colm mapping example:
     !   DEF_TRACER_NAMES       = 'CL'
-    !   DEF_TRACER_TYPES       = 'conservative'
+    !   DEF_TRACER_TYPES       = 'solute'
     !   DEF_TRACER_PARAM_FILES = 'CL:run/standard_chloride_parameter.nml'
     !
     ! The current generic land transport carries a tracer/water ratio.  For CL,
@@ -34,7 +34,4 @@
     DEF_TRACER%reactive_decay_rate = 0.0
     DEF_TRACER%charge              = -1
 
-    DEF_TRACER%uses_generic_land_water_transport = .true.
-    DEF_TRACER%is_nonvolatile      = .true.
-    DEF_TRACER%uses_reaction       = .false.
 /

@@ -9,6 +9,7 @@ from fortran_test_support import require_runnable_fortran_compiler
 
 ROOT = Path(__file__).resolve().parents[1]
 FORCING_INPUT = ROOT / "main" / "TRACER" / "MOD_Tracer_ForcingInput.F90"
+FORCING = ROOT / "main" / "TRACER" / "MOD_Tracer_Forcing.F90"
 
 
 @pytest.fixture(scope="module")
@@ -89,6 +90,8 @@ program forcing_input_driver
   if (tracer_forcing_input_count(1) > 0) then
     spec = tracer_forcing_input_get(1, 1)
     write(*,'(I0)') spec%dtime
+    write(*,'(A)') trim(spec%tintalgo)
+    write(*,'(A)') trim(spec%input_mode)
   endif
 end program forcing_input_driver
 """,
@@ -175,6 +178,81 @@ def test_nonpositive_forcing_dtime_fails_fast(forcing_input_driver):
     )
     assert result.returncode != 0
     assert "forcing_dtime(1)" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("forcing_tintalgo", "linera"),
+        ("forcing_input_mode", "normalised_over_total"),
+    ],
+)
+def test_unknown_forcing_enum_fails_fast(forcing_input_driver, field, value):
+    result = run_forcing_driver(
+        forcing_input_driver,
+        f"""
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'precip'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+  {field} = '{value}'
+/
+""",
+    )
+    assert result.returncode != 0
+    assert field in result.stdout
+    assert value in result.stdout
+
+
+def test_forcing_enums_are_case_insensitive_and_normalized(forcing_input_driver):
+    result = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'precip'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+  forcing_tintalgo = 'Nearest'
+  forcing_input_mode = 'Direct'
+/
+""",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.splitlines()[-2:] == ["nearest", "direct"]
+
+
+def test_interpolator_cannot_silently_downgrade_an_invalid_mode():
+    source = FORCING.read_text(encoding="utf-8")
+    body = source.split("SUBROUTINE tracer_forcing_interpolate_var", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_interpolate_var", 1
+    )[0]
+
+    assert "ERROR tracer_forcing_interpolate_var" in body
+    invalid_branch = body.rsplit("ELSE", 1)[1]
+    assert "CALL CoLM_stop()" in invalid_branch
+    assert "block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))" not in invalid_branch
+
+
+def test_internal_total_forcing_preserves_uniform_time_log_semantics():
+    source = FORCING.read_text(encoding="utf-8")
+    ensure_total = source.split("integer FUNCTION tracer_forcing_ensure_total", 1)[1].split(
+        "END FUNCTION tracer_forcing_ensure_total", 1
+    )[0]
+    interpolate = source.split("SUBROUTINE tracer_forcing_interpolate_var", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_interpolate_var", 1
+    )[0]
+
+    assert "trc_var_timelog(idx_total_precip)" in ensure_total
+    assert "DEF_forcing%timelog(4)" in ensure_total
+    assert "trc_var_timelog(idx_total_vapor)" in ensure_total
+    assert "DEF_forcing%timelog(2)" in ensure_total
+    assert "trim(trc_var_tintalgo(iv)) == 'uniform'" in interpolate
+    uniform = interpolate.split("== 'uniform') THEN", 1)[1].split("ELSE", 2)
+    assert "trim(trc_var_timelog(iv)) == 'forward'" in uniform[0]
+    assert "block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))" in uniform[0]
+    assert "block_data_copy(trc_forcn_UB(iv), trc_forcn(iv))" in uniform[1]
 
 
 @pytest.mark.parametrize("forcing_num", [-1, 9])

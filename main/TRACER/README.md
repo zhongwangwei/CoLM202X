@@ -1,140 +1,226 @@
-# TRACER reactive architecture
+# TRACER three-layer architecture
 
-Reactive tracers are kept flat at the species layer and generic above it:
+TRACER is flat by design. A configured row is described by three orthogonal
+values, optional species code attaches to that same row, and host components
+dispatch through one index-aligned lifecycle table. Adding a species must not
+add another top-level tracer hierarchy or another reactive/particle registry.
 
-- `MOD_Tracer_Reactive` is the generic dispatcher. It must not name concrete
-  species such as CH4, N2O, O3, or isotope tracers.
-- Implemented reactive species register callbacks through
-  `register_reactive_callbacks`.
-- Every species registration must provide `has_fn`; the generic dispatcher uses
-  it to gate lifecycle callbacks, including `init`.
-- Species with cached registry/index state should also provide `refresh_fn`;
-  the generic dispatcher calls refresh before `has_fn` only when callback state
-  is marked dirty (initial registration and after LULCC remap), not on every
-  per-patch lifecycle dispatch.
-- The callback registry grows dynamically; do not introduce a fixed maximum
-  number of reactive species.
-- `include/tracer_reactive_species.inc` is the single implemented-species
-  manifest. Add a line there only when the species implementation exists.
-- Do not add placeholder species modules or objects.
+## Layer 1: descriptor
 
-For a future reactive tracer, add its species-owned modules and one manifest
-line, and add the species facade object to the Makefile species object
-manifest `TRACER_REACTIVE_REGISTERED_SPECIES_OBJS`:
+`MOD_Tracer_Defs` builds one `tracer_info_type` row per configured tracer. Its
+classification is the product of three dimensions rather than a subtype tree:
 
-```fortran
-TRACER_REACTIVE_SPECIES(MOD_Tracer_Reactive_<Species>, <species>_register_reactive_callbacks)
+| `family_id` | `state_owner` | Supported reaction shape |
+| --- | --- | --- |
+| `FAMILY_ISOTOPE` | `STATE_OWNER_GENERIC_WATER` | not applicable (`REACTION_NONE` internally) |
+| `FAMILY_SOLUTE` | `STATE_OWNER_GENERIC_WATER` by default; `PROVIDER` for species-owned state | `REACTION_NONE`, `REACTION_FIRST_ORDER`, or `REACTION_PROVIDER` |
+| `FAMILY_PARTICLE` | `STATE_OWNER_PROVIDER` | not applicable (`REACTION_NONE` internally) |
+| `FAMILY_GAS` | `STATE_OWNER_PROVIDER` | `REACTION_NONE` or `REACTION_PROVIDER` |
+
+The reaction vocabulary is `REACTION_NONE`, `REACTION_FIRST_ORDER`, and
+`REACTION_PROVIDER`. The current invariant is stricter than that vocabulary:
+first-order decay is available only to a generic-water solute. Isotopes and
+particles do not have a generic reaction dimension; their stored `NONE` value
+means "not applicable", not "conservative chemistry".
+
+The canonical `DEF_TRACER_TYPES` values are therefore:
+
+```text
+isotope, solute, particle, gas
 ```
 
-The future species module should own all species-specific wiring and expose one
-registration routine. It should call `register_reactive_callbacks` with its
-init/restart/step/history/LULCC/HYDRO callbacks. The generic dispatcher should
-not change for a new species.
+`conservative` is accepted as a legacy spelling of `solute`. Legacy `reactive`
+rows are accepted only to ease migration; new configurations should name the
+physical family and let a positive `reactive_decay_rate` or compiled provider
+determine the reaction shape. `DEF_TRACER_TYPES` must contain exactly
+`DEF_TRACER_NUM` entries.
 
-Species-private state modules should use default `PRIVATE`. If raw arrays must
-remain externally visible for legacy internal code, they must be explicitly
-`PUBLIC` and named with a species prefix such as `methane_*`. New cross-layer
-data exchange should prefer small species-owned API routines over direct writes
-to raw state arrays.
+### Capabilities are not free booleans
 
-Current CH4 legacy raw-array boundaries are intentionally narrow:
+Do not add per-tracer namelist switches named `volatile`, `carrier`,
+`reactive`, or `fractionates`:
 
-- Methane_State raw state must not be imported outside the CH4 internal
-  boundary. External coupling such as LULCC/HYDRO must go through
-  `MOD_Tracer_Reactive` lifecycle/publish hooks and species-owned API routines.
-- Methane_AccFlux raw accumulators must not be imported outside the CH4
-  facade/history boundary. History output is the only current external reader
-  of those accumulator arrays.
+- **carrier** follows state ownership. Generic isotope/solute state is carried
+  by the land-water pools; a provider-owned gas/particle defines its own state
+  and transport substrate.
+- **volatile** is phase/process behavior. Current generic solutes are retained
+  as nonvolatile dissolved material, while gas phase exchange belongs to the
+  gas provider. It is not an independent family flag.
+- **reactive** is derived from `reaction_mode`. A zero decay rate gives `NONE`,
+  a positive generic-solute rate gives `FIRST_ORDER`, and species code may
+  declare `PROVIDER`.
+- **fractionates** requires an isotope descriptor and registered isotope
+  physics in `MOD_Tracer_Isotope_Registry`. The existing
+  `DEF_TRACER_USE_FRACTIONATION` is only a global experimental gate; it is not
+  a per-species capability declaration.
 
-## Methane model contract
+This keeps invalid combinations out of the namelist, such as a fractionating
+sediment row or a generic-water CH4 row.
 
-The implemented CH4 model is an offline land diagnostic. It predicts soil,
-wetland, rice-paddy, and reduced-order lake-sediment CH4 fluxes, but it does
-not feed those fluxes back into an atmospheric CH4 state. Wetland production
-uses the BGC decomposition cascade and debits its donor C/N pools at source;
-the emitted CH4 flux does not apply a second carbon-budget debit.
-`DEF_METHANE%methane_offline` must therefore remain true; requesting online
-coupling is rejected instead of silently running the offline equations.
+## Layer 2: provider and lifecycle table
 
-Lake CH4 is a reduced-order sediment-column-to-atmosphere calculation. The
-soil-like lake sediment column represents production, oxidation, diffusion,
-and ebullition below the interface. There is no resolved lake-water CH4/O2
-column, storage, overturning, ice-cover transport, or air-water piston model.
-`allowlakeprod` enables this reduced-order pathway only; it must not be read as
-enabling a complete aquatic methane model.
+`MOD_Tracer_Lifecycle` allocates exactly one lifecycle row per descriptor. At
+`tracer_lifecycle_init`, `register_all_tracer_providers` reads the single
+compiled-provider manifest:
 
-The physical surface-flux diagnostics exclude numerical concentration clipping
-and column-balance corrections. Corrected diagnostics include those terms so
-that restart-to-restart inventory budgets close. Both forms, together with the
-explicit correction terms, must remain observable; numerical closure must not
-be mistaken for a physical emission process.
-
-## Dissolved concentration limits
-
-Generic nonvolatile land-water solutes may declare a positive
-`DEF_TRACER%max_dissolved_conc` in their mapped parameter file. The default is
-`huge()`, which disables the limit and preserves legacy behavior. The standard
-chloride parameter file sets `1.0e-2 kg Cl / kg water` as the historical model
-safety ceiling.
-
-When a liquid land pool exceeds its capacity, TRACER transfers the excess to a
-location-preserving immobile solid inventory instead of clipping mass. The
-solid inventory is included in restart, LULCC remapping, decay, conservation,
-and history accounting, and redissolves when the same pool rewets. Snow-layer
-solid mass follows the same combine/divide topology as liquid and ice tracer.
-
-This is a constant saturation ceiling, not a thermodynamic salt model. It does
-not represent temperature-dependent solubility, brine rejection, ion activity,
-electroneutrality, or a river/lake solid phase. River/lake transport retains
-its existing dissolved-only ratio bookkeeping.
-
-## Isotope fractionation physics
-
-Conservative/isotope tracer transport stays generic over `itrc = 1, ntracers`.
-Species-specific isotope fractionation physics is registered separately:
-
-- `MOD_Tracer_Frac` owns the generic fractionation algorithms and must not
-  classify O18/HDO locally.
-- `MOD_Tracer_Isotope_Registry` stores implemented isotope physics callbacks
-  and metadata such as name patterns, reference-ratio hints, legacy forcing
-  shortcut kind, and default soil-init variable name.
-- `include/tracer_isotope_species.inc` is the single implemented-isotope
-  manifest. It currently registers only the existing O18 and HDO physics.
-- `MOD_Tracer_Forcing` and `MOD_Tracer_SoilInit` get default isotope
-  auto-detection from the isotope registry instead of keeping duplicate
-  O18/HDO name-matching chains.
-- Do not add placeholder isotope species. Add a new isotope only when its
-  physics module exists, then add one manifest line and one Makefile object
-  entry under `TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS`.
-
-## Particle tracers
-
-Particle tracers use the same flat TRACER-owned pattern. `MOD_Tracer_Particle`
-is the generic HYDRO-facing dispatcher; it does not name sediment or any other
-concrete particle species. Implemented species register callbacks through
-`register_particle_callbacks`, and `include/tracer_particle_species.inc` is the
-single implemented-particle manifest.
-
-Suspended sediment is currently the only particle species. Its implementation,
-restart, history, and accumulator flushing live in
-`MOD_Tracer_Particle_Sediment`. HYDRO modules should call only the generic
-`tracer_particle_*` APIs so species-private sediment state does not leak back
-into `main/HYDRO`.
-
-Sediment is enabled exactly like any other tracer species: by listing it in
-the generic tracer registry as a particle. There is no top-level sediment
-``USE`` switch.
-
-```fortran
-DEF_TRACER_NAMES = '...,SEDIMENT'
-DEF_TRACER_TYPES = '...,particle'
-DEF_TRACER_PARAM_FILES = 'SEDIMENT:./standard_sediment_parameter.nml'
+```text
+include/tracer_lifecycle_providers.inc
 ```
 
-The optional sediment parameter file is read by `MOD_Tracer_Particle_Sediment`
-from `&nl_colm_sediment_parameter`; generic tracer metadata in the same file is
-read by `MOD_Tracer_Defs`.
+A species registrar constructs `tracer_lifecycle_hooks_type` and calls
+`register_tracer_provider`. Registration resolves the configured name/aliases
+once, writes the declared family/owner/reaction shape into that descriptor,
+and attaches hooks at the same tracer index. Runtime dispatch does not rescan
+species names and there are no separate reactive and particle callback tables.
+After validation, the master process prints one startup row per tracer with its
+resolved family, state owner, reaction mode, provider, and active hook groups.
+This makes namelist/provider mismatches visible without reintroducing a second
+runtime registry.
 
-For a future particle tracer, add its species-owned module, one manifest line,
-and one Makefile object entry under `TRACER_PARTICLE_REGISTERED_SPECIES_OBJS`.
-Do not add placeholder particle species.
+Only species that own state, kinetics, or host-phase callbacks need a lifecycle
+provider. Parameter-only isotope and solute rows do not belong in the provider
+manifest.
+
+### Current providers
+
+- **CH4** is registered in code by
+  `MOD_Tracer_Reactive_Methane:ch4_register_tracer_provider` as
+  `GAS / PROVIDER / PROVIDER`. The manifest includes it when `BGC` is compiled.
+  The main namelist selects CH4 and maps its parameter file; it does not
+  register the module.
+- **SEDIMENT** is registered by
+  `MOD_Tracer_Particle_Sediment:register_sediment_tracer_provider` as
+  `PARTICLE / PROVIDER / NONE` and owns the routing hooks and sediment state.
+  Sediment is a concrete particle species, not a synonym for the particle
+  family.
+
+A future microplastic tracer should be another concrete particle provider with
+its own state and hooks. It should not be added as a sediment mode. Add only
+the species-owned module/registrar and one manifest entry; the descriptor and
+host dispatch layers remain unchanged.
+
+The same rule applies to chemistry. CL and a simple NO3 tracer do not gain
+anything from empty species modules: generic transport, optional dissolved
+limits, and optional first-order loss are already descriptor-driven. A NO3
+provider becomes meaningful only when it owns distinct kinetics or state, for
+example coupled nitrification/denitrification pools or species-specific source
+and restart logic.
+
+## Layer 3: host dispatch
+
+Host code imports `MOD_Tracer_Lifecycle`, never concrete species modules:
+
+- `MOD_Tracer_LandPhase` calls the `tracer_lifecycle_land_*`, lake, wetland,
+  and soil dispatch routines.
+- HYDRO calls the `tracer_lifecycle_route_*` routines.
+- restart, history, LULCC, and flood publication use the corresponding
+  lifecycle entry points.
+
+Each dispatcher iterates the same lifecycle table and calls only associated
+hooks. A new provider therefore changes neither land nor HYDRO call sites.
+
+## Configuration examples
+
+### Descriptor-only solute
+
+Chloride needs no compiled CL module:
+
+```fortran
+DEF_TRACER_NUM         = 1
+DEF_TRACER_NAMES       = 'CL'
+DEF_TRACER_TYPES       = 'solute'
+DEF_TRACER_PARAM_FILES = 'CL:run/standard_chloride_parameter.nml'
+```
+
+A simple NO3 tracer uses the same shape. In its mapped
+`&nl_colm_tracer_parameter`, set `DEF_TRACER%reactive_decay_rate = 0.0` for no
+reaction or a positive rate for generic first-order loss. Do not add a
+`reactive = .true.` switch.
+
+### CH4 gas provider
+
+```fortran
+DEF_TRACER_NUM         = 1
+DEF_TRACER_NAMES       = 'CH4'
+DEF_TRACER_TYPES       = 'gas'
+DEF_TRACER_PARAM_FILES = 'CH4:run/standard_ch4_parameter.nml'
+```
+
+`run/standard_ch4_parameter.nml` contains both generic tracer metadata and the
+CH4-owned `&nl_colm_methane_parameter` controls. Selecting `gas` does not create
+a methane model: the compiled BGC provider must be present, and validation
+fails otherwise.
+
+### Sediment particle provider
+
+```fortran
+DEF_TRACER_NUM         = 1
+DEF_TRACER_NAMES       = 'SEDIMENT'
+DEF_TRACER_TYPES       = 'particle'
+DEF_TRACER_PARAM_FILES = 'SEDIMENT:run/standard_sediment_parameter.nml'
+```
+
+The mapped file contains generic descriptor metadata plus
+`&nl_colm_sediment_parameter`, which is read by the sediment provider. There
+is no separate top-level sediment switch.
+
+Suspended sediment is prognosed as per-size-class solid volume (`sedsto`, m3),
+not as concentration times whatever water volume happens to be current.
+`sedcon` is derived from that canonical mass and HYDRO storage at the routing
+period boundary. Sediment restart schema 1 writes `sedsto`, a complete physics
+descriptor, and a transaction-complete marker; nonempty legacy concentration/
+bed/accumulator checkpoints are rejected because their physical interpretation
+cannot be recovered exactly.
+
+Sediment diagnostics use a bed-increment convention. `netflw < 0` and
+`exch_d_eff > 0` include every effective solid-volume addition to the bed:
+water-column settling, concentration-cap/dry-carrier deposition, and shallow or
+dry hillslope input placed directly on the bed. The last path is an **external
+hillslope source**, not suspended-water settling; it is included so the reported
+effective bed increment closes against the actual layer change.
+
+## Migration and lifecycle order
+
+For an older configuration:
+
+1. Replace `conservative` with `solute`.
+2. Replace generic `reactive` with `solute` plus a decay rate, or with the real
+   provider-owned family when species code exists.
+3. Declare sediment as `particle`; do not restore a sediment-specific registry.
+4. Remove per-species transport/capability booleans and let descriptor
+   derivation plus provider validation reject unsupported combinations.
+
+Initialization order is:
+
+```text
+tracer_defs_init -> tracer_lifecycle_init -> land/route provider init
+```
+
+Shutdown must keep the table and descriptors alive until every provider has
+finished:
+
+```text
+land_tracer_final
+-> grid_riverlake_flow_final (including tracer_lifecycle_route_final)
+-> tracer_lifecycle_reset
+-> tracer_defs_final
+```
+
+`tracer_lifecycle_reset` owns only the lifecycle hooks/provider names;
+`tracer_defs_final` owns the descriptor table and therefore remains last.
+
+## Current physics boundaries
+
+- The CH4 provider is an offline land diagnostic. It predicts soil, wetland,
+  rice-paddy, and reduced-order lake-sediment CH4 fluxes without feeding an
+  atmospheric CH4 state. `DEF_METHANE%methane_offline` must remain true.
+- `allowlakeprod` enables the reduced-order lake-sediment pathway together with
+  a prognostic, well-mixed lake-water CH4/O2 box and piston-velocity air-water
+  exchange. It is not a vertically resolved lake-water column or an online
+  atmospheric coupling.
+- A positive solute `max_dissolved_conc` transfers excess land-pool mass to the
+  existing immobile solid inventory; it is a safety ceiling, not a
+  thermodynamic salt or electroneutrality model.
+- Isotope fractionation algorithms remain in `MOD_Tracer_Frac`; concrete O18
+  and HDO physics are registered through the isotope registry, independently
+  of lifecycle providers.

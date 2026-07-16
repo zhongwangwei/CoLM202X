@@ -976,7 +976,7 @@ SUBROUTINE CoLMMAIN ( &
                qflx_irrig_sprinkler, &
                gross_intr_rain, gross_intr_snow, &
                xsc_rain_out, xsc_snow_out, &
-               ldew_smelt_trc, ldew_frzc_trc, waterstorage(ipatch))
+               ldew_smelt_trc, ldew_frzc_trc, waterstorage_trc_beg)
 #endif
 
 !----------------------------------------------------------------------

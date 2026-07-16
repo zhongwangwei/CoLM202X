@@ -6,7 +6,7 @@ MODULE MOD_Tracer_Vars
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_TRACER_LULCC_ABORT_NBAD
    USE MOD_SPMD_Task, only: p_is_io, CoLM_stop
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_particle, &
+   USE MOD_Tracer_Defs, only: ntracers, tracers, &
       tracer_uses_land_water_transport, tracer_equilibrate_dissolved
 
    IMPLICIT NONE
@@ -178,7 +178,7 @@ MODULE MOD_Tracer_Vars
    ! history, and host facades are exposed.
    PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
    PUBLIC :: save_land_tracer_lulcc_state, remap_land_tracer_lulcc_state
-   PUBLIC :: zero_particle_land_tracer_state, sync_tracer_patch_ratio
+   PUBLIC :: zero_provider_owned_land_tracer_state, sync_tracer_patch_ratio
    PUBLIC :: tracer_book_evap_loss
 
    PUBLIC :: trc_ldew_rain, trc_ldew_snow
@@ -975,14 +975,14 @@ CONTAINS
 	      IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step = 0._r8
 	   END SUBROUTINE flush_Tracer_Acc
 
-   SUBROUTINE zero_particle_land_tracer_state ()
+   SUBROUTINE zero_provider_owned_land_tracer_state ()
       IMPLICIT NONE
       integer :: itrc
 
       IF (ntracers <= 0) RETURN
 
       DO itrc = 1, ntracers
-         IF (.not. tracer_is_particle(itrc)) CYCLE
+         IF (tracer_uses_land_water_transport(itrc)) CYCLE
 
          IF (allocated(trc_ldew_rain  )) trc_ldew_rain  (itrc, :)    = 0._r8
          IF (allocated(trc_ldew_snow  )) trc_ldew_snow  (itrc, :)    = 0._r8
@@ -1046,7 +1046,7 @@ CONTAINS
          IF (allocated(a_trc_solid_mass)) a_trc_solid_mass(itrc, :) = 0._r8
          IF (allocated(a_trc_scv_mass   )) a_trc_scv_mass   (itrc, :) = 0._r8
       ENDDO
-   END SUBROUTINE zero_particle_land_tracer_state
+   END SUBROUTINE zero_provider_owned_land_tracer_state
 
 	   SUBROUTINE tracer_book_evap_loss (itrc, ipatch, tracer_mass, water_mass, evap_kind)
 	      IMPLICIT NONE
