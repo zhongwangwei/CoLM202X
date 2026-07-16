@@ -21,7 +21,6 @@ MODULE MOD_Tracer_Frac
    real(r8), parameter :: liquid_water_molar_density = 55.5e3_r8
    real(r8), parameter :: universal_gas_constant = 8.31446261815324_r8
    real(r8), parameter :: craig_gordon_relhum_max = 0.95_r8
-   real(r8), parameter :: craig_gordon_relhum_fallback = 0.90_r8
    real(r8), parameter :: craig_gordon_min_net_ratio_frac = 0.75_r8
    ! Craig-Gordon kinetic fractionation exponent for evaporation from a
    ! turbulent liquid/open-water/soil surface.  The previous n=1 bare
@@ -185,7 +184,7 @@ CONTAINS
       real(r8), intent(in) :: alpha_k
       logical,  intent(in) :: from_ice
 
-      real(r8) :: h, h_raw, one_minus_h, alpha_eq, ak
+      real(r8) :: h, one_minus_h, alpha_eq, ak
       real(r8) :: equilibrium_ratio, cg_numerator
       real(r8) :: cg_ratio
 
@@ -203,25 +202,16 @@ CONTAINS
       equilibrium_ratio = source_ratio / alpha_eq
       tracer_craig_gordon_evap_ratio = equilibrium_ratio
 
-      h_raw = min(max(relhum, 0._r8), 0.999999_r8)
-      ! The one-way net-loss Craig-Gordon form becomes singular near
-      ! saturation and can produce an almost tracer-free vapor when
-      ! h*R_vapor balances R_source/alpha. In those cases the net flux
-      ! isotope signature is poorly constrained, so use the equilibrium
-      ! vapor in contact with the source pool instead.
-      IF (h_raw >= craig_gordon_relhum_fallback) RETURN
-
-      h = min(h_raw, craig_gordon_relhum_max)
+      ! Cap humidity below saturation so the net-loss form stays finite.
+      ! Clamp its low-ratio limit continuously instead of switching to an
+      ! equilibrium fallback at a humidity threshold.
+      h = min(max(relhum, 0._r8), craig_gordon_relhum_max)
       one_minus_h = 1._r8 - h
-      IF (one_minus_h <= 1.e-8_r8) RETURN
 
       cg_numerator = equilibrium_ratio - h * vapor_ratio
-      IF (cg_numerator <= trc_tiny) RETURN
-
       cg_ratio = cg_numerator / (ak * one_minus_h)
-      IF (cg_ratio <= craig_gordon_min_net_ratio_frac * equilibrium_ratio) RETURN
-
-      tracer_craig_gordon_evap_ratio = cg_ratio
+      tracer_craig_gordon_evap_ratio = max(cg_ratio, &
+         craig_gordon_min_net_ratio_frac * equilibrium_ratio)
       IF (tracer_craig_gordon_evap_ratio /= tracer_craig_gordon_evap_ratio) THEN
          tracer_craig_gordon_evap_ratio = source_ratio
       ENDIF
@@ -270,17 +260,17 @@ CONTAINS
 
       real(r8) :: h, one_minus_h, alpha_eq, alpha_k, eps_eq, eps_k
       real(r8) :: delta_x, delta_v, delta_es, delta_t
-      real(r8) :: leaf_moles, transp_moles, transp_moles_s
+      real(r8) :: leaf_moles, transp_moles, transp_moles_leaf_s
       real(r8) :: prev_e, prev_p, prev_w, liquid_diff, peclet_number
       real(r8) :: leaf_moles_ratio
       real(r8) :: relax_b, denom, tk
       real(r8) :: gross_moles, conductance_gross_moles
       real(r8) :: vapor_molar_density_sat, total_resistance
-      real(r8) :: prev_leaf_water, new_leaf_water, prev_bulk_ratio, new_bulk_ratio
-      real(r8) :: storage_tracer_change, storage_tracer_change_used
-      real(r8) :: storage_scale, storage_bound, target_leaf_storage
-      real(r8), parameter :: max_storage_jump_for_fallback = 10._r8
-      real(r8), parameter :: max_storage_tendency_fraction = 0.95_r8
+	      real(r8) :: prev_leaf_water, new_leaf_water, prev_bulk_ratio, new_bulk_ratio
+	      real(r8) :: storage_tracer_change, storage_tracer_change_used
+	      real(r8) :: storage_scale, storage_bound, target_leaf_storage
+	      real(r8), parameter :: max_storage_jump_for_fallback = 10._r8
+	      real(r8), parameter :: max_storage_tendency_fraction = 0.95_r8
 
       trans_ratio = source_ratio
       new_delta_e = tracer_ratio_to_delta(itrc, source_ratio)
@@ -302,8 +292,8 @@ CONTAINS
       one_minus_h = max(1._r8 - h, 1.e-6_r8)
       alpha_eq = tracer_alpha_liq_vap(itrc, tk)
       eps_eq = (1._r8 - 1._r8 / max(alpha_eq, trc_tiny)) * 1000._r8
-      eps_k = tracer_leaf_kinetic_epsilon(itrc, 0._r8, DEF_TRACER_NSS_LEAF_RB, &
-         stomatal_resistance)
+      eps_k = tracer_leaf_kinetic_epsilon(itrc, 0._r8, &
+         DEF_TRACER_NSS_LEAF_RB / max(leaf_area, trc_tiny), stomatal_resistance)
       alpha_k = 1._r8 + eps_k / 1000._r8
 
       delta_x = tracer_ratio_to_delta(itrc, source_ratio)
@@ -311,10 +301,12 @@ CONTAINS
       delta_es = delta_x + eps_k + eps_eq + h * (delta_v - eps_k - delta_x)
 
       transp_moles = transp_water * water_moles_per_mm
-      transp_moles_s = transp_moles / deltim
+      ! Péclet transport is defined per unit leaf area, whereas
+      ! transp_water is supplied per unit ground area.
+      transp_moles_leaf_s = transp_moles / (deltim * max(leaf_area, trc_tiny))
       liquid_diff = tracer_leaf_liquid_diffusivity(itrc, tk)
       IF (liquid_diff > trc_tiny .and. DEF_TRACER_NSS_LEAF_PATH_LENGTH > 0._r8) THEN
-         peclet_number = transp_moles_s * DEF_TRACER_NSS_LEAF_PATH_LENGTH / &
+         peclet_number = transp_moles_leaf_s * DEF_TRACER_NSS_LEAF_PATH_LENGTH / &
             (liquid_water_molar_density * liquid_diff)
          IF (peclet_number > 1.e-8_r8) THEN
             new_peclet = (1._r8 - exp(-peclet_number)) / peclet_number
@@ -324,36 +316,40 @@ CONTAINS
       ENDIF
       new_peclet = min(max(new_peclet, 0._r8), 1._r8)
 
-      IF (prev_leaf_moles > trc_tiny) THEN
-         leaf_moles_ratio = prev_leaf_moles / max(leaf_moles, trc_tiny)
-         IF (leaf_moles_ratio > 0.25_r8 .and. leaf_moles_ratio < 4._r8) THEN
-            prev_w = prev_leaf_moles
-         ELSE
-            ! Ignore a storage-size jump from changed NSS parameters or legacy restart files.
-            prev_w = leaf_moles
-         ENDIF
-         prev_e = prev_delta_e
-         prev_p = min(max(prev_peclet, 0._r8), 1._r8)
+	      IF (prev_leaf_moles > trc_tiny) THEN
+	         leaf_moles_ratio = prev_leaf_moles / max(leaf_moles, trc_tiny)
+	         IF (leaf_moles_ratio > 0.25_r8 .and. leaf_moles_ratio < 4._r8) THEN
+	            prev_w = prev_leaf_moles
+	         ELSE
+	            ! Ignore a storage-size jump from changed NSS parameters or legacy restart files.
+	            prev_w = leaf_moles
+	         ENDIF
+	         prev_e = prev_delta_e
+	         prev_p = min(max(prev_peclet, 0._r8), 1._r8)
       ELSE
          prev_w = leaf_moles
          prev_e = delta_x
          prev_p = new_peclet
       ENDIF
 
-      ! Farquhar-Cernusak NSS form: the turnover time is controlled by
-      ! the one-way gross flux through stomata/boundary (g_t * w_i), not
-      ! by net transpiration when canopy coupling or water stress makes
-      ! E/(1-h) inconsistent with the same humidity used here.
-      gross_moles = transp_moles / one_minus_h
-      conductance_gross_moles = 0._r8
-      total_resistance = max(stomatal_resistance, 0._r8) + max(DEF_TRACER_NSS_LEAF_RB, 0._r8)
-      IF (total_resistance > trc_tiny .and. psrf > trc_tiny) THEN
-         vapor_molar_density_sat = tracer_saturation_vapor_pressure(tk, .false.) / &
-            (universal_gas_constant * tk)
-         conductance_gross_moles = deltim * vapor_molar_density_sat / total_resistance
-      ENDIF
-      gross_moles = max(gross_moles, conductance_gross_moles)
-      relax_b = alpha_k * alpha_eq / max(gross_moles, trc_tiny)
+	      ! Farquhar-Cernusak NSS form: the turnover time is controlled by
+	      ! the one-way gross flux through stomata/boundary (g_t * w_i), not
+	      ! by net transpiration when canopy coupling or water stress makes
+	      ! E/(1-h) inconsistent with the same humidity used here.
+	      gross_moles = transp_moles / one_minus_h
+	      conductance_gross_moles = 0._r8
+	      ! CoLM supplies stomatal_resistance on a canopy/ground-area basis.
+	      ! DEF_TRACER_NSS_LEAF_RB is a leaf boundary resistance, so convert
+	      ! only that term to the same ground-area basis before adding them.
+	      total_resistance = max(stomatal_resistance, 0._r8) + &
+	         max(DEF_TRACER_NSS_LEAF_RB, 0._r8) / max(leaf_area, trc_tiny)
+	      IF (total_resistance > trc_tiny .and. psrf > trc_tiny) THEN
+	         vapor_molar_density_sat = tracer_saturation_vapor_pressure(tk, .false.) / &
+	            (universal_gas_constant * tk)
+	         conductance_gross_moles = deltim * vapor_molar_density_sat / total_resistance
+	      ENDIF
+	      gross_moles = max(gross_moles, conductance_gross_moles)
+	      relax_b = alpha_k * alpha_eq / max(gross_moles, trc_tiny)
       denom = 1._r8 + relax_b * leaf_moles * new_peclet
       IF (denom > trc_tiny) THEN
          new_delta_e = (delta_es + relax_b * (leaf_moles * new_peclet * delta_x + &
@@ -379,42 +375,42 @@ CONTAINS
       ENDIF
       new_leaf_water = leaf_moles / water_moles_per_mm
       new_bulk_ratio = tracer_delta_to_ratio(itrc, new_delta_b)
-      storage_tracer_change = new_leaf_water * new_bulk_ratio - prev_leaf_water * prev_bulk_ratio
-      storage_tracer_change_used = storage_tracer_change
-      storage_scale = max(transp_water * source_ratio, trc_tiny)
-      storage_bound = max_storage_tendency_fraction * storage_scale
-      IF (abs(storage_tracer_change) > max_storage_jump_for_fallback * storage_scale) THEN
-         ! A tiny transpiration step cannot physically determine a large
-         ! leaf-storage isotope tendency (usually LAI/restart/NSS memory
-         ! mismatch). Freeze the budget tendency for this step and adjust
-         ! the diagnostic bulk leaf delta to the same storage state.
-         storage_tracer_change_used = 0._r8
-      ELSE
-         storage_tracer_change_used = min(max(storage_tracer_change_used, -storage_bound), &
-            storage_bound)
-      ENDIF
-      IF (abs(storage_tracer_change_used - storage_tracer_change) > trc_tiny) THEN
-         target_leaf_storage = prev_leaf_water * prev_bulk_ratio + storage_tracer_change_used
-         IF (new_leaf_water > trc_tiny .and. target_leaf_storage > trc_tiny) THEN
-            new_bulk_ratio = target_leaf_storage / new_leaf_water
-            new_delta_b = tracer_ratio_to_delta(itrc, new_bulk_ratio)
-            IF (new_peclet > 1.e-6_r8) THEN
-               new_delta_e = delta_x + (new_delta_b - delta_x) / new_peclet
-            ELSE
-               new_delta_e = new_delta_b
-            ENDIF
-         ELSE
-            storage_tracer_change_used = 0._r8
-            new_delta_e = delta_x
-            new_delta_b = delta_x
-         ENDIF
-      ENDIF
-      trans_ratio = (transp_water * source_ratio - storage_tracer_change_used) / transp_water
-      IF (trans_ratio /= trans_ratio .or. trans_ratio <= 0._r8) THEN
-         trans_ratio = source_ratio
-         new_delta_e = prev_delta_e
-         new_delta_b = prev_delta_b
-      ENDIF
+	      storage_tracer_change = new_leaf_water * new_bulk_ratio - prev_leaf_water * prev_bulk_ratio
+	      storage_tracer_change_used = storage_tracer_change
+	      storage_scale = max(transp_water * source_ratio, trc_tiny)
+	      storage_bound = max_storage_tendency_fraction * storage_scale
+	      IF (abs(storage_tracer_change) > max_storage_jump_for_fallback * storage_scale) THEN
+	         ! A tiny transpiration step cannot physically determine a large
+	         ! leaf-storage isotope tendency (usually LAI/restart/NSS memory
+	         ! mismatch). Freeze the budget tendency for this step and adjust
+	         ! the diagnostic bulk leaf delta to the same storage state.
+	         storage_tracer_change_used = 0._r8
+	      ELSE
+	         storage_tracer_change_used = min(max(storage_tracer_change_used, -storage_bound), &
+	            storage_bound)
+	      ENDIF
+	      IF (abs(storage_tracer_change_used - storage_tracer_change) > trc_tiny) THEN
+	         target_leaf_storage = prev_leaf_water * prev_bulk_ratio + storage_tracer_change_used
+	         IF (new_leaf_water > trc_tiny .and. target_leaf_storage > trc_tiny) THEN
+	            new_bulk_ratio = target_leaf_storage / new_leaf_water
+	            new_delta_b = tracer_ratio_to_delta(itrc, new_bulk_ratio)
+	            IF (new_peclet > 1.e-6_r8) THEN
+	               new_delta_e = delta_x + (new_delta_b - delta_x) / new_peclet
+	            ELSE
+	               new_delta_e = new_delta_b
+	            ENDIF
+	         ELSE
+	            storage_tracer_change_used = 0._r8
+	            new_delta_e = delta_x
+	            new_delta_b = delta_x
+	         ENDIF
+	      ENDIF
+	      trans_ratio = (transp_water * source_ratio - storage_tracer_change_used) / transp_water
+	      IF (trans_ratio /= trans_ratio .or. trans_ratio <= 0._r8) THEN
+	         trans_ratio = source_ratio
+	         new_delta_e = prev_delta_e
+	         new_delta_b = prev_delta_b
+	      ENDIF
       IF (new_delta_b /= new_delta_b) new_delta_b = prev_delta_b
    END SUBROUTINE tracer_transpiration_nss_ratio
 

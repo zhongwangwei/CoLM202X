@@ -131,6 +131,7 @@ MODULE MOD_BGC_CNSummary
    IMPLICIT NONE
  
    PUBLIC CNDriverSummarizeStates
+   PUBLIC CNDriverSummarizeNonvegetatedSoilStates
    PUBLIC CNDriverSummarizeFluxes
    
    PRIVATE soilbiogeochem_carbonstate_summary
@@ -170,6 +171,30 @@ CONTAINS
       CALL cnveg_nitrogenstate_summary(i,ps,pe)
 
    END SUBROUTINE CNDriverSummarizeStates
+
+   SUBROUTINE CNDriverSummarizeNonvegetatedSoilStates(i,nl_soil,dz_soi,ndecomp_pools)
+
+! !DESCRIPTION:
+! Rebuild soil and whole-column aggregate C/N state after a non-vegetated
+! caller updates only the vertically resolved soil pools.  This deliberately
+! avoids the PFT summaries, whose ps:pe range is not valid for wetland patches.
+
+   integer, intent(in) :: i
+   integer, intent(in) :: nl_soil
+   real(r8), intent(in) :: dz_soi(1:nl_soil)
+   integer, intent(in) :: ndecomp_pools
+
+      CALL soilbiogeochem_carbonstate_summary(i,nl_soil,dz_soi,ndecomp_pools)
+      CALL soilbiogeochem_nitrogenstate_summary(i,nl_soil,dz_soi,ndecomp_pools)
+
+      totvegc(i) = 0._r8
+      ctrunc_veg(i) = 0._r8
+      totvegn(i) = 0._r8
+      ntrunc_veg(i) = 0._r8
+      totcolc(i) = totcwdc(i) + totlitc(i) + totsomc(i) + ctrunc_soil(i)
+      totcoln(i) = totcwdn(i) + totlitn(i) + totsomn(i) + sminn(i) + ntrunc_soil(i)
+
+   END SUBROUTINE CNDriverSummarizeNonvegetatedSoilStates
 
    SUBROUTINE CNDriverSummarizeFluxes(i,ps,pe,nl_soil,dz_soi,ndecomp_transitions,ndecomp_pools,deltim)
 

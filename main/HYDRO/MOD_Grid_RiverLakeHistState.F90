@@ -78,6 +78,7 @@ CONTAINS
 
    character(len=*), intent(in) :: file_restart
    integer :: ncol_local_bif
+   logical :: has_bif_signature
    integer, allocatable :: pth_global_id_bif(:)
    real(r8), allocatable :: bif_acctime_tmp(:,:)
 
@@ -129,27 +130,38 @@ CONTAINS
 
       IF (DEF_USE_BIFURCATION .and. totalnpthout > 0 .and. npthlev_bif > 0 .and. &
           allocated(a_bifflw_lev) .and. allocated(a_bifflw_acctime)) THEN
-         IF (p_is_worker) THEN
-            ncol_local_bif = npthout_local
-            allocate (pth_global_id_bif(ncol_local_bif))
-            pth_global_id_bif(:) = pth_global_id(:)
-         ELSE
-            ncol_local_bif = 0
-            allocate (pth_global_id_bif(0))
-         ENDIF
+         ! Path-history columns use the same ordinal IDs as BIF momentum.
+         ! A legacy restart without identity metadata cannot prove that those
+         ! ordinals still describe the current pathways, so keep the freshly
+         ! zeroed accumulators rather than silently attaching history to a
+         ! reordered network. The BIF state reader performs the full signature
+         ! comparison later during flow initialization.
+         has_bif_signature = restart_var_exists(file_restart, 'bif_path_signature')
+         IF (has_bif_signature) THEN
+            IF (p_is_worker) THEN
+               ncol_local_bif = npthout_local
+               allocate (pth_global_id_bif(ncol_local_bif))
+               pth_global_id_bif(:) = pth_global_id(:)
+            ELSE
+               ncol_local_bif = 0
+               allocate (pth_global_id_bif(0))
+            ENDIF
 
-         IF (restart_var_exists(file_restart, 'hist_bifflw_lev')) &
-            CALL vector_read_matrix_and_scatter(file_restart, a_bifflw_lev, npthlev_bif, &
-               ncol_local_bif, 'hist_bifflw_lev', pth_global_id_bif, totalnpthout)
-         IF (restart_var_exists(file_restart, 'hist_bifflw_acctime')) THEN
-            allocate (bif_acctime_tmp(1, ncol_local_bif))
-            bif_acctime_tmp = 0._r8
-            CALL vector_read_matrix_and_scatter(file_restart, bif_acctime_tmp, 1, &
-               ncol_local_bif, 'hist_bifflw_acctime', pth_global_id_bif, totalnpthout)
-            a_bifflw_acctime(:) = bif_acctime_tmp(1, :)
-            deallocate (bif_acctime_tmp)
+            IF (restart_var_exists(file_restart, 'hist_bifflw_lev')) &
+               CALL vector_read_matrix_and_scatter(file_restart, a_bifflw_lev, npthlev_bif, &
+                  ncol_local_bif, 'hist_bifflw_lev', pth_global_id_bif, totalnpthout)
+            IF (restart_var_exists(file_restart, 'hist_bifflw_acctime')) THEN
+               allocate (bif_acctime_tmp(1, ncol_local_bif))
+               bif_acctime_tmp = 0._r8
+               CALL vector_read_matrix_and_scatter(file_restart, bif_acctime_tmp, 1, &
+                  ncol_local_bif, 'hist_bifflw_acctime', pth_global_id_bif, totalnpthout)
+               a_bifflw_acctime(:) = bif_acctime_tmp(1, :)
+               deallocate (bif_acctime_tmp)
+            ENDIF
+            deallocate (pth_global_id_bif)
+         ELSEIF (p_is_master) THEN
+            write(*,'(A)') 'WARNING: legacy BIF restart has no path signature; cold-starting pathway history accumulators.'
          ENDIF
-         deallocate (pth_global_id_bif)
       ENDIF
 
    END SUBROUTINE read_gridriverlake_hist_restart

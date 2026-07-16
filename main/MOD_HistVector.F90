@@ -111,10 +111,6 @@ CONTAINS
    real(r8) :: sumwt
    character(len=256) :: inmode
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
       IF (p_is_worker) THEN
 #ifdef CATCHMENT
          numset = numhru
@@ -187,10 +183,15 @@ CONTAINS
 
 #ifdef USEMPI
          DO iwork = 0, p_np_worker-1
-            CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
+            ! Receive exactly one header from each worker for this variable.
+            ! All variables reuse mpi_tag_mesg/mpi_tag_data; MPI_ANY_SOURCE
+            ! could therefore consume a fast worker's next-variable header
+            ! before a slower worker has sent the current one.
+            isrc = p_address_worker(iwork)
+            CALL mpi_recv (mesg, 2, MPI_INTEGER, isrc, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
-            isrc  = mesg(1)
+            IF (mesg(1) /= isrc) CALL CoLM_stop ('history-vector worker/source mismatch')
             ndata = mesg(2)
             IF (ndata > 0) THEN
                allocate(rcache (ndata))
@@ -245,10 +246,6 @@ CONTAINS
 
       IF (allocated(acc_vec)) deallocate (acc_vec)
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
    END SUBROUTINE aggregate_to_vector_and_write_2d
 
 
@@ -283,10 +280,6 @@ CONTAINS
    real(r8), allocatable :: frac(:)
    real(r8), allocatable :: acc_vec(:,:), rcache(:,:)
    real(r8) :: sumwt
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
       ub1 = lb1 + ndim1 - 1
 
@@ -358,10 +351,11 @@ CONTAINS
 
 #ifdef USEMPI
          DO iwork = 0, p_np_worker-1
-            CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
+            isrc = p_address_worker(iwork)
+            CALL mpi_recv (mesg, 2, MPI_INTEGER, isrc, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
-            isrc  = mesg(1)
+            IF (mesg(1) /= isrc) CALL CoLM_stop ('history-vector worker/source mismatch')
             ndata = mesg(2)
             IF (ndata > 0) THEN
                allocate(rcache (ndim1,ndata))
@@ -425,10 +419,6 @@ CONTAINS
 
       IF (allocated(acc_vec)) deallocate (acc_vec)
 
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
-
    END SUBROUTINE aggregate_to_vector_and_write_3d
 
 
@@ -463,10 +453,6 @@ CONTAINS
    real(r8), allocatable :: frac(:)
    real(r8), allocatable :: acc_vec(:,:,:), rcache(:,:,:)
    real(r8) :: sumwt
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
       ub1 = lb1 + ndim1 - 1
       ub2 = lb2 + ndim2 - 1
@@ -541,10 +527,11 @@ CONTAINS
 
 #ifdef USEMPI
          DO iwork = 0, p_np_worker-1
-            CALL mpi_recv (mesg, 2, MPI_INTEGER, MPI_ANY_SOURCE, &
+            isrc = p_address_worker(iwork)
+            CALL mpi_recv (mesg, 2, MPI_INTEGER, isrc, &
                mpi_tag_mesg, p_comm_glb, p_stat, p_err)
 
-            isrc  = mesg(1)
+            IF (mesg(1) /= isrc) CALL CoLM_stop ('history-vector worker/source mismatch')
             ndata = mesg(2)
             IF (ndata > 0) THEN
                allocate(rcache (ndim1,ndim2,ndata))
@@ -611,10 +598,6 @@ CONTAINS
       ENDIF
 
       IF (allocated(acc_vec)) deallocate (acc_vec)
-
-#ifdef USEMPI
-      CALL mpi_barrier (p_comm_glb, p_err)
-#endif
 
    END SUBROUTINE aggregate_to_vector_and_write_4d
 

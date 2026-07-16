@@ -67,15 +67,17 @@
    DEF_hist_vars_out_default = .true.
 
    ! ----- Methane reactive tracer -----
-   ! Requires #define TRACER and #define BGC in include/define.h.
+   ! Requires #define TRACER, #define BGC, and #define CROP in include/define.h
+   ! because standard_ch4_parameter.nml enables rice-paddy methane.
    ! CH4 runtime activation is species-driven; no #define CH4 is used.
-   DEF_TRACER_NUM         = 3
-   DEF_TRACER_NAMES       = "CH4,O2,CO2"
-   DEF_TRACER_TYPES       = "reactive,reactive,reactive"
-   DEF_TRACER_MRAT        = "16.04,32.00,44.01"
-   DEF_TRACER_REF_RATIO   = "1.0,1.0,1.0"
-   DEF_TRACER_INIT_DELTA  = "0.0,0.0,0.0"
-   DEF_TRACER_REACTIVE_DECAY_RATE = "0.0,0.0,0.0"
+   DEF_USE_Dynamic_Wetland = .true.
+   DEF_TRACER_NUM         = 1
+   DEF_TRACER_NAMES       = "CH4"
+   DEF_TRACER_TYPES       = "reactive"
+   DEF_TRACER_MRAT        = "16.04"
+   DEF_TRACER_REF_RATIO   = "1.0"
+   DEF_TRACER_INIT_DELTA  = "0.0"
+   DEF_TRACER_REACTIVE_DECAY_RATE = "0.0"
    DEF_TRACER_PARAM_FILES = "CH4:run/standard_ch4_parameter.nml"
 
 /

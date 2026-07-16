@@ -5,17 +5,18 @@ MODULE MOD_Tracer_Evapo
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
-      tracer_init_water_ratio, tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max
+      tracer_init_water_ratio, tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max, &
+      tracer_equilibrate_dissolved
    USE MOD_Tracer_Forcing, only: tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
       tracer_rayleigh_freezing_loss, tracer_surface_relhum
    USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss
-   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
-      trc_wliq_soisno, trc_wice_soisno, &
-      trc_numerical_residual_step, &
-      a_trc_precip, tracer_book_evap_loss, &
-      TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL
+	   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
+	      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_canopy_solid, &
+	      trc_numerical_residual_step, &
+	      a_trc_precip, tracer_book_evap_loss, &
+	      TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL
 
    IMPLICIT NONE
 
@@ -65,7 +66,7 @@ CONTAINS
 
       integer  :: itrc, j, lb
       real(r8) :: ratio, trc_flux, R_atm, R_vapor
-      real(r8) :: d_rain, d_snow, d_wliq, d_wice, water_loss, trc_resid
+	      real(r8) :: d_rain, d_snow, d_wliq, d_wice, water_loss, trc_resid
       real(r8) :: thaw_amt, freeze_amt
       ! Post-internal-transfer pool sizes used as the denominator for
       ! evaporation / sublimation. Using *_soisno_bef would mix a post-thaw
@@ -161,11 +162,11 @@ CONTAINS
          IF (d_rain_external < -trc_tiny) THEN
             ! Net rain loss = canopy evaporation
             IF (ldew_rain_post_phase > trc_tiny) THEN
-               trc_flux = evaporative_tracer_loss(trc_ldew_rain(itrc, ipatch), &
-                  ldew_rain_post_phase, abs(d_rain_external), canopy_temp(), .false.)
-               trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) - trc_flux
-               CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, abs(d_rain_external), &
-                  TRC_EVAP_KIND_CANOPYEVAP)
+	               trc_flux = evaporative_tracer_loss(trc_ldew_rain(itrc, ipatch), &
+	                  ldew_rain_post_phase, abs(d_rain_external), canopy_temp(), .false.)
+	               trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) - trc_flux
+	               CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, abs(d_rain_external), &
+	                  TRC_EVAP_KIND_CANOPYEVAP)
             ENDIF
          ELSEIF (d_rain_external > trc_tiny) THEN
             ! Net rain gain = dew deposition
@@ -181,11 +182,11 @@ CONTAINS
          IF (d_snow_external < -trc_tiny) THEN
             ! Net snow loss = canopy sublimation
             IF (ldew_snow_post_phase > trc_tiny) THEN
-               trc_flux = evaporative_tracer_loss(trc_ldew_snow(itrc, ipatch), &
-                  ldew_snow_post_phase, abs(d_snow_external), canopy_temp(), .true.)
-               trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) - trc_flux
-               CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, abs(d_snow_external), &
-                  TRC_EVAP_KIND_SUBL)
+	               trc_flux = evaporative_tracer_loss(trc_ldew_snow(itrc, ipatch), &
+	                  ldew_snow_post_phase, abs(d_snow_external), canopy_temp(), .true.)
+	               trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) - trc_flux
+	               CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, abs(d_snow_external), &
+	                  TRC_EVAP_KIND_SUBL)
             ENDIF
          ELSEIF (d_snow_external > trc_tiny) THEN
             ! Net snow gain = frost deposition
@@ -195,6 +196,8 @@ CONTAINS
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
          ENDIF
          trc_ldew_snow(itrc, ipatch) = max(trc_ldew_snow(itrc, ipatch), 0._r8)
+         CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
+            trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
 
          ! --- Soil+snow layers: combined liquid+ice ---
          DO j = lb, nl_soil
@@ -244,45 +247,49 @@ CONTAINS
             ! Reconstruct the water pool sizes that participate in the external
             ! phase changes below: pre-evap liquid = pre-THERMAL liquid + thaw
             ! - freeze, pre-sublimation ice = pre-THERMAL ice - thaw + freeze.
-            wliq_post_phase = max(wliq_soisno_bef(j) + thaw_amt - freeze_amt, 0._r8)
-            wice_post_phase = max(wice_soisno_bef(j) - thaw_amt + freeze_amt, 0._r8)
+	            wliq_post_phase = max(wliq_soisno_bef(j) + thaw_amt - freeze_amt, 0._r8)
+	            wice_post_phase = max(wice_soisno_bef(j) - thaw_amt + freeze_amt, 0._r8)
 
-            ! THERMAL reports only internal phase changes for snow layers.
-            ! Atmospheric snow exchange (qsdew/qseva/qfros/qsubl) is applied
-            ! later by snowwater and mirrored in tracer_soil_water. Treating
-            ! any remaining snow-layer residual here as dew/frost/evap/subl
-            ! would create tracer fluxes with no matching water-side flux.
-            IF (j < 1) CYCLE
+	            ! THERMAL reports only internal phase changes for snow layers.
+	            ! Atmospheric snow exchange (qsdew/qseva/qfros/qsubl) is applied
+	            ! later by snowwater and mirrored in tracer_soil_water. Treating
+	            ! any remaining snow-layer residual here as dew/frost/evap/subl
+	            ! would create tracer fluxes with no matching water-side flux.
+	            IF (j < 1) THEN
+               CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
+               CYCLE
+            ENDIF
 
-            ! --- Net liquid change beyond thaw/freeze = evap/dew ---
+	            ! --- Net liquid change beyond thaw/freeze = evap/dew ---
             ! Net external liquid change = d_wliq - thaw + freeze
             !   (thaw adds liquid internally, freeze removes liquid internally)
-            trc_flux = d_wliq - thaw_amt + freeze_amt
-            IF (trc_flux < -trc_tiny) THEN
-               IF (j == 1) THEN
-                  ! Net exposed-soil liquid loss = evaporation.
-                  IF (wliq_post_phase > trc_tiny) THEN
-                     water_loss = abs(trc_flux)
-                     trc_flux = evaporative_tracer_loss(trc_wliq_soisno(itrc, j, ipatch), &
-                        wliq_post_phase, water_loss, layer_temp(j), .false.)
-                     trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
-                     CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
-                        TRC_EVAP_KIND_SOILEVAP)
-                  ENDIF
-               ELSE ! DEEP_STORAGE_RESIDUAL liquid loss: not atmospheric soil evaporation.
-                  IF (wliq_post_phase > trc_tiny) THEN
-                     ratio = trc_wliq_soisno(itrc, j, ipatch) / wliq_post_phase
-                  ELSE
-                     ratio = tracer_init_water_ratio(itrc)
-                  ENDIF
-                  trc_resid = min(abs(trc_flux) * max(ratio, 0._r8), &
-                     max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
-                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_resid
-                  IF (allocated(trc_numerical_residual_step)) THEN
-                     trc_numerical_residual_step(itrc, ipatch) = &
-                        trc_numerical_residual_step(itrc, ipatch) - trc_resid
-                  ENDIF
-               ENDIF
+	            trc_flux = d_wliq - thaw_amt + freeze_amt
+	            IF (trc_flux < -trc_tiny) THEN
+	               IF (j == 1) THEN
+	                  ! Net exposed-soil liquid loss = evaporation.
+	                  IF (wliq_post_phase > trc_tiny) THEN
+	                     water_loss = abs(trc_flux)
+	                     trc_flux = evaporative_tracer_loss(trc_wliq_soisno(itrc, j, ipatch), &
+	                        wliq_post_phase, water_loss, layer_temp(j), .false.)
+	                     trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
+	                     CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
+	                        TRC_EVAP_KIND_SOILEVAP)
+	                  ENDIF
+	               ELSE ! DEEP_STORAGE_RESIDUAL liquid loss: not atmospheric soil evaporation.
+	                  IF (wliq_post_phase > trc_tiny) THEN
+	                     ratio = trc_wliq_soisno(itrc, j, ipatch) / wliq_post_phase
+	                  ELSE
+	                     ratio = tracer_init_water_ratio(itrc)
+	                  ENDIF
+	                  trc_resid = min(abs(trc_flux) * max(ratio, 0._r8), &
+	                     max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
+	                  trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_resid
+	                  IF (allocated(trc_numerical_residual_step)) THEN
+	                     trc_numerical_residual_step(itrc, ipatch) = &
+	                        trc_numerical_residual_step(itrc, ipatch) - trc_resid
+	                  ENDIF
+	               ENDIF
             ELSEIF (trc_flux > trc_tiny) THEN
                ! Net liquid gain = dew deposition, only on the exposed soil
                ! surface. Deeper positive residuals are internal storage
@@ -307,32 +314,32 @@ CONTAINS
             ENDIF
 
             ! --- Net ice change beyond thaw/freeze = sublimation/frost ---
-            trc_flux = d_wice + thaw_amt - freeze_amt
-            IF (trc_flux < -trc_tiny) THEN
-               IF (j == 1) THEN
-                  ! Net exposed-soil ice loss = sublimation.
-                  IF (wice_post_phase > trc_tiny) THEN
-                     water_loss = abs(trc_flux)
-                     trc_flux = evaporative_tracer_loss(trc_wice_soisno(itrc, j, ipatch), &
-                        wice_post_phase, water_loss, layer_temp(j), .true.)
-                     trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
-                     CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
-                        TRC_EVAP_KIND_SUBL)
-                  ENDIF
-               ELSE ! DEEP_STORAGE_RESIDUAL ice loss: not atmospheric sublimation.
-                  IF (wice_post_phase > trc_tiny) THEN
-                     ratio = trc_wice_soisno(itrc, j, ipatch) / wice_post_phase
-                  ELSE
-                     ratio = tracer_init_water_ratio(itrc)
-                  ENDIF
-                  trc_resid = min(abs(trc_flux) * max(ratio, 0._r8), &
-                     max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
-                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_resid
-                  IF (allocated(trc_numerical_residual_step)) THEN
-                     trc_numerical_residual_step(itrc, ipatch) = &
-                        trc_numerical_residual_step(itrc, ipatch) - trc_resid
-                  ENDIF
-               ENDIF
+	            trc_flux = d_wice + thaw_amt - freeze_amt
+	            IF (trc_flux < -trc_tiny) THEN
+	               IF (j == 1) THEN
+	                  ! Net exposed-soil ice loss = sublimation.
+	                  IF (wice_post_phase > trc_tiny) THEN
+	                     water_loss = abs(trc_flux)
+	                     trc_flux = evaporative_tracer_loss(trc_wice_soisno(itrc, j, ipatch), &
+	                        wice_post_phase, water_loss, layer_temp(j), .true.)
+	                     trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_flux
+	                     CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, water_loss, &
+	                        TRC_EVAP_KIND_SUBL)
+	                  ENDIF
+	               ELSE ! DEEP_STORAGE_RESIDUAL ice loss: not atmospheric sublimation.
+	                  IF (wice_post_phase > trc_tiny) THEN
+	                     ratio = trc_wice_soisno(itrc, j, ipatch) / wice_post_phase
+	                  ELSE
+	                     ratio = tracer_init_water_ratio(itrc)
+	                  ENDIF
+	                  trc_resid = min(abs(trc_flux) * max(ratio, 0._r8), &
+	                     max(trc_wice_soisno(itrc, j, ipatch), 0._r8))
+	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) - trc_resid
+	                  IF (allocated(trc_numerical_residual_step)) THEN
+	                     trc_numerical_residual_step(itrc, ipatch) = &
+	                        trc_numerical_residual_step(itrc, ipatch) - trc_resid
+	                  ENDIF
+	               ENDIF
             ELSEIF (trc_flux > trc_tiny) THEN
                ! Net ice gain = frost deposition, only on the exposed soil
                ! surface. Deeper positive residuals are internal storage
@@ -355,10 +362,12 @@ CONTAINS
                   ENDIF
                ENDIF
             ENDIF
+            CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+               trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
          ENDDO
       ENDDO
 
-   CONTAINS
+      CONTAINS
 
       real(r8) FUNCTION evaporative_tracer_loss (pool_trc, pool_water, water_loss, temp_k, from_ice)
          real(r8), intent(in) :: pool_trc
@@ -377,7 +386,7 @@ CONTAINS
             evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
                water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
                merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
-               0._r8, tracer_fractionation_active(itrc)))
+                     0._r8, tracer_fractionation_active(itrc)))
          ENDIF
       END FUNCTION evaporative_tracer_loss
 

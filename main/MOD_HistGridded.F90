@@ -35,6 +35,8 @@ MODULE MOD_HistGridded
 
    type(grid_concat_type) :: hist_concat
 
+   integer, parameter :: hist_data_id_first = 1001
+   integer, parameter :: hist_data_id_count = 2000
    integer :: hist_data_id
 
 !--------------------------------------------------------------------------
@@ -106,7 +108,7 @@ CONTAINS
 #endif
 
       IF (trim(DEF_HIST_mode) == 'one') THEN
-         hist_data_id = 10001
+         hist_data_id = hist_data_id_first
       ENDIF
 
    END SUBROUTINE hist_gridded_init
@@ -618,7 +620,8 @@ CONTAINS
          ENDIF
 #endif
 
-         hist_data_id = mod(hist_data_id-10000,10000) + 100001
+         hist_data_id = mod(hist_data_id-hist_data_id_first+1, hist_data_id_count) + &
+            hist_data_id_first
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
 
@@ -803,7 +806,8 @@ CONTAINS
          ENDIF
 #endif
 
-         hist_data_id = mod(hist_data_id-10000,10000) + 100001
+         hist_data_id = mod(hist_data_id-hist_data_id_first+1, hist_data_id_count) + &
+            hist_data_id_first
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
 
@@ -991,7 +995,8 @@ CONTAINS
          ENDIF
 #endif
 
-         hist_data_id = mod(hist_data_id-10000,10000) + 100001
+         hist_data_id = mod(hist_data_id-hist_data_id_first+1, hist_data_id_count) + &
+            hist_data_id_first
 
       ELSEIF (trim(DEF_HIST_mode) == 'block') THEN
          IF (p_is_io) THEN

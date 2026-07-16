@@ -13,13 +13,11 @@ MODULE MOD_Tracer_Reactive_Methane_Registry
 ! igas_ch4 index stays at the sentinel value (-1), and all gated
 ! methane logic (driver / accumulators / history) becomes a no-op.
 !
-! Additional oxidant species O2 and CO2 follow the same lookup so
-! per-process oxidation/respiration channels can reference their
-! tracer indices when present; both are optional and default to -1.
 !=======================================================================
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_reactive, tracer_upper
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_reactive, tracer_upper, &
+      tracer_set_land_water_transport
 
    IMPLICIT NONE
    SAVE
@@ -29,13 +27,11 @@ MODULE MOD_Tracer_Reactive_Methane_Registry
    integer, parameter :: METHANE_GAS_ABSENT = -1
 
    integer :: igas_ch4 = METHANE_GAS_ABSENT
-   integer :: igas_o2  = METHANE_GAS_ABSENT
-   integer :: igas_co2 = METHANE_GAS_ABSENT
 
    PUBLIC :: methane_registry_init
    PUBLIC :: methane_registry_refresh
    PUBLIC :: methane_is_active
-   PUBLIC :: igas_ch4, igas_o2, igas_co2, METHANE_GAS_ABSENT
+   PUBLIC :: igas_ch4, METHANE_GAS_ABSENT
 
 CONTAINS
 
@@ -66,15 +62,14 @@ CONTAINS
 
    !-------------------------------------------------------------------
    SUBROUTINE update_methane_registry (verbose)
-      USE MOD_SPMD_Task, only: p_is_master
+      USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
       IMPLICIT NONE
       logical, intent(in) :: verbose
-      integer :: i
+      integer :: i, alias_index
       character(len=:), allocatable :: nm
 
       igas_ch4 = METHANE_GAS_ABSENT
-      igas_o2  = METHANE_GAS_ABSENT
-      igas_co2 = METHANE_GAS_ABSENT
+      alias_index = METHANE_GAS_ABSENT
 
       IF (.not. allocated(tracers)) RETURN
       IF (ntracers <= 0) RETURN
@@ -82,25 +77,24 @@ CONTAINS
       DO i = 1, ntracers
          nm = tracer_upper(tracers(i)%name)
          IF (trim(nm) == 'CH4' .or. trim(nm) == 'METHANE') THEN
+            IF (alias_index > 0) THEN
+               IF (p_is_master) THEN
+                  write(*,'(A,A,A,A,A)') 'ERROR methane_registry_init: CH4 and METHANE aliases ', &
+                     'cannot both be registered ("', trim(tracers(alias_index)%name), '" and "', &
+                     trim(tracers(i)%name)//'").'
+               ENDIF
+               CALL CoLM_stop()
+            ENDIF
+            alias_index = i
             IF (tracer_is_reactive(i)) THEN
                igas_ch4 = i
+               ! Methane owns prognostic concentration, transport, restart,
+               ! and conservation state.  Do not allocate a second generic
+               ! land-water CH4 state for the same registered species.
+               CALL tracer_set_land_water_transport (i, .false.)
             ELSEIF (verbose .and. p_is_master) THEN
                write(*,'(A,A,A)') ' WARNING methane_registry_init: tracer "', &
                   trim(tracers(i)%name), '" found but not category="reactive"; methane disabled.'
-            ENDIF
-         ELSEIF (trim(nm) == 'O2') THEN
-            IF (tracer_is_reactive(i)) THEN
-               igas_o2 = i
-            ELSEIF (verbose .and. p_is_master) THEN
-               write(*,'(A,A,A)') ' WARNING methane_registry_init: tracer "', &
-                  trim(tracers(i)%name), '" found but not category="reactive"; O2 channel disabled.'
-            ENDIF
-         ELSEIF (trim(nm) == 'CO2') THEN
-            IF (tracer_is_reactive(i)) THEN
-               igas_co2 = i
-            ELSEIF (verbose .and. p_is_master) THEN
-               write(*,'(A,A,A)') ' WARNING methane_registry_init: tracer "', &
-                  trim(tracers(i)%name), '" found but not category="reactive"; CO2 channel disabled.'
             ENDIF
          ENDIF
       ENDDO

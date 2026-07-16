@@ -4,17 +4,18 @@
 MODULE MOD_Tracer_Vars
 
    USE MOD_Precision
+   USE MOD_Namelist, only: DEF_TRACER_LULCC_ABORT_NBAD
    USE MOD_SPMD_Task, only: p_is_io, CoLM_stop
    USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_is_particle, &
-      tracer_uses_land_water_transport
+      tracer_uses_land_water_transport, tracer_equilibrate_dissolved
 
    IMPLICIT NONE
    SAVE
+   PRIVATE
 
    logical :: lulcc_area_fallback_warned = .false.
    real(r8), parameter :: lulcc_mass_abs_tol = 1.e-8_r8
    real(r8), parameter :: lulcc_mass_rel_tol = 1.e-10_r8
-   integer,  parameter :: lulcc_mass_abort_nbad = 0
 
    real(r8), allocatable :: trc_ldew_rain  (:,:)
    real(r8), allocatable :: trc_ldew_snow  (:,:)
@@ -23,6 +24,20 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: trc_wa         (:,:)
    real(r8), allocatable :: trc_wdsrf      (:,:)
    real(r8), allocatable :: trc_wetwat     (:,:)
+   ! Waterless surface residue for nonvolatile conservative solutes.
+   ! This is a numerical immobile store, not a precipitated mineral phase.
+   real(r8), allocatable :: trc_surface_residue(:,:)
+   ! Positive solute orphaned when aquifer water vanishes. It redissolves only
+   ! when the aquifer returns, preventing first-rain release at the surface.
+   real(r8), allocatable :: trc_subsurface_residue(:,:)
+   ! Immobile precipitated solute. Layer, surface, aquifer, and irrigation
+   ! reservoir inventories stay separate so saturation cannot move mass between
+   ! hydrologically disconnected pools.
+   real(r8), allocatable :: trc_solid_soisno(:,:,:)
+   real(r8), allocatable :: trc_canopy_solid(:,:)
+   real(r8), allocatable :: trc_surface_solid(:,:)
+   real(r8), allocatable :: trc_subsurface_solid(:,:)
+   real(r8), allocatable :: trc_waterstorage_solid(:,:)
 
    ! Tracer mirror of MOD_Vars_TimeVariables::waterstorage. Irrigation
    ! (drip/flood/paddy/sprinkler) is an internal transfer from the
@@ -79,6 +94,13 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: lulcc_trc_wa_old(:,:)
    real(r8), allocatable :: lulcc_trc_wdsrf_old(:,:)
    real(r8), allocatable :: lulcc_trc_wetwat_old(:,:)
+   real(r8), allocatable :: lulcc_trc_surface_residue_old(:,:)
+   real(r8), allocatable :: lulcc_trc_subsurface_residue_old(:,:)
+   real(r8), allocatable :: lulcc_trc_solid_soisno_old(:,:,:)
+   real(r8), allocatable :: lulcc_trc_canopy_solid_old(:,:)
+   real(r8), allocatable :: lulcc_trc_surface_solid_old(:,:)
+   real(r8), allocatable :: lulcc_trc_subsurface_solid_old(:,:)
+   real(r8), allocatable :: lulcc_trc_waterstorage_solid_old(:,:)
    real(r8), allocatable :: lulcc_trc_waterstorage_old(:,:)
    real(r8), allocatable :: lulcc_trc_scv_old(:,:)
    real(r8), allocatable :: lulcc_trc_leaf_delta_e_old(:,:)
@@ -88,25 +110,25 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: lulcc_trc_leaf_iso_storage_old(:,:)
 
    real(r8), allocatable :: a_trc_precip   (:,:)
-   integer, parameter :: TRC_EVAP_KIND_TOTAL       = 0
-   integer, parameter :: TRC_EVAP_KIND_TRANSP      = 1
-   integer, parameter :: TRC_EVAP_KIND_SOILEVAP    = 2
-   integer, parameter :: TRC_EVAP_KIND_CANOPYEVAP  = 3
-   integer, parameter :: TRC_EVAP_KIND_SUBL        = 4
-   integer, parameter :: TRC_EVAP_KIND_WETLAND     = 5
-   real(r8), allocatable :: a_trc_evap     (:,:)
-   real(r8), allocatable :: a_water_evap_gross(:,:)
-   real(r8), allocatable :: a_trc_transp   (:,:)
-   real(r8), allocatable :: a_trc_transp_src(:,:)
-   real(r8), allocatable :: a_water_transp (:,:)
-   real(r8), allocatable :: a_trc_soilevap (:,:)
-   real(r8), allocatable :: a_water_soilevap(:,:)
-   real(r8), allocatable :: a_trc_canopyevap(:,:)
-   real(r8), allocatable :: a_water_canopyevap(:,:)
-   real(r8), allocatable :: a_trc_subl(:,:)
-   real(r8), allocatable :: a_water_subl(:,:)
-   real(r8), allocatable :: a_trc_wetland_evap(:,:)
-   real(r8), allocatable :: a_water_wetland_evap(:,:)
+	   integer, parameter :: TRC_EVAP_KIND_TOTAL       = 0
+	   integer, parameter :: TRC_EVAP_KIND_TRANSP      = 1
+	   integer, parameter :: TRC_EVAP_KIND_SOILEVAP    = 2
+	   integer, parameter :: TRC_EVAP_KIND_CANOPYEVAP  = 3
+	   integer, parameter :: TRC_EVAP_KIND_SUBL        = 4
+	   integer, parameter :: TRC_EVAP_KIND_WETLAND     = 5
+	   real(r8), allocatable :: a_trc_evap     (:,:)
+	   real(r8), allocatable :: a_water_evap_gross(:,:)
+	   real(r8), allocatable :: a_trc_transp   (:,:)
+	   real(r8), allocatable :: a_trc_transp_src(:,:)
+	   real(r8), allocatable :: a_water_transp (:,:)
+	   real(r8), allocatable :: a_trc_soilevap (:,:)
+	   real(r8), allocatable :: a_water_soilevap(:,:)
+	   real(r8), allocatable :: a_trc_canopyevap(:,:)
+	   real(r8), allocatable :: a_water_canopyevap(:,:)
+	   real(r8), allocatable :: a_trc_subl(:,:)
+	   real(r8), allocatable :: a_water_subl(:,:)
+	   real(r8), allocatable :: a_trc_wetland_evap(:,:)
+	   real(r8), allocatable :: a_water_wetland_evap(:,:)
    real(r8), allocatable :: a_trc_rsur     (:,:)
    real(r8), allocatable :: a_trc_rsub     (:,:)
    real(r8), allocatable :: a_trc_rnof     (:,:)
@@ -115,12 +137,12 @@ MODULE MOD_Tracer_Vars
 
    real(r8), allocatable :: trc_storage_beg(:,:)
    real(r8), allocatable :: trc_balance_err(:,:)
-   ! Net reactive source/sink applied during the current land step.
-   ! Positive adds tracer to storage; negative removes tracer.
-   real(r8), allocatable :: trc_reactive_source_step(:,:)
-   ! Explicit numerical source/sink used only to reconcile solver residuals
-   ! that have no physical flux signature. Positive adds tracer to storage.
-   real(r8), allocatable :: trc_numerical_residual_step(:,:)
+	   ! Net reactive source/sink applied during the current land step.
+	   ! Positive adds tracer to storage; negative removes tracer.
+	   real(r8), allocatable :: trc_reactive_source_step(:,:)
+	   ! Explicit numerical source/sink used only to reconcile solver residuals
+	   ! that have no physical flux signature. Positive adds tracer to storage.
+	   real(r8), allocatable :: trc_numerical_residual_step(:,:)
 
    real(r8), allocatable :: a_trc_ldew_mass (:,:)
    real(r8), allocatable :: a_water_ldew    (:)
@@ -136,21 +158,57 @@ MODULE MOD_Tracer_Vars
    ! (wetland pool) or scv (pre-layer thin snow). These accumulators let
    ! MOD_Hist emit a per-pool tracer ratio diagnostic alongside the existing
    ! ldew / soisno outputs.
-   real(r8), allocatable :: a_trc_wa_mass    (:,:)   ! (ntracers, numpatch)
-   real(r8), allocatable :: a_water_wa       (:)     ! (numpatch)
-   real(r8), allocatable :: a_trc_wa_debt_mass(:,:)  ! signed-debt magnitude diagnostics
-   real(r8), allocatable :: a_water_wa_debt   (:)    ! aquifer debt magnitude
+	   real(r8), allocatable :: a_trc_wa_mass    (:,:)   ! (ntracers, numpatch)
+	   real(r8), allocatable :: a_water_wa       (:)     ! (numpatch)
+	   real(r8), allocatable :: a_trc_wa_debt_mass(:,:)  ! signed-debt magnitude diagnostics
+	   real(r8), allocatable :: a_water_wa_debt   (:)    ! aquifer debt magnitude
    real(r8), allocatable :: a_trc_wdsrf_mass (:,:)
    real(r8), allocatable :: a_water_wdsrf    (:)
    real(r8), allocatable :: a_trc_wetwat_mass(:,:)
    real(r8), allocatable :: a_water_wetwat   (:)
+   real(r8), allocatable :: a_trc_surface_residue_mass(:,:)
+   real(r8), allocatable :: a_trc_subsurface_residue_mass(:,:)
+   real(r8), allocatable :: a_trc_layer_dry_mass(:,:)
+   real(r8), allocatable :: a_trc_solid_mass(:,:)
    real(r8), allocatable :: a_trc_scv_mass   (:,:)
    real(r8), allocatable :: a_water_scv      (:)
 
+   ! External state contract.  LULCC snapshots and remapping work arrays stay
+   ! private; only pools and diagnostics consumed by the land physics, restart,
+   ! history, and host facades are exposed.
    PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
-   PUBLIC :: zero_particle_land_tracer_state
-   PUBLIC :: sync_tracer_patch_phase1, sync_tracer_patch_ratio
+   PUBLIC :: save_land_tracer_lulcc_state, remap_land_tracer_lulcc_state
+   PUBLIC :: zero_particle_land_tracer_state, sync_tracer_patch_ratio
    PUBLIC :: tracer_book_evap_loss
+
+   PUBLIC :: trc_ldew_rain, trc_ldew_snow
+   PUBLIC :: trc_wliq_soisno, trc_wice_soisno
+   PUBLIC :: trc_wa, trc_wdsrf, trc_wetwat
+   PUBLIC :: trc_surface_residue, trc_subsurface_residue, trc_waterstorage
+   PUBLIC :: trc_solid_soisno, trc_surface_solid, trc_subsurface_solid
+   PUBLIC :: trc_canopy_solid, trc_waterstorage_solid
+   PUBLIC :: trc_scv, trc_pg_rain_ground, trc_pg_snow_ground, trc_rnof_step
+   PUBLIC :: trc_sm_carry, trc_runtime_forced
+   PUBLIC :: trc_leaf_delta_e, trc_leaf_delta_b, trc_leaf_peclet
+   PUBLIC :: trc_leaf_water_moles, trc_leaf_iso_storage
+   PUBLIC :: trc_storage_beg, trc_balance_err
+   PUBLIC :: trc_reactive_source_step, trc_numerical_residual_step
+
+   PUBLIC :: TRC_EVAP_KIND_TRANSP, TRC_EVAP_KIND_SOILEVAP
+   PUBLIC :: TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SUBL, TRC_EVAP_KIND_WETLAND
+   PUBLIC :: a_trc_precip, a_trc_evap, a_water_evap_gross
+   PUBLIC :: a_trc_transp, a_trc_transp_src, a_water_transp
+   PUBLIC :: a_trc_soilevap, a_water_soilevap
+   PUBLIC :: a_trc_canopyevap, a_water_canopyevap
+   PUBLIC :: a_trc_subl, a_water_subl, a_trc_wetland_evap, a_water_wetland_evap
+   PUBLIC :: a_trc_rsur, a_trc_rsub, a_trc_rnof, a_trc_qinfl, a_trc_qcharge
+   PUBLIC :: a_trc_ldew_mass, a_water_ldew
+   PUBLIC :: a_trc_soil_mass, a_water_soil, a_trc_snow_mass, a_water_snow
+   PUBLIC :: a_trc_wa_mass, a_water_wa, a_trc_wa_debt_mass, a_water_wa_debt
+   PUBLIC :: a_trc_wdsrf_mass, a_water_wdsrf
+   PUBLIC :: a_trc_wetwat_mass, a_water_wetwat
+   PUBLIC :: a_trc_surface_residue_mass, a_trc_subsurface_residue_mass
+   PUBLIC :: a_trc_layer_dry_mass, a_trc_solid_mass, a_trc_scv_mass, a_water_scv
 
 CONTAINS
 
@@ -167,6 +225,13 @@ CONTAINS
       allocate(trc_wa          (ntracers, numpatch));           trc_wa          = 0._r8
       allocate(trc_wdsrf       (ntracers, numpatch));           trc_wdsrf       = 0._r8
       allocate(trc_wetwat      (ntracers, numpatch));           trc_wetwat      = 0._r8
+      allocate(trc_surface_residue(ntracers, numpatch));        trc_surface_residue = 0._r8
+      allocate(trc_subsurface_residue(ntracers, numpatch));     trc_subsurface_residue = 0._r8
+      allocate(trc_solid_soisno(ntracers, maxsnl+1:nl_soil, numpatch)); trc_solid_soisno = 0._r8
+      allocate(trc_canopy_solid(ntracers, numpatch));          trc_canopy_solid = 0._r8
+      allocate(trc_surface_solid(ntracers, numpatch));          trc_surface_solid = 0._r8
+      allocate(trc_subsurface_solid(ntracers, numpatch));       trc_subsurface_solid = 0._r8
+      allocate(trc_waterstorage_solid(ntracers, numpatch));     trc_waterstorage_solid = 0._r8
       allocate(trc_scv         (ntracers, numpatch));           trc_scv         = 0._r8
       allocate(trc_waterstorage(ntracers, numpatch));           trc_waterstorage = 0._r8
       allocate(trc_pg_rain_ground(ntracers, numpatch));      trc_pg_rain_ground = 0._r8
@@ -185,46 +250,50 @@ CONTAINS
          trc_leaf_delta_b(itrc, :) = tracers(itrc)%init_delta
       ENDDO
 
-      allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
-      allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
-      allocate(a_water_evap_gross(ntracers, numpatch));         a_water_evap_gross = 0._r8
-      allocate(a_trc_transp    (ntracers, numpatch));           a_trc_transp    = 0._r8
-      allocate(a_trc_transp_src(ntracers, numpatch));           a_trc_transp_src = 0._r8
-      allocate(a_water_transp  (ntracers, numpatch));           a_water_transp  = 0._r8
-      allocate(a_trc_soilevap  (ntracers, numpatch));           a_trc_soilevap  = 0._r8
-      allocate(a_water_soilevap(ntracers, numpatch));           a_water_soilevap = 0._r8
-      allocate(a_trc_canopyevap(ntracers, numpatch));           a_trc_canopyevap = 0._r8
-      allocate(a_water_canopyevap(ntracers, numpatch));         a_water_canopyevap = 0._r8
-      allocate(a_trc_subl      (ntracers, numpatch));           a_trc_subl      = 0._r8
-      allocate(a_water_subl    (ntracers, numpatch));           a_water_subl    = 0._r8
-      allocate(a_trc_wetland_evap(ntracers, numpatch));         a_trc_wetland_evap = 0._r8
-      allocate(a_water_wetland_evap(ntracers, numpatch));       a_water_wetland_evap = 0._r8
+	      allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
+		      allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
+		      allocate(a_water_evap_gross(ntracers, numpatch));         a_water_evap_gross = 0._r8
+		      allocate(a_trc_transp    (ntracers, numpatch));           a_trc_transp    = 0._r8
+		      allocate(a_trc_transp_src(ntracers, numpatch));           a_trc_transp_src = 0._r8
+		      allocate(a_water_transp  (ntracers, numpatch));           a_water_transp  = 0._r8
+		      allocate(a_trc_soilevap  (ntracers, numpatch));           a_trc_soilevap  = 0._r8
+		      allocate(a_water_soilevap(ntracers, numpatch));           a_water_soilevap = 0._r8
+		      allocate(a_trc_canopyevap(ntracers, numpatch));           a_trc_canopyevap = 0._r8
+		      allocate(a_water_canopyevap(ntracers, numpatch));         a_water_canopyevap = 0._r8
+		      allocate(a_trc_subl      (ntracers, numpatch));           a_trc_subl      = 0._r8
+		      allocate(a_water_subl    (ntracers, numpatch));           a_water_subl    = 0._r8
+		      allocate(a_trc_wetland_evap(ntracers, numpatch));         a_trc_wetland_evap = 0._r8
+		      allocate(a_water_wetland_evap(ntracers, numpatch));       a_water_wetland_evap = 0._r8
       allocate(a_trc_rsur      (ntracers, numpatch));           a_trc_rsur      = 0._r8
       allocate(a_trc_rsub      (ntracers, numpatch));           a_trc_rsub      = 0._r8
       allocate(a_trc_rnof      (ntracers, numpatch));           a_trc_rnof      = 0._r8
       allocate(a_trc_qinfl     (ntracers, numpatch));           a_trc_qinfl     = 0._r8
       allocate(a_trc_qcharge   (ntracers, numpatch));           a_trc_qcharge   = 0._r8
 
-      allocate(trc_storage_beg (ntracers, numpatch));           trc_storage_beg = 0._r8
-      allocate(trc_balance_err (ntracers, numpatch));           trc_balance_err = 0._r8
-      allocate(trc_reactive_source_step(ntracers, numpatch));   trc_reactive_source_step = 0._r8
-      allocate(trc_numerical_residual_step(ntracers, numpatch)); trc_numerical_residual_step = 0._r8
+	      allocate(trc_storage_beg (ntracers, numpatch));           trc_storage_beg = 0._r8
+	      allocate(trc_balance_err (ntracers, numpatch));           trc_balance_err = 0._r8
+	      allocate(trc_reactive_source_step(ntracers, numpatch));   trc_reactive_source_step = 0._r8
+	      allocate(trc_numerical_residual_step(ntracers, numpatch)); trc_numerical_residual_step = 0._r8
 
-      allocate(a_trc_ldew_mass (ntracers, numpatch));           a_trc_ldew_mass = 0._r8
+	      allocate(a_trc_ldew_mass (ntracers, numpatch));           a_trc_ldew_mass = 0._r8
       allocate(a_water_ldew    (numpatch));                     a_water_ldew    = 0._r8
       allocate(a_trc_soil_mass (ntracers, nl_soil, numpatch));  a_trc_soil_mass = 0._r8
       allocate(a_water_soil    (nl_soil, numpatch));             a_water_soil    = 0._r8
       allocate(a_trc_snow_mass (ntracers, abs(maxsnl), numpatch)); a_trc_snow_mass = 0._r8
       allocate(a_water_snow    (abs(maxsnl), numpatch));            a_water_snow    = 0._r8
 
-      allocate(a_trc_wa_mass    (ntracers, numpatch));          a_trc_wa_mass     = 0._r8
-      allocate(a_water_wa       (numpatch));                    a_water_wa        = 0._r8
-      allocate(a_trc_wa_debt_mass(ntracers, numpatch));         a_trc_wa_debt_mass = 0._r8
-      allocate(a_water_wa_debt   (numpatch));                   a_water_wa_debt    = 0._r8
+	      allocate(a_trc_wa_mass    (ntracers, numpatch));          a_trc_wa_mass     = 0._r8
+	      allocate(a_water_wa       (numpatch));                    a_water_wa        = 0._r8
+	      allocate(a_trc_wa_debt_mass(ntracers, numpatch));         a_trc_wa_debt_mass = 0._r8
+	      allocate(a_water_wa_debt   (numpatch));                   a_water_wa_debt    = 0._r8
       allocate(a_trc_wdsrf_mass (ntracers, numpatch));          a_trc_wdsrf_mass  = 0._r8
       allocate(a_water_wdsrf    (numpatch));                    a_water_wdsrf     = 0._r8
       allocate(a_trc_wetwat_mass(ntracers, numpatch));          a_trc_wetwat_mass = 0._r8
       allocate(a_water_wetwat   (numpatch));                    a_water_wetwat    = 0._r8
+      allocate(a_trc_surface_residue_mass(ntracers, numpatch)); a_trc_surface_residue_mass = 0._r8
+      allocate(a_trc_subsurface_residue_mass(ntracers, numpatch)); a_trc_subsurface_residue_mass = 0._r8
+      allocate(a_trc_layer_dry_mass(ntracers, numpatch));       a_trc_layer_dry_mass = 0._r8
+      allocate(a_trc_solid_mass(ntracers, numpatch));           a_trc_solid_mass = 0._r8
       allocate(a_trc_scv_mass   (ntracers, numpatch));          a_trc_scv_mass    = 0._r8
       allocate(a_water_scv      (numpatch));                    a_water_scv       = 0._r8
    END SUBROUTINE allocate_Tracer_Vars
@@ -238,6 +307,13 @@ CONTAINS
       IF (allocated(trc_wa         )) deallocate(trc_wa         )
       IF (allocated(trc_wdsrf      )) deallocate(trc_wdsrf      )
       IF (allocated(trc_wetwat     )) deallocate(trc_wetwat     )
+      IF (allocated(trc_surface_residue)) deallocate(trc_surface_residue)
+      IF (allocated(trc_subsurface_residue)) deallocate(trc_subsurface_residue)
+      IF (allocated(trc_solid_soisno)) deallocate(trc_solid_soisno)
+      IF (allocated(trc_canopy_solid)) deallocate(trc_canopy_solid)
+      IF (allocated(trc_surface_solid)) deallocate(trc_surface_solid)
+      IF (allocated(trc_subsurface_solid)) deallocate(trc_subsurface_solid)
+      IF (allocated(trc_waterstorage_solid)) deallocate(trc_waterstorage_solid)
       IF (allocated(trc_scv        )) deallocate(trc_scv        )
       IF (allocated(trc_waterstorage)) deallocate(trc_waterstorage)
       IF (allocated(trc_pg_rain_ground)) deallocate(trc_pg_rain_ground)
@@ -250,43 +326,47 @@ CONTAINS
       IF (allocated(trc_leaf_water_moles)) deallocate(trc_leaf_water_moles)
       IF (allocated(trc_leaf_iso_storage)) deallocate(trc_leaf_iso_storage)
       IF (allocated(trc_runtime_forced)) deallocate(trc_runtime_forced)
-      IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
-      IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
-      IF (allocated(a_water_evap_gross)) deallocate(a_water_evap_gross)
-      IF (allocated(a_trc_transp   )) deallocate(a_trc_transp   )
-      IF (allocated(a_trc_transp_src)) deallocate(a_trc_transp_src)
-      IF (allocated(a_water_transp )) deallocate(a_water_transp )
-      IF (allocated(a_trc_soilevap )) deallocate(a_trc_soilevap )
-      IF (allocated(a_water_soilevap)) deallocate(a_water_soilevap)
-      IF (allocated(a_trc_canopyevap)) deallocate(a_trc_canopyevap)
-      IF (allocated(a_water_canopyevap)) deallocate(a_water_canopyevap)
-      IF (allocated(a_trc_subl     )) deallocate(a_trc_subl     )
-      IF (allocated(a_water_subl   )) deallocate(a_water_subl   )
-      IF (allocated(a_trc_wetland_evap)) deallocate(a_trc_wetland_evap)
-      IF (allocated(a_water_wetland_evap)) deallocate(a_water_wetland_evap)
+		      IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
+		      IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
+		      IF (allocated(a_water_evap_gross)) deallocate(a_water_evap_gross)
+		      IF (allocated(a_trc_transp   )) deallocate(a_trc_transp   )
+		      IF (allocated(a_trc_transp_src)) deallocate(a_trc_transp_src)
+		      IF (allocated(a_water_transp )) deallocate(a_water_transp )
+		      IF (allocated(a_trc_soilevap )) deallocate(a_trc_soilevap )
+		      IF (allocated(a_water_soilevap)) deallocate(a_water_soilevap)
+		      IF (allocated(a_trc_canopyevap)) deallocate(a_trc_canopyevap)
+		      IF (allocated(a_water_canopyevap)) deallocate(a_water_canopyevap)
+		      IF (allocated(a_trc_subl     )) deallocate(a_trc_subl     )
+		      IF (allocated(a_water_subl   )) deallocate(a_water_subl   )
+		      IF (allocated(a_trc_wetland_evap)) deallocate(a_trc_wetland_evap)
+		      IF (allocated(a_water_wetland_evap)) deallocate(a_water_wetland_evap)
       IF (allocated(a_trc_rsur     )) deallocate(a_trc_rsur     )
       IF (allocated(a_trc_rsub     )) deallocate(a_trc_rsub     )
       IF (allocated(a_trc_rnof     )) deallocate(a_trc_rnof     )
       IF (allocated(a_trc_qinfl    )) deallocate(a_trc_qinfl    )
       IF (allocated(a_trc_qcharge  )) deallocate(a_trc_qcharge  )
-      IF (allocated(trc_storage_beg)) deallocate(trc_storage_beg)
-      IF (allocated(trc_balance_err)) deallocate(trc_balance_err)
-      IF (allocated(trc_reactive_source_step)) deallocate(trc_reactive_source_step)
-      IF (allocated(trc_numerical_residual_step)) deallocate(trc_numerical_residual_step)
-      IF (allocated(a_trc_ldew_mass)) deallocate(a_trc_ldew_mass)
+	      IF (allocated(trc_storage_beg)) deallocate(trc_storage_beg)
+	      IF (allocated(trc_balance_err)) deallocate(trc_balance_err)
+	      IF (allocated(trc_reactive_source_step)) deallocate(trc_reactive_source_step)
+	      IF (allocated(trc_numerical_residual_step)) deallocate(trc_numerical_residual_step)
+	      IF (allocated(a_trc_ldew_mass)) deallocate(a_trc_ldew_mass)
       IF (allocated(a_water_ldew   )) deallocate(a_water_ldew   )
       IF (allocated(a_trc_soil_mass)) deallocate(a_trc_soil_mass)
       IF (allocated(a_water_soil   )) deallocate(a_water_soil   )
       IF (allocated(a_trc_snow_mass)) deallocate(a_trc_snow_mass)
       IF (allocated(a_water_snow   )) deallocate(a_water_snow   )
-      IF (allocated(a_trc_wa_mass    )) deallocate(a_trc_wa_mass    )
-      IF (allocated(a_water_wa       )) deallocate(a_water_wa       )
-      IF (allocated(a_trc_wa_debt_mass)) deallocate(a_trc_wa_debt_mass)
-      IF (allocated(a_water_wa_debt   )) deallocate(a_water_wa_debt   )
+	      IF (allocated(a_trc_wa_mass    )) deallocate(a_trc_wa_mass    )
+	      IF (allocated(a_water_wa       )) deallocate(a_water_wa       )
+	      IF (allocated(a_trc_wa_debt_mass)) deallocate(a_trc_wa_debt_mass)
+	      IF (allocated(a_water_wa_debt   )) deallocate(a_water_wa_debt   )
       IF (allocated(a_trc_wdsrf_mass )) deallocate(a_trc_wdsrf_mass )
       IF (allocated(a_water_wdsrf    )) deallocate(a_water_wdsrf    )
       IF (allocated(a_trc_wetwat_mass)) deallocate(a_trc_wetwat_mass)
       IF (allocated(a_water_wetwat   )) deallocate(a_water_wetwat   )
+      IF (allocated(a_trc_surface_residue_mass)) deallocate(a_trc_surface_residue_mass)
+      IF (allocated(a_trc_subsurface_residue_mass)) deallocate(a_trc_subsurface_residue_mass)
+      IF (allocated(a_trc_layer_dry_mass)) deallocate(a_trc_layer_dry_mass)
+      IF (allocated(a_trc_solid_mass)) deallocate(a_trc_solid_mass)
       IF (allocated(a_trc_scv_mass   )) deallocate(a_trc_scv_mass   )
       IF (allocated(a_water_scv      )) deallocate(a_water_scv      )
    END SUBROUTINE deallocate_Tracer_Vars
@@ -317,6 +397,21 @@ CONTAINS
       lulcc_trc_wdsrf_old = trc_wdsrf
       allocate(lulcc_trc_wetwat_old(size(trc_wetwat,1), size(trc_wetwat,2)))
       lulcc_trc_wetwat_old = trc_wetwat
+      allocate(lulcc_trc_surface_residue_old(size(trc_surface_residue,1), size(trc_surface_residue,2)))
+      lulcc_trc_surface_residue_old = trc_surface_residue
+      allocate(lulcc_trc_subsurface_residue_old(size(trc_subsurface_residue,1), size(trc_subsurface_residue,2)))
+      lulcc_trc_subsurface_residue_old = trc_subsurface_residue
+      allocate(lulcc_trc_solid_soisno_old(size(trc_solid_soisno,1), &
+         lbound(trc_solid_soisno,2):ubound(trc_solid_soisno,2), size(trc_solid_soisno,3)))
+      lulcc_trc_solid_soisno_old = trc_solid_soisno
+      allocate(lulcc_trc_canopy_solid_old(size(trc_canopy_solid,1), size(trc_canopy_solid,2)))
+      lulcc_trc_canopy_solid_old = trc_canopy_solid
+      allocate(lulcc_trc_surface_solid_old(size(trc_surface_solid,1), size(trc_surface_solid,2)))
+      lulcc_trc_surface_solid_old = trc_surface_solid
+      allocate(lulcc_trc_subsurface_solid_old(size(trc_subsurface_solid,1), size(trc_subsurface_solid,2)))
+      lulcc_trc_subsurface_solid_old = trc_subsurface_solid
+      allocate(lulcc_trc_waterstorage_solid_old(size(trc_waterstorage_solid,1), size(trc_waterstorage_solid,2)))
+      lulcc_trc_waterstorage_solid_old = trc_waterstorage_solid
       allocate(lulcc_trc_waterstorage_old(size(trc_waterstorage,1), size(trc_waterstorage,2)))
       lulcc_trc_waterstorage_old = trc_waterstorage
       allocate(lulcc_trc_scv_old(size(trc_scv,1), size(trc_scv,2)))
@@ -336,7 +431,7 @@ CONTAINS
    END SUBROUTINE save_land_tracer_lulcc_state
 
    SUBROUTINE remap_land_tracer_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-      lccpct_patches, new_patch_area, old_patch_area)
+                                             lccpct_patches, new_patch_area, old_patch_area)
       IMPLICIT NONE
       integer,   intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
@@ -389,6 +484,13 @@ CONTAINS
       CALL remap2d_mass(lulcc_trc_wa_old,                trc_wa)
       CALL remap2d_mass(lulcc_trc_wdsrf_old,             trc_wdsrf)
       CALL remap2d_mass(lulcc_trc_wetwat_old,            trc_wetwat)
+      CALL remap2d_mass(lulcc_trc_surface_residue_old,    trc_surface_residue)
+      CALL remap2d_mass(lulcc_trc_subsurface_residue_old, trc_subsurface_residue)
+      CALL remap3d_mass(lulcc_trc_solid_soisno_old,       trc_solid_soisno)
+      CALL remap2d_mass(lulcc_trc_canopy_solid_old,       trc_canopy_solid)
+      CALL remap2d_mass(lulcc_trc_surface_solid_old,      trc_surface_solid)
+      CALL remap2d_mass(lulcc_trc_subsurface_solid_old,   trc_subsurface_solid)
+      CALL remap2d_mass(lulcc_trc_waterstorage_solid_old, trc_waterstorage_solid)
       CALL remap2d_mass(lulcc_trc_waterstorage_old,      trc_waterstorage)
       CALL remap2d_mass(lulcc_trc_scv_old,               trc_scv)
       CALL remap2d_intensive(lulcc_trc_leaf_delta_e_old,      trc_leaf_delta_e)
@@ -418,6 +520,20 @@ CONTAINS
          IF (allocated(lulcc_trc_wa_old))           CALL accumulate_lulcc_mass_2d(lulcc_trc_wa_old, area, total)
          IF (allocated(lulcc_trc_wdsrf_old))        CALL accumulate_lulcc_mass_2d(lulcc_trc_wdsrf_old, area, total)
          IF (allocated(lulcc_trc_wetwat_old))       CALL accumulate_lulcc_mass_2d(lulcc_trc_wetwat_old, area, total)
+         IF (allocated(lulcc_trc_surface_residue_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_surface_residue_old, area, total)
+         IF (allocated(lulcc_trc_subsurface_residue_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_subsurface_residue_old, area, total)
+         IF (allocated(lulcc_trc_solid_soisno_old)) &
+            CALL accumulate_lulcc_mass_3d(lulcc_trc_solid_soisno_old, area, total)
+         IF (allocated(lulcc_trc_canopy_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_canopy_solid_old, area, total)
+         IF (allocated(lulcc_trc_surface_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_surface_solid_old, area, total)
+         IF (allocated(lulcc_trc_subsurface_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_subsurface_solid_old, area, total)
+         IF (allocated(lulcc_trc_waterstorage_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_solid_old, area, total)
          IF (allocated(lulcc_trc_waterstorage_old)) CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_old, area, total)
          IF (allocated(lulcc_trc_scv_old))          CALL accumulate_lulcc_mass_2d(lulcc_trc_scv_old, area, total)
       END SUBROUTINE compute_lulcc_snapshot_land_water_mass
@@ -434,6 +550,13 @@ CONTAINS
          IF (allocated(trc_wa))           CALL accumulate_lulcc_mass_2d(trc_wa, area, total)
          IF (allocated(trc_wdsrf))        CALL accumulate_lulcc_mass_2d(trc_wdsrf, area, total)
          IF (allocated(trc_wetwat))       CALL accumulate_lulcc_mass_2d(trc_wetwat, area, total)
+         IF (allocated(trc_surface_residue)) CALL accumulate_lulcc_mass_2d(trc_surface_residue, area, total)
+         IF (allocated(trc_subsurface_residue)) CALL accumulate_lulcc_mass_2d(trc_subsurface_residue, area, total)
+         IF (allocated(trc_solid_soisno)) CALL accumulate_lulcc_mass_3d(trc_solid_soisno, area, total)
+         IF (allocated(trc_canopy_solid)) CALL accumulate_lulcc_mass_2d(trc_canopy_solid, area, total)
+         IF (allocated(trc_surface_solid)) CALL accumulate_lulcc_mass_2d(trc_surface_solid, area, total)
+         IF (allocated(trc_subsurface_solid)) CALL accumulate_lulcc_mass_2d(trc_subsurface_solid, area, total)
+         IF (allocated(trc_waterstorage_solid)) CALL accumulate_lulcc_mass_2d(trc_waterstorage_solid, area, total)
          IF (allocated(trc_waterstorage)) CALL accumulate_lulcc_mass_2d(trc_waterstorage, area, total)
          IF (allocated(trc_scv))          CALL accumulate_lulcc_mass_2d(trc_scv, area, total)
       END SUBROUTINE compute_current_lulcc_land_water_mass
@@ -498,7 +621,7 @@ CONTAINS
             IF (abs_err > tol) nbad = nbad + 1
          ENDDO
 
-         IF (nbad > lulcc_mass_abort_nbad) THEN
+         IF (nbad > DEF_TRACER_LULCC_ABORT_NBAD) THEN
             IF (p_is_io) THEN
                WRITE(*,'(A,I0,A,E12.5,A,E12.5)') &
                   'TRC_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
@@ -531,7 +654,7 @@ CONTAINS
                DO op = 1, min(size(old,2), size(patchclass_old), size(eindex_old))
                   IF (eindex_old(op) /= eindex_new(np)) CYCLE
                   IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                     patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
                   IF (conserve_area_mass) THEN
                      w = lulcc_mass_transfer_area(np, op)
                   ELSE
@@ -576,7 +699,7 @@ CONTAINS
                DO op = 1, min(size(old,3), size(patchclass_old), size(eindex_old))
                   IF (eindex_old(op) /= eindex_new(np)) CYCLE
                   IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                     patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
                   IF (conserve_area_mass) THEN
                      w = lulcc_mass_transfer_area(np, op)
                   ELSE
@@ -618,7 +741,7 @@ CONTAINS
                DO op = 1, min(size(old,2), size(patchclass_old), size(eindex_old))
                   IF (eindex_old(op) /= eindex_new(np)) CYCLE
                   IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                     patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
                   w = lulcc_source_area_weight(np, op)
                   IF (w <= 0._r8) CYCLE
                   new(1:n1,np) = new(1:n1,np) + w * old(1:n1,op)
@@ -645,7 +768,7 @@ CONTAINS
          src = 0
          DO op = 1, min(old_n, size(patchclass_old), size(eindex_old))
             IF (eindex_old(op) == eindex_new(np) .and. &
-               patchclass_old(op) == patchclass_new(np)) THEN
+                patchclass_old(op) == patchclass_new(np)) THEN
                src = op
                RETURN
             ENDIF
@@ -664,7 +787,7 @@ CONTAINS
          IF (.not. present(lccpct_patches)) RETURN
          IF (np > size(lccpct_patches,1)) RETURN
          IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-            patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
+             patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
          w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
          IF (w <= 0._r8) RETURN
          IF (.not. present(old_patch_area)) RETURN
@@ -673,7 +796,7 @@ CONTAINS
          class_area = 0._r8
          DO oq = 1, min(size(patchclass_old), size(eindex_old), size(old_patch_area))
             IF (eindex_old(oq) == eindex_new(np) .and. &
-               patchclass_old(oq) == patchclass_old(op)) THEN
+                patchclass_old(oq) == patchclass_old(op)) THEN
                class_area = class_area + max(0._r8, old_patch_area(oq))
             ENDIF
          ENDDO
@@ -786,6 +909,13 @@ CONTAINS
       IF (allocated(lulcc_trc_wa_old)) deallocate(lulcc_trc_wa_old)
       IF (allocated(lulcc_trc_wdsrf_old)) deallocate(lulcc_trc_wdsrf_old)
       IF (allocated(lulcc_trc_wetwat_old)) deallocate(lulcc_trc_wetwat_old)
+      IF (allocated(lulcc_trc_surface_residue_old)) deallocate(lulcc_trc_surface_residue_old)
+      IF (allocated(lulcc_trc_subsurface_residue_old)) deallocate(lulcc_trc_subsurface_residue_old)
+      IF (allocated(lulcc_trc_solid_soisno_old)) deallocate(lulcc_trc_solid_soisno_old)
+      IF (allocated(lulcc_trc_canopy_solid_old)) deallocate(lulcc_trc_canopy_solid_old)
+      IF (allocated(lulcc_trc_surface_solid_old)) deallocate(lulcc_trc_surface_solid_old)
+      IF (allocated(lulcc_trc_subsurface_solid_old)) deallocate(lulcc_trc_subsurface_solid_old)
+      IF (allocated(lulcc_trc_waterstorage_solid_old)) deallocate(lulcc_trc_waterstorage_solid_old)
       IF (allocated(lulcc_trc_waterstorage_old)) deallocate(lulcc_trc_waterstorage_old)
       IF (allocated(lulcc_trc_scv_old)) deallocate(lulcc_trc_scv_old)
       IF (allocated(lulcc_trc_leaf_delta_e_old)) deallocate(lulcc_trc_leaf_delta_e_old)
@@ -798,20 +928,20 @@ CONTAINS
 
    SUBROUTINE flush_Tracer_Acc ()
       IMPLICIT NONE
-      IF (allocated(a_trc_precip )) a_trc_precip  = 0._r8
-      IF (allocated(a_trc_evap   )) a_trc_evap    = 0._r8
-      IF (allocated(a_water_evap_gross)) a_water_evap_gross = 0._r8
-      IF (allocated(a_trc_transp )) a_trc_transp  = 0._r8
-      IF (allocated(a_trc_transp_src)) a_trc_transp_src = 0._r8
-      IF (allocated(a_water_transp)) a_water_transp = 0._r8
-      IF (allocated(a_trc_soilevap)) a_trc_soilevap = 0._r8
-      IF (allocated(a_water_soilevap)) a_water_soilevap = 0._r8
-      IF (allocated(a_trc_canopyevap)) a_trc_canopyevap = 0._r8
-      IF (allocated(a_water_canopyevap)) a_water_canopyevap = 0._r8
-      IF (allocated(a_trc_subl    )) a_trc_subl = 0._r8
-      IF (allocated(a_water_subl  )) a_water_subl = 0._r8
-      IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap = 0._r8
-      IF (allocated(a_water_wetland_evap)) a_water_wetland_evap = 0._r8
+	      IF (allocated(a_trc_precip )) a_trc_precip  = 0._r8
+		      IF (allocated(a_trc_evap   )) a_trc_evap    = 0._r8
+		      IF (allocated(a_water_evap_gross)) a_water_evap_gross = 0._r8
+		      IF (allocated(a_trc_transp )) a_trc_transp  = 0._r8
+		      IF (allocated(a_trc_transp_src)) a_trc_transp_src = 0._r8
+		      IF (allocated(a_water_transp)) a_water_transp = 0._r8
+		      IF (allocated(a_trc_soilevap)) a_trc_soilevap = 0._r8
+		      IF (allocated(a_water_soilevap)) a_water_soilevap = 0._r8
+		      IF (allocated(a_trc_canopyevap)) a_trc_canopyevap = 0._r8
+		      IF (allocated(a_water_canopyevap)) a_water_canopyevap = 0._r8
+		      IF (allocated(a_trc_subl    )) a_trc_subl = 0._r8
+		      IF (allocated(a_water_subl  )) a_water_subl = 0._r8
+		      IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap = 0._r8
+		      IF (allocated(a_water_wetland_evap)) a_water_wetland_evap = 0._r8
       IF (allocated(a_trc_rsur   )) a_trc_rsur    = 0._r8
       IF (allocated(a_trc_rsub   )) a_trc_rsub    = 0._r8
       IF (allocated(a_trc_rnof   )) a_trc_rnof    = 0._r8
@@ -823,23 +953,27 @@ CONTAINS
       IF (allocated(a_water_soil   )) a_water_soil    = 0._r8
       IF (allocated(a_trc_snow_mass)) a_trc_snow_mass = 0._r8
       IF (allocated(a_water_snow   )) a_water_snow    = 0._r8
-      IF (allocated(a_trc_wa_mass    )) a_trc_wa_mass     = 0._r8
-      IF (allocated(a_water_wa       )) a_water_wa        = 0._r8
-      IF (allocated(a_trc_wa_debt_mass)) a_trc_wa_debt_mass = 0._r8
-      IF (allocated(a_water_wa_debt   )) a_water_wa_debt    = 0._r8
+	      IF (allocated(a_trc_wa_mass    )) a_trc_wa_mass     = 0._r8
+	      IF (allocated(a_water_wa       )) a_water_wa        = 0._r8
+	      IF (allocated(a_trc_wa_debt_mass)) a_trc_wa_debt_mass = 0._r8
+	      IF (allocated(a_water_wa_debt   )) a_water_wa_debt    = 0._r8
       IF (allocated(a_trc_wdsrf_mass )) a_trc_wdsrf_mass  = 0._r8
       IF (allocated(a_water_wdsrf    )) a_water_wdsrf     = 0._r8
       IF (allocated(a_trc_wetwat_mass)) a_trc_wetwat_mass = 0._r8
+      IF (allocated(a_trc_surface_residue_mass)) a_trc_surface_residue_mass = 0._r8
+      IF (allocated(a_trc_subsurface_residue_mass)) a_trc_subsurface_residue_mass = 0._r8
+      IF (allocated(a_trc_layer_dry_mass)) a_trc_layer_dry_mass = 0._r8
+      IF (allocated(a_trc_solid_mass)) a_trc_solid_mass = 0._r8
       IF (allocated(a_water_wetwat   )) a_water_wetwat    = 0._r8
       IF (allocated(a_trc_scv_mass   )) a_trc_scv_mass    = 0._r8
       IF (allocated(a_water_scv      )) a_water_scv       = 0._r8
       IF (allocated(trc_pg_rain_ground)) trc_pg_rain_ground = 0._r8
       IF (allocated(trc_pg_snow_ground)) trc_pg_snow_ground = 0._r8
       IF (allocated(trc_rnof_step    )) trc_rnof_step     = 0._r8
-      IF (allocated(trc_sm_carry     )) trc_sm_carry      = 0._r8
-      IF (allocated(trc_reactive_source_step)) trc_reactive_source_step = 0._r8
-      IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step = 0._r8
-   END SUBROUTINE flush_Tracer_Acc
+	      IF (allocated(trc_sm_carry     )) trc_sm_carry      = 0._r8
+	      IF (allocated(trc_reactive_source_step)) trc_reactive_source_step = 0._r8
+	      IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step = 0._r8
+	   END SUBROUTINE flush_Tracer_Acc
 
    SUBROUTINE zero_particle_land_tracer_state ()
       IMPLICIT NONE
@@ -857,6 +991,13 @@ CONTAINS
          IF (allocated(trc_wa         )) trc_wa         (itrc, :)    = 0._r8
          IF (allocated(trc_wdsrf      )) trc_wdsrf      (itrc, :)    = 0._r8
          IF (allocated(trc_wetwat     )) trc_wetwat     (itrc, :)    = 0._r8
+         IF (allocated(trc_surface_residue)) trc_surface_residue(itrc, :) = 0._r8
+         IF (allocated(trc_subsurface_residue)) trc_subsurface_residue(itrc, :) = 0._r8
+         IF (allocated(trc_solid_soisno)) trc_solid_soisno(itrc, :, :) = 0._r8
+         IF (allocated(trc_canopy_solid)) trc_canopy_solid(itrc, :) = 0._r8
+         IF (allocated(trc_surface_solid)) trc_surface_solid(itrc, :) = 0._r8
+         IF (allocated(trc_subsurface_solid)) trc_subsurface_solid(itrc, :) = 0._r8
+         IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid(itrc, :) = 0._r8
          IF (allocated(trc_scv        )) trc_scv        (itrc, :)    = 0._r8
          IF (allocated(trc_waterstorage)) trc_waterstorage(itrc, :)  = 0._r8
          IF (allocated(trc_pg_rain_ground)) trc_pg_rain_ground(itrc, :) = 0._r8
@@ -899,172 +1040,60 @@ CONTAINS
          IF (allocated(a_trc_wa_debt_mass)) a_trc_wa_debt_mass(itrc, :) = 0._r8
          IF (allocated(a_trc_wdsrf_mass )) a_trc_wdsrf_mass (itrc, :) = 0._r8
          IF (allocated(a_trc_wetwat_mass)) a_trc_wetwat_mass(itrc, :) = 0._r8
+         IF (allocated(a_trc_surface_residue_mass)) a_trc_surface_residue_mass(itrc, :) = 0._r8
+         IF (allocated(a_trc_subsurface_residue_mass)) a_trc_subsurface_residue_mass(itrc, :) = 0._r8
+         IF (allocated(a_trc_layer_dry_mass)) a_trc_layer_dry_mass(itrc, :) = 0._r8
+         IF (allocated(a_trc_solid_mass)) a_trc_solid_mass(itrc, :) = 0._r8
          IF (allocated(a_trc_scv_mass   )) a_trc_scv_mass   (itrc, :) = 0._r8
       ENDDO
    END SUBROUTINE zero_particle_land_tracer_state
 
-   SUBROUTINE tracer_book_evap_loss (itrc, ipatch, tracer_mass, water_mass, evap_kind)
-      IMPLICIT NONE
-      integer,  intent(in) :: itrc, ipatch
-      real(r8), intent(in) :: tracer_mass, water_mass
-      integer,  intent(in), optional :: evap_kind
-      integer :: kind
+	   SUBROUTINE tracer_book_evap_loss (itrc, ipatch, tracer_mass, water_mass, evap_kind)
+	      IMPLICIT NONE
+	      integer,  intent(in) :: itrc, ipatch
+	      real(r8), intent(in) :: tracer_mass, water_mass
+	      integer,  intent(in), optional :: evap_kind
+	      integer :: kind
 
-      IF (ntracers <= 0) RETURN
-      IF (.not. allocated(a_trc_evap)) RETURN
-      kind = TRC_EVAP_KIND_TOTAL
-      IF (present(evap_kind)) kind = evap_kind
+	      IF (ntracers <= 0) RETURN
+	      IF (.not. allocated(a_trc_evap)) RETURN
+	      kind = TRC_EVAP_KIND_TOTAL
+	      IF (present(evap_kind)) kind = evap_kind
 
-      a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + tracer_mass
-      IF (allocated(a_water_evap_gross)) THEN
-         a_water_evap_gross(itrc, ipatch) = a_water_evap_gross(itrc, ipatch) &
-            + max(water_mass, 0._r8)
-      ENDIF
+	      a_trc_evap(itrc, ipatch) = a_trc_evap(itrc, ipatch) + tracer_mass
+	      IF (allocated(a_water_evap_gross)) THEN
+	         a_water_evap_gross(itrc, ipatch) = a_water_evap_gross(itrc, ipatch) &
+	            + max(water_mass, 0._r8)
+	      ENDIF
 
-      SELECT CASE (kind)
-       CASE (TRC_EVAP_KIND_TRANSP)
-         IF (allocated(a_trc_transp)) a_trc_transp(itrc, ipatch) = &
-            a_trc_transp(itrc, ipatch) + tracer_mass
-         IF (allocated(a_water_transp)) a_water_transp(itrc, ipatch) = &
-            a_water_transp(itrc, ipatch) + max(water_mass, 0._r8)
-       CASE (TRC_EVAP_KIND_SOILEVAP)
-         IF (allocated(a_trc_soilevap)) a_trc_soilevap(itrc, ipatch) = &
-            a_trc_soilevap(itrc, ipatch) + tracer_mass
-         IF (allocated(a_water_soilevap)) a_water_soilevap(itrc, ipatch) = &
-            a_water_soilevap(itrc, ipatch) + max(water_mass, 0._r8)
-       CASE (TRC_EVAP_KIND_CANOPYEVAP)
-         IF (allocated(a_trc_canopyevap)) a_trc_canopyevap(itrc, ipatch) = &
-            a_trc_canopyevap(itrc, ipatch) + tracer_mass
-         IF (allocated(a_water_canopyevap)) a_water_canopyevap(itrc, ipatch) = &
-            a_water_canopyevap(itrc, ipatch) + max(water_mass, 0._r8)
-       CASE (TRC_EVAP_KIND_SUBL)
-         IF (allocated(a_trc_subl)) a_trc_subl(itrc, ipatch) = &
-            a_trc_subl(itrc, ipatch) + tracer_mass
-         IF (allocated(a_water_subl)) a_water_subl(itrc, ipatch) = &
-            a_water_subl(itrc, ipatch) + max(water_mass, 0._r8)
-       CASE (TRC_EVAP_KIND_WETLAND)
-         IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap(itrc, ipatch) = &
-            a_trc_wetland_evap(itrc, ipatch) + tracer_mass
-         IF (allocated(a_water_wetland_evap)) a_water_wetland_evap(itrc, ipatch) = &
-            a_water_wetland_evap(itrc, ipatch) + max(water_mass, 0._r8)
-      END SELECT
-   END SUBROUTINE tracer_book_evap_loss
-
-   !---------------------------------------------------------------
-   ! Phase-1 re-synchronisation of a patch's prognostic tracer pools
-   ! to the current water state. Used by branches that do NOT run the
-   ! full tracer_precip / tracer_evapo / tracer_soil_water pipeline
-   ! (glacier, land-water-bodies, urban-model), where prognostic
-   ! pools would otherwise stay at their initial values while the
-   ! water pools evolve freely — yielding arbitrarily large
-   ! `trc / water` ratios (the `δ_wa ≈ +1039‰` class of artefact
-   ! observed in early runs).
-   !
-   ! Under Phase 1 (constant atmospheric R = R_init, no fractionation)
-   ! the pool ratio must be R_init at every step by mass balance, so
-   ! rebuilding trc_* = water_* * R_init is exact. Reactive tracers are
-   ! not fixed-signature: keep their current patch-mixed concentration
-   ! and then apply the water-state sync, otherwise reaction history is
-   ! erased on simplified branches.
-   !
-   ! Optional `ldew_rain` / `ldew_snow`: when present, rebuild the
-   ! canopy tracer from the provided values (urban patches have real
-   ! canopy state). Glacier / waterbody callers omit them and rely on
-   ! their caller-side "purge foreign pools" step to zero trc_ldew
-   ! before save_storage.
-   !
-   ! This routine intentionally does NOT touch trc_wetwat or
-   ! trc_waterstorage — those are class-specific and the caller is
-   ! responsible for either purging them (glacier/lake/urban) or
-   ! leaving them for the normal soil/wetland pipeline (soil-ground).
-   !
-   ! `snl < 0` means layered snow exists → keep trc_scv=0 (the snow
-   ! tracer lives in trc_wice/wliq of the snow layers); otherwise
-   ! trc_scv = scv * R_sync (pre-layer accumulation).
-   !---------------------------------------------------------------
-   SUBROUTINE sync_tracer_patch_phase1 (ipatch, snl, maxsnl, nl_soil, &
-      wliq_soisno, wice_soisno, wa, wdsrf, scv, &
-      ldew_rain, ldew_snow)
-      USE MOD_Tracer_Defs, only: tracer_init_water_ratio, tracer_can_use_fixed_signature, trc_tiny
-      USE MOD_Tracer_Frac, only: tracer_fractionation_active
-      IMPLICIT NONE
-      integer,  intent(in) :: ipatch, snl, maxsnl, nl_soil
-      real(r8), intent(in) :: wliq_soisno(maxsnl+1:nl_soil)
-      real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
-      real(r8), intent(in) :: wa, wdsrf, scv
-      real(r8), intent(in), optional :: ldew_rain, ldew_snow
-
-      integer  :: itrc, j
-      real(r8) :: R_init, R_sync, trc_sum, water_sum
-      logical  :: fixed_signature_sync
-
-      IF (ntracers <= 0) RETURN
-      IF (.not. allocated(trc_wliq_soisno)) RETURN
-
-      DO itrc = 1, ntracers
-         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-         R_init = tracer_init_water_ratio(itrc)
-         fixed_signature_sync = tracer_can_use_fixed_signature(itrc) .and. &
-            .not. tracer_fractionation_active(itrc)
-         IF (allocated(trc_runtime_forced)) THEN
-            fixed_signature_sync = fixed_signature_sync .and. .not. trc_runtime_forced(itrc)
-         ENDIF
-         R_sync = R_init
-         IF (.not. fixed_signature_sync) THEN
-            trc_sum = 0._r8
-            water_sum = 0._r8
-            IF (present(ldew_rain)) THEN
-               trc_sum = trc_sum + trc_ldew_rain(itrc, ipatch)
-               water_sum = water_sum + max(ldew_rain, 0._r8)
-            ENDIF
-            IF (present(ldew_snow)) THEN
-               trc_sum = trc_sum + trc_ldew_snow(itrc, ipatch)
-               water_sum = water_sum + max(ldew_snow, 0._r8)
-            ENDIF
-            DO j = maxsnl + 1, nl_soil
-               trc_sum = trc_sum + trc_wliq_soisno(itrc, j, ipatch) &
-                  + trc_wice_soisno(itrc, j, ipatch)
-               water_sum = water_sum + max(wliq_soisno(j), 0._r8) &
-                  + max(wice_soisno(j), 0._r8)
-            ENDDO
-            trc_sum = trc_sum + trc_wa(itrc, ipatch) + trc_wdsrf(itrc, ipatch)
-            water_sum = water_sum + wa + max(wdsrf, 0._r8)
-            IF (snl >= 0) THEN
-               trc_sum = trc_sum + trc_scv(itrc, ipatch)
-               water_sum = water_sum + max(scv, 0._r8)
-            ENDIF
-            IF (abs(water_sum) > trc_tiny) R_sync = trc_sum / water_sum
-         ENDIF
-
-         ! Canopy: rebuild when the caller supplies ldew state
-         ! (urban). Callers that omit these args are expected to
-         ! have explicitly zeroed trc_ldew_rain/snow before
-         ! save_storage (see glacier/lake blocks in CoLMMAIN.F90).
-         IF (present(ldew_rain)) THEN
-            trc_ldew_rain(itrc, ipatch) = max(ldew_rain, 0._r8) * R_sync
-         ENDIF
-         IF (present(ldew_snow)) THEN
-            trc_ldew_snow(itrc, ipatch) = max(ldew_snow, 0._r8) * R_sync
-         ENDIF
-
-         DO j = maxsnl + 1, nl_soil
-            trc_wliq_soisno(itrc, j, ipatch) = max(wliq_soisno(j), 0._r8) * R_sync
-            trc_wice_soisno(itrc, j, ipatch) = max(wice_soisno(j), 0._r8) * R_sync
-         ENDDO
-
-         ! wa carried signed to mirror a possible aquifer-debt state on
-         ! boundary patches (lake bed infiltration); wdsrf non-negative
-         ! by hydrology construction, so a max(.,0) guard suffices.
-         trc_wa   (itrc, ipatch) = wa * R_sync
-         trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * R_sync
-
-         IF (snl < 0) THEN
-            trc_scv(itrc, ipatch) = 0._r8
-         ELSE
-            trc_scv(itrc, ipatch) = max(scv, 0._r8) * R_sync
-         ENDIF
-      ENDDO
-   END SUBROUTINE sync_tracer_patch_phase1
+	      SELECT CASE (kind)
+	      CASE (TRC_EVAP_KIND_TRANSP)
+	         IF (allocated(a_trc_transp)) a_trc_transp(itrc, ipatch) = &
+	            a_trc_transp(itrc, ipatch) + tracer_mass
+	         IF (allocated(a_water_transp)) a_water_transp(itrc, ipatch) = &
+	            a_water_transp(itrc, ipatch) + max(water_mass, 0._r8)
+	      CASE (TRC_EVAP_KIND_SOILEVAP)
+	         IF (allocated(a_trc_soilevap)) a_trc_soilevap(itrc, ipatch) = &
+	            a_trc_soilevap(itrc, ipatch) + tracer_mass
+	         IF (allocated(a_water_soilevap)) a_water_soilevap(itrc, ipatch) = &
+	            a_water_soilevap(itrc, ipatch) + max(water_mass, 0._r8)
+	      CASE (TRC_EVAP_KIND_CANOPYEVAP)
+	         IF (allocated(a_trc_canopyevap)) a_trc_canopyevap(itrc, ipatch) = &
+	            a_trc_canopyevap(itrc, ipatch) + tracer_mass
+	         IF (allocated(a_water_canopyevap)) a_water_canopyevap(itrc, ipatch) = &
+	            a_water_canopyevap(itrc, ipatch) + max(water_mass, 0._r8)
+	      CASE (TRC_EVAP_KIND_SUBL)
+	         IF (allocated(a_trc_subl)) a_trc_subl(itrc, ipatch) = &
+	            a_trc_subl(itrc, ipatch) + tracer_mass
+	         IF (allocated(a_water_subl)) a_water_subl(itrc, ipatch) = &
+	            a_water_subl(itrc, ipatch) + max(water_mass, 0._r8)
+	      CASE (TRC_EVAP_KIND_WETLAND)
+	         IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap(itrc, ipatch) = &
+	            a_trc_wetland_evap(itrc, ipatch) + tracer_mass
+	         IF (allocated(a_water_wetland_evap)) a_water_wetland_evap(itrc, ipatch) = &
+	            a_water_wetland_evap(itrc, ipatch) + max(water_mass, 0._r8)
+	      END SELECT
+	   END SUBROUTINE tracer_book_evap_loss
 
    !---------------------------------------------------------------
    ! Rebuild one tracer's prognostic storage from a caller-owned
@@ -1098,6 +1127,8 @@ CONTAINS
          IF (j >= snl + 1) THEN
             trc_wliq_soisno(itrc, j, ipatch) = max(wliq_soisno(j), 0._r8) * R_mix
             trc_wice_soisno(itrc, j, ipatch) = max(wice_soisno(j), 0._r8) * R_mix
+            CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+               trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
          ELSE
             trc_wliq_soisno(itrc, j, ipatch) = 0._r8
             trc_wice_soisno(itrc, j, ipatch) = 0._r8
@@ -1106,6 +1137,10 @@ CONTAINS
 
       trc_wa   (itrc, ipatch) = wa * R_mix
       trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * R_mix
+      CALL tracer_equilibrate_dissolved(itrc, wa, trc_wa(itrc, ipatch), &
+         trc_subsurface_solid(itrc, ipatch))
+      CALL tracer_equilibrate_dissolved(itrc, max(wdsrf, 0._r8), &
+         trc_wdsrf(itrc, ipatch), trc_surface_solid(itrc, ipatch))
 
       IF (snl < 0) THEN
          trc_scv(itrc, ipatch) = 0._r8

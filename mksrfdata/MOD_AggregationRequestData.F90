@@ -63,11 +63,11 @@ CONTAINS
    type (block_data_int32_2d), intent(in), optional :: data_i4_2d_in2
 
    ! Local Variables
-   integer :: nreq, ireq, rmesg(2), isrc, idest
+   integer :: nreq, ireq, rmesg(2), isrc, idest, nfield_r8_2d, ifield
    integer :: xblk, yblk, xloc, yloc
    integer,  allocatable :: ylist(:), xlist(:)
 
-   real(r8), allocatable :: sbuf_r8_1d(:), sbuf_r8_2d(:,:)
+   real(r8), allocatable :: sbuf_r8_2d(:,:)
    integer , allocatable :: sbuf_i4_1d(:)
 
    logical,  allocatable :: worker_done (:)
@@ -97,94 +97,88 @@ CONTAINS
 
                idest = isrc
 
-               allocate (sbuf_r8_1d (nreq))
+               nfield_r8_2d = 0
+               IF (present(data_r8_2d_in1)) nfield_r8_2d = nfield_r8_2d + 1
+               IF (present(data_r8_2d_in2)) nfield_r8_2d = nfield_r8_2d + 1
+               IF (present(data_r8_2d_in3)) nfield_r8_2d = nfield_r8_2d + 1
+               IF (present(data_r8_2d_in4)) nfield_r8_2d = nfield_r8_2d + 1
+               IF (present(data_r8_2d_in5)) nfield_r8_2d = nfield_r8_2d + 1
+               IF (present(data_r8_2d_in6)) nfield_r8_2d = nfield_r8_2d + 1
 
-               IF (present(data_r8_2d_in1)) THEN
-                  DO ireq = 1, nreq
-                     xblk = grid_in%xblk(xlist(ireq))
-                     yblk = grid_in%yblk(ylist(ireq))
-                     xloc = grid_in%xloc(xlist(ireq))
-                     yloc = grid_in%yloc(ylist(ireq))
+               IF (nfield_r8_2d > 0) THEN
+                  allocate (sbuf_r8_2d (nreq,nfield_r8_2d))
+                  ifield = 0
 
-                     sbuf_r8_1d(ireq) = data_r8_2d_in1%blk(xblk,yblk)%val(xloc,yloc)
-                  ENDDO
+                  IF (present(data_r8_2d_in1)) THEN
+                     ifield = ifield + 1
+                     DO ireq = 1, nreq
+                        xblk = grid_in%xblk(xlist(ireq))
+                        yblk = grid_in%yblk(ylist(ireq))
+                        xloc = grid_in%xloc(xlist(ireq))
+                        yloc = grid_in%yloc(ylist(ireq))
+                        sbuf_r8_2d(ireq,ifield) = data_r8_2d_in1%blk(xblk,yblk)%val(xloc,yloc)
+                     ENDDO
+                  ENDIF
 
-                  CALL mpi_send (sbuf_r8_1d, nreq, MPI_REAL8, &
+                  IF (present(data_r8_2d_in2)) THEN
+                     ifield = ifield + 1
+                     DO ireq = 1, nreq
+                        xblk = grid_in%xblk(xlist(ireq))
+                        yblk = grid_in%yblk(ylist(ireq))
+                        xloc = grid_in%xloc(xlist(ireq))
+                        yloc = grid_in%yloc(ylist(ireq))
+                        sbuf_r8_2d(ireq,ifield) = data_r8_2d_in2%blk(xblk,yblk)%val(xloc,yloc)
+                     ENDDO
+                  ENDIF
+
+                  IF (present(data_r8_2d_in3)) THEN
+                     ifield = ifield + 1
+                     DO ireq = 1, nreq
+                        xblk = grid_in%xblk(xlist(ireq))
+                        yblk = grid_in%yblk(ylist(ireq))
+                        xloc = grid_in%xloc(xlist(ireq))
+                        yloc = grid_in%yloc(ylist(ireq))
+                        sbuf_r8_2d(ireq,ifield) = data_r8_2d_in3%blk(xblk,yblk)%val(xloc,yloc)
+                     ENDDO
+                  ENDIF
+
+                  IF (present(data_r8_2d_in4)) THEN
+                     ifield = ifield + 1
+                     DO ireq = 1, nreq
+                        xblk = grid_in%xblk(xlist(ireq))
+                        yblk = grid_in%yblk(ylist(ireq))
+                        xloc = grid_in%xloc(xlist(ireq))
+                        yloc = grid_in%yloc(ylist(ireq))
+                        sbuf_r8_2d(ireq,ifield) = data_r8_2d_in4%blk(xblk,yblk)%val(xloc,yloc)
+                     ENDDO
+                  ENDIF
+
+                  IF (present(data_r8_2d_in5)) THEN
+                     ifield = ifield + 1
+                     DO ireq = 1, nreq
+                        xblk = grid_in%xblk(xlist(ireq))
+                        yblk = grid_in%yblk(ylist(ireq))
+                        xloc = grid_in%xloc(xlist(ireq))
+                        yloc = grid_in%yloc(ylist(ireq))
+                        sbuf_r8_2d(ireq,ifield) = data_r8_2d_in5%blk(xblk,yblk)%val(xloc,yloc)
+                     ENDDO
+                  ENDIF
+
+                  IF (present(data_r8_2d_in6)) THEN
+                     ifield = ifield + 1
+                     DO ireq = 1, nreq
+                        xblk = grid_in%xblk(xlist(ireq))
+                        yblk = grid_in%yblk(ylist(ireq))
+                        xloc = grid_in%xloc(xlist(ireq))
+                        yloc = grid_in%yloc(ylist(ireq))
+                        sbuf_r8_2d(ireq,ifield) = data_r8_2d_in6%blk(xblk,yblk)%val(xloc,yloc)
+                     ENDDO
+                  ENDIF
+
+                  CALL mpi_send (sbuf_r8_2d, nreq*nfield_r8_2d, MPI_REAL8, &
                      idest, mpi_tag_data, p_comm_glb, p_err)
+                  deallocate (sbuf_r8_2d)
                ENDIF
-
-               IF (present(data_r8_2d_in2)) THEN
-                  DO ireq = 1, nreq
-                     xblk = grid_in%xblk(xlist(ireq))
-                     yblk = grid_in%yblk(ylist(ireq))
-                     xloc = grid_in%xloc(xlist(ireq))
-                     yloc = grid_in%yloc(ylist(ireq))
-
-                     sbuf_r8_1d(ireq) = data_r8_2d_in2%blk(xblk,yblk)%val(xloc,yloc)
-                  ENDDO
-
-                  CALL mpi_send (sbuf_r8_1d, nreq, MPI_REAL8, &
-                     idest, mpi_tag_data, p_comm_glb, p_err)
-               ENDIF
-
-               IF (present(data_r8_2d_in3)) THEN
-                  DO ireq = 1, nreq
-                     xblk = grid_in%xblk(xlist(ireq))
-                     yblk = grid_in%yblk(ylist(ireq))
-                     xloc = grid_in%xloc(xlist(ireq))
-                     yloc = grid_in%yloc(ylist(ireq))
-
-                     sbuf_r8_1d(ireq) = data_r8_2d_in3%blk(xblk,yblk)%val(xloc,yloc)
-                  ENDDO
-
-                  CALL mpi_send (sbuf_r8_1d, nreq, MPI_REAL8, &
-                     idest, mpi_tag_data, p_comm_glb, p_err)
-               ENDIF
-
-               IF (present(data_r8_2d_in4)) THEN
-                  DO ireq = 1, nreq
-                     xblk = grid_in%xblk(xlist(ireq))
-                     yblk = grid_in%yblk(ylist(ireq))
-                     xloc = grid_in%xloc(xlist(ireq))
-                     yloc = grid_in%yloc(ylist(ireq))
-
-                     sbuf_r8_1d(ireq) = data_r8_2d_in4%blk(xblk,yblk)%val(xloc,yloc)
-                  ENDDO
-
-                  CALL mpi_send (sbuf_r8_1d, nreq, MPI_REAL8, &
-                     idest, mpi_tag_data, p_comm_glb, p_err)
-               ENDIF
-
-               IF (present(data_r8_2d_in5)) THEN
-                  DO ireq = 1, nreq
-                     xblk = grid_in%xblk(xlist(ireq))
-                     yblk = grid_in%yblk(ylist(ireq))
-                     xloc = grid_in%xloc(xlist(ireq))
-                     yloc = grid_in%yloc(ylist(ireq))
-
-                     sbuf_r8_1d(ireq) = data_r8_2d_in5%blk(xblk,yblk)%val(xloc,yloc)
-                  ENDDO
-
-                  CALL mpi_send (sbuf_r8_1d, nreq, MPI_REAL8, &
-                     idest, mpi_tag_data, p_comm_glb, p_err)
-               ENDIF
-
-               IF (present(data_r8_2d_in6)) THEN
-                  DO ireq = 1, nreq
-                     xblk = grid_in%xblk(xlist(ireq))
-                     yblk = grid_in%yblk(ylist(ireq))
-                     xloc = grid_in%xloc(xlist(ireq))
-                     yloc = grid_in%yloc(ylist(ireq))
-
-                     sbuf_r8_1d(ireq) = data_r8_2d_in6%blk(xblk,yblk)%val(xloc,yloc)
-                  ENDDO
-
-                  CALL mpi_send (sbuf_r8_1d, nreq, MPI_REAL8, &
-                     idest, mpi_tag_data, p_comm_glb, p_err)
-               ENDIF
-
-
-               deallocate (sbuf_r8_1d)
 
                IF (present(data_r8_3d_in1) .and. present(n1_r8_3d_in1)) THEN
 
@@ -341,12 +335,12 @@ CONTAINS
    integer, intent(in), optional :: filledvalue_i4
 
    ! Local Variables
-   integer :: totalreq, ireq, nreq, smesg(2), isrc, idest, iproc
+   integer :: totalreq, ireq, nreq, smesg(2), isrc, idest, iproc, nfield_r8_2d, ifield
    integer :: ilon, ilat, xblk, yblk, xloc, yloc, iloc, nx, ny, ix, iy, ig
    integer :: ie, ipxstt, ipxend, npxl, ipxl, lb1, xgrdthis, ygrdthis
    integer,  allocatable :: ylist(:), xlist(:), ipt(:), ibuf(:), rbuf_i4_1d(:)
    integer,  allocatable :: xsorted(:), ysorted(:), xy2d(:,:)
-   real(r8), allocatable :: area2d(:,:), rbuf_r8_1d(:), rbuf_r8_2d(:,:)
+   real(r8), allocatable :: area2d(:,:), rbuf_r8_2d(:,:)
    logical,  allocatable :: msk(:)
 
 
@@ -504,45 +498,52 @@ CONTAINS
 
             isrc = idest
 
-            allocate (rbuf_r8_1d (nreq))
+            nfield_r8_2d = 0
+            IF (present(data_r8_2d_in1)) nfield_r8_2d = nfield_r8_2d + 1
+            IF (present(data_r8_2d_in2)) nfield_r8_2d = nfield_r8_2d + 1
+            IF (present(data_r8_2d_in3)) nfield_r8_2d = nfield_r8_2d + 1
+            IF (present(data_r8_2d_in4)) nfield_r8_2d = nfield_r8_2d + 1
+            IF (present(data_r8_2d_in5)) nfield_r8_2d = nfield_r8_2d + 1
+            IF (present(data_r8_2d_in6)) nfield_r8_2d = nfield_r8_2d + 1
 
-            IF (present(data_r8_2d_in1) .and. present(data_r8_2d_out1)) THEN
-               CALL mpi_recv (rbuf_r8_1d, nreq, MPI_REAL8, &
+            IF (nfield_r8_2d > 0) THEN
+               allocate (rbuf_r8_2d (nreq,nfield_r8_2d))
+               CALL mpi_recv (rbuf_r8_2d, nreq*nfield_r8_2d, MPI_REAL8, &
                   isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL unpack_inplace (rbuf_r8_1d, msk, data_r8_2d_out1)
-            ENDIF
+               ifield = 0
 
-            IF (present(data_r8_2d_in2) .and. present(data_r8_2d_out2)) THEN
-               CALL mpi_recv (rbuf_r8_1d, nreq, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL unpack_inplace (rbuf_r8_1d, msk, data_r8_2d_out2)
-            ENDIF
+               IF (present(data_r8_2d_in1)) THEN
+                  ifield = ifield + 1
+                  IF (present(data_r8_2d_out1)) CALL unpack_inplace (rbuf_r8_2d(:,ifield), msk, data_r8_2d_out1)
+               ENDIF
 
-            IF (present(data_r8_2d_in3) .and. present(data_r8_2d_out3)) THEN
-               CALL mpi_recv (rbuf_r8_1d, nreq, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL unpack_inplace (rbuf_r8_1d, msk, data_r8_2d_out3)
-            ENDIF
+               IF (present(data_r8_2d_in2)) THEN
+                  ifield = ifield + 1
+                  IF (present(data_r8_2d_out2)) CALL unpack_inplace (rbuf_r8_2d(:,ifield), msk, data_r8_2d_out2)
+               ENDIF
 
-            IF (present(data_r8_2d_in4) .and. present(data_r8_2d_out4)) THEN
-               CALL mpi_recv (rbuf_r8_1d, nreq, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL unpack_inplace (rbuf_r8_1d, msk, data_r8_2d_out4)
-            ENDIF
+               IF (present(data_r8_2d_in3)) THEN
+                  ifield = ifield + 1
+                  IF (present(data_r8_2d_out3)) CALL unpack_inplace (rbuf_r8_2d(:,ifield), msk, data_r8_2d_out3)
+               ENDIF
 
-            IF (present(data_r8_2d_in5) .and. present(data_r8_2d_out5)) THEN
-               CALL mpi_recv (rbuf_r8_1d, nreq, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL unpack_inplace (rbuf_r8_1d, msk, data_r8_2d_out5)
-            ENDIF
+               IF (present(data_r8_2d_in4)) THEN
+                  ifield = ifield + 1
+                  IF (present(data_r8_2d_out4)) CALL unpack_inplace (rbuf_r8_2d(:,ifield), msk, data_r8_2d_out4)
+               ENDIF
 
-            IF (present(data_r8_2d_in6) .and. present(data_r8_2d_out6)) THEN
-               CALL mpi_recv (rbuf_r8_1d, nreq, MPI_REAL8, &
-                  isrc, mpi_tag_data, p_comm_glb, p_stat, p_err)
-               CALL unpack_inplace (rbuf_r8_1d, msk, data_r8_2d_out6)
-            ENDIF
+               IF (present(data_r8_2d_in5)) THEN
+                  ifield = ifield + 1
+                  IF (present(data_r8_2d_out5)) CALL unpack_inplace (rbuf_r8_2d(:,ifield), msk, data_r8_2d_out5)
+               ENDIF
 
-            deallocate (rbuf_r8_1d)
+               IF (present(data_r8_2d_in6)) THEN
+                  ifield = ifield + 1
+                  IF (present(data_r8_2d_out6)) CALL unpack_inplace (rbuf_r8_2d(:,ifield), msk, data_r8_2d_out6)
+               ENDIF
+
+               deallocate (rbuf_r8_2d)
+            ENDIF
 
             IF (present(data_r8_3d_in1) .and. present(data_r8_3d_out1) .and. present(n1_r8_3d_in1)) THEN
                allocate (rbuf_r8_2d (n1_r8_3d_in1,nreq))

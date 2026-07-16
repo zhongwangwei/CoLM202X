@@ -1479,13 +1479,18 @@ CONTAINS
    END SUBROUTINE deallocate_acc_fluxes
 
    !-----------------------
-   SUBROUTINE FLUSH_acc_fluxes ()
+   SUBROUTINE FLUSH_acc_fluxes (flush_reactive)
 
       USE MOD_SPMD_Task
       USE MOD_LandPatch, only: numpatch
       USE MOD_LandUrban, only: numurban
       USE MOD_Vars_Global, only: spval
       IMPLICIT NONE
+      logical, intent(in), optional :: flush_reactive
+      logical :: flush_reactive_active
+
+      flush_reactive_active = .true.
+      IF (present(flush_reactive)) flush_reactive_active = flush_reactive
 
       IF (p_is_worker) THEN
 
@@ -1970,7 +1975,7 @@ CONTAINS
 #endif
 
 #ifdef TRACER
-      CALL tracer_flush_acc_fluxes ()
+      IF (flush_reactive_active) CALL tracer_flush_acc_fluxes ()
 #endif
 
    END SUBROUTINE FLUSH_acc_fluxes

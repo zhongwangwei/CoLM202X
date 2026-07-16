@@ -205,7 +205,7 @@ SUBROUTINE CoLMMAIN ( &
       tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland, &
       tracer_newsnow, tracer_save_storage, tracer_balance_check, &
       tracer_apply_reactive_processes, &
-      trc_wliq_soisno, trc_wice_soisno, trc_scv, &
+      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv, &
       trc_ldew_rain, trc_ldew_snow, trc_sm_carry
 #endif
 #ifdef TRACER
@@ -216,7 +216,7 @@ SUBROUTINE CoLMMAIN ( &
 #endif
    ! tracer_snow_layer_adj was replaced by tracer-aware combine/divide:
    ! snowlayerscombine / snowlayersdivide (and SNICAR variants) now carry
-   ! trc_wliq / trc_wice / trc_scv through the same per-layer topology as
+   ! trc_wliq / trc_wice / trc_solid / trc_scv through the same per-layer topology as
    ! the water side, so no post-hoc redistribution is needed.
    USE MOD_LeafInterception, only: LEAF_interception_wrap
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -1414,6 +1414,7 @@ SUBROUTINE CoLMMAIN ( &
                                mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0), &
                                trc_wliq = trc_wliq_soisno(:, lb:1, ipatch), &
                                trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
+                               trc_solid = trc_solid_soisno(:, lb:1, ipatch), &
                                trc_scv  = trc_scv(:, ipatch))
 #else
                   CALL snowlayerscombine_snicar (lb,snl,&
@@ -1429,6 +1430,7 @@ SUBROUTINE CoLMMAIN ( &
                                wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp, &
                                trc_wliq = trc_wliq_soisno(:, lb:1, ipatch), &
                                trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
+                               trc_solid = trc_solid_soisno(:, lb:1, ipatch), &
                                trc_scv  = trc_scv(:, ipatch))
 #else
                   CALL snowlayerscombine (lb,snl,&
@@ -1447,7 +1449,8 @@ SUBROUTINE CoLMMAIN ( &
                                mss_bcpho(lb:0),mss_bcphi(lb:0),mss_ocpho(lb:0),mss_ocphi(lb:0),&
                                mss_dst1(lb:0),mss_dst2(lb:0),mss_dst3(lb:0),mss_dst4(lb:0), &
                                trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
-                               trc_wice = trc_wice_soisno(:, lb:0, ipatch))
+                               trc_wice = trc_wice_soisno(:, lb:0, ipatch), &
+                               trc_solid = trc_solid_soisno(:, lb:0, ipatch))
 #else
                      CALL snowlayersdivide_snicar (lb,snl,&
                                z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
@@ -1461,7 +1464,8 @@ SUBROUTINE CoLMMAIN ( &
                                z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
                                wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0), &
                                trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
-                               trc_wice = trc_wice_soisno(:, lb:0, ipatch))
+                               trc_wice = trc_wice_soisno(:, lb:0, ipatch), &
+                               trc_solid = trc_solid_soisno(:, lb:0, ipatch))
 #else
                      CALL snowlayersdivide (lb,snl,&
                                z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&

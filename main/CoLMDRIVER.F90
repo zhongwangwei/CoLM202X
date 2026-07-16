@@ -242,7 +242,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
          ENDIF
 
 #ifdef TRACER
-         CALL tracer_wetland_decomp (i)
+         CALL tracer_wetland_decomp (i, deltim)
 #endif
 
 #ifdef TRACER

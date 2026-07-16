@@ -518,9 +518,10 @@ PROGRAM CoLM
 #endif
 
 #if (defined GridRiverLakeFlow)
-         IF (.not. is_spinup) THEN
-            CALL grid_riverlake_flow (idate(1), deltim)
-         ENDIF
+         ! Keep routing state advancing during spinup.  The land methane step
+         ! remains before this call and therefore still consumes the explicitly
+         ! documented previous-step routing publication.
+         CALL grid_riverlake_flow (idate(1), deltim)
 #endif
 #if (defined CaMa_Flood)
 #ifdef USEMPI

@@ -4,9 +4,10 @@
 MODULE MOD_Tracer_Snow
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport
-   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
-      trc_scv, trc_wetwat
+   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
+      tracer_equilibrate_dissolved
+	   USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
+	      trc_scv, trc_wetwat, trc_solid_soisno
 
    IMPLICIT NONE
 
@@ -50,8 +51,8 @@ CONTAINS
          ! unconditionally reset trc_scv. A non-zero residual here means
          ! somebody else wrote trc_scv while snl_old<0 (a real bug
          ! upstream, not a simple rounding artefact). Flag it once per
-         ! tracer per occurrence so the root cause can be traced; Cases
-         ! B/C now fold any residual into the top snow layer before reset.
+	         ! tracer per occurrence so the root cause can be traced; Cases
+	         ! B/C now fold any residual into the top snow layer before reset.
          IF (snl_old < 0 .and. abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
             write(*,'(A,I8,A,I3,A,E12.5)') &
                ' WARNING tracer_newsnow: trc_scv residual under layered snow ipatch=', &
@@ -113,17 +114,17 @@ CONTAINS
             IF (present(wice_soisno)) THEN
                trc_wice_soisno(itrc, j, ipatch) = wice_soisno(1) * R_snow_step
             ENDIF
-            IF (present(wliq_soisno)) THEN
-               IF (size(wliq_soisno) > 0) THEN
-                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_snow_step
-               ENDIF
-            ENDIF
-            IF (abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
-               trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
-                  + trc_scv(itrc, ipatch)
-            ENDIF
-            ! trc_scv should be 0 when layers already exist
-            trc_scv(itrc, ipatch) = 0._r8
+	            IF (present(wliq_soisno)) THEN
+	               IF (size(wliq_soisno) > 0) THEN
+	                  trc_wliq_soisno(itrc, j, ipatch) = wliq_soisno(1) * R_snow_step
+	               ENDIF
+	            ENDIF
+	            IF (abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
+	               trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+	                  + trc_scv(itrc, ipatch)
+	            ENDIF
+	            ! trc_scv should be 0 when layers already exist
+	            trc_scv(itrc, ipatch) = 0._r8
 
          ELSEIF (snl < 0 .and. snl == snl_old) THEN
             ! Case C: Snow added to existing top layer (no new node).
@@ -136,24 +137,24 @@ CONTAINS
             j = snl + 1
             IF (present(wice_soisno) .and. present(wice_soisno_bef)) THEN
                d_wice = wice_soisno(1) - wice_soisno_bef(1)
-               IF (trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
-                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
-                     + trc_pg_snow_ground(itrc, ipatch)
-               ENDIF
+	               IF (trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
+	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+	                     + trc_pg_snow_ground(itrc, ipatch)
+	               ENDIF
 #if (defined CoLMDEBUG)
                IF (abs(d_wice - snow_mass_step) > 1.e-6_r8 .and. &
-                  trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
+                   trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
                   write(*,'(A,I8,A,I3,A,E12.5,A,E12.5,A,E12.5)') &
                      ' WARNING tracer_newsnow Case C: d_wice /= pg_snow*dt ipatch=', &
                      ipatch, ' itrc=', itrc, ' d_wice=', d_wice, &
                      ' pg_snow*dt=', snow_mass_step, &
                      ' trc_pg_snow_ground=', trc_pg_snow_ground(itrc, ipatch)
-               ENDIF
+	               ENDIF
 #endif
-               IF (abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
-                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
-                     + trc_scv(itrc, ipatch)
-               ENDIF
+	               IF (abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
+	                  trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) &
+	                     + trc_scv(itrc, ipatch)
+	               ENDIF
             ENDIF
             ! trc_scv should be 0 when layers exist
             trc_scv(itrc, ipatch) = 0._r8
@@ -173,6 +174,13 @@ CONTAINS
                ! Warm wetland: newsnow transferred scv → wetwat, scv=0
                trc_wetwat(itrc, ipatch) = trc_wetwat(itrc, ipatch) + trc_scv(itrc, ipatch)
                trc_scv(itrc, ipatch) = 0._r8
+            ENDIF
+         ENDIF
+         IF (snl < 0 .and. present(wliq_soisno)) THEN
+            j = snl + 1
+            IF (size(wliq_soisno) > 0) THEN
+               CALL tracer_equilibrate_dissolved(itrc, max(wliq_soisno(1), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
             ENDIF
          ENDIF
       ENDDO

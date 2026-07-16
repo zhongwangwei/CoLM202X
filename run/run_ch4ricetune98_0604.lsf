@@ -24,7 +24,7 @@ echo "job ch4ricetune98_0604 start: $(date)"
 echo "bin=$BIN"
 echo "bin_mtime=$(stat -c '%y %s' "$BIN")"
 echo "nml=$NML"
-echo "ch4_param_key=$(grep -E 'inundation_mode|enable_rice_paddy|only_wetland|allowlakeprod|ch4_history_vars|f_methane_rice_paddy|redoxlag_rice_paddy|rice_paddy_min_finundated' $CASE/config/standard_ch4_parameter.nml | tr '\n' ';')"
+echo "ch4_param_key=$(grep -E 'inundation_mode|enable_rice_paddy|only_wetland|allowlakeprod|ch4_history_vars|f_methane_rice_paddy|redoxlag_rice_paddy' $CASE/config/standard_ch4_parameter.nml | tr '\n' ';')"
 /share/home/dq013/software/mvapich2-2.3.7-1-intel/bin/mpirun -np 720 "$BIN" "$NML" > "$LOG" 2>&1
 status=$?
 echo "mpirun status=$status end: $(date)"
