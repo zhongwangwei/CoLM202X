@@ -48,16 +48,23 @@ MODULE MOD_NetCDFVector
    END INTERFACE ncio_read_vector
 
    ! Restart fields that are optional for backward compatibility still need
-   ! to be transactionally complete when present.  This strict interface
-   ! accepts a variable that is absent from every block (the regular defval
-   ! path), or present in every block, but rejects a mixed hot/cold field.
+   ! to be transactionally complete when present.  Legacy/defaultable reads
+   ! accept a variable absent from every block; a committed-schema scope makes
+   ! the same field required.  Both modes reject a mixed hot/cold field.
    INTERFACE ncio_read_vector_complete
       MODULE procedure ncio_read_vector_complete_real8_1d
       MODULE procedure ncio_read_vector_complete_real8_2d
    END INTERFACE ncio_read_vector_complete
 
    PUBLIC :: ncio_read_vector_complete
+   PUBLIC :: ncio_set_complete_require_present
+   PUBLIC :: ncio_vector_group_presence
    PUBLIC :: ncio_vector_var_present
+
+   ! A committed schema restart is not a legacy/defaultable read: every field
+   ! requested through ncio_read_vector_complete must exist on every block.
+   ! The methane restart callback scopes this flag around its transaction.
+   logical, private, save :: complete_require_present = .false.
 
    PUBLIC :: ncio_create_file_vector
    PUBLIC :: ncio_define_dimension_vector
@@ -76,9 +83,18 @@ MODULE MOD_NetCDFVector
 
 CONTAINS
 
+   SUBROUTINE ncio_set_complete_require_present (require_present)
+
+   IMPLICIT NONE
+   logical, intent(in) :: require_present
+
+      complete_require_present = require_present
+
+   END SUBROUTINE ncio_set_complete_require_present
+
    !---------------------------------------------------------
    SUBROUTINE ncio_require_complete_vector_var (filename, dataname, pixelset, &
-         expected_rank, allow_missing, expected_dim1)
+         expected_rank, allow_missing, all_present, expected_dim1)
 
    USE MOD_NetCDFSerial, only: ncio_var_exist, ncio_inquire_varsize
    USE MOD_SPMD_Task
@@ -91,6 +107,7 @@ CONTAINS
    type(pixelset_type), intent(in) :: pixelset
    integer, intent(in) :: expected_rank
    logical, intent(in) :: allow_missing
+   logical, intent(out) :: all_present
    integer, intent(in), optional :: expected_dim1
 
    integer :: iblkgrp, iblk, jblk
@@ -100,6 +117,7 @@ CONTAINS
    logical :: block_shape_ok
 
       counts(:) = 0
+      all_present = .false.
 
       ! The control master has no vector blocks and is intentionally outside
       ! the IO/worker group.  It still enters high-level restart callbacks;
@@ -158,6 +176,7 @@ CONTAINS
             'ERROR: restart variable '//trim(dataname)//' has an incompatible shape in '//trim(filename)//'.'
          CALL CoLM_stop()
       ENDIF
+      all_present = counts(1) > 0 .and. counts(2) == counts(1)
 
    END SUBROUTINE ncio_require_complete_vector_var
 
@@ -217,6 +236,71 @@ CONTAINS
    END FUNCTION ncio_vector_var_present
 
    !---------------------------------------------------------
+   ! Probe an optional feature group in one block scan and one pair of MPI
+   ! reductions.  This is the group equivalent of ncio_vector_var_present:
+   ! each returned flag is true only when the field exists on every block,
+   ! and mixed per-block presence is corruption.  Batching avoids one global
+   ! collective per feature field during restart initialization.
+   SUBROUTINE ncio_vector_group_presence (filename, datanames, pixelset, present_flags)
+
+   USE MOD_NetCDFSerial, only: ncio_var_exist
+   USE MOD_SPMD_Task
+   USE MOD_Block, only: get_filename_block
+   USE MOD_Pixelset, only: pixelset_type
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: filename
+   character(len=*), intent(in) :: datanames(:)
+   type(pixelset_type), intent(in) :: pixelset
+   logical, intent(out) :: present_flags(size(datanames))
+
+   integer :: iblkgrp, iblk, jblk, ivar
+   integer, allocatable :: counts(:), global_counts(:)
+   character(len=256) :: fileblock
+
+      allocate(counts(0:size(datanames)), global_counts(0:size(datanames)))
+      counts(:) = 0
+      IF (p_is_io) THEN
+         counts(0) = pixelset%nblkgrp
+         DO iblkgrp = 1, pixelset%nblkgrp
+            iblk = pixelset%xblkgrp(iblkgrp)
+            jblk = pixelset%yblkgrp(iblkgrp)
+            CALL get_filename_block(filename, iblk, jblk, fileblock)
+            DO ivar = 1, size(datanames)
+               IF (ncio_var_exist(fileblock, trim(datanames(ivar)), readflag=.false.)) &
+                  counts(ivar) = counts(ivar) + 1
+            ENDDO
+         ENDDO
+      ENDIF
+
+#ifdef USEMPI
+      IF (p_is_io) THEN
+         CALL mpi_allreduce(MPI_IN_PLACE, counts, size(counts), MPI_INTEGER, MPI_SUM, p_comm_io, p_err)
+      ENDIF
+      global_counts(:) = 0
+      IF (p_is_io) THEN
+         IF (p_iam_io == p_root) global_counts(:) = counts(:)
+      ENDIF
+      CALL mpi_allreduce(MPI_IN_PLACE, global_counts, size(global_counts), &
+         MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#else
+      global_counts(:) = counts(:)
+#endif
+
+      DO ivar = 1, size(datanames)
+         IF (global_counts(ivar) > 0 .and. global_counts(ivar) < global_counts(0)) THEN
+            IF (p_is_master) WRITE(*,'(A,A,A)') 'ERROR: restart feature-group field ', &
+               trim(datanames(ivar)), ' is missing from some vector blocks.'
+            CALL CoLM_stop()
+         ENDIF
+         present_flags(ivar) = global_counts(0) > 0 .and. &
+            global_counts(ivar) == global_counts(0)
+      ENDDO
+
+      deallocate(counts, global_counts)
+   END SUBROUTINE ncio_vector_group_presence
+
+   !---------------------------------------------------------
    SUBROUTINE ncio_read_vector_complete_real8_1d (filename, dataname, pixelset, rdata, defval)
 
    USE MOD_Precision
@@ -228,13 +312,17 @@ CONTAINS
    type(pixelset_type), intent(in) :: pixelset
    real(r8), allocatable, intent(inout) :: rdata(:)
    real(r8), intent(in), optional :: defval
+   logical :: field_present, allow_field_missing
 
+      allow_field_missing = present(defval) .and. (.not. complete_require_present)
       CALL ncio_require_complete_vector_var(filename, dataname, pixelset, &
-         expected_rank=1, allow_missing=present(defval))
+         expected_rank=1, allow_missing=allow_field_missing, all_present=field_present)
       IF (present(defval)) THEN
-         CALL ncio_read_vector_real8_1d(filename, dataname, pixelset, rdata, defval)
+         CALL ncio_read_vector_real8_1d(filename, dataname, pixelset, rdata, &
+            defval, known_present=field_present)
       ELSE
-         CALL ncio_read_vector_real8_1d(filename, dataname, pixelset, rdata)
+         CALL ncio_read_vector_real8_1d(filename, dataname, pixelset, rdata, &
+            known_present=field_present)
       ENDIF
 
    END SUBROUTINE ncio_read_vector_complete_real8_1d
@@ -252,13 +340,18 @@ CONTAINS
    type(pixelset_type), intent(in) :: pixelset
    real(r8), allocatable, intent(inout) :: rdata(:,:)
    real(r8), intent(in), optional :: defval
+   logical :: field_present, allow_field_missing
 
+      allow_field_missing = present(defval) .and. (.not. complete_require_present)
       CALL ncio_require_complete_vector_var(filename, dataname, pixelset, &
-         expected_rank=2, allow_missing=present(defval), expected_dim1=ndim1)
+         expected_rank=2, allow_missing=allow_field_missing, all_present=field_present, &
+         expected_dim1=ndim1)
       IF (present(defval)) THEN
-         CALL ncio_read_vector_real8_2d(filename, dataname, ndim1, pixelset, rdata, defval)
+         CALL ncio_read_vector_real8_2d(filename, dataname, ndim1, pixelset, rdata, &
+            defval, known_present=field_present)
       ELSE
-         CALL ncio_read_vector_real8_2d(filename, dataname, ndim1, pixelset, rdata)
+         CALL ncio_read_vector_real8_2d(filename, dataname, ndim1, pixelset, rdata, &
+            known_present=field_present)
       ENDIF
 
    END SUBROUTINE ncio_read_vector_complete_real8_2d
@@ -608,7 +701,7 @@ CONTAINS
 
    !---------------------------------------------------------
    SUBROUTINE ncio_read_vector_real8_1d (filename, dataname, pixelset, rdata, &
-         defval)
+         defval, known_present)
 
    USE MOD_Precision
    USE MOD_NetCDFSerial
@@ -623,6 +716,7 @@ CONTAINS
 
    real(r8), allocatable, intent(inout) :: rdata (:)
    real(r8), intent(in), optional :: defval
+   logical, intent(in), optional :: known_present
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
@@ -637,6 +731,7 @@ CONTAINS
       ENDIF
 
       any_data_exists = .false.
+      IF (present(known_present)) any_data_exists = known_present
 
       IF (p_is_io) THEN
 
@@ -647,7 +742,13 @@ CONTAINS
             allocate (sbuff (pixelset%vecgs%vlen(iblk,jblk)))
             CALL get_filename_block (filename, iblk, jblk, fileblock)
 
-            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+            IF (present(known_present)) THEN
+               IF (known_present) THEN
+                  CALL ncio_read_serial (fileblock, dataname, sbuff)
+               ELSEIF (present(defval)) THEN
+                  sbuff(:) = defval
+               ENDIF
+            ELSEIF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
                CALL ncio_read_serial (fileblock, dataname, sbuff)
                any_data_exists = .true.
             ELSEIF (present(defval)) THEN
@@ -671,7 +772,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         IF (.not. present(known_present)) THEN
+            CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         ENDIF
 #endif
          IF (.not. any_data_exists) THEN
             IF (p_iam_io == p_root) THEN
@@ -722,7 +825,7 @@ CONTAINS
 
    !---------------------------------------------------------
    SUBROUTINE ncio_read_vector_real8_2d ( &
-         filename, dataname, ndim1, pixelset, rdata, defval)
+         filename, dataname, ndim1, pixelset, rdata, defval, known_present)
 
    USE MOD_Precision
    USE MOD_NetCDFSerial
@@ -738,6 +841,7 @@ CONTAINS
 
    real(r8), allocatable, intent(inout) :: rdata (:,:)
    real(r8), intent(in), optional :: defval
+   logical, intent(in), optional :: known_present
 
    ! Local variables
    integer :: iblkgrp, iblk, jblk, istt, iend
@@ -752,6 +856,7 @@ CONTAINS
       ENDIF
 
       any_data_exists = .false.
+      IF (present(known_present)) any_data_exists = known_present
 
       IF (p_is_io) THEN
 
@@ -762,7 +867,13 @@ CONTAINS
             allocate (sbuff (ndim1, pixelset%vecgs%vlen(iblk,jblk)))
             CALL get_filename_block (filename, iblk, jblk, fileblock)
 
-            IF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
+            IF (present(known_present)) THEN
+               IF (known_present) THEN
+                  CALL ncio_read_serial (fileblock, dataname, sbuff)
+               ELSEIF (present(defval)) THEN
+                  sbuff(:,:) = defval
+               ENDIF
+            ELSEIF (ncio_var_exist(fileblock,dataname,readflag=.false.)) THEN
                CALL ncio_read_serial (fileblock, dataname, sbuff)
                any_data_exists = .true.
             ELSEIF (present(defval)) THEN
@@ -786,7 +897,9 @@ CONTAINS
          ENDDO
 
 #ifdef USEMPI
-         CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         IF (.not. present(known_present)) THEN
+            CALL mpi_allreduce (MPI_IN_PLACE, any_data_exists, 1, MPI_LOGICAL, MPI_LOR, p_comm_io, p_err)
+         ENDIF
 #endif
          IF (.not. any_data_exists) THEN
             IF (p_iam_io == p_root) THEN

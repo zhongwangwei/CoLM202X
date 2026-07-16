@@ -12,12 +12,16 @@ MODULE MOD_Tracer_Reactive_BgcShim
 !=======================================================================
 
    USE MOD_Precision
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+   USE MOD_SPMD_Task, only: CoLM_stop
    USE MOD_Vars_Global, only: nl_soil, z_soi, dz_soi, &
       ndecomp_pools, ndecomp_transitions
    USE MOD_BGC_Soil_BiogeochemDecompCascadeBGC, only: decomp_rate_constants_bgc
    USE MOD_BGC_Soil_BiogeochemPotential,        only: SoilBiogeochemPotential
+   USE MOD_BGC_Soil_BiogeochemCompetition,      only: SoilBiogeochemCompetitionNoPlant
    USE MOD_BGC_Soil_BiogeochemDecomp,           only: SoilBiogeochemDecomp
-   USE MOD_BGC_Vars_1DFluxes, only: decomp_hr_vr, decomp_ctransfer_vr, &
+   USE MOD_BGC_Vars_1DFluxes, only: decomp_cpools_sourcesink, decomp_npools_sourcesink, &
+      decomp_hr_vr, decomp_ctransfer_vr, &
       decomp_ntransfer_vr, decomp_sminn_flux_vr, sminn_to_denit_decomp_vr, &
       pmnf_decomp, p_decomp_cpool_loss, net_nmin_vr, gross_nmin_vr, &
       net_nmin, gross_nmin, potential_immob_vr, phr_vr, pot_f_nit_vr, &
@@ -32,12 +36,19 @@ MODULE MOD_Tracer_Reactive_BgcShim
 
 CONTAINS
 
-   SUBROUTINE reactive_bgc_run_wetland_decomp (ipatch)
+   SUBROUTINE reactive_bgc_run_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
+
+      IF (.not. ieee_is_finite(deltim) .or. deltim <= 0._r8) THEN
+         CALL CoLM_stop(' ***** ERROR: wetland CH4/BGC coupling requires a finite positive timestep')
+      ENDIF
 
       ! Start from the same clean per-patch flux state as the full BGC driver.
+      IF (allocated(decomp_cpools_sourcesink))   decomp_cpools_sourcesink  (1:nl_soil,:,ipatch) = 0._r8
+      IF (allocated(decomp_npools_sourcesink))   decomp_npools_sourcesink  (1:nl_soil,:,ipatch) = 0._r8
       IF (allocated(decomp_hr_vr))              decomp_hr_vr             (1:nl_soil,:,ipatch) = 0._r8
       IF (allocated(decomp_ctransfer_vr))       decomp_ctransfer_vr      (1:nl_soil,:,ipatch) = 0._r8
       IF (allocated(decomp_ntransfer_vr))       decomp_ntransfer_vr      (1:nl_soil,:,ipatch) = 0._r8
@@ -67,6 +78,7 @@ CONTAINS
 
       CALL decomp_rate_constants_bgc (ipatch, nl_soil, z_soi)
       CALL SoilBiogeochemPotential   (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions)
+      CALL SoilBiogeochemCompetitionNoPlant (ipatch, deltim, nl_soil, dz_soi)
       CALL SoilBiogeochemDecomp      (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions, dz_soi)
 
    END SUBROUTINE reactive_bgc_run_wetland_decomp

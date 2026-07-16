@@ -654,6 +654,16 @@ CONTAINS
             'species-owned state requires unit_kind=species_owned')
       ENDIF
 
+#ifndef BGC
+      IF (tracer_is_reactive(itrc) .and. &
+          (trim(tracer_upper(tracers(itrc)%name)) == 'CH4' .or. &
+           trim(tracer_upper(tracers(itrc)%name)) == 'METHANE') .and. &
+          trim(tracers(itrc)%unit_kind) == 'species_owned') THEN
+         CALL tracer_descriptor_error(itrc, 'unit_kind', &
+            'species-owned CH4 requires compiling with BGC')
+      ENDIF
+#endif
+
    CONTAINS
 
       SUBROUTINE tracer_descriptor_error (itrc_local, field_name, reason)

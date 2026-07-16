@@ -7,12 +7,19 @@ MODULE MOD_Tracer_Reactive_Methane_State
 !=======================================================================
 
    USE MOD_Precision
-   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan
    USE MOD_Vars_Global, only: nl_soil, spval, dz_soi, WATERBODY
+   USE MOD_Tracer_Reactive_Methane_Const, only: N_METHANE_COMP, &
+      METHANE_COMP_SOIL, METHANE_COMP_RICE, DEF_METHANE
 
    IMPLICIT NONE
    SAVE
    PRIVATE
+
+   ! Runtime patchtype convention used throughout methane physics.  This is
+   ! distinct from the land-cover class code WATERBODY (=16/17), which is
+   ! used only when remapping patchclass during LULCC.
+   integer, parameter :: PATCHTYPE_LAKE = 4
 
    ! Explicit exports: keep module data private by default and expose
    ! only the current cross-module methane interface/state fields.
@@ -73,14 +80,22 @@ MODULE MOD_Tracer_Reactive_Methane_State
    PUBLIC :: grnd_methane_cond_unsat
    PUBLIC :: init_methane_wetland_fraction_cache
    PUBLIC :: initialize_methane_lake_soilc_from_surface
+   PUBLIC :: lake_air_o2_flux
+   PUBLIC :: lake_sed_ch4_flux
+   PUBLIC :: lake_sed_o2_flux
    PUBLIC :: lake_soilc
+   PUBLIC :: lake_water_ch4_oxid
+   PUBLIC :: lake_water_ch4_stock
+   PUBLIC :: lake_water_o2_stock
+   PUBLIC :: lake_frozen_ch4_stock
+   PUBLIC :: lake_frozen_o2_stock
+   PUBLIC :: lake_liquid_fraction_prev
    PUBLIC :: layer_sat_lag
    PUBLIC :: methane_aere_depth
    PUBLIC :: methane_aere_depth_sat
    PUBLIC :: methane_aere_depth_unsat
    PUBLIC :: methane_balance_residual
    PUBLIC :: methane_ch4_clip_credit
-   PUBLIC :: restart_ch4_clip_credit_mass
    PUBLIC :: methane_dfsat_tot
    PUBLIC :: methane_ebul_depth
    PUBLIC :: methane_ebul_depth_lake
@@ -129,6 +144,11 @@ MODULE MOD_Tracer_Reactive_Methane_State
    PUBLIC :: methane_surf_flux_lake
    PUBLIC :: methane_surf_flux_rice
    PUBLIC :: methane_surf_flux_soil
+	PUBLIC :: methane_surf_aere_soil, methane_surf_aere_rice
+	PUBLIC :: methane_surf_ebul_soil, methane_surf_ebul_rice
+	PUBLIC :: methane_surf_diff_soil, methane_surf_diff_rice
+	PUBLIC :: methane_prod_tot_soil, methane_prod_tot_rice
+	PUBLIC :: methane_oxid_tot_soil, methane_oxid_tot_rice
    PUBLIC :: methane_surf_flux_tot
    PUBLIC :: methane_surf_flux_tot_lake
    PUBLIC :: methane_surf_flux_tot_phys
@@ -170,6 +190,14 @@ MODULE MOD_Tracer_Reactive_Methane_State
    PUBLIC :: totcol_methane_unsat
    PUBLIC :: wetland_frac_per_patch
    PUBLIC :: write_methane_restart
+   PUBLIC :: conc_o2_unsat_component, conc_o2_sat_component
+   PUBLIC :: conc_methane_unsat_component, conc_methane_sat_component
+   PUBLIC :: layer_sat_lag_component
+   PUBLIC :: annavg_agnpp_component, annavg_bgnpp_component
+   PUBLIC :: annavg_somhr_component, annavg_finrw_component
+   PUBLIC :: tempavg_agnpp_component, tempavg_bgnpp_component
+   PUBLIC :: annsum_counter_component, tempavg_somhr_component, tempavg_finrw_component
+   PUBLIC :: fsat_bef_component, finundated_lag_component, rice_fraction_prev
 
    ! Public read-only data: external modules may inspect these arrays,
    ! but all writes stay inside this module through its APIs.
@@ -180,7 +208,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
    !!!! --------------------------------------------------------------------------------------------------------
    !!!!                                         sum data
    !!!! --------------------------------------------------------------------------------------------------------
-	real(r8), allocatable :: net_methane           (:) ! average net methane correction to CO2 flux (mol/m2/s)
+	real(r8), allocatable :: net_methane           (:) ! CH4 oxidation - production, applied to BGC CO2-HR (mol/m2/s)
 	real(r8), allocatable :: methane_prod_depth      (:,:) ! production of CH4 in each soil layer  (mol/m3/s)
 	real(r8), allocatable :: o2_decomp_depth     (:,:) ! O2 consumption during decomposition in each soil layer (mol/m3/s)
 	real(r8), allocatable :: co2_decomp_depth    (:,:) ! diagnostic CO2 from decomposition/methanogenesis before O2-stress scaling (mol/m3/s)
@@ -202,7 +230,6 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	real(r8), allocatable :: methane_surf_diff_phys    (:) ! Output: CH4 pure-physics diffusion before clip/residual (mol/m2/s)
 	real(r8), allocatable :: methane_balance_residual (:) ! numerical CH4 closure flux credited to methane_surf_diff (mol/m2/s)
 	real(r8), allocatable :: methane_ch4_clip_credit(:) ! negative CH4 clip credited to methane_surf_diff (mol/m2/s)
-	real(r8), allocatable :: restart_ch4_clip_credit_mass(:) ! restart negative CH4 sanitation credit (mol/m2 impulse)
 	real(r8), allocatable :: o2_cap_loss              (:) ! O2 removed by post-solve physical cap (mol/m2/s)
 	real(r8), allocatable :: o2_cap_gain              (:) ! O2 added by post-solve nonnegative floor (mol/m2/s)
 	real(r8), allocatable :: methane_ebul_tot        (:) ! Output: Total column CH4 ebullition (mol/m2/s)
@@ -221,8 +248,8 @@ MODULE MOD_Tracer_Reactive_Methane_State
    !!!! --------------------------------------------------------------------------------------------------------
    !!!!                                         sum data (unsaturated / saturated)
    !!!! --------------------------------------------------------------------------------------------------------
-   real(r8), allocatable :: net_methane_unsat           (:)  ! average unsaturated net methane correction to CO2 flux (mol/m2/s)
-   real(r8), allocatable :: net_methane_sat             (:)  ! average saturated   net methane correction to CO2 flux (mol/m2/s)
+   real(r8), allocatable :: net_methane_unsat           (:)  ! CH4 oxidation - production, unsaturated subcolumn (mol/m2/s)
+   real(r8), allocatable :: net_methane_sat             (:)  ! CH4 oxidation - production, saturated subcolumn (mol/m2/s)
 
    real(r8), allocatable :: methane_prod_depth_unsat      (:,:)  ! production of CH4 in each soil layer (unsaturated)  (mol/m3/s)
    real(r8), allocatable :: methane_prod_depth_sat        (:,:)  ! production of CH4 in each soil layer (saturated)    (mol/m3/s)
@@ -300,6 +327,14 @@ MODULE MOD_Tracer_Reactive_Methane_State
 
 	   real(r8), allocatable :: conc_methane_unsat            (:,:)  ! CH4 concentration in each soil layer (unsaturated)   (mol/m3)
 	   real(r8), allocatable :: conc_methane_sat              (:,:)  ! CH4 concentration in each soil layer (saturated)     (mol/m3)
+	   ! Independent soil/rice methane-process columns.  The legacy 2-D arrays
+	   ! above remain patch-aggregate diagnostics and restart compatibility
+	   ! fields; component state is the prognostic source for soil patches when
+	   ! rice-paddy methane is enabled.
+	   real(r8), allocatable :: conc_o2_unsat_component      (:,:,:)
+	   real(r8), allocatable :: conc_o2_sat_component        (:,:,:)
+	   real(r8), allocatable :: conc_methane_unsat_component (:,:,:)
+	   real(r8), allocatable :: conc_methane_sat_component   (:,:,:)
 	   !!!! --------------------------------------------------------------------------------------------------------
 
 	   !!!! --------------------------------------------------------------------------------------------------------
@@ -319,15 +354,25 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   real(r8), allocatable :: co2_decomp_tot_lake         (:)    ! lake total CO2 decomp/methanogenesis (mol/m2/s)
 	   real(r8), allocatable :: co2_oxid_tot_lake           (:)    ! lake total CO2 oxidation product (mol/m2/s)
 	   real(r8), allocatable :: co2_net_tot_lake            (:)    ! lake net diagnosed CO2 source (mol/m2/s)
-	   real(r8), allocatable :: totcol_methane_lake           (:)    ! lake CH4 column stock (mol/m2)
+	   real(r8), allocatable :: totcol_methane_lake           (:)    ! lake sediment CH4 column stock (mol/m2)
 	   real(r8), allocatable :: grnd_methane_cond_lake        (:)    ! effective lake-atmosphere CH4 conductance (m/s)
 	   real(r8), allocatable :: conc_o2_lake                  (:,:)  ! lake O2 concentration by layer (mol/m3)
 	   real(r8), allocatable :: conc_methane_lake             (:,:)  ! lake CH4 concentration by layer (mol/m3)
+	   real(r8), allocatable :: lake_water_ch4_stock          (:)    ! well-mixed lake-water CH4 inventory (mol/m2)
+	   real(r8), allocatable :: lake_water_o2_stock           (:)    ! well-mixed lake-water O2 inventory (mol/m2)
+	   real(r8), allocatable :: lake_frozen_ch4_stock         (:)    ! immobile CH4 retained during lake freeze (mol/m2)
+	   real(r8), allocatable :: lake_frozen_o2_stock          (:)    ! immobile O2 retained during lake freeze (mol/m2)
+	   real(r8), allocatable :: lake_liquid_fraction_prev     (:)    ! previous liquid fraction for conservative phase transfer
+	   real(r8), allocatable :: lake_water_ch4_oxid           (:)    ! water-column CH4 oxidation (mol/m2/s)
+	   real(r8), allocatable :: lake_sed_ch4_flux             (:)    ! sediment-to-water CH4 flux (mol/m2/s)
+	   real(r8), allocatable :: lake_sed_o2_flux              (:)    ! sediment-to-water O2 flux (mol/m2/s)
+	   real(r8), allocatable :: lake_air_o2_flux              (:)    ! water-to-atmosphere O2 flux (mol/m2/s)
 	   !!!! --------------------------------------------------------------------------------------------------------
 
 	   real(r8), allocatable :: c_atm               (:,:) ! CH4, O2, CO2 atmospheric conc  (mol/m3)
 	real(r8), allocatable :: forc_pmethanem            (:) ! CH4 concentration in atmos. (pascals)
 	real(r8), allocatable :: layer_sat_lag       (:,:)
+	real(r8), allocatable :: layer_sat_lag_component (:,:,:)
 	real(r8), allocatable :: lake_soilc          (:,:) ! total soil organic matter found in level (gC / m3)
    real(r8), allocatable :: annavg_agnpp          (:) ! annual average above-ground NPP (gC/m2/s)
 	real(r8), allocatable :: annavg_bgnpp          (:) ! annual average below-ground NPP (gC/m2/s)
@@ -338,9 +383,21 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	real(r8), allocatable :: annsum_counter        (:) ! seconds since last annual accumulator turnover
 	real(r8), allocatable :: tempavg_somhr         (:) ! temporary average SOM heterotrophic resp. (gC/m2/s)
 	real(r8), allocatable :: tempavg_finrw         (:) ! respiration-weighted annual average of finundated
+	real(r8), allocatable :: annavg_agnpp_component   (:,:)
+	real(r8), allocatable :: annavg_bgnpp_component   (:,:)
+	real(r8), allocatable :: annavg_somhr_component   (:,:)
+	real(r8), allocatable :: annavg_finrw_component   (:,:)
+	real(r8), allocatable :: tempavg_agnpp_component  (:,:)
+	real(r8), allocatable :: tempavg_bgnpp_component  (:,:)
+	real(r8), allocatable :: annsum_counter_component (:,:)
+	real(r8), allocatable :: tempavg_somhr_component  (:,:)
+	real(r8), allocatable :: tempavg_finrw_component  (:,:)
 
    real(r8), allocatable :: fsat_bef              (:) ! finundated from previous timestep
    real(r8), allocatable :: finundated_lag        (:) ! time-lagged fractional inundated area
+	real(r8), allocatable :: fsat_bef_component       (:,:)
+	real(r8), allocatable :: finundated_lag_component (:,:)
+	real(r8), allocatable :: rice_fraction_prev       (:)
    real(r8), allocatable :: methane_dfsat_tot         (:) ! CH4 flux to atm due to decreasing finundated [mol/m2/s]
 
    ! f_h2osfc: fractional area of surface water (0-1, dimensionless).
@@ -356,6 +413,11 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   real(r8), allocatable :: methane_surf_flux_soil    (:) ! non-rice soil contribution to CH4 surface flux [mol/m2/s]
 	   real(r8), allocatable :: methane_surf_flux_lake    (:) ! lake contribution to CH4 surface flux [mol/m2/s]
 	   real(r8), allocatable :: methane_surf_flux_rice    (:) ! rice-paddy contribution to CH4 surface flux [mol/m2/s]
+	   real(r8), allocatable :: methane_surf_aere_soil(:), methane_surf_aere_rice(:)
+	   real(r8), allocatable :: methane_surf_ebul_soil(:), methane_surf_ebul_rice(:)
+	   real(r8), allocatable :: methane_surf_diff_soil(:), methane_surf_diff_rice(:)
+	   real(r8), allocatable :: methane_prod_tot_soil(:), methane_prod_tot_rice(:)
+	   real(r8), allocatable :: methane_oxid_tot_soil(:), methane_oxid_tot_rice(:)
 	   ! Per-patch floodplain fraction (0-1) from GridRiverLakeFlow's levee
    ! diagnostic (levee_floodarea / topo_area), exposed to methane scheme 7.
    ! Default 0; populated by MOD_Grid_RiverLakeFlow via
@@ -405,6 +467,9 @@ MODULE MOD_Tracer_Reactive_Methane_State
    real(r8), allocatable :: lulcc_co2_net_tot_unsat_old(:), lulcc_co2_net_tot_sat_old(:)
    real(r8), allocatable :: lulcc_co2_decomp_tot_lake_old(:), lulcc_co2_oxid_tot_lake_old(:), lulcc_co2_net_tot_lake_old(:)
    real(r8), allocatable :: lulcc_totcol_methane_sat_old(:), lulcc_totcol_methane_lake_old(:)
+   real(r8), allocatable :: lulcc_lake_water_ch4_stock_old(:), lulcc_lake_water_o2_stock_old(:)
+   real(r8), allocatable :: lulcc_lake_frozen_ch4_stock_old(:), lulcc_lake_frozen_o2_stock_old(:)
+   real(r8), allocatable :: lulcc_lake_liquid_fraction_prev_old(:)
    real(r8), allocatable :: lulcc_grnd_methane_cond_old(:), lulcc_grnd_methane_cond_unsat_old(:)
    real(r8), allocatable :: lulcc_grnd_methane_cond_sat_old(:), lulcc_grnd_methane_cond_lake_old(:)
    real(r8), allocatable :: lulcc_layer_sat_lag_old(:,:), lulcc_lake_soilc_old(:,:)
@@ -418,7 +483,24 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   real(r8), allocatable :: lulcc_f_inund_levee_patch_old(:)
 	   real(r8), allocatable :: lulcc_f_inund_flood_patch_old(:)
 	   real(r8), allocatable :: lulcc_f_inund_flood_depth_patch_old(:)
-	   real(r8), allocatable :: lulcc_c_atm_old(:,:)
+   real(r8), allocatable :: lulcc_c_atm_old(:,:)
+	real(r8), allocatable :: lulcc_conc_o2_unsat_component_old(:,:,:)
+	real(r8), allocatable :: lulcc_conc_o2_sat_component_old(:,:,:)
+	real(r8), allocatable :: lulcc_conc_methane_unsat_component_old(:,:,:)
+	real(r8), allocatable :: lulcc_conc_methane_sat_component_old(:,:,:)
+	real(r8), allocatable :: lulcc_layer_sat_lag_component_old(:,:,:)
+	real(r8), allocatable :: lulcc_annavg_agnpp_component_old(:,:)
+	real(r8), allocatable :: lulcc_annavg_bgnpp_component_old(:,:)
+	real(r8), allocatable :: lulcc_annavg_somhr_component_old(:,:)
+	real(r8), allocatable :: lulcc_annavg_finrw_component_old(:,:)
+	real(r8), allocatable :: lulcc_tempavg_agnpp_component_old(:,:)
+	real(r8), allocatable :: lulcc_tempavg_bgnpp_component_old(:,:)
+	real(r8), allocatable :: lulcc_annsum_counter_component_old(:,:)
+	real(r8), allocatable :: lulcc_tempavg_somhr_component_old(:,:)
+	real(r8), allocatable :: lulcc_tempavg_finrw_component_old(:,:)
+	real(r8), allocatable :: lulcc_fsat_bef_component_old(:,:)
+	real(r8), allocatable :: lulcc_finundated_lag_component_old(:,:)
+	real(r8), allocatable :: lulcc_rice_fraction_prev_old(:)
 
 	   ! Temporary lake-substep history buffers.  Lake methane runs on the
 	   ! WATERBODY physics substep, while the normal history accumulator is
@@ -428,7 +510,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   ! them.  Prognostic states such as concentrations and lake_soilc are
 	   ! intentionally left at their final substep values.
 	   integer, parameter :: methane_lake_substep_n2d = 44
-	   integer, parameter :: methane_lake_substep_n1d = 49
+	   integer, parameter :: methane_lake_substep_n1d = 56
 	   real(r8), allocatable :: methane_lake_substep_acc2d(:,:)
 	   real(r8), allocatable :: methane_lake_substep_acc1d(:)
 	   integer :: methane_lake_substep_cached_ipatch = -1
@@ -436,47 +518,7 @@ MODULE MOD_Tracer_Reactive_Methane_State
 
    ! -------------------- API --------------------
 
-   INTERFACE credit_methane_restart_clip
-      MODULE PROCEDURE credit_methane_restart_clip_1d
-      MODULE PROCEDURE credit_methane_restart_clip_2d
-   END INTERFACE credit_methane_restart_clip
-
 CONTAINS
-
-   SUBROUTINE credit_methane_restart_clip_1d (field, credit_mass)
-      ! Accumulate positive CH4 mass introduced by restart sanitation.
-      ! The in-step clip path reports this as a negative surface-flux credit;
-      ! restart has no timestep length, so keep the boundary correction as a
-      ! mol/m2 impulse budget item and fold its sign into methane_ch4_clip_credit
-      ! for diagnostics that inspect the state immediately after restart.
-      real(r8), intent(in)    :: field(:)
-      real(r8), intent(inout) :: credit_mass(:)
-      integer :: i, n
-
-      n = min(size(field), size(credit_mass))
-      DO i = 1, n
-         IF (field(i) < 0._r8) credit_mass(i) = credit_mass(i) - field(i)
-      ENDDO
-   END SUBROUTINE credit_methane_restart_clip_1d
-
-   SUBROUTINE credit_methane_restart_clip_2d (field, credit_mass)
-      ! Convert negative concentration clips to a column impulse using the
-      ! canonical soil-layer thickness. This mirrors the in-step CH4 clip-credit
-      ! accounting while avoiding an unbudgeted restart mass insertion.
-      real(r8), intent(in)    :: field(:,:)
-      real(r8), intent(inout) :: credit_mass(:)
-      integer :: i, j, nlev, npatch
-      real(r8) :: dz
-
-      nlev = min(size(field,1), nl_soil)
-      npatch = min(size(field,2), size(credit_mass))
-      DO i = 1, npatch
-         DO j = 1, nlev
-            dz = max(dz_soi(j), 0._r8)
-            IF (field(j,i) < 0._r8) credit_mass(i) = credit_mass(i) - field(j,i) * dz
-         ENDDO
-      ENDDO
-   END SUBROUTINE credit_methane_restart_clip_2d
 
    SUBROUTINE allocate_methane_state (numpatch)
       USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
@@ -508,7 +550,6 @@ CONTAINS
       allocate (methane_surf_diff_phys          (numpatch)); methane_surf_diff_phys     (:) = 0._r8
       allocate (methane_balance_residual       (numpatch)); methane_balance_residual  (:) = 0._r8
       allocate (methane_ch4_clip_credit        (numpatch)); methane_ch4_clip_credit   (:) = 0._r8
-      allocate (restart_ch4_clip_credit_mass (numpatch)); restart_ch4_clip_credit_mass(:) = 0._r8
       allocate (o2_cap_loss                    (numpatch)); o2_cap_loss               (:) = 0._r8
       allocate (o2_cap_gain                    (numpatch)); o2_cap_gain               (:) = 0._r8
       allocate (methane_ebul_tot                (numpatch)); methane_ebul_tot           (:) = 0._r8
@@ -611,6 +652,10 @@ CONTAINS
 
 	      allocate (conc_methane_unsat       (nl_soil,numpatch)); conc_methane_unsat          (:,:) = 1.0e-6_r8
 	      allocate (conc_methane_sat         (nl_soil,numpatch)); conc_methane_sat            (:,:) = 1.0e-6_r8
+	      allocate (conc_o2_unsat_component      (nl_soil,N_METHANE_COMP,numpatch)); conc_o2_unsat_component      = 1.0_r8
+	      allocate (conc_o2_sat_component        (nl_soil,N_METHANE_COMP,numpatch)); conc_o2_sat_component        = 1.0_r8
+	      allocate (conc_methane_unsat_component (nl_soil,N_METHANE_COMP,numpatch)); conc_methane_unsat_component = 1.0e-6_r8
+	      allocate (conc_methane_sat_component   (nl_soil,N_METHANE_COMP,numpatch)); conc_methane_sat_component   = 1.0e-6_r8
 	      !!!! --------------------------------------------------------------------------------------------------------
 
 	      !!!! --------------------------------------------------------------------------------------------------------
@@ -634,11 +679,21 @@ CONTAINS
 	      allocate (grnd_methane_cond_lake          (numpatch)); grnd_methane_cond_lake       (:)   = DEF_METHANE%grnd_methane_cond_default
 	      allocate (conc_o2_lake             (nl_soil,numpatch)); conc_o2_lake                (:,:) = 1.0_r8
 	      allocate (conc_methane_lake        (nl_soil,numpatch)); conc_methane_lake           (:,:) = 0._r8
+	      allocate (lake_water_ch4_stock            (numpatch)); lake_water_ch4_stock         (:)   = 0._r8
+	      allocate (lake_water_o2_stock             (numpatch)); lake_water_o2_stock          (:)   = 0._r8
+	      allocate (lake_frozen_ch4_stock           (numpatch)); lake_frozen_ch4_stock        (:)   = 0._r8
+	      allocate (lake_frozen_o2_stock            (numpatch)); lake_frozen_o2_stock         (:)   = 0._r8
+	      allocate (lake_liquid_fraction_prev       (numpatch)); lake_liquid_fraction_prev    (:)   = spval
+	      allocate (lake_water_ch4_oxid             (numpatch)); lake_water_ch4_oxid          (:)   = 0._r8
+	      allocate (lake_sed_ch4_flux                (numpatch)); lake_sed_ch4_flux             (:)   = 0._r8
+	      allocate (lake_sed_o2_flux                 (numpatch)); lake_sed_o2_flux              (:)   = 0._r8
+	      allocate (lake_air_o2_flux                 (numpatch)); lake_air_o2_flux              (:)   = 0._r8
 	      !!!! --------------------------------------------------------------------------------------------------------
 
 	      allocate (c_atm                     (3,numpatch)); c_atm                (:,:) = 0._r8
       allocate (forc_pmethanem                  (numpatch)); forc_pmethanem             (:) = 0._r8
-      allocate (layer_sat_lag       (nl_soil,numpatch)); layer_sat_lag        (:,:) = spval
+	      allocate (layer_sat_lag       (nl_soil,numpatch)); layer_sat_lag        (:,:) = spval
+	      allocate (layer_sat_lag_component(nl_soil,N_METHANE_COMP,numpatch)); layer_sat_lag_component = spval
       allocate (lake_soilc          (nl_soil,numpatch)); lake_soilc           (:,:) = 0._r8
       allocate (annavg_agnpp                (numpatch)); annavg_agnpp           (:) = 0._r8
       allocate (annavg_bgnpp                (numpatch)); annavg_bgnpp           (:) = 0._r8
@@ -652,10 +707,22 @@ CONTAINS
       allocate (tempavg_bgnpp               (numpatch)); tempavg_bgnpp          (:) = 0._r8
       allocate (annsum_counter              (numpatch)); annsum_counter         (:) = 0._r8
       allocate (tempavg_somhr               (numpatch)); tempavg_somhr          (:) = 0._r8
-      allocate (tempavg_finrw               (numpatch)); tempavg_finrw          (:) = 0._r8
+	      allocate (tempavg_finrw               (numpatch)); tempavg_finrw          (:) = 0._r8
+	      allocate (annavg_agnpp_component  (N_METHANE_COMP,numpatch)); annavg_agnpp_component   = 0._r8
+	      allocate (annavg_bgnpp_component  (N_METHANE_COMP,numpatch)); annavg_bgnpp_component   = 0._r8
+	      allocate (annavg_somhr_component  (N_METHANE_COMP,numpatch)); annavg_somhr_component   = 0._r8
+	      allocate (annavg_finrw_component  (N_METHANE_COMP,numpatch)); annavg_finrw_component   = spval
+	      allocate (tempavg_agnpp_component (N_METHANE_COMP,numpatch)); tempavg_agnpp_component  = 0._r8
+	      allocate (tempavg_bgnpp_component (N_METHANE_COMP,numpatch)); tempavg_bgnpp_component  = 0._r8
+	      allocate (annsum_counter_component(N_METHANE_COMP,numpatch)); annsum_counter_component = 0._r8
+	      allocate (tempavg_somhr_component (N_METHANE_COMP,numpatch)); tempavg_somhr_component  = 0._r8
+	      allocate (tempavg_finrw_component (N_METHANE_COMP,numpatch)); tempavg_finrw_component  = 0._r8
 
-      allocate (fsat_bef                    (numpatch)); fsat_bef               (:) = spval
-      allocate (finundated_lag              (numpatch)); finundated_lag         (:) = spval
+	      allocate (fsat_bef                    (numpatch)); fsat_bef               (:) = spval
+	      allocate (finundated_lag              (numpatch)); finundated_lag         (:) = spval
+	      allocate (fsat_bef_component      (N_METHANE_COMP,numpatch)); fsat_bef_component       = spval
+	      allocate (finundated_lag_component(N_METHANE_COMP,numpatch)); finundated_lag_component = spval
+	      allocate (rice_fraction_prev      (numpatch)); rice_fraction_prev = 0._r8
       allocate (methane_dfsat_tot               (numpatch)); methane_dfsat_tot          (:) = 0._r8
       allocate (f_h2osfc                        (numpatch)); f_h2osfc                   (:) = 0._r8
       allocate (methane_finundated              (numpatch)); methane_finundated         (:) = 0._r8
@@ -665,6 +732,16 @@ CONTAINS
       allocate (methane_surf_flux_soil          (numpatch)); methane_surf_flux_soil     (:) = 0._r8
       allocate (methane_surf_flux_lake          (numpatch)); methane_surf_flux_lake     (:) = 0._r8
       allocate (methane_surf_flux_rice          (numpatch)); methane_surf_flux_rice     (:) = 0._r8
+	  allocate (methane_surf_aere_soil(numpatch)); methane_surf_aere_soil = 0._r8
+	  allocate (methane_surf_aere_rice(numpatch)); methane_surf_aere_rice = 0._r8
+	  allocate (methane_surf_ebul_soil(numpatch)); methane_surf_ebul_soil = 0._r8
+	  allocate (methane_surf_ebul_rice(numpatch)); methane_surf_ebul_rice = 0._r8
+	  allocate (methane_surf_diff_soil(numpatch)); methane_surf_diff_soil = 0._r8
+	  allocate (methane_surf_diff_rice(numpatch)); methane_surf_diff_rice = 0._r8
+	  allocate (methane_prod_tot_soil(numpatch)); methane_prod_tot_soil = 0._r8
+	  allocate (methane_prod_tot_rice(numpatch)); methane_prod_tot_rice = 0._r8
+	  allocate (methane_oxid_tot_soil(numpatch)); methane_oxid_tot_soil = 0._r8
+	  allocate (methane_oxid_tot_rice(numpatch)); methane_oxid_tot_rice = 0._r8
 	      allocate (f_inund_levee_patch             (numpatch)); f_inund_levee_patch        (:) = 0._r8
 	      allocate (f_inund_flood_patch             (numpatch)); f_inund_flood_patch        (:) = 0._r8
 	      allocate (f_inund_flood_depth_patch       (numpatch)); f_inund_flood_depth_patch  (:) = 0._r8
@@ -800,7 +877,6 @@ CONTAINS
       IF (allocated(methane_surf_diff_phys)) deallocate (methane_surf_diff_phys)
       IF (allocated(methane_balance_residual)) deallocate (methane_balance_residual)
       IF (allocated(methane_ch4_clip_credit)) deallocate (methane_ch4_clip_credit)
-      IF (allocated(restart_ch4_clip_credit_mass)) deallocate (restart_ch4_clip_credit_mass)
       IF (allocated(o2_cap_loss)) deallocate (o2_cap_loss)
       IF (allocated(o2_cap_gain)) deallocate (o2_cap_gain)
       IF (allocated(methane_ebul_tot)) deallocate (methane_ebul_tot)
@@ -861,6 +937,10 @@ CONTAINS
 	      IF (allocated(conc_o2_sat)) deallocate (conc_o2_sat)
 	      IF (allocated(conc_methane_unsat)) deallocate (conc_methane_unsat)
 	      IF (allocated(conc_methane_sat)) deallocate (conc_methane_sat)
+	      IF (allocated(conc_o2_unsat_component)) deallocate (conc_o2_unsat_component)
+	      IF (allocated(conc_o2_sat_component)) deallocate (conc_o2_sat_component)
+	      IF (allocated(conc_methane_unsat_component)) deallocate (conc_methane_unsat_component)
+	      IF (allocated(conc_methane_sat_component)) deallocate (conc_methane_sat_component)
 	      !!!! --------------------------------------------------------------------------------------------------------
 
 	      !!!! --------------------------------------------------------------------------------------------------------
@@ -879,11 +959,21 @@ CONTAINS
 	      IF (allocated(grnd_methane_cond_lake)) deallocate (grnd_methane_cond_lake)
 	      IF (allocated(conc_o2_lake)) deallocate (conc_o2_lake)
 	      IF (allocated(conc_methane_lake)) deallocate (conc_methane_lake)
+	      IF (allocated(lake_water_ch4_stock)) deallocate (lake_water_ch4_stock)
+	      IF (allocated(lake_water_o2_stock)) deallocate (lake_water_o2_stock)
+	      IF (allocated(lake_frozen_ch4_stock)) deallocate (lake_frozen_ch4_stock)
+	      IF (allocated(lake_frozen_o2_stock)) deallocate (lake_frozen_o2_stock)
+	      IF (allocated(lake_liquid_fraction_prev)) deallocate (lake_liquid_fraction_prev)
+	      IF (allocated(lake_water_ch4_oxid)) deallocate (lake_water_ch4_oxid)
+	      IF (allocated(lake_sed_ch4_flux)) deallocate (lake_sed_ch4_flux)
+	      IF (allocated(lake_sed_o2_flux)) deallocate (lake_sed_o2_flux)
+	      IF (allocated(lake_air_o2_flux)) deallocate (lake_air_o2_flux)
 	      !!!! --------------------------------------------------------------------------------------------------------
 
 	      IF (allocated(c_atm)) deallocate (c_atm)
       IF (allocated(forc_pmethanem)) deallocate (forc_pmethanem)
       IF (allocated(layer_sat_lag)) deallocate (layer_sat_lag)
+	  IF (allocated(layer_sat_lag_component)) deallocate (layer_sat_lag_component)
       IF (allocated(lake_soilc)) deallocate (lake_soilc)
       IF (allocated(annavg_agnpp)) deallocate (annavg_agnpp)
       IF (allocated(annavg_bgnpp)) deallocate (annavg_bgnpp)
@@ -894,8 +984,20 @@ CONTAINS
       IF (allocated(annsum_counter)) deallocate (annsum_counter)
       IF (allocated(tempavg_somhr)) deallocate (tempavg_somhr)
       IF (allocated(tempavg_finrw)) deallocate (tempavg_finrw)
+	  IF (allocated(annavg_agnpp_component)) deallocate (annavg_agnpp_component)
+	  IF (allocated(annavg_bgnpp_component)) deallocate (annavg_bgnpp_component)
+	  IF (allocated(annavg_somhr_component)) deallocate (annavg_somhr_component)
+	  IF (allocated(annavg_finrw_component)) deallocate (annavg_finrw_component)
+	  IF (allocated(tempavg_agnpp_component)) deallocate (tempavg_agnpp_component)
+	  IF (allocated(tempavg_bgnpp_component)) deallocate (tempavg_bgnpp_component)
+	  IF (allocated(annsum_counter_component)) deallocate (annsum_counter_component)
+	  IF (allocated(tempavg_somhr_component)) deallocate (tempavg_somhr_component)
+	  IF (allocated(tempavg_finrw_component)) deallocate (tempavg_finrw_component)
       IF (allocated(fsat_bef)) deallocate (fsat_bef)
       IF (allocated(finundated_lag)) deallocate (finundated_lag)
+	  IF (allocated(fsat_bef_component)) deallocate (fsat_bef_component)
+	  IF (allocated(finundated_lag_component)) deallocate (finundated_lag_component)
+	  IF (allocated(rice_fraction_prev)) deallocate (rice_fraction_prev)
       IF (allocated(methane_dfsat_tot)) deallocate (methane_dfsat_tot)
 	      IF (allocated(f_h2osfc)) deallocate (f_h2osfc)
 	      IF (allocated(methane_finundated)) deallocate (methane_finundated)
@@ -905,6 +1007,16 @@ CONTAINS
 	      IF (allocated(methane_surf_flux_soil)) deallocate (methane_surf_flux_soil)
 	      IF (allocated(methane_surf_flux_lake)) deallocate (methane_surf_flux_lake)
 	      IF (allocated(methane_surf_flux_rice)) deallocate (methane_surf_flux_rice)
+	      IF (allocated(methane_surf_aere_soil)) deallocate (methane_surf_aere_soil)
+	      IF (allocated(methane_surf_aere_rice)) deallocate (methane_surf_aere_rice)
+	      IF (allocated(methane_surf_ebul_soil)) deallocate (methane_surf_ebul_soil)
+	      IF (allocated(methane_surf_ebul_rice)) deallocate (methane_surf_ebul_rice)
+	      IF (allocated(methane_surf_diff_soil)) deallocate (methane_surf_diff_soil)
+	      IF (allocated(methane_surf_diff_rice)) deallocate (methane_surf_diff_rice)
+	      IF (allocated(methane_prod_tot_soil)) deallocate (methane_prod_tot_soil)
+	      IF (allocated(methane_prod_tot_rice)) deallocate (methane_prod_tot_rice)
+	      IF (allocated(methane_oxid_tot_soil)) deallocate (methane_oxid_tot_soil)
+	      IF (allocated(methane_oxid_tot_rice)) deallocate (methane_oxid_tot_rice)
 	      IF (allocated(f_inund_levee_patch)) deallocate (f_inund_levee_patch)
 	      IF (allocated(f_inund_flood_patch)) deallocate (f_inund_flood_patch)
 	      IF (allocated(f_inund_flood_depth_patch)) deallocate (f_inund_flood_depth_patch)
@@ -1063,6 +1175,13 @@ CONTAINS
 	      CALL add1d(40, co2_decomp_tot_lake(ipatch))
 	      CALL add1d(41, co2_oxid_tot_lake(ipatch))
 	      CALL add1d(42, co2_net_tot_lake(ipatch))
+	      CALL add1d(50, lake_water_ch4_oxid(ipatch))
+	      CALL add1d(51, lake_sed_ch4_flux(ipatch))
+	      CALL add1d(52, lake_sed_o2_flux(ipatch))
+	      CALL add1d(53, lake_air_o2_flux(ipatch))
+	      CALL add1d(54, grnd_methane_cond(ipatch))
+	      CALL add1d(55, grnd_methane_cond_sat(ipatch))
+	      CALL add1d(56, grnd_methane_cond_lake(ipatch))
 
 	      IF (isub == nsub) THEN
 	         total_dt = substep_dt * real(nsub, r8)
@@ -1161,6 +1280,13 @@ CONTAINS
 	            CALL finish1d(40, co2_decomp_tot_lake(ipatch))
 	            CALL finish1d(41, co2_oxid_tot_lake(ipatch))
 	            CALL finish1d(42, co2_net_tot_lake(ipatch))
+	            CALL finish1d(50, lake_water_ch4_oxid(ipatch))
+	            CALL finish1d(51, lake_sed_ch4_flux(ipatch))
+	            CALL finish1d(52, lake_sed_o2_flux(ipatch))
+	            CALL finish1d(53, lake_air_o2_flux(ipatch))
+	            CALL finish1d(54, grnd_methane_cond(ipatch))
+	            CALL finish1d(55, grnd_methane_cond_sat(ipatch))
+	            CALL finish1d(56, grnd_methane_cond_lake(ipatch))
 	         ENDIF
 	         methane_lake_substep_cached_ipatch = -1
 	         methane_lake_substep_next_isub = 1
@@ -1205,7 +1331,7 @@ CONTAINS
    ! immediately before methane_driver. Implementation is minimal-invasion:
    ! does NOT modify CoLM202X WATER_2014/WATER_VSF/Runoff physics. f_h2osfc
    ! is recomputed each step from current wdsrf + slpratio + microtopography
-   ! params (DEF_METHANE_hydrology%slopemax/slopebeta/pc).
+   ! params (DEF_METHANE_hydrology%slopemax/slopebeta).
    !
    ! Inputs:
    !   ipatch    — patch index
@@ -1221,35 +1347,28 @@ CONTAINS
       real(r8), intent(in) :: slpratio_in      ! slope ratio [-]
       real(r8), intent(in) :: wdsrf_in         ! surface water depth [mm]
 
-      real(r8) :: micro_sigma, sigma_mm, d, slope_arg, slope_angle
+      real(r8) :: micro_sigma, sigma_mm, d, slope_angle, slope_arg
       real(r8) :: fd, dfdd, d_lo, d_hi, d_mid, f_mid
       integer  :: p
       logical  :: converged
       real(r8), parameter :: pondmin = 1.e-8_r8
       real(r8), parameter :: fd_tol  = 1.e-10_r8
 
-      IF (wdsrf_in <= pondmin .or. abs(slpratio_in) >= 1.e30_r8 .or. &
+      IF (.not. ieee_is_finite(wdsrf_in) .or. .not. ieee_is_finite(slpratio_in) .or. &
+          wdsrf_in == spval .or. slpratio_in == spval .or. &
+          wdsrf_in <= pondmin .or. abs(slpratio_in) >= 1.e30_r8 .or. &
           DEF_METHANE_hydrology%slopemax <= 0._r8 .or. &
-          DEF_METHANE_hydrology%slopebeta == 0._r8) THEN
+          DEF_METHANE_hydrology%slopebeta >= 0._r8) THEN
          f_h2osfc(ipatch) = 0._r8
          RETURN
       END IF
 
-      ! micro_sigma in [m], parametrised from a non-negative slope angle.
-      ! CoLM landdata usually stores slpratio as tan(slope), while some raw
-      ! topography products expose slope as radians, degrees, or percent.  Use
-      ! the historical tan(slope) path for normal small values, but normalize
-      ! obvious degree/percent encodings before applying the CLM expression.
+      ! MOD_Vars_TimeInvariants defines slpratio as the dimensionless rise/run
+      ! ratio, so the physical slope angle is unambiguously atan(slpratio).
+      ! Guessing radians/degrees/percent from magnitude creates discontinuities
+      ! for perfectly valid steep slopes (slpratio > 1).
       slope_arg = max(slpratio_in, 0._r8)
-      IF (slope_arg <= 1._r8) THEN
-         slope_angle = atan(slope_arg)
-      ELSEIF (slope_arg <= 0.5_r8*PI) THEN
-         slope_angle = slope_arg
-      ELSEIF (slope_arg <= 90._r8) THEN
-         slope_angle = slope_arg * PI / 180._r8
-      ELSE
-         slope_angle = atan(slope_arg / 100._r8)
-      ENDIF
+      slope_angle = atan(slope_arg)
       slope_angle = max(0._r8, min(0.5_r8*PI, slope_angle))
       micro_sigma = (slope_angle + &
                      DEF_METHANE_hydrology%slopemax**(1._r8/DEF_METHANE_hydrology%slopebeta) &
@@ -1330,8 +1449,24 @@ CONTAINS
 	      CALL ncio_write_vector (file_restart, 'ch4_conc_o2_sat',      'soil', nl_soil, 'patch', landpatch, conc_o2_sat,      compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_unsat',   'soil', nl_soil, &
 	                              'patch', landpatch, conc_methane_unsat, compress)
-		      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_sat',     'soil', nl_soil, &
-		                              'patch', landpatch, conc_methane_sat,   compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_sat',     'soil', nl_soil, &
+	                              'patch', landpatch, conc_methane_sat,   compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_o2_unsat_soil', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_o2_unsat_component(:,METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_o2_unsat_rice', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_o2_unsat_component(:,METHANE_COMP_RICE,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_o2_sat_soil', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_o2_sat_component(:,METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_o2_sat_rice', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_o2_sat_component(:,METHANE_COMP_RICE,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_unsat_soil', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_methane_unsat_component(:,METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_unsat_rice', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_methane_unsat_component(:,METHANE_COMP_RICE,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_sat_soil', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_methane_sat_component(:,METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_sat_rice', 'soil', nl_soil, &
+	                              'patch', landpatch, conc_methane_sat_component(:,METHANE_COMP_RICE,:), compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_totcol_methane_unsat','patch', landpatch, totcol_methane_unsat, compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_totcol_methane_sat',  'patch', landpatch, totcol_methane_sat,   compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_grnd_methane_cond_unsat','patch', landpatch, grnd_methane_cond_unsat, compress)
@@ -1340,7 +1475,17 @@ CONTAINS
 	      CALL ncio_write_vector (file_restart, 'ch4_conc_ch4_lake',    'soil', nl_soil, 'patch', landpatch, conc_methane_lake, compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_totcol_lake',      'patch', landpatch, totcol_methane_lake, compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_grnd_methane_cond_lake','patch', landpatch, grnd_methane_cond_lake, compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_lake_water_ch4_stock','patch', landpatch, lake_water_ch4_stock, compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_lake_water_o2_stock', 'patch', landpatch, lake_water_o2_stock,  compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_lake_frozen_ch4_stock','patch', landpatch, lake_frozen_ch4_stock, compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_lake_frozen_o2_stock', 'patch', landpatch, lake_frozen_o2_stock,  compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_lake_liquid_fraction_prev', 'patch', landpatch, &
+	         lake_liquid_fraction_prev, compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_layer_sat_lag',    'soil', nl_soil, 'patch', landpatch, layer_sat_lag,    compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_layer_sat_lag_soil', 'soil', nl_soil, &
+	                              'patch', landpatch, layer_sat_lag_component(:,METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_layer_sat_lag_rice', 'soil', nl_soil, &
+	                              'patch', landpatch, layer_sat_lag_component(:,METHANE_COMP_RICE,:), compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_lake_soilc',       'soil', nl_soil, 'patch', landpatch, lake_soilc,       compress)
       CALL ncio_write_vector (file_restart, 'ch4_annavg_agnpp',     'patch', landpatch, annavg_agnpp,     compress)
       CALL ncio_write_vector (file_restart, 'ch4_annavg_bgnpp',     'patch', landpatch, annavg_bgnpp,     compress)
@@ -1351,8 +1496,53 @@ CONTAINS
       CALL ncio_write_vector (file_restart, 'ch4_annsum_counter',   'patch', landpatch, annsum_counter,   compress)
       CALL ncio_write_vector (file_restart, 'ch4_tempavg_somhr',    'patch', landpatch, tempavg_somhr,    compress)
       CALL ncio_write_vector (file_restart, 'ch4_tempavg_finrw',    'patch', landpatch, tempavg_finrw,    compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_agnpp_soil', 'patch', landpatch, &
+	     annavg_agnpp_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_agnpp_rice', 'patch', landpatch, &
+	     annavg_agnpp_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_bgnpp_soil', 'patch', landpatch, &
+	     annavg_bgnpp_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_bgnpp_rice', 'patch', landpatch, &
+	     annavg_bgnpp_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_somhr_soil', 'patch', landpatch, &
+	     annavg_somhr_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_somhr_rice', 'patch', landpatch, &
+	     annavg_somhr_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_finrw_soil', 'patch', landpatch, &
+	     annavg_finrw_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annavg_finrw_rice', 'patch', landpatch, &
+	     annavg_finrw_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_agnpp_soil', 'patch', landpatch, &
+	     tempavg_agnpp_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_agnpp_rice', 'patch', landpatch, &
+	     tempavg_agnpp_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_bgnpp_soil', 'patch', landpatch, &
+	     tempavg_bgnpp_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_bgnpp_rice', 'patch', landpatch, &
+	     tempavg_bgnpp_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annsum_counter_soil', 'patch', landpatch, &
+	     annsum_counter_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_annsum_counter_rice', 'patch', landpatch, &
+	     annsum_counter_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_somhr_soil', 'patch', landpatch, &
+	     tempavg_somhr_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_somhr_rice', 'patch', landpatch, &
+	     tempavg_somhr_component(METHANE_COMP_RICE,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_finrw_soil', 'patch', landpatch, &
+	     tempavg_finrw_component(METHANE_COMP_SOIL,:), compress)
+	  CALL ncio_write_vector (file_restart, 'ch4_tempavg_finrw_rice', 'patch', landpatch, &
+	     tempavg_finrw_component(METHANE_COMP_RICE,:), compress)
       CALL ncio_write_vector (file_restart, 'ch4_fsat_bef',         'patch', landpatch, fsat_bef,         compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_finundated_lag',   'patch', landpatch, finundated_lag,   compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_fsat_bef_soil', 'patch', landpatch, &
+	         fsat_bef_component(METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_fsat_bef_rice', 'patch', landpatch, &
+	         fsat_bef_component(METHANE_COMP_RICE,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_finundated_lag_soil', 'patch', landpatch, &
+	         finundated_lag_component(METHANE_COMP_SOIL,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_finundated_lag_rice', 'patch', landpatch, &
+	         finundated_lag_component(METHANE_COMP_RICE,:), compress)
+	      CALL ncio_write_vector (file_restart, 'ch4_rice_fraction_prev', 'patch', landpatch, rice_fraction_prev, compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_methane_dfsat_tot','patch', landpatch, methane_dfsat_tot, compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_f_h2osfc',         'patch', landpatch, f_h2osfc,         compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_f_inund_levee_patch',       &
@@ -1361,18 +1551,102 @@ CONTAINS
 	                              'patch', landpatch, f_inund_flood_patch,       compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_f_inund_flood_depth_patch', &
 	                              'patch', landpatch, f_inund_flood_depth_patch, compress)
-      IF (allocated(restart_ch4_clip_credit_mass)) CALL ncio_write_vector (file_restart, &
-         'ch4_restart_ch4_clip_credit_mass', 'patch', landpatch, restart_ch4_clip_credit_mass, compress)
 	   END SUBROUTINE write_methane_restart
 
 
-	   SUBROUTINE read_methane_restart (file_restart)
+	   SUBROUTINE read_methane_restart (file_restart, strict_restart, restart_schema)
 	      USE MOD_LandPatch,     only: landpatch
 	      USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
-		      USE MOD_NetCDFVector,  only: ncio_read_vector => ncio_read_vector_complete
+	      USE MOD_Vars_TimeInvariants, only: patchtype
+	      USE MOD_NetCDFVector,  only: ncio_read_vector => ncio_read_vector_complete, &
+	         ncio_set_complete_require_present, ncio_vector_var_present, &
+	         ncio_vector_group_presence
+#ifdef USEMPI
+	      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, p_comm_glb, p_err, &
+	         MPI_IN_PLACE, MPI_LOGICAL, MPI_LOR, MPI_INTEGER, MPI_SUM, CoLM_stop
+#else
+	      USE MOD_SPMD_Task, only: p_is_worker, p_is_master, CoLM_stop
+#endif
 		      character(len=*), intent(in) :: file_restart
+	      logical, intent(in), optional :: strict_restart
+	      integer, intent(in), optional :: restart_schema
+	      integer, parameter :: n_component_restart_fields = 33
+	      character(len=40), parameter :: component_restart_fields(n_component_restart_fields) = &
+	         [character(len=40) :: &
+	          'ch4_conc_o2_unsat_soil', 'ch4_conc_o2_unsat_rice', &
+	          'ch4_conc_o2_sat_soil', 'ch4_conc_o2_sat_rice', &
+	          'ch4_conc_ch4_unsat_soil', 'ch4_conc_ch4_unsat_rice', &
+	          'ch4_conc_ch4_sat_soil', 'ch4_conc_ch4_sat_rice', &
+	          'ch4_layer_sat_lag_soil', 'ch4_layer_sat_lag_rice', &
+	          'ch4_annavg_agnpp_soil', 'ch4_annavg_agnpp_rice', &
+	          'ch4_annavg_bgnpp_soil', 'ch4_annavg_bgnpp_rice', &
+	          'ch4_annavg_somhr_soil', 'ch4_annavg_somhr_rice', &
+	          'ch4_annavg_finrw_soil', 'ch4_annavg_finrw_rice', &
+	          'ch4_tempavg_agnpp_soil', 'ch4_tempavg_agnpp_rice', &
+	          'ch4_tempavg_bgnpp_soil', 'ch4_tempavg_bgnpp_rice', &
+	          'ch4_annsum_counter_soil', 'ch4_annsum_counter_rice', &
+	          'ch4_tempavg_somhr_soil', 'ch4_tempavg_somhr_rice', &
+	          'ch4_tempavg_finrw_soil', 'ch4_tempavg_finrw_rice', &
+	          'ch4_fsat_bef_soil', 'ch4_fsat_bef_rice', &
+	          'ch4_finundated_lag_soil', 'ch4_finundated_lag_rice', &
+	          'ch4_rice_fraction_prev']
+	      logical :: strict_restart_active
+	      logical :: lake_water_ch4_present, lake_water_o2_present, lake_soilc_present
+	      logical :: lake_phase_fields_present(3)
+	      character(len=40), parameter :: lake_phase_fields(3) = [character(len=40) :: &
+	         'ch4_lake_frozen_ch4_stock', 'ch4_lake_frozen_o2_stock', &
+	         'ch4_lake_liquid_fraction_prev']
+	      logical :: component_fields_present(n_component_restart_fields)
+	      logical :: component_state_present, component_state_required
+	      integer :: ipatch, npatch, component, restart_schema_active, corrupt_prognostic_values
+	      integer :: invalid_lake_inventory
+	      real(r8) :: lake_component_total, lake_inventory_tolerance
 
 		      IF (.not. allocated(conc_methane)) RETURN
+	      strict_restart_active = .false.
+	      IF (present(strict_restart)) strict_restart_active = strict_restart
+	      restart_schema_active = 0
+	      IF (present(restart_schema)) restart_schema_active = restart_schema
+	      component_state_required = strict_restart_active .and. restart_schema_active >= 3
+	      CALL ncio_vector_group_presence(file_restart, component_restart_fields, &
+	         landpatch, component_fields_present)
+	      component_state_present = all(component_fields_present)
+	      IF ((component_state_required .and. .not. component_state_present) .or. &
+	          (any(component_fields_present) .and. .not. component_state_present)) THEN
+	         IF (p_is_master) WRITE(*,'(A)') &
+	            'ERROR: methane soil/rice component restart group is incomplete.'
+	         CALL CoLM_stop()
+	      ENDIF
+	      ! Schema 1 predates these two stocks.  Presence probes distinguish a
+	      ! legitimate missing-field sentinel from an explicitly stored corrupt
+	      ! value while retaining mixed-block detection.  Schema 2's required
+	      ! complete reads already perform the same presence/shape preflight.
+	      IF (strict_restart_active .and. restart_schema_active >= 2) THEN
+	         lake_water_ch4_present = .true.
+	         lake_water_o2_present = .true.
+	      ELSE
+	         lake_water_ch4_present = ncio_vector_var_present(file_restart, &
+	            'ch4_lake_water_ch4_stock', landpatch)
+	         lake_water_o2_present = ncio_vector_var_present(file_restart, &
+	            'ch4_lake_water_o2_stock', landpatch)
+	      ENDIF
+	      ! Committed schemas require lake_soilc.  Markerless legacy files may
+	      ! predate it; in that case preserve the surface-data initialization
+	      ! performed before restart loading instead of overwriting it with zero.
+	      lake_soilc_present = strict_restart_active
+	      IF (.not. strict_restart_active) lake_soilc_present = &
+	         ncio_vector_var_present(file_restart, 'ch4_lake_soilc', landpatch)
+	      IF (strict_restart_active .and. restart_schema_active >= 4) THEN
+	         lake_phase_fields_present = .true.
+	      ELSE
+	         CALL ncio_vector_group_presence(file_restart, lake_phase_fields, &
+	            landpatch, lake_phase_fields_present)
+	         IF (any(lake_phase_fields_present) .and. .not. all(lake_phase_fields_present)) THEN
+	            IF (p_is_master) WRITE(*,'(A)') &
+	               'ERROR: methane lake frozen-phase restart group is incomplete.'
+	            CALL CoLM_stop()
+	         ENDIF
+	      ENDIF
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2',          nl_soil, landpatch, conc_o2,          defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_methane',     nl_soil, landpatch, conc_methane,     defval = 1.e-6_r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane',   landpatch, totcol_methane,            defval = spval)
@@ -1382,6 +1656,21 @@ CONTAINS
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_o2_sat',      nl_soil, landpatch, conc_o2_sat,      defval = 1._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_ch4_unsat',   nl_soil, landpatch, conc_methane_unsat, defval = 1.e-6_r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_conc_ch4_sat',     nl_soil, landpatch, conc_methane_sat,   defval = 1.e-6_r8)
+	      IF (component_state_present) THEN
+	         CALL read_component_2d('ch4_conc_o2_unsat_soil', conc_o2_unsat_component(:,METHANE_COMP_SOIL,:))
+	         CALL read_component_2d('ch4_conc_o2_unsat_rice', conc_o2_unsat_component(:,METHANE_COMP_RICE,:))
+	         CALL read_component_2d('ch4_conc_o2_sat_soil', conc_o2_sat_component(:,METHANE_COMP_SOIL,:))
+	         CALL read_component_2d('ch4_conc_o2_sat_rice', conc_o2_sat_component(:,METHANE_COMP_RICE,:))
+	         CALL read_component_2d('ch4_conc_ch4_unsat_soil', conc_methane_unsat_component(:,METHANE_COMP_SOIL,:))
+	         CALL read_component_2d('ch4_conc_ch4_unsat_rice', conc_methane_unsat_component(:,METHANE_COMP_RICE,:))
+	         CALL read_component_2d('ch4_conc_ch4_sat_soil', conc_methane_sat_component(:,METHANE_COMP_SOIL,:))
+	         CALL read_component_2d('ch4_conc_ch4_sat_rice', conc_methane_sat_component(:,METHANE_COMP_RICE,:))
+	      ELSE
+	         conc_o2_unsat_component = spval
+	         conc_o2_sat_component = spval
+	         conc_methane_unsat_component = spval
+	         conc_methane_sat_component = spval
+	      ENDIF
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane_unsat', landpatch, totcol_methane_unsat,    defval = spval)
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_methane_sat',   landpatch, totcol_methane_sat,      defval = spval)
 		      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_unsat', landpatch, grnd_methane_cond_unsat, &
@@ -1393,8 +1682,33 @@ CONTAINS
 	      CALL ncio_read_vector (file_restart, 'ch4_totcol_lake',      landpatch, totcol_methane_lake,         defval = spval)
 		      CALL ncio_read_vector (file_restart, 'ch4_grnd_methane_cond_lake', landpatch, grnd_methane_cond_lake, &
 		         defval = DEF_METHANE%grnd_methane_cond_default)
+	      IF (strict_restart_active .and. restart_schema_active == 1) THEN
+	         CALL ncio_set_complete_require_present (.false.)
+	      ENDIF
+	      CALL ncio_read_vector (file_restart, 'ch4_lake_water_ch4_stock', landpatch, lake_water_ch4_stock, defval = spval)
+	      CALL ncio_read_vector (file_restart, 'ch4_lake_water_o2_stock',  landpatch, lake_water_o2_stock,  defval = spval)
+	      IF (strict_restart_active .and. restart_schema_active == 1) THEN
+	         CALL ncio_set_complete_require_present (.true.)
+	      ENDIF
+	      IF (strict_restart_active .and. restart_schema_active < 4) &
+	         CALL ncio_set_complete_require_present (.false.)
+	      CALL ncio_read_vector (file_restart, 'ch4_lake_frozen_ch4_stock', &
+	         landpatch, lake_frozen_ch4_stock, defval = 0._r8)
+	      CALL ncio_read_vector (file_restart, 'ch4_lake_frozen_o2_stock', &
+	         landpatch, lake_frozen_o2_stock, defval = 0._r8)
+	      CALL ncio_read_vector (file_restart, 'ch4_lake_liquid_fraction_prev', &
+	         landpatch, lake_liquid_fraction_prev, defval = spval)
+	      IF (strict_restart_active .and. restart_schema_active < 4) &
+	         CALL ncio_set_complete_require_present (.true.)
 	      CALL ncio_read_vector (file_restart, 'ch4_layer_sat_lag',    nl_soil, landpatch, layer_sat_lag,    defval = spval)
-      CALL ncio_read_vector (file_restart, 'ch4_lake_soilc',       nl_soil, landpatch, lake_soilc,       defval = 0._r8)
+	      IF (component_state_present) THEN
+	         CALL read_component_2d('ch4_layer_sat_lag_soil', layer_sat_lag_component(:,METHANE_COMP_SOIL,:))
+	         CALL read_component_2d('ch4_layer_sat_lag_rice', layer_sat_lag_component(:,METHANE_COMP_RICE,:))
+	      ELSE
+	         layer_sat_lag_component = spval
+	      ENDIF
+      IF (lake_soilc_present) CALL ncio_read_vector (file_restart, 'ch4_lake_soilc', &
+         nl_soil, landpatch, lake_soilc, defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'ch4_annavg_agnpp',     landpatch, annavg_agnpp,     defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'ch4_annavg_bgnpp',     landpatch, annavg_bgnpp,     defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'ch4_annavg_somhr',     landpatch, annavg_somhr,     defval = 0._r8)
@@ -1404,8 +1718,49 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'ch4_annsum_counter',   landpatch, annsum_counter,   defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'ch4_tempavg_somhr',    landpatch, tempavg_somhr,    defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'ch4_tempavg_finrw',    landpatch, tempavg_finrw,    defval = 0._r8)
+	  IF (component_state_present) THEN
+	  CALL read_component_1d('ch4_annavg_agnpp_soil', annavg_agnpp_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_annavg_agnpp_rice', annavg_agnpp_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_annavg_bgnpp_soil', annavg_bgnpp_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_annavg_bgnpp_rice', annavg_bgnpp_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_annavg_somhr_soil', annavg_somhr_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_annavg_somhr_rice', annavg_somhr_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_annavg_finrw_soil', annavg_finrw_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_annavg_finrw_rice', annavg_finrw_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_tempavg_agnpp_soil', tempavg_agnpp_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_tempavg_agnpp_rice', tempavg_agnpp_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_tempavg_bgnpp_soil', tempavg_bgnpp_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_tempavg_bgnpp_rice', tempavg_bgnpp_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_annsum_counter_soil', annsum_counter_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_annsum_counter_rice', annsum_counter_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_tempavg_somhr_soil', tempavg_somhr_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_tempavg_somhr_rice', tempavg_somhr_component(METHANE_COMP_RICE,:))
+	  CALL read_component_1d('ch4_tempavg_finrw_soil', tempavg_finrw_component(METHANE_COMP_SOIL,:))
+	  CALL read_component_1d('ch4_tempavg_finrw_rice', tempavg_finrw_component(METHANE_COMP_RICE,:))
+	  ELSE
+	     annavg_agnpp_component = spval
+	     annavg_bgnpp_component = spval
+	     annavg_somhr_component = spval
+	     annavg_finrw_component = spval
+	     tempavg_agnpp_component = spval
+	     tempavg_bgnpp_component = spval
+	     annsum_counter_component = spval
+	     tempavg_somhr_component = spval
+	     tempavg_finrw_component = spval
+	  ENDIF
 	      CALL ncio_read_vector (file_restart, 'ch4_fsat_bef',         landpatch, fsat_bef,         defval = spval)
 	      CALL ncio_read_vector (file_restart, 'ch4_finundated_lag',   landpatch, finundated_lag,   defval = spval)
+	      IF (component_state_present) THEN
+	         CALL read_component_1d('ch4_fsat_bef_soil', fsat_bef_component(METHANE_COMP_SOIL,:))
+	         CALL read_component_1d('ch4_fsat_bef_rice', fsat_bef_component(METHANE_COMP_RICE,:))
+	         CALL read_component_1d('ch4_finundated_lag_soil', finundated_lag_component(METHANE_COMP_SOIL,:))
+	         CALL read_component_1d('ch4_finundated_lag_rice', finundated_lag_component(METHANE_COMP_RICE,:))
+	         CALL ncio_read_vector (file_restart, 'ch4_rice_fraction_prev', landpatch, rice_fraction_prev, defval = spval)
+	      ELSE
+	         fsat_bef_component = spval
+	         finundated_lag_component = spval
+	         rice_fraction_prev = spval
+	      ENDIF
 	      CALL ncio_read_vector (file_restart, 'ch4_methane_dfsat_tot',landpatch, methane_dfsat_tot, defval = 0._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_f_h2osfc',         landpatch, f_h2osfc,         defval = 0._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_f_inund_levee_patch',       landpatch, &
@@ -1414,8 +1769,178 @@ CONTAINS
 	                             f_inund_flood_patch,       defval = 0._r8)
 	      CALL ncio_read_vector (file_restart, 'ch4_f_inund_flood_depth_patch', landpatch, &
 	                             f_inund_flood_depth_patch, defval = 0._r8)
-      IF (allocated(restart_ch4_clip_credit_mass)) CALL ncio_read_vector (file_restart, &
-         'ch4_restart_ch4_clip_credit_mass', landpatch, restart_ch4_clip_credit_mass, defval = 0._r8)
+
+	      ! A committed transaction is reproducible only if its prognostic state
+	      ! is used verbatim.  Reject corrupt/negative concentrations, inventories,
+	      ! and lake substrate before any repair.  Schema 1 legitimately lacks the
+	      ! two water-column stocks; those missing values are the sole strict-mode
+	      ! migration exception.  Marker-less legacy files retain the documented
+	      ! sanitation path, with a collective warning rather than silent mutation.
+	      corrupt_prognostic_values = 0
+	      IF (p_is_worker) THEN
+	         corrupt_prognostic_values = &
+	            count(invalid_restart_value(conc_o2) .or. conc_o2 < 0._r8) + &
+	            count(invalid_restart_value(conc_o2_unsat) .or. conc_o2_unsat < 0._r8) + &
+	            count(invalid_restart_value(conc_o2_sat) .or. conc_o2_sat < 0._r8) + &
+	            count(invalid_restart_value(conc_o2_lake) .or. conc_o2_lake < 0._r8) + &
+	            count(invalid_restart_value(conc_methane) .or. conc_methane < 0._r8) + &
+	            count(invalid_restart_value(conc_methane_unsat) .or. conc_methane_unsat < 0._r8) + &
+	            count(invalid_restart_value(conc_methane_sat) .or. conc_methane_sat < 0._r8) + &
+	            count(invalid_restart_value(conc_methane_lake) .or. conc_methane_lake < 0._r8) + &
+	            count(invalid_restart_value(totcol_methane) .or. totcol_methane < 0._r8) + &
+	            count(invalid_restart_value(totcol_methane_unsat) .or. totcol_methane_unsat < 0._r8) + &
+	            count(invalid_restart_value(totcol_methane_sat) .or. totcol_methane_sat < 0._r8) + &
+	            count(invalid_restart_value(totcol_methane_lake) .or. totcol_methane_lake < 0._r8) + &
+	            count(invalid_restart_value(lake_soilc) .or. lake_soilc < 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond) .or. grnd_methane_cond <= 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond_unsat) .or. grnd_methane_cond_unsat <= 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond_sat) .or. grnd_methane_cond_sat <= 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake <= 0._r8) + &
+	            count(invalid_restart_value(annavg_agnpp) .or. annavg_agnpp < 0._r8) + &
+	            count(invalid_restart_value(annavg_bgnpp) .or. annavg_bgnpp < 0._r8) + &
+	            count(invalid_restart_value(annavg_somhr) .or. annavg_somhr < 0._r8) + &
+	            count(invalid_restart_fraction_or_sentinel(annavg_finrw)) + &
+	            count(invalid_restart_value(tempavg_agnpp) .or. tempavg_agnpp < 0._r8) + &
+	            count(invalid_restart_value(tempavg_bgnpp) .or. tempavg_bgnpp < 0._r8) + &
+	            count(invalid_restart_value(tempavg_somhr) .or. tempavg_somhr < 0._r8) + &
+	            count(invalid_restart_value(tempavg_finrw) .or. tempavg_finrw < 0._r8) + &
+	            count(invalid_restart_value(annsum_counter) .or. annsum_counter < 0._r8) + &
+	            count(invalid_restart_fraction_or_sentinel(fsat_bef)) + &
+	            count(invalid_restart_fraction_or_sentinel(finundated_lag)) + &
+	            count(invalid_restart_fraction_or_sentinel(layer_sat_lag)) + &
+	            count(invalid_restart_value(methane_dfsat_tot)) + &
+	            count(invalid_restart_value(f_h2osfc) .or. f_h2osfc < 0._r8 .or. f_h2osfc > 1._r8) + &
+	            count(invalid_restart_value(f_inund_levee_patch) .or. &
+	                  f_inund_levee_patch < 0._r8 .or. f_inund_levee_patch > 1._r8) + &
+	            count(invalid_restart_value(f_inund_flood_patch) .or. &
+	                  f_inund_flood_patch < 0._r8 .or. f_inund_flood_patch > 1._r8) + &
+	            count(invalid_restart_value(f_inund_flood_depth_patch) .or. &
+	                  f_inund_flood_depth_patch < 0._r8)
+	         IF (lake_water_ch4_present) THEN
+	            corrupt_prognostic_values = corrupt_prognostic_values + &
+	               count(invalid_restart_value(lake_water_ch4_stock) .or. lake_water_ch4_stock < 0._r8)
+	         ENDIF
+	         IF (lake_water_o2_present) THEN
+	            corrupt_prognostic_values = corrupt_prognostic_values + &
+	               count(invalid_restart_value(lake_water_o2_stock) .or. lake_water_o2_stock < 0._r8)
+	         ENDIF
+	         IF (all(lake_phase_fields_present)) THEN
+	            corrupt_prognostic_values = corrupt_prognostic_values + &
+	               count(invalid_restart_value(lake_frozen_ch4_stock) .or. lake_frozen_ch4_stock < 0._r8) + &
+	               count(invalid_restart_value(lake_frozen_o2_stock) .or. lake_frozen_o2_stock < 0._r8) + &
+	               count(invalid_restart_fraction_or_sentinel(lake_liquid_fraction_prev))
+	         ENDIF
+	         IF (component_state_present) THEN
+	            corrupt_prognostic_values = corrupt_prognostic_values + &
+	               count(invalid_restart_value(conc_o2_unsat_component) .or. conc_o2_unsat_component < 0._r8) + &
+	               count(invalid_restart_value(conc_o2_sat_component) .or. conc_o2_sat_component < 0._r8) + &
+	               count(invalid_restart_value(conc_methane_unsat_component) .or. &
+	                     conc_methane_unsat_component < 0._r8) + &
+	               count(invalid_restart_value(conc_methane_sat_component) .or. &
+	                     conc_methane_sat_component < 0._r8) + &
+	               count(invalid_restart_fraction_or_sentinel(layer_sat_lag_component)) + &
+	               count(invalid_restart_value(annavg_agnpp_component) .or. annavg_agnpp_component < 0._r8) + &
+	               count(invalid_restart_value(annavg_bgnpp_component) .or. annavg_bgnpp_component < 0._r8) + &
+	               count(invalid_restart_value(annavg_somhr_component) .or. annavg_somhr_component < 0._r8) + &
+	               count(invalid_restart_fraction_or_sentinel(annavg_finrw_component)) + &
+	               count(invalid_restart_value(tempavg_agnpp_component) .or. tempavg_agnpp_component < 0._r8) + &
+	               count(invalid_restart_value(tempavg_bgnpp_component) .or. tempavg_bgnpp_component < 0._r8) + &
+	               count(invalid_restart_value(annsum_counter_component) .or. annsum_counter_component < 0._r8) + &
+	               count(invalid_restart_value(tempavg_somhr_component) .or. tempavg_somhr_component < 0._r8) + &
+	               count(invalid_restart_value(tempavg_finrw_component) .or. tempavg_finrw_component < 0._r8) + &
+	               count(invalid_restart_fraction_or_sentinel(fsat_bef_component)) + &
+	               count(invalid_restart_fraction_or_sentinel(finundated_lag_component)) + &
+	               count(invalid_restart_value(rice_fraction_prev) .or. rice_fraction_prev < 0._r8 .or. &
+	                     rice_fraction_prev > 1._r8)
+	         ENDIF
+	      ENDIF
+#ifdef USEMPI
+	      CALL mpi_allreduce(MPI_IN_PLACE, corrupt_prognostic_values, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+	      IF (corrupt_prognostic_values > 0) THEN
+	         IF (strict_restart_active) THEN
+	            IF (p_is_master) WRITE(*,'(A,I0,A)') &
+	               'ERROR: committed methane restart contains ', corrupt_prognostic_values, &
+	               ' invalid or negative prognostic state values; refusing checkpoint.'
+	            CALL CoLM_stop()
+	         ELSEIF (p_is_master) THEN
+	            WRITE(*,'(A,I0,A)') 'WARNING: legacy methane restart contains ', &
+	               corrupt_prognostic_values, ' invalid or negative prognostic values; sanitizing once.'
+	         ENDIF
+	      ENDIF
+
+	      ! Sanitize aggregate concentration sentinels before they are used as
+	      ! the schema-1 fallback for either independent process column.
+	      WHERE (invalid_restart_value(conc_o2))             conc_o2             = 1._r8
+	      WHERE (invalid_restart_value(conc_o2_unsat))       conc_o2_unsat       = 1._r8
+	      WHERE (invalid_restart_value(conc_o2_sat))         conc_o2_sat         = 1._r8
+	      WHERE (invalid_restart_value(conc_methane))        conc_methane        = 1.e-6_r8
+	      WHERE (invalid_restart_value(conc_methane_unsat))  conc_methane_unsat  = 1.e-6_r8
+	      WHERE (invalid_restart_value(conc_methane_sat))    conc_methane_sat    = 1.e-6_r8
+
+	      ! Schema-1 restarts contain only the aggregate methane column.  Seed
+	      ! both independent process columns from that state; new restarts keep
+	      ! their separate histories.  The aggregate fields remain the sole
+	      ! restart clip-credit representation, so fallback copies are not
+	      ! counted a second time.
+	      DO component = 1, N_METHANE_COMP
+	         WHERE (invalid_restart_value(conc_o2_unsat_component(:,component,:)))
+	            conc_o2_unsat_component(:,component,:) = conc_o2_unsat
+	         END WHERE
+	         WHERE (invalid_restart_value(conc_o2_sat_component(:,component,:)))
+	            conc_o2_sat_component(:,component,:) = conc_o2_sat
+	         END WHERE
+	         WHERE (invalid_restart_value(conc_methane_unsat_component(:,component,:)))
+	            conc_methane_unsat_component(:,component,:) = conc_methane_unsat
+	         END WHERE
+	         WHERE (invalid_restart_value(conc_methane_sat_component(:,component,:)))
+	            conc_methane_sat_component(:,component,:) = conc_methane_sat
+	         END WHERE
+	         WHERE (invalid_restart_value(layer_sat_lag_component(:,component,:)))
+	            layer_sat_lag_component(:,component,:) = layer_sat_lag
+	         END WHERE
+	         WHERE (invalid_restart_value(annavg_agnpp_component(component,:)))
+	            annavg_agnpp_component(component,:) = annavg_agnpp
+	         END WHERE
+	         WHERE (invalid_restart_value(annavg_bgnpp_component(component,:)))
+	            annavg_bgnpp_component(component,:) = annavg_bgnpp
+	         END WHERE
+	         WHERE (invalid_restart_value(annavg_somhr_component(component,:)))
+	            annavg_somhr_component(component,:) = annavg_somhr
+	         END WHERE
+	         WHERE (invalid_restart_value(annavg_finrw_component(component,:)))
+	            annavg_finrw_component(component,:) = annavg_finrw
+	         END WHERE
+	         WHERE (invalid_restart_value(tempavg_agnpp_component(component,:)))
+	            tempavg_agnpp_component(component,:) = tempavg_agnpp
+	         END WHERE
+	         WHERE (invalid_restart_value(tempavg_bgnpp_component(component,:)))
+	            tempavg_bgnpp_component(component,:) = tempavg_bgnpp
+	         END WHERE
+	         WHERE (invalid_restart_value(annsum_counter_component(component,:)))
+	            annsum_counter_component(component,:) = annsum_counter
+	         END WHERE
+	         WHERE (invalid_restart_value(tempavg_somhr_component(component,:)))
+	            tempavg_somhr_component(component,:) = tempavg_somhr
+	         END WHERE
+	         WHERE (invalid_restart_value(tempavg_finrw_component(component,:)))
+	            tempavg_finrw_component(component,:) = tempavg_finrw
+	         END WHERE
+	         WHERE (invalid_restart_value(fsat_bef_component(component,:)))
+	            fsat_bef_component(component,:) = fsat_bef
+	         END WHERE
+	         WHERE (invalid_restart_value(finundated_lag_component(component,:)))
+	            finundated_lag_component(component,:) = finundated_lag
+	         END WHERE
+	      END DO
+	      WHERE (invalid_restart_value(conc_o2_unsat_component)) conc_o2_unsat_component = 1._r8
+	      WHERE (invalid_restart_value(conc_o2_sat_component)) conc_o2_sat_component = 1._r8
+	      WHERE (invalid_restart_value(conc_methane_unsat_component)) &
+	         conc_methane_unsat_component = 1.e-6_r8
+	      WHERE (invalid_restart_value(conc_methane_sat_component)) &
+	         conc_methane_sat_component = 1.e-6_r8
+	      WHERE (invalid_restart_value(rice_fraction_prev)) rice_fraction_prev = 0._r8
+	      rice_fraction_prev = min(max(rice_fraction_prev, 0._r8), 1._r8)
 
 	      WHERE (invalid_restart_value(conc_o2))           conc_o2           = 1._r8
       WHERE (invalid_restart_value(conc_o2_unsat))     conc_o2_unsat     = 1._r8
@@ -1441,19 +1966,31 @@ CONTAINS
 	         f_inund_flood_depth_patch = 0._r8
 	      WHERE (f_inund_levee_patch > 1._r8) f_inund_levee_patch = 1._r8
 	      WHERE (f_inund_flood_patch > 1._r8) f_inund_flood_patch = 1._r8
+	      WHERE (invalid_restart_value(annavg_agnpp) .or. annavg_agnpp < 0._r8) annavg_agnpp = 0._r8
+	      WHERE (invalid_restart_value(annavg_bgnpp) .or. annavg_bgnpp < 0._r8) annavg_bgnpp = 0._r8
+	      WHERE (invalid_restart_value(annavg_somhr) .or. annavg_somhr < 0._r8) annavg_somhr = 0._r8
+	      WHERE (invalid_restart_fraction_or_sentinel(annavg_finrw)) annavg_finrw = spval
+	      WHERE (invalid_restart_value(tempavg_agnpp) .or. tempavg_agnpp < 0._r8) tempavg_agnpp = 0._r8
+	      WHERE (invalid_restart_value(tempavg_bgnpp) .or. tempavg_bgnpp < 0._r8) tempavg_bgnpp = 0._r8
+	      WHERE (invalid_restart_value(tempavg_somhr) .or. tempavg_somhr < 0._r8) tempavg_somhr = 0._r8
+	      WHERE (invalid_restart_value(tempavg_finrw) .or. tempavg_finrw < 0._r8) tempavg_finrw = 0._r8
+	      WHERE (invalid_restart_value(annsum_counter) .or. annsum_counter < 0._r8) annsum_counter = 0._r8
+	      WHERE (invalid_restart_value(methane_dfsat_tot)) methane_dfsat_tot = 0._r8
+	      WHERE (invalid_restart_value(f_h2osfc) .or. f_h2osfc < 0._r8) f_h2osfc = 0._r8
+	      WHERE (f_h2osfc > 1._r8) f_h2osfc = 1._r8
+	      ! These lag states feed differences and exponential memory updates before
+	      ! any arithmetic can safely repair a NaN.  Preserve the normal Physics
+	      ! cold-start path by converting corrupt restart values to its sentinel.
+	      WHERE (invalid_restart_fraction_or_sentinel(fsat_bef)) fsat_bef = spval
+	      WHERE (invalid_restart_fraction_or_sentinel(finundated_lag)) finundated_lag = spval
+	      WHERE (invalid_restart_fraction_or_sentinel(layer_sat_lag)) layer_sat_lag = spval
 
 	      ! invalid_restart_value catches NaN/spval but not negatives.  A stale
       ! restart with sub-zero CH4 or O2 would feed phase-partition and
       ! Michaelis-Menten kinetics, yielding negative oxidation / production.
-      ! Clip to zero defensively.  CH4 clips are credited before mutation so
-      ! restart sanitation is visible in the same budget family as in-step
-      ! negative-concentration clip credits.
-      IF (allocated(restart_ch4_clip_credit_mass)) THEN
-         CALL credit_methane_restart_clip(conc_methane,       restart_ch4_clip_credit_mass)
-         CALL credit_methane_restart_clip(conc_methane_unsat, restart_ch4_clip_credit_mass)
-         CALL credit_methane_restart_clip(conc_methane_sat,   restart_ch4_clip_credit_mass)
-         CALL credit_methane_restart_clip(conc_methane_lake,  restart_ch4_clip_credit_mass)
-      ENDIF
+	      ! Clip concentrations defensively.  They are diagnostic/split views of
+	      ! the same physical inventory, so do not count them again in the restart
+	      ! mass impulse below.
       WHERE (conc_o2           < 0._r8) conc_o2           = 0._r8
       WHERE (conc_o2_unsat     < 0._r8) conc_o2_unsat     = 0._r8
       WHERE (conc_o2_sat       < 0._r8) conc_o2_sat       = 0._r8
@@ -1462,6 +1999,10 @@ CONTAINS
       WHERE (conc_methane_unsat < 0._r8) conc_methane_unsat = 0._r8
       WHERE (conc_methane_sat  < 0._r8) conc_methane_sat  = 0._r8
       WHERE (conc_methane_lake < 0._r8) conc_methane_lake = 0._r8
+	  WHERE (conc_o2_unsat_component < 0._r8) conc_o2_unsat_component = 0._r8
+	  WHERE (conc_o2_sat_component < 0._r8) conc_o2_sat_component = 0._r8
+	  WHERE (conc_methane_unsat_component < 0._r8) conc_methane_unsat_component = 0._r8
+	  WHERE (conc_methane_sat_component < 0._r8) conc_methane_sat_component = 0._r8
 
       ! Only force the cold-start sentinel when the *combined* column
       ! inventory (totcol_methane) is missing — that is the field the
@@ -1474,33 +2015,121 @@ CONTAINS
       WHERE (invalid_restart_value(totcol_methane))
          fsat_bef = spval
       END WHERE
+	      ! Missing water-column fields identify an old restart.  Force one
+	      ! cold-start step so Physics can initialize the dissolved inventories
+	      ! at atmospheric Henry equilibrium without reporting that initialization
+	      ! as a physical methane-budget residual.
+	      IF (allocated(patchtype)) THEN
+	         IF (size(patchtype) == size(fsat_bef)) THEN
+	            WHERE (patchtype == PATCHTYPE_LAKE .and. &
+	                   (invalid_restart_value(lake_water_ch4_stock) .or. &
+	                    invalid_restart_value(lake_water_o2_stock)))
+	               fsat_bef = spval
+	            END WHERE
+	         ENDIF
+	      ENDIF
       WHERE (invalid_restart_value(totcol_methane))       totcol_methane       = 0._r8
       WHERE (invalid_restart_value(totcol_methane_unsat)) totcol_methane_unsat = 0._r8
       WHERE (invalid_restart_value(totcol_methane_sat))   totcol_methane_sat   = 0._r8
       WHERE (invalid_restart_value(totcol_methane_lake))  totcol_methane_lake  = 0._r8
-      IF (allocated(restart_ch4_clip_credit_mass)) THEN
-         CALL credit_methane_restart_clip(totcol_methane,       restart_ch4_clip_credit_mass)
-         CALL credit_methane_restart_clip(totcol_methane_unsat, restart_ch4_clip_credit_mass)
-         CALL credit_methane_restart_clip(totcol_methane_sat,   restart_ch4_clip_credit_mass)
-         CALL credit_methane_restart_clip(totcol_methane_lake,  restart_ch4_clip_credit_mass)
-         IF (allocated(methane_ch4_clip_credit)) THEN
-            methane_ch4_clip_credit(:) = methane_ch4_clip_credit(:) - restart_ch4_clip_credit_mass(:)
-         ENDIF
-      ENDIF
+	      WHERE (totcol_methane < 0._r8 .or. lake_water_ch4_stock < 0._r8)
+	         fsat_bef = spval
+	      END WHERE
       WHERE (totcol_methane       < 0._r8) totcol_methane       = 0._r8
       WHERE (totcol_methane_unsat < 0._r8) totcol_methane_unsat = 0._r8
       WHERE (totcol_methane_sat   < 0._r8) totcol_methane_sat   = 0._r8
       WHERE (totcol_methane_lake  < 0._r8) totcol_methane_lake  = 0._r8
+	      WHERE (invalid_restart_value(lake_water_ch4_stock) .or. lake_water_ch4_stock < 0._r8) &
+	         lake_water_ch4_stock = 0._r8
+	      WHERE (invalid_restart_value(lake_water_o2_stock) .or. lake_water_o2_stock < 0._r8) &
+	         lake_water_o2_stock = 0._r8
+	      WHERE (invalid_restart_value(lake_frozen_ch4_stock) .or. lake_frozen_ch4_stock < 0._r8) &
+	         lake_frozen_ch4_stock = 0._r8
+	      WHERE (invalid_restart_value(lake_frozen_o2_stock) .or. lake_frozen_o2_stock < 0._r8) &
+	         lake_frozen_o2_stock = 0._r8
+	      WHERE (invalid_restart_value(lake_liquid_fraction_prev) .or. &
+	             lake_liquid_fraction_prev < 0._r8 .or. lake_liquid_fraction_prev > 1._r8) &
+	         lake_liquid_fraction_prev = spval
 
-      ! Clean spval/NaN/negative lake_soilc.  Without this guard a stale
-      ! restart sentinel (~1e36) would pass through sum(max(...,0)) as a
-      ! huge positive value and the surface-data fallback below would
-      ! skip the patch, leaving runaway lake CH4 production.
+	      ! The combined lake inventory is redundant with sediment + water, but
+	      ! it is the first-step budget reference.  A committed schema restart
+	      ! must therefore be internally consistent; silently choosing either
+	      ! side would create or destroy CH4.  Legacy files are repaired by
+	      ! trusting the mechanistic component states and forcing a cold step.
+	      invalid_lake_inventory = 0
+	      IF (p_is_worker) THEN
+	         IF (.not. allocated(patchtype)) THEN
+	            invalid_lake_inventory = merge(1, 0, strict_restart_active)
+	         ELSE
+	            IF (strict_restart_active .and. &
+	                (size(patchtype) /= size(totcol_methane) .or. &
+	                 size(patchtype) /= size(totcol_methane_lake) .or. &
+	                 size(patchtype) /= size(lake_water_ch4_stock) .or. &
+	                 size(patchtype) /= size(lake_frozen_ch4_stock))) &
+	               invalid_lake_inventory = 1
+	            npatch = min(size(patchtype), size(totcol_methane), &
+	               size(totcol_methane_lake), size(lake_water_ch4_stock), &
+	               size(lake_frozen_ch4_stock))
+	            DO ipatch = 1, npatch
+	               IF (patchtype(ipatch) /= PATCHTYPE_LAKE) CYCLE
+	               lake_component_total = totcol_methane_lake(ipatch) + &
+	                  lake_water_ch4_stock(ipatch) + lake_frozen_ch4_stock(ipatch)
+	               lake_inventory_tolerance = 1.e-12_r8 + 1.e-10_r8 * &
+	                  max(abs(totcol_methane(ipatch)), abs(lake_component_total))
+	               IF (abs(totcol_methane(ipatch) - lake_component_total) > lake_inventory_tolerance) THEN
+	                  IF (strict_restart_active) THEN
+	                     invalid_lake_inventory = 1
+	                  ELSE
+	                     totcol_methane(ipatch) = lake_component_total
+	                     fsat_bef(ipatch) = spval
+	                  ENDIF
+	               ENDIF
+	            ENDDO
+	         ENDIF
+	      ENDIF
+#ifdef USEMPI
+	      CALL mpi_allreduce(MPI_IN_PLACE, invalid_lake_inventory, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+	      IF (invalid_lake_inventory > 0) THEN
+	         IF (p_is_master) WRITE(*,'(A)') &
+	            'ERROR: methane restart lake inventory violates total = sediment + water; refusing corrupt checkpoint.'
+	         CALL CoLM_stop()
+	      ENDIF
+
+      ! Clean spval/NaN/negative values from legacy files that contain this
+      ! field.  A missing legacy field was left at its surface-data value above.
       WHERE (invalid_restart_value(lake_soilc) .or. lake_soilc < 0._r8) &
          lake_soilc = 0._r8
+
+	   CONTAINS
+	      SUBROUTINE read_component_2d(varname, target)
+	         character(len=*), intent(in) :: varname
+	         real(r8), intent(out) :: target(:,:)
+	         real(r8), allocatable :: values(:,:)
+
+	         allocate(values(nl_soil,size(target,2)))
+	         CALL ncio_read_vector(file_restart, varname, nl_soil, landpatch, values, defval=spval)
+	         target = values
+	         deallocate(values)
+	      END SUBROUTINE read_component_2d
+
+	      SUBROUTINE read_component_1d(varname, target)
+	         character(len=*), intent(in) :: varname
+	         real(r8), intent(out) :: target(:)
+	         real(r8), allocatable :: values(:)
+
+	         allocate(values(size(target)))
+	         CALL ncio_read_vector(file_restart, varname, landpatch, values, defval=spval)
+	         target = values
+	         deallocate(values)
+	      END SUBROUTINE read_component_1d
+
 	   END SUBROUTINE read_methane_restart
 
    SUBROUTINE save_methane_lulcc_state ()
+      USE MOD_Vars_TimeInvariants, only: patchtype
+	  integer :: ip, component, nsave
+
       IF (.not. allocated(conc_methane)) THEN
          methane_lulcc_snapshot_valid = .false.
          RETURN
@@ -1544,6 +2173,16 @@ CONTAINS
       allocate(lulcc_totcol_methane_unsat_old(size(totcol_methane_unsat))); lulcc_totcol_methane_unsat_old = totcol_methane_unsat
       allocate(lulcc_totcol_methane_sat_old(size(totcol_methane_sat))); lulcc_totcol_methane_sat_old = totcol_methane_sat
       allocate(lulcc_totcol_methane_lake_old(size(totcol_methane_lake))); lulcc_totcol_methane_lake_old = totcol_methane_lake
+      allocate(lulcc_lake_water_ch4_stock_old(size(lake_water_ch4_stock))); &
+         lulcc_lake_water_ch4_stock_old = lake_water_ch4_stock
+      allocate(lulcc_lake_water_o2_stock_old(size(lake_water_o2_stock))); &
+         lulcc_lake_water_o2_stock_old = lake_water_o2_stock
+      allocate(lulcc_lake_frozen_ch4_stock_old(size(lake_frozen_ch4_stock))); &
+         lulcc_lake_frozen_ch4_stock_old = lake_frozen_ch4_stock
+      allocate(lulcc_lake_frozen_o2_stock_old(size(lake_frozen_o2_stock))); &
+         lulcc_lake_frozen_o2_stock_old = lake_frozen_o2_stock
+      allocate(lulcc_lake_liquid_fraction_prev_old(size(lake_liquid_fraction_prev))); &
+         lulcc_lake_liquid_fraction_prev_old = lake_liquid_fraction_prev
       allocate(lulcc_grnd_methane_cond_old(size(grnd_methane_cond))); lulcc_grnd_methane_cond_old = grnd_methane_cond
       allocate(lulcc_grnd_methane_cond_unsat_old(size(grnd_methane_cond_unsat))); lulcc_grnd_methane_cond_unsat_old = grnd_methane_cond_unsat
       allocate(lulcc_grnd_methane_cond_sat_old(size(grnd_methane_cond_sat))); lulcc_grnd_methane_cond_sat_old = grnd_methane_cond_sat
@@ -1571,6 +2210,67 @@ CONTAINS
 	      allocate(lulcc_f_inund_flood_depth_patch_old(size(f_inund_flood_depth_patch)))
 	      lulcc_f_inund_flood_depth_patch_old = f_inund_flood_depth_patch
       allocate(lulcc_c_atm_old(3,size(c_atm,2))); lulcc_c_atm_old = c_atm
+	  allocate(lulcc_conc_o2_unsat_component_old(nl_soil,N_METHANE_COMP,size(conc_o2_unsat_component,3)))
+	  lulcc_conc_o2_unsat_component_old = conc_o2_unsat_component
+	  allocate(lulcc_conc_o2_sat_component_old(nl_soil,N_METHANE_COMP,size(conc_o2_sat_component,3)))
+	  lulcc_conc_o2_sat_component_old = conc_o2_sat_component
+	  allocate(lulcc_conc_methane_unsat_component_old(nl_soil,N_METHANE_COMP,size(conc_methane_unsat_component,3)))
+	  lulcc_conc_methane_unsat_component_old = conc_methane_unsat_component
+	  allocate(lulcc_conc_methane_sat_component_old(nl_soil,N_METHANE_COMP,size(conc_methane_sat_component,3)))
+	  lulcc_conc_methane_sat_component_old = conc_methane_sat_component
+	  allocate(lulcc_layer_sat_lag_component_old(nl_soil,N_METHANE_COMP,size(layer_sat_lag_component,3)))
+	  lulcc_layer_sat_lag_component_old = layer_sat_lag_component
+	  allocate(lulcc_annavg_agnpp_component_old(N_METHANE_COMP,size(annavg_agnpp_component,2)))
+	  lulcc_annavg_agnpp_component_old = annavg_agnpp_component
+	  allocate(lulcc_annavg_bgnpp_component_old(N_METHANE_COMP,size(annavg_bgnpp_component,2)))
+	  lulcc_annavg_bgnpp_component_old = annavg_bgnpp_component
+	  allocate(lulcc_annavg_somhr_component_old(N_METHANE_COMP,size(annavg_somhr_component,2)))
+	  lulcc_annavg_somhr_component_old = annavg_somhr_component
+	  allocate(lulcc_annavg_finrw_component_old(N_METHANE_COMP,size(annavg_finrw_component,2)))
+	  lulcc_annavg_finrw_component_old = annavg_finrw_component
+	  allocate(lulcc_tempavg_agnpp_component_old(N_METHANE_COMP,size(tempavg_agnpp_component,2)))
+	  lulcc_tempavg_agnpp_component_old = tempavg_agnpp_component
+	  allocate(lulcc_tempavg_bgnpp_component_old(N_METHANE_COMP,size(tempavg_bgnpp_component,2)))
+	  lulcc_tempavg_bgnpp_component_old = tempavg_bgnpp_component
+	  allocate(lulcc_annsum_counter_component_old(N_METHANE_COMP,size(annsum_counter_component,2)))
+	  lulcc_annsum_counter_component_old = annsum_counter_component
+	  allocate(lulcc_tempavg_somhr_component_old(N_METHANE_COMP,size(tempavg_somhr_component,2)))
+	  lulcc_tempavg_somhr_component_old = tempavg_somhr_component
+	  allocate(lulcc_tempavg_finrw_component_old(N_METHANE_COMP,size(tempavg_finrw_component,2)))
+	  lulcc_tempavg_finrw_component_old = tempavg_finrw_component
+	  allocate(lulcc_fsat_bef_component_old(N_METHANE_COMP,size(fsat_bef_component,2)))
+	  lulcc_fsat_bef_component_old = fsat_bef_component
+	  allocate(lulcc_finundated_lag_component_old(N_METHANE_COMP,size(finundated_lag_component,2)))
+	  lulcc_finundated_lag_component_old = finundated_lag_component
+	  allocate(lulcc_rice_fraction_prev_old(size(rice_fraction_prev)))
+	  lulcc_rice_fraction_prev_old = rice_fraction_prev
+
+	  ! Non-soil patches still use the legacy aggregate column.  Mirror that
+	  ! live state into the snapshot's zero-rice component before LULCC so a
+	  ! wetland/lake-to-soil transition cannot inherit stale hidden columns.
+	  nsave = min(size(patchtype), size(lulcc_rice_fraction_prev_old))
+	  DO ip = 1, nsave
+	     IF (patchtype(ip) == 0) CYCLE
+	     lulcc_rice_fraction_prev_old(ip) = 0._r8
+	     DO component = 1, N_METHANE_COMP
+	        lulcc_conc_o2_unsat_component_old(:,component,ip) = lulcc_conc_o2_unsat_old(:,ip)
+	        lulcc_conc_o2_sat_component_old(:,component,ip) = lulcc_conc_o2_sat_old(:,ip)
+	        lulcc_conc_methane_unsat_component_old(:,component,ip) = lulcc_conc_methane_unsat_old(:,ip)
+	        lulcc_conc_methane_sat_component_old(:,component,ip) = lulcc_conc_methane_sat_old(:,ip)
+	        lulcc_layer_sat_lag_component_old(:,component,ip) = lulcc_layer_sat_lag_old(:,ip)
+	        lulcc_annavg_agnpp_component_old(component,ip) = lulcc_annavg_agnpp_old(ip)
+	        lulcc_annavg_bgnpp_component_old(component,ip) = lulcc_annavg_bgnpp_old(ip)
+	        lulcc_annavg_somhr_component_old(component,ip) = lulcc_annavg_somhr_old(ip)
+	        lulcc_annavg_finrw_component_old(component,ip) = lulcc_annavg_finrw_old(ip)
+	        lulcc_tempavg_agnpp_component_old(component,ip) = lulcc_tempavg_agnpp_old(ip)
+	        lulcc_tempavg_bgnpp_component_old(component,ip) = lulcc_tempavg_bgnpp_old(ip)
+	        lulcc_annsum_counter_component_old(component,ip) = lulcc_annsum_counter_old(ip)
+	        lulcc_tempavg_somhr_component_old(component,ip) = lulcc_tempavg_somhr_old(ip)
+	        lulcc_tempavg_finrw_component_old(component,ip) = lulcc_tempavg_finrw_old(ip)
+	        lulcc_fsat_bef_component_old(component,ip) = lulcc_fsat_bef_old(ip)
+	        lulcc_finundated_lag_component_old(component,ip) = lulcc_finundated_lag_old(ip)
+	     ENDDO
+	  ENDDO
 
       methane_lulcc_snapshot_valid = .true.
    END SUBROUTINE save_methane_lulcc_state
@@ -1615,19 +2315,52 @@ CONTAINS
 
 	   SUBROUTINE remap_methane_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
 	      lccpct_patches, new_patch_area, old_patch_area)
+	      USE MOD_Vars_TimeInvariants, only: patchtype, lake_soilc_srf
+	      USE MOD_SPMD_Task, only: CoLM_stop
 	      integer, intent(in) :: patchclass_new(:), patchclass_old(:)
 	      integer*8, intent(in) :: eindex_new(:), eindex_old(:)
 	      real(r8), intent(in), optional :: lccpct_patches(:,:)
 	      real(r8), intent(in), optional :: new_patch_area(:)
 	      real(r8), intent(in), optional :: old_patch_area(:)
-      integer :: nnew
+	      integer :: nnew, np, op, link
+	      integer, allocatable :: map_start(:), map_old(:), fallback_map(:)
+	      real(r8), allocatable :: map_source_weight(:), map_mass_weight(:)
+	      logical, allocatable :: map_mass_available(:), initialize_lake_from_surface(:)
 
 	      nnew = size(patchclass_new)
 	      IF (allocated(conc_methane)) CALL deallocate_methane_state ()
 	      CALL allocate_methane_state (nnew)
 	      CALL init_methane_wetland_fraction_cache (nnew)
 
-	      IF (.not. methane_lulcc_snapshot_valid) RETURN
+		      IF (.not. methane_lulcc_snapshot_valid) THEN
+         IF (allocated(patchtype) .and. allocated(lake_soilc_srf)) THEN
+            CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, &
+               DEF_METHANE%allowlakeprod)
+         ENDIF
+         RETURN
+      ENDIF
+
+      CALL build_lulcc_remap_map ()
+
+      ! LulccInitialize has already loaded this year's lake_soilc_srf.  Mark
+      ! only water patches without a contributing old water patch so an
+      ! exhausted existing lake is not refilled by the annual LULCC cycle.
+      allocate(initialize_lake_from_surface(nnew))
+      initialize_lake_from_surface = .false.
+      DO np = 1, min(nnew, size(patchclass_new))
+         IF (patchclass_new(np) /= WATERBODY) CYCLE
+         initialize_lake_from_surface(np) = .true.
+         DO link = map_start(np), map_start(np+1)-1
+            op = map_old(link)
+            IF (op > size(patchclass_old)) CYCLE
+            IF (patchclass_old(op) /= WATERBODY) CYCLE
+            IF (present(lccpct_patches)) THEN
+               IF (map_source_weight(link) <= 0._r8) CYCLE
+            ENDIF
+            initialize_lake_from_surface(np) = .false.
+            EXIT
+         ENDDO
+      ENDDO
 
       CALL remap2d(lulcc_conc_o2_old,              conc_o2)
       CALL remap2d(lulcc_conc_methane_old,         conc_methane)
@@ -1650,7 +2383,47 @@ CONTAINS
       CALL remap2d(lulcc_conc_methane_lake_old,    conc_methane_lake)
       CALL remap2d(lulcc_layer_sat_lag_old,        layer_sat_lag)
       CALL remap2d(lulcc_lake_soilc_old,           lake_soilc)
+      IF (allocated(patchtype)) THEN
+         IF (DEF_METHANE%allowlakeprod .and. count(patchtype == PATCHTYPE_LAKE) > 0 .and. &
+             .not. allocated(lake_soilc_srf)) THEN
+            CALL CoLM_stop (' ***** ERROR: LULCC lake CH4 production requires lake_soilc surface data.')
+         ENDIF
+         IF (allocated(lake_soilc_srf)) THEN
+            CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, &
+               DEF_METHANE%allowlakeprod, initialize_lake_from_surface)
+         ENDIF
+      ENDIF
       CALL remap2d(lulcc_c_atm_old,                c_atm)
+	  CALL remap_component_fraction(lulcc_rice_fraction_prev_old, rice_fraction_prev)
+	  CALL remap_component_phase(lulcc_conc_o2_unsat_component_old, &
+	     lulcc_conc_o2_sat_component_old, lulcc_fsat_bef_component_old, &
+	     conc_o2_unsat_component, conc_o2_sat_component)
+	  CALL remap_component_phase(lulcc_conc_methane_unsat_component_old, &
+	     lulcc_conc_methane_sat_component_old, lulcc_fsat_bef_component_old, &
+	     conc_methane_unsat_component, conc_methane_sat_component)
+	  CALL remap_component_3d(lulcc_layer_sat_lag_component_old, layer_sat_lag_component)
+	  CALL remap_component_2d(lulcc_annavg_agnpp_component_old, annavg_agnpp_component)
+	  CALL remap_component_2d(lulcc_annavg_bgnpp_component_old, annavg_bgnpp_component)
+	  CALL remap_component_2d(lulcc_annavg_somhr_component_old, annavg_somhr_component)
+	  CALL remap_component_2d(lulcc_annavg_finrw_component_old, annavg_finrw_component)
+	  CALL remap_component_2d(lulcc_tempavg_agnpp_component_old, tempavg_agnpp_component)
+	  CALL remap_component_2d(lulcc_tempavg_bgnpp_component_old, tempavg_bgnpp_component)
+	  CALL remap_component_2d(lulcc_annsum_counter_component_old, annsum_counter_component)
+	  CALL remap_component_2d(lulcc_tempavg_somhr_component_old, tempavg_somhr_component)
+	  CALL remap_component_2d(lulcc_tempavg_finrw_component_old, tempavg_finrw_component)
+	  CALL remap_component_2d(lulcc_fsat_bef_component_old, fsat_bef_component)
+	  CALL remap_component_2d(lulcc_finundated_lag_component_old, finundated_lag_component)
+	  rice_fraction_prev = min(max(rice_fraction_prev, 0._r8), 1._r8)
+	  WHERE (.not. invalid_restart_value(fsat_bef_component))
+	     fsat_bef_component = min(max(fsat_bef_component, 0._r8), 1._r8)
+	  ELSEWHERE
+	     fsat_bef_component = spval
+	  END WHERE
+	  WHERE (.not. invalid_restart_value(finundated_lag_component))
+	     finundated_lag_component = min(max(finundated_lag_component, 0._r8), 1._r8)
+	  ELSEWHERE
+	     finundated_lag_component = spval
+	  END WHERE
 
       ! Concentrations, conductances, fractions, rates, and rolling diagnostics
       ! are remapped as intensive fields.  Column stocks and total per-area
@@ -1674,6 +2447,19 @@ CONTAINS
       CALL remap1d_mass(lulcc_totcol_methane_unsat_old, totcol_methane_unsat)
       CALL remap1d_mass(lulcc_totcol_methane_sat_old,   totcol_methane_sat)
       CALL remap1d_mass(lulcc_totcol_methane_lake_old,  totcol_methane_lake)
+      CALL remap1d_mass(lulcc_lake_water_ch4_stock_old, lake_water_ch4_stock)
+      CALL remap1d_mass(lulcc_lake_water_o2_stock_old, lake_water_o2_stock)
+      CALL remap1d_mass(lulcc_lake_frozen_ch4_stock_old, lake_frozen_ch4_stock)
+      CALL remap1d_mass(lulcc_lake_frozen_o2_stock_old, lake_frozen_o2_stock)
+      CALL remap1d(lulcc_lake_liquid_fraction_prev_old, lake_liquid_fraction_prev)
+	  WHERE (invalid_restart_value(lake_liquid_fraction_prev) .or. &
+	         lake_liquid_fraction_prev < 0._r8 .or. lake_liquid_fraction_prev > 1._r8) &
+	     lake_liquid_fraction_prev = spval
+	  WHERE (initialize_lake_from_surface)
+	     lake_frozen_ch4_stock = 0._r8
+	     lake_frozen_o2_stock = 0._r8
+	     lake_liquid_fraction_prev = spval
+	  END WHERE
       CALL remap1d(lulcc_fsat_bef_old,             fsat_bef)
       CALL repartition_ch4_totcol_after_lulcc()
       ! Keep remapped CH4 column stocks and layer concentrations consistent
@@ -1719,23 +2505,420 @@ CONTAINS
 	      f_inund_flood_patch = min(max(f_inund_flood_patch, 0._r8), 1._r8)
 	      f_inund_flood_depth_patch = max(f_inund_flood_depth_patch, 0._r8)
 
+	  CALL sync_component_aggregates_after_lulcc()
+
       CALL clear_methane_lulcc_snapshot ()
 
    CONTAINS
+	  SUBROUTINE build_lulcc_remap_map ()
+	     integer :: np, op, nold, nlink, link, c, rep, class_lo, class_hi
+	     real(r8) :: base_weight, class_sum, target_area, denom
+	     real(r8), allocatable :: old_group_class_area(:,:)
+	     real(r8), allocatable :: new_target_class_area(:,:)
+	     real(r8), allocatable :: target_group_class_area(:,:)
+	     logical, allocatable :: old_group_area_ready(:)
+
+	     nold = min(size(patchclass_old), size(eindex_old))
+	     nlink = 0
+	     DO np = 1, min(nnew, size(eindex_new))
+	        DO op = 1, nold
+	           IF (eindex_old(op) == eindex_new(np)) nlink = nlink + 1
+	        ENDDO
+	     ENDDO
+
+	     allocate(map_start(nnew+1), fallback_map(nnew), map_mass_available(nnew))
+	     allocate(map_old(nlink), map_source_weight(nlink), map_mass_weight(nlink))
+	     map_start = 1
+	     fallback_map = 0
+	     map_mass_available = .false.
+	     map_source_weight = 0._r8
+	     map_mass_weight = 0._r8
+
+	     link = 1
+	     DO np = 1, nnew
+	        map_start(np) = link
+	        map_mass_available(np) = area_mass_remap_available(np)
+	        IF (np <= size(eindex_new)) THEN
+	           DO op = 1, nold
+	              IF (eindex_old(op) /= eindex_new(np)) CYCLE
+	              map_old(link) = op
+	              IF (fallback_map(np) == 0 .and. np <= size(patchclass_new)) THEN
+	                 IF (patchclass_old(op) == patchclass_new(np)) fallback_map(np) = op
+	              ENDIF
+	              link = link + 1
+	           ENDDO
+	        ENDIF
+	     ENDDO
+	     map_start(nnew+1) = link
+
+	     IF (.not. present(lccpct_patches)) RETURN
+	     class_lo = lbound(lccpct_patches,2)
+	     class_hi = ubound(lccpct_patches,2)
+	     allocate(old_group_class_area(nold,class_lo:class_hi))
+	     allocate(new_target_class_area(nnew,class_lo:class_hi))
+	     allocate(target_group_class_area(nold,class_lo:class_hi))
+	     allocate(old_group_area_ready(nold))
+	     old_group_class_area = 0._r8
+	     new_target_class_area = 0._r8
+	     target_group_class_area = 0._r8
+	     old_group_area_ready = .false.
+
+	     ! Precompute each new patch's target class areas once.  The mass
+	     ! remap denominator is then accumulated by eindex group using the
+	     ! first linked old patch as a stable group representative.
+	     IF (present(new_patch_area)) THEN
+	        DO np = 1, min(nnew, size(lccpct_patches,1), size(new_patch_area))
+	           class_sum = sum(max(lccpct_patches(np,class_lo:class_hi), 0._r8))
+	           IF (class_sum <= tiny(1._r8)) CYCLE
+	           DO c = class_lo, class_hi
+	              new_target_class_area(np,c) = max(0._r8, new_patch_area(np)) * &
+	                 max(0._r8, lccpct_patches(np,c)) / class_sum
+	           ENDDO
+	        ENDDO
+	     ENDIF
+	     DO np = 1, nnew
+	        IF (map_start(np) >= map_start(np+1)) CYCLE
+	        rep = map_old(map_start(np))
+	        target_group_class_area(rep,:) = target_group_class_area(rep,:) + &
+	           new_target_class_area(np,:)
+	     ENDDO
+
+	     ! Sum old source area once per eindex/class group.  Every new patch in
+	     ! the group has the same link set, so later link weights are O(1).
+	     IF (present(old_patch_area)) THEN
+	        DO np = 1, nnew
+	           IF (map_start(np) >= map_start(np+1)) CYCLE
+	           rep = map_old(map_start(np))
+	           IF (old_group_area_ready(rep)) CYCLE
+	           DO link = map_start(np), map_start(np+1)-1
+	              op = map_old(link)
+	              IF (op > size(old_patch_area)) CYCLE
+	              c = patchclass_old(op)
+	              IF (c < class_lo .or. c > class_hi) CYCLE
+	              old_group_class_area(rep,c) = old_group_class_area(rep,c) + &
+	                 max(0._r8, old_patch_area(op))
+	           ENDDO
+	           old_group_area_ready(rep) = .true.
+	        ENDDO
+	     ENDIF
+
+	     DO np = 1, min(nnew, size(lccpct_patches,1))
+	        IF (map_start(np) >= map_start(np+1)) CYCLE
+	        rep = map_old(map_start(np))
+	        DO link = map_start(np), map_start(np+1)-1
+	           op = map_old(link)
+	           c = patchclass_old(op)
+	           IF (c < class_lo .or. c > class_hi) CYCLE
+	           base_weight = max(0._r8, lccpct_patches(np,c))
+	           map_source_weight(link) = base_weight
+	           IF (base_weight > 0._r8 .and. present(old_patch_area)) THEN
+	              IF (op <= size(old_patch_area)) THEN
+	                 denom = old_group_class_area(rep,c)
+	                 IF (denom > 0._r8) map_source_weight(link) = base_weight * &
+	                    max(0._r8, old_patch_area(op)) / denom
+	              ENDIF
+	           ENDIF
+
+	           IF (map_mass_available(np)) THEN
+	              IF (op <= size(old_patch_area)) THEN
+	                 target_area = new_target_class_area(np,c)
+	                 denom = target_group_class_area(rep,c)
+	                 IF (target_area > tiny(1._r8) .and. denom > tiny(1._r8)) THEN
+	                    map_mass_weight(link) = max(0._r8, old_patch_area(op)) * &
+	                       target_area / denom
+	                 ENDIF
+	              ENDIF
+	           ENDIF
+	        ENDDO
+	     ENDDO
+	  END SUBROUTINE build_lulcc_remap_map
+
+	  SUBROUTINE remap_component_fraction(old_fraction, new_fraction)
+	     real(r8), intent(in) :: old_fraction(:)
+	     real(r8), intent(inout) :: new_fraction(:)
+	     integer :: np, op, src, link
+	     real(r8) :: w, wsum, rice_area
+
+	     DO np = 1, min(size(new_fraction), nnew)
+	        wsum = 0._r8
+	        rice_area = 0._r8
+	        IF (present(lccpct_patches)) THEN
+	           DO link = map_start(np), map_start(np+1)-1
+	              op = map_old(link)
+	              IF (op > size(old_fraction)) CYCLE
+	              w = component_base_weight(np, link)
+	              IF (w <= 0._r8) CYCLE
+	              rice_area = rice_area + w*min(max(old_fraction(op), 0._r8), 1._r8)
+	              wsum = wsum + w
+	           ENDDO
+	        ENDIF
+	        IF (wsum > tiny(1._r8)) THEN
+	           new_fraction(np) = rice_area/wsum
+	        ELSE
+	           src = fallback_source(np, size(old_fraction))
+	           IF (src > 0) new_fraction(np) = old_fraction(src)
+	        ENDIF
+	     ENDDO
+	  END SUBROUTINE remap_component_fraction
+
+	  SUBROUTINE remap_component_2d(old, new)
+	     real(r8), intent(in) :: old(:,:)
+	     real(r8), intent(inout) :: new(:,:)
+	     integer :: np, op, component, src, link
+	     real(r8) :: w, wsum, val
+
+	     DO np = 1, min(size(new,2), nnew)
+	        DO component = 1, min(size(new,1), size(old,1), N_METHANE_COMP)
+	           wsum = 0._r8
+	           val = 0._r8
+	           IF (present(lccpct_patches)) THEN
+	              DO link = map_start(np), map_start(np+1)-1
+	                 op = map_old(link)
+	                 IF (op > size(old,2)) CYCLE
+	                 w = component_transfer_weight(np, link, component)
+	                 IF (w <= 0._r8) CYCLE
+	                 val = val + w*old(component,op)
+	                 wsum = wsum + w
+	              ENDDO
+	           ENDIF
+	           IF (wsum > tiny(1._r8)) THEN
+	              new(component,np) = val/wsum
+	           ELSE
+	              src = fallback_source(np, size(old,2))
+	              IF (src > 0) new(component,np) = old(component,src)
+	           ENDIF
+	        ENDDO
+	     ENDDO
+	  END SUBROUTINE remap_component_2d
+
+	  SUBROUTINE remap_component_3d(old, new)
+	     real(r8), intent(in) :: old(:,:,:)
+	     real(r8), intent(inout) :: new(:,:,:)
+	     integer :: np, op, component, src, nlev, link
+	     real(r8) :: w, wsum
+	     real(r8) :: val(size(new,1))
+
+	     nlev = min(size(new,1), size(old,1))
+	     DO np = 1, min(size(new,3), nnew)
+	        DO component = 1, min(size(new,2), size(old,2), N_METHANE_COMP)
+	           wsum = 0._r8
+	           val = 0._r8
+	           IF (present(lccpct_patches)) THEN
+	              DO link = map_start(np), map_start(np+1)-1
+	                 op = map_old(link)
+	                 IF (op > size(old,3)) CYCLE
+	                 w = component_transfer_weight(np, link, component)
+	                 IF (w <= 0._r8) CYCLE
+	                 val(1:nlev) = val(1:nlev) + w*old(1:nlev,component,op)
+	                 wsum = wsum + w
+	              ENDDO
+	           ENDIF
+	           IF (wsum > tiny(1._r8)) THEN
+	              new(1:nlev,component,np) = val(1:nlev)/wsum
+	           ELSE
+	              src = fallback_source(np, size(old,3))
+	              IF (src > 0) new(1:nlev,component,np) = old(1:nlev,component,src)
+	           ENDIF
+	        ENDDO
+	     ENDDO
+	  END SUBROUTINE remap_component_3d
+
+	  SUBROUTINE remap_component_phase(old_unsat, old_sat, old_fsat, new_unsat, new_sat)
+	     real(r8), intent(in) :: old_unsat(:,:,:), old_sat(:,:,:), old_fsat(:,:)
+	     real(r8), intent(inout) :: new_unsat(:,:,:), new_sat(:,:,:)
+	     integer :: np, op, component, src, nlev, link
+	     real(r8) :: w, h, wunsat, wsat
+	     real(r8) :: val_unsat(size(new_unsat,1)), val_sat(size(new_sat,1))
+
+	     nlev = min(size(new_unsat,1), size(new_sat,1), size(old_unsat,1), size(old_sat,1))
+	     DO np = 1, min(size(new_unsat,3), size(new_sat,3), nnew)
+	        DO component = 1, min(size(new_unsat,2), size(new_sat,2), &
+	           size(old_unsat,2), size(old_sat,2), N_METHANE_COMP)
+	           wunsat = 0._r8
+	           wsat = 0._r8
+	           val_unsat = 0._r8
+	           val_sat = 0._r8
+	           IF (present(lccpct_patches)) THEN
+	              DO link = map_start(np), map_start(np+1)-1
+	                 op = map_old(link)
+	                 IF (op > size(old_unsat,3) .or. op > size(old_sat,3) .or. &
+	                     op > size(old_fsat,2)) CYCLE
+	                 w = component_transfer_weight(np, link, component)
+	                 IF (w <= 0._r8) CYCLE
+	                 h = old_fsat(component,op)
+	                 IF (invalid_restart_value(h) .or. h < 0._r8 .or. h > 1._r8) h = 0.5_r8
+	                 val_unsat(1:nlev) = val_unsat(1:nlev) + &
+	                    w*(1._r8-h)*old_unsat(1:nlev,component,op)
+	                 val_sat(1:nlev) = val_sat(1:nlev) + w*h*old_sat(1:nlev,component,op)
+	                 wunsat = wunsat + w*(1._r8-h)
+	                 wsat = wsat + w*h
+	              ENDDO
+	           ENDIF
+	           IF (wunsat > tiny(1._r8)) new_unsat(1:nlev,component,np) = val_unsat(1:nlev)/wunsat
+	           IF (wsat > tiny(1._r8)) new_sat(1:nlev,component,np) = val_sat(1:nlev)/wsat
+	           IF (wunsat <= tiny(1._r8) .and. wsat > tiny(1._r8)) &
+	              new_unsat(1:nlev,component,np) = new_sat(1:nlev,component,np)
+	           IF (wsat <= tiny(1._r8) .and. wunsat > tiny(1._r8)) &
+	              new_sat(1:nlev,component,np) = new_unsat(1:nlev,component,np)
+	           IF (wunsat <= tiny(1._r8) .and. wsat <= tiny(1._r8)) THEN
+	              src = fallback_source(np, size(old_unsat,3))
+	              IF (src > 0) THEN
+	                 new_unsat(1:nlev,component,np) = old_unsat(1:nlev,component,src)
+	                 new_sat(1:nlev,component,np) = old_sat(1:nlev,component,src)
+	              ENDIF
+	           ENDIF
+	        ENDDO
+	     ENDDO
+	  END SUBROUTINE remap_component_phase
+
+	  SUBROUTINE sync_component_aggregates_after_lulcc()
+	     integer :: np, j, nlev
+	     real(r8) :: r, ws, hs, hr, sat_area, unsat_area
+	     real(r8) :: wss, wsr, wus, wur, dz, target, column, scale
+
+	     nlev = min(nl_soil, size(conc_methane,1))
+	     DO np = 1, min(nnew, size(patchclass_new), size(rice_fraction_prev))
+	        IF (patchclass_new(np) == WATERBODY) THEN
+	           rice_fraction_prev(np) = 0._r8
+	           CYCLE
+	        ENDIF
+	        r = min(max(rice_fraction_prev(np), 0._r8), 1._r8)
+	        ws = 1._r8-r
+	        hs = fsat_bef_component(METHANE_COMP_SOIL,np)
+	        hr = fsat_bef_component(METHANE_COMP_RICE,np)
+	        IF (invalid_restart_value(hs) .or. hs < 0._r8 .or. hs > 1._r8) hs = 0.5_r8
+	        IF (invalid_restart_value(hr) .or. hr < 0._r8 .or. hr > 1._r8) hr = 0.5_r8
+	        sat_area = ws*hs+r*hr
+	        unsat_area = ws*(1._r8-hs)+r*(1._r8-hr)
+	        IF (sat_area > tiny(1._r8)) THEN
+	           wss = ws*hs/sat_area
+	           wsr = r*hr/sat_area
+	        ELSE
+	           wss = ws
+	           wsr = r
+	        ENDIF
+	        IF (unsat_area > tiny(1._r8)) THEN
+	           wus = ws*(1._r8-hs)/unsat_area
+	           wur = r*(1._r8-hr)/unsat_area
+	        ELSE
+	           wus = ws
+	           wur = r
+	        ENDIF
+
+	        ! The component-aware averages above preserve the split between
+	        ! rice/non-rice and sat/unsat source areas.  Apply one common CH4
+	        ! scale so their reconstructed patch inventory also matches the
+	        ! area-mass-conservative legacy total remapped just above.
+	        target = max(totcol_methane(np), 0._r8)
+	        column = 0._r8
+	        DO j = 1, nlev
+	           dz = max(dz_soi(j), 0._r8)
+	           column = column + dz*( &
+	              ws*((1._r8-hs)*conc_methane_unsat_component(j,METHANE_COMP_SOIL,np) + &
+	                  hs*conc_methane_sat_component(j,METHANE_COMP_SOIL,np)) + &
+	              r*((1._r8-hr)*conc_methane_unsat_component(j,METHANE_COMP_RICE,np) + &
+	                  hr*conc_methane_sat_component(j,METHANE_COMP_RICE,np)))
+	        ENDDO
+	        IF (target <= tiny(1._r8)) THEN
+	           conc_methane_unsat_component(:,:,np) = 0._r8
+	           conc_methane_sat_component(:,:,np) = 0._r8
+	        ELSEIF (column > tiny(1._r8)) THEN
+	           scale = target/column
+	           conc_methane_unsat_component(:,:,np) = conc_methane_unsat_component(:,:,np)*scale
+	           conc_methane_sat_component(:,:,np) = conc_methane_sat_component(:,:,np)*scale
+	        ELSE
+	           conc_methane_unsat_component(:,:,np) = target/max(sum(max(dz_soi(1:nlev),0._r8)),tiny(1._r8))
+	           conc_methane_sat_component(:,:,np) = conc_methane_unsat_component(:,:,np)
+	        ENDIF
+
+	        conc_o2_unsat(1:nlev,np) = wus*conc_o2_unsat_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           wur*conc_o2_unsat_component(1:nlev,METHANE_COMP_RICE,np)
+	        conc_o2_sat(1:nlev,np) = wss*conc_o2_sat_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           wsr*conc_o2_sat_component(1:nlev,METHANE_COMP_RICE,np)
+	        conc_methane_unsat(1:nlev,np) = &
+	           wus*conc_methane_unsat_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           wur*conc_methane_unsat_component(1:nlev,METHANE_COMP_RICE,np)
+	        conc_methane_sat(1:nlev,np) = &
+	           wss*conc_methane_sat_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           wsr*conc_methane_sat_component(1:nlev,METHANE_COMP_RICE,np)
+	        conc_o2(1:nlev,np) = ws*((1._r8-hs)*conc_o2_unsat_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           hs*conc_o2_sat_component(1:nlev,METHANE_COMP_SOIL,np)) + &
+	           r*((1._r8-hr)*conc_o2_unsat_component(1:nlev,METHANE_COMP_RICE,np) + &
+	           hr*conc_o2_sat_component(1:nlev,METHANE_COMP_RICE,np))
+	        conc_methane(1:nlev,np) = &
+	           ws*((1._r8-hs)*conc_methane_unsat_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           hs*conc_methane_sat_component(1:nlev,METHANE_COMP_SOIL,np)) + &
+	           r*((1._r8-hr)*conc_methane_unsat_component(1:nlev,METHANE_COMP_RICE,np) + &
+	           hr*conc_methane_sat_component(1:nlev,METHANE_COMP_RICE,np))
+
+	        totcol_methane(np) = 0._r8
+	        totcol_methane_unsat(np) = 0._r8
+	        totcol_methane_sat(np) = 0._r8
+	        DO j = 1, nlev
+	           dz = max(dz_soi(j), 0._r8)
+	           totcol_methane(np) = totcol_methane(np) + conc_methane(j,np)*dz
+	           totcol_methane_unsat(np) = totcol_methane_unsat(np) + conc_methane_unsat(j,np)*dz
+	           totcol_methane_sat(np) = totcol_methane_sat(np) + conc_methane_sat(j,np)*dz
+	        ENDDO
+	        fsat_bef(np) = sat_area
+	        layer_sat_lag(1:nlev,np) = ws*layer_sat_lag_component(1:nlev,METHANE_COMP_SOIL,np) + &
+	           r*layer_sat_lag_component(1:nlev,METHANE_COMP_RICE,np)
+	        annavg_agnpp(np) = ws*annavg_agnpp_component(METHANE_COMP_SOIL,np) + &
+	           r*annavg_agnpp_component(METHANE_COMP_RICE,np)
+	        annavg_bgnpp(np) = ws*annavg_bgnpp_component(METHANE_COMP_SOIL,np) + &
+	           r*annavg_bgnpp_component(METHANE_COMP_RICE,np)
+	        annavg_somhr(np) = ws*annavg_somhr_component(METHANE_COMP_SOIL,np) + &
+	           r*annavg_somhr_component(METHANE_COMP_RICE,np)
+	        annavg_finrw(np) = ws*annavg_finrw_component(METHANE_COMP_SOIL,np) + &
+	           r*annavg_finrw_component(METHANE_COMP_RICE,np)
+	        tempavg_agnpp(np) = ws*tempavg_agnpp_component(METHANE_COMP_SOIL,np) + &
+	           r*tempavg_agnpp_component(METHANE_COMP_RICE,np)
+	        tempavg_bgnpp(np) = ws*tempavg_bgnpp_component(METHANE_COMP_SOIL,np) + &
+	           r*tempavg_bgnpp_component(METHANE_COMP_RICE,np)
+	        annsum_counter(np) = ws*annsum_counter_component(METHANE_COMP_SOIL,np) + &
+	           r*annsum_counter_component(METHANE_COMP_RICE,np)
+	        tempavg_somhr(np) = ws*tempavg_somhr_component(METHANE_COMP_SOIL,np) + &
+	           r*tempavg_somhr_component(METHANE_COMP_RICE,np)
+	        tempavg_finrw(np) = ws*tempavg_finrw_component(METHANE_COMP_SOIL,np) + &
+	           r*tempavg_finrw_component(METHANE_COMP_RICE,np)
+	        finundated_lag(np) = ws*finundated_lag_component(METHANE_COMP_SOIL,np) + &
+	           r*finundated_lag_component(METHANE_COMP_RICE,np)
+
+	        IF (np <= size(patchtype) .and. patchtype(np) /= 0) THEN
+	           rice_fraction_prev(np) = 0._r8
+	           conc_o2_unsat_component(:,:,np) = spread(conc_o2_unsat(:,np), 2, N_METHANE_COMP)
+	           conc_o2_sat_component(:,:,np) = spread(conc_o2_sat(:,np), 2, N_METHANE_COMP)
+	           conc_methane_unsat_component(:,:,np) = spread(conc_methane_unsat(:,np), 2, N_METHANE_COMP)
+	           conc_methane_sat_component(:,:,np) = spread(conc_methane_sat(:,np), 2, N_METHANE_COMP)
+	           layer_sat_lag_component(:,:,np) = spread(layer_sat_lag(:,np), 2, N_METHANE_COMP)
+	           annavg_agnpp_component(:,np) = annavg_agnpp(np)
+	           annavg_bgnpp_component(:,np) = annavg_bgnpp(np)
+	           annavg_somhr_component(:,np) = annavg_somhr(np)
+	           annavg_finrw_component(:,np) = annavg_finrw(np)
+	           tempavg_agnpp_component(:,np) = tempavg_agnpp(np)
+	           tempavg_bgnpp_component(:,np) = tempavg_bgnpp(np)
+	           annsum_counter_component(:,np) = annsum_counter(np)
+	           tempavg_somhr_component(:,np) = tempavg_somhr(np)
+	           tempavg_finrw_component(:,np) = tempavg_finrw(np)
+	           fsat_bef_component(:,np) = fsat_bef(np)
+	           finundated_lag_component(:,np) = finundated_lag(np)
+	        ENDIF
+	     ENDDO
+	  END SUBROUTINE sync_component_aggregates_after_lulcc
+
       SUBROUTINE remap1d(old, new)
          real(r8), intent(in) :: old(:)
          real(r8), intent(inout) :: new(:)
-         integer :: np, op, src
+         integer :: np, op, src, link
          real(r8) :: w, wsum, val
          DO np = 1, min(size(new), nnew)
             wsum = 0._r8
             val = 0._r8
             IF (present(lccpct_patches)) THEN
-               DO op = 1, min(size(old), size(patchclass_old), size(eindex_old))
-                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
-                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
-	                  w = lulcc_source_weight(np, op)
+	               DO link = map_start(np), map_start(np+1)-1
+	                  op = map_old(link)
+	                  IF (op > size(old)) CYCLE
+	                  w = map_source_weight(link)
 	                  IF (w <= 0._r8) CYCLE
                   val = val + w * old(op)
                   wsum = wsum + w
@@ -1753,23 +2936,22 @@ CONTAINS
       SUBROUTINE remap1d_mass(old, new)
          real(r8), intent(in) :: old(:)
          real(r8), intent(inout) :: new(:)
-         integer :: np, op, src
+         integer :: np, op, src, link
          real(r8) :: w, wsum, val, denom
          logical :: conserve_area_mass
 
          DO np = 1, min(size(new), nnew)
             wsum = 0._r8
             val = 0._r8
+	         conserve_area_mass = map_mass_available(np)
             IF (present(lccpct_patches)) THEN
-               conserve_area_mass = area_mass_remap_available(np)
-               DO op = 1, min(size(old), size(patchclass_old), size(eindex_old))
-                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
-                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+	               DO link = map_start(np), map_start(np+1)-1
+	                  op = map_old(link)
+	                  IF (op > size(old)) CYCLE
                   IF (conserve_area_mass) THEN
-                     w = lulcc_mass_transfer_area(np, op)
+	                     w = map_mass_weight(link)
                   ELSE
-                     w = lulcc_source_weight(np, op)
+	                     w = map_source_weight(link)
                   ENDIF
                   IF (w <= 0._r8) CYCLE
                   val = val + w * old(op)
@@ -1789,7 +2971,7 @@ CONTAINS
 	      SUBROUTINE remap2d(old, new)
          real(r8), intent(in) :: old(:,:)
          real(r8), intent(inout) :: new(:,:)
-         integer :: np, op, src
+         integer :: np, op, src, link
          real(r8) :: w, wsum
          real(r8) :: default_vals(size(new,1))
          DO np = 1, min(size(new,2), nnew)
@@ -1797,11 +2979,10 @@ CONTAINS
             default_vals(:) = new(:,np)
             IF (present(lccpct_patches)) THEN
                new(:,np) = 0._r8
-               DO op = 1, min(size(old,2), size(patchclass_old), size(eindex_old))
-                  IF (eindex_old(op) /= eindex_new(np)) CYCLE
-                  IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-                      patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
-	                  w = lulcc_source_weight(np, op)
+	               DO link = map_start(np), map_start(np+1)-1
+	                  op = map_old(link)
+	                  IF (op > size(old,2)) CYCLE
+	                  w = map_source_weight(link)
 	                  IF (w <= 0._r8) CYCLE
                   new(1:min(size(new,1),size(old,1)),np) = &
                      new(1:min(size(new,1),size(old,1)),np) + &
@@ -1826,20 +3007,45 @@ CONTAINS
 
          SUBROUTINE repartition_ch4_totcol_after_lulcc()
             integer :: np, n
-            real(r8) :: total, land_eff, f, scale
+            real(r8) :: total, water_total, land_eff, f, scale
 
             n = min(size(totcol_methane), size(totcol_methane_unsat), &
                size(totcol_methane_sat), size(totcol_methane_lake), &
+               size(lake_water_ch4_stock), size(lake_water_o2_stock), &
+               size(lake_frozen_ch4_stock), size(lake_frozen_o2_stock), &
+               size(lake_liquid_fraction_prev), &
                size(patchclass_new), nnew)
             DO np = 1, n
                total = max(totcol_methane(np), 0._r8)
                totcol_methane(np) = total
 
                IF (patchclass_new(np) == WATERBODY) THEN
-                  totcol_methane_lake(np) = total
-                  totcol_methane_sat(np) = total
+	                  ! The generic column is the canonical total inventory;
+	                  ! keep the independent water stock once and assign only
+	                  ! the remainder to the lake sediment representation.
+	                  lake_water_ch4_stock(np) = max(lake_water_ch4_stock(np), 0._r8)
+	                  lake_frozen_ch4_stock(np) = max(lake_frozen_ch4_stock(np), 0._r8)
+	                  water_total = lake_water_ch4_stock(np) + lake_frozen_ch4_stock(np)
+	                  IF (water_total > total .and. water_total > tiny(1._r8)) THEN
+	                     scale = total / water_total
+	                     lake_water_ch4_stock(np) = lake_water_ch4_stock(np) * scale
+	                     lake_frozen_ch4_stock(np) = lake_frozen_ch4_stock(np) * scale
+	                  ENDIF
+	                  lake_water_o2_stock(np) = max(lake_water_o2_stock(np), 0._r8)
+	                  lake_frozen_o2_stock(np) = max(lake_frozen_o2_stock(np), 0._r8)
+	                  totcol_methane_lake(np) = total - lake_water_ch4_stock(np) - &
+	                     lake_frozen_ch4_stock(np)
+	                  totcol_methane_sat(np) = totcol_methane_lake(np)
                   totcol_methane_unsat(np) = 0._r8
                ELSE
+	                  ! Any remapped lake-water CH4 is already present in the
+	                  ! canonical total and is repartitioned into land branches
+	                  ! below; clear the lake-only views without losing mass.
+	                  lake_water_ch4_stock(np) = 0._r8
+	                  lake_water_o2_stock(np) = 0._r8
+	                  lake_frozen_ch4_stock(np) = 0._r8
+	                  lake_frozen_o2_stock(np) = 0._r8
+	                  lake_liquid_fraction_prev(np) = spval
                   totcol_methane_lake(np) = 0._r8
                   totcol_methane_sat(np) = max(totcol_methane_sat(np), 0._r8)
                   totcol_methane_unsat(np) = max(totcol_methane_unsat(np), 0._r8)
@@ -1910,45 +3116,39 @@ CONTAINS
 
 		      INTEGER FUNCTION fallback_source(np, old_n) RESULT(src)
          integer, intent(in) :: np, old_n
-         integer :: op
          src = 0
-         DO op = 1, min(old_n, size(patchclass_old), size(eindex_old))
-            IF (eindex_old(op) == eindex_new(np) .and. &
-                patchclass_old(op) == patchclass_new(np)) THEN
-               src = op
-               RETURN
-            ENDIF
-         ENDDO
+	     IF (np < 1 .or. np > size(fallback_map)) RETURN
+	     IF (fallback_map(np) <= old_n) src = fallback_map(np)
          ! Do not fall back across patch classes.  Methane lake/sediment
          ! inventories are class-specific and can be corrupted by copying from
          ! a same-eindex non-lake patch.
 	      END FUNCTION fallback_source
 
-	      REAL(r8) FUNCTION lulcc_source_weight(np, op) RESULT(w)
-	         integer, intent(in) :: np, op
-	         integer :: oq
-	         real(r8) :: class_area
+	      REAL(r8) FUNCTION component_base_weight(np, link) RESULT(w)
+	         integer, intent(in) :: np, link
 
-	         w = 0._r8
-	         IF (.not. present(lccpct_patches)) RETURN
-	         IF (np > size(lccpct_patches,1)) RETURN
-	         IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
-	             patchclass_old(op) > ubound(lccpct_patches,2)) RETURN
-	         w = max(0._r8, lccpct_patches(np, patchclass_old(op)))
-	         IF (w <= 0._r8 .or. .not. present(old_patch_area)) RETURN
-	         IF (op > size(old_patch_area)) RETURN
-
-	         class_area = 0._r8
-	         DO oq = 1, min(size(patchclass_old), size(eindex_old), size(old_patch_area))
-	            IF (eindex_old(oq) == eindex_new(np) .and. &
-	                patchclass_old(oq) == patchclass_old(op)) THEN
-	               class_area = class_area + max(0._r8, old_patch_area(oq))
-	            ENDIF
-	         ENDDO
-	         IF (class_area > 0._r8) THEN
-	            w = w * max(0._r8, old_patch_area(op)) / class_area
+	         IF (map_mass_available(np)) THEN
+	            w = map_mass_weight(link)
+	         ELSE
+	            w = map_source_weight(link)
 	         ENDIF
-	      END FUNCTION lulcc_source_weight
+	      END FUNCTION component_base_weight
+
+	      REAL(r8) FUNCTION component_transfer_weight(np, link, component) RESULT(w)
+	         integer, intent(in) :: np, link, component
+	         integer :: op
+	         real(r8) :: r
+
+	         w = component_base_weight(np, link)
+	         op = map_old(link)
+	         IF (w <= 0._r8 .or. op > size(lulcc_rice_fraction_prev_old)) RETURN
+	         r = min(max(lulcc_rice_fraction_prev_old(op), 0._r8), 1._r8)
+	         IF (component == METHANE_COMP_RICE) THEN
+	            w = w*r
+	         ELSE
+	            w = w*(1._r8-r)
+	         ENDIF
+	      END FUNCTION component_transfer_weight
 
 	      LOGICAL FUNCTION area_mass_remap_available(np) RESULT(ok)
 	         integer, intent(in) :: np
@@ -1959,53 +3159,6 @@ CONTAINS
 	         IF (.not. ok) RETURN
 	         ok = new_patch_area(np) > tiny(1._r8)
 	      END FUNCTION area_mass_remap_available
-
-	      REAL(r8) FUNCTION lulcc_mass_transfer_area(np, op) RESULT(w)
-	         integer, intent(in) :: np, op
-	         integer :: c, nq
-	         real(r8) :: target_area, class_target_area
-
-	         w = 0._r8
-	         IF (.not. area_mass_remap_available(np)) RETURN
-	         IF (op > size(old_patch_area)) RETURN
-	         IF (op > size(patchclass_old) .or. op > size(eindex_old)) RETURN
-	         c = patchclass_old(op)
-	         IF (c < lbound(lccpct_patches,2) .or. c > ubound(lccpct_patches,2)) RETURN
-
-	         target_area = lulcc_target_class_area(np, c)
-	         IF (target_area <= tiny(1._r8)) RETURN
-
-	         class_target_area = 0._r8
-	         DO nq = 1, min(nnew, size(eindex_new), size(new_patch_area))
-	            IF (eindex_new(nq) == eindex_new(np)) THEN
-	               class_target_area = class_target_area + lulcc_target_class_area(nq, c)
-	            ENDIF
-	         ENDDO
-	         IF (class_target_area <= tiny(1._r8)) RETURN
-
-	         w = max(0._r8, old_patch_area(op)) * target_area / class_target_area
-	      END FUNCTION lulcc_mass_transfer_area
-
-	      REAL(r8) FUNCTION lulcc_target_class_area(np, c) RESULT(area)
-	         integer, intent(in) :: np, c
-	         integer :: cc
-	         real(r8) :: class_sum
-
-	         area = 0._r8
-	         IF (.not. present(lccpct_patches)) RETURN
-	         IF (.not. present(new_patch_area)) RETURN
-	         IF (np > size(new_patch_area)) RETURN
-	         IF (np > size(lccpct_patches,1)) RETURN
-	         IF (c < lbound(lccpct_patches,2) .or. c > ubound(lccpct_patches,2)) RETURN
-
-	         class_sum = 0._r8
-	         DO cc = lbound(lccpct_patches,2), ubound(lccpct_patches,2)
-	            class_sum = class_sum + max(0._r8, lccpct_patches(np, cc))
-	         ENDDO
-	         IF (class_sum <= tiny(1._r8)) RETURN
-
-	         area = max(0._r8, new_patch_area(np)) * max(0._r8, lccpct_patches(np, c)) / class_sum
-	      END FUNCTION lulcc_target_class_area
 
 	      REAL(r8) FUNCTION remap_denominator(np, wsum, conserve_mass) RESULT(denom)
 	         integer, intent(in) :: np
@@ -2059,6 +3212,11 @@ CONTAINS
       IF (allocated(lulcc_totcol_methane_unsat_old)) deallocate(lulcc_totcol_methane_unsat_old)
       IF (allocated(lulcc_totcol_methane_sat_old)) deallocate(lulcc_totcol_methane_sat_old)
       IF (allocated(lulcc_totcol_methane_lake_old)) deallocate(lulcc_totcol_methane_lake_old)
+      IF (allocated(lulcc_lake_water_ch4_stock_old)) deallocate(lulcc_lake_water_ch4_stock_old)
+      IF (allocated(lulcc_lake_water_o2_stock_old)) deallocate(lulcc_lake_water_o2_stock_old)
+      IF (allocated(lulcc_lake_frozen_ch4_stock_old)) deallocate(lulcc_lake_frozen_ch4_stock_old)
+      IF (allocated(lulcc_lake_frozen_o2_stock_old)) deallocate(lulcc_lake_frozen_o2_stock_old)
+      IF (allocated(lulcc_lake_liquid_fraction_prev_old)) deallocate(lulcc_lake_liquid_fraction_prev_old)
       IF (allocated(lulcc_grnd_methane_cond_old)) deallocate(lulcc_grnd_methane_cond_old)
       IF (allocated(lulcc_grnd_methane_cond_unsat_old)) deallocate(lulcc_grnd_methane_cond_unsat_old)
       IF (allocated(lulcc_grnd_methane_cond_sat_old)) deallocate(lulcc_grnd_methane_cond_sat_old)
@@ -2083,45 +3241,81 @@ CONTAINS
 	   IF (allocated(lulcc_f_inund_flood_patch_old)) deallocate(lulcc_f_inund_flood_patch_old)
 	   IF (allocated(lulcc_f_inund_flood_depth_patch_old)) deallocate(lulcc_f_inund_flood_depth_patch_old)
       IF (allocated(lulcc_c_atm_old)) deallocate(lulcc_c_atm_old)
+	  IF (allocated(lulcc_conc_o2_unsat_component_old)) deallocate(lulcc_conc_o2_unsat_component_old)
+	  IF (allocated(lulcc_conc_o2_sat_component_old)) deallocate(lulcc_conc_o2_sat_component_old)
+	  IF (allocated(lulcc_conc_methane_unsat_component_old)) deallocate(lulcc_conc_methane_unsat_component_old)
+	  IF (allocated(lulcc_conc_methane_sat_component_old)) deallocate(lulcc_conc_methane_sat_component_old)
+	  IF (allocated(lulcc_layer_sat_lag_component_old)) deallocate(lulcc_layer_sat_lag_component_old)
+	  IF (allocated(lulcc_annavg_agnpp_component_old)) deallocate(lulcc_annavg_agnpp_component_old)
+	  IF (allocated(lulcc_annavg_bgnpp_component_old)) deallocate(lulcc_annavg_bgnpp_component_old)
+	  IF (allocated(lulcc_annavg_somhr_component_old)) deallocate(lulcc_annavg_somhr_component_old)
+	  IF (allocated(lulcc_annavg_finrw_component_old)) deallocate(lulcc_annavg_finrw_component_old)
+	  IF (allocated(lulcc_tempavg_agnpp_component_old)) deallocate(lulcc_tempavg_agnpp_component_old)
+	  IF (allocated(lulcc_tempavg_bgnpp_component_old)) deallocate(lulcc_tempavg_bgnpp_component_old)
+	  IF (allocated(lulcc_annsum_counter_component_old)) deallocate(lulcc_annsum_counter_component_old)
+	  IF (allocated(lulcc_tempavg_somhr_component_old)) deallocate(lulcc_tempavg_somhr_component_old)
+	  IF (allocated(lulcc_tempavg_finrw_component_old)) deallocate(lulcc_tempavg_finrw_component_old)
+	  IF (allocated(lulcc_fsat_bef_component_old)) deallocate(lulcc_fsat_bef_component_old)
+	  IF (allocated(lulcc_finundated_lag_component_old)) deallocate(lulcc_finundated_lag_component_old)
+	  IF (allocated(lulcc_rice_fraction_prev_old)) deallocate(lulcc_rice_fraction_prev_old)
       methane_lulcc_snapshot_valid = .false.
    END SUBROUTINE clear_methane_lulcc_snapshot
 
 
-   SUBROUTINE initialize_methane_lake_soilc_from_surface (patchtype_in, lake_soilc_srf_in, allowlakeprod)
+   SUBROUTINE initialize_methane_lake_soilc_from_surface (patchtype_in, lake_soilc_srf_in, allowlakeprod, &
+      initialize_patch)
+      USE MOD_SPMD_Task, only: CoLM_stop
       integer,  intent(in) :: patchtype_in(:)
       real(r8), intent(in) :: lake_soilc_srf_in(:,:)
       logical,  intent(in) :: allowlakeprod
+      logical,  intent(in), optional :: initialize_patch(:)
 
       integer :: ipatch, npatch
-      integer :: lake_soilc_nlake, lake_soilc_nfilled, lake_soilc_missing
-      logical, save :: lake_soilc_missing_warned = .false.
+      integer :: lake_soilc_nlake, lake_soilc_missing
       real(r8), parameter :: smallnumber = 1.e-12_r8
 
       IF (.not. allocated(lake_soilc)) RETURN
       IF (.not. allowlakeprod) RETURN
-      IF (size(lake_soilc_srf_in,1) < nl_soil) RETURN
 
-      npatch = min(size(patchtype_in), size(lake_soilc,2), size(lake_soilc_srf_in,2))
-      lake_soilc_nlake = 0
-      lake_soilc_nfilled = 0
+      lake_soilc_nlake = count(patchtype_in == PATCHTYPE_LAKE)
+      IF (lake_soilc_nlake == 0) RETURN
+
+      npatch = size(lake_soilc,2)
+      IF (size(patchtype_in) /= npatch .or. size(lake_soilc_srf_in,1) < nl_soil .or. &
+          size(lake_soilc_srf_in,2) /= npatch) THEN
+         CALL CoLM_stop (' ***** ERROR: lake CH4 surface carbon dimensions do not match the active patch layout.')
+      ENDIF
+      IF (present(initialize_patch)) THEN
+         IF (size(initialize_patch) /= npatch) THEN
+            CALL CoLM_stop (' ***** ERROR: lake CH4 LULCC initialization mask has the wrong patch dimension.')
+         ENDIF
+      ENDIF
+
       lake_soilc_missing = 0
       DO ipatch = 1, npatch
-         IF (patchtype_in(ipatch) /= 4) CYCLE
-         lake_soilc_nlake = lake_soilc_nlake + 1
-         IF (sum(max(lake_soilc(:,ipatch), 0._r8)) > smallnumber) CYCLE
-         IF (sum(max(lake_soilc_srf_in(1:nl_soil,ipatch), 0._r8)) <= smallnumber) THEN
+         IF (patchtype_in(ipatch) /= PATCHTYPE_LAKE) CYCLE
+         IF (any(invalid_restart_value(lake_soilc_srf_in(1:nl_soil,ipatch))) .or. &
+             any(lake_soilc_srf_in(1:nl_soil,ipatch) < 0._r8) .or. &
+             sum(lake_soilc_srf_in(1:nl_soil,ipatch)) <= smallnumber) THEN
             lake_soilc_missing = lake_soilc_missing + 1
-            CYCLE
+         ENDIF
+      END DO
+
+      IF (lake_soilc_missing > 0) THEN
+         write(6,*) ' ERROR: lake CH4 production requires positive finite lake_soilc for every lake patch; missing ', &
+            lake_soilc_missing, ' of ', lake_soilc_nlake, ' local lake patches.'
+         CALL CoLM_stop (' ***** ERROR: incomplete lake_soilc input while lake CH4 production is enabled.')
+      ENDIF
+
+      DO ipatch = 1, npatch
+         IF (patchtype_in(ipatch) /= PATCHTYPE_LAKE) CYCLE
+         IF (present(initialize_patch)) THEN
+            IF (.not. initialize_patch(ipatch)) CYCLE
+         ELSE
+            IF (sum(max(lake_soilc(:,ipatch), 0._r8)) > smallnumber) CYCLE
          ENDIF
          lake_soilc(:,ipatch) = max(lake_soilc_srf_in(1:nl_soil,ipatch), 0._r8)
-         lake_soilc_nfilled = lake_soilc_nfilled + 1
       END DO
-      IF (.not. lake_soilc_missing_warned .and. lake_soilc_nlake > 0 .and. &
-          lake_soilc_missing == lake_soilc_nlake .and. lake_soilc_nfilled == 0) THEN
-         write(6,*) ' WARNING: lake CH4 production is enabled, but lake_soilc is zero/missing on this rank; ', &
-            'lake CH4 production will remain zero for these lake patches.'
-         lake_soilc_missing_warned = .true.
-      ENDIF
    END SUBROUTINE initialize_methane_lake_soilc_from_surface
 
 
@@ -2130,6 +3324,18 @@ CONTAINS
 
       invalid_restart_value = ieee_is_nan(x) .or. (abs(x) >= 0.5_r8 * abs(spval))
    END FUNCTION invalid_restart_value
+
+
+   ELEMENTAL LOGICAL FUNCTION invalid_restart_fraction_or_sentinel (x)
+      real(r8), intent(in) :: x
+
+      IF (x == spval) THEN
+         invalid_restart_fraction_or_sentinel = .false.
+      ELSE
+         invalid_restart_fraction_or_sentinel = invalid_restart_value(x) .or. &
+            x < 0._r8 .or. x > 1._r8
+      ENDIF
+   END FUNCTION invalid_restart_fraction_or_sentinel
 
 END MODULE MOD_Tracer_Reactive_Methane_State
 #endif

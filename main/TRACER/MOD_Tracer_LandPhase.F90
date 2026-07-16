@@ -253,12 +253,13 @@ CONTAINS
 
    END SUBROUTINE tracer_lake_step
 
-   SUBROUTINE tracer_wetland_decomp (ipatch)
+   SUBROUTINE tracer_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
 
-      CALL tracer_reactive_wetland_decomp (ipatch)
+      CALL tracer_reactive_wetland_decomp (ipatch, deltim)
 
    END SUBROUTINE tracer_wetland_decomp
 

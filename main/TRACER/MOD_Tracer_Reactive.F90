@@ -54,8 +54,10 @@ MODULE MOD_Tracer_Reactive
          integer,  intent(in) :: nsub
       END SUBROUTINE reactive_lake_step_if
 
-      SUBROUTINE reactive_wetland_decomp_if (ipatch)
+      SUBROUTINE reactive_wetland_decomp_if (ipatch, deltim)
+         USE MOD_Precision
          integer, intent(in) :: ipatch
+         real(r8), intent(in) :: deltim
       END SUBROUTINE reactive_wetland_decomp_if
 
       SUBROUTINE reactive_soil_step_if (istep_local, ipatch, idate, deltim)
@@ -68,6 +70,11 @@ MODULE MOD_Tracer_Reactive
 
       SUBROUTINE reactive_noarg_if ()
       END SUBROUTINE reactive_noarg_if
+
+      SUBROUTINE reactive_reload_lulcc_if (lc_year, dir_landdata)
+         integer, intent(in) :: lc_year
+         character(len=*), intent(in) :: dir_landdata
+      END SUBROUTINE reactive_reload_lulcc_if
 
       SUBROUTINE reactive_history_if (file_hist, itime_in_file, sumarea, filter, &
          nl_soil, forcing_has_missing_value, forcmask_pch)
@@ -124,7 +131,7 @@ MODULE MOD_Tracer_Reactive
       procedure(reactive_history_if),         pointer, nopass :: history => null()
       procedure(reactive_noarg_if),           pointer, nopass :: save_lulcc => null()
       procedure(reactive_remap_lulcc_if),     pointer, nopass :: remap_lulcc => null()
-      procedure(reactive_noarg_if),           pointer, nopass :: reload_lulcc => null()
+      procedure(reactive_reload_lulcc_if),    pointer, nopass :: reload_lulcc => null()
       procedure(reactive_publish_levee_flood_if), pointer, nopass :: publish_levee_flood => null()
       procedure(reactive_publish_flood_if),    pointer, nopass :: publish_flood => null()
       procedure(reactive_noarg_if),           pointer, nopass :: final => null()
@@ -201,7 +208,7 @@ CONTAINS
       procedure(reactive_history_if),        optional :: history_fn
       procedure(reactive_noarg_if),          optional :: save_lulcc_fn
       procedure(reactive_remap_lulcc_if),    optional :: remap_lulcc_fn
-      procedure(reactive_noarg_if),          optional :: reload_lulcc_fn
+      procedure(reactive_reload_lulcc_if),   optional :: reload_lulcc_fn
       procedure(reactive_publish_levee_flood_if), optional :: publish_levee_flood_fn
       procedure(reactive_publish_flood_if),  optional :: publish_flood_fn
       procedure(reactive_noarg_if),          optional :: final_fn
@@ -502,17 +509,18 @@ CONTAINS
 
    END SUBROUTINE tracer_reactive_lake_step
 
-   SUBROUTINE tracer_reactive_wetland_decomp (ipatch)
+   SUBROUTINE tracer_reactive_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
       integer :: i
 
       CALL prepare_reactive_dispatch ()
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%wetland_decomp)) THEN
-            CALL reactive_callbacks(i)%wetland_decomp (ipatch)
+            CALL reactive_callbacks(i)%wetland_decomp (ipatch, deltim)
          ENDIF
       ENDDO
 
@@ -593,11 +601,29 @@ CONTAINS
       integer, intent(in) :: nl_soil
       logical, intent(in) :: forcing_has_missing_value
       logical, intent(in) :: forcmask_pch(:)
-      integer :: i
+      integer :: i, active_history_callbacks, sole_history_callback
       type(block_data_real8_2d) :: callback_sumarea
       logical, allocatable :: callback_filter(:)
 
       CALL prepare_reactive_dispatch ()
+
+      active_history_callbacks = 0
+      sole_history_callback = 0
+      DO i = 1, n_reactive_callbacks
+         IF (reactive_callback_enabled(i) .and. &
+             associated(reactive_callbacks(i)%history)) THEN
+            active_history_callbacks = active_history_callbacks + 1
+            sole_history_callback = i
+         ENDIF
+      ENDDO
+
+      IF (active_history_callbacks == 0) RETURN
+      IF (active_history_callbacks == 1) THEN
+         CALL reactive_callbacks(sole_history_callback)%history (file_hist, itime_in_file, sumarea, filter, &
+            nl_soil, forcing_has_missing_value, forcmask_pch)
+         RETURN
+      ENDIF
+
       allocate(callback_filter(size(filter)))
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
@@ -655,16 +681,18 @@ CONTAINS
 
    END SUBROUTINE tracer_reactive_remap_lulcc_state
 
-   SUBROUTINE tracer_reactive_reload_lulcc_inputs ()
+   SUBROUTINE tracer_reactive_reload_lulcc_inputs (lc_year, dir_landdata)
 
       IMPLICIT NONE
+      integer, intent(in) :: lc_year
+      character(len=*), intent(in) :: dir_landdata
       integer :: i
 
       CALL prepare_reactive_dispatch ()
       DO i = 1, n_reactive_callbacks
          IF (reactive_callback_enabled(i) .and. &
              associated(reactive_callbacks(i)%reload_lulcc)) THEN
-            CALL reactive_callbacks(i)%reload_lulcc ()
+            CALL reactive_callbacks(i)%reload_lulcc (lc_year, dir_landdata)
          ENDIF
       ENDDO
 

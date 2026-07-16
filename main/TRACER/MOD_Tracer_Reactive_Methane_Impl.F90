@@ -13,9 +13,9 @@ MODULE MOD_Tracer_Reactive_Methane_Impl
    USE MOD_Vars_Global, only: maxsnl, nl_soil, nl_lake, PI, &
       z_soi, dz_soi, zi_soi
    USE MOD_Vars_TimeInvariants, only: patchtype, patchclass, patchlonr, patchlatr, &
-      slpratio, fsatmax, fsatdcf, lakedepth, bsw, porsl
+      slpratio, fsatmax, fsatdcf, lakedepth, dz_lake, bsw, porsl
    USE MOD_Vars_TimeVariables, only: t_soisno, t_grnd, wliq_soisno, wice_soisno, &
-      zwt, snowdp, wat, lake_icefrac, wdsrf, wetwat, smp, lai, rootr
+      zwt, snowdp, wat, t_lake, lake_icefrac, wdsrf, wetwat, smp, lai, sai, rootr, ustar, fq
    USE MOD_Vars_1DForcing, only: forc_t, forc_pbot, forc_po2m, forc_pco2m, &
       forc_us, forc_vs
    USE MOD_Vars_1DFluxes, only: rsur, etr, frcsat
@@ -68,27 +68,30 @@ CONTAINS
          t_grnd(ipatch), wliq_soisno(maxsnl+1:nl_soil,ipatch), &
          wice_soisno(maxsnl+1:nl_soil,ipatch), forc_t(ipatch), forc_pbot(ipatch), &
          forc_po2m(ipatch), forc_pco2m(ipatch), forc_us(ipatch), forc_vs(ipatch), &
+         ustar(ipatch), fq(ipatch), &
          zwt(ipatch), rootfr_lc(1:nl_soil,patchclass(ipatch)), snowdp(ipatch), wat(ipatch), &
-         rsur(ipatch), etr(ipatch), lakedepth(ipatch), lake_icefrac(1:nl_lake,ipatch), &
+         rsur(ipatch), etr(ipatch), lakedepth(ipatch), dz_lake(1:nl_lake,ipatch), &
+         t_lake(1:nl_lake,ipatch), lake_icefrac(1:nl_lake,ipatch), &
          wdsrf(ipatch), wetwat(ipatch), bsw(1:nl_soil,ipatch), smp(1:nl_soil,ipatch), &
-         porsl(1:nl_soil,ipatch), lai(ipatch), rootr(1:nl_soil,ipatch), &
+         porsl(1:nl_soil,ipatch), lai(ipatch), sai(ipatch), rootr(1:nl_soil,ipatch), &
          fsatmax(ipatch), fsatdcf(ipatch), frcsat(ipatch), f_h2osfc(ipatch))
 
       CALL accumulate_methane_lake_substep_diagnostics(ipatch, deltim_phy, isub, nsub)
 
    END SUBROUTINE ch4_impl_lake_step
 
-   SUBROUTINE ch4_impl_wetland_decomp (ipatch)
+   SUBROUTINE ch4_impl_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
 
       ! Wetland patches use the soil-decomposition cascade so methane
       ! can read patch-level heterotrophic respiration even without PFTs.
       IF (igas_ch4 <= 0) RETURN
       IF (patchtype(ipatch) /= 2) RETURN
 
-      CALL reactive_bgc_run_wetland_decomp (ipatch)
+      CALL reactive_bgc_run_wetland_decomp (ipatch, deltim)
 
    END SUBROUTINE ch4_impl_wetland_decomp
 
@@ -147,10 +150,12 @@ CONTAINS
          t_grnd(ipatch), wliq_soisno(maxsnl+1:nl_soil,ipatch), &
          wice_soisno(maxsnl+1:nl_soil,ipatch), forc_t(ipatch), forc_pbot(ipatch), &
          forc_po2m(ipatch), forc_pco2m(ipatch), forc_us(ipatch), forc_vs(ipatch), &
+         ustar(ipatch), fq(ipatch), &
          zwt(ipatch), rootfr_lc(1:nl_soil,patchclass(ipatch)), snowdp(ipatch), wat(ipatch), &
-         rsur(ipatch), etr(ipatch), lakedepth(ipatch), lake_icefrac(1:nl_lake,ipatch), &
+         rsur(ipatch), etr(ipatch), lakedepth(ipatch), dz_lake(1:nl_lake,ipatch), &
+         t_lake(1:nl_lake,ipatch), lake_icefrac(1:nl_lake,ipatch), &
          wdsrf(ipatch), wetwat(ipatch), bsw(1:nl_soil,ipatch), smp(1:nl_soil,ipatch), &
-         porsl(1:nl_soil,ipatch), lai(ipatch), rootr(1:nl_soil,ipatch), &
+         porsl(1:nl_soil,ipatch), lai(ipatch), sai(ipatch), rootr(1:nl_soil,ipatch), &
          fsatmax(ipatch), fsatdcf(ipatch), frcsat(ipatch), f_h2osfc(ipatch), &
          is_rice_paddy_in=is_rice_paddy, rice_pft_frac_in=rice_pft_frac)
 

@@ -6,7 +6,6 @@ on:
     paths-ignore:
       - 'postprocess/**'
       - 'preprocess/**'
-      - 'run/**'
       - 'README.md'
       - '.gitignore'
   push:
@@ -15,7 +14,6 @@ on:
     paths-ignore:
       - 'postprocess/**'
       - 'preprocess/**'
-      - 'run/**'
       - 'README.md'
       - '.gitignore'
   workflow_dispatch:

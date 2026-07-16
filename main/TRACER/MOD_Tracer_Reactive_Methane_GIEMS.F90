@@ -22,10 +22,10 @@ MODULE MOD_Tracer_Reactive_Methane_GIEMS
 !   2. Broadcast dims + coords; allocate per-rank ts (small).
 !   3. Each rank computes nearest-pixel (best_ix, best_iy) per patch.
 !      Those cached pixel indices are gathered to master once.
-!   4. Streaming loop over 348 months:
-!      a. Master reads one (nlon, nlat) slab (~4 MB).
+!   4. Streaming loop in chunks of at most 12 months:
+!      a. Master reads one (nlon, nlat) slab (~4 MB) per month.
 !      b. Master packs only values requested by patches on each rank.
-!      c. MPI_Scatterv sends each rank only its local patch values.
+!      c. One MPI_Scatterv per chunk sends each rank its local values.
 !   5. Build 12-month climatology fallback from full ts.
 !
 ! RUNTIME:
@@ -35,16 +35,20 @@ MODULE MOD_Tracer_Reactive_Methane_GIEMS
 !   - Else: 12-month climatology fallback
 !
 ! Notes:
-!   - Streaming read keeps master memory peak at one slab (~4 MB).
+!   - Master also holds one flattened pixel index per global patch and a
+!     bounded packed-value chunk (target <=64 MiB when one month fits).
 !   - Per-rank storage: 348 * numpatch_local * 8 bytes
 !     (10K patches -> 28 MB; SA test trivial).
-!   - Nearest-pixel mapping; for coarser CoLM grids than GIEMS, a
-!     better mapping would area-average. Acceptable for now.
+!   - GIEMS-MC v1.1 is a 0.25 x 0.25 degree product.  This interface
+!     receives patch centres only, so it samples the nearest source cell.
+!     A conservative area average cannot be reconstructed from a centre:
+!     it needs each patch's underlying mesh-pixel bounds and area weights.
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_Vars_Global, only: PI
+   USE, INTRINSIC :: IEEE_ARITHMETIC, only: ieee_is_finite, ieee_is_nan
 
    IMPLICIT NONE
    SAVE
@@ -100,24 +104,31 @@ CONTAINS
       character(len=*), parameter :: varname = 'inund_sat_wetland_frac'
       character(len=*), parameter :: latname = 'latitude'
       character(len=*), parameter :: lonname = 'longitude'
+      integer, parameter :: giems_expected_months = 348
+      integer, parameter :: giems_chunk_months = 12
+      integer, parameter :: giems_max_packed_values = 16 * 1024 * 1024
 
       integer :: ncid, vid, ierr, ierr_bc
       integer :: ntime, nlat, nlon
-      integer :: t, mo, ilat, ilon, ipatch, irequest
-      integer :: ndims, vdims(3), dlen_lon
-      integer :: total_requests
+      integer :: t, mo, ilat, ilon, ipatch, irequest, month_in_chunk
+      integer :: ndims, vdims(3), dlen
+      integer :: giems_metadata_error, giems_block_error
+      integer :: giems_count_error, giems_count_error_glb
+      integer :: giems_mapping_error, giems_mapping_error_glb
+      integer :: giems_value_error, giems_value_error_glb
+      integer :: total_requests, chunk_n, chunk_max, failed_t
       real(r4), allocatable :: slab(:,:)
-      real(r4), allocatable :: patch_values(:), requested_values(:)
+      real(r4), allocatable :: patch_values(:,:), requested_values(:,:)
       real(r8), allocatable :: lat_g(:), lon_g(:)
       integer,  allocatable :: best_ix(:), best_iy(:)
       integer,  allocatable :: pixel_index(:), all_pixel_index(:)
       integer,  allocatable :: request_counts(:), request_displs(:)
+      integer,  allocatable :: chunk_counts(:), chunk_displs(:)
       integer,  allocatable :: ccnt(:,:)            ! valid-count per (month, patch) for climatology
-      real(r8) :: lat_deg, lon_deg, dlatd, dlond, dmin, d
+      real(r8) :: lat_deg, lon_deg, dlatd, dlond, dmin
       logical  :: fexists, found_match
       character(len=256) :: dname
       real(r4) :: v
-      logical, save :: warned_open = .false.
 
       ! IMPORTANT: do NOT RETURN here on numpatch<=0.  Master rank often
       ! has no patches but must still participate in the MPI_Bcast
@@ -125,57 +136,119 @@ CONTAINS
       ! deadlock.
       giems_active = .false.
       giems_ntime = 0
+      giems_metadata_error = 0
+      ntime = 0
+      nlat = 0
+      nlon = 0
 
       ! ---- Step 1: master opens file, reads coords ----
       IF (p_is_master) THEN
          INQUIRE(file=trim(file_giems), exist=fexists)
          IF (.not. fexists) THEN
-            IF (.not. warned_open) THEN
-               write(*,'(A,A)') ' WARNING: GIEMS file not found: ', trim(file_giems)
-               warned_open = .true.
-            ENDIF
+            write(*,'(A,A)') ' ERROR: GIEMS file not found: ', trim(file_giems)
+            giems_metadata_error = 1
             ntime = 0; nlat = 0; nlon = 0
          ELSE
             ierr = nf90_open(trim(file_giems), NF90_NOWRITE, ncid)
             IF (ierr /= NF90_NOERR) THEN
-               write(*,'(A,A)') ' WARNING: GIEMS open failed: ', trim(nf90_strerror(ierr))
+               write(*,'(A,A)') ' ERROR: GIEMS open failed: ', trim(nf90_strerror(ierr))
+               giems_metadata_error = 1
                ntime = 0; nlat = 0; nlon = 0
             ELSE
                CALL get_dim(ncid, 'time',  ntime)
                CALL get_dim(ncid, latname, nlat)
                CALL get_dim(ncid, lonname, nlon)
                IF (ntime <= 0 .or. nlat <= 0 .or. nlon <= 0) THEN
-                  write(*,'(A)') ' WARNING: GIEMS missing required dimensions; methane scheme 5 inactive.'
+                  write(*,'(A)') ' ERROR: GIEMS is missing required time/latitude/longitude dimensions.'
+                  giems_metadata_error = 1
+                  ierr = nf90_close(ncid)
+               ELSEIF (ntime /= giems_expected_months) THEN
+                  write(*,'(A,I0,A,I0,A)') ' ERROR: GIEMS time dimension has ', ntime, &
+                     ' months; expected exactly ', giems_expected_months, ' (1992-01 through 2020-12).'
+                  giems_metadata_error = 1
+                  ierr = nf90_close(ncid)
+               ELSEIF (int(nlat, i8) * int(nlon, i8) > int(huge(0), i8)) THEN
+                  write(*,'(A)') ' ERROR: GIEMS grid is too large for the default-integer flattened pixel index.'
+                  giems_metadata_error = 1
                   ierr = nf90_close(ncid)
                ELSE
                   write(*,'(A,I0,A,I0,A,I0)') ' GIEMS dims: time=', ntime, ' lat=', nlat, ' lon=', nlon
+
+                  CALL validate_giems_time_axis(ncid, ntime, giems_metadata_error)
 
                   allocate(lat_g(nlat), lon_g(nlon))
                   ierr = nf90_inq_varid(ncid, latname, vid)
                   IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lat_g)
                   IF (ierr /= NF90_NOERR) THEN
-                     write(*,'(A,A)') ' WARNING: GIEMS latitude read failed: ', trim(nf90_strerror(ierr))
+                     write(*,'(A,A)') ' ERROR: GIEMS latitude read failed: ', trim(nf90_strerror(ierr))
+                     giems_metadata_error = 1
                   ELSE
                      ierr = nf90_inq_varid(ncid, lonname, vid)
                      IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lon_g)
                      IF (ierr /= NF90_NOERR) THEN
-                        write(*,'(A,A)') ' WARNING: GIEMS longitude read failed: ', trim(nf90_strerror(ierr))
+                        write(*,'(A,A)') ' ERROR: GIEMS longitude read failed: ', trim(nf90_strerror(ierr))
+                        giems_metadata_error = 1
+                     ELSEIF (any(.not. ieee_is_finite(lat_g)) .or. &
+                             any(.not. ieee_is_finite(lon_g)) .or. &
+                             any(abs(lat_g) > 90._r8)) THEN
+                        write(*,'(A)') ' ERROR: GIEMS latitude/longitude coordinates are invalid.'
+                        giems_metadata_error = 1
                      ELSE
                         ierr = nf90_inq_varid(ncid, varname, vid)
                         IF (ierr /= NF90_NOERR) THEN
-                           write(*,'(A,A)') ' WARNING: GIEMS variable not found: ', trim(nf90_strerror(ierr))
+                           write(*,'(A,A)') ' ERROR: GIEMS variable not found: ', trim(nf90_strerror(ierr))
+                           giems_metadata_error = 1
                         ELSE
-                           ierr = nf90_inquire_variable(ncid, vid, ndims=ndims, dimids=vdims)
-                           IF (ierr == NF90_NOERR .and. ndims == 3) THEN
-                              ierr = nf90_inquire_dimension(ncid, vdims(1), name=dname, len=dlen_lon)
+                           ierr = nf90_inquire_variable(ncid, vid, ndims=ndims)
+                           IF (ierr /= NF90_NOERR) THEN
+                              write(*,'(A,A)') ' ERROR: GIEMS variable metadata read failed: ', &
+                                 trim(nf90_strerror(ierr))
+                              giems_metadata_error = 1
+                           ELSEIF (ndims /= 3) THEN
+                              write(*,'(A,I0,A)') ' ERROR: GIEMS variable has ', ndims, &
+                                 ' dimensions; expected longitude, latitude, time.'
+                              giems_metadata_error = 1
+                           ELSE
+                              ierr = nf90_inquire_variable(ncid, vid, dimids=vdims)
+                              IF (ierr /= NF90_NOERR) THEN
+                                 write(*,'(A,A)') ' ERROR: GIEMS dimension-id read failed: ', &
+                                    trim(nf90_strerror(ierr))
+                                 giems_metadata_error = 1
+                              ENDIF
+
                               IF (ierr == NF90_NOERR) THEN
-                                 IF (index(dname,'lon') == 0 .and. dlen_lon /= nlon) THEN
-                                    write(*,'(A,A,A,I0)') ' WARNING: GIEMS dim 1 (Fortran fastest) is "', &
-                                       trim(dname), '" len=', dlen_lon, ' (expected longitude=', nlon, ')'
+                                 dname = ''
+                                 dlen = -1
+                                 ierr = nf90_inquire_dimension(ncid, vdims(1), name=dname, len=dlen)
+                                 IF (ierr /= NF90_NOERR .or. &
+                                     trim(dname) /= 'longitude' .or. dlen /= nlon) THEN
+                                    write(*,'(A,A,A,I0,A,I0)') ' ERROR: GIEMS dimension 1 is "', &
+                                       trim(dname), '" len=', dlen, '; expected longitude len=', nlon
+                                    giems_metadata_error = 1
+                                 ENDIF
+
+                                 dname = ''
+                                 dlen = -1
+                                 ierr = nf90_inquire_dimension(ncid, vdims(2), name=dname, len=dlen)
+                                 IF (ierr /= NF90_NOERR .or. &
+                                     trim(dname) /= 'latitude' .or. dlen /= nlat) THEN
+                                    write(*,'(A,A,A,I0,A,I0)') ' ERROR: GIEMS dimension 2 is "', &
+                                       trim(dname), '" len=', dlen, '; expected latitude len=', nlat
+                                    giems_metadata_error = 1
+                                 ENDIF
+
+                                 dname = ''
+                                 dlen = -1
+                                 ierr = nf90_inquire_dimension(ncid, vdims(3), name=dname, len=dlen)
+                                 IF (ierr /= NF90_NOERR .or. &
+                                     trim(dname) /= 'time' .or. dlen /= ntime) THEN
+                                    write(*,'(A,A,A,I0,A,I0)') ' ERROR: GIEMS dimension 3 is "', &
+                                       trim(dname), '" len=', dlen, '; expected time len=', ntime
+                                    giems_metadata_error = 1
                                  ENDIF
                               ENDIF
                            ENDIF
-                           giems_active = .true.
+                           giems_active = giems_metadata_error == 0
                         ENDIF
                      ENDIF
                   ENDIF
@@ -190,6 +263,7 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
+      CALL MPI_Bcast(giems_metadata_error, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
       CALL MPI_Bcast(giems_active, 1, MPI_LOGICAL, p_address_master, p_comm_glb, ierr)
       CALL MPI_Bcast(ntime,        1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
       CALL MPI_Bcast(nlat,         1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
@@ -202,6 +276,14 @@ CONTAINS
          CALL MPI_Bcast(lon_g, nlon, MPI_DOUBLE_PRECISION, p_address_master, p_comm_glb, ierr)
       ENDIF
 #endif
+
+      IF (giems_metadata_error /= 0) THEN
+         IF (p_is_master) THEN
+            CALL CoLM_stop ('ERROR: invalid GIEMS metadata; expected longitude, latitude, time.')
+         ELSE
+            CALL CoLM_stop ()
+         ENDIF
+      ENDIF
 
       IF (.not. giems_active) RETURN
       giems_ntime = ntime
@@ -234,7 +316,15 @@ CONTAINS
       allocate(best_iy(numpatch))
       best_ix(:) = -1
       best_iy(:) = -1
+      giems_mapping_error = 0
       DO ipatch = 1, numpatch
+         IF (.not. ieee_is_finite(patchlatr_in(ipatch)) .or. &
+             .not. ieee_is_finite(patchlonr_in(ipatch)) .or. &
+             abs(patchlatr_in(ipatch)) > 0.5_r8 * PI .or. &
+             abs(patchlonr_in(ipatch)) > 2._r8 * PI) THEN
+            giems_mapping_error = 1
+            CYCLE
+         ENDIF
          lat_deg = patchlatr_in(ipatch) * 180._r8 / PI
          lon_deg = patchlonr_in(ipatch) * 180._r8 / PI
          found_match = .false.
@@ -249,6 +339,7 @@ CONTAINS
          ENDDO
          IF (dmin > 5._r8) THEN
             best_iy(ipatch) = -1
+            giems_mapping_error = 1
             CYCLE
          ENDIF
 
@@ -265,8 +356,21 @@ CONTAINS
          IF (.not. found_match) THEN
             best_ix(ipatch) = -1
             best_iy(ipatch) = -1
+            giems_mapping_error = 1
          ENDIF
       ENDDO
+
+#ifdef USEMPI
+      CALL MPI_Allreduce(giems_mapping_error, giems_mapping_error_glb, 1, MPI_INTEGER, &
+         MPI_MAX, p_comm_glb, ierr)
+#else
+      giems_mapping_error_glb = giems_mapping_error
+#endif
+      IF (giems_mapping_error_glb /= 0) THEN
+         IF (p_is_master) write(*,'(A)') &
+            ' ERROR: at least one CoLM patch has invalid coordinates or no matching GIEMS cell.'
+         CALL CoLM_stop ()
+      ENDIF
 
       ! ---- Step 3: allocate per-rank time series + climatology accumulator ----
       IF (allocated(giems_ts_wetland_frac)) deallocate(giems_ts_wetland_frac)
@@ -289,9 +393,7 @@ CONTAINS
       ! gather that routing map once.  The master reuses it for every month;
       ! only the selected patch values cross the network.
       allocate(pixel_index(max(1, numpatch)))
-      allocate(patch_values(max(1, numpatch)))
       pixel_index(:) = 0
-      patch_values(:) = 0._r4
       DO ipatch = 1, numpatch
          IF (best_ix(ipatch) > 0 .and. best_iy(ipatch) > 0) THEN
             pixel_index(ipatch) = (best_iy(ipatch) - 1) * nlon + best_ix(ipatch)
@@ -299,8 +401,11 @@ CONTAINS
       ENDDO
 
       allocate(request_counts(p_np_glb), request_displs(p_np_glb))
+      allocate(chunk_counts(p_np_glb), chunk_displs(p_np_glb))
       request_counts(:) = 0
       request_displs(:) = 0
+      chunk_counts(:) = 0
+      chunk_displs(:) = 0
 #ifdef USEMPI
       CALL MPI_Gather(numpatch, 1, MPI_INTEGER, request_counts, 1, MPI_INTEGER, &
          p_address_master, p_comm_glb, ierr)
@@ -309,21 +414,53 @@ CONTAINS
 #endif
 
       total_requests = 0
+      giems_count_error = 0
+      chunk_max = min(giems_chunk_months, ntime)
       IF (p_is_master) THEN
          DO irequest = 1, p_np_glb
+            IF (request_counts(irequest) < 0) THEN
+               giems_count_error = 1
+               EXIT
+            ELSEIF (total_requests > huge(total_requests) - request_counts(irequest)) THEN
+               giems_count_error = 1
+               EXIT
+            ENDIF
             request_displs(irequest) = total_requests
             total_requests = total_requests + request_counts(irequest)
          ENDDO
+         IF (giems_count_error == 0) THEN
+            ! Keep the root's real(r4) packing buffer near 64 MiB without
+            ! giving up the 12x collective reduction for ordinary layouts.
+            chunk_max = min(chunk_max, max(1, giems_max_packed_values / max(1, total_requests)))
+            IF (total_requests > huge(total_requests) / chunk_max) giems_count_error = 1
+         ENDIF
+      ENDIF
+#ifdef USEMPI
+      CALL MPI_Bcast(chunk_max, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr)
+#endif
+      IF (numpatch > huge(numpatch) / chunk_max) giems_count_error = 1
+#ifdef USEMPI
+      CALL MPI_Allreduce(giems_count_error, giems_count_error_glb, 1, MPI_INTEGER, &
+         MPI_MAX, p_comm_glb, ierr)
+#else
+      giems_count_error_glb = giems_count_error
+#endif
+      IF (giems_count_error_glb /= 0) THEN
+         IF (p_is_master) write(*,'(A,I0,A)') &
+            ' ERROR: GIEMS patch distribution exceeds the MPI default-integer count limit for a ', &
+            chunk_max, '-month chunk.'
+         CALL CoLM_stop ()
+      ENDIF
+
+      IF (p_is_master) THEN
          allocate(all_pixel_index(max(1, total_requests)))
-         allocate(requested_values(max(1, total_requests)))
       ELSE
          ! MPI ignores root-only receive arguments away from the root, but
          ! allocated one-element buffers keep the legacy `use mpi` interface
          ! valid on implementations that still inspect the actual argument.
-         allocate(all_pixel_index(1), requested_values(1))
+         allocate(all_pixel_index(1))
       ENDIF
       all_pixel_index(:) = 0
-      requested_values(:) = 0._r4
 
 #ifdef USEMPI
       CALL MPI_Gatherv(pixel_index, numpatch, MPI_INTEGER, all_pixel_index, &
@@ -333,7 +470,7 @@ CONTAINS
       IF (numpatch > 0) all_pixel_index(1:numpatch) = pixel_index(1:numpatch)
 #endif
 
-      ! ---- Step 4: streaming month-by-month read + directed distribution ----
+      ! ---- Step 4: streaming monthly reads + chunked directed distribution ----
       ! Dimension-order note: NetCDF metadata advertises the variable as
       ! inund_sat_wetland_frac(time, latitude, longitude) in C order, but
       ! Fortran reverses dimension order for nf90_get_var so the buffer is
@@ -344,62 +481,100 @@ CONTAINS
       ! that check before touching this read.
       IF (p_is_master) allocate(slab(nlon, nlat))
 
-      DO t = 1, ntime
-         mo = mod(t-1, 12) + 1
-
+      DO t = 1, ntime, chunk_max
+         chunk_n = min(chunk_max, ntime - t + 1)
+         allocate(patch_values(chunk_n, max(1, numpatch)))
          IF (p_is_master) THEN
-            ierr = nf90_get_var(ncid, vid, slab, &
-               start=[1, 1, t], count=[nlon, nlat, 1])
+            allocate(requested_values(chunk_n, max(1, total_requests)))
+         ELSE
+            allocate(requested_values(chunk_n, 1))
+         ENDIF
+         patch_values(:,:) = 0._r4
+         requested_values(:,:) = 0._r4
+         chunk_counts(:) = request_counts(:) * chunk_n
+         chunk_displs(:) = request_displs(:) * chunk_n
+
+         giems_block_error = NF90_NOERR
+         failed_t = 0
+         IF (p_is_master) THEN
+            DO month_in_chunk = 1, chunk_n
+               ierr = nf90_get_var(ncid, vid, slab, &
+                  start=[1, 1, t + month_in_chunk - 1], count=[nlon, nlat, 1])
+               IF (ierr /= NF90_NOERR) THEN
+                  giems_block_error = ierr
+                  failed_t = t + month_in_chunk - 1
+                  EXIT
+               ENDIF
+
+               DO irequest = 1, total_requests
+                  IF (all_pixel_index(irequest) <= 0) THEN
+                     requested_values(month_in_chunk, irequest) = -999._r4
+                  ELSE
+                     ilon = mod(all_pixel_index(irequest) - 1, nlon) + 1
+                     ilat = (all_pixel_index(irequest) - 1) / nlon + 1
+                     requested_values(month_in_chunk, irequest) = slab(ilon, ilat)
+                  ENDIF
+               ENDDO
+            ENDDO
          ENDIF
 #ifdef USEMPI
-         CALL MPI_Bcast(ierr, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr_bc)
+         CALL MPI_Bcast(giems_block_error, 1, MPI_INTEGER, p_address_master, p_comm_glb, ierr_bc)
 #endif
-         IF (ierr /= NF90_NOERR) THEN
+         IF (giems_block_error /= NF90_NOERR) THEN
             ! Silent zeroing of a failed monthly slab would look like "no
             ! inundation that month" — produces wrong CH4 budget.
             ! Fail loud instead (scheme 5 is observation-driven; partial
             ! failure is not acceptable).
             IF (p_is_master) THEN
-               write(*,'(A,I0,A)') ' ERROR: GIEMS slab read failed at time index ', t, &
+               write(*,'(A,I0,A)') ' ERROR: GIEMS slab read failed at time index ', failed_t, &
                   '; aborting.'
-               write(*,'(A,A)') '   nf90_strerror: ', trim(nf90_strerror(ierr))
+               write(*,'(A,A)') '   nf90_strerror: ', trim(nf90_strerror(giems_block_error))
             ENDIF
             CALL CoLM_stop ()
-         ENDIF
-
-         IF (p_is_master) THEN
-            DO irequest = 1, total_requests
-               IF (all_pixel_index(irequest) <= 0) THEN
-                  requested_values(irequest) = -999._r4
-               ELSE
-                  ilon = mod(all_pixel_index(irequest) - 1, nlon) + 1
-                  ilat = (all_pixel_index(irequest) - 1) / nlon + 1
-                  requested_values(irequest) = slab(ilon, ilat)
-               ENDIF
-            ENDDO
          ENDIF
 
 #ifdef USEMPI
          ! requested_values and patch_values are real(r4); MPI_REAL4 keeps the
          ! NetCDF slab ABI explicit while sending only local patch requests.
-         CALL MPI_Scatterv(requested_values, request_counts, request_displs, &
-            MPI_REAL4, patch_values, numpatch, MPI_REAL4, p_address_master, &
-            p_comm_glb, ierr)
+         CALL MPI_Scatterv(requested_values, chunk_counts, chunk_displs, MPI_REAL4, &
+            patch_values, chunk_n * numpatch, MPI_REAL4, p_address_master, p_comm_glb, ierr)
 #else
-         IF (numpatch > 0) patch_values(1:numpatch) = requested_values(1:numpatch)
+         IF (numpatch > 0) patch_values(:,1:numpatch) = requested_values(:,1:numpatch)
 #endif
 
+         giems_value_error = 0
          DO ipatch = 1, numpatch
             IF (pixel_index(ipatch) <= 0) CYCLE
-            v = patch_values(ipatch)
-            IF (v >= 0._r4 .and. v <= 1._r4) THEN
-               giems_ts_wetland_frac(t, ipatch) = real(v, r8)
-               giems_clim_wetland_frac(mo, ipatch) = &
-                  giems_clim_wetland_frac(mo, ipatch) + real(v, r8)
+            DO month_in_chunk = 1, chunk_n
+               mo = mod(t + month_in_chunk - 2, 12) + 1
+               v = patch_values(month_in_chunk, ipatch)
+               IF (v >= 0._r4 .and. v <= 1._r4) THEN
+                  giems_ts_wetland_frac(t + month_in_chunk - 1, ipatch) = real(v, r8)
+                  giems_clim_wetland_frac(mo, ipatch) = &
+                     giems_clim_wetland_frac(mo, ipatch) + real(v, r8)
+               ELSEIF (.not. ieee_is_nan(v) .and. v /= -999._r4 .and. &
+                       v /= -998._r4 .and. v /= -997._r4) THEN
+                  giems_value_error = 1
+               ENDIF
+               ! Valid observations and documented ocean/snow/urban/NaN
+               ! fill values all represent this month.  Count the latter as
+               ! physical zero in the climatology instead of excluding them,
+               ! which would bias seasonally snow-covered cells high.
                ccnt(mo, ipatch) = ccnt(mo, ipatch) + 1
-            ENDIF
-            ! else: ocean/snow/urban sentinel -> leave as 0
+            ENDDO
          ENDDO
+#ifdef USEMPI
+         CALL MPI_Allreduce(giems_value_error, giems_value_error_glb, 1, MPI_INTEGER, &
+            MPI_MAX, p_comm_glb, ierr)
+#else
+         giems_value_error_glb = giems_value_error
+#endif
+         IF (giems_value_error_glb /= 0) THEN
+            IF (p_is_master) write(*,'(A)') &
+               ' ERROR: GIEMS contains a selected wetland fraction outside [0,1] or documented fill flags.'
+            CALL CoLM_stop ()
+         ENDIF
+         deallocate(patch_values, requested_values)
       ENDDO
 
       ! Finalize climatology (per-patch monthly mean)
@@ -415,8 +590,8 @@ CONTAINS
       IF (p_is_master) ierr = nf90_close(ncid)
 
       IF (allocated(slab)) deallocate(slab)
-      deallocate(ccnt, best_ix, best_iy, pixel_index, patch_values)
-      deallocate(all_pixel_index, requested_values, request_counts, request_displs)
+      deallocate(ccnt, best_ix, best_iy, pixel_index)
+      deallocate(all_pixel_index, request_counts, request_displs, chunk_counts, chunk_displs)
       deallocate(lat_g, lon_g)
 
       IF (p_is_master) write(*,'(A,I0,A,I0,A,I0,A)') &
@@ -424,6 +599,103 @@ CONTAINS
          giems_year_start, '-', giems_year_end, &
          '); years outside this range use 12-month climatology fallback.'
    END SUBROUTINE read_methane_giems
+
+   SUBROUTINE validate_giems_time_axis(ncid, ntime, metadata_error)
+      ! The runtime lookup maps array index 1 to 1992-01.  Verify that the
+      ! coordinate actually advertises that origin instead of accepting any
+      ! same-shaped but shifted or unordered 348-sample file.
+      USE netcdf
+      integer, intent(in)    :: ncid, ntime
+      integer, intent(inout) :: metadata_error
+
+      integer, parameter :: month_days(12) = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+      integer :: ierr, time_vid, i, c, year, month, days_this_month, expected_day
+      real(r8), allocatable :: time_values(:)
+      character(len=256) :: time_units, units_lower
+      character(len=256) :: time_calendar, calendar_lower
+      character(len=256) :: time_resolution, resolution_lower
+
+      ierr = nf90_inq_varid(ncid, 'time', time_vid)
+      IF (ierr /= NF90_NOERR) THEN
+         write(*,'(A,A)') ' ERROR: GIEMS time coordinate not found: ', trim(nf90_strerror(ierr))
+         metadata_error = 1
+         RETURN
+      ENDIF
+
+      allocate(time_values(ntime))
+      ierr = nf90_get_var(ncid, time_vid, time_values)
+      IF (ierr /= NF90_NOERR) THEN
+         write(*,'(A,A)') ' ERROR: GIEMS time coordinate read failed: ', trim(nf90_strerror(ierr))
+         metadata_error = 1
+         deallocate(time_values)
+         RETURN
+      ENDIF
+
+      time_units = ''
+      ierr = nf90_get_att(ncid, time_vid, 'units', time_units)
+      IF (ierr /= NF90_NOERR) THEN
+         write(*,'(A)') ' ERROR: GIEMS time coordinate must define its day-based 1992-01-01 origin.'
+         metadata_error = 1
+      ELSE
+         units_lower = adjustl(time_units)
+         DO i = 1, len_trim(units_lower)
+            c = iachar(units_lower(i:i))
+            IF (c >= iachar('A') .and. c <= iachar('Z')) &
+               units_lower(i:i) = achar(c + iachar('a') - iachar('A'))
+         ENDDO
+         IF (index(trim(units_lower), 'days since 1992-01-01') /= 1) THEN
+            write(*,'(A,A)') ' ERROR: GIEMS time units must be days since 1992-01-01: ', trim(time_units)
+            metadata_error = 1
+         ENDIF
+      ENDIF
+
+      time_calendar = ''
+      ierr = nf90_get_att(ncid, time_vid, 'calendar', time_calendar)
+      calendar_lower = adjustl(time_calendar)
+      DO i = 1, len_trim(calendar_lower)
+         c = iachar(calendar_lower(i:i))
+         IF (c >= iachar('A') .and. c <= iachar('Z')) &
+            calendar_lower(i:i) = achar(c + iachar('a') - iachar('A'))
+      ENDDO
+      IF (ierr /= NF90_NOERR .or. &
+          (trim(calendar_lower) /= 'proleptic_gregorian' .and. &
+           trim(calendar_lower) /= 'gregorian' .and. trim(calendar_lower) /= 'standard')) THEN
+         write(*,'(A,A)') ' ERROR: GIEMS time calendar is missing or not Gregorian: ', trim(time_calendar)
+         metadata_error = 1
+      ENDIF
+
+      time_resolution = ''
+      ierr = nf90_get_att(ncid, time_vid, 'time_resolution', time_resolution)
+      resolution_lower = adjustl(time_resolution)
+      DO i = 1, len_trim(resolution_lower)
+         c = iachar(resolution_lower(i:i))
+         IF (c >= iachar('A') .and. c <= iachar('Z')) &
+            resolution_lower(i:i) = achar(c + iachar('a') - iachar('A'))
+      ENDDO
+      IF (ierr /= NF90_NOERR .or. trim(resolution_lower) /= 'monthly_average') THEN
+         write(*,'(A,A)') ' ERROR: GIEMS time_resolution must be monthly_average: ', trim(time_resolution)
+         metadata_error = 1
+      ENDIF
+
+      expected_day = 0
+      DO i = 1, ntime
+         IF (.not. ieee_is_finite(time_values(i)) .or. &
+             abs(time_values(i) - real(expected_day, r8)) > 0.25_r8) THEN
+            write(*,'(A,I0,A,F20.6,A,I0)') ' ERROR: GIEMS time index ', i, &
+               ' has day=', time_values(i), '; expected month-start day=', expected_day
+            metadata_error = 1
+            EXIT
+         ENDIF
+         year = 1992 + (i - 1) / 12
+         month = mod(i - 1, 12) + 1
+         days_this_month = month_days(month)
+         IF (month == 2 .and. &
+             (mod(year, 400) == 0 .or. (mod(year, 4) == 0 .and. mod(year, 100) /= 0))) &
+            days_this_month = days_this_month + 1
+         expected_day = expected_day + days_this_month
+      ENDDO
+      deallocate(time_values)
+   END SUBROUTINE validate_giems_time_axis
 
    real(r8) FUNCTION giems_finundated(ipatch, year, day_of_year)
       ! Returns per-patch finundated for the (year, day_of_year):

@@ -1,9 +1,10 @@
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
 import pytest
+
+from fortran_test_support import require_runnable_fortran_compiler
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ METHANE_REGISTRY = (
     ROOT / "main" / "TRACER" / "MOD_Tracer_Reactive_Methane_Registry.F90"
 )
 STANDARD_CHLORIDE = ROOT / "run" / "standard_chloride_parameter.nml"
+SUBPROCESS_TIMEOUT = 60
 
 
 def test_species_owned_setter_keeps_descriptor_units_coherent():
@@ -24,12 +26,9 @@ def test_species_owned_setter_keeps_descriptor_units_coherent():
 
 @pytest.fixture(scope="module")
 def descriptor_driver():
-    compiler = shutil.which("mpif90") or shutil.which("gfortran")
-    if compiler is None:
-        pytest.skip("Fortran compiler is not available")
-
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
+        compiler = require_runnable_fortran_compiler(tmp)
         (tmp / "define.h").write_text(
             "#define TRACER\n#define BGC\n", encoding="utf-8"
         )
@@ -87,10 +86,13 @@ end module MOD_Vars_Global
         )
         (tmp / "driver.f90").write_text(
             """
+#include <define.h>
 program descriptor_driver
   use MOD_Namelist
   use MOD_Tracer_Defs
+#ifdef BGC
   use MOD_Tracer_Reactive_Methane_Registry, only: methane_registry_init
+#endif
   implicit none
   character(len=512) :: parameter_file
   character(len=256) :: tracer_name, tracer_category
@@ -109,7 +111,9 @@ program descriptor_driver
     DEF_TRACER_PARAM_FILES = trim(DEF_TRACER_NAMES) // ':' // trim(parameter_file)
   endif
   call tracer_defs_init()
+#ifdef BGC
   if (trim(action) == 'methane') call methane_registry_init()
+#endif
   do i = 1, ntracers
     write(*,'(A)') 'NAME=' // trim(tracers(i)%name)
   enddo
@@ -142,8 +146,28 @@ end program descriptor_driver
             "-o",
             str(executable),
         ]
-        subprocess.run(command, cwd=tmp, check=True, capture_output=True, text=True)
-        yield executable, tmp
+        subprocess.run(
+            command,
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT,
+        )
+
+        (tmp / "define.h").write_text("#define TRACER\n", encoding="utf-8")
+        executable_no_bgc = tmp / "descriptor_driver_no_bgc"
+        command_no_bgc = [item for item in command if item != str(METHANE_REGISTRY)]
+        command_no_bgc[command_no_bgc.index(str(executable))] = str(executable_no_bgc)
+        subprocess.run(
+            command_no_bgc,
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT,
+        )
+        yield executable, executable_no_bgc, tmp
 
 
 def run_driver(
@@ -153,8 +177,11 @@ def run_driver(
     tracer_category="conservative",
     tracer_num=1,
     action="none",
+    bgc=True,
 ):
-    executable, tmp = descriptor_driver
+    executable, executable_no_bgc, tmp = descriptor_driver
+    if not bgc:
+        executable = executable_no_bgc
     parameter_arg = ""
     if parameter_text is not None:
         parameter_file = tmp / "parameter.nml"
@@ -168,7 +195,13 @@ def run_driver(
         str(tracer_num),
         action,
     ]
-    return subprocess.run(command, cwd=tmp, capture_output=True, text=True)
+    return subprocess.run(
+        command,
+        cwd=tmp,
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
 
 
 def test_legacy_conservative_defaults_are_preserved(descriptor_driver):
@@ -353,6 +386,35 @@ def test_generic_reactive_nonvolatile_solute_is_valid(descriptor_driver):
         "-1",
         "T T T",
     ]
+
+
+def test_bgc_off_rejects_species_owned_ch4_but_keeps_generic_reactive_fallback(
+    descriptor_driver,
+):
+    methane = run_driver(
+        descriptor_driver,
+        (ROOT / "run" / "standard_ch4_parameter.nml").read_text(encoding="utf-8"),
+        tracer_name="CH4",
+        tracer_category="reactive",
+        bgc=False,
+    )
+    assert methane.returncode != 0
+    assert "species-owned CH4 requires compiling with BGC" in methane.stdout
+
+    generic = run_driver(
+        descriptor_driver,
+        """
+&nl_colm_tracer_parameter
+  DEF_TRACER%uses_reaction = .true.
+  DEF_TRACER%reactive_decay_rate = 1.0e-6
+/
+""",
+        tracer_name="NO3",
+        tracer_category="reactive",
+        bgc=False,
+    )
+    assert generic.returncode == 0, generic.stdout + generic.stderr
+    assert generic.stdout.splitlines()[-1] == "T F T"
 
 
 def test_species_owned_reactive_cannot_claim_nonvolatile_residue(descriptor_driver):
