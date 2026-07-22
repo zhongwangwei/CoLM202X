@@ -88,12 +88,14 @@ SUBROUTINE Aggregation_LakeSoilC ( &
 #endif
          ENDIF
 
-         IF (.not. raw_exists) THEN
-            CALL CoLM_stop (' ***** ERROR: lake CH4 production requires raw lake_soilc.nc surface data.')
-         ENDIF
+         ! Without a gridded lake_soilc dataset the aggregation is skipped and the
+         ! zero-initialized field is written as is; MOD_Initialize then derives lake
+         ! sediment carbon from the soil organic-matter proxy for every lake patch.
+         IF (.not. raw_exists .and. p_is_master) write(*,'(A)') &
+            '  raw lake_soilc.nc not found; writing zeros (initialization uses the soil OM proxy).'
 
-         IF (p_is_master) write(*,*) '  using raw lake_soilc dataset: ', trim(lndname)
-         IF (p_is_io) THEN
+         IF (p_is_master .and. raw_exists) write(*,*) '  using raw lake_soilc dataset: ', trim(lndname)
+         IF (p_is_io .and. raw_exists) THEN
             CALL allocate_block_data (gland, lake_soilc_grid, nl_soil)
             CALL ncio_read_block (lndname, 'lake_soilc', gland, nl_soil, lake_soilc_grid)
 #ifdef USEMPI
@@ -101,7 +103,7 @@ SUBROUTINE Aggregation_LakeSoilC ( &
 #endif
          ENDIF
 
-         IF (p_is_worker) THEN
+         IF (p_is_worker .and. raw_exists) THEN
             DO ipatch = 1, numpatch
                L = landpatch%settyp(ipatch)
                IF (L == WATERBODY) THEN

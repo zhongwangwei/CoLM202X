@@ -381,16 +381,23 @@ ENDIF
       write(cyear,'(i4.4)') lc_year
       lndname = trim(dir_landdata)//'/soil/'//trim(cyear)//'/lake_soilc_patches.nc'
       CALL ncio_read_vector (lndname, 'lake_soilc_patches', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
-#else
+#endif
+      ! Lake sediment organic carbon falls back to the soil organic-matter proxy on
+      ! any lake patch left without carbon, which is the case whenever no gridded
+      ! lake_soilc dataset exists.  A dataset that supplies a positive stock keeps
+      ! precedence because the fallback only fires on an all-zero column.  Lake CH4
+      ! production requires a positive finite stock on every lake patch.
       IF (p_is_worker .and. numpatch > 0) THEN
-         lake_soilc_srf(:,:) = 0._r8
          DO ipatch = 1, numpatch
-            IF (patchtype(ipatch) == 4) THEN
-               lake_soilc_srf(:,ipatch) = carbon_per_kg_om * max(OM_density(:,ipatch), 0._r8)
+            IF (patchtype(ipatch) == 4 .and. &
+                sum(max(lake_soilc_srf(1:nl_soil,ipatch), 0._r8)) <= 0._r8) THEN
+               lake_soilc_srf(1:nl_soil,ipatch) = carbon_per_kg_om * &
+                  merge(OM_density(1:nl_soil,ipatch), 0._r8, &
+                        OM_density(1:nl_soil,ipatch) > 0._r8 .and. &
+                        OM_density(1:nl_soil,ipatch) < 1.e30_r8)
             ENDIF
          ENDDO
       ENDIF
-#endif
 #endif
 
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
