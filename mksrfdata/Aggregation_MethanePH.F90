@@ -257,11 +257,16 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
 #ifdef USEMPI
       CALL mpi_allreduce (invalid_local, invalid_global, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
-      IF (invalid_global > 0) THEN
-         IF (p_is_master) write(*,'(A,I0,A)') &
-            ' ERROR: PHH2O has no valid spatial pH for ', invalid_global, ' soil/wetland patches.'
-         CALL CoLM_Stop (' ***** ERROR: incomplete methane spatial-pH aggregation')
-      ENDIF
+      ! PHH2O only spans latitude -56..84, so polar islands and a few remote
+      ! islets carry no soil pH at all.  Those patches keep the neutral default
+      ! assigned at allocation instead of aborting the whole run, because
+      ! disabling spatial pH globally would bias every other patch far more:
+      ! pH 4.5 peat produces ~4x less methane than the pH 6.2 optimum.  The
+      ! count is reported so the fallback share stays traceable in the log.
+      IF (invalid_global > 0 .and. p_is_master) write(*,'(A,I0,A,I0,A,F4.1,A)') &
+         '  NOTE: PHH2O has no spatial pH for ', invalid_global, ' of ', relevant_global, &
+         ' soil/wetland patches (outside the -56..84 data window or all-missing);', &
+         methane_ph_fallback, ' is used there.'
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
