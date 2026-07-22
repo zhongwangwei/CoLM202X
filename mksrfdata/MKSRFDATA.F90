@@ -460,11 +460,17 @@ PROGRAM MKSRFDATA
 
 IF (.not. (skip_rest)) THEN
 
-      CALL Aggregation_PercentagesPFT  (grid_500m, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST: only the aggregation steps touched by the teacher merge are
+!TEMP-MERGE-TEST: kept, so the run exercises the new code without redoing the
+!TEMP-MERGE-TEST: untouched steps.  Existing landdata supplies the rest.
+!TEMP-MERGE-TEST: Revert with: git revert <this commit>
+!TEMP-MERGE-TEST      CALL Aggregation_PercentagesPFT  (grid_500m, dir_rawdata, dir_landdata, lc_year)
 
-      CALL Aggregation_LakeDepth       (grid_500m, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_LakeDepth       (grid_500m, dir_rawdata, dir_landdata, lc_year)
 
-      CALL Aggregation_SoilParameters  (grid_soil, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST: SoilParameters (rewritten by 8fd3df1f) already ran to completion
+!TEMP-MERGE-TEST: twice under the new code on 2026-07-19/20, so its output is current.
+!TEMP-MERGE-TEST      CALL Aggregation_SoilParameters  (grid_soil, dir_rawdata, dir_landdata, lc_year)
 
 #if (defined TRACER) && (defined BGC)
       CALL methane_preprocessing_requirements (requires_lake_soilc, requires_spatial_ph)
@@ -474,41 +480,41 @@ IF (.not. (skip_rest)) THEN
          CALL Aggregation_MethanePH    (dir_rawdata, dir_landdata, lc_year)
 #endif
 
-      CALL Aggregation_SoilBrightness  (grid_500m, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_SoilBrightness  (grid_500m, dir_rawdata, dir_landdata, lc_year)
 #ifdef HYPERSPECTRAL
-      CALL Aggregation_SoilHyperAlbedo   (grid_500m, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_SoilHyperAlbedo   (grid_500m, dir_rawdata, dir_landdata, lc_year)
 #endif
 
-      IF (DEF_USE_BEDROCK) THEN
-         CALL Aggregation_DBedrock     (grid_500m, dir_rawdata, dir_landdata, lc_year)
-      ENDIF
+!TEMP-MERGE-TEST      IF (DEF_USE_BEDROCK) THEN
+!TEMP-MERGE-TEST         CALL Aggregation_DBedrock     (grid_500m, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      ENDIF
 
-      CALL Aggregation_LAI             (grid_lai,  dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_LAI             (grid_lai,  dir_rawdata, dir_landdata, lc_year)
 
-      CALL Aggregation_ForestHeight    (grid_htop, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_ForestHeight    (grid_htop, dir_rawdata, dir_landdata, lc_year)
 
-      CALL Aggregation_Topography      (grid_topo, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_Topography      (grid_topo, dir_rawdata, dir_landdata, lc_year)
 
-      IF (DEF_Runoff_SCHEME == 0) THEN
-         CALL Aggregation_TopoWetness  (grid_twi,  dir_rawdata, dir_landdata, lc_year)
-      ENDIF
+!TEMP-MERGE-TEST      IF (DEF_Runoff_SCHEME == 0) THEN
+!TEMP-MERGE-TEST         CALL Aggregation_TopoWetness  (grid_twi,  dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      ENDIF
 
-      IF (DEF_USE_Forcing_Downscaling) THEN
-         CALL Aggregation_TopographyFactors (grid_topo_factor, &
-            trim(DEF_DS_HiresTopographyDataDir), dir_landdata, lc_year)
-      ENDIF
+!TEMP-MERGE-TEST      IF (DEF_USE_Forcing_Downscaling) THEN
+!TEMP-MERGE-TEST         CALL Aggregation_TopographyFactors (grid_topo_factor, &
+!TEMP-MERGE-TEST            trim(DEF_DS_HiresTopographyDataDir), dir_landdata, lc_year)
+!TEMP-MERGE-TEST      ENDIF
 
-      IF (DEF_USE_Forcing_Downscaling_Simple) THEN
-         CALL Aggregation_TopographyFactors_Simple (grid_topo_factor, &
-            trim(DEF_DS_HiresTopographyDataDir), dir_landdata, lc_year)
-      ENDIF
-      
+!TEMP-MERGE-TEST      IF (DEF_USE_Forcing_Downscaling_Simple) THEN
+!TEMP-MERGE-TEST         CALL Aggregation_TopographyFactors_Simple (grid_topo_factor, &
+!TEMP-MERGE-TEST            trim(DEF_DS_HiresTopographyDataDir), dir_landdata, lc_year)
+!TEMP-MERGE-TEST      ENDIF
+
 #ifdef URBAN_MODEL
-      CALL Aggregation_urban (dir_rawdata, dir_landdata, lc_year, &
-                              grid_urban_5km, grid_urban_500m)
+!TEMP-MERGE-TEST      CALL Aggregation_urban (dir_rawdata, dir_landdata, lc_year, &
+!TEMP-MERGE-TEST                              grid_urban_5km, grid_urban_500m)
 #endif
 
-      CALL Aggregation_SoilTexture     (grid_soil, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST      CALL Aggregation_SoilTexture     (grid_soil, dir_rawdata, dir_landdata, lc_year)
 
 ENDIF
 
