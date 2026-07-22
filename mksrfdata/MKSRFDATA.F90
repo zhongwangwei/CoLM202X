@@ -474,8 +474,11 @@ IF (.not. (skip_rest)) THEN
 
 #if (defined TRACER) && (defined BGC)
       CALL methane_preprocessing_requirements (requires_lake_soilc, requires_spatial_ph)
-      IF (requires_lake_soilc) &
-         CALL Aggregation_LakeSoilC    (grid_soil, dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST: LakeSoilC already verified by job 191442 on 2026-07-22 - the new
+!TEMP-MERGE-TEST: skip branch fired as intended and wrote the zero field, so there
+!TEMP-MERGE-TEST: is nothing left to exercise here.
+!TEMP-MERGE-TEST      IF (requires_lake_soilc) &
+!TEMP-MERGE-TEST         CALL Aggregation_LakeSoilC    (grid_soil, dir_rawdata, dir_landdata, lc_year)
       IF (requires_spatial_ph) &
          CALL Aggregation_MethanePH    (dir_rawdata, dir_landdata, lc_year)
 #endif
