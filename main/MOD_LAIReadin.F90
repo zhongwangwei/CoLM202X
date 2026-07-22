@@ -97,16 +97,24 @@ CONTAINS
          write(cyear,'(i4.4)') min(DEF_LAI_END_YEAR, max(DEF_LAI_START_YEAR,year) )
          write(ctime,'(i2.2)') time
 
+         ! Use the completeness-checked reader: the plain ncio_read_vector leaves
+         ! sbuff untouched for any block file that is absent and no defval was
+         ! supplied, so the uninitialised buffer is scattered straight into tlai.
+         ! That produced values spanning -5e304..4e253 and NaNs, which only
+         ! surfaced because RangeCheck aborts under CoLMDEBUG; without it the
+         ! garbage would silently enter the simulation. LAI has no physically
+         ! meaningful default (zero would wrongly strip cropland and forest), so
+         ! an incomplete set of block files must fail loudly instead.
          lndname = trim(landdir)//'/'//trim(cyear)//'/LAI_patches'//trim(ctime)//'.nc'
-         CALL ncio_read_vector (lndname, 'LAI_patches',  landpatch, tlai)
+         CALL ncio_read_vector_complete (lndname, 'LAI_patches',  landpatch, tlai)
 
          lndname = trim(landdir)//'/'//trim(cyear)//'/SAI_patches'//trim(ctime)//'.nc'
-         CALL ncio_read_vector (lndname, 'SAI_patches',  landpatch, tsai)
+         CALL ncio_read_vector_complete (lndname, 'SAI_patches',  landpatch, tsai)
       ELSE
          write(cyear,'(i4.4)') min(DEF_LAI_END_YEAR, max(DEF_LAI_START_YEAR,year) )
          write(ctime,'(i3.3)') time
          lndname = trim(landdir)//'/'//trim(cyear)//'/LAI_patches'//trim(ctime)//'.nc'
-         CALL ncio_read_vector (lndname, 'LAI_patches',  landpatch, tlai)
+         CALL ncio_read_vector_complete (lndname, 'LAI_patches',  landpatch, tlai)
       ENDIF
 #endif
 
@@ -176,16 +184,16 @@ CONTAINS
       write(ctime,'(i2.2)') time
       IF (.not. DEF_USE_LAIFEEDBACK)THEN
          lndname = trim(landdir)//'/'//trim(cyear)//'/LAI_patches'//trim(ctime)//'.nc'
-         CALL ncio_read_vector (lndname, 'LAI_patches',  landpatch, tlai )
+         CALL ncio_read_vector_complete (lndname, 'LAI_patches',  landpatch, tlai )
       ENDIF
       lndname = trim(landdir)//'/'//trim(cyear)//'/SAI_patches'//trim(ctime)//'.nc'
-      CALL ncio_read_vector (lndname, 'SAI_patches',  landpatch, tsai )
+      CALL ncio_read_vector_complete (lndname, 'SAI_patches',  landpatch, tsai )
       IF (.not. DEF_USE_LAIFEEDBACK)THEN
          lndname = trim(landdir)//'/'//trim(cyear)//'/LAI_pfts'//trim(ctime)//'.nc'
-         CALL ncio_read_vector (lndname, 'LAI_pfts', landpft, tlai_p )
+         CALL ncio_read_vector_complete (lndname, 'LAI_pfts', landpft, tlai_p )
       ENDIF
       lndname = trim(landdir)//'/'//trim(cyear)//'/SAI_pfts'//trim(ctime)//'.nc'
-      CALL ncio_read_vector (lndname, 'SAI_pfts', landpft, tsai_p )
+      CALL ncio_read_vector_complete (lndname, 'SAI_pfts', landpft, tsai_p )
 
 #endif
 
