@@ -479,8 +479,10 @@ IF (.not. (skip_rest)) THEN
 !TEMP-MERGE-TEST: is nothing left to exercise here.
 !TEMP-MERGE-TEST      IF (requires_lake_soilc) &
 !TEMP-MERGE-TEST         CALL Aggregation_LakeSoilC    (grid_soil, dir_rawdata, dir_landdata, lc_year)
-      IF (requires_spatial_ph) &
-         CALL Aggregation_MethanePH    (dir_rawdata, dir_landdata, lc_year)
+!TEMP-MERGE-TEST: MethanePH verified by job 191509 - 144 blocks written, values
+!TEMP-MERGE-TEST: in [3.17, 9.20], 658 patches fell back to 6.2. No need to redo.
+!TEMP-MERGE-TEST      IF (requires_spatial_ph) &
+!TEMP-MERGE-TEST         CALL Aggregation_MethanePH    (dir_rawdata, dir_landdata, lc_year)
 #endif
 
 !TEMP-MERGE-TEST      CALL Aggregation_SoilBrightness  (grid_500m, dir_rawdata, dir_landdata, lc_year)
@@ -492,7 +494,10 @@ IF (.not. (skip_rest)) THEN
 !TEMP-MERGE-TEST         CALL Aggregation_DBedrock     (grid_500m, dir_rawdata, dir_landdata, lc_year)
 !TEMP-MERGE-TEST      ENDIF
 
-!TEMP-MERGE-TEST      CALL Aggregation_LAI             (grid_lai,  dir_rawdata, dir_landdata, lc_year)
+      ! Re-run to repair the incomplete LAI/SAI block files copied in from
+      ! v260715: 11 of 12 months are missing 1-2 block files each, which the
+      ! plain reader turned into uninitialised memory in tlai.
+      CALL Aggregation_LAI             (grid_lai,  dir_rawdata, dir_landdata, lc_year)
 
 !TEMP-MERGE-TEST      CALL Aggregation_ForestHeight    (grid_htop, dir_rawdata, dir_landdata, lc_year)
 
