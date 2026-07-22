@@ -198,11 +198,18 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
             CALL CoLM_Stop (' ***** ERROR: PHH2O latitude must be strictly monotonic')
          IF (.not. all(lon_g(2:nlon) > lon_g(1:nlon-1))) &
             CALL CoLM_Stop (' ***** ERROR: PHH2O longitude must be strictly increasing')
-         dlon = lon_g(2) - lon_g(1)
+         ! Derive the mean spacing from the full span instead of one adjacent
+         ! difference.  PHH2O stores lon as float32, whose resolution near 180
+         ! degrees is about 1.5e-5, so a single difference of 0.0083 keeps only
+         ! three significant digits; scaling that by nlon amplifies the
+         ! quantisation noise roughly 4e4 times and rejects a perfectly valid
+         ! cyclic grid.  Comparing the span itself keeps the same intent without
+         ! that amplification.
+         dlon = (lon_g(nlon) - lon_g(1)) / real(nlon - 1, r8)
          IF (any(abs((lon_g(2:nlon) - lon_g(1:nlon-1)) - dlon) > &
                  max(1.e-6_r8, 1.e-2_r8 * dlon))) &
             CALL CoLM_Stop (' ***** ERROR: PHH2O longitude spacing must be regular')
-         IF (abs(dlon * real(nlon, r8) - 360._r8) > max(1.e-6_r8, dlon)) &
+         IF (abs(lon_g(nlon) - lon_g(1) + dlon - 360._r8) > max(1.e-4_r8, dlon)) &
             CALL CoLM_Stop (' ***** ERROR: PHH2O longitude does not cover a cyclic global grid')
          deallocate(depth_g)
          ierr = nf90_close(ncid)
