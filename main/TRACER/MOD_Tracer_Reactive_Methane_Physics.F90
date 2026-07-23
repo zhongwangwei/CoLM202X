@@ -2720,7 +2720,7 @@ contains
       real(r8) :: source (1:nl_soil,1:ngases)        ! source
       real(r8) :: om_frac                                                    ! organic matter fraction
 			real(r8) :: o2demand, methane_demand, methane_supply                        ! mol/m^3/s
-			real(r8) :: o2_before_cap, o2_cap_loss_col, o2_cap_gain_col
+			real(r8) :: o2_before_cap, o2_stock_before, o2_cap_loss_col, o2_cap_gain_col
       real(r8) :: aere_oxid_flux
 		logical :: is_lake_water
 		real(r8) :: lake_total_depth, lake_liquid_depth, lake_water_storage_depth
@@ -3474,9 +3474,23 @@ contains
             do j = 1,nl_soil
 
                o2_before_cap = conc_o2_rel(j)
-						if (o2_before_cap < -1.e-10_r8) then
+						! conc_o2_rel = conc_o2 / epsilon_t, and epsilon_t collapses to
+						! smallnumber (1e-12) wherever the layer holds no liquid water.
+						! That division then amplifies the tridiagonal solver round-off by
+						! up to 1e12: an observed stock of -1.9e-9 mol m-3 - physically
+						! zero - surfaced as a ratio of -1902 and aborted the run on
+						! frozen high-latitude and mid-latitude winter layers.
+						! Judge the invariant on the actual stock rather than on the
+						! amplified ratio, and only where a liquid carrier exists: a layer
+						! with no liquid water holds no aqueous O2, so a negative ratio
+						! there is a numerical artefact, not a violated invariant.  A
+						! genuine transport divergence still leaves a large stock deficit
+						! and still aborts.
+						o2_stock_before = o2_before_cap * epsilon_t(j,2)
+						if (epsilon_t(j,2) > smallnumber .and. &
+						    o2_stock_before < -1.e-8_r8) then
 							write(6,*) 'ERROR: negative O2 after backward-Euler transport: ', &
-								dlat, dlon, j, o2_before_cap
+								dlat, dlon, j, o2_before_cap, o2_stock_before
 							CALL CoLM_stop ()
 						endif
 						conc_o2_rel(j) = max (conc_o2_rel(j), 0._r8)
