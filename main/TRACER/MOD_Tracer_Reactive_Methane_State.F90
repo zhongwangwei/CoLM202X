@@ -1878,6 +1878,10 @@ CONTAINS
 	      integer :: ipatch, npatch, component, restart_schema_active, corrupt_prognostic_values
 	      integer :: invalid_lake_inventory
 	      real(r8) :: lake_component_total, lake_inventory_tolerance
+	      ! Round-off floor for lake stocks: a conservative exchange residual sits
+	      ! a few 1e-26 below zero when the true stock is zero; reject only values
+	      ! materially more negative than this.
+	      real(r8), parameter :: restart_neg_floor = 1.e-18_r8
 
       IF (.not. allocated(conc_methane)) RETURN
 	      strict_restart_active = .false.
@@ -2069,10 +2073,21 @@ CONTAINS
 	            count(invalid_restart_value(totcol_methane_sat) .or. totcol_methane_sat < 0._r8) + &
 	            count(invalid_restart_value(totcol_methane_lake) .or. totcol_methane_lake < 0._r8) + &
 	            count(invalid_restart_value(lake_soilc) .or. lake_soilc < 0._r8) + &
-	            count(invalid_restart_value(grnd_methane_cond) .or. grnd_methane_cond <= 0._r8) + &
-	            count(invalid_restart_value(grnd_methane_cond_unsat) .or. grnd_methane_cond_unsat <= 0._r8) + &
-	            count(invalid_restart_value(grnd_methane_cond_sat) .or. grnd_methane_cond_sat <= 0._r8) + &
-	            count(invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake <= 0._r8) + &
+	            ! Use < 0, not <= 0: a ground conductance of exactly zero is a
+	            ! valid physical state, not corruption.  A component's conductance
+	            ! is zero wherever it does not apply - the _lake term on non-lake
+	            ! patches, the _sat term on unsaturated patches - and the dry /
+	            ! inactive branch (ebd701e5) zeroes it deliberately.  2254 patches
+	            ! per component carry a legitimate zero here.  The sibling sanitize
+	            ! path already treats <= 0 as recoverable (it resets to the default
+	            ! rather than aborting), so the strict path must not kill the run
+	            ! for the same value; and grnd_methane_cond is recomputed every
+	            ! step, so the restart value never enters the solve regardless.
+	            ! NaN/spval and genuinely negative values are still rejected.
+	            count(invalid_restart_value(grnd_methane_cond) .or. grnd_methane_cond < 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond_unsat) .or. grnd_methane_cond_unsat < 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond_sat) .or. grnd_methane_cond_sat < 0._r8) + &
+	            count(invalid_restart_value(grnd_methane_cond_lake) .or. grnd_methane_cond_lake < 0._r8) + &
 	            count(invalid_restart_value(annavg_agnpp) .or. annavg_agnpp < 0._r8) + &
 	            count(invalid_restart_value(annavg_bgnpp) .or. annavg_bgnpp < 0._r8) + &
 	            count(invalid_restart_value(annavg_somhr) .or. annavg_somhr < 0._r8) + &
@@ -2093,18 +2108,24 @@ CONTAINS
 	                  f_inund_flood_patch < 0._r8 .or. f_inund_flood_patch > 1._r8) + &
 	            count(invalid_restart_value(f_inund_flood_depth_patch) .or. &
 	                  f_inund_flood_depth_patch < 0._r8)
+	         ! Allow a round-off floor on the lake stocks.  These stocks are the
+	         ! residual of conservative sediment/water/air exchanges, so a stock
+	         ! that is physically zero lands a few 1e-26 below zero after the
+	         ! solve.  Only a materially negative value signals corruption; the
+	         ! sibling sanitize path already resets < 0 to zero rather than
+	         ! aborting, so the strict path must not kill the run for round-off.
 	         IF (lake_water_ch4_present) THEN
 	            corrupt_prognostic_values = corrupt_prognostic_values + &
-	               count(invalid_restart_value(lake_water_ch4_stock) .or. lake_water_ch4_stock < 0._r8)
+	               count(invalid_restart_value(lake_water_ch4_stock) .or. lake_water_ch4_stock < -restart_neg_floor)
 	         ENDIF
 	         IF (lake_water_o2_present) THEN
 	            corrupt_prognostic_values = corrupt_prognostic_values + &
-	               count(invalid_restart_value(lake_water_o2_stock) .or. lake_water_o2_stock < 0._r8)
+	               count(invalid_restart_value(lake_water_o2_stock) .or. lake_water_o2_stock < -restart_neg_floor)
 	         ENDIF
 	         IF (all(lake_phase_fields_present)) THEN
 	            corrupt_prognostic_values = corrupt_prognostic_values + &
-	               count(invalid_restart_value(lake_frozen_ch4_stock) .or. lake_frozen_ch4_stock < 0._r8) + &
-	               count(invalid_restart_value(lake_frozen_o2_stock) .or. lake_frozen_o2_stock < 0._r8) + &
+	               count(invalid_restart_value(lake_frozen_ch4_stock) .or. lake_frozen_ch4_stock < -restart_neg_floor) + &
+	               count(invalid_restart_value(lake_frozen_o2_stock) .or. lake_frozen_o2_stock < -restart_neg_floor) + &
 	               count(invalid_restart_fraction_or_sentinel(lake_liquid_fraction_prev))
 	         ENDIF
 	         IF (component_state_present) THEN
