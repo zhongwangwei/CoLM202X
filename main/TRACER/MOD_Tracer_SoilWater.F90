@@ -65,7 +65,7 @@ CONTAINS
       etroot_actual, etroot_aquifer, &
       qflx_irrig_ground, waterstorage_patch, &
       imperv_evap_wdsrf, imperv_evap_soil, imperv_subl_soil, &
-      snow_qout_layer, tleaf_frac, t_soisno_frac, forc_q_frac, forc_psrf_frac, lai_frac, rst_frac)
+      snow_qout_layer, tleaf_frac, t_soisno_frac, forc_q_frac, forc_psrf_frac, lai_frac, rst_frac, ra_frac)
 
       IMPLICIT NONE
       integer,  intent(in) :: ipatch
@@ -146,6 +146,7 @@ CONTAINS
       real(r8), intent(in), optional :: forc_psrf_frac
       real(r8), intent(in), optional :: lai_frac
       real(r8), intent(in), optional :: rst_frac
+      real(r8), intent(in), optional :: ra_frac
 
       integer  :: itrc, j, lb, lb_snow
       real(r8) :: R_precip, R_atm
@@ -214,7 +215,7 @@ CONTAINS
       real(r8) :: transp_source_tracer_total, transp_output_tracer
       real(r8) :: transp_ratio, remove_ratio, R_vapor
       real(r8) :: source_fallback_ratio
-      real(r8) :: relhum_leaf, leaf_area_use, rst_use, tleaf_use
+      real(r8) :: relhum_leaf, leaf_area_use, rst_use, ra_use, tleaf_use
       real(r8) :: leaf_delta_e_new, leaf_delta_b_new, leaf_peclet_new, leaf_moles_new
       real(r8) :: soil_resid_trc
       logical  :: transp_frac_active
@@ -328,6 +329,8 @@ CONTAINS
                tleaf_use = tleaf_frac
                leaf_area_use = lai_frac
                rst_use = rst_frac
+               ra_use = 0._r8
+               IF (present(ra_frac)) ra_use = max(ra_frac, 0._r8)
                IF (tracer_forcing_has_vapor(itrc, ipatch)) THEN
                   R_vapor = R_atm
                ELSE
@@ -335,7 +338,7 @@ CONTAINS
                ENDIF
                relhum_leaf = tracer_surface_relhum(forc_q_frac, forc_psrf_frac, tleaf_use, .false.)
                CALL tracer_transpiration_nss_ratio(itrc, xylem_ratio, R_vapor, &
-                  tleaf_use, relhum_leaf, forc_psrf_frac, transp_water_total, deltim, leaf_area_use, rst_use, &
+                  tleaf_use, relhum_leaf, forc_psrf_frac, transp_water_total, deltim, leaf_area_use, ra_use, rst_use, &
                   trc_leaf_delta_e(itrc, ipatch), trc_leaf_delta_b(itrc, ipatch), &
                   trc_leaf_peclet(itrc, ipatch), trc_leaf_water_moles(itrc, ipatch), &
                   transp_ratio, leaf_delta_e_new, leaf_delta_b_new, leaf_peclet_new, leaf_moles_new)

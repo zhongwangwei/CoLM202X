@@ -343,6 +343,7 @@ MODULE MOD_Namelist
 
    ! ----- tracer module -----
    logical  :: DEF_TRACER_USE_FRACTIONATION = .false.
+   character(len=16) :: DEF_TRACER_KINETIC_SCHEME = 'CAPPA2003'
    real(r8) :: DEF_TRACER_NSS_LEAF_WATER_PER_LAI = 0.12_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
@@ -1194,6 +1195,7 @@ CONTAINS
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
       DEF_TRACER_USE_FRACTIONATION,           &
+      DEF_TRACER_KINETIC_SCHEME,              &
       DEF_TRACER_NSS_LEAF_WATER_PER_LAI,      &
       DEF_TRACER_NSS_LEAF_PATH_LENGTH,        &
       DEF_TRACER_NSS_LEAF_RB,                 &
@@ -1360,6 +1362,16 @@ CONTAINS
          DEF_USE_VariablySaturatedFlow = .true.
 #endif
 #ifdef TRACER
+         SELECT CASE (trim(adjustl(DEF_TRACER_KINETIC_SCHEME)))
+         CASE ('CAPPA2003', 'Cappa2003', 'cappa2003')
+            DEF_TRACER_KINETIC_SCHEME = 'CAPPA2003'
+         CASE ('MERLIVAT1978', 'Merlivat1978', 'merlivat1978')
+            DEF_TRACER_KINETIC_SCHEME = 'MERLIVAT1978'
+         CASE DEFAULT
+            write(*,'(A,A,A)') 'Fatal ERROR: DEF_TRACER_KINETIC_SCHEME="', &
+               trim(DEF_TRACER_KINETIC_SCHEME), '" is invalid; use CAPPA2003 or MERLIVAT1978.'
+            CALL CoLM_stop ()
+         END SELECT
          IF (DEF_TRACER_BALANCE_ABORT_NBAD < 0 .or. DEF_TRACER_RESID_ABORT_NBAD < 0 .or. &
              DEF_TRACER_LULCC_ABORT_NBAD < 0) THEN
             write(*,*) 'Fatal ERROR: DEF_TRACER_*_ABORT_NBAD values must be non-negative.'
@@ -1885,6 +1897,7 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_USE_FRACTIONATION           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_KINETIC_SCHEME              ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_WATER_PER_LAI      ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH        ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                 ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)

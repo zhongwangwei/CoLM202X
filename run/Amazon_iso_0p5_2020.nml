@@ -65,6 +65,7 @@
    DEF_TRACER_NAMES             = "H2_18O,HDO"
    DEF_TRACER_TYPES             = "isotope,isotope"
    DEF_TRACER_USE_FRACTIONATION = .true.
+   DEF_TRACER_KINETIC_SCHEME    = 'CAPPA2003' ! or 'MERLIVAT1978'
    DEF_TRACER_PARAM_FILES       = 'H2_18O:/share/home/dq013/zhwei/colm/script/CoLM202X/run/standard_O18_parameter.nml,HDO:/share/home/dq013/zhwei/colm/script/CoLM202X/run/standard_HDO_parameter.nml'
 
    ! ----- forcing: IsoGSM (covers 2020, with isotope precip + vapor) -----

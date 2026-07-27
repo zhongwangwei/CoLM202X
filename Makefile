@@ -255,7 +255,7 @@ TRACER_MKINIDATA_OBJS = \
 
 MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc \
 				     $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS)
-MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
+MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o MOD_Namelist.o
 MOD_Tracer_Lifecycle.o: MOD_Tracer_Defs.o
 MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o

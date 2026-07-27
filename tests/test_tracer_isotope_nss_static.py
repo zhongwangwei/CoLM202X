@@ -10,6 +10,17 @@ SOIL = (ROOT / "main/TRACER/MOD_Tracer_SoilWater.F90").read_text()
 EVAPO = (ROOT / "main/TRACER/MOD_Tracer_Evapo.F90").read_text()
 O18 = (ROOT / "main/TRACER/MOD_Tracer_Isotope_O18.F90").read_text()
 HDO = (ROOT / "main/TRACER/MOD_Tracer_Isotope_HDO.F90").read_text()
+NAMELIST = (ROOT / "share/MOD_Namelist.F90").read_text()
+MAIN = (ROOT / "main/CoLMMAIN.F90").read_text()
+THERMAL = (ROOT / "main/MOD_Thermal.F90").read_text()
+LEAF = (ROOT / "main/MOD_LeafTemperature.F90").read_text()
+LEAF_PC = (ROOT / "main/MOD_LeafTemperaturePC.F90").read_text()
+LEAF_EXT = (
+    ROOT / "extends/interception/MOD_LeafTemperature_Extended.F90"
+).read_text()
+LEAF_PC_EXT = (
+    ROOT / "extends/interception/MOD_LeafTemperaturePC_Extended.F90"
+).read_text()
 
 
 class TracerIsotopeNssTests(unittest.TestCase):
@@ -26,7 +37,7 @@ class TracerIsotopeNssTests(unittest.TestCase):
         )
         self.assertRegex(
             FRAC,
-            r"tracer_alpha_kinetic_leaf\(itrc,\s*0\._r8,\s*&\s*\n\s*"
+            r"tracer_alpha_kinetic_leaf\(itrc,\s*aerodynamic_resistance,\s*&\s*\n\s*"
             r"DEF_TRACER_NSS_LEAF_RB\s*/\s*max\(leaf_area,\s*trc_tiny\),\s*"
             r"stomatal_resistance\)",
         )
@@ -41,18 +52,27 @@ class TracerIsotopeNssTests(unittest.TestCase):
         p4 = 0.8 * water_moles_per_mm / (1800.0 * 4.0)
         self.assertAlmostEqual(p1, p4)
 
-        # rst is already canopy resistance; only leaf boundary resistance
-        # is divided by LAI before the serial resistances are combined.
+        # All three resistances are on the canopy/ground-area basis; only
+        # leaf boundary resistance needs conversion by LAI.
         rb = 100.0
-        self.assertAlmostEqual(50.0 + rb / 4.0, 75.0)
+        self.assertAlmostEqual(20.0 + 50.0 + rb / 4.0, 95.0)
 
-    def test_leaf_kinetic_fractionation_uses_cappa_diffusivity_ratios(self):
+    def test_leaf_kinetic_fractionation_scheme_is_globally_selectable(self):
         self.assertRegex(
             FRAC,
-            r"alpha_k\s*=\s*tracer_alpha_kinetic_leaf\(itrc,\s*0\._r8,\s*&",
+            r"alpha_k\s*=\s*tracer_alpha_kinetic_leaf\(itrc,\s*aerodynamic_resistance,\s*&",
         )
         self.assertNotIn("19._r8, 28._r8", O18)
         self.assertNotIn("17._r8, 25._r8", HDO)
+        self.assertIn("DEF_TRACER_KINETIC_SCHEME = 'CAPPA2003'", NAMELIST)
+        self.assertIn("'MERLIVAT1978'", NAMELIST)
+        for source, cappa, merlivat in (
+            (O18, "1.03189_r8", "1.0285_r8"),
+            (HDO, "1.01636_r8", "1.0251_r8"),
+        ):
+            self.assertIn(cappa, source)
+            self.assertIn(merlivat, source)
+            self.assertIn("DEF_TRACER_KINETIC_SCHEME) == 'MERLIVAT1978'", source)
 
         def epsilon(diffusivity_ratio):
             alpha = 0.5 * (
@@ -62,6 +82,22 @@ class TracerIsotopeNssTests(unittest.TestCase):
 
         self.assertAlmostEqual(epsilon(1.03189), 26.519287734590556)
         self.assertAlmostEqual(epsilon(1.01636), 13.618571007655511)
+
+    def test_leaf_nss_uses_host_aerodynamic_moisture_resistance(self):
+        self.assertIn("raw_trc_th = raw_trc", MAIN)
+        self.assertIn("raw_trc_out=raw_trc_local", THERMAL)
+        self.assertIn("raw_trc_out=raw_trc_p(i)", THERMAL)
+        self.assertIn("raw_trc_out=raw_trc_pc", THERMAL)
+        for source in (LEAF, LEAF_PC, LEAF_EXT, LEAF_PC_EXT):
+            self.assertIn(
+                "IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)",
+                source,
+            )
+        self.assertEqual(MAIN.count("ra_frac = raw_trc"), 2)
+        self.assertIn(
+            "max(aerodynamic_resistance, 0._r8) +",
+            FRAC,
+        )
 
     def test_leaf_equilibrium_enrichment_matches_liquid_over_vapor_alpha(self):
         self.assertIn("eps_eq = (alpha_eq - 1._r8) * 1000._r8", FRAC)

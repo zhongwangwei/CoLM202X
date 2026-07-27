@@ -52,7 +52,9 @@ Do not add per-tracer namelist switches named `volatile`, `carrier`,
 - **fractionates** requires an isotope descriptor and registered isotope
   physics in `MOD_Tracer_Isotope_Registry`. The existing
   `DEF_TRACER_USE_FRACTIONATION` is only a global experimental gate; it is not
-  a per-species capability declaration.
+  a per-species capability declaration. `DEF_TRACER_KINETIC_SCHEME` selects
+  one internally consistent gas-diffusion dataset for all isotope processes:
+  `CAPPA2003` (default) or `MERLIVAT1978`.
 
 This keeps invalid combinations out of the namelist, such as a fractionating
 sediment row or a generic-water CH4 row.
@@ -228,4 +230,6 @@ land_tracer_final
   thermodynamic salt or electroneutrality model.
 - Isotope fractionation algorithms remain in `MOD_Tracer_Frac`; concrete O18
   and HDO physics are registered through the isotope registry, independently
-  of lifecycle providers.
+  of lifecycle providers. Leaf NSS includes the host model's aerodynamic
+  moisture resistance between forcing height and the canopy, in addition to
+  leaf-boundary and stomatal resistance.

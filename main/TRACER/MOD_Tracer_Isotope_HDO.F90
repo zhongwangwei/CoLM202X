@@ -4,6 +4,7 @@
 MODULE MOD_Tracer_Isotope_HDO
 
    USE MOD_Precision
+   USE MOD_Namelist, only: DEF_TRACER_KINETIC_SCHEME
    USE MOD_Tracer_Defs, only: Rsmow_D
    USE MOD_Tracer_Isotope_Registry, only: register_isotope_physics
 
@@ -11,7 +12,8 @@ MODULE MOD_Tracer_Isotope_HDO
    SAVE
    PRIVATE
 
-   real(r8), parameter :: hdo_diffusivity_ratio_air = 1.01636_r8
+   real(r8), parameter :: hdo_diffusivity_ratio_cappa = 1.01636_r8
+   real(r8), parameter :: hdo_diffusivity_ratio_merlivat = 1.0251_r8
 
    PUBLIC :: register_hdo_isotope_physics
 
@@ -44,7 +46,11 @@ CONTAINS
    END FUNCTION hdo_alpha_ice_vap
 
    real(r8) FUNCTION hdo_diffusivity_ratio ()
-      hdo_diffusivity_ratio = hdo_diffusivity_ratio_air
+      IF (trim(DEF_TRACER_KINETIC_SCHEME) == 'MERLIVAT1978') THEN
+         hdo_diffusivity_ratio = hdo_diffusivity_ratio_merlivat
+      ELSE
+         hdo_diffusivity_ratio = hdo_diffusivity_ratio_cappa
+      ENDIF
    END FUNCTION hdo_diffusivity_ratio
 
    real(r8) FUNCTION hdo_leaf_liquid_diffusivity (temp_k)

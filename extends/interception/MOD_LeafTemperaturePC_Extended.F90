@@ -68,7 +68,7 @@ CONTAINS
                qintr_rain ,qintr_snow ,t_precip   ,lfevpl     ,hprl       ,&
                dheatl     ,smp        ,hk         ,hksati     ,&
                rootflux   ,canopy_phase_heat                  ,&
-               canopy_smelt_mass_p_out, canopy_frzc_mass_p_out)
+               canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_trc_out)
 
 !=======================================================================
 !
@@ -270,6 +270,7 @@ CONTAINS
    ! pftfrac and forwards the patch sum to MOD_Tracer_Evapo.
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out
+   real(r8), intent(out), optional :: raw_trc_out
 
    real(r8), dimension(ps:pe), intent(out) :: &
         z0mpc,         &! z0m for individual PFT
@@ -2321,6 +2322,7 @@ ENDIF
 
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
 
    END SUBROUTINE LeafTemperaturePC
 !----------------------------------------------------------------------

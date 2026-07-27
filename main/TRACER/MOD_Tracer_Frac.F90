@@ -235,7 +235,8 @@ CONTAINS
    END FUNCTION tracer_equilibrium_deposition_ratio
 
    SUBROUTINE tracer_transpiration_nss_ratio (itrc, source_ratio, vapor_ratio, &
-      temp_k, relhum, psrf, transp_water, deltim, leaf_area, stomatal_resistance, &
+      temp_k, relhum, psrf, transp_water, deltim, leaf_area, aerodynamic_resistance, &
+      stomatal_resistance, &
       prev_delta_e, prev_delta_b, prev_peclet, prev_leaf_moles, &
       trans_ratio, new_delta_e, new_delta_b, new_peclet, new_leaf_moles)
       integer,  intent(in) :: itrc
@@ -247,6 +248,7 @@ CONTAINS
       real(r8), intent(in) :: transp_water
       real(r8), intent(in) :: deltim
       real(r8), intent(in) :: leaf_area
+      real(r8), intent(in) :: aerodynamic_resistance
       real(r8), intent(in) :: stomatal_resistance
       real(r8), intent(in) :: prev_delta_e
       real(r8), intent(in) :: prev_delta_b
@@ -292,7 +294,7 @@ CONTAINS
       one_minus_h = max(1._r8 - h, 1.e-6_r8)
       alpha_eq = tracer_alpha_liq_vap(itrc, tk)
       eps_eq = (alpha_eq - 1._r8) * 1000._r8
-      alpha_k = tracer_alpha_kinetic_leaf(itrc, 0._r8, &
+      alpha_k = tracer_alpha_kinetic_leaf(itrc, aerodynamic_resistance, &
          DEF_TRACER_NSS_LEAF_RB / max(leaf_area, trc_tiny), stomatal_resistance)
       eps_k = (alpha_k - 1._r8) * 1000._r8
 
@@ -341,7 +343,8 @@ CONTAINS
 	      ! CoLM supplies stomatal_resistance on a canopy/ground-area basis.
 	      ! DEF_TRACER_NSS_LEAF_RB is a leaf boundary resistance, so convert
 	      ! only that term to the same ground-area basis before adding them.
-	      total_resistance = max(stomatal_resistance, 0._r8) + &
+	      total_resistance = max(aerodynamic_resistance, 0._r8) + &
+	         max(stomatal_resistance, 0._r8) + &
 	         max(DEF_TRACER_NSS_LEAF_RB, 0._r8) / max(leaf_area, trc_tiny)
 	      IF (total_resistance > trc_tiny .and. psrf > trc_tiny) THEN
 	         vapor_molar_density_sat = tracer_saturation_vapor_pressure(tk, .false.) / &

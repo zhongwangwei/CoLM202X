@@ -107,9 +107,9 @@ class TracerMiscStaticChecks(unittest.TestCase):
             start = main.find("CALL tracer_soil_water", offset)
             if start < 0:
                 break
-            end = main.find("rst_frac = rst)", start)
+            end = main.find("ra_frac = raw_trc)", start)
             self.assertGreater(end, start)
-            calls.append(main[start : end + len("rst_frac = rst)")])
+            calls.append(main[start : end + len("ra_frac = raw_trc)")])
             offset = end + 1
         self.assertEqual(len(calls), 2)
         for call in calls:

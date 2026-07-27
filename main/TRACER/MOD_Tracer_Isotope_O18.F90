@@ -4,6 +4,7 @@
 MODULE MOD_Tracer_Isotope_O18
 
    USE MOD_Precision
+   USE MOD_Namelist, only: DEF_TRACER_KINETIC_SCHEME
    USE MOD_Tracer_Defs, only: Rsmow_18O
    USE MOD_Tracer_Isotope_Registry, only: register_isotope_physics
 
@@ -11,7 +12,8 @@ MODULE MOD_Tracer_Isotope_O18
    SAVE
    PRIVATE
 
-   real(r8), parameter :: o18_diffusivity_ratio_air = 1.03189_r8
+   real(r8), parameter :: o18_diffusivity_ratio_cappa = 1.03189_r8
+   real(r8), parameter :: o18_diffusivity_ratio_merlivat = 1.0285_r8
 
    PUBLIC :: register_o18_isotope_physics
 
@@ -44,7 +46,11 @@ CONTAINS
    END FUNCTION o18_alpha_ice_vap
 
    real(r8) FUNCTION o18_diffusivity_ratio ()
-      o18_diffusivity_ratio = o18_diffusivity_ratio_air
+      IF (trim(DEF_TRACER_KINETIC_SCHEME) == 'MERLIVAT1978') THEN
+         o18_diffusivity_ratio = o18_diffusivity_ratio_merlivat
+      ELSE
+         o18_diffusivity_ratio = o18_diffusivity_ratio_cappa
+      ENDIF
    END FUNCTION o18_diffusivity_ratio
 
    real(r8) FUNCTION o18_leaf_liquid_diffusivity (temp_k)

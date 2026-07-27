@@ -76,11 +76,11 @@ CONTAINS
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                        qintr_snow    ,snofrz        ,sabg_snow_lyr ,canopy_phase_heat,canopy_phase_heat_p,&
                        canopy_smelt_mass_th, canopy_frzc_mass_th, &
-                       qphs_thaw_lay_th, qphs_frzc_lay_th)
+                       qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th)
 #else
                        qintr_snow    ,snofrz        ,sabg_snow_lyr ,canopy_phase_heat,&
                        canopy_smelt_mass_th, canopy_frzc_mass_th, &
-                       qphs_thaw_lay_th, qphs_frzc_lay_th)
+                       qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th)
 #endif
 
 !=======================================================================
@@ -283,6 +283,7 @@ CONTAINS
    ! Optional soil/snow phase-change mass exports for TRACER [mm].
    real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil)
    real(r8), intent(out), optional :: qphs_frzc_lay_th(lb:nl_soil)
+   real(r8), intent(out), optional :: raw_trc_th
 
        ! state variables (2)
    real(r8), intent(inout) :: &
@@ -499,8 +500,8 @@ CONTAINS
    real(r8), allocatable :: lfevpl_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
    real(r8), allocatable :: canopy_phase_heat_p_local(:)
-   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:)
-   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local
+   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:), raw_trc_p(:)
+   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local, raw_trc_local, raw_trc_pc
 
 
 !=======================================================================
@@ -514,6 +515,9 @@ CONTAINS
       ! Defaults for branches without LeafTemperature calls.
       canopy_smelt_mass_local = 0._r8
       canopy_frzc_mass_local  = 0._r8
+      raw_trc_local           = 0._r8
+      raw_trc_pc              = 0._r8
+      IF (present(raw_trc_th)) raw_trc_th = 0._r8
 
       ! fluxes
       taux   = 0.;  tauy   = 0.
@@ -741,7 +745,8 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
                  qintr_rain  ,qintr_snow  ,t_precip    ,lfevpl      ,hprl        ,dheatl      ,&
                  smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:),canopy_phase_heat,&
                  canopy_smelt_mass_out=canopy_smelt_mass_local, &
-                 canopy_frzc_mass_out =canopy_frzc_mass_local)
+                 canopy_frzc_mass_out =canopy_frzc_mass_local, &
+                 raw_trc_out=raw_trc_local)
       ELSE
          tleaf         = forc_t
          laisun        = 0.
@@ -812,8 +817,10 @@ IF (patchtype == 0) THEN
       allocate ( canopy_phase_heat_p_local(ps:pe) )
       allocate ( canopy_smelt_mass_p_local(ps:pe) )
       allocate ( canopy_frzc_mass_p_local (ps:pe) )
+      allocate ( raw_trc_p(ps:pe) )
       canopy_smelt_mass_p_local(:) = 0._r8
       canopy_frzc_mass_p_local (:) = 0._r8
+      raw_trc_p(:) = 0._r8
 
       canopy_phase_heat_p_local(ps:pe) = canopy_phase_heat_p(1:pe-ps+1)
 
@@ -959,7 +966,8 @@ IF (patchtype == 0) THEN
                  qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,lfevpl_p(i)     ,hprl_p(i)     ,dheatl_p(i)   ,&
                  smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i),canopy_phase_heat_p_local(i),&
                  canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
-                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i))
+                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i), &
+                 raw_trc_out=raw_trc_p(i))
          ELSE
 
             CALL GroundFluxes (zlnd,zsno,forc_hgt_u,forc_hgt_t,forc_hgt_q,forc_hpbl, &
@@ -1069,7 +1077,8 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          dheatl_p(ps:pe)      ,smp                  ,hk(1:)               ,hksati(1:)           ,&
          rootflux_p(:,:)      ,canopy_phase_heat_p_local(ps:pe)            ,&
          canopy_smelt_mass_p_out=canopy_smelt_mass_p_local(ps:pe),&
-         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe))
+         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe),&
+         raw_trc_out=raw_trc_pc)
 
       dlrad_p      (ps:pe) = dlrad
       ulrad_p      (ps:pe) = ulrad
@@ -1095,6 +1104,7 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       fm_p         (ps:pe) = fm
       fh_p         (ps:pe) = fh
       fq_p         (ps:pe) = fq
+      raw_trc_p    (ps:pe) = raw_trc_pc
 ENDIF
 
       pe = patch_pft_e(ipatch)
@@ -1108,6 +1118,7 @@ ENDIF
       ! Aggregate per-PFT canopy phase-change mass to patch scale.
       canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe) * pftfrac(ps:pe) )
       canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe) * pftfrac(ps:pe) )
+      raw_trc_local           = sum( raw_trc_p(ps:pe) * pftfrac(ps:pe) )
       fwet_snow     = sum( fwet_snow_p (ps:pe)*pftfrac(ps:pe) )
       ldew          = sum( ldew_p      (ps:pe)*pftfrac(ps:pe) )
       ! may have problem with rst, but the same for LC
@@ -1216,6 +1227,7 @@ END IF
       deallocate ( canopy_phase_heat_p_local )
       deallocate ( canopy_smelt_mass_p_local )
       deallocate ( canopy_frzc_mass_p_local  )
+      deallocate ( raw_trc_p )
 
 ENDIF
 #endif
@@ -1453,6 +1465,7 @@ ENDIF
       ! Forward canopy phase-change masses to the optional TRACER path.
       IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
       IF (present(canopy_frzc_mass_th)) canopy_frzc_mass_th  = canopy_frzc_mass_local
+      IF (present(raw_trc_th)) raw_trc_th = raw_trc_local
 
   END SUBROUTINE THERMAL
 

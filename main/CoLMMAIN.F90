@@ -736,6 +736,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: qcharge_trc
    real(r8) :: waterstorage_trc_beg
    real(r8) :: waterstorage_trc_ground
+   real(r8) :: raw_trc
    integer  :: itrc_loc
    real(r8) :: ratio_loc
 #endif
@@ -1141,7 +1142,8 @@ SUBROUTINE CoLMMAIN ( &
              ,canopy_smelt_mass_th = canopy_smelt_mass_th, &
               canopy_frzc_mass_th  = canopy_frzc_mass_th, &
               qphs_thaw_lay_th = soil_thaw_mass_th, &
-              qphs_frzc_lay_th = soil_frzc_mass_th &
+              qphs_frzc_lay_th = soil_frzc_mass_th, &
+              raw_trc_th = raw_trc &
 #endif
               )
 
@@ -1373,7 +1375,8 @@ SUBROUTINE CoLMMAIN ( &
                      forc_q_frac = forc_q, &
                      forc_psrf_frac = forc_psrf, &
                      lai_frac = lai, &
-                     rst_frac = rst)
+                     rst_frac = rst, &
+                     ra_frac = raw_trc)
                ELSE
                   CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
                      qlayer, qinfl, qcharge_trc, rsur, rsub, &
@@ -1397,7 +1400,8 @@ SUBROUTINE CoLMMAIN ( &
                      forc_q_frac = forc_q, &
                      forc_psrf_frac = forc_psrf, &
                      lai_frac = lai, &
-                     rst_frac = rst)
+                     rst_frac = rst, &
+                     ra_frac = raw_trc)
                ENDIF
             ENDIF
 
