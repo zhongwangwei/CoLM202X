@@ -117,7 +117,9 @@ program descriptor_driver
   if (len_trim(tracer_num_text) > 0) read(tracer_num_text, *) DEF_TRACER_NUM
   if (len_trim(tracer_name) > 0) DEF_TRACER_NAMES = trim(tracer_name)
   if (len_trim(tracer_category) > 0) DEF_TRACER_TYPES = trim(tracer_category)
-  if (len_trim(parameter_file) > 0) then
+  if (trim(action) == 'raw_param_files') then
+    DEF_TRACER_PARAM_FILES = trim(parameter_file)
+  elseif (len_trim(parameter_file) > 0) then
     DEF_TRACER_PARAM_FILES = trim(DEF_TRACER_NAMES) // ':' // trim(parameter_file)
   endif
   call tracer_defs_init()
@@ -248,12 +250,15 @@ def run_driver(
     tracer_num=1,
     action="none",
     bgc=True,
+    raw_param_files=None,
 ):
     executable, executable_no_bgc, tmp = descriptor_driver
     if not bgc:
         executable = executable_no_bgc
     parameter_arg = ""
-    if parameter_text is not None:
+    if raw_param_files is not None:
+        parameter_arg = raw_param_files
+    elif parameter_text is not None:
         parameter_file = tmp / "parameter.nml"
         parameter_file.write_text(parameter_text, encoding="utf-8")
         parameter_arg = str(parameter_file)
@@ -695,3 +700,32 @@ def test_nonphysical_or_nonfinite_descriptor_values_fail_fast(
     )
     assert result.returncode != 0
     assert field in result.stdout
+
+
+@pytest.mark.parametrize(
+    "raw_mapping",
+    [
+        "CL:",
+        ":missing.nml",
+        "CL:null,:missing.nml",
+        "CL:null,OTHER:",
+        "CL:null;:missing.nml",
+    ],
+)
+def test_empty_parameter_file_mapping_entry_fails_fast(descriptor_driver, raw_mapping):
+    result = run_driver(
+        descriptor_driver,
+        action="raw_param_files",
+        raw_param_files=raw_mapping,
+    )
+    assert result.returncode != 0
+    assert "empty tracer parameter file mapping" in result.stdout
+
+
+def test_first_parameter_file_mapping_match_still_wins(descriptor_driver):
+    result = run_driver(
+        descriptor_driver,
+        action="raw_param_files",
+        raw_param_files="CL:null,CL:not_a_real_parameter_file.nml",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

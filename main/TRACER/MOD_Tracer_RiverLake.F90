@@ -81,7 +81,6 @@ MODULE MOD_Tracer_RiverLake
    ! volumes dominate isotope delta min/max. This does not alter state.
    real(r8), parameter :: trc_delta_diag_vmin = 1._r8
 	   ! History accumulators
-	   real(r8), allocatable :: a_trc_conc   (:,:) ! Accumulated tracer conc [mass/m3 * s] (ntracers, numucat)
 	   real(r8), allocatable :: a_trc_storage_mass(:,:) ! Accumulated visible storage tracer [R*m3*s]
 	   real(r8), allocatable :: a_water_storage(:)       ! Accumulated visible water storage [m3*s]
 	   real(r8), allocatable :: a_trc_levsto_mass(:,:)   ! Accumulated protected storage tracer [R*m3*s]
@@ -198,7 +197,6 @@ CONTAINS
          allocate (trc_inp_buf        (ntracers, numucat))
          allocate (acc_rnof_ref       (numucat))
 	         allocate (trc_bif_net_saved  (ntracers, numucat))
-		         allocate (a_trc_conc         (ntracers, numucat))
 		         allocate (a_trc_storage_mass (ntracers, numucat))
 		         allocate (a_water_storage    (numucat))
 		         allocate (a_trc_levsto_mass (ntracers, numucat))
@@ -216,7 +214,6 @@ CONTAINS
          trc_inp_buf  = 0._r8
          acc_rnof_ref = 0._r8
 	         trc_bif_net_saved = 0._r8
-	         a_trc_conc   = 0._r8
 		         a_trc_storage_mass = 0._r8
 		         a_water_storage = 0._r8
 		         a_trc_levsto_mass = 0._r8
@@ -708,7 +705,6 @@ CONTAINS
 
 		      DO itrc = 1, ntracers
 		         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-		         a_trc_conc  (itrc, i) = a_trc_conc  (itrc, i) + trc_conc(itrc, i) * dt_i
 		         IF (volwater > trc_v_dry_off .and. allocated(a_trc_storage_mass)) THEN
 		            a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) &
 		               + trc_mass(itrc, i) * dt_i
@@ -1865,7 +1861,6 @@ CONTAINS
       ! mismatched windows when history flushes happen between routing periods
       ! (acctime_rnof_max > deltim), corrupting restart recovery.
 	      IF (numucat > 0) THEN
-	         IF (allocated(a_trc_conc  )) a_trc_conc   = 0._r8
 		         IF (allocated(a_trc_storage_mass)) a_trc_storage_mass = 0._r8
 		         IF (allocated(a_water_storage)) a_water_storage = 0._r8
 		         IF (allocated(a_trc_levsto_mass)) a_trc_levsto_mass = 0._r8
@@ -2250,7 +2245,7 @@ CONTAINS
       ! Output-side FP-dust clamp threshold. Same rationale as
       ! check_tracer_state: trc_mass can carry sub-picomass alternating
       ! residue from upwind flux add/subtract, which propagates to
-      ! trc_conc / a_trc_conc / a_trc_out / a_trc_bifout. The underlying
+      ! trc_conc / a_trc_out / a_trc_bifout. The underlying
       ! state is preserved intact (so transport / limiter regressions
       ! remain visible via the WARNING watchdog); only this display
       ! slice hides the noise floor.
@@ -2269,13 +2264,24 @@ CONTAINS
          ENDIF
 
          ! --- Tracer concentration ---
+         ! Water-weighted mean: sum(mass*dt) / sum(volume*dt), the same quotient
+         ! the delta diagnostic below is built from.  A plain time average of the
+         ! per-step ratio would disagree with that delta for the very same field
+         ! (for isotopes conc_units is 'R', i.e. they report the same quantity),
+         ! and would fold dry sub-steps -- where trc_conc is forced to zero and
+         ! concentration is undefined, not zero -- into the mean.  Both
+         ! accumulators below are gated on volwater > trc_v_dry_off, so dry time
+         ! leaves numerator and denominator alike.
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = spval
-            DO i = 1, numucat
-               IF (i <= size(acctime_ucat_hist)) THEN
-                  IF (acctime_ucat_hist(i) > 0._r8) tmpvec(i) = a_trc_conc(itrc, i) / acctime_ucat_hist(i)
-               ENDIF
-            ENDDO
+            IF (allocated(a_trc_storage_mass) .and. allocated(a_water_storage)) THEN
+               DO i = 1, numucat
+                  IF (i > size(acctime_ucat_hist)) CYCLE
+                  IF (acctime_ucat_hist(i) <= 0._r8) CYCLE
+                  IF (a_water_storage(i) <= trc_delta_diag_vmin * acctime_ucat_hist(i)) CYCLE
+                  tmpvec(i) = a_trc_storage_mass(itrc, i) / a_water_storage(i)
+               ENDDO
+            ENDIF
             WHERE (abs(tmpvec) < trc_hist_fp_dust) tmpvec = 0._r8
          ENDIF
 
@@ -2627,7 +2633,6 @@ CONTAINS
       IF (allocated(trc_inp_buf       )) deallocate (trc_inp_buf       )
       IF (allocated(acc_rnof_ref      )) deallocate (acc_rnof_ref      )
 	      IF (allocated(trc_bif_net_saved)) deallocate (trc_bif_net_saved)
-	      IF (allocated(a_trc_conc       )) deallocate (a_trc_conc       )
 		      IF (allocated(a_trc_storage_mass)) deallocate (a_trc_storage_mass)
 		      IF (allocated(a_water_storage   )) deallocate (a_water_storage   )
 		      IF (allocated(a_trc_levsto_mass )) deallocate (a_trc_levsto_mass )

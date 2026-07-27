@@ -7,6 +7,9 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FRAC = (ROOT / "main/TRACER/MOD_Tracer_Frac.F90").read_text()
 SOIL = (ROOT / "main/TRACER/MOD_Tracer_SoilWater.F90").read_text()
+EVAPO = (ROOT / "main/TRACER/MOD_Tracer_Evapo.F90").read_text()
+O18 = (ROOT / "main/TRACER/MOD_Tracer_Isotope_O18.F90").read_text()
+HDO = (ROOT / "main/TRACER/MOD_Tracer_Isotope_HDO.F90").read_text()
 
 
 class TracerIsotopeNssTests(unittest.TestCase):
@@ -23,7 +26,7 @@ class TracerIsotopeNssTests(unittest.TestCase):
         )
         self.assertRegex(
             FRAC,
-            r"tracer_leaf_kinetic_epsilon\(itrc,\s*0\._r8,\s*&\s*\n\s*"
+            r"tracer_alpha_kinetic_leaf\(itrc,\s*0\._r8,\s*&\s*\n\s*"
             r"DEF_TRACER_NSS_LEAF_RB\s*/\s*max\(leaf_area,\s*trc_tiny\),\s*"
             r"stomatal_resistance\)",
         )
@@ -42,6 +45,27 @@ class TracerIsotopeNssTests(unittest.TestCase):
         # is divided by LAI before the serial resistances are combined.
         rb = 100.0
         self.assertAlmostEqual(50.0 + rb / 4.0, 75.0)
+
+    def test_leaf_kinetic_fractionation_uses_cappa_diffusivity_ratios(self):
+        self.assertRegex(
+            FRAC,
+            r"alpha_k\s*=\s*tracer_alpha_kinetic_leaf\(itrc,\s*0\._r8,\s*&",
+        )
+        self.assertNotIn("19._r8, 28._r8", O18)
+        self.assertNotIn("17._r8, 25._r8", HDO)
+
+        def epsilon(diffusivity_ratio):
+            alpha = 0.5 * (
+                diffusivity_ratio ** (2.0 / 3.0) + diffusivity_ratio
+            )
+            return 1000.0 * (alpha - 1.0)
+
+        self.assertAlmostEqual(epsilon(1.03189), 26.519287734590556)
+        self.assertAlmostEqual(epsilon(1.01636), 13.618571007655511)
+
+    def test_leaf_equilibrium_enrichment_matches_liquid_over_vapor_alpha(self):
+        self.assertIn("eps_eq = (alpha_eq - 1._r8) * 1000._r8", FRAC)
+        self.assertNotIn("eps_eq = (1._r8 - 1._r8 /", FRAC)
 
     def test_craig_gordon_has_no_humidity_switch(self):
         self.assertNotIn("craig_gordon_relhum_fallback", FRAC)
@@ -65,6 +89,14 @@ class TracerIsotopeNssTests(unittest.TestCase):
         self.assertLess(abs(ratio(0.900001) - ratio(0.899999)), 1.0e-4)
         self.assertEqual(ratio(0.95), ratio(0.999999))
         self.assertTrue(math.isfinite(ratio(1.0)))
+
+    def test_craig_gordon_flux_ratio_is_not_clipped_to_source_ratio(self):
+        for source in (EVAPO, SOIL):
+            self.assertNotRegex(
+                source,
+                r"evap_ratio_for\s*=\s*min\(\s*evap_ratio_for\s*,\s*"
+                r"max\(\s*source_ratio",
+            )
 
     def test_leaf_off_releases_signed_anomaly_without_negative_pools(self):
         self.assertIn("CALL release_leaf_iso_storage", SOIL)

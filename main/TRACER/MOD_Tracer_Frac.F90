@@ -10,7 +10,7 @@ MODULE MOD_Tracer_Frac
    USE MOD_Tracer_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
    USE MOD_Tracer_Isotope_Registry, only: isotope_fractionation_registered, &
       isotope_alpha_liq_vap, isotope_alpha_ice_vap, isotope_diffusivity_ratio_air, &
-      isotope_leaf_kinetic_epsilon, isotope_leaf_liquid_diffusivity
+      isotope_leaf_liquid_diffusivity
    USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
 
    IMPLICIT NONE
@@ -291,10 +291,10 @@ CONTAINS
       h = min(max(relhum, 0._r8), 0.95_r8)
       one_minus_h = max(1._r8 - h, 1.e-6_r8)
       alpha_eq = tracer_alpha_liq_vap(itrc, tk)
-      eps_eq = (1._r8 - 1._r8 / max(alpha_eq, trc_tiny)) * 1000._r8
-      eps_k = tracer_leaf_kinetic_epsilon(itrc, 0._r8, &
+      eps_eq = (alpha_eq - 1._r8) * 1000._r8
+      alpha_k = tracer_alpha_kinetic_leaf(itrc, 0._r8, &
          DEF_TRACER_NSS_LEAF_RB / max(leaf_area, trc_tiny), stomatal_resistance)
-      alpha_k = 1._r8 + eps_k / 1000._r8
+      eps_k = (alpha_k - 1._r8) * 1000._r8
 
       delta_x = tracer_ratio_to_delta(itrc, source_ratio)
       delta_v = tracer_ratio_to_delta(itrc, vapor_ratio)
@@ -445,14 +445,6 @@ CONTAINS
          tracer_saturation_vapor_pressure = 611.2_r8 * exp(17.67_r8 * tc / (243.5_r8 + tc))
       ENDIF
    END FUNCTION tracer_saturation_vapor_pressure
-
-   real(r8) FUNCTION tracer_leaf_kinetic_epsilon (itrc, ra, rb, rc)
-      integer,  intent(in) :: itrc
-      real(r8), intent(in) :: ra, rb, rc
-
-      CALL ensure_isotope_physics_registered ()
-      tracer_leaf_kinetic_epsilon = isotope_leaf_kinetic_epsilon(itrc, ra, rb, rc)
-   END FUNCTION tracer_leaf_kinetic_epsilon
 
    real(r8) FUNCTION tracer_leaf_liquid_diffusivity (itrc, temp_k)
       integer,  intent(in) :: itrc

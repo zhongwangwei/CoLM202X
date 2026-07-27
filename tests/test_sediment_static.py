@@ -26,6 +26,19 @@ class SedimentStaticChecks(unittest.TestCase):
         self.assertEqual(self.calc.count("MPI_MIN"), 1)
         self.assertEqual(self.calc.count("MPI_MAX"), 2)
         self.assertEqual(self.calc.count("MPI_SUM"), 2)
+        for diagnostic in (
+            "precip_diag_global",
+            "diag_max_global",
+            "diag_sum_global",
+            "diag_count_global",
+        ):
+            call = self.calc.index(
+                f"CALL mpi_allreduce(MPI_IN_PLACE, {diagnostic}"
+            )
+            self.assertGreater(
+                self.calc.rfind("#ifdef CoLMDEBUG", 0, call),
+                self.calc.rfind("#endif", 0, call),
+            )
 
     def test_all_diagnostic_values_are_reduced(self) -> None:
         expected_groups = {
@@ -104,6 +117,26 @@ class SedimentStaticChecks(unittest.TestCase):
             "CALL CoLM_stop('sediment advection CFL timestep must be valid and positive')",
             self.calc,
         )
+
+    def test_iwagaki_piecewise_curve_is_continuous(self) -> None:
+        self.assertIn("cB = 31._r8 / 22._r8", self.source)
+
+        def critical_shear_sq(diameter_m: float) -> float:
+            diameter_cm = diameter_m * 100.0
+            if diameter_m >= 0.00303:
+                return 80.9 * diameter_cm
+            if diameter_m >= 0.00118:
+                return 134.6 * diameter_cm ** (31.0 / 22.0)
+            if diameter_m >= 0.000565:
+                return 55.0 * diameter_cm
+            if diameter_m >= 0.000065:
+                return 8.41 * diameter_cm ** (11.0 / 32.0)
+            return 226.0 * diameter_cm
+
+        for breakpoint in (0.00303, 0.00118):
+            above = critical_shear_sq(breakpoint)
+            below = critical_shear_sq(math.nextafter(breakpoint, 0.0))
+            self.assertLess(abs(above - below) / max(above, below), 0.03)
 
     def test_parameter_units_and_cfl_domain_fail_fast(self) -> None:
         reader = self.source.split("SUBROUTINE read_sediment_parameter_file", 1)[1].split(
@@ -184,8 +217,14 @@ class SedimentStaticChecks(unittest.TestCase):
         ):
             self.assertIn(f"ieee_is_finite(DEF_SEDIMENT%{field})", reader)
 
+        self.assertIn("iomsg=iomsg", reader.replace(" ", ""))
+        self.assertIn("invalid &nl_colm_sediment_parameter", reader)
+        self.assertIn("missing DEF_TRACER_PARAM_FILES mapping", reader)
+
         self.assertIn("nsed <= 0", validator)
         self.assertIn("nlfp_sed <= 0", validator)
+        self.assertIn("IF (DEF_USE_LEVEE) THEN", validator)
+        self.assertIn("sediment levee transport is not yet implemented", validator)
         for field, domain in (
             ("sDiam", "any(sDiam <= 0._r8)"),
             ("setvel", "any(setvel < 0._r8)"),
@@ -194,6 +233,7 @@ class SedimentStaticChecks(unittest.TestCase):
         ):
             self.assertIn(f"any(.not. ieee_is_finite({field}))", validator)
             self.assertIn(domain, validator)
+        self.assertIn("any(abs(sed_slope) > 0.5_r8 * abs(spval))", validator)
 
         parse = initializer.index("CALL parse_grain_diameters()")
         settle = initializer.index("CALL calc_settling_velocities()")
@@ -265,8 +305,8 @@ class SedimentStaticChecks(unittest.TestCase):
         )
 
     def test_bedload_solid_flux_is_converted_at_bulk_layer_boundary(self) -> None:
-        advection = self.source.split("SUBROUTINE calc_sediment_advection", 1)[1].split(
-            "END SUBROUTINE calc_sediment_advection", 1
+        advection = self.source.split("SUBROUTINE calc_sediment_advection_one_direction", 1)[1].split(
+            "END SUBROUTINE calc_sediment_advection_one_direction", 1
         )[0]
 
         self.assertIn("Bedload solid-volume flux", advection)
@@ -318,8 +358,8 @@ class SedimentStaticChecks(unittest.TestCase):
         self.assertIn("n_flow_cancel_local", counted)
 
     def test_cfl_cap_deposition_is_integrated_only_in_its_own_substep(self) -> None:
-        advection = self.source.split("SUBROUTINE calc_sediment_advection", 1)[1].split(
-            "END SUBROUTINE calc_sediment_advection", 1
+        advection = self.source.split("SUBROUTINE calc_sediment_advection_one_direction", 1)[1].split(
+            "END SUBROUTINE calc_sediment_advection_one_direction", 1
         )[0]
         accumulator = self.source.split("SUBROUTINE accumulate_sediment_output", 1)[
             1
@@ -362,9 +402,9 @@ class SedimentStaticChecks(unittest.TestCase):
         begin = self.source.split("SUBROUTINE begin_suspended_period", 1)[1].split(
             "END SUBROUTINE begin_suspended_period", 1
         )[0]
-        advection = self.source.split("SUBROUTINE calc_sediment_advection", 1)[
+        advection = self.source.split("SUBROUTINE calc_sediment_advection_one_direction", 1)[
             1
-        ].split("END SUBROUTINE calc_sediment_advection", 1)[0]
+        ].split("END SUBROUTINE calc_sediment_advection_one_direction", 1)[0]
         exchange = self.source.split("SUBROUTINE calc_sediment_exchange", 1)[
             1
         ].split("END SUBROUTINE calc_sediment_exchange", 1)[0]
@@ -488,13 +528,79 @@ class SedimentStaticChecks(unittest.TestCase):
         self.assertIn("external hillslope source", readme_compact)
         self.assertIn("effective bed increment", readme_compact)
 
+    def test_supply_limiter_preserves_simultaneous_settling_diagnostics(self) -> None:
+        exchange = self.source.split("SUBROUTINE calc_sediment_exchange", 1)[1].split(
+            "END SUBROUTINE calc_sediment_exchange", 1
+        )[0]
+        self.assertIn("IF (Es(ised) >= D(ised)) THEN", exchange)
+        self.assertIn("exch_d_eff(ised,i) = D(ised)", exchange)
+        self.assertIn(
+            "exch_es_eff(ised,i) = D(ised) + max(netflw(ised,i), 0._r8)",
+            exchange,
+        )
+
+        # Entrainment demand is supply-limited, but physical settling remains
+        # present in the gross diagnostics while their difference equals net.
+        raw_es, settling, available_net = 10.0, 4.0, 2.0
+        net = min(raw_es - settling, available_net)
+        eff_d = settling
+        eff_es = settling + net
+        self.assertEqual(eff_es - eff_d, net)
+        self.assertEqual(eff_d, settling)
+
+    def test_each_sediment_operator_has_a_hard_mass_balance_check(self) -> None:
+        self.assertIn("SUBROUTINE assert_sediment_mass_balance", self.source)
+        for label in (
+            "'exchange'",
+            "'hillslope input'",
+            "'advection'",
+            "'layer redistribution'",
+        ):
+            self.assertIn(f"CALL assert_sediment_mass_balance({label}", self.source)
+        checker = self.source.split(
+            "SUBROUTINE assert_sediment_mass_balance", 1
+        )[1].split("END SUBROUTINE assert_sediment_mass_balance", 1)[0]
+        self.assertIn("SED_BALANCE_ABS_TOL + SED_BALANCE_REL_TOL * scale", checker)
+        self.assertIn("CALL CoLM_stop('sediment mass balance failure')", checker)
+
     def test_every_advected_wet_cell_participates_in_cfl(self) -> None:
         cfl = self.calc.split("dt_cfl_local = dt_morph", 1)[1].split(
             "#ifdef USEMPI", 1
         )[0]
         self.assertIn("IF (rivsto(i) <= 0._r8) CYCLE", cfl)
         self.assertNotIn("sed_ignore_dph", cfl)
-        self.assertIn("dt_cell = sed_cfl_adv * rivsto(i) / abs(rivout(i))", cfl)
+        self.assertIn("dt_cell = sed_cfl_adv * rivsto(i) / rivout_abs(i)", cfl)
+
+    def test_reversing_flow_keeps_both_directional_transport_volumes(self) -> None:
+        wrapper = self.source.split("SUBROUTINE calc_sediment_advection(", 1)[1].split(
+            "END SUBROUTINE calc_sediment_advection", 1
+        )[0]
+        self.assertIn(
+            "rivout_forward = max(0._r8, 0.5_r8 * (rivout_abs + rivout_signed))",
+            wrapper,
+        )
+        self.assertIn(
+            "rivout_reverse = min(0._r8, 0.5_r8 * (rivout_signed - rivout_abs))",
+            wrapper,
+        )
+        self.assertEqual(wrapper.count("CALL calc_sediment_advection_one_direction"), 2)
+        self.assertIn("sedout = sedout + sedout_first", wrapper)
+
+        signed, absolute = 0.0, 10.0
+        forward = max(0.0, 0.5 * (absolute + signed))
+        reverse = min(0.0, 0.5 * (signed - absolute))
+        self.assertEqual((forward, reverse), (5.0, -5.0))
+
+    def test_scheduled_reservoir_uses_live_flow_state_before_construction(self) -> None:
+        self.assertIn(
+            "IF (avg_wdsrf > 0._r8 .and. avg_v2 > 0._r8) THEN", self.calc
+        )
+        self.assertNotIn("lake_type(i) < 2", self.calc)
+        self.assertIn(
+            "bed_area(i) = max(bed_area(i), sed_acc_floodarea(i) / sed_acc_time(i))",
+            self.calc,
+        )
+        self.assertIn("CALL calc_sediment_exchange(dt_morph, rivsto, bed_area)", self.calc)
 
     def test_initial_named_bed_depth_cannot_silently_exceed_configuration(self) -> None:
         validator = self.source.split("SUBROUTINE validate_sediment_parameters", 1)[
@@ -503,6 +609,16 @@ class SedimentStaticChecks(unittest.TestCase):
         self.assertIn(
             "sed_bed_depth < lyrdph * real(totlyrnum, r8)", validator
         )
+        self.assertIn("lyrdph < maxval(sDiam)", validator)
+        self.assertIn(
+            "active_layer_depth must be at least the largest grain diameter",
+            validator,
+        )
+
+    def test_standard_active_layer_is_deeper_than_the_coarsest_grain(self) -> None:
+        standard = (SOURCE.parents[2] / "run/standard_sediment_parameter.nml").read_text()
+        self.assertIn("DEF_SEDIMENT%active_layer_depth = 5.0e-2", standard)
+        self.assertIn("SED_DEFAULT_LYRDPH = 0.05_r8", self.source)
 
 
 if __name__ == "__main__":

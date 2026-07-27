@@ -437,6 +437,7 @@ CONTAINS
    END FUNCTION tracer_parameter_group_present
 
    SUBROUTINE tracer_param_file_for_index (itrc, aliases, file_param, found)
+      USE MOD_SPMD_Task, only: CoLM_stop
       IMPLICIT NONE
       integer, intent(in) :: itrc
       character(len=*), intent(in) :: aliases
@@ -445,9 +446,11 @@ CONTAINS
 
       integer :: start_pos, end_pos, list_len, colon_pos, positional_index
       character(len=512) :: entry, key, value
+      logical :: matched
 
       file_param = ''
       found = .false.
+      matched = .false.
       IF (itrc < 1 .or. .not. allocated(tracers) .or. itrc > ntracers) RETURN
 
       list_len = len_trim(DEF_TRACER_PARAM_FILES)
@@ -464,17 +467,20 @@ CONTAINS
             IF (colon_pos > 0) THEN
                key = adjustl(trim(entry(:colon_pos-1)))
                value = adjustl(trim(entry(colon_pos+1:)))
-               IF (tracer_param_key_matches(itrc, key, aliases)) THEN
+               IF (len_trim(key) <= 0 .or. len_trim(value) <= 0) THEN
+                  CALL CoLM_stop('MOD_Tracer_Defs: empty tracer parameter file mapping entry: '//trim(entry))
+               ENDIF
+               IF (.not. matched .and. tracer_param_key_matches(itrc, key, aliases)) THEN
                   file_param = trim(value)
-                  found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
-                  RETURN
+                  found = trim(tracer_lower(file_param)) /= 'null'
+                  matched = .true.
                ENDIF
             ELSE
                positional_index = positional_index + 1
-               IF (positional_index == itrc) THEN
+               IF (.not. matched .and. positional_index == itrc) THEN
                   file_param = trim(entry)
                   found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
-                  RETURN
+                  matched = .true.
                ENDIF
             ENDIF
          ENDIF

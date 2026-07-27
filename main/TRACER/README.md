@@ -149,7 +149,10 @@ DEF_TRACER_PARAM_FILES = 'CH4:run/standard_ch4_parameter.nml'
 `run/standard_ch4_parameter.nml` contains both generic tracer metadata and the
 CH4-owned `&nl_colm_methane_parameter` controls. Selecting `gas` does not create
 a methane model: the compiled BGC provider must be present, and validation
-fails otherwise.
+fails otherwise. A configured CH4 tracer is offline with respect to atmospheric
+CH4 state, but it is not offline with respect to land BGC: once CH4 is active,
+the provider reads BGC carbon inputs and updates methane-specific land state and
+flux diagnostics.
 
 ### Sediment particle provider
 
@@ -211,9 +214,11 @@ land_tracer_final
 
 ## Current physics boundaries
 
-- The CH4 provider is an offline land diagnostic. It predicts soil, wetland,
-  rice-paddy, and reduced-order lake-sediment CH4 fluxes without feeding an
-  atmospheric CH4 state. `DEF_METHANE%methane_offline` must remain true.
+- The CH4 provider is offline only with respect to atmospheric CH4 feedback. It
+  predicts soil, wetland, rice-paddy, and reduced-order lake-sediment CH4 fluxes
+  without updating an atmospheric CH4 state, so `DEF_METHANE%methane_offline`
+  must remain true. When a CH4 gas tracer is configured, the provider is coupled
+  to land BGC carbon inputs and methane-owned land state.
 - `allowlakeprod` enables the reduced-order lake-sediment pathway together with
   a prognostic, well-mixed lake-water CH4/O2 box and piston-velocity air-water
   exchange. It is not a vertically resolved lake-water column or an online

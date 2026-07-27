@@ -16,7 +16,7 @@ def routine(source: str, name: str) -> str:
 
 
 class TracerMPIStaticChecks(unittest.TestCase):
-    def test_balance_normal_path_has_three_collectives(self) -> None:
+    def test_balance_normal_path_has_two_collectives(self) -> None:
         source = (
             ROOT / "main/TRACER/MOD_Tracer_Conservation.F90"
         ).read_text(encoding="utf-8")
@@ -25,12 +25,20 @@ class TracerMPIStaticChecks(unittest.TestCase):
             "IF (resid_hard_nbad_total > 0) THEN", 1
         )[0]
         self.assertEqual(
-            len(re.findall(r"CALL\s+mpi_(?:reduce|bcast)", unconditional, re.I)),
-            3,
+            len(
+                re.findall(
+                    r"CALL\s+mpi_(?:reduce|allreduce|bcast)",
+                    unconditional,
+                    re.I,
+                )
+            ),
+            2,
         )
+        self.assertIn("IF (ntracers <= 0) RETURN", unconditional)
         self.assertIn("maxima_local, maxima_total, 3", unconditional)
         self.assertIn("counts_local, counts_total, 3", unconditional)
-        self.assertIn("mpi_bcast(counts_total, 3", unconditional)
+        self.assertIn("mpi_allreduce(counts_local, counts_total, 3", unconditional)
+        self.assertNotIn("mpi_bcast(counts_total, 3", unconditional)
 
     def test_maxloc_collectives_run_only_for_failures(self) -> None:
         source = (

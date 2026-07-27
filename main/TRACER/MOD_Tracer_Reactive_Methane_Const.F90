@@ -486,6 +486,7 @@ CONTAINS
    ! Local variables
    logical :: fexists
    integer :: ierr
+   character(len=512) :: iomsg
    integer :: unit_nml
 
    namelist /nl_colm_methane_parameter/ DEF_METHANE,DEF_METHANE_hydrology
@@ -509,9 +510,13 @@ CONTAINS
          CALL CoLM_Stop (' ***** ERROR: methane parameter file does not exist: '// trim(nlfile))
       ENDIF
       open(newunit=unit_nml, status='OLD', file=trim(nlfile), form="FORMATTED")
-      read(unit_nml, nml=nl_colm_methane_parameter, iostat=ierr)
+      iomsg = ''
+      read(unit_nml, nml=nl_colm_methane_parameter, iostat=ierr, iomsg=iomsg)
       IF (ierr /= 0) THEN
          close(unit_nml)
+         IF (p_is_master) write(*,'(A,A,A)') &
+            'ERROR read_methane_namelist: invalid &nl_colm_methane_parameter in ', trim(nlfile), ': '
+         IF (p_is_master) write(*,'(A)') trim(iomsg)
          CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(nlfile))
       ENDIF
       close(unit_nml)

@@ -1,5 +1,6 @@
 #include <define.h>
 
+#if (defined TRACER) && (defined BGC)
 SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
 
 !-----------------------------------------------------------------------
@@ -549,3 +550,4 @@ CONTAINS
    END SUBROUTINE get_dim
 
 END SUBROUTINE Aggregation_MethanePH
+#endif

@@ -105,18 +105,18 @@
 #undef HYPERSPECTRAL
 
 ! 12b. If defined, extended canopy interception schemes are enabled.
-#undef extend_interception
+#define extend_interception
 
 ! 13. If defined, the tracer subsystem is enabled (isotope, solute,
 !     particle, and gas families).
-!     Default is OFF for production-safe builds; change to #define TRACER
-!     only when water tracers / particle tracer species are explicitly needed.
+!     This repository template currently enables TRACER; switch to #undef
+!     TRACER only for builds that intentionally exclude all tracer species.
 #define TRACER
 !    Conflicts: TRACER requires VariablySaturatedFlow soil hydrology
-!    (vanGenuchten_Mualem_SOIL_MODEL). Disable when running with
-!    Campbell_SOIL_MODEL.
-#ifdef Campbell_SOIL_MODEL
-#undef TRACER
+!    (vanGenuchten_Mualem_SOIL_MODEL). Campbell_SOIL_MODEL cannot silently
+!    disable TRACER because that changes the requested physics at compile time.
+#if (defined TRACER) && (defined Campbell_SOIL_MODEL)
+#error "TRACER requires vanGenuchten_Mualem_SOIL_MODEL; disable TRACER explicitly before using Campbell_SOIL_MODEL"
 #endif
 !    Dependency: the TRACER subsystem (water isotopes + the sediment particle
 !    species) routes through grid river/lake flow. Enabling TRACER REQUIRES

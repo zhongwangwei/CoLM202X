@@ -105,6 +105,13 @@ def test_forcing_dtime_is_validated_before_use():
     assert "tracer_forcing_validate_var_dtime" in stamp_lb
 
 
+def test_fractionating_tracer_requires_vapor_forcing_input():
+    cfg = subroutine_body(FORCING, "tracer_forcing_configure")
+    assert "tracer_fractionation_active(itrc)" in cfg
+    assert "must define vapor forcing" in cfg
+    assert "role=''vapor''" in cfg
+
+
 def test_methane_registry_has_no_unwired_o2_or_co2_placeholders():
     assert "igas_" + "o2" not in METHANE_REGISTRY
     assert "igas_" + "co2" not in METHANE_REGISTRY

@@ -3,6 +3,7 @@
 #ifdef TRACER
 MODULE MOD_Tracer_SoilWater
 
+   USE, INTRINSIC :: IEEE_ARITHMETIC, only: ieee_is_finite
    USE MOD_Precision
    USE MOD_Vars_Global, only: spval
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
@@ -60,7 +61,7 @@ CONTAINS
       wliq_soisno_bef, wice_soisno_bef, &
       wa, wa_bef, wdsrf, wdsrf_bef, &
       wetwat, wetwat_bef, pg_rain, pg_snow, &
-      etroot, wblc_ice_sink, &
+      wblc_ice_sink, &
       etroot_actual, etroot_aquifer, &
       qflx_irrig_ground, waterstorage_patch, &
       imperv_evap_wdsrf, imperv_evap_soil, imperv_subl_soil, &
@@ -96,13 +97,6 @@ CONTAINS
       real(r8), intent(in) :: wa, wa_bef, wdsrf, wdsrf_bef
       real(r8), intent(in) :: wetwat, wetwat_bef
       real(r8), intent(in) :: pg_rain, pg_snow
-      ! Per-layer transpiration demand (mm/s) as applied by WATER_VSF's
-      ! soil_water_vertical_movement (MOD_Hydro_SoilWater.F90:296). The
-      ! tracer path subtracts etroot(j)*dt at each layer's pre-WATER ratio
-      ! so transpired water carries its tracer to a_trc_evap — previously
-      ! this was a silent sink that concentrated trc_wliq over time without
-      ! breaking xerr_tracer (both Δstorage and output were dropped).
-      real(r8), intent(in) :: etroot(1:nl_soil)
       ! Per-layer ice mass (kg/m2) withdrawn by WATER_VSF's wblc
       ! reconciliation (MOD_SoilSnowHydrology.F90:1069-1081). The water
       ! left the column as ET output, so the tracer path must remove the
@@ -115,7 +109,7 @@ CONTAINS
       ! Per-layer actual ET water (mm, not mm/s) after the deficit
       ! cascade in MOD_Hydro_SoilWater.F90:soil_water_vertical_movement,
       ! and the aquifer share absorbing any remaining deficit (mm).
-      ! Tracer path uses these instead of the raw demand `etroot(j)*dt`
+      ! Tracer path uses these instead of raw pre-cascade demand values,
       ! so that a shallow dry layer reports 0 (its demand cascaded to
       ! a deeper layer, which now reports that extra uptake) and the
       ! aquifer deduction is applied via trc_wa. Without this, dry
@@ -162,6 +156,7 @@ CONTAINS
       real(r8) :: trc_surface_collapse_residual
          real(r8) :: ratio_layer(1:nl_soil)  ! pre-WATER tracer ratio per layer
          real(r8) :: water_shadow(1:nl_soil)
+         real(r8) :: layer_transport_ratio(1:nl_soil)
          real(r8) :: water_resid, water_shadow_ratio
       real(r8) :: trc_soil_upflow         ! tracer from true soil-to-surface upflow
       real(r8) :: trc_soil_evap           ! tracer removed by top-boundary evaporation deficit
@@ -227,7 +222,8 @@ CONTAINS
       IF (ntracers <= 0) RETURN
       lb = snl + 1
       qcharge_eff = qcharge
-      IF (abs(qcharge_eff) > 0.5_r8 * abs(spval)) qcharge_eff = 0._r8
+      IF (.not. ieee_is_finite(qcharge_eff) .or. &
+          abs(qcharge_eff) > 0.5_r8 * abs(spval)) qcharge_eff = 0._r8
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
@@ -299,7 +295,7 @@ CONTAINS
          !    (MOD_Hydro_SoilWater.F90:323-351). `etroot_actual(j)` is the
          !    mm of water actually drawn from layer j after that cascade;
          !    `etroot_aquifer` is the mm absorbed by the aquifer. Using
-         !    these — instead of the raw demand etroot(j)*dt — matches the
+         !    these — instead of raw pre-cascade demand — matches the
          !    water side layer-by-layer and lets trc_wa absorb the deep
          !    ET tracer that would otherwise be silently orphaned.
          !    No-fractionation assumption: ratio_layer stays unchanged
@@ -911,10 +907,13 @@ CONTAINS
             ENDIF
 
          ! --- qlayer(j): layer j ↔ layer j+1 ---
+         DO j = 1, nl_soil
+            layer_transport_ratio(j) = current_liq_ratio(j)
+         ENDDO
          DO j = 1, nl_soil - 1
             IF (qlayer(j) > trc_tiny) THEN
                ! Downward: j → j+1
-               ratio_src = current_liq_ratio(j)
+               ratio_src = layer_transport_ratio(j)
                trc_flux = qlayer(j) * ratio_src * deltim
                   trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
                   trc_wliq_soisno(itrc, j,   ipatch) = trc_wliq_soisno(itrc, j,   ipatch) - trc_flux
@@ -923,7 +922,7 @@ CONTAINS
                   water_shadow(j+1) = water_shadow(j+1) + qlayer(j) * deltim
                ELSEIF (qlayer(j) < -trc_tiny) THEN
                   ! Upward: j+1 → j
-                  ratio_src = current_liq_ratio(j+1)
+                  ratio_src = layer_transport_ratio(j+1)
                   trc_flux = abs(qlayer(j)) * ratio_src * deltim
                   trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j+1, ipatch), 0._r8))
                   trc_wliq_soisno(itrc, j+1, ipatch) = trc_wliq_soisno(itrc, j+1, ipatch) - trc_flux
@@ -938,7 +937,7 @@ CONTAINS
          ! ============================================================
          IF (qcharge_eff > trc_tiny) THEN
             j = nl_soil
-            ratio_src = current_liq_ratio(j)
+            ratio_src = layer_transport_ratio(j)
             trc_flux = qcharge_eff * ratio_src * deltim
                trc_flux = min(trc_flux, max(trc_wliq_soisno(itrc, j, ipatch), 0._r8))
                trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
@@ -1321,7 +1320,6 @@ CONTAINS
          alpha_k = tracer_alpha_kinetic_craig_gordon(itrc, from_ice)
          evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_atm, &
             temp_k, relhum, alpha_k, from_ice)
-         evap_ratio_for = min(evap_ratio_for, max(source_ratio, 0._r8))
       END FUNCTION evap_ratio_for
 
          real(r8) FUNCTION deposition_ratio_for (temp_k, from_ice)
@@ -2087,7 +2085,6 @@ CONTAINS
          alpha_k = tracer_alpha_kinetic_craig_gordon(itrc, from_ice)
          evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_atm, &
             temp_k, relhum, alpha_k, from_ice)
-         evap_ratio_for = min(evap_ratio_for, max(source_ratio, 0._r8))
       END FUNCTION evap_ratio_for
 
          real(r8) FUNCTION deposition_ratio_for (temp_k, from_ice)

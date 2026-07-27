@@ -414,12 +414,6 @@ CONTAINS
          alpha_k = tracer_alpha_kinetic_craig_gordon(itrc, from_ice)
          evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
             temp_k, relhum, alpha_k, from_ice)
-         ! Net evaporation/sublimation should not remove heavy isotope at
-         ! a ratio higher than the finite source pool ratio in this
-         ! one-way storage update. If the Craig-Gordon exchange term would
-         ! do that, the residual pool is driven artificially toward
-         ! delta=-1000 in a single step.
-         evap_ratio_for = min(evap_ratio_for, max(source_ratio, 0._r8))
       END FUNCTION evap_ratio_for
 
       real(r8) FUNCTION deposition_ratio_for (temp_k, from_ice)

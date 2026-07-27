@@ -1002,7 +1002,8 @@ ENDIF
          ENDIF
       ENDDO
 
-      ! Calculate end index of natrue PFTs
+      ! Empty PFT slices must skip the PC branch.
+      pn = ps - 1
       DO i = ps, pe
          pn = i
          p = pftclass(i)
@@ -1240,9 +1241,12 @@ ENDIF
                       t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                       frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                       fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip, &
-                      qphs_thaw_lay = qphs_thaw_lay_th, &
-                      qphs_frzc_lay = qphs_frzc_lay_th)
+                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
+#ifdef TRACER
+                     ,qphs_thaw_lay = qphs_thaw_lay_th, &
+                      qphs_frzc_lay = qphs_frzc_lay_th &
+#endif
+                      )
 
 !=======================================================================
 ! [6] Correct fluxes to present soil temperature

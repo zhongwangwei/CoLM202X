@@ -21,12 +21,10 @@ MODULE MOD_Tracer_ForcingInput
    !      forcing_input_mode = 'normalized_over_total', 'normalized_over_total'
    !   /
    !
-   ! `role` is the extension point. Water-isotope species use 'precip' and
-   ! 'vapor' (consumed by MOD_Tracer_Forcing). Reactive species such as CH4
-   ! reserve their own roles (e.g. 'inundation', 'atm'); those entries are
-   ! loaded and stored here, ready for the CH4 module to query once it is
-   ! wired to consume them. Unknown roles are kept but ignored by the
-   ! water-isotope forcing path.
+   ! `role` is a validated extension point. Water-isotope species may use only
+   ! 'precip' and 'vapor' (consumed by MOD_Tracer_Forcing). Provider-owned
+   ! species keep their known roles (CH4: 'inundation'/'atm'; sediment:
+   ! 'erosion_yield'), but typos fail fast instead of being silently ignored.
    !
    ! This module replaces the former global DEF_forcing%tracer_* / legacy
    ! per-species DEF_forcing%precipitation_O18_* namelist path: tracer
@@ -156,6 +154,13 @@ CONTAINS
                   trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_input_mode(k)), '".'
                CALL CoLM_stop()
             END SELECT
+            forcing_role(k) = tracer_lower(adjustl(forcing_role(k)))
+            IF (.not. tracer_forcing_role_valid(itrc, forcing_role(k))) THEN
+               IF (p_is_master) WRITE(*,'(A,I0,5A)') &
+                  'ERROR tracer_forcing_input_load: forcing_role(', k, ') for tracer "', &
+                  trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_role(k)), '".'
+               CALL CoLM_stop()
+            ENDIF
             tracer_forcing_specs(k,itrc)%role       = adjustl(forcing_role(k))
             tracer_forcing_specs(k,itrc)%fprefix    = adjustl(forcing_fprefix(k))
             tracer_forcing_specs(k,itrc)%vname      = adjustl(forcing_vname(k))
@@ -211,6 +216,24 @@ CONTAINS
       character(len=*), intent(in) :: a, b
       tracer_forcing_role_equal = (tracer_lower(a) == tracer_lower(b))
    END FUNCTION tracer_forcing_role_equal
+
+   logical FUNCTION tracer_forcing_role_valid (itrc, role)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc
+      character(len=*), intent(in) :: role
+
+      tracer_forcing_role_valid = .false.
+      SELECT CASE (trim(tracers(itrc)%category))
+      CASE ('isotope', 'solute', 'reactive', 'conservative')
+         tracer_forcing_role_valid = (trim(role) == 'precip' .or. trim(role) == 'vapor')
+      CASE ('gas')
+         tracer_forcing_role_valid = (trim(role) == 'inundation' .or. trim(role) == 'atm')
+      CASE ('particle')
+         tracer_forcing_role_valid = (trim(role) == 'erosion_yield')
+      CASE DEFAULT
+         tracer_forcing_role_valid = .false.
+      END SELECT
+   END FUNCTION tracer_forcing_role_valid
 
    logical FUNCTION tracer_forcing_group_present (nlfile)
       IMPLICIT NONE

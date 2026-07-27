@@ -17,16 +17,14 @@ MODULE MOD_Tracer_Forcing
       tracer_vapor_default_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
       tracer_uses_land_water_transport, tracer_lower
+   USE MOD_Tracer_Frac, only: tracer_fractionation_active
    USE MOD_Tracer_Vars, only: trc_runtime_forced
-   USE MOD_Tracer_Isotope_Registry, only: isotope_legacy_forcing_kind
    USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
    USE MOD_Tracer_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
-      tracer_forcing_input_get, tracer_forcing_input_find
+      tracer_forcing_input_get, tracer_forcing_input_find, tracer_forcing_input_final
 
    IMPLICIT NONE
    SAVE
-
-   integer, parameter :: TRC_FORC_NONE = 0
 
    integer, parameter :: STREAM_PRECIP = 1
    integer, parameter :: STREAM_VAPOR  = 2
@@ -88,7 +86,6 @@ MODULE MOD_Tracer_Forcing
    PUBLIC :: tracer_forcing_vapor_ratio
    PUBLIC :: tracer_forcing_has_precip
    PUBLIC :: tracer_forcing_has_vapor
-   PUBLIC :: tracer_forcing_tracer_kind
    PUBLIC :: tracer_forcing_ratio_to_delta
 
 CONTAINS
@@ -188,6 +185,7 @@ CONTAINS
       IF (allocated(trc_forc_patch)) deallocate(trc_forc_patch)
       CALL tracer_forcing_deallocate_config()
       CALL tracer_forcing_deallocate_state()
+      CALL tracer_forcing_input_final()
 
       IF (allocated(trc_runtime_forced)) trc_runtime_forced(:) = .false.
       trc_runtime_forcing_enabled = .false.
@@ -256,6 +254,16 @@ CONTAINS
             CALL tracer_forcing_add_var(STREAM_VAPOR, itrc, mode, &
                spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
             has_vapor(itrc) = n_trc_forc_vars > nold
+         ENDIF
+
+         IF (tracer_fractionation_active(itrc) .and. .not. has_vapor(itrc)) THEN
+            IF (p_is_master) THEN
+               WRITE(*,'(A,I0,3A)') &
+                  'ERROR tracer_forcing_configure: fractionating tracer ', itrc, &
+                  ' (', trim(tracers(itrc)%name), &
+                  ') must define vapor forcing with role=''vapor'' in &nl_colm_tracer_forcing.'
+            ENDIF
+            CALL CoLM_stop()
          ENDIF
       ENDDO
 
@@ -946,18 +954,6 @@ CONTAINS
       IF (ipatch < 1 .or. ipatch > size(trc_forc_has_vapor, 2)) RETURN
       tracer_forcing_has_vapor = trc_forc_has_vapor(itrc, ipatch)
    END FUNCTION tracer_forcing_has_vapor
-
-   integer FUNCTION tracer_forcing_tracer_kind (itrc)
-      IMPLICIT NONE
-      integer, intent(in) :: itrc
-
-      tracer_forcing_tracer_kind = TRC_FORC_NONE
-      IF (.not. tracer_is_isotope(itrc)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-
-      CALL ensure_isotope_physics_registered ()
-      tracer_forcing_tracer_kind = isotope_legacy_forcing_kind(itrc)
-   END FUNCTION tracer_forcing_tracer_kind
 
    real(r8) FUNCTION tracer_forcing_ratio_to_delta (ratio, ref_ratio)
       IMPLICIT NONE

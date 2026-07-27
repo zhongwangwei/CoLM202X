@@ -1,5 +1,7 @@
 #include <define.h>
 
+#if (defined TRACER) && (defined BGC)
+
 MODULE MOD_Tracer_Reactive_Methane_PHMapping
 
 !-----------------------------------------------------------------------
@@ -343,3 +345,4 @@ CONTAINS
    END SUBROUTINE build_methane_ph_areal_mapping
 
 END MODULE MOD_Tracer_Reactive_Methane_PHMapping
+#endif

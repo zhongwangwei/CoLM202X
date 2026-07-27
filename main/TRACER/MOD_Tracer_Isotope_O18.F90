@@ -5,7 +5,7 @@ MODULE MOD_Tracer_Isotope_O18
 
    USE MOD_Precision
    USE MOD_Tracer_Defs, only: Rsmow_18O
-   USE MOD_Tracer_Isotope_Registry, only: register_isotope_physics, isotope_weighted_leaf_epsilon
+   USE MOD_Tracer_Isotope_Registry, only: register_isotope_physics
 
    IMPLICIT NONE
    SAVE
@@ -19,12 +19,11 @@ CONTAINS
 
    SUBROUTINE register_o18_isotope_physics ()
       CALL register_isotope_physics(name='O18', name_patterns='18o,o18', &
-         ref_ratio_hint=Rsmow_18O, legacy_forcing_kind=1, &
+         ref_ratio_hint=Rsmow_18O, &
          default_soil_init_varname='soilwat_O18', &
          alpha_liq_vap_fn=o18_alpha_liq_vap, &
          alpha_ice_vap_fn=o18_alpha_ice_vap, &
          diffusivity_ratio_air_fn=o18_diffusivity_ratio, &
-         leaf_kinetic_epsilon_fn=o18_leaf_kinetic_epsilon, &
          leaf_liquid_diffusivity_fn=o18_leaf_liquid_diffusivity)
    END SUBROUTINE register_o18_isotope_physics
 
@@ -47,11 +46,6 @@ CONTAINS
    real(r8) FUNCTION o18_diffusivity_ratio ()
       o18_diffusivity_ratio = o18_diffusivity_ratio_air
    END FUNCTION o18_diffusivity_ratio
-
-   real(r8) FUNCTION o18_leaf_kinetic_epsilon (ra, rb, rc)
-      real(r8), intent(in) :: ra, rb, rc
-      o18_leaf_kinetic_epsilon = isotope_weighted_leaf_epsilon(ra, rb, rc, 19._r8, 28._r8)
-   END FUNCTION o18_leaf_kinetic_epsilon
 
    real(r8) FUNCTION o18_leaf_liquid_diffusivity (temp_k)
       real(r8), intent(in) :: temp_k

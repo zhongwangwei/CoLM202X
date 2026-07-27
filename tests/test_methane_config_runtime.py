@@ -132,3 +132,20 @@ end program methane_config_driver
     )
     assert invalid.returncode != 0
     assert "use_microbial_dormancy requires use_microbial_pools" in invalid.stdout
+
+    malformed_file = tmp_path / "malformed_standard.nml"
+    malformed_file.write_text("""
+&nl_colm_methane_parameter
+  DEF_METHANE%unknown_field = 1
+/
+""", encoding="utf-8")
+    malformed = subprocess.run(
+        [str(executable), str(malformed_file)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert malformed.returncode != 0
+    assert "invalid &nl_colm_methane_parameter" in malformed.stdout
+    assert "unknown_field" in malformed.stdout

@@ -16,6 +16,7 @@ MODULE MOD_Tracer_SpecialPatches
    USE MOD_Tracer_Hist, only: tracer_hist_accumulate
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_scv, trc_wdsrf, &
       trc_ldew_rain, trc_ldew_snow, trc_rnof_step, a_trc_precip, tracer_book_evap_loss, &
+      TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL, &
       a_trc_rsur, a_trc_rnof, trc_wetwat, trc_waterstorage, trc_storage_beg, &
       trc_surface_residue, trc_subsurface_residue, trc_runtime_forced, &
       trc_solid_soisno, trc_canopy_solid, trc_surface_solid, &
@@ -52,7 +53,8 @@ CONTAINS
       real(r8) :: evap_liq_mass, evap_ice_mass, dep_liq_mass, dep_ice_mass
       real(r8) :: water_dS, water_end, water_beg, water_input
       real(r8) :: water_before_output, water_after_evap
-      real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
+      real(r8) :: trc_input, trc_evap, trc_evap_liq, trc_evap_ice
+      real(r8) :: trc_rnof, trc_available, trc_final
       real(r8) :: trc_held_storage, surface_residue_beg
       real(r8) :: surface_liquid_end, surface_carrier, surface_residue_export
       real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
@@ -60,6 +62,15 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+         ! Glacier physics exposes a single bulk snow carrier (scv).  Fold any
+         ! layered state left by the preceding patch/step into that carrier
+         ! before the balance snapshot instead of clearing it outside the
+         ! accounting window.
+         trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + &
+            sum(trc_wliq_soisno(itrc, maxsnl+1:0, ipatch)) + &
+            sum(trc_wice_soisno(itrc, maxsnl+1:0, ipatch))
+         trc_wliq_soisno(itrc, maxsnl+1:0, ipatch) = 0._r8
+         trc_wice_soisno(itrc, maxsnl+1:0, ipatch) = 0._r8
          ! These carrier pools do not exist on glacier patches.  Quarantine
          ! conservative mass left by a patch-class transition before clearing
          ! the incompatible dissolved states; it will re-enter only through a
@@ -167,10 +178,18 @@ CONTAINS
                R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
             ENDIF
             IF (nonvolatile_solute) THEN
-               trc_evap = 0._r8
+               trc_evap_liq = 0._r8
+               trc_evap_ice = 0._r8
             ELSE
-               trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+               trc_evap_liq = evap_liq_mass * R_evap_liq
+               trc_evap_ice = evap_ice_mass * R_evap_ice
+               trc_evap = trc_evap_liq + trc_evap_ice
+               IF (trc_evap > trc_available .and. trc_evap > trc_tiny) THEN
+                  trc_evap_liq = trc_evap_liq * trc_available / trc_evap
+                  trc_evap_ice = trc_evap_ice * trc_available / trc_evap
+               ENDIF
             ENDIF
+            trc_evap = trc_evap_liq + trc_evap_ice
             water_after_evap = water_before_output - evap_mass
             trc_final = max(trc_available - trc_evap, 0._r8)
             CALL tracer_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
@@ -208,13 +227,16 @@ CONTAINS
             ENDIF
          ELSE
             trc_input = water_input * R_init
-            trc_evap  = evap_mass * R_init
+            trc_evap_liq = evap_liq_mass * R_init
+            trc_evap_ice = evap_ice_mass * R_init
+            trc_evap = trc_evap_liq + trc_evap_ice
             trc_rnof  = rnof_mass * R_init
             R_final   = R_init
          ENDIF
 
          IF (trc_input > 0._r8) a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_input
-         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap, evap_mass)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_liq, evap_liq_mass, TRC_EVAP_KIND_SOILEVAP)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_ice, evap_ice_mass, TRC_EVAP_KIND_SUBL)
          IF (trc_rnof > 0._r8) THEN
             trc_rnof_step(itrc, ipatch) = trc_rnof
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_rnof
@@ -270,7 +292,8 @@ CONTAINS
       real(r8) :: evap_liq_mass, evap_ice_mass, dep_liq_mass, dep_ice_mass
       real(r8) :: water_dS, water_end, water_beg, water_input
       real(r8) :: water_before_output, water_after_evap
-      real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
+      real(r8) :: trc_input, trc_evap, trc_evap_liq, trc_evap_ice
+      real(r8) :: trc_rnof, trc_available, trc_final
       real(r8) :: trc_held_storage, surface_residue_beg
       real(r8) :: surface_liquid_end, surface_carrier, surface_residue_export
       real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
@@ -404,10 +427,18 @@ CONTAINS
                R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
             ENDIF
             IF (nonvolatile_solute) THEN
-               trc_evap = 0._r8
+               trc_evap_liq = 0._r8
+               trc_evap_ice = 0._r8
             ELSE
-               trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+               trc_evap_liq = evap_liq_mass * R_evap_liq
+               trc_evap_ice = evap_ice_mass * R_evap_ice
+               trc_evap = trc_evap_liq + trc_evap_ice
+               IF (trc_evap > trc_available .and. trc_evap > trc_tiny) THEN
+                  trc_evap_liq = trc_evap_liq * trc_available / trc_evap
+                  trc_evap_ice = trc_evap_ice * trc_available / trc_evap
+               ENDIF
             ENDIF
+            trc_evap = trc_evap_liq + trc_evap_ice
             water_after_evap = water_before_output - evap_mass
             trc_final = max(trc_available - trc_evap, 0._r8)
             CALL tracer_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
@@ -446,13 +477,16 @@ CONTAINS
             ENDIF
          ELSE
             trc_input = water_input * R_init
-            trc_evap  = evap_mass * R_init
+            trc_evap_liq = evap_liq_mass * R_init
+            trc_evap_ice = evap_ice_mass * R_init
+            trc_evap = trc_evap_liq + trc_evap_ice
             trc_rnof  = rnof_mass * R_init
             R_final   = R_init
          ENDIF
 
          IF (trc_input > 0._r8) a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_input
-         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap, evap_mass)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_liq, evap_liq_mass, TRC_EVAP_KIND_SOILEVAP)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_ice, evap_ice_mass, TRC_EVAP_KIND_SUBL)
          IF (trc_rnof > 0._r8) THEN
             trc_rnof_step(itrc, ipatch) = trc_rnof
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_rnof

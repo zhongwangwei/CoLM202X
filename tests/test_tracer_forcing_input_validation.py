@@ -34,6 +34,7 @@ module MOD_Tracer_Defs
   integer :: ntracers = 1
   type :: tracer_info_type
     character(len=32) :: name = 'TEST'
+    character(len=16) :: category = 'isotope'
   end type tracer_info_type
   type(tracer_info_type), allocatable :: tracers(:)
   character(len=256) :: parameter_file = ''
@@ -85,6 +86,7 @@ program forcing_input_driver
   type(tracer_forcing_spec_type) :: spec
   allocate(tracers(1))
   call get_command_argument(1, parameter_file)
+  call get_command_argument(2, tracers(1)%category)
   call tracer_forcing_input_load()
   write(*,'(I0)') tracer_forcing_input_count(1)
   if (tracer_forcing_input_count(1) > 0) then
@@ -123,12 +125,12 @@ end program forcing_input_driver
         yield executable, tmp
 
 
-def run_forcing_driver(forcing_input_driver, text):
+def run_forcing_driver(forcing_input_driver, text, category="isotope"):
     executable, tmp = forcing_input_driver
     parameter_file = tmp / "forcing_parameter.nml"
     parameter_file.write_text(text, encoding="utf-8")
     return subprocess.run(
-        [str(executable), str(parameter_file)],
+        [str(executable), str(parameter_file), category],
         cwd=tmp,
         capture_output=True,
         text=True,
@@ -203,6 +205,88 @@ def test_unknown_forcing_enum_fails_fast(forcing_input_driver, field, value):
     assert result.returncode != 0
     assert field in result.stdout
     assert value in result.stdout
+
+
+def test_unknown_forcing_role_fails_fast(forcing_input_driver):
+    result = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'vapour'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+/
+""",
+    )
+    assert result.returncode != 0
+    assert "forcing_role(1)" in result.stdout
+    assert "vapour" in result.stdout
+
+
+def test_water_isotope_rejects_provider_owned_roles(forcing_input_driver):
+    result = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'atm'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+/
+""",
+    )
+    assert result.returncode != 0
+    assert "forcing_role(1)" in result.stdout
+    assert "atm" in result.stdout
+
+
+def test_provider_owned_known_roles_are_allowed(forcing_input_driver):
+    gas = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'ATM'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+/
+""",
+        category="gas",
+    )
+    assert gas.returncode == 0, gas.stdout + gas.stderr
+
+    particle = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'erosion_yield'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+/
+""",
+        category="particle",
+    )
+    assert particle.returncode == 0, particle.stdout + particle.stderr
+
+
+def test_provider_owned_families_reject_water_roles(forcing_input_driver):
+    result = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 1
+  forcing_role = 'precip'
+  forcing_fprefix = 'test'
+  forcing_vname = 'test'
+/
+""",
+        category="gas",
+    )
+    assert result.returncode != 0
+    assert "forcing_role(1)" in result.stdout
+    assert "precip" in result.stdout
 
 
 def test_forcing_enums_are_case_insensitive_and_normalized(forcing_input_driver):

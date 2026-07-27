@@ -164,6 +164,10 @@ MODULE MOD_Lulcc_Driver
       ENDIF
 
 #ifdef TRACER
+      IF (p_is_worker .and. allocated(patchclass) .and. size(patchclass) > 0 .and. &
+          .not. allocated(patchclass_)) THEN
+         CALL CoLM_stop('TRACER LULCC cannot remap a worker from zero to nonzero patches')
+      ENDIF
       IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_) .and. &
           allocated(landpatch%eindex) .and. allocated(landpatch_%eindex)) THEN
          CALL deallocate_tracer_conservation ()
