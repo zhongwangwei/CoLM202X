@@ -1394,6 +1394,27 @@ CONTAINS
             patch_pft_e = numpft
             pft2patch   = 1
 #endif
+         ELSE
+            ! Non-vegetated single point (wetland/water/urban/ice: numpft==0).
+            ! Gridded mode (MOD_LandPFT) always allocates patch_pft_s/e over all
+            ! patches and marks non-PFT patches with the -1 sentinel; the runtime
+            ! and CN-init code read patch_pft_s(ipatch) unconditionally and rely
+            ! on that. Mirror it here so single point matches gridded, instead of
+            ! leaving the arrays unallocated (which segfaults every reader). The
+            ! landpft pixelset is built as an empty set (nset=0) to match.
+            landpft%nset = 0
+            allocate (landpft%settyp (0))
+
+            landpft%nblkgrp = 1
+            allocate (landpft%xblkgrp(1));       landpft%xblkgrp(1) = 1
+            allocate (landpft%yblkgrp(1));       landpft%yblkgrp(1) = 1
+
+            allocate (landpft%vecgs%vlen(1,1));  landpft%vecgs%vlen(1,1) = 0
+            allocate (landpft%vecgs%vstt(1,1));  landpft%vecgs%vstt(1,1) = 1
+            allocate (landpft%vecgs%vend(1,1));  landpft%vecgs%vend(1,1) = 0
+
+            allocate (patch_pft_s (numpatch)); patch_pft_s = -1
+            allocate (patch_pft_e (numpatch)); patch_pft_e = -1
          ENDIF
 #endif
 
@@ -1405,7 +1426,10 @@ CONTAINS
          allocate (elm_patch%subfrc (numpatch)); elm_patch%subfrc = 1./numpatch
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef CROP
-         elm_patch%subfrc = SITE_pctcrop
+         ! SITE_pctcrop is allocated only for a CROPLAND site (per-crop patch
+         ! fractions). On any other patch type it is unallocated, so guard the
+         ! override; non-crop single points keep subfrc = 1/numpatch from above.
+         IF (SITE_landtype == CROPLAND) elm_patch%subfrc = SITE_pctcrop
 #endif
 #endif
 

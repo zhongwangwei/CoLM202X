@@ -543,6 +543,23 @@ CONTAINS
 	      DEF_METHANE%use_routing_for_soil = .false.
 
       SELECT CASE (trim(mode))
+       CASE ('saturated')
+         ! Permanently saturated wetland: scheme 1's base assigns finundated=1
+         ! to every wetland tile (the original CoLM "wetland at surface water
+         ! table" behaviour). Unlike 'wetwat' the wetwat/wetwatmax override is
+         ! left off, so a single-point wetland with no lateral inflow (where the
+         ! surface store drains under ET) stays inundated instead of collapsing
+         ! to finundated=0. Requires DEF_USE_Dynamic_Wetland=.false. so the soil
+         ! column is held saturated (zwt=0) consistently.
+         DEF_wetland_finundation_scheme = 1
+         DEF_METHANE%enable_wetwat_finundated_override = .false.
+         DEF_METHANE%wetland_dry_unsat_branch = .true.
+         IF (DEF_USE_Dynamic_Wetland) THEN
+            IF (p_is_master) write(6,*) &
+               '***** ERROR: saturated methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
+            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
+         ENDIF
+
        CASE ('wetwat')
          DEF_wetland_finundation_scheme = 1
          DEF_METHANE%enable_wetwat_finundated_override = .true.
@@ -613,7 +630,7 @@ CONTAINS
        CASE DEFAULT
          IF (p_is_master) write(6,*) &
             '***** ERROR: unsupported DEF_METHANE%inundation_mode = ', trim(DEF_METHANE%inundation_mode), &
-            '; expected wetwat, satellite, routing, dynamic_wtd, or hybrid.'
+            '; expected saturated, wetwat, satellite, routing, dynamic_wtd, or hybrid.'
          CALL CoLM_Stop (' ***** ERROR: unsupported methane inundation mode')
       END SELECT
 

@@ -118,12 +118,11 @@
 #ifdef Campbell_SOIL_MODEL
 #undef TRACER
 #endif
-!    Dependency: the TRACER subsystem (water isotopes + the sediment particle
-!    species) routes through grid river/lake flow. Enabling TRACER REQUIRES
-!    GridRiverLakeFlow.
-#if (defined TRACER) && (!defined GridRiverLakeFlow)
-#error "TRACER requires GridRiverLakeFlow to be defined in include/define.h"
-#endif
+!    Dependency: only the routing-borne TRACER species require GridRiverLakeFlow
+!    (in-river isotope transport in MOD_Tracer_RiverLake, and the sediment
+!    particle species). Those are compiled only when GridRiverLakeFlow is also
+!    defined. CH4 and other land tracers do not route and build without it, so
+!    no hard error is raised here (SinglePoint forces GridRiverLakeFlow off).
 
 ! 13b. Methane gas provider.
 !     Activation is runtime: register a tracer named "CH4" or "METHANE"

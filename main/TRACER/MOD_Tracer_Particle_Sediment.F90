@@ -1,6 +1,11 @@
 #include <define.h>
 
-#ifdef TRACER
+! Sediment is a river-routing tracer: it hard-USEs MOD_Grid_RiverLakeNetwork and
+! other GridRiverLakeFlow-only modules, so it can only be compiled when routing
+! is compiled in. Guarding on TRACER alone left a dangling USE when
+! GridRiverLakeFlow was off (e.g. SinglePoint); the register manifest is guarded
+! to match (see include/tracer_lifecycle_providers.inc).
+#if (defined TRACER) && (defined GridRiverLakeFlow)
 MODULE MOD_Tracer_Particle_Sediment
 !-------------------------------------------------------------------------------------
 ! DESCRIPTION:
