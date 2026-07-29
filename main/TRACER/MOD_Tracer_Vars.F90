@@ -110,6 +110,12 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: lulcc_trc_leaf_iso_storage_old(:,:)
 
    real(r8), allocatable :: a_trc_precip   (:,:)
+   ! Signed tracer mass exchanged with atmospheric vapour with NO net water
+   ! flux (two-way equilibrium exchange on wet surfaces).  It is a genuine
+   ! boundary flux, so it must be tracked separately from a_trc_precip: the
+   ! latter is paired with a water flux and is cross-checked against
+   ! water_input * R_init on fixed-signature tracers.
+   real(r8), allocatable :: a_trc_vapor_exchange(:,:)
    real(r8), allocatable :: a_water_precip (:,:)
 	   integer, parameter :: TRC_EVAP_KIND_TOTAL       = 0
 	   integer, parameter :: TRC_EVAP_KIND_TRANSP      = 1
@@ -199,6 +205,7 @@ MODULE MOD_Tracer_Vars
    PUBLIC :: TRC_EVAP_KIND_TRANSP, TRC_EVAP_KIND_SOILEVAP
    PUBLIC :: TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SUBL, TRC_EVAP_KIND_WETLAND
    PUBLIC :: a_trc_precip, a_water_precip, a_trc_evap, a_water_evap_gross
+   PUBLIC :: a_trc_vapor_exchange
    PUBLIC :: a_trc_transp, a_trc_transp_src, a_water_transp
    PUBLIC :: a_trc_soilevap, a_water_soilevap
    PUBLIC :: a_trc_canopyevap, a_water_canopyevap
@@ -253,6 +260,7 @@ CONTAINS
       ENDDO
 
 	      allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
+	      allocate(a_trc_vapor_exchange(ntracers, numpatch));       a_trc_vapor_exchange = 0._r8
 	      allocate(a_water_precip  (ntracers, numpatch));           a_water_precip  = 0._r8
 		      allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
 		      allocate(a_water_evap_gross(ntracers, numpatch));         a_water_evap_gross = 0._r8
@@ -331,6 +339,7 @@ CONTAINS
       IF (allocated(trc_leaf_iso_storage)) deallocate(trc_leaf_iso_storage)
       IF (allocated(trc_runtime_forced)) deallocate(trc_runtime_forced)
 		      IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
+		      IF (allocated(a_trc_vapor_exchange)) deallocate(a_trc_vapor_exchange)
 		      IF (allocated(a_water_precip )) deallocate(a_water_precip )
 		      IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
 		      IF (allocated(a_water_evap_gross)) deallocate(a_water_evap_gross)
@@ -935,6 +944,7 @@ CONTAINS
    SUBROUTINE flush_Tracer_Acc ()
       IMPLICIT NONE
 	      IF (allocated(a_trc_precip )) a_trc_precip  = 0._r8
+	      IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange = 0._r8
 	      IF (allocated(a_water_precip)) a_water_precip = 0._r8
 		      IF (allocated(a_trc_evap   )) a_trc_evap    = 0._r8
 		      IF (allocated(a_water_evap_gross)) a_water_evap_gross = 0._r8
@@ -1019,6 +1029,7 @@ CONTAINS
          IF (allocated(trc_leaf_iso_storage)) trc_leaf_iso_storage(itrc, :) = 0._r8
 
          IF (allocated(a_trc_precip   )) a_trc_precip   (itrc, :) = 0._r8
+         IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange(itrc, :) = 0._r8
          IF (allocated(a_water_precip )) a_water_precip (itrc, :) = 0._r8
          IF (allocated(a_trc_evap     )) a_trc_evap     (itrc, :) = 0._r8
          IF (allocated(a_water_evap_gross)) a_water_evap_gross(itrc, :) = 0._r8

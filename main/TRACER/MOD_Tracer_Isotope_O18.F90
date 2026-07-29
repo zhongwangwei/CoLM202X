@@ -21,6 +21,7 @@ CONTAINS
 
    SUBROUTINE register_o18_isotope_physics ()
       CALL register_isotope_physics(name='O18', name_patterns='18o,o18', &
+         mj79_relative_factor=1.0_r8, &
          ref_ratio_hint=Rsmow_18O, &
          default_soil_init_varname='soilwat_O18', &
          alpha_liq_vap_fn=o18_alpha_liq_vap, &

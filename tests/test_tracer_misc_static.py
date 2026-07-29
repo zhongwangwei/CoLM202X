@@ -28,12 +28,12 @@ class TracerMiscStaticChecks(unittest.TestCase):
                 r"trc_evap_ice\s*,\s*evap_ice_mass\s*,\s*TRC_EVAP_KIND_SUBL\s*\)",
             )
             self.assertIn(
-                "trc_evap_liq = trc_evap_liq * trc_available / trc_evap",
+                "trc_evap_liq = tracer_atmospheric_tracer_loss",
                 routine,
             )
             self.assertIn(
-                "trc_evap_ice = trc_evap_ice * trc_available / trc_evap",
-                routine,
+                "trc_evap_ice = tracer_atmospheric_tracer_loss(trc_after_liq, water_after_liq",
+                " ".join(routine.replace("&", " ").split()),
             )
         self.assertNotIn("a_trc_evap", source)
 
@@ -101,16 +101,29 @@ class TracerMiscStaticChecks(unittest.TestCase):
         self.assertIn("etroot_aquifer", signature)
         self.assertIsNone(re.search(r"\betroot\b", signature, re.I))
 
+        # Delimit each call by balancing its parentheses rather than by keying
+        # off whichever keyword argument happens to come last -- that anchor
+        # breaks every time the argument list is extended.
+        def call_text(text: str, start: int) -> str:
+            depth = 0
+            for i in range(text.index("(", start), len(text)):
+                if text[i] == "(":
+                    depth += 1
+                elif text[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        return text[start : i + 1]
+            raise AssertionError("unbalanced CALL tracer_soil_water argument list")
+
         calls = []
         offset = 0
         while True:
             start = main.find("CALL tracer_soil_water", offset)
             if start < 0:
                 break
-            end = main.find("ra_frac = raw_trc)", start)
-            self.assertGreater(end, start)
-            calls.append(main[start : end + len("ra_frac = raw_trc)")])
-            offset = end + 1
+            call = call_text(main, start)
+            calls.append(call)
+            offset = start + len(call)
         self.assertEqual(len(calls), 2)
         for call in calls:
             self.assertIn("etroot_actual_trc", call)

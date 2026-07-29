@@ -343,7 +343,85 @@ MODULE MOD_Namelist
 
    ! ----- tracer module -----
    logical  :: DEF_TRACER_USE_FRACTIONATION = .false.
-   character(len=16) :: DEF_TRACER_KINETIC_SCHEME = 'CAPPA2003'
+   ! Air diffusivity ratios used by the kinetic (Craig-Gordon) term.
+   ! MERLIVAT1978 (1.0285 / 1.0251) is the default so the shipped reference
+   ! experiment reproduces IsoGSM, including its kinetic
+   ! eps_k(HDO)/eps_k(18O) = 0.88 and d-excess response.  CAPPA2003
+   ! (1.03189 / 1.01636) is an alternative laboratory-based sensitivity
+   ! choice.  The selected pair is applied consistently across CoLM surface
+   ! processes; it is not physically required to match the atmospheric
+   ! forcing producer.
+   character(len=16) :: DEF_TRACER_KINETIC_SCHEME = 'MERLIVAT1978'
+   ! Supersaturation slope for vapour->ice deposition, S = 1 - slope*T[C]
+   ! (Jouzel & Merlivat 1984).  Ice growing into supersaturated vapour
+   ! cannot stay in isotopic equilibrium, so the effective solid-vapour
+   ! alpha falls below alpha_eq; without this term frost/rime deposited at
+   ! sub-freezing temperatures comes out too enriched.  0.003 is the
+   ! IsoGSM value (gsml/CLD1/lrgscl.F:198); published GCM choices span
+   ! 0.002-0.004.  Set to 0 to recover pure equilibrium deposition.
+   real(r8) :: DEF_TRACER_ICE_SUPERSAT_SLOPE = 0.003_r8
+   ! Humidity cap for the Craig-Gordon evaporate ratio, h = min(RH, this).
+   ! R_E carries a 1/(1-h) factor that the host water flux cancels, so this
+   ! cap is a numerical guard, not physics: every 0.01 shaved off it
+   ! truncates real depletion.  At 25 C with soil water at -5 permil and
+   ! vapour at -12 permil, the h=0.99 evaporate is near -254 permil while
+   ! the former 0.95 cap reported only -75 permil, systematically
+   ! under-enriching residual soil water in humid climates.
+   real(r8) :: DEF_TRACER_CG_RELHUM_MAX = 0.99_r8
+   ! Kinetic fractionation law for evaporation from OPEN WATER (lake and
+   ! water-body patches).  'MJ79' is the wind-dependent Merlivat & Jouzel
+   ! (1979) law used by IsoGSM (gsml/ISOTOPE/frkin.F); 'EXPONENT' falls back
+   ! to the n=2/3 diffusivity exponent, which is appropriate to soil pores
+   ! but overstates open-water kinetic fractionation roughly threefold
+   ! (~19 vs ~6 permil for 18O at low wind).
+   character(len=16) :: DEF_TRACER_OPEN_WATER_KINETIC = 'MJ79'
+   ! Mass of the surface skin (mm water equivalent) that can exchange
+   ! isotopically during SUBLIMATION within one timestep.  Applying
+   ! Craig-Gordon to a whole snow layer treats tens of mm of ice as one
+   ! well-mixed reservoir and over-enriches the pack; physically only the
+   ! top few mm exchange, while deeper mass leaves bodily as the surface
+   ! retreats.  Set very large to recover the old layer-mixed behaviour, or
+   ! 0 for IsoGSM's non-fractionating sublimation (gsml/moninp.F:384-389).
+   real(r8) :: DEF_TRACER_SUBL_SKIN_MM = 5.0_r8
+   ! Kinetic fractionation law for SOIL evaporation.  'RESISTANCE' weights
+   ! the turbulent (n=2/3) and pore-diffusion (n=1) exponents by CoLM's own
+   ! aerodynamic and soil-surface resistances, so the kinetic effect grows
+   ! from ~19 to ~28.5 permil (18O) as the evaporation front retreats into
+   ! the pores.  'EXPONENT' pins it at the wet-soil n=2/3 value.
+   character(len=16) :: DEF_TRACER_SOIL_KINETIC = 'RESISTANCE'
+   ! Liquid-phase molecular diffusion of isotopes between soil layers.
+   ! Advection alone cannot produce the peak-shaped delta profile around an
+   ! evaporation front (Barnes & Allison 1983), which is the feature soil
+   ! water isotope profiles are usually compared against.  Diffusion is an
+   ! internal layer-to-layer exchange, so it is exactly mass conserving.
+   logical  :: DEF_TRACER_SOIL_DIFFUSION = .true.
+   ! Vapour-phase isotope diffusion through soil pores, added to the liquid
+   ! term.  Required for the Barnes & Allison (1983) profile: above a dry
+   ! surface the evaporation front sits inside the soil and transport is
+   ! through pore air.  Its moisture dependence is the OPPOSITE of the liquid
+   ! term (air-filled porosity), so it dominates exactly where the liquid film
+   ! shuts down -- ~30x the liquid term at theta = 0.05, ~0.5% at theta = 0.40.
+   logical  :: DEF_TRACER_SOIL_VAPOR_DIFFUSION = .true.
+   ! Degree of two-way equilibrium exchange, per timestep, between
+   ! canopy-intercepted liquid water and ambient vapour (0 = off, 1 = full
+   ! equilibrium).  Wet leaves keep trading molecules with the surrounding
+   ! vapour even at zero net water flux; IsoGSM applies the same device to
+   ! falling raindrops (gsml/CLD1/lrgscl.F, eqf = 0.95).  Ships at 0 because,
+   ! unlike the other terms added here, there is no reference land-surface
+   ! implementation to calibrate the degree against -- it is an empirical
+   ! per-step relaxation, so enabling it is a deliberate modelling choice.
+   real(r8) :: DEF_TRACER_CANOPY_EQUILIBRATION = 0.0_r8
+   ! Degree of isotopic exchange, per snow layer traversed, between
+   ! percolating meltwater and that layer's ice (0 = off, 1 = full ice-water
+   ! equilibrium at R_ice/alpha_ice_liq).  This is what makes early meltwater
+   ! come out depleted relative to the pack and the residual pack enrich
+   ! (Taylor et al. 2001) -- an effect of several permil that is clearly seen
+   ! in observations, so enabling it is usually the more realistic choice.
+   ! Ships at 0 only because the per-layer degree is an empirical parameter
+   ! with no reference land-surface implementation to calibrate it against;
+   ! values near 1 are appropriate for thin layers.  Internal ice<->water
+   ! exchange, so it is exactly mass conserving and needs no accumulator.
+   real(r8) :: DEF_TRACER_SNOWMELT_EQUILIBRATION = 0.0_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_WATER_PER_LAI = 0.12_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
@@ -1196,6 +1274,15 @@ CONTAINS
       DEF_USE_BIFURCATION,                    &
       DEF_TRACER_USE_FRACTIONATION,           &
       DEF_TRACER_KINETIC_SCHEME,              &
+      DEF_TRACER_ICE_SUPERSAT_SLOPE,          &
+      DEF_TRACER_CG_RELHUM_MAX,               &
+      DEF_TRACER_OPEN_WATER_KINETIC,          &
+      DEF_TRACER_SUBL_SKIN_MM,                &
+      DEF_TRACER_SOIL_KINETIC,                &
+      DEF_TRACER_SOIL_DIFFUSION,              &
+      DEF_TRACER_SOIL_VAPOR_DIFFUSION,        &
+      DEF_TRACER_CANOPY_EQUILIBRATION,        &
+      DEF_TRACER_SNOWMELT_EQUILIBRATION,      &
       DEF_TRACER_NSS_LEAF_WATER_PER_LAI,      &
       DEF_TRACER_NSS_LEAF_PATH_LENGTH,        &
       DEF_TRACER_NSS_LEAF_RB,                 &
@@ -1372,6 +1459,53 @@ CONTAINS
                trim(DEF_TRACER_KINETIC_SCHEME), '" is invalid; use CAPPA2003 or MERLIVAT1978.'
             CALL CoLM_stop ()
          END SELECT
+         SELECT CASE (trim(adjustl(DEF_TRACER_OPEN_WATER_KINETIC)))
+         CASE ('MJ79', 'mj79', 'MERLIVAT_JOUZEL1979')
+            DEF_TRACER_OPEN_WATER_KINETIC = 'MJ79'
+         CASE ('EXPONENT', 'exponent')
+            DEF_TRACER_OPEN_WATER_KINETIC = 'EXPONENT'
+         CASE DEFAULT
+            write(*,'(A,A,A)') 'Fatal ERROR: DEF_TRACER_OPEN_WATER_KINETIC="', &
+               trim(DEF_TRACER_OPEN_WATER_KINETIC), '" is invalid; use MJ79 or EXPONENT.'
+            CALL CoLM_stop ()
+         END SELECT
+         IF (DEF_TRACER_CG_RELHUM_MAX <= 0._r8 .or. DEF_TRACER_CG_RELHUM_MAX >= 1._r8) THEN
+            write(*,*) 'Fatal ERROR: DEF_TRACER_CG_RELHUM_MAX must lie strictly ', &
+               'between 0 and 1 (it caps h in the Craig-Gordon 1/(1-h) factor).'
+            CALL CoLM_stop ()
+         ENDIF
+         SELECT CASE (trim(adjustl(DEF_TRACER_SOIL_KINETIC)))
+         CASE ('RESISTANCE', 'resistance')
+            DEF_TRACER_SOIL_KINETIC = 'RESISTANCE'
+         CASE ('EXPONENT', 'exponent')
+            DEF_TRACER_SOIL_KINETIC = 'EXPONENT'
+         CASE DEFAULT
+            write(*,'(A,A,A)') 'Fatal ERROR: DEF_TRACER_SOIL_KINETIC="', &
+               trim(DEF_TRACER_SOIL_KINETIC), '" is invalid; use RESISTANCE or EXPONENT.'
+            CALL CoLM_stop ()
+         END SELECT
+         IF (DEF_TRACER_SNOWMELT_EQUILIBRATION < 0._r8 .or. &
+             DEF_TRACER_SNOWMELT_EQUILIBRATION > 1._r8) THEN
+            write(*,*) 'Fatal ERROR: DEF_TRACER_SNOWMELT_EQUILIBRATION must lie ', &
+               'in [0,1] (it is a per-layer equilibration degree).'
+            CALL CoLM_stop ()
+         ENDIF
+         IF (DEF_TRACER_CANOPY_EQUILIBRATION < 0._r8 .or. &
+             DEF_TRACER_CANOPY_EQUILIBRATION > 1._r8) THEN
+            write(*,*) 'Fatal ERROR: DEF_TRACER_CANOPY_EQUILIBRATION must lie ', &
+               'in [0,1] (it is a per-step equilibration degree).'
+            CALL CoLM_stop ()
+         ENDIF
+         IF (DEF_TRACER_SUBL_SKIN_MM < 0._r8) THEN
+            write(*,*) 'Fatal ERROR: DEF_TRACER_SUBL_SKIN_MM must be >= 0 ', &
+               '(0 makes sublimation non-fractionating).'
+            CALL CoLM_stop ()
+         ENDIF
+         IF (DEF_TRACER_ICE_SUPERSAT_SLOPE < 0._r8) THEN
+            write(*,*) 'Fatal ERROR: DEF_TRACER_ICE_SUPERSAT_SLOPE must be >= 0 ', &
+               '(0 disables the Jouzel-Merlivat supersaturation term).'
+            CALL CoLM_stop ()
+         ENDIF
          IF (DEF_TRACER_BALANCE_ABORT_NBAD < 0 .or. DEF_TRACER_RESID_ABORT_NBAD < 0 .or. &
              DEF_TRACER_LULCC_ABORT_NBAD < 0) THEN
             write(*,*) 'Fatal ERROR: DEF_TRACER_*_ABORT_NBAD values must be non-negative.'
@@ -1898,6 +2032,15 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_USE_FRACTIONATION           ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_KINETIC_SCHEME              ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_ICE_SUPERSAT_SLOPE          ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_CG_RELHUM_MAX               ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_OPEN_WATER_KINETIC          ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SUBL_SKIN_MM                ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_KINETIC                ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_DIFFUSION              ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_VAPOR_DIFFUSION        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_CANOPY_EQUILIBRATION         ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SNOWMELT_EQUILIBRATION       ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_WATER_PER_LAI      ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH        ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                 ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)

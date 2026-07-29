@@ -10,12 +10,15 @@ MODULE MOD_Tracer_Evapo
    USE MOD_Tracer_Forcing, only: tracer_forcing_vapor_value
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
-      tracer_rayleigh_freezing_loss, tracer_surface_relhum
-   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss
+      tracer_rayleigh_freezing_loss, tracer_surface_relhum, &
+      tracer_equilibration_exchange, tracer_alpha_liq_vap
+   USE MOD_Namelist, only: DEF_TRACER_SUBL_SKIN_MM, DEF_TRACER_CANOPY_EQUILIBRATION
+   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss, &
+      tracer_skin_limited_tracer_loss
 	   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
 	      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_canopy_solid, &
 	      trc_numerical_residual_step, &
-	      a_trc_precip, tracer_book_evap_loss, &
+	      a_trc_precip, a_trc_vapor_exchange, tracer_book_evap_loss, &
 	      TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL
 
    IMPLICIT NONE
@@ -81,6 +84,7 @@ CONTAINS
       ! original snow signature R_canopy_snow.
       real(r8) :: ldew_rain_pre_phase, ldew_snow_pre_phase
       real(r8) :: d_rain_external, d_snow_external
+      real(r8) :: equil_gain
       IF (ntracers <= 0) RETURN
       lb = snl + 1
 
@@ -196,6 +200,25 @@ CONTAINS
 
          CALL tracer_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
+
+         ! --- Wet-leaf two-way equilibrium exchange with ambient vapour ---
+         ! Zero net water flux, non-zero net tracer flux, so this is booked
+         ! into a dedicated boundary-flux accumulator rather than a_trc_precip
+         ! (which is paired with a water flux).  Liquid only: exchange with a
+         ! frozen canopy pool is orders of magnitude slower.
+         IF (DEF_TRACER_CANOPY_EQUILIBRATION > 0._r8 .and. &
+             tracer_fractionation_active(itrc) .and. &
+             .not. tracer_is_nonvolatile_solute(itrc) .and. &
+             ldew_rain > trc_tiny) THEN
+            equil_gain = tracer_equilibration_exchange(trc_ldew_rain(itrc, ipatch), &
+               max(ldew_rain, 0._r8), R_vapor, tracer_alpha_liq_vap(itrc, canopy_temp()), &
+               DEF_TRACER_CANOPY_EQUILIBRATION)
+            trc_ldew_rain(itrc, ipatch) = max(trc_ldew_rain(itrc, ipatch) + equil_gain, 0._r8)
+            IF (allocated(a_trc_vapor_exchange)) THEN
+               a_trc_vapor_exchange(itrc, ipatch) = &
+                  a_trc_vapor_exchange(itrc, ipatch) + equil_gain
+            ENDIF
+         ENDIF
 
          ! --- Soil+snow layers: combined liquid+ice ---
          DO j = lb, nl_soil
@@ -381,10 +404,19 @@ CONTAINS
             ! ceiling, evaporation becomes non-fractionating so the pool R stops
             ! increasing.  Nonvolatile solutes are handled above as zero
             ! evaporative tracer loss.
-            evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
-               water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
-               merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
-                     0._r8, tracer_fractionation_active(itrc)))
+            IF (from_ice) THEN
+               ! Sublimation: only a thin surface skin exchanges isotopically;
+               ! deeper ice leaves bodily as the surface retreats.
+               evaporative_tracer_loss = tracer_skin_limited_tracer_loss(pool_trc, pool_water, &
+                  water_loss, DEF_TRACER_SUBL_SKIN_MM, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+                  merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
+                        0._r8, tracer_fractionation_active(itrc)))
+            ELSE
+               evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
+                  water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+                  merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
+                        0._r8, tracer_fractionation_active(itrc)))
+            ENDIF
          ENDIF
       END FUNCTION evaporative_tracer_loss
 

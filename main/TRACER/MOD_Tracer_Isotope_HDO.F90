@@ -21,6 +21,7 @@ CONTAINS
 
    SUBROUTINE register_hdo_isotope_physics ()
       CALL register_isotope_physics(name='HDO', name_patterns='hdo,2h,deuter,=h2', &
+         mj79_relative_factor=0.88_r8, &
          ref_ratio_hint=Rsmow_D, &
          default_soil_init_varname='soilwat_H2', &
          alpha_liq_vap_fn=hdo_alpha_liq_vap, &

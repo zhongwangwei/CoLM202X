@@ -112,6 +112,28 @@ def test_special_patch_drydown_preserves_surface_residue():
     assert residue - exported == 1.0
 
 
+def test_special_patch_subsurface_residue_has_explicit_surface_destination():
+    special = source("MOD_Tracer_SpecialPatches.F90")
+    helper = special.split("SUBROUTINE move_special_subsurface_residue_to_surface", 1)[1].split(
+        "END SUBROUTINE move_special_subsurface_residue_to_surface", 1
+    )[0]
+    assert "trc_subsurface_residue(itrc, ipatch) <= trc_tiny" in helper
+    assert "trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) +" in helper
+    assert "trc_surface_residue(itrc, ipatch) = trc_surface_residue(itrc, ipatch) +" in helper
+    assert helper.index("trc_subsurface_residue(itrc, ipatch)") < helper.rindex(
+        "trc_subsurface_residue(itrc, ipatch) = 0._r8"
+    )
+
+    for name in ("tracer_glacier_patch", "tracer_waterbody_patch"):
+        body = routine(special, name)
+        assert body.index("CALL move_special_subsurface_residue_to_surface") < body.index(
+            "CALL tracer_save_storage"
+        )
+
+    waterbody = routine(special, "tracer_waterbody_patch")
+    assert "trc_held_storage = trc_held_storage - trc_subsurface_residue" not in waterbody
+
+
 def test_nonvolatile_wblc_ice_sink_stays_in_layer():
     soil = source("MOD_Tracer_SoilWater.F90")
     wblc = soil.split("IF (wblc_ice_sink(j) > trc_tiny) THEN", 1)[1].split(
@@ -133,11 +155,19 @@ def test_dry_layer_inventory_is_not_counted_as_dissolved_concentration():
 
 
 def test_residue_history_is_inventory_not_concentration():
+    # Check each variable's own unit rather than counting how often the unit
+    # string appears in the file -- that count moves whenever an unrelated
+    # inventory-style output is added, which says nothing about these three.
     history = source("MOD_Tracer_Hist.F90")
-    assert "f_trc_surface_residue_" in history
-    assert "f_trc_subsurface_residue_" in history
-    assert "f_trc_layer_dry_inventory_" in history
-    assert history.count("'tracer amount/m2'") == 4
+    for var in (
+        "f_trc_surface_residue_",
+        "f_trc_subsurface_residue_",
+        "f_trc_layer_dry_inventory_",
+    ):
+        assert var in history
+        block = history.split(var, 1)[1][:800]
+        assert "'tracer amount/m2'" in block, f"{var} must be written as an inventory"
+        assert "'permil'" not in block, f"{var} must not be written as a delta"
 
 
 def test_internal_transfer_identity():
@@ -150,3 +180,121 @@ def test_internal_transfer_identity():
     mobile_after_rewet = mobile_after_dry + residue_after_dry
     residue_after_rewet = 0.0
     assert mobile_after_rewet + residue_after_rewet == residue_after_dry
+
+
+def test_vapor_exchange_history_is_not_solute_only():
+    history = source("MOD_Tracer_Hist.F90")
+    block = history.split("f_trc_vapor_exchange_", 1)[0][-900:]
+    assert "tracer_is_nonvolatile_solute" not in block, (
+        "isotope vapor exchange must be reachable without pretending the tracer is a solute"
+    )
+    assert "tracer_uses_delta_diagnostics(itrc_loc)" in block
+    out = history.split("f_trc_vapor_exchange_", 1)[1][:700]
+    assert "write_history_variable_2d" in out
+    assert "'tracer amount/m2'" in out
+    assert "write_history_tracer_delta_2d" not in out
+
+
+def test_signed_evaporation_mass_history_keeps_negative_exchange_observable():
+    history = source("MOD_Tracer_Hist.F90")
+    delta = history.split("f_trc_delta_evap_", 1)[1].split("f_trc_delta_soilevap_", 1)[0]
+    assert "write_history_tracer_delta_2d" in delta
+    assert "f_trc_evap_mass_" in delta
+    mass = delta.split("f_trc_evap_mass_", 1)[1]
+    assert "write_history_variable_2d" in mass
+    assert "a_trc_evap(itrc_loc, :)" in mass
+    assert "'tracer amount/m2'" in mass
+    assert "write_history_tracer_delta_2d" not in mass
+
+
+def test_vapor_forcing_retains_last_valid_value_instead_of_resetting_to_default_each_step():
+    forcing = source("MOD_Tracer_Forcing.F90")
+    prep = forcing.split("SUBROUTINE tracer_forcing_prepare_step", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_prepare_step", 1
+    )[0]
+    assert "trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)" not in prep
+    assert "trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)" not in prep
+    alloc = forcing.split("SUBROUTINE tracer_forcing_allocate_state", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_allocate_state", 1
+    )[0]
+    assert "trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)" in alloc
+    accessor = forcing.split("FUNCTION tracer_forcing_vapor_value", 1)[1].split(
+        "END FUNCTION tracer_forcing_vapor_value", 1
+    )[0]
+    assert "tracer_forcing_vapor_value = trc_forc_vapor_value(itrc, ipatch)" in accessor
+    assert "IF (trc_forc_has_vapor" not in accessor
+
+
+def test_vapor_forcing_diagnostics_split_near_dry_from_wet_invalid_missing():
+    forcing = source("MOD_Tracer_Forcing.F90")
+    assert "DECODE_NEAR_DRY" in forcing
+    decode = forcing.split("SUBROUTINE tracer_forcing_decode_value", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_decode_value", 1
+    )[0]
+    assert re.search(r"total <= min_total.*?DECODE_NEAR_DRY", decode, re.DOTALL)
+    log = forcing.split("SUBROUTINE tracer_forcing_log_ranges", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_log_ranges", 1
+    )[0]
+    assert "near-dry fallback patches=" in log
+    assert "invalid/missing wet fallback patches=" in log
+    assert "invalid/near-dry isotope forcing" not in log
+    assert "previous valid/default vapor ratio" in log
+    assert "trc_forc_vapor_warned_dry" in log
+    assert "trc_forc_vapor_warned_invalid" in log
+    has_vapor = forcing.split("FUNCTION tracer_forcing_has_vapor", 1)[1].split(
+        "END FUNCTION tracer_forcing_has_vapor", 1
+    )[0]
+    assert "tracer_forcing_vapor_configured(itrc)" in has_vapor
+
+
+def test_raw_over_total_forcing_requires_matching_temporal_config():
+    forcing = source("MOD_Tracer_Forcing.F90")
+    add_var = forcing.split("SUBROUTINE tracer_forcing_add_var", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_add_var", 1
+    )[0]
+    assert "raw/total forcing temporal config mismatch" in add_var
+    assert "dtime /= trc_var_dtime(total_idx)" in add_var
+    assert "offset /= trc_var_offset(total_idx)" in add_var
+    assert "tracer_lower(tintalgo)" in add_var
+    assert "trc_var_timelog(n_trc_forc_vars) = trc_var_timelog(total_idx)" in add_var
+
+
+def test_precip_forcing_retains_last_valid_value_instead_of_resetting_to_default_each_step():
+    forcing = source("MOD_Tracer_Forcing.F90")
+    prep = forcing.split("SUBROUTINE tracer_forcing_prepare_step", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_prepare_step", 1
+    )[0]
+    assert "trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)" not in prep
+    alloc = forcing.split("SUBROUTINE tracer_forcing_allocate_state", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_allocate_state", 1
+    )[0]
+    assert "trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)" in alloc
+    accessor = forcing.split("FUNCTION tracer_forcing_precip_value", 1)[1].split(
+        "END FUNCTION tracer_forcing_precip_value", 1
+    )[0]
+    assert "tracer_forcing_precip_value = trc_forc_precip_value(itrc, ipatch)" in accessor
+    assert "IF (trc_forc_has_precip" not in accessor
+
+
+def test_precip_forcing_diagnostics_split_near_dry_from_wet_invalid_missing():
+    forcing = source("MOD_Tracer_Forcing.F90")
+    assert "trc_forc_precip_status" in forcing
+    decode = forcing.split("SUBROUTINE tracer_forcing_decode_value", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_decode_value", 1
+    )[0]
+    near_dry = decode.index("total <= min_total")
+    raw_valid = decode.index("tracer_forcing_valid_value(raw)")
+    assert near_dry < raw_valid, "near-dry total must win over invalid raw isotope numerator"
+    log = forcing.split("SUBROUTINE tracer_forcing_log_ranges", 1)[1].split(
+        "END SUBROUTINE tracer_forcing_log_ranges", 1
+    )[0]
+    assert "WARNING precip " in log
+    assert "near-dry fallback patches=" in log
+    assert "invalid/missing wet fallback patches=" in log
+    assert "previous valid/default precip ratio" in log
+    assert "trc_forc_precip_warned_dry" in log
+    assert "trc_forc_precip_warned_invalid" in log
+    has_precip = forcing.split("FUNCTION tracer_forcing_has_precip", 1)[1].split(
+        "END FUNCTION tracer_forcing_has_precip", 1
+    )[0]
+    assert "tracer_forcing_precip_configured(itrc)" in has_precip

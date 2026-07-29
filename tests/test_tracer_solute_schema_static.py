@@ -37,10 +37,17 @@ def test_solute_initial_and_forcing_defaults_are_separate():
         assert f"real(r8)          :: {field}" in DEFS
         assert f"DEF_TRACER%{field}" in CHLORIDE
 
+    allocate = subroutine_body(FORCING, "tracer_forcing_allocate_state")
+    assert "tracer_precip_default_ratio(itrc)" in allocate
+    assert "tracer_vapor_default_ratio(itrc)" in allocate
+    assert "tracer_init_water_ratio(itrc)" not in allocate
+
+    # Defaults initialize each forcing stream once. Subsequent missing values
+    # retain the last valid stream-specific value rather than reverting to the
+    # tracer's initial water composition.
     prepare = subroutine_body(FORCING, "tracer_forcing_prepare_step")
-    assert "tracer_precip_default_ratio(itrc)" in prepare
-    assert "tracer_vapor_default_ratio(itrc)" in prepare
-    assert "tracer_init_water_ratio(itrc)" not in prepare
+    assert "tracer_precip_default_ratio(itrc)" not in prepare
+    assert "tracer_vapor_default_ratio(itrc)" not in prepare
 
 
 def test_legacy_init_delta_is_the_per_field_fallback():

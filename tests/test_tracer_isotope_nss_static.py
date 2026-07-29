@@ -93,7 +93,9 @@ class TracerIsotopeNssTests(unittest.TestCase):
                 "IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)",
                 source,
             )
-        self.assertEqual(MAIN.count("ra_frac = raw_trc"), 2)
+        # Snow/no-snow calls for both ordinary soil and non-dynamic wetland
+        # paths must use the host aerodynamic moisture resistance.
+        self.assertEqual(MAIN.count("ra_frac = raw_trc"), 4)
         self.assertIn(
             "max(aerodynamic_resistance, 0._r8) +",
             FRAC,
@@ -104,26 +106,52 @@ class TracerIsotopeNssTests(unittest.TestCase):
         self.assertNotIn("eps_eq = (1._r8 - 1._r8 /", FRAC)
 
     def test_craig_gordon_has_no_humidity_switch(self):
+        """Continuity contract: no humidity threshold at which the closure
+        switches to an equilibrium fallback, and a finite result at h -> 1.
+
+        The guard that enforces finiteness changed shape.  It used to be a
+        one-sided ``max(cg_ratio, 0.75*R_eq)`` floor plus a hard-coded 0.95
+        humidity cap.  Both were physical restrictions wearing a guard's
+        clothing: the floor made net heavy-isotope uptake (R_E < 0, real
+        whenever h*R_a exceeds the equilibrium vapour ratio) impossible to
+        express, and the 0.95 cap truncated ~176 permil of real depletion in
+        the humid regime.  The guard is now a SYMMETRIC magnitude bound and
+        the cap is namelist-controlled near saturation.
+
+        The continuity/finiteness properties below are unchanged; they are
+        additionally verified against the compiled closure in
+        test_tracer_isotope_frac_runtime.py.
+        """
         self.assertNotIn("craig_gordon_relhum_fallback", FRAC)
         self.assertIn(
-            "h = min(max(relhum, 0._r8), craig_gordon_relhum_max)", FRAC
-        )
-        self.assertRegex(
+            "h = min(max(relhum, 0._r8), max(min(relhum_max, 0.999999_r8), 0._r8))",
             FRAC,
-            r"max\(cg_ratio,\s*&\s*\n\s*"
-            r"craig_gordon_min_net_ratio_frac\s*\*\s*equilibrium_ratio\)",
+        )
+        self.assertNotIn("craig_gordon_min_net_ratio_frac", FRAC)
+        self.assertIn("craig_gordon_max_ratio_amplification", FRAC)
+
+        amplification = float(
+            re.search(
+                r"craig_gordon_max_ratio_amplification\s*=\s*([0-9.]+)_r8", FRAC
+            ).group(1)
+        )
+        cap = float(
+            re.search(
+                r"DEF_TRACER_CG_RELHUM_MAX\s*=\s*([0-9.]+)_r8", NAMELIST
+            ).group(1)
         )
 
         def ratio(humidity):
             equilibrium = 0.98
             vapor = 0.97
             kinetic = 1.02
-            h = min(max(humidity, 0.0), 0.95)
+            h = min(max(humidity, 0.0), cap)
             raw = (equilibrium - h * vapor) / (kinetic * (1.0 - h))
-            return max(raw, 0.75 * equilibrium)
+            bound = amplification * abs(equilibrium)
+            return min(max(raw, -bound), bound)
 
         self.assertLess(abs(ratio(0.900001) - ratio(0.899999)), 1.0e-4)
-        self.assertEqual(ratio(0.95), ratio(0.999999))
+        self.assertEqual(ratio(cap), ratio(0.999999))
         self.assertTrue(math.isfinite(ratio(1.0)))
 
     def test_craig_gordon_flux_ratio_is_not_clipped_to_source_ratio(self):

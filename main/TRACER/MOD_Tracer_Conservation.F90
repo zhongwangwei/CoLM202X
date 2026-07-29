@@ -29,6 +29,7 @@ MODULE MOD_Tracer_Conservation
 
    ! Per-step accumulator snapshots (saved at start of each timestep)
    real(r8), allocatable, save :: snap_precip(:,:)  ! (ntracers, numpatch)
+   real(r8), allocatable, save :: snap_vapor_exchange(:,:)
    real(r8), allocatable, save :: snap_evap  (:,:)
    real(r8), allocatable, save :: snap_rnof  (:,:)
    real(r8), allocatable, save :: snap_rsur  (:,:)
@@ -88,6 +89,7 @@ CONTAINS
    SUBROUTINE deallocate_tracer_conservation ()
       IMPLICIT NONE
       IF (allocated(snap_precip)) deallocate(snap_precip)
+      IF (allocated(snap_vapor_exchange)) deallocate(snap_vapor_exchange)
       IF (allocated(snap_evap  )) deallocate(snap_evap  )
       IF (allocated(snap_rnof  )) deallocate(snap_rnof  )
       IF (allocated(snap_rsur  )) deallocate(snap_rsur  )
@@ -119,6 +121,8 @@ CONTAINS
       ! Allocate snapshots on first call
       IF (.not. allocated(snap_precip)) THEN
          allocate(snap_precip(ntracers, size(trc_storage_beg,2))); snap_precip = 0._r8
+         allocate(snap_vapor_exchange(ntracers, size(trc_storage_beg,2)))
+         snap_vapor_exchange = 0._r8
          allocate(snap_evap  (ntracers, size(trc_storage_beg,2))); snap_evap   = 0._r8
          allocate(snap_rnof  (ntracers, size(trc_storage_beg,2))); snap_rnof   = 0._r8
          allocate(snap_rsur  (ntracers, size(trc_storage_beg,2))); snap_rsur   = 0._r8
@@ -197,6 +201,8 @@ CONTAINS
 
          ! Snapshot accumulators at start of this step
          snap_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch)
+         IF (allocated(a_trc_vapor_exchange)) &
+            snap_vapor_exchange(itrc, ipatch) = a_trc_vapor_exchange(itrc, ipatch)
          snap_evap  (itrc, ipatch) = a_trc_evap  (itrc, ipatch)
          snap_rnof  (itrc, ipatch) = a_trc_rnof  (itrc, ipatch)
          snap_rsur  (itrc, ipatch) = a_trc_rsur  (itrc, ipatch)
@@ -310,6 +316,7 @@ CONTAINS
       real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
       real(r8) :: step_input_check, step_evap_check, step_output_check
       real(r8) :: step_rsur, step_rsub, step_qinfl, step_qcharge
+      real(r8) :: step_vapor_exchange
       real(r8) :: R_init, water_err, water_err_R, err_minus_water, check_err
       real(r8) :: reactive_source_sink, numerical_source_sink
       real(r8) :: water_dS, water_input, water_output, water_evap, water_rnof
@@ -402,6 +409,17 @@ CONTAINS
             step_output_check = step_output_check + step_rnof
 #endif
          ENDIF
+
+         ! Two-way equilibrium exchange with atmospheric vapour moves tracer
+         ! across the patch boundary with NO accompanying water flux, so it
+         ! cannot be validated against water_input * R_init and is added after
+         ! the fixed-signature override.  Signed: positive = net uptake.
+         step_vapor_exchange = 0._r8
+         IF (allocated(a_trc_vapor_exchange)) THEN
+            step_vapor_exchange = a_trc_vapor_exchange(itrc, ipatch) &
+                                - snap_vapor_exchange(itrc, ipatch)
+         ENDIF
+         step_input_check = step_input_check + step_vapor_exchange
 
          ! Conservation: Δstorage = input - output + source_sink.
          ! Reactive and numerical source/sink terms are explicit state mutations

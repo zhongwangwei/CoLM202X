@@ -1325,10 +1325,15 @@ SUBROUTINE CoLMMAIN ( &
                      t_soisno(snl+1:nl_soil), porsl(1:nl_soil), &
                      dz_soisno(snl+1:nl_soil), &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
-                     waterstorage_trc_ground, &
+                     forc_us, forc_vs, waterstorage_trc_ground, &
                      snow_qout_layer = snow_qout_layer_trc(snl+1:0), &
                      forc_q_frac = forc_q, &
-                     forc_psrf_frac = forc_psrf)
+                     forc_psrf_frac = forc_psrf, &
+                     tleaf_frac = tleaf, &
+                     lai_frac = lai, &
+                     rst_frac = rst, &
+                     ra_frac = raw_trc, &
+                     dz_sno_frac = dz_soisno(snl+1:0))
                ELSE
                   ! Do not pass snow_qout_layer_trc(1:0) when there are no
                   ! snow layers: Intel bounds checking treats the zero-length
@@ -1346,9 +1351,13 @@ SUBROUTINE CoLMMAIN ( &
                      t_soisno(snl+1:nl_soil), porsl(1:nl_soil), &
                      dz_soisno(snl+1:nl_soil), &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
-                     waterstorage_trc_ground, &
+                     forc_us, forc_vs, waterstorage_trc_ground, &
                      forc_q_frac = forc_q, &
-                     forc_psrf_frac = forc_psrf)
+                     forc_psrf_frac = forc_psrf, &
+                     tleaf_frac = tleaf, &
+                     lai_frac = lai, &
+                     rst_frac = rst, &
+                     ra_frac = raw_trc)
                ENDIF
             ELSE
                IF (snl < 0) THEN
@@ -1376,7 +1385,11 @@ SUBROUTINE CoLMMAIN ( &
                      forc_psrf_frac = forc_psrf, &
                      lai_frac = lai, &
                      rst_frac = rst, &
-                     ra_frac = raw_trc)
+                     ra_frac = raw_trc, &
+                     rss_frac = rss, &
+                     dz_soi_frac = dz_soisno(1:nl_soil), &
+                     porsl_frac = porsl(1:nl_soil), &
+                     dz_sno_frac = dz_soisno(snl+1:0))
                ELSE
                   CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
                      qlayer, qinfl, qcharge_trc, rsur, rsub, &
@@ -1401,7 +1414,10 @@ SUBROUTINE CoLMMAIN ( &
                      forc_psrf_frac = forc_psrf, &
                      lai_frac = lai, &
                      rst_frac = rst, &
-                     ra_frac = raw_trc)
+                     ra_frac = raw_trc, &
+                     rss_frac = rss, &
+                     dz_soi_frac = dz_soisno(1:nl_soil), &
+                     porsl_frac = porsl(1:nl_soil))
                ENDIF
             ENDIF
 
@@ -2023,6 +2039,7 @@ SUBROUTINE CoLMMAIN ( &
             CALL tracer_waterbody_patch(ipatch, maxsnl, nl_soil, snl, deltim, &
                forc_rain, forc_snow, lake_deficit, rnof, qseva, qsubl, qsdew, qfros, &
                endwb, totwb, errorw, wa, wdsrf, scv, t_grnd, forc_q, forc_psrf, &
+               forc_us, forc_vs, &
                wliq_soisno, wice_soisno, DEF_USE_Dynamic_Lake)
 #endif
 

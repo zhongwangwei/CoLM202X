@@ -269,6 +269,13 @@ CONTAINS
                            itime_in_file, filter, trim(trc_longname), 'permil', &
                            water_min_override = trc_flux_water_min_for_delta)
 
+                     write(trc_varname , '(A,A)')   'f_trc_evap_mass_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'signed evapotranspiration tracer mass (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
+                        a_trc_evap(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+
                      write(trc_varname , '(A,A)')   'f_trc_delta_soilevap_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
@@ -410,6 +417,23 @@ CONTAINS
                         a_trc_rnof(itrc_loc, :), a_water_rnof(itrc_loc, :), &
                         file_hist, trim(trc_varname), itime_in_file, filter, &
                         trim(trc_longname), trim(trc_ratio_units))
+                  ENDIF
+
+                  ! Two-way equilibrium exchange with atmospheric vapour.
+                  ! Written as a MASS, not a delta: it carries no water
+                  ! flux by construction (zero net water, non-zero net
+                  ! tracer), so there is nothing to normalise a delta by.
+                  ! Signed -- positive means net uptake by the surface.
+                  IF (tracer_uses_delta_diagnostics(itrc_loc) .and. &
+                      allocated(a_trc_vapor_exchange)) THEN
+                     write(trc_varname , '(A,A)') 'f_trc_vapor_exchange_', &
+                        trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') &
+                        'zero-water-flux equilibrium vapour exchange, signed (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
+                        a_trc_vapor_exchange(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
                   ENDIF
 
                   ! Waterless residue is an areal tracer inventory, not a

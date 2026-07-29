@@ -137,8 +137,14 @@ def test_carrier_empty_canopy_release_rephases_and_flushes_all_old_tracer():
 
 
 def test_large_finite_pool_fractionating_loss_still_uses_substeps():
-    limiter = compact(EVAP_LIMIT)
-    assert "evaplimit_default_max_pool_water" not in limiter
+    # Scope the scan to tracer_evaporative_tracer_loss itself.  The module also
+    # holds the skin-limited sublimation wrapper, which legitimately has its own
+    # early returns and its own `remaining_trc`; keying off the whole file would
+    # make this test read the wrong function's prologue.
+    definition = EVAP_LIMIT.split("FUNCTION tracer_evaporative_tracer_loss (", 1)[1]
+    definition = definition.split("END FUNCTION tracer_evaporative_tracer_loss", 1)[0]
+    limiter = compact(definition)
+    assert "evaplimit_default_max_pool_water" not in compact(EVAP_LIMIT)
     early_return = limiter.split("remaining_trc =", 1)[0]
     assert "water_loss <= evaplimit_default_max_loss_fraction * pool_water" in early_return
     assert "pool_water >" not in early_return
