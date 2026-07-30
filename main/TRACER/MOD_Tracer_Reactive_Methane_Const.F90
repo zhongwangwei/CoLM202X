@@ -190,10 +190,16 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! decays with z0_BGC ~ 0.5 m, but boreal peatland observations
       ! (see Walter & Heimann 2001 JGR 106:34189) indicate CH4 production
       ! concentrates in the top 30 cm.  When z0_methane_prod > 0, partition_z
-      ! is multiplied by exp(-z/z0_methane_prod) and the column re-normalized
-      ! so total CH4 production is preserved (only redistributes vertically:
-      ! top layers up, deep layers down).  Default 0 = disabled, falls back
-      ! to CTSM BGC profile alone.
+      ! is multiplied by exp(-z/z0_methane_prod) and the column re-normalized.
+      ! NOTE: the normalisation fixes the sum of the BASE weights only.  Each
+      ! layer is then multiplied by its own temperature, pH and redox factor,
+      ! so the column total is NOT preserved -- see the explicit statement in
+      ! methane_prod (Physics.F90, "does not claim to preserve final CH4
+      ! production after layer-specific ... modifiers").  This comment claimed
+      ! conservation until 2026-07-30; it was wrong, and the practical
+      ! consequence is that z0_methane_prod moves column totals, not just the
+      ! shape of the profile.  Default 0 = disabled, falls back to CTSM BGC
+      ! profile alone.
       !
       ! Recommended 0.30 m: chosen by author within the 0.2-0.5 m range
       ! discussed in Walter & Heimann 2001 (specific value 0.30 not directly

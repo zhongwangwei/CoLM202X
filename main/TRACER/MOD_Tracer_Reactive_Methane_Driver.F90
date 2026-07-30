@@ -322,8 +322,11 @@ CONTAINS
       ! ---- Wetland vegetation proxy (patchtype==2 only) -------------------
       ! IGBP class 11 wetland patches carry no PFT, so NPP / rootfr arrive
       ! as 0 and methane_aere (Wania 2010) cannot fire fully, dropping
-      ! the plant-mediated CH4 pathway that observations show carries
-      ! 50-90% of total wetland CH4 efflux (Bridgham 2013 GCB).
+      ! the plant-mediated CH4 pathway.  Bridgham et al. (2013, GCB 19:1325,
+      ! p.1330) put its contribution at "ca. 30-100% of total CH4 flux" and
+      ! stress that it "varies dramatically between systems"; an earlier
+      ! revision of this comment narrowed that to 50-90%, which the source
+      ! does not say.
       !
       ! LAI handling: CoLM mksrfdata aggregates Yuan+2011 LAI onto
       ! patchtype==2 patches (fveg0_igbp(11)=1), so `lai` has real

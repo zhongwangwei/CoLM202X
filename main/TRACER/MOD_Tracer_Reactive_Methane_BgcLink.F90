@@ -602,8 +602,11 @@ CONTAINS
       ! IGBP class 11 ("permanent wetland") has no PFT attached in CoLM, so
       ! NPP / rootfr arrive as 0 and methane_aere (Wania 2010 aerenchyma
       ! transport) cannot fire fully -- losing the plant-mediated CH4
-      ! pathway that observations show carries 50-90% of total wetland
-      ! CH4 efflux (Bridgham et al. 2013 GCB).
+      ! pathway.  Bridgham et al. (2013, GCB 19:1325, p.1330) give "ca.
+      ! 30-100% of total CH4 flux" for that pathway and stress it "varies
+      ! dramatically between systems"; the 50-90% previously quoted here is
+      ! not in the source.  The range spans nearly the whole domain, so it
+      ! bounds the problem rather than calibrating it.
       !
       ! LAI handling: CoLM mksrfdata does aggregate the Yuan+2011 (MODIS)
       ! LAI dataset onto wetland patches (fveg0_igbp(11)=1), so the input

@@ -426,8 +426,10 @@ MODULE MOD_Tracer_Reactive_Methane_State
    real(r8), allocatable :: methane_surf_flux_lake    (:) ! lake contribution to CH4 surface flux [mol/m2/s]
    real(r8), allocatable :: methane_surf_flux_rice    (:) ! rice-paddy contribution to CH4 surface flux [mol/m2/s]
 
-   ! Category-split CH4 budget terms.  Disjoint wetland/soil/lake categories
-   ! (rice is folded into soil, not split out), resolved into the five process
+   ! Category-split CH4 budget terms.  Disjoint wetland/soil/rice/lake
+   ! categories -- rice IS split out: the driver overrides the Physics default
+   ! (methane_area_soil = 1 - rice, methane_area_rice = rice) so the soil and
+   ! rice category totals do not double-count area.  Resolved into the five process
    ! components instead of only the net surface flux, so a global budget can be
    ! closed per category without back-calculating from fluxes.
    ! Every array below is a per-patch CONTRIBUTION: paired with the all-land
