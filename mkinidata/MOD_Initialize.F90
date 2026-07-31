@@ -115,6 +115,8 @@ CONTAINS
 #if (defined TRACER) && (defined BGC)
    real(r8) :: wetland_tot_c
    real(r8) :: wetland_existing_c
+   real(r8) :: wetland_target_c, wetland_base_c, wetland_scale
+   integer  :: wetland_ipool
    real(r8), parameter :: wetland_cn_ratio = 15._r8
    real(r8), parameter :: carbon_per_kg_om = 580._r8
 #endif
@@ -1087,13 +1089,11 @@ ENDIF
                            wetland_existing_c = wetland_existing_c + soil2c_vr(nsl, i)
                         IF (soil3c_vr(nsl, i) > 0._r8 .and. soil3c_vr(nsl, i) < 1.e30_r8) &
                            wetland_existing_c = wetland_existing_c + soil3c_vr(nsl, i)
-                        ! DEF_USE_WETLAND_PEAT_C overrides whatever the CN
-                        ! steady-state dataset supplied; without it the seeding
-                        ! only fills layers the dataset left empty.
+                        ! Layers the CN dataset left empty have no shape to
+                        ! preserve, so they get the fixed split below.
                         IF (OM_density(nsl, i) > 0._r8 .and. &
                             OM_density(nsl, i) < 1.e30_r8 .and. &
-                            (wetland_existing_c <= 1.e-12_r8 .or. &
-                             DEF_USE_WETLAND_PEAT_C)) THEN
+                            wetland_existing_c <= 1.e-12_r8) THEN
                            wetland_tot_c = OM_density(nsl, i) * 580._r8
                            decomp_cpools_vr(nsl, i_met_lit, i) = 0.05_r8 * wetland_tot_c
                            decomp_cpools_vr(nsl, i_cel_lit, i) = 0.10_r8 * wetland_tot_c
@@ -1111,6 +1111,38 @@ ENDIF
                            decomp_npools_vr(nsl, i_soil3  , i) = 0.50_r8 * wetland_tot_c / wetland_cn_ratio
                         ENDIF
                      ENDDO
+
+                     ! Rescale the column to the OM_density-implied stock while
+                     ! KEEPING the dataset's pool split and vertical profile.
+                     ! Replacing them instead swaps the dataset's ~0.3% litter
+                     ! share for the 20% written above and flattens the profile,
+                     ! which buries most of the carbon in fast pools and in layers
+                     ! that never thaw.  Only the magnitude is wrong for a wetland
+                     ! patch -- the CN steady state is spun up with PFT litterfall
+                     ! this tile never receives -- so only the magnitude is fixed.
+                     IF (DEF_USE_WETLAND_PEAT_C) THEN
+                        wetland_target_c = 0._r8
+                        wetland_base_c   = 0._r8
+                        DO nsl = 1, nl_soil
+                           IF (OM_density(nsl, i) > 0._r8 .and. &
+                               OM_density(nsl, i) < 1.e30_r8) &
+                              wetland_target_c = wetland_target_c &
+                                 + OM_density(nsl, i) * carbon_per_kg_om * dz_soi(nsl)
+                           DO wetland_ipool = 1, size(decomp_cpools_vr, 2)
+                              IF (decomp_cpools_vr(nsl, wetland_ipool, i) > 0._r8 .and. &
+                                  decomp_cpools_vr(nsl, wetland_ipool, i) < 1.e30_r8) &
+                                 wetland_base_c = wetland_base_c &
+                                    + decomp_cpools_vr(nsl, wetland_ipool, i) * dz_soi(nsl)
+                           ENDDO
+                        ENDDO
+                        IF (wetland_base_c > 1.e-12_r8 .and. wetland_target_c > 0._r8) THEN
+                           wetland_scale = wetland_target_c / wetland_base_c
+                           decomp_cpools_vr(1:nl_soil, :, i) = &
+                              decomp_cpools_vr(1:nl_soil, :, i) * wetland_scale
+                           decomp_npools_vr(1:nl_soil, :, i) = &
+                              decomp_npools_vr(1:nl_soil, :, i) * wetland_scale
+                        ENDIF
+                     ENDIF
                   ENDIF
 #endif
                   IF (patchtype(i) == 0)THEN
