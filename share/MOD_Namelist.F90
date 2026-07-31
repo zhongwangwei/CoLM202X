@@ -205,6 +205,12 @@ MODULE MOD_Namelist
    logical :: DEF_USE_CN_INIT   = .false.
    character(len=256) :: DEF_file_cn_init  = 'null'
 
+   ! Seed permanent-wetland (patchtype 2) decomposition pools from
+   ! OM_density * 580 gC/kg instead of the CN steady-state dataset.  That
+   ! dataset is spun up for vegetated land and leaves peatlands about an order
+   ! of magnitude short of observed stocks.  Sensitivity control, default off.
+   logical :: DEF_USE_WETLAND_PEAT_C = .false.
+
    logical :: DEF_USE_WaterTableInit = .false.
    character(len=256) :: DEF_file_WaterTable = 'null'
 
@@ -1234,6 +1240,7 @@ CONTAINS
 
       DEF_USE_CN_INIT,                        &
       DEF_file_cn_init,                       &
+      DEF_USE_WETLAND_PEAT_C,                 &
 
       DEF_USE_WaterTableInit,                 &
       DEF_file_WaterTable,                    &
@@ -1847,6 +1854,7 @@ CONTAINS
 
       CALL mpi_bcast (DEF_USE_CN_INIT                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_cn_init                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_WETLAND_PEAT_C                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_WaterTableInit                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_WaterTable                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)

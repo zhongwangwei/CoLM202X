@@ -102,9 +102,12 @@ CONTAINS
       IF (patchtype /= 0 .and. patchtype /= 2) RETURN
 
       IF (patchtype == 2) THEN
-         CALL CDecompStateUpdate(ipatch, deltim, nl_soil, size(decomp_hr_vr,2), .true.)
+         ! apply_direct=.false. runs the decomposition bookkeeping but skips the
+         ! pool debit, freezing the substrate at its initial stock.
+         CALL CDecompStateUpdate(ipatch, deltim, nl_soil, size(decomp_hr_vr,2), &
+            .not. DEF_METHANE%wetland_fixed_substrate)
          CALL SoilBiogeochemNDecompStateUpdate(ipatch, deltim, nl_soil, &
-            size(decomp_hr_vr,2), .true.)
+            size(decomp_hr_vr,2), .not. DEF_METHANE%wetland_fixed_substrate)
          CALL CNDriverSummarizeNonvegetatedSoilStates(ipatch, nl_soil, dz_soi, &
             size(decomp_cpools_vr,2))
       ENDIF

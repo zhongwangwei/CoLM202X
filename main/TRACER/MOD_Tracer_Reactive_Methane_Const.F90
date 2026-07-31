@@ -377,6 +377,15 @@ MODULE MOD_Tracer_Reactive_Methane_Const
                                     ! Enabling replenishment imposes an external carbon source
                                     ! and is therefore suitable only for explicit sensitivity tests.
 
+      logical :: wetland_fixed_substrate = .false. ! Hold the patchtype 2 decomposition pools at
+                                    ! their initial values: heterotrophic respiration is still
+                                    ! computed from them and consumed as CH4/CO2, but the pools are
+                                    ! never debited.  The permanent wetland tile carries no PFT, so
+                                    ! it receives no litter and can only drain; this switch makes the
+                                    ! substrate a prescribed boundary condition instead.  Like
+                                    ! replenishlakec it imposes an external carbon source and breaks
+                                    ! closure against the BGC pools -- sensitivity tests only.
+
       logical :: methane_offline = .true.    ! Only offline land CH4 is implemented in this repository.
                                  ! Setting false is rejected during validation until a host atmosphere
                                  ! flux publisher and NEM-to-NEE coupling are available.

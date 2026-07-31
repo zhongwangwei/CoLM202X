@@ -1087,9 +1087,13 @@ ENDIF
                            wetland_existing_c = wetland_existing_c + soil2c_vr(nsl, i)
                         IF (soil3c_vr(nsl, i) > 0._r8 .and. soil3c_vr(nsl, i) < 1.e30_r8) &
                            wetland_existing_c = wetland_existing_c + soil3c_vr(nsl, i)
+                        ! DEF_USE_WETLAND_PEAT_C overrides whatever the CN
+                        ! steady-state dataset supplied; without it the seeding
+                        ! only fills layers the dataset left empty.
                         IF (OM_density(nsl, i) > 0._r8 .and. &
                             OM_density(nsl, i) < 1.e30_r8 .and. &
-                            wetland_existing_c <= 1.e-12_r8) THEN
+                            (wetland_existing_c <= 1.e-12_r8 .or. &
+                             DEF_USE_WETLAND_PEAT_C)) THEN
                            wetland_tot_c = OM_density(nsl, i) * 580._r8
                            decomp_cpools_vr(nsl, i_met_lit, i) = 0.05_r8 * wetland_tot_c
                            decomp_cpools_vr(nsl, i_cel_lit, i) = 0.10_r8 * wetland_tot_c
