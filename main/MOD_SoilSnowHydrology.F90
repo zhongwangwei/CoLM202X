@@ -594,7 +594,7 @@ ENDIF
 
    USE MOD_Precision
    USE MOD_Hydro_SoilWater
-   USE MOD_Vars_TimeInvariants, only: wetwatmax
+   USE MOD_Vars_TimeInvariants, only: wetwatmax, smpmin
    USE MOD_Const_Physical,      only: denice, denh2o, tfrz
    USE MOD_Vars_TimeInvariants, only: vic_b_infilt, vic_Dsmax, vic_Ds, vic_Ws, vic_c
    USE MOD_Vars_1DFluxes,       only: fevpg
@@ -1324,6 +1324,30 @@ ELSE
          ENDDO
 
          wetwat = wetwat + sum(wresi)
+
+         ! The loop above holds every thawed layer at saturation but never wrote
+         ! the matric potential that goes with it, and nothing else on this
+         ! branch does either -- smp is intent(out) of this routine, so a wetland
+         ! tile carried whatever initialisation left in it for the whole run.
+         ! BGC decomposition reads smp for its moisture scalar, so a tile that is
+         ! being held saturated was simultaneously judged drier than wilting
+         ! point: measured on US-Ivo, smp stayed at -2.55e6 mm through twelve
+         ! months of freeze and thaw and pinned w_scalar on its 0.001 floor,
+         ! suppressing heterotrophic respiration ~1000x and starving CH4 of
+         ! substrate.  Set what the soil path sets for a layer below the water
+         ! table (MOD_Hydro_SoilWater.F90: smp = psi_s when saturated); a frozen
+         ! layer's potential follows temperature, not water content
+         ! (Fuchs et al. 1978), exactly as in soilwater().
+         ! hk has the same gap on this branch but no consumer on the wetland
+         ! path, so it is left alone rather than changed untested.
+         DO j = 1, nl_soil
+            IF (t_soisno(j) > tfrz) THEN
+               smp(j) = psi0(j)
+            ELSE
+               smp(j) = 1.e3 * 0.3336e6/9.80616*(t_soisno(j)-tfrz)/t_soisno(j)
+               smp(j) = max(smpmin, smp(j))
+            ENDIF
+         ENDDO
 
          IF (wetwat > wetwatmax) THEN
             wdsrf  = wetwat - wetwatmax
