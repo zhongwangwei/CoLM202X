@@ -27,10 +27,16 @@ MODULE MOD_Tracer_Reactive_BgcShim
       net_nmin, gross_nmin, potential_immob_vr, phr_vr, pot_f_nit_vr, &
       decomp_hr, somc_fire, som_c_leached, som_n_leached, denit, f_n2o_nit, &
       smin_no3_leached, smin_no3_runoff, sminn_leached, sminn_to_plant
-   USE MOD_BGC_Vars_TimeVariables, only: fpi_vr, o_scalar
+   USE MOD_BGC_Vars_TimeVariables, only: fpi_vr, o_scalar, t_scalar, w_scalar, &
+      depth_scalar
+   USE MOD_Namelist, only: DEF_BGC_DEBUG_SCALARS
+   USE MOD_Vars_TimeVariables, only: t_soisno
 
    IMPLICIT NONE
    PRIVATE
+
+   ! Call counter, used only to throttle the decomposition-scalar dump.
+   integer :: dbg_calls = 0
 
    PUBLIC :: reactive_bgc_run_wetland_decomp
 
@@ -81,7 +87,37 @@ CONTAINS
       CALL SoilBiogeochemCompetitionNoPlant (ipatch, deltim, nl_soil, dz_soi)
       CALL SoilBiogeochemDecomp      (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions, dz_soi)
 
+      ! Decomposition-scalar dump.  decomp_k is the product of these five
+      ! multipliers with a per-pool base rate, so printing the multipliers
+      ! says which one differs between a site that emits and one that does
+      ! not, without having to reason about the pool index.
+      IF (DEF_BGC_DEBUG_SCALARS) CALL dump_decomp_scalars (ipatch, deltim)
+
    END SUBROUTINE reactive_bgc_run_wetland_decomp
+
+   SUBROUTINE dump_decomp_scalars (ipatch, deltim)
+
+      IMPLICIT NONE
+      integer,  intent(in) :: ipatch
+      real(r8), intent(in) :: deltim
+      integer :: j, every
+
+      ! roughly monthly, whatever the timestep
+      every = max(1, nint(30._r8 * 86400._r8 / deltim))
+      dbg_calls = dbg_calls + 1
+      IF (mod(dbg_calls, every) /= 1) RETURN
+
+      write(6,'(A,I8,A,I6)') 'BGCSCAL step=', dbg_calls, ' patch=', ipatch
+      write(6,'(A)') 'BGCSCAL  lyr    t_soisno    t_scalar    w_scalar    o_scalar'&
+                  // '  depth_scal      fpi_vr      hr_vr'
+      DO j = 1, nl_soil
+         write(6,'(A,I5,7E12.4)') 'BGCSCAL', j, &
+            t_soisno(j,ipatch), t_scalar(j,ipatch), w_scalar(j,ipatch), &
+            o_scalar(j,ipatch), depth_scalar(j,ipatch), fpi_vr(j,ipatch), &
+            sum(decomp_hr_vr(j,:,ipatch))
+      ENDDO
+
+   END SUBROUTINE dump_decomp_scalars
 
 END MODULE MOD_Tracer_Reactive_BgcShim
 #endif

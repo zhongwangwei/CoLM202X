@@ -211,6 +211,11 @@ MODULE MOD_Namelist
    ! of magnitude short of observed stocks.  Sensitivity control, default off.
    logical :: DEF_USE_WETLAND_PEAT_C = .false.
 
+   ! Dump the BGC decomposition multipliers (t/w/o/depth scalar, fpi) per layer,
+   ! roughly monthly, for the wetland shim.  Diagnostic only: it answers which
+   ! multiplier differs between a site that emits CH4 and one that does not.
+   logical :: DEF_BGC_DEBUG_SCALARS = .false.
+
    logical :: DEF_USE_WaterTableInit = .false.
    character(len=256) :: DEF_file_WaterTable = 'null'
 
@@ -1241,6 +1246,7 @@ CONTAINS
       DEF_USE_CN_INIT,                        &
       DEF_file_cn_init,                       &
       DEF_USE_WETLAND_PEAT_C,                 &
+      DEF_BGC_DEBUG_SCALARS,                  &
 
       DEF_USE_WaterTableInit,                 &
       DEF_file_WaterTable,                    &
@@ -1855,6 +1861,7 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_CN_INIT                        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_cn_init                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_WETLAND_PEAT_C                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_BGC_DEBUG_SCALARS                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_WaterTableInit                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_WaterTable                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
