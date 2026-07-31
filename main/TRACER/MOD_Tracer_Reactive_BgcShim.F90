@@ -30,7 +30,8 @@ MODULE MOD_Tracer_Reactive_BgcShim
    USE MOD_BGC_Vars_TimeVariables, only: fpi_vr, o_scalar, t_scalar, w_scalar, &
       depth_scalar
    USE MOD_Namelist, only: DEF_BGC_DEBUG_SCALARS
-   USE MOD_Vars_TimeVariables, only: t_soisno
+   USE MOD_Vars_TimeVariables, only: t_soisno, smp, wliq_soisno, wice_soisno
+   USE MOD_Vars_TimeInvariants, only: porsl
 
    IMPLICIT NONE
    PRIVATE
@@ -108,13 +109,19 @@ CONTAINS
       IF (mod(dbg_calls, every) /= 1) RETURN
 
       write(6,'(A,I8,A,I6)') 'BGCSCAL step=', dbg_calls, ' patch=', ipatch
+      ! smp and the liquid/ice split are here because w_scalar turned out to be
+      ! the multiplier that differs, and the floor it sits on is a test on smp:
+      ! knowing w_scalar is 0.001 does not say whether the soil is genuinely at
+      ! -200 m or whether smp itself is wrong.
       write(6,'(A)') 'BGCSCAL  lyr    t_soisno    t_scalar    w_scalar    o_scalar'&
-                  // '  depth_scal      fpi_vr      hr_vr'
+                  // '  depth_scal      fpi_vr       hr_vr      smp_mm        wliq'&
+                  // '        wice       porsl'
       DO j = 1, nl_soil
-         write(6,'(A,I5,7E12.4)') 'BGCSCAL', j, &
+         write(6,'(A,I5,11E12.4)') 'BGCSCAL', j, &
             t_soisno(j,ipatch), t_scalar(j,ipatch), w_scalar(j,ipatch), &
             o_scalar(j,ipatch), depth_scalar(j,ipatch), fpi_vr(j,ipatch), &
-            sum(decomp_hr_vr(j,:,ipatch))
+            sum(decomp_hr_vr(j,:,ipatch)), smp(j,ipatch), &
+            wliq_soisno(j,ipatch), wice_soisno(j,ipatch), porsl(j,ipatch)
       ENDDO
 
    END SUBROUTINE dump_decomp_scalars
