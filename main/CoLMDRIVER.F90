@@ -242,7 +242,17 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
          ENDIF
 
 #ifdef TRACER
-         CALL tracer_wetland_decomp (i, deltim)
+         ! patchtype 2 ONLY. The shim zeroes the whole per-patch BGC flux state
+         ! and forces o_scalar to the anoxic rate, so letting it run on a soil
+         ! patch discards what bgc_driver has just computed and limits an
+         ! aerobic upland to a fifth of its rate. No single-point run can show
+         ! that -- all 44 towers are patchtype 2 -- but a global run decomposes
+         ! its whole land surface through here. Unguarded until 2026-08-02.
+         ! Under WETLAND_PFT the same call sets only the anoxia: bgc_driver has
+         ! decomposed the wetland already, and the shim would zero the
+         ! source/sink it just deposited. The branch lives inside the shim so
+         ! this stays one call through the tracer facade.
+         IF (patchtype(i) .eq. 2) CALL tracer_wetland_decomp (i, deltim)
 #endif
 
 #ifdef TRACER

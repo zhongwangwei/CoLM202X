@@ -43,7 +43,44 @@ MODULE MOD_Tracer_Reactive_BgcShim
 
    PUBLIC :: reactive_bgc_run_wetland_decomp
 
+
 CONTAINS
+
+   SUBROUTINE reactive_bgc_set_wetland_anoxia (ipatch)
+
+! !DESCRIPTION:
+!  Anoxia limitation on decomposition, which CoLM202X otherwise lacks.
+!
+!  The wetland hydrology holds every thawed layer at saturation, so those layers
+!  are anaerobic and decompose at mino2lim of the aerobic rate -- the parameter
+!  already carries exactly that definition. Without it a saturated tile has no
+!  limiter left at all: t_scalar tracks temperature, depth_scalar is fixed, and
+!  w_scalar is 1 precisely because the tile is waterlogged. Frozen layers keep 1
+!  so the suppression is not counted twice against t_scalar and w_scalar.
+!
+!  Set BEFORE decomposition runs -- decomp_rate_constants_bgc folds o_scalar into
+!  decomp_k inside itself, and its patchtype 2 exemption is what preserves this.
+!
+!  CALLERS MUST RESTRICT THIS TO patchtype == 2. It lived inside the wetland
+!  decomposition shim until 2026-08-02, and that shim is called for every patch,
+!  so an upland soil was silently limited to 20% of its aerobic rate too. No
+!  single-point run could show it -- all 44 towers are patchtype 2 -- but a
+!  global run decomposes its entire land surface through this.
+
+      IMPLICIT NONE
+      integer, intent(in) :: ipatch
+      integer :: j
+
+      IF (.not. allocated(o_scalar)) RETURN
+      DO j = 1, nl_soil
+         IF (t_soisno(j,ipatch) > tfrz) THEN
+            o_scalar(j,ipatch) = max(DEF_METHANE%mino2lim, 1.e-6_r8)
+         ELSE
+            o_scalar(j,ipatch) = 1._r8
+         ENDIF
+      ENDDO
+
+   END SUBROUTINE reactive_bgc_set_wetland_anoxia
 
    SUBROUTINE reactive_bgc_run_wetland_decomp (ipatch, deltim)
 
@@ -55,6 +92,17 @@ CONTAINS
       IF (.not. ieee_is_finite(deltim) .or. deltim <= 0._r8) THEN
          CALL CoLM_stop(' ***** ERROR: wetland CH4/BGC coupling requires a finite positive timestep')
       ENDIF
+
+      ! Anoxia is imposed in both configurations: nothing else tells the
+      ! decomposition that the tile is waterlogged.
+      CALL reactive_bgc_set_wetland_anoxia (ipatch)
+
+#ifdef WETLAND_PFT
+      ! bgc_driver has decomposed this patch already. Everything below would
+      ! zero the source/sink it just deposited and redo the work without the
+      ! litter input, which is the whole point of giving wetland a WFT.
+      RETURN
+#endif
 
       ! Start from the same clean per-patch flux state as the full BGC driver.
       IF (allocated(decomp_cpools_sourcesink))   decomp_cpools_sourcesink  (1:nl_soil,:,ipatch) = 0._r8
@@ -71,7 +119,9 @@ CONTAINS
       IF (allocated(potential_immob_vr))        potential_immob_vr       (1:nl_soil,ipatch)   = 0._r8
       IF (allocated(phr_vr))                    phr_vr                   (1:nl_soil,ipatch)   = 0._r8
       IF (allocated(pot_f_nit_vr))              pot_f_nit_vr             (1:nl_soil,ipatch)   = 0._r8
-      IF (allocated(o_scalar))                  o_scalar                 (1:nl_soil,ipatch)   = 1._r8
+      ! o_scalar is deliberately NOT reset here: reactive_bgc_set_wetland_anoxia
+      ! above owns it, and a 1.0 in this list would silently undo the anoxia a
+      ! few lines before decomp_rate_constants_bgc folds it into decomp_k.
       IF (allocated(fpi_vr))                    fpi_vr                   (1:nl_soil,ipatch)   = 1._r8
       IF (allocated(net_nmin))                  net_nmin                 (ipatch)             = 0._r8
       IF (allocated(gross_nmin))                gross_nmin               (ipatch)             = 0._r8
@@ -85,26 +135,6 @@ CONTAINS
       IF (allocated(smin_no3_runoff))           smin_no3_runoff          (ipatch)             = 0._r8
       IF (allocated(sminn_leached))             sminn_leached            (ipatch)             = 0._r8
       IF (allocated(sminn_to_plant))            sminn_to_plant           (ipatch)             = 0._r8
-
-      ! Anoxia limitation on decomposition, which CoLM202X otherwise lacks.
-      ! The wetland hydrology holds every thawed layer at saturation, so those
-      ! layers are anaerobic and decompose at mino2lim of the aerobic rate --
-      ! the parameter already carries exactly that definition.  Without this
-      ! the saturated tile has no limiter left at all: t_scalar tracks
-      ! temperature, depth_scalar is fixed, and w_scalar is 1 precisely
-      ! because the tile is waterlogged.  Frozen layers keep 1 so the
-      ! suppression is not counted twice against t_scalar and w_scalar.
-      ! Must be set BEFORE the call: decomp_rate_constants_bgc folds o_scalar
-      ! into decomp_k inside itself.
-      IF (allocated(o_scalar)) THEN
-         DO j = 1, nl_soil
-            IF (t_soisno(j,ipatch) > tfrz) THEN
-               o_scalar(j,ipatch) = max(DEF_METHANE%mino2lim, 1.e-6_r8)
-            ELSE
-               o_scalar(j,ipatch) = 1._r8
-            ENDIF
-         ENDDO
-      ENDIF
 
       CALL decomp_rate_constants_bgc (ipatch, nl_soil, z_soi)
       CALL SoilBiogeochemPotential   (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions)
