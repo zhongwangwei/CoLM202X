@@ -22,6 +22,7 @@ MODULE MOD_BGC_Soil_BiogeochemDecompCascadeBGC
 ! Xingjie Lu, 2021, revised the CLM5 code to be compatible with CoLM code structure.
 
    USE MOD_Precision
+   USE MOD_Vars_TimeInvariants, only: patchtype
    USE MOD_Vars_TimeInvariants, only: &
        Q10, smpmax_hr, smpmin_hr, tau_l1, tau_l2_l3, tau_s1, tau_s2, tau_s3, tau_cwd, froz_q10, &
        i_met_lit,i_cel_lit,i_lig_lit ,i_cwd,i_soil1,i_soil2,i_soil3
@@ -90,7 +91,12 @@ CONTAINS
          ENDIF
       ENDDO
 
-      o_scalar(1:nl_soil,i) = 1._r8
+      ! o_scalar is a stub (=1) here: CoLM202X carries no anoxia limiter on
+      ! decomposition.  A permanently saturated wetland needs one, or nothing
+      ! limits its decomposition at all -- w_scalar is 1 by construction once
+      ! the tile is held at saturation.  The wetland caller supplies a real
+      ! value before this routine runs, so do not clobber it there.
+      IF (patchtype(i) /= 2) o_scalar(1:nl_soil,i) = 1._r8
 
       ! scale all decomposition rates by a constant to compensate for offset between original CENTURY temp func and Q10
       normalization_factor = (catanf(15._r8)/catanf_30) / (Q10**((15._r8-25._r8)/10._r8))

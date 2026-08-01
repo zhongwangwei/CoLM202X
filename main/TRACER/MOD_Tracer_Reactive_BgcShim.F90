@@ -32,6 +32,8 @@ MODULE MOD_Tracer_Reactive_BgcShim
    USE MOD_Namelist, only: DEF_BGC_DEBUG_SCALARS
    USE MOD_Vars_TimeVariables, only: t_soisno, smp, wliq_soisno, wice_soisno
    USE MOD_Vars_TimeInvariants, only: porsl
+   USE MOD_Const_Physical, only: tfrz
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
 
    IMPLICIT NONE
    PRIVATE
@@ -48,6 +50,7 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: ipatch
       real(r8), intent(in) :: deltim
+      integer :: j
 
       IF (.not. ieee_is_finite(deltim) .or. deltim <= 0._r8) THEN
          CALL CoLM_stop(' ***** ERROR: wetland CH4/BGC coupling requires a finite positive timestep')
@@ -82,6 +85,26 @@ CONTAINS
       IF (allocated(smin_no3_runoff))           smin_no3_runoff          (ipatch)             = 0._r8
       IF (allocated(sminn_leached))             sminn_leached            (ipatch)             = 0._r8
       IF (allocated(sminn_to_plant))            sminn_to_plant           (ipatch)             = 0._r8
+
+      ! Anoxia limitation on decomposition, which CoLM202X otherwise lacks.
+      ! The wetland hydrology holds every thawed layer at saturation, so those
+      ! layers are anaerobic and decompose at mino2lim of the aerobic rate --
+      ! the parameter already carries exactly that definition.  Without this
+      ! the saturated tile has no limiter left at all: t_scalar tracks
+      ! temperature, depth_scalar is fixed, and w_scalar is 1 precisely
+      ! because the tile is waterlogged.  Frozen layers keep 1 so the
+      ! suppression is not counted twice against t_scalar and w_scalar.
+      ! Must be set BEFORE the call: decomp_rate_constants_bgc folds o_scalar
+      ! into decomp_k inside itself.
+      IF (allocated(o_scalar)) THEN
+         DO j = 1, nl_soil
+            IF (t_soisno(j,ipatch) > tfrz) THEN
+               o_scalar(j,ipatch) = max(DEF_METHANE%mino2lim, 1.e-6_r8)
+            ELSE
+               o_scalar(j,ipatch) = 1._r8
+            ENDIF
+         ENDDO
+      ENDIF
 
       CALL decomp_rate_constants_bgc (ipatch, nl_soil, z_soi)
       CALL SoilBiogeochemPotential   (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions)
