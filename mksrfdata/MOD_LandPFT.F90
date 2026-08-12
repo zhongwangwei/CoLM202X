@@ -27,9 +27,7 @@ MODULE MOD_LandPFT
    USE MOD_Pixelset
    USE MOD_Const_LC
    USE MOD_Vars_Global
-#if (defined LULC_IGBP_WFT) && (defined SinglePoint)
-   USE MOD_SingleSrfdata, only: SITE_wetland_class
-#endif
+   ! SITE_wetland_class arrives through the blanket USE MOD_Namelist above.
    IMPLICIT NONE
 
    ! ---- Instance ----
