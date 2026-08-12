@@ -671,7 +671,14 @@ ENDIF
 ! [4] Canopy temperature, fluxes from the canopy
 !=======================================================================
 
-IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
+! A patch that owns PFT tiles runs this lumped canopy only when DEF_USE_LCT
+! asks for it -- otherwise its canopy comes from the PFT block below. Stock
+! CoLM wrote the test as "patchtype==0 .and. DEF_USE_LCT .or. patchtype>0",
+! where .and. binds tighter, so patchtype 2 satisfied the second term
+! unconditionally. That was right while wetland had no PFT tiles; under
+! LULC_IGBP_WFT it made the wetland run this block AND the PFT block, solving
+! its canopy twice per step. Equivalent to the original for every other type.
+IF ( .not. patch_has_pft(patchtype) .or. DEF_USE_LCT ) THEN
 
       sabv = sabvsun + sabvsha
 

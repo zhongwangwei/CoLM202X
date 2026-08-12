@@ -18,6 +18,7 @@ MODULE MOD_BGC_Veg_CNGResp
 ! Xingjie Lu, 2021, revised the CLM5 code to be compatible with CoLM code structure.
 
    USE MOD_Precision
+   USE MOD_Vars_Global, only: npcropmax
    USE MOD_Const_PFT, only: &
        grperc, grpnow, woody
 
@@ -79,7 +80,7 @@ CONTAINS
          respfact_livecroot_storage = 1.0_r8
          respfact_livestem_storage  = 1.0_r8
 
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
             cpool_livestem_gr_p         (m) = cpool_to_livestemc_p           (m) * grperc(ivt) * respfact_livestem
 
             cpool_livestem_storage_gr_p (m) = cpool_to_livestemc_storage_p   (m) * grperc(ivt) * grpnow(ivt) * respfact_livestem_storage

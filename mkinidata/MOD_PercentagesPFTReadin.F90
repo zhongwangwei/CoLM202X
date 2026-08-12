@@ -41,7 +41,9 @@ CONTAINS
       write(cyear,'(i4.4)') lc_year
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef SinglePoint
-      IF (patchtypes(SITE_landtype) /= 0) RETURN
+      ! Wetland owns a WFT tile under LULC_IGBP_WFT, so it must not bail out
+      ! here: pftfrac would stay unset and the tile would carry no area.
+      IF (.not. patch_has_pft(patchtypes(SITE_landtype))) RETURN
 #endif
 
 #ifndef SinglePoint
@@ -66,12 +68,12 @@ CONTAINS
 
 #ifdef RangeCheck
       IF (p_is_worker) THEN
-         npatch = count(patchtypes(landpatch%settyp) == 0)
+         npatch = count(patch_has_pft(patchtypes(landpatch%settyp)))
          allocate (sumpct (npatch))
 
          npatch = 0
          DO ipatch = 1, numpatch
-            IF (patchtypes(landpatch%settyp(ipatch)) == 0) THEN
+            IF (patch_has_pft(patchtypes(landpatch%settyp(ipatch)))) THEN
                npatch = npatch + 1
                sumpct(npatch) = sum(pftfrac(patch_pft_s(ipatch):patch_pft_e(ipatch)))
             ENDIF

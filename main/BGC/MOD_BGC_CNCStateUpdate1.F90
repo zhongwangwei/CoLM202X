@@ -19,6 +19,7 @@ MODULE MOD_BGC_CNCStateUpdate1
 !                   3) Record the accumulated decomposition-associated C transfer for soil C semi-analytic spinup
 
    USE MOD_Precision
+   USE MOD_Vars_Global, only: npcropmax
    USE MOD_Namelist, only: DEF_USE_SASU, DEF_USE_DiagMatrix
    USE MOD_Vars_PFTimeInvariants, only: pftclass, pftfrac
    USE MOD_Const_PFT, only: woody
@@ -194,7 +195,7 @@ CONTAINS
             deadcrootc_p     (m) = deadcrootc_p     (m) + deadcrootc_xfer_to_deadcrootc_p(m) * deltim
             deadcrootc_xfer_p(m) = deadcrootc_xfer_p(m) - deadcrootc_xfer_to_deadcrootc_p(m) * deltim
          ENDIF
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
 ! lines here for consistency; the transfer terms are zero
             livestemc_p     (m)  = livestemc_p     (m) + livestemc_xfer_to_livestemc_p(m) * deltim
             livestemc_xfer_p(m)  = livestemc_xfer_p(m) - livestemc_xfer_to_livestemc_p(m) * deltim
@@ -217,7 +218,7 @@ CONTAINS
                AKX_deadcrootc_xf_to_deadcrootc_p_acc(m) = AKX_deadcrootc_xf_to_deadcrootc_p_acc(m) + deadcrootc_xfer_to_deadcrootc_p(m) * deltim
                AKX_deadcrootc_xf_exit_p_acc         (m) = AKX_deadcrootc_xf_exit_p_acc         (m) + deadcrootc_xfer_to_deadcrootc_p(m) * deltim
             ENDIF
-            IF(ivt >= npcropmin) THEN
+            IF(ivt >= npcropmin .and. ivt <= npcropmax) THEN
                AKX_livestemc_xf_to_livestemc_p_acc(m) = AKX_livestemc_xf_to_livestemc_p_acc(m) + livestemc_xfer_to_livestemc_p(m) * deltim
                AKX_livestemc_xf_exit_p_acc        (m) = AKX_livestemc_xf_exit_p_acc        (m) + livestemc_xfer_to_livestemc_p(m) * deltim
                AKX_grainc_xf_to_grainc_p_acc      (m) = AKX_grainc_xf_to_grainc_p_acc      (m) + grainc_xfer_to_grainc_p      (m) * deltim
@@ -236,7 +237,7 @@ CONTAINS
             livecrootc_p(m) = livecrootc_p(m) - livecrootc_to_deadcrootc_p(m) * deltim
             deadcrootc_p(m) = deadcrootc_p(m) + livecrootc_to_deadcrootc_p(m) * deltim
          ENDIF
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
             livestemc_p        (m) = livestemc_p        (m) - livestemc_to_litter_p(m) * deltim
             grainc_p           (m) = grainc_p           (m) - (grainc_to_food_p(m) + grainc_to_seed_p(m)) * deltim
             cropseedc_deficit_p(m) = cropseedc_deficit_p(m) - crop_seedc_to_leaf_p(m) * deltim + grainc_to_seed_p(m) * deltim
@@ -251,7 +252,7 @@ CONTAINS
                AKX_livecrootc_to_deadcrootc_p_acc(m) = AKX_livecrootc_to_deadcrootc_p_acc(m) + livecrootc_to_deadcrootc_p(m) * deltim
                AKX_livecrootc_exit_p_acc         (m) = AKX_livecrootc_exit_p_acc         (m) + livecrootc_to_deadcrootc_p(m) * deltim
             ENDIF
-            IF(ivt >= npcropmin) THEN
+            IF(ivt >= npcropmin .and. ivt <= npcropmax) THEN
                AKX_livestemc_exit_p_acc          (m) = AKX_livestemc_exit_p_acc          (m) + livestemc_to_litter_p                  (m)  * deltim
                AKX_grainc_exit_p_acc             (m) = AKX_grainc_exit_p_acc             (m) + (grainc_to_food_p(m) + grainc_to_seed_p(m)) * deltim
             ENDIF
@@ -264,7 +265,7 @@ CONTAINS
             cpool_p(m) = cpool_p   (m) - livestem_curmr_p   (m) * deltim
             cpool_p(m) = cpool_p   (m) - livecroot_curmr_p  (m) * deltim
          ENDIF
-         IF (ivt >= npcropmin) THEN
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN
             cpool_p(m) = cpool_p   (m) - livestem_curmr_p   (m) * deltim
             cpool_p(m) = cpool_p   (m) - grain_curmr_p      (m) * deltim
          ENDIF
@@ -304,7 +305,7 @@ CONTAINS
             cpool_p             (m) = cpool_p             (m) - cpool_to_deadcrootc_storage_p(m) * deltim
             deadcrootc_storage_p(m) = deadcrootc_storage_p(m) + cpool_to_deadcrootc_storage_p(m) * deltim
          ENDIF
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
             cpool_p            (m) = cpool_p            (m) - cpool_to_livestemc_p        (m) * deltim
             livestemc_p        (m) = livestemc_p        (m) + cpool_to_livestemc_p        (m) * deltim
             cpool_p            (m) = cpool_p            (m) - cpool_to_livestemc_storage_p(m) * deltim
@@ -329,7 +330,7 @@ CONTAINS
                I_deadcrootc_p_acc   (m) = I_deadcrootc_p_acc   (m) + cpool_to_deadcrootc_p        (m) * deltim
                I_deadcrootc_st_p_acc(m) = I_deadcrootc_st_p_acc(m) + cpool_to_deadcrootc_storage_p(m) * deltim
             ENDIF
-            IF(ivt >= npcropmin) THEN
+            IF(ivt >= npcropmin .and. ivt <= npcropmax) THEN
                I_livestemc_p_acc    (m) = I_livestemc_p_acc    (m) + cpool_to_livestemc_p         (m) * deltim
                I_livestemc_st_p_acc (m) = I_livestemc_st_p_acc (m) + cpool_to_livestemc_storage_p (m) * deltim
                I_grainc_p_acc       (m) = I_grainc_p_acc       (m) + cpool_to_grainc_p            (m) * deltim
@@ -345,7 +346,7 @@ CONTAINS
             cpool_p  (m) = cpool_p     (m) - cpool_livecroot_gr_p(m) * deltim
             cpool_p  (m) = cpool_p     (m) - cpool_deadcroot_gr_p(m) * deltim
          ENDIF
-         IF(ivt >= npcropmin)THEN
+         IF(ivt >= npcropmin .and. ivt <= npcropmax)THEN
             cpool_p  (m) = cpool_p     (m) - cpool_livestem_gr_p (m) * deltim
             cpool_p  (m) = cpool_p     (m) - cpool_grain_gr_p    (m) * deltim
          ENDIF
@@ -358,7 +359,7 @@ CONTAINS
             gresp_xfer_p(m) = gresp_xfer_p(m) - transfer_livecroot_gr_p(m) * deltim
             gresp_xfer_p(m) = gresp_xfer_p(m) - transfer_deadcroot_gr_p(m) * deltim
          ENDIF
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
             gresp_xfer_p(m) = gresp_xfer_p(m) - transfer_livestem_gr_p(m) * deltim
             gresp_xfer_p(m) = gresp_xfer_p(m) - transfer_grain_gr_p   (m) * deltim
          ENDIF
@@ -371,7 +372,7 @@ CONTAINS
             cpool_p    (m) = cpool_p        (m) - cpool_livecroot_storage_gr_p(m) * deltim
             cpool_p    (m) = cpool_p        (m) - cpool_deadcroot_storage_gr_p(m) * deltim
          ENDIF
-         IF(ivt >= npcropmin)THEN
+         IF(ivt >= npcropmin .and. ivt <= npcropmax)THEN
             cpool_p    (m) = cpool_p        (m) - cpool_livestem_storage_gr_p (m) * deltim
             cpool_p    (m) = cpool_p        (m) - cpool_grain_storage_gr_p    (m) * deltim
          ENDIF
@@ -398,7 +399,7 @@ CONTAINS
             deadcrootc_storage_p(m) = deadcrootc_storage_p(m) - deadcrootc_storage_to_xfer_p(m) * deltim
             deadcrootc_xfer_p   (m) = deadcrootc_xfer_p   (m) + deadcrootc_storage_to_xfer_p(m) * deltim
          ENDIF
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
          ! lines here for consistency; the transfer terms are zero
             livestemc_storage_p (m) = livestemc_storage_p(m) - livestemc_storage_to_xfer_p(m) * deltim
             livestemc_xfer_p    (m) = livestemc_xfer_p   (m) + livestemc_storage_to_xfer_p(m) * deltim
@@ -420,14 +421,14 @@ CONTAINS
                AKX_deadcrootc_st_to_deadcrootc_xf_p_acc(m) = AKX_deadcrootc_st_to_deadcrootc_xf_p_acc(m) + deadcrootc_storage_to_xfer_p(m) * deltim
                AKX_deadcrootc_st_exit_p_acc            (m) = AKX_deadcrootc_st_exit_p_acc            (m) + deadcrootc_storage_to_xfer_p(m) * deltim
             ENDIF
-            IF( ivt >= npcropmin) THEN
+            IF( ivt >= npcropmin .and. ivt <= npcropmax) THEN
                AKX_livestemc_st_to_livestemc_xf_p_acc  (m) = AKX_livestemc_st_to_livestemc_xf_p_acc  (m) + livestemc_storage_to_xfer_p (m) * deltim
                AKX_livestemc_st_exit_p_acc             (m) = AKX_livestemc_st_exit_p_acc             (m) + livestemc_storage_to_xfer_p (m) * deltim
                AKX_grainc_st_to_grainc_xf_p_acc        (m) = AKX_grainc_st_to_grainc_xf_p_acc        (m) + grainc_storage_to_xfer_p    (m) * deltim
                AKX_grainc_st_exit_p_acc                (m) = AKX_grainc_st_exit_p_acc                (m) + grainc_storage_to_xfer_p    (m) * deltim
             ENDIF
          ENDIF
-         IF (ivt >= npcropmin) THEN ! skip 2 generic crops
+         IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! skip 2 generic crops
             xsmrpool_p(m) = xsmrpool_p(m) - livestem_xsmr_p(m)*deltim
             xsmrpool_p(m) = xsmrpool_p(m) - grain_xsmr_p   (m)*deltim
             IF (harvdate_p(m) < 999) THEN ! beginning at harvest, send to atm

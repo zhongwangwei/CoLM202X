@@ -1276,7 +1276,9 @@ ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef SinglePoint
-      IF (patchtypes(SITE_landtype) == 0) THEN
+      ! wetland owns a WFT sub-tile under LULC_IGBP_WFT and must round-trip its
+      ! PFT-level state through the restart like any vegetated patch
+      IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
          file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
          CALL WRITE_PFTimeVariables (file_restart)
       ENDIF
@@ -1480,7 +1482,9 @@ ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef SinglePoint
-      IF (patchtypes(SITE_landtype) == 0) THEN
+      ! wetland owns a WFT sub-tile under LULC_IGBP_WFT and must round-trip its
+      ! PFT-level state through the restart like any vegetated patch
+      IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
          file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_pft_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
          CALL READ_PFTimeVariables (file_restart)
       ENDIF

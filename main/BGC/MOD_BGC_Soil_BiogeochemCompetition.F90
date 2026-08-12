@@ -14,7 +14,7 @@ MODULE MOD_BGC_Soil_BiogeochemCompetition
 ! Xingjie Lu, 2022, modify original CLM5 to be compatible with CoLM code structure.
 
    USE MOD_Precision
-   USE MOD_Vars_Global, only: npcropmin
+   USE MOD_Vars_Global, only: npcropmin, npcropmax
    USE MOD_Namelist, only: DEF_USE_NITRIF, DEF_USE_NOSTRESSNITROGEN
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
    USE MOD_Vars_PFTimeInvariants, only: pftclass
@@ -127,7 +127,7 @@ CONTAINS
                pe = patch_pft_e(i)
                DO m = ps, pe
                   ivt = pftclass(m)
-                  IF (ivt >= npcropmin) THEN
+                  IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN
                      nlimit(j) = 1
                      fpi_vr(j,i) = 1.0_r8
                      actual_immob_vr(j,i) = potential_immob_vr(j,i)
@@ -344,7 +344,7 @@ CONTAINS
                pe = patch_pft_e(i)
                DO m = ps, pe
                   ivt = pftclass(m)
-                  IF (ivt >= npcropmin) THEN
+                  IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN
                      IF (fpi_no3_vr(j) + fpi_nh4_vr(j) < 1._r8) THEN
                         fpi_nh4_vr(j) = 1.0_r8 - fpi_no3_vr(j)
                         supplement_to_sminn_vr(j,i) = (potential_immob_vr(j,i) &

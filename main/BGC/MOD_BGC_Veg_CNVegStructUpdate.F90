@@ -15,6 +15,7 @@ MODULE MOD_BGC_Veg_CNVegStructUpdate
 !
 
    USE MOD_Precision
+   USE MOD_Vars_Global, only: npcropmax
    USE MOD_Namelist, only: DEF_USE_LAIFEEDBACK, DEF_USE_Fire
    USE MOD_Vars_Global, only: nc3crop, nc3irrig, nbrdlf_evr_shrub, nbrdlf_dcd_brl_shrub, &
                                  npcropmin, ntmp_corn, nirrig_tmp_corn, ntrp_corn, nirrig_trp_corn, &
@@ -117,7 +118,7 @@ CONTAINS
 
                ! trees and shrubs for now have a very simple allometry, with hard-wired
                ! stem taper (height:radius) and nstem from PFT parameter file
-            ELSE IF (ivt >= npcropmin) THEN ! prognostic crops
+            ELSE IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! prognostic crops
 #ifdef CROP
                IF (tlai_p(m) >= laimx(ivt)) peaklai_p(m) = 1 ! used in CNAllocation
 

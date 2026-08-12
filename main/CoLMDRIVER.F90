@@ -248,10 +248,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
          ! aerobic upland to a fifth of its rate. No single-point run can show
          ! that -- all 44 towers are patchtype 2 -- but a global run decomposes
          ! its whole land surface through here. Unguarded until 2026-08-02.
-         ! Under WETLAND_PFT the same call sets only the anoxia: bgc_driver has
-         ! decomposed the wetland already, and the shim would zero the
-         ! source/sink it just deposited. The branch lives inside the shim so
-         ! this stays one call through the tracer facade.
+         ! The WFT tile (LULC_IGBP_WFT) never hands this soil column to
+         ! bgc_driver: the wetland always decomposes through the shim with
+         ! its prescribed substrate, one call through the tracer facade.
          IF (patchtype(i) .eq. 2) CALL tracer_wetland_decomp (i, deltim)
 #endif
 

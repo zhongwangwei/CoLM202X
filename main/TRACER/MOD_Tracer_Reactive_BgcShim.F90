@@ -97,12 +97,10 @@ CONTAINS
       ! decomposition that the tile is waterlogged.
       CALL reactive_bgc_set_wetland_anoxia (ipatch)
 
-#ifdef WETLAND_PFT
-      ! bgc_driver has decomposed this patch already. Everything below would
-      ! zero the source/sink it just deposited and redo the work without the
-      ! litter input, which is the whole point of giving wetland a WFT.
-      RETURN
-#endif
+      ! Carrying a WFT tile (LULC_IGBP_WFT) does not hand the soil column to
+      ! bgc_driver: the wetland keeps this shim and its prescribed substrate.
+      ! The two decisions are deliberately separate -- see the first WFT
+      ! branch, where conflating them collapsed 70 of 77 sites.
 
       ! Start from the same clean per-patch flux state as the full BGC driver.
       IF (allocated(decomp_cpools_sourcesink))   decomp_cpools_sourcesink  (1:nl_soil,:,ipatch) = 0._r8

@@ -65,6 +65,26 @@ MODULE MOD_Namelist
 
    integer  :: SITE_landtype             = -1
 
+   ! Field-assigned wetland class of a single-point tower, read from the site
+   ! file as "wetland_class". 0 means none was supplied, which sends the patch
+   ! back to the latitude/soil-carbon zone tree in MOD_Tracer_Reactive_Methane_
+   ! BgcLink. That tree cannot separate bog from fen -- both are peat -- and it
+   ! mistakes five sedge fens and four sedge tundra sites for Sphagnum bog,
+   ! which zeroes their aerenchyma. Where a tower states its type, believe it.
+   !
+   ! Only the methane code reads it, so only a methane build carries it. Without
+   ! TRACER+BGC the site file's wetland_class is left unread and this stays 0 --
+   ! a plain CoLM run behaves exactly as it did before the field existed, and
+   ! nothing silently depends on a variable its physics never consults.
+#if (defined TRACER) && (defined BGC)
+   ! Wetland class of the site, typing its WFT tile (79..86): 0 none,
+   ! 1 permafrost peatland, 2 wet tundra, 3 bog, 4 fen, 5 marsh,
+   ! 6 salt marsh, 7 tropical swamp, 8 temperate swamp. The codes follow
+   ! the adjudicated eight-class axis; the retired seven-code axis of the
+   ! first WFT branch used the same name with different meanings.
+   integer  :: SITE_wetland_class        = 0
+#endif
+
    logical  :: USE_SITE_landtype         = .false.
    logical  :: USE_SITE_pctpfts          = .true.
    logical  :: USE_SITE_pctcrop          = .true.
@@ -1082,6 +1102,9 @@ CONTAINS
       SITE_lon_location,                      &
       SITE_lat_location,                      &
       SITE_landtype,                          &
+#if (defined TRACER) && (defined BGC)
+      SITE_wetland_class,                     &
+#endif
       USE_SITE_landtype,                      &
       USE_SITE_pctpfts,                       &
       USE_SITE_pctcrop,                       &

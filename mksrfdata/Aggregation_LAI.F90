@@ -89,9 +89,9 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
 #ifdef SrfdataDiag
    integer :: typpatch(N_land_classification+1), ityp
 #ifndef CROP
-   integer :: typpft  (N_PFT)
+   integer :: typpft  (N_PFT+N_WFT)
 #else
-   integer :: typpft  (N_PFT+N_CFT)
+   integer :: typpft  (N_PFT+N_CFT+N_WFT)
 #endif
    character(len=256) :: varname
 #endif
@@ -571,9 +571,9 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
 
 #ifdef SrfdataDiag
 #ifndef CROP
-               typpft  = (/(ityp, ityp = 0, N_PFT-1)/)
+               typpft  = (/(ityp, ityp = 0, N_PFT+N_WFT-1)/)
 #else
-               typpft  = (/(ityp, ityp = 0, N_PFT+N_CFT-1)/)
+               typpft  = (/(ityp, ityp = 0, N_PFT+N_CFT+N_WFT-1)/)
 #endif
                lndname = trim(dir_model_landdata) // '/diag/LAI_pft_'// trim(cyear) // '.nc'
                varname = 'LAI_pft'
@@ -717,9 +717,9 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
 
 #ifdef SrfdataDiag
 #ifndef CROP
-            typpft  = (/(ityp, ityp = 0, N_PFT-1)/)
+            typpft  = (/(ityp, ityp = 0, N_PFT+N_WFT-1)/)
 #else
-            typpft  = (/(ityp, ityp = 0, N_PFT+N_CFT-1)/)
+            typpft  = (/(ityp, ityp = 0, N_PFT+N_CFT+N_WFT-1)/)
 #endif
             lndname = trim(dir_model_landdata) // '/diag/SAI_pft_'// trim(cyear) // '.nc'
             varname = 'SAI_pft'

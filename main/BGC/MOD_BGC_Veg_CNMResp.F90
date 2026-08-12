@@ -17,6 +17,7 @@ MODULE MOD_BGC_Veg_CNMResp
 ! Xingjie Lu, 2021, revised the CLM5 code to be compatible with CoLM code structure.
 
    USE MOD_Precision
+   USE MOD_Vars_Global, only: npcropmax
    USE MOD_BGC_Vars_TimeInvariants, only: &
        Q10,br, br_root
    USE MOD_Vars_PFTimeInvariants, only: pftclass
@@ -95,7 +96,7 @@ CONTAINS
          IF (woody(ivt) == 1) THEN
             livestem_mr_p (m) = livestemn_p (m)*br*tc
             livecroot_mr_p(m) = livecrootn_p(m)*br_root*tc
-         ELSE IF (ivt >= npcropmin) THEN
+         ELSE IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN
             livestem_mr_p (m) = livestemn_p (m)*br*tc
             grain_mr_p    (m) = grainn_p    (m)*br*tc
          ENDIF

@@ -129,6 +129,7 @@ MODULE MOD_BGC_Veg_CNPhenology
 
    USE MOD_TimeManager
    USE MOD_Precision
+   USE MOD_Vars_Global, only: npcropmax
    USE MOD_Namelist, only: DEF_USE_FERT
    USE MOD_BGC_Daylength, only: daylength
    USE MOD_SPMD_Task
@@ -1036,7 +1037,7 @@ CONTAINS
            ! background litterfall and transfer rates; long growing season factor
       DO m = ps, pe
          ivt = pftclass(m)
-         IF(ivt >= npcropmin)THEN
+         IF(ivt >= npcropmin .and. ivt <= npcropmax)THEN
             bglfr_p(m) = 0._r8 ! this value changes later in a crop's life CYCLE
             bgtr_p(m)  = 0._r8
             lgsf_p(m)  = 0._r8
@@ -1333,7 +1334,7 @@ CONTAINS
                frootc_to_litter_p(m) = t1 * frootc_p(m) + cpool_to_frootc_p(m)
             ! this assumes that offset_counter == dt for crops
             ! IF this were ever changed, we'd need to add code to the "ELSE"
-               IF (ivt >= npcropmin) THEN
+               IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN
                ! Replenish the seed deficits from grain, IF there is enough
                ! available grain. (IF there is not enough available grain, the seed
                ! deficits will accumulate until there is eventually enough grain to
@@ -1360,7 +1361,7 @@ CONTAINS
          ! calculate fine root N litterfall (no retranslocation of fine root N)
             frootn_to_litter_p(m) = frootc_to_litter_p(m) / frootcn(ivt)
 
-            IF (ivt >= npcropmin) THEN
+            IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN
             ! NOTE(slevis, 2014-12) results in -ve livestemn and -ve totpftn
             !X! livestemn_to_litter(p) = livestemc_to_litter(p) / livewdcn(ivt(p))
             ! NOTE(slevis, 2014-12) Beth Drewniak suggested this instead
@@ -1551,7 +1552,7 @@ CONTAINS
            ! new ones for now (slevis)
            ! also for simplicity I've put "food" into the litter pools
 
-            IF (ivt >= npcropmin) THEN ! add livestemc to litter
+            IF (ivt >= npcropmin .and. ivt <= npcropmax) THEN ! add livestemc to litter
               ! stem litter carbon fluxes
                phenology_to_met_c(j,i) = phenology_to_met_c(j,i) &
                     + livestemc_to_litter_p(m) * lf_flab(ivt) * wtcol * leaf_prof_p(j,m)

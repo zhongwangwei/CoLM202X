@@ -95,8 +95,8 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
          DO ipatch = 1, numpatch
             IF (landpatch%settyp(ipatch) >= 1 .and. &
                 landpatch%settyp(ipatch) <= size(patchtypes)) THEN
-               requires_spatial_ph = nint(patchtypes(landpatch%settyp(ipatch))) == 0 .or. &
-                  nint(patchtypes(landpatch%settyp(ipatch))) == 2
+               requires_spatial_ph = patchtypes(landpatch%settyp(ipatch)) == 0 .or. &
+                  patchtypes(landpatch%settyp(ipatch)) == 2
                IF (requires_spatial_ph) relevant_local = relevant_local + 1
             ENDIF
          ENDDO
@@ -253,8 +253,8 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
             requires_spatial_ph = .false.
             IF (landpatch%settyp(ipatch) >= 1 .and. &
                 landpatch%settyp(ipatch) <= size(patchtypes)) THEN
-               requires_spatial_ph = nint(patchtypes(landpatch%settyp(ipatch))) == 0 .or. &
-                  nint(patchtypes(landpatch%settyp(ipatch))) == 2
+               requires_spatial_ph = patchtypes(landpatch%settyp(ipatch)) == 0 .or. &
+                  patchtypes(landpatch%settyp(ipatch)) == 2
             ENDIF
             IF (requires_spatial_ph .and. .not. methane_ph_valid(ipatch)) &
                invalid_local = invalid_local + 1

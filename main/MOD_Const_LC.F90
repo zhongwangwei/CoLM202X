@@ -658,8 +658,14 @@ MODULE MOD_Const_LC
           1000., 1000., 1000., 1000., 1000./)
 #endif
 
+   ! Land patch type (0 soil, 1 urban, 2 wetland, 3 ice, 4 lake). It is a
+   ! category, and both source tables (patchtypes_igbp / patchtypes_usgs) and
+   ! every consumer (patchtype(:), pthtype, patch_has_pft) are integer, so it
+   ! is declared integer here rather than riding along in the real(r8) block
+   ! of canopy parameters below.
+   integer, dimension(N_land_classification) :: patchtypes
+
    real(r8), dimension(N_land_classification) :: &
-      patchtypes, &! land patch types
       htop0,      &! canopy top height
       hbot0,      &! canopy bottom height
       fveg0,      &! canopy vegetation fractional cover

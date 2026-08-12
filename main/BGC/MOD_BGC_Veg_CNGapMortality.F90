@@ -14,6 +14,7 @@ MODULE MOD_BGC_Veg_CNGapMortality
 ! Xingjie Lu, 2021, revised the CLM5 code to be compatible with CoLM code structure.
 
    USE MOD_Precision
+   USE MOD_Vars_Global, only: npcropmax
    USE MOD_Const_PFT, only: lf_flab, lf_fcel, lf_flig, fr_flab, fr_fcel, fr_flig
    USE MOD_BGC_Vars_TimeInvariants, only: &
      ! bgc constants
@@ -137,7 +138,9 @@ CONTAINS
          m_deadstemn_to_litter_p         (m) = deadstemn_p         (m) * mort
          m_deadcrootn_to_litter_p        (m) = deadcrootn_p        (m) * mort
 
-         IF (ivt < npcropmin) THEN
+         ! non-crop test: the wetland functional type sits above the crop
+         ! block, so it must take this branch too
+         IF (ivt < npcropmin .or. ivt > npcropmax) THEN
             m_retransn_to_litter_p       (m) = retransn_p          (m) * mort
          ENDIF
 

@@ -160,7 +160,15 @@ CONTAINS
 
 #ifndef URBAN_MODEL
       IF (.not. DEF_USE_LAIFEEDBACK)THEN
+#ifndef LULC_IGBP_WFT
          IF (patchtypes(SITE_landtype) == 0) THEN
+#else
+         ! Wetland carries a WFT tile, so it reads the per-PFT LAI like any
+         ! other vegetated patch. Reading it at patch level instead leaves
+         ! lai_p unassigned -- CNVegStructUpdate zeroes patch LAI and rebuilds
+         ! it from the tiles, and only fills lai_p under DEF_USE_LAIFEEDBACK.
+         IF ((patchtypes(SITE_landtype) == 0) .or. (patchtypes(SITE_landtype) == 2)) THEN
+#endif
             tlai_p(:) = pack(SITE_LAI_pfts_monthly(:,time,iyear), SITE_pctpfts > 0.)
             tsai_p(:) = pack(SITE_SAI_pfts_monthly(:,time,iyear), SITE_pctpfts > 0.)
             tlai(:)   = sum (SITE_LAI_pfts_monthly(:,time,iyear) * SITE_pctpfts)
@@ -170,7 +178,15 @@ CONTAINS
             tsai(:) = SITE_SAI_monthly(time,iyear)
          ENDIF
       ELSE
+#ifndef LULC_IGBP_WFT
          IF (patchtypes(SITE_landtype) == 0) THEN
+#else
+         ! Wetland carries a WFT tile, so it reads the per-PFT LAI like any
+         ! other vegetated patch. Reading it at patch level instead leaves
+         ! lai_p unassigned -- CNVegStructUpdate zeroes patch LAI and rebuilds
+         ! it from the tiles, and only fills lai_p under DEF_USE_LAIFEEDBACK.
+         IF ((patchtypes(SITE_landtype) == 0) .or. (patchtypes(SITE_landtype) == 2)) THEN
+#endif
             tsai_p(:) = pack(SITE_SAI_pfts_monthly(:,time,iyear), SITE_pctpfts > 0.)
             tsai(:)   = sum (SITE_SAI_pfts_monthly(:,time,iyear) * SITE_pctpfts)
          ELSE

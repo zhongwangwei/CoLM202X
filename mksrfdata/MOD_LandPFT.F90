@@ -27,6 +27,9 @@ MODULE MOD_LandPFT
    USE MOD_Pixelset
    USE MOD_Const_LC
    USE MOD_Vars_Global
+#if (defined LULC_IGBP_WFT) && (defined SinglePoint)
+   USE MOD_SingleSrfdata, only: SITE_wetland_class
+#endif
    IMPLICIT NONE
 
    ! ---- Instance ----
@@ -159,6 +162,10 @@ CONTAINS
 #ifdef CROP
             numpft = numpft + count(landpatch%settyp == CROPLAND)
 #endif
+#ifdef LULC_IGBP_WFT
+            ! one wetland functional type tile per permanent-wetland patch
+            numpft = numpft + count(landpatch%settyp == WETLAND)
+#endif
             IF (npatch > 0) THEN
                allocate (patch_pft_s (npatch))
                allocate (patch_pft_e (npatch))
@@ -222,6 +229,34 @@ CONTAINS
                      landpft%settyp(npft) = cropclass(ipatch) + N_PFT - 1
 
                      landpft%pctshared(npft) = landpatch%pctshared(ipatch)
+
+                     pft2patch(npft) = npatch
+#endif
+#ifdef LULC_IGBP_WFT
+                  ELSEIF (landpatch%settyp(ipatch) == WETLAND) THEN
+                     ! Permanent wetland: one WFT tile covering the whole patch,
+                     ! typed by the wetland class (79..86 = npwetlandmin+class-1).
+                     ! Without it patch_pft_s/e stay at -1, the CN driver never
+                     ! runs, and the soil carbon pools decay with no litter input.
+                     npft = npft + 1
+                     patch_pft_s(npatch) = npft
+                     patch_pft_e(npatch) = npft
+
+                     landpft%ielm  (npft) = landpatch%ielm  (ipatch)
+                     landpft%eindex(npft) = landpatch%eindex(ipatch)
+                     landpft%ipxstt(npft) = landpatch%ipxstt(ipatch)
+                     landpft%ipxend(npft) = landpatch%ipxend(ipatch)
+#ifdef SinglePoint
+                     landpft%settyp(npft) = npwetlandmin + SITE_wetland_class - 1
+#else
+                     ! Gridded runs take the class from the aggregated
+                     ! global_wft_class8 rawdata, which is not wired yet.
+                     ! Refuse loudly rather than guess a class.
+                     write(*,*) 'MOD_LandPFT: gridded WFT class source not wired yet'
+                     CALL CoLM_stop ()
+#endif
+
+                     landpft%pctshared(npft) = 1.
 
                      pft2patch(npft) = npatch
 #endif
@@ -306,6 +341,13 @@ CONTAINS
                ENDDO
 #ifdef CROP
             ELSEIF (landpatch%settyp(ipatch) == CROPLAND) THEN
+               patch_pft_s(ipatch) = ipft
+               patch_pft_e(ipatch) = ipft
+               pft2patch  (ipft  ) = ipatch
+               ipft = ipft + 1
+#endif
+#ifdef LULC_IGBP_WFT
+            ELSEIF (landpatch%settyp(ipatch) == WETLAND) THEN
                patch_pft_s(ipatch) = ipft
                patch_pft_e(ipatch) = ipft
                pft2patch  (ipft  ) = ipatch

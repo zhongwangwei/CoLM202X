@@ -595,7 +595,11 @@ CONTAINS
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef SinglePoint
-      IF (patchtypes(SITE_landtype) == 0) THEN
+      ! WRITE_PFTimeInvariants below has no such gate, so without this the
+      ! wetland's pftfrac/pftclass are written but never read back, leaving
+      ! pftfrac as uninitialised memory. Every sum(x_p*pftfrac) aggregate then
+      ! comes out denormal and THERMAL dies on negative outgoing longwave.
+      IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
          file_restart = trim(dir_restart) // '/const/' // trim(casename) //'_restart_pft_const' // '_lc' // trim(cyear) // '.nc'
          CALL READ_PFTimeInvariants (file_restart)
       ENDIF

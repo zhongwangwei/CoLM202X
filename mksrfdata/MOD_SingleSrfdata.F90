@@ -189,7 +189,7 @@ CONTAINS
    USE MOD_NetCDFPoint
    USE MOD_Namelist
    USE MOD_Utils
-   USE MOD_Vars_Global, only: PI
+   USE MOD_Vars_Global, only: PI, patch_has_pft
    USE MOD_Const_LC
    USE MOD_Const_PFT
    USE MOD_SPMD_Task
@@ -308,6 +308,18 @@ CONTAINS
       ENDIF
 #endif
 
+      ! Field-assigned wetland class, if the site file carries one. Optional by
+      ! design: a site file written before this existed simply leaves the class
+      ! at 0, and the methane code falls back to its latitude/soil-carbon zone
+      ! tree exactly as before.
+#if (defined TRACER) && (defined BGC)
+      IF (SITE_wetland_class == 0) THEN
+         IF (ncio_var_exist(fsrfdata, 'wetland_class')) THEN
+            CALL ncio_read_serial (fsrfdata, 'wetland_class', SITE_wetland_class)
+         ENDIF
+      ENDIF
+#endif
+
       IF (SITE_landtype < 0) THEN
          write(*,*) 'Error! Please set SITE_landtype in namelist file !'
          CALL CoLM_stop()
@@ -412,11 +424,33 @@ CONTAINS
          SITE_pfttyp  = SITE_croptyp + N_PFT - 1
          SITE_pctpfts = 1.
 #endif
+#ifdef LULC_IGBP_WFT
+      ELSEIF (SITE_landtype == WETLAND) THEN
+         ! One wetland functional type covering the whole patch, synthesised
+         ! rather than read: the site files carry no pfttyp/pctpfts. Mirrors
+         ! the gridded branch in MOD_LandPFT so both paths stay identical.
+         IF (SITE_wetland_class < 1 .or. SITE_wetland_class > N_WFT) THEN
+            write(*,*) 'SITE_wetland_class must be 1..8 for a wetland site ', &
+               '(1 permafrost peatland, 2 wet tundra, 3 bog, 4 fen, 5 marsh, ', &
+               '6 salt marsh, 7 tropical swamp, 8 temperate swamp), got ', &
+               SITE_wetland_class
+            CALL CoLM_stop ()
+         ENDIF
+         write(*,'(A,I2,A,I3)') ' wetland functional type: class ', &
+            SITE_wetland_class, ' -> PFT index ', &
+            npwetlandmin + SITE_wetland_class - 1
+         u_site_pfts = .false.
+         numpft = 1
+         allocate (SITE_pfttyp  (numpft))
+         allocate (SITE_pctpfts (numpft))
+         SITE_pfttyp  = npwetlandmin + SITE_wetland_class - 1
+         SITE_pctpfts = 1.
+#endif
       ELSE
          numpft = 0
       ENDIF
 
-      IF ((patchtypes(SITE_landtype) == 0) .and. (numpft == 0)) THEN
+      IF (patch_has_pft(patchtypes(SITE_landtype)) .and. (numpft == 0)) THEN
          write(*,*) 'Warning : There is no plant functional type at this site !    '
          CALL CoLM_stop()
       ENDIF
@@ -436,7 +470,7 @@ CONTAINS
       ! (4) forest height
       readflag = (.not. mksrfdata) .or. USE_SITE_htop
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-      IF (patchtypes(SITE_landtype) == 0) THEN
+      IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
          u_site_htop = readflag .and. ncio_var_exist(fsrfdata,'canopy_height_pfts',readflag)
       ELSE
          u_site_htop = readflag .and. ncio_var_exist(fsrfdata,'canopy_height',readflag)
@@ -447,7 +481,7 @@ CONTAINS
 
       IF (u_site_htop) THEN
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-         IF (patchtypes(SITE_landtype) == 0) THEN
+         IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
             CALL ncio_read_serial (fsrfdata, 'canopy_height_pfts', SITE_htop_pfts)
          ELSE
             CALL ncio_read_serial (fsrfdata, 'canopy_height', SITE_htop)
@@ -481,7 +515,7 @@ CONTAINS
 
       IF (mksrfdata) THEN
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-         IF (patchtypes(SITE_landtype) == 0) THEN
+         IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
             arraysize = size(SITE_htop_pfts)
             write(fmt_str, '("(A,", I0, "F8.2,3A)")') arraysize
             write(*,fmt_str) 'Forest height : ', SITE_htop_pfts, ' (from ',trim(datasource(u_site_htop)),')'
@@ -498,7 +532,7 @@ CONTAINS
       readflag = ((.not. mksrfdata) .or. USE_SITE_LAI)
       readflag = readflag .and. ncio_var_exist(fsrfdata,'LAI_year',readflag)
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-      IF (patchtypes(SITE_landtype) == 0) THEN
+      IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
          u_site_lai = readflag .and. ncio_var_exist(fsrfdata,'LAI_pfts_monthly',readflag) &
             .and. ncio_var_exist(fsrfdata,'SAI_pfts_monthly',readflag)
       ELSE
@@ -519,7 +553,7 @@ CONTAINS
          start_year = 1
          end_year   = size(SITE_LAI_year)
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-         IF (patchtypes(SITE_landtype) == 0) THEN
+         IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
             CALL ncio_read_serial (fsrfdata, 'LAI_pfts_monthly', SITE_LAI_pfts_monthly)
             CALL ncio_read_serial (fsrfdata, 'SAI_pfts_monthly', SITE_SAI_pfts_monthly)
             ntime = size(SITE_LAI_pfts_monthly,2)
@@ -622,6 +656,24 @@ CONTAINS
                   SITE_LAI_pfts_monthly(:,itime,iyear) = sum(pftLAI * pctpfts) / sum(pctpfts)
                   SITE_SAI_pfts_monthly(:,itime,iyear) = sum(pftSAI * pctpfts) / sum(pctpfts)
 #endif
+#ifdef LULC_IGBP_WFT
+               ELSEIF (SITE_landtype == WETLAND) THEN
+                  ! The WFT tile needs a per-PFT LAI like any other tile, and the
+                  ! plant_15s product has none for IGBP class 11. Synthesise it the
+                  ! way cropland does: weight the MODIS per-PFT LAI by the pixel's
+                  ! PCT_PFT. The wetland's own vegetation is in that mix -- what is
+                  ! missing is a class-11 row, not the underlying data.
+                  !
+                  ! Without this SITE_LAI_pfts_monthly is never filled for wetland,
+                  ! so the tile LAI has nothing behind it, lai_p is never assigned,
+                  ! and LAI reaches the canopy as an uninitialised denormal (~1e-302
+                  ! at all 44 towers on 2026-08-02). GPP is then zero and the
+                  ! vegetation the WFT exists to grow drains away instead.
+                  CALL read_point_5x5_var_3d_real8 (gridlai, dir_5x5, 'MOD'//trim(cyear), 'PCT_PFT', &
+                     SITE_lon_location, SITE_lat_location, N_PFT_modis, pctpfts)
+                  SITE_LAI_pfts_monthly(:,itime,iyear) = sum(pftLAI * pctpfts) / sum(pctpfts)
+                  SITE_SAI_pfts_monthly(:,itime,iyear) = sum(pftSAI * pctpfts) / sum(pctpfts)
+#endif
                ELSE
                   dir_5x5 = trim(DEF_dir_rawdata) // '/plant_15s'
                   CALL read_point_5x5_var_2d_time_real8 (gridlai, dir_5x5, 'MOD'//trim(cyear), &
@@ -656,7 +708,7 @@ CONTAINS
          DO iyear = start_year, end_year
             write(c,'(i2)') ntime
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-            IF (patchtypes(SITE_landtype) == 0) THEN
+            IF (patch_has_pft(patchtypes(SITE_landtype))) THEN
                DO i = 1, numpft
                   write(*,'(A,I4,A,I2,A,'//trim(c)//'F8.2,4A)') 'LAI (year ', SITE_LAI_year(iyear), &
                      ', pft ', SITE_pfttyp(i),') : ', SITE_LAI_pfts_monthly(i,:,iyear), &
@@ -1395,7 +1447,8 @@ CONTAINS
             pft2patch   = 1
 #endif
          ELSE
-            ! Non-vegetated single point (wetland/water/urban/ice: numpft==0).
+            ! Non-vegetated single point (water/urban/ice: numpft==0). Wetland
+            ! leaves this branch once LULC_IGBP_WFT gives it a WFT tile.
             ! Gridded mode (MOD_LandPFT) always allocates patch_pft_s/e over all
             ! patches and marks non-PFT patches with the -1 sentinel; the runtime
             ! and CN-init code read patch_pft_s(ipatch) unconditionally and rely
@@ -2846,6 +2899,16 @@ ENDIF
       CALL ncio_write_serial (fsrfdata, 'IGBP_classification', SITE_landtype)
       CALL ncio_put_attr     (fsrfdata, 'IGBP_classification', 'source', trim(datasource(u_site_landtype)))
       CALL ncio_put_attr     (fsrfdata, 'IGBP_classification', 'long_name', 'MODIS IGBP Land Use/Land Cover')
+#endif
+
+      ! Carry the field-assigned wetland class through to srfdata: mksrfdata
+      ! reads the site file, but mkinidata and colm read this, so a class left
+      ! here is the only way it survives to the run.
+#if (defined TRACER) && (defined BGC)
+      CALL ncio_write_serial (fsrfdata, 'wetland_class', SITE_wetland_class)
+      CALL ncio_put_attr     (fsrfdata, 'wetland_class', 'long_name', &
+         'wetland class (0 none 1 permafrost peatland 2 wet tundra 3 bog 4 fen ' // &
+         '5 marsh 6 salt marsh 7 tropical swamp 8 temperate swamp)')
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
