@@ -83,6 +83,19 @@
 #undef CROP
 #endif
 
+! 7.2 If defined, permanent wetland patches (patchtype 2) carry one Wetland
+!     Functional Type sub-tile in landpft, one of eight wetland classes.
+#define LULC_IGBP_WFT
+!    Conflicts : only used when BGC is defined
+#ifndef BGC
+#undef LULC_IGBP_WFT
+#endif
+!    Requires CROP: the PFT constant tables are sized N_PFT+N_CFT+N_WFT only
+!    under CROP, and the WFT block sits right after the crop block.
+#if (defined LULC_IGBP_WFT) && (!defined CROP)
+#error "LULC_IGBP_WFT requires CROP"
+#endif
+
 ! 8. If defined, open Land use and land cover change mode.
 #undef LULCC
 
@@ -136,4 +149,10 @@
 #if (!defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
 #error "Methane (TRACER+BGC) requires LULC_IGBP_PFT or LULC_IGBP_PC for pftfrac access."
 #endif
+#endif
+
+!     The WFT sub-tile (7.2) is consumed only by the methane provider; without
+!     TRACER it is switched off here, after TRACER itself is defined.
+#ifndef TRACER
+#undef LULC_IGBP_WFT
 #endif

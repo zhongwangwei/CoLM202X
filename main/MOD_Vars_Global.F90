@@ -46,6 +46,13 @@ MODULE MOD_Vars_Global
    integer, parameter :: N_CFT     = 64
 #endif
 
+   ! number of wetland functional types
+#ifdef LULC_IGBP_WFT
+   integer, parameter :: N_WFT     = 8
+#else
+   integer, parameter :: N_WFT     = 0
+#endif
+
    ! urban type number
    integer :: N_URB
 
@@ -70,6 +77,12 @@ MODULE MOD_Vars_Global
    integer, parameter :: ndecomp_pools        = 7
    integer, parameter :: ndecomp_transitions  = 10
    integer, parameter :: npcropmin            = 17
+   integer, parameter :: npcropmax            = N_PFT + N_CFT - 1
+   ! wetland functional types occupy the indices right after the crop block:
+   ! 79 permafrost peatland, 80 wet tundra, 81 bog, 82 fen, 83 marsh,
+   ! 84 salt marsh, 85 tropical swamp, 86 temperate swamp
+   integer, parameter :: npwetlandmin         = N_PFT + N_CFT
+   integer, parameter :: npwetlandmax         = N_PFT + N_CFT + N_WFT - 1
    real(r8),parameter :: zmin_bedrock         = 0.4
    integer, parameter :: nbedrock             = 10
    integer, parameter :: ndecomp_pools_vr     = ndecomp_pools * nl_soil
@@ -163,6 +176,17 @@ CONTAINS
       !ndecomp_pools_vr = ndecomp_pools * nl_soil
 
    END SUBROUTINE Init_GlobalVars
+
+   ELEMENTAL logical FUNCTION patch_has_pft (patchtype)
+   ! whether this patch owns PFT sub-tiles in landpft
+   integer, intent(in) :: patchtype
+
+      patch_has_pft = (patchtype == 0)
+#ifdef LULC_IGBP_WFT
+      patch_has_pft = patch_has_pft .or. (patchtype == 2)
+#endif
+
+   END FUNCTION patch_has_pft
 
 END MODULE MOD_Vars_Global
 ! ---------- EOP ------------
