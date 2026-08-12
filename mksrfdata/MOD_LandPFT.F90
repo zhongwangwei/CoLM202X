@@ -69,6 +69,9 @@ CONTAINS
    real(r8), allocatable :: pctpft_patch(:,:), pctpft_one(:,:)
    real(r8), allocatable :: area_one  (:)
    logical,  allocatable :: patchmask (:)
+#if (defined LULC_IGBP_WFT) && (!defined SinglePoint)
+   integer, allocatable :: wft_class_patch(:)
+#endif
    integer  :: ipatch, ipft, npatch, npft, npft_glb
    integer  :: wmo_src, ipft_grass
    real(r8) :: sumarea, maxgrass
@@ -79,6 +82,12 @@ CONTAINS
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+
+#if (defined LULC_IGBP_WFT) && (!defined SinglePoint)
+      ! Type the wetland tiles before they are built, the way landcrop_build
+      ! reads global_CFT_surface_data.nc before typing crop patches.
+      CALL wetland_class_readin (wft_class_patch)
 #endif
 
       landpft%has_shared = .true.
@@ -247,11 +256,7 @@ CONTAINS
 #ifdef SinglePoint
                      landpft%settyp(npft) = npwetlandmin + SITE_wetland_class - 1
 #else
-                     ! Gridded runs take the class from the aggregated
-                     ! global_wft_class8 rawdata, which is not wired yet.
-                     ! Refuse loudly rather than guess a class.
-                     write(*,*) 'MOD_LandPFT: gridded WFT class source not wired yet'
-                     CALL CoLM_stop ()
+                     landpft%settyp(npft) = npwetlandmin + wft_class_patch(ipatch) - 1
 #endif
 
                      landpft%pctshared(npft) = 1.
@@ -293,6 +298,167 @@ CONTAINS
       IF (allocated(patchmask   )) deallocate (patchmask   )
 
    END SUBROUTINE landpft_build
+
+#if (defined LULC_IGBP_WFT) && (!defined SinglePoint)
+   SUBROUTINE wetland_class_readin (wft_class_patch)
+
+   ! Type the wetland tiles from the eight-class rawdata map, the way
+   ! landcrop_build types crop patches from global_CFT_surface_data.nc:
+   ! read at build time, one class per wetland patch. The vote over the
+   ! patch's 5-arcmin cells is weighted by overlap area times WET_FRAC
+   ! (the GLWD wetland share of the cell), so it follows where the
+   ! wetland actually is, not the dry background of the cell.
+
+   USE MOD_Precision
+   USE MOD_SPMD_Task
+   USE MOD_Namelist, only: DEF_dir_rawdata
+   USE MOD_Grid
+   USE MOD_LandPatch
+   USE MOD_Vars_Global, only: WETLAND, N_WFT
+   USE MOD_Tracer_Reactive_Methane_PHMapping, only: methane_ph_mapping_type, &
+      build_methane_ph_areal_mapping
+   USE netcdf
+   IMPLICIT NONE
+
+   integer, allocatable, intent(out) :: wft_class_patch(:)
+
+   character(len=256) :: rawfile
+   logical  :: raw_exists
+   integer  :: ncid, vid, did, ierr, nlat, nlon
+   integer  :: iset, ipart, iproc, iloc, jlat, jlon, ic
+   integer  :: nfallback, nweighted_empty, tmp
+   integer  :: count_loc(N_WFT), count_glb(N_WFT)
+   real(r8) :: votes(N_WFT), votes_area(N_WFT), area, w
+   real(r8) :: south_edge, north_edge
+   real(r8),   allocatable :: lat_g(:), lon_g(:)
+   integer(1), allocatable :: class_g(:,:)
+   real(4),    allocatable :: wetf_g(:,:)
+   type(grid_type) :: grid_wft
+   type(methane_ph_mapping_type) :: map_wft
+
+      rawfile = trim(DEF_dir_rawdata) // '/global_WFT_surface_data.nc'
+      raw_exists = .false.
+      IF (p_is_master) inquire (file=trim(rawfile), exist=raw_exists)
+#ifdef USEMPI
+      CALL mpi_bcast (raw_exists, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (.not. raw_exists) THEN
+         CALL CoLM_stop (' ***** ERROR: wetland class rawdata not found: '//trim(rawfile))
+      ENDIF
+
+      nlat = 0; nlon = 0
+      IF (p_is_master) THEN
+         ierr = nf90_open(trim(rawfile), NF90_NOWRITE, ncid)
+         IF (ierr /= NF90_NOERR) CALL CoLM_stop &
+            (' ***** ERROR: cannot open '//trim(rawfile))
+         ierr = nf90_inq_dimid(ncid, 'lat', did)
+         IF (ierr == NF90_NOERR) ierr = nf90_inquire_dimension(ncid, did, len=nlat)
+         IF (ierr == NF90_NOERR) ierr = nf90_inq_dimid(ncid, 'lon', did)
+         IF (ierr == NF90_NOERR) ierr = nf90_inquire_dimension(ncid, did, len=nlon)
+         IF (ierr /= NF90_NOERR .or. nlat < 2 .or. nlon < 2) CALL CoLM_stop &
+            (' ***** ERROR: invalid lat/lon in wetland class rawdata')
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (nlat, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (nlon, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      allocate (lat_g(nlat), lon_g(nlon))
+      allocate (class_g(nlon,nlat), wetf_g(nlon,nlat))
+      IF (p_is_master) THEN
+         ierr = nf90_inq_varid(ncid, 'lat', vid)
+         IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lat_g)
+         IF (ierr == NF90_NOERR) ierr = nf90_inq_varid(ncid, 'lon', vid)
+         IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lon_g)
+         IF (ierr == NF90_NOERR) ierr = nf90_inq_varid(ncid, 'WFT_CLASS', vid)
+         IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, class_g)
+         IF (ierr == NF90_NOERR) ierr = nf90_inq_varid(ncid, 'WET_FRAC', vid)
+         IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, wetf_g)
+         IF (ierr /= NF90_NOERR) CALL CoLM_stop &
+            (' ***** ERROR: cannot read WFT_CLASS/WET_FRAC: '//trim(nf90_strerror(ierr)))
+         ierr = nf90_close(ncid)
+      ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (lat_g, nlat, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (lon_g, nlon, MPI_REAL8, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (class_g, nlon*nlat, MPI_INTEGER1, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast (wetf_g,  nlon*nlat, MPI_REAL4,    p_address_master, p_comm_glb, p_err)
+#endif
+
+      IF (lat_g(1) < lat_g(nlat)) THEN
+         south_edge = lat_g(1)    - 0.5_r8 * (lat_g(2) - lat_g(1))
+         north_edge = lat_g(nlat) + 0.5_r8 * (lat_g(nlat) - lat_g(nlat-1))
+      ELSE
+         south_edge = lat_g(nlat) - 0.5_r8 * (lat_g(nlat-1) - lat_g(nlat))
+         north_edge = lat_g(1)    + 0.5_r8 * (lat_g(1) - lat_g(2))
+      ENDIF
+      south_edge = max(-90._r8, south_edge)
+      north_edge = min( 90._r8, north_edge)
+      CALL grid_wft%define_by_center (lat_g, lon_g, south=south_edge, north=north_edge)
+      CALL build_methane_ph_areal_mapping (map_wft, grid_wft, landpatch)
+
+      nfallback = 0
+      nweighted_empty = 0
+      count_loc(:) = 0
+      IF (p_is_worker) THEN
+         allocate (wft_class_patch(max(numpatch,1)))
+         wft_class_patch(:) = 0
+         DO iset = 1, numpatch
+            IF (landpatch%settyp(iset) /= WETLAND) CYCLE
+            votes(:) = 0._r8
+            votes_area(:) = 0._r8
+            DO ipart = 1, map_wft%npart(iset)
+               iproc = map_wft%address(iset)%val(1,ipart)
+               iloc  = map_wft%address(iset)%val(2,ipart)
+               jlat  = map_wft%glist(iproc)%ilat(iloc)
+               jlon  = map_wft%glist(iproc)%ilon(iloc)
+               ic    = int(class_g(jlon,jlat))
+               area  = map_wft%areapart(iset)%val(ipart)
+               IF (ic < 1 .or. ic > N_WFT .or. area <= 0._r8) CYCLE
+               w = area * max(real(wetf_g(jlon,jlat), r8), 0._r8)
+               votes(ic) = votes(ic) + w
+               votes_area(ic) = votes_area(ic) + area
+            ENDDO
+            IF (any(votes > 0._r8)) THEN
+               wft_class_patch(iset) = maxloc(votes, dim=1)
+            ELSEIF (any(votes_area > 0._r8)) THEN
+               ! no GLWD wetland inside: fall back to plain-area majority
+               nweighted_empty = nweighted_empty + 1
+               wft_class_patch(iset) = maxloc(votes_area, dim=1)
+            ELSE
+               nfallback = nfallback + 1
+               wft_class_patch(iset) = 5    ! herbaceous mineral fallback
+            ENDIF
+            ic = wft_class_patch(iset)
+            count_loc(ic) = count_loc(ic) + 1
+         ENDDO
+      ELSE
+         allocate (wft_class_patch(1))
+         wft_class_patch(:) = 0
+      ENDIF
+
+      count_glb = count_loc
+#ifdef USEMPI
+      CALL mpi_allreduce (count_loc, count_glb, N_WFT, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      tmp = nfallback
+      CALL mpi_allreduce (tmp, nfallback, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      tmp = nweighted_empty
+      CALL mpi_allreduce (tmp, nweighted_empty, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (p_is_master) THEN
+         write(*,'(A)') 'Wetland functional type classes on wetland patches:'
+         DO ic = 1, N_WFT
+            write(*,'(A,I2,A,I10)') '  class ', ic, ' patches: ', count_glb(ic)
+         ENDDO
+         write(*,'(A,I10)') '  area-majority fallbacks (no GLWD wetland in cell): ', &
+            nweighted_empty
+         write(*,'(A,I10)') '  hard fallbacks to class 5 (no map data at all):    ', &
+            nfallback
+      ENDIF
+
+      deallocate (lat_g, lon_g, class_g, wetf_g)
+
+   END SUBROUTINE wetland_class_readin
+#endif
 
    ! ----------------------
    SUBROUTINE map_patch_to_pft

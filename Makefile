@@ -60,6 +60,7 @@ OBJS_SHARED =    \
 				  MOD_LandPatch.o              \
 				  MOD_Land2mWMO.o              \
 				  MOD_LandCrop.o               \
+				  MOD_Tracer_Reactive_Methane_PHMapping.o \
 				  MOD_LandPFT.o                \
 				  MOD_LandUrban.o              \
 				  MOD_Urban_Const_LCZ.o        \
@@ -107,7 +108,6 @@ TRACER_MKSRFDATA_CONFIG_OBJS += \
 				  MOD_Tracer_Reactive_Methane_Preprocessing.o
 
 TRACER_MKSRFDATA_SPECIES_OBJS = \
-					  MOD_Tracer_Reactive_Methane_PHMapping.o \
 					  Aggregation_LakeSoilC.o \
 					  Aggregation_MethanePH.o
 
@@ -670,7 +670,7 @@ MOD_LandHRU.o: MOD_AggregationRequestData.o MOD_LandElm.o
 MOD_LandPatch.o: MOD_Const_LC.o MOD_LandHRU.o MOD_NetCDFVector.o
 MOD_Land2mWMO.o: MOD_LandPatch.o
 MOD_LandCrop.o: MOD_5x5DataReadin.o MOD_LandPatch.o MOD_PixelsetShared.o
-MOD_LandPFT.o: MOD_Land2mWMO.o MOD_LandCrop.o
+MOD_LandPFT.o: MOD_Land2mWMO.o MOD_LandCrop.o MOD_Tracer_Reactive_Methane_PHMapping.o
 MOD_LandUrban.o: MOD_5x5DataReadin.o MOD_LandPatch.o
 MOD_Urban_Const_LCZ.o: MOD_Precision.o
 MOD_SingleSrfdata.o: MOD_Const_PFT.o MOD_LandPFT.o MOD_LandUrban.o MOD_NetCDFPoint.o MOD_Urban_Const_LCZ.o
