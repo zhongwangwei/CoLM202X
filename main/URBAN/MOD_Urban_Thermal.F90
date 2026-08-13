@@ -99,7 +99,7 @@ CONTAINS
         qfros_roof     ,qfros_gimp     ,qfros_gper     ,qfros_lake     ,&
         imelt_roof     ,imelt_gimp     ,imelt_gper     ,imelt_lake     ,&
         sm_roof        ,sm_gimp        ,sm_gper        ,sm_lake        ,&
-        sabg           ,rstfac         ,rootr          ,etr_deficit    ,&
+        sabg           ,rss            ,rstfac         ,rootr          ,etr_deficit    ,&
         tref           ,qref           ,trad           ,rst            ,&
         assim          ,respc          ,errore         ,emis           ,&
         z0m            ,zol            ,rib            ,ustar          ,&
@@ -406,6 +406,7 @@ CONTAINS
         sm_gper                        ,&! rate of snowmelt [kg/(m2 s)]
         sm_lake                        ,&! rate of snowmelt [kg/(m2 s)]
         sabg                           ,&! overall ground solar radiation absorption (+wall)
+        rss                            ,&! soil surface resistance [s/m]
         rstfac                         ,&! factor of soil water stress
         rootr(1:nl_soil)               ,&! root resistance of a layer, all layers add to 1
         etr_deficit                    ,&! urban irrigation [mm/s]
@@ -485,7 +486,6 @@ CONTAINS
         olrb               ,&! olrg assuming black body emission [W/m2]
         psit               ,&! negative potential of soil
 
-        rss                ,&! soil resistance
         qroof              ,&! roof specific humidity [kg/kg]
         qgimp              ,&! ground impervious road specific humidity [kg/kg]
         qgper              ,&! ground pervious specific humidity [kg/kg]

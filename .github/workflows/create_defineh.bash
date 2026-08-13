@@ -217,10 +217,13 @@ $CROP
 ! 8. If defined, open Land use and land cover change mode.
 #undef LULCC
 
+! 12b. If defined, extended canopy interception schemes are enabled.
+#define extend_interception
+
 ! 13. If defined, water tracer module is enabled.
 $TRACER
-#ifdef Campbell_SOIL_MODEL
-#undef TRACER
+#if (defined TRACER) && (defined Campbell_SOIL_MODEL)
+#error "TRACER requires vanGenuchten_Mualem_SOIL_MODEL; disable TRACER explicitly before using Campbell_SOIL_MODEL"
 #endif
 #if (defined TRACER) && (!defined GridRiverLakeFlow)
 #error "TRACER requires GridRiverLakeFlow to be defined in include/define.h"

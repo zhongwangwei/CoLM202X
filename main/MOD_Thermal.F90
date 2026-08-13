@@ -76,7 +76,7 @@ CONTAINS
                        qintr_snow    ,snofrz        ,sabg_snow_lyr                 &
 #ifdef TRACER
                       ,canopy_smelt_mass_th, canopy_frzc_mass_th                  ,&
-                       qphs_thaw_lay_th, qphs_frzc_lay_th                         &
+                       qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th             &
 #endif
                        )
 
@@ -272,6 +272,7 @@ CONTAINS
    real(r8), intent(out), optional :: canopy_frzc_mass_th  ! canopy rain->snow mass [mm]
    real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil) ! ice->liquid mass [mm]
    real(r8), intent(out), optional :: qphs_frzc_lay_th(lb:nl_soil) ! liquid->ice mass [mm]
+   real(r8), intent(out), optional :: raw_trc_th ! reference-to-canopy moisture resistance [s/m]
 #endif
 
        ! state variables (2)
@@ -487,8 +488,8 @@ CONTAINS
    real(r8), allocatable :: etrsha_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
 #ifdef TRACER
-   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local
-   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:)
+   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local, raw_trc_local, raw_trc_pc
+   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:), raw_trc_p(:)
 #endif
 
 
@@ -516,10 +517,13 @@ CONTAINS
 #ifdef TRACER
       canopy_smelt_mass_local = 0._r8
       canopy_frzc_mass_local  = 0._r8
+      raw_trc_local           = 0._r8
+      raw_trc_pc              = 0._r8
       IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = 0._r8
       IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = 0._r8
       IF (present(qphs_thaw_lay_th)) qphs_thaw_lay_th(:) = 0._r8
       IF (present(qphs_frzc_lay_th)) qphs_frzc_lay_th(:) = 0._r8
+      IF (present(raw_trc_th)) raw_trc_th = 0._r8
 #endif
 
       emis   = 0.;  z0m    = 0.
@@ -742,7 +746,8 @@ IF ( .not. patch_has_pft(patchtype) .or. DEF_USE_LCT ) THEN
                  smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)              &
 #ifdef TRACER
                 ,canopy_smelt_mass_out=canopy_smelt_mass_local, &
-                 canopy_frzc_mass_out =canopy_frzc_mass_local  &
+                 canopy_frzc_mass_out =canopy_frzc_mass_local, &
+                 raw_trc_out=raw_trc_local                     &
 #endif
                  )
       ELSE
@@ -814,8 +819,10 @@ IF (patchtype == 0) THEN
 #ifdef TRACER
       allocate ( canopy_smelt_mass_p_local(ps:pe) )
       allocate ( canopy_frzc_mass_p_local (ps:pe) )
+      allocate ( raw_trc_p(ps:pe) )
       canopy_smelt_mass_p_local(:) = 0._r8
       canopy_frzc_mass_p_local (:) = 0._r8
+      raw_trc_p(:) = 0._r8
 #endif
 
       sabv_p(ps:pe) = sabvsun_p(ps:pe) + sabvsha_p(ps:pe)
@@ -960,7 +967,8 @@ IF (patchtype == 0) THEN
                  smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                &
 #ifdef TRACER
                 ,canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
-                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i) &
+                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i), &
+                 raw_trc_out=raw_trc_p(i)                            &
 #endif
                  )
          ELSE
@@ -1074,7 +1082,8 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          rootflux_p(:,:)                                                                  &
 #ifdef TRACER
         ,canopy_smelt_mass_p_out=canopy_smelt_mass_p_local(ps:pe),&
-         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe)&
+         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe),&
+         raw_trc_out=raw_trc_pc                                  &
 #endif
          )
 
@@ -1102,6 +1111,9 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       fm_p         (ps:pe) = fm
       fh_p         (ps:pe) = fh
       fq_p         (ps:pe) = fq
+#ifdef TRACER
+      raw_trc_p    (ps:pe) = raw_trc_pc
+#endif
 ENDIF
 
       pe = patch_pft_e(ipatch)
@@ -1160,6 +1172,7 @@ ENDIF
 #ifdef TRACER
       canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe)*pftfrac(ps:pe) )
       canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe)*pftfrac(ps:pe) )
+      raw_trc_local           = sum( raw_trc_p(ps:pe)*pftfrac(ps:pe) )
 #endif
 IF (DEF_USE_OZONESTRESS)THEN
       o3uptakesun   = sum(o3uptakesun_p(ps:pe)*pftfrac(ps:pe) )
@@ -1222,6 +1235,7 @@ END IF
 #ifdef TRACER
       deallocate ( canopy_smelt_mass_p_local )
       deallocate ( canopy_frzc_mass_p_local  )
+      deallocate ( raw_trc_p )
 #endif
 
 ENDIF
@@ -1230,6 +1244,7 @@ ENDIF
 #ifdef TRACER
       IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
       IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = canopy_frzc_mass_local
+      IF (present(raw_trc_th)) raw_trc_th = raw_trc_local
 #endif
 
 !=======================================================================

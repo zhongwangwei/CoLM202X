@@ -68,7 +68,7 @@ CONTAINS
                qintr_rain ,qintr_snow ,t_precip   ,lfevpl     ,hprl       ,&
                dheatl     ,smp        ,hk         ,hksati     ,&
                rootflux   ,canopy_phase_heat                  ,&
-               canopy_smelt_mass_p_out, canopy_frzc_mass_p_out)
+               canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_trc_out)
 
 !=======================================================================
 !
@@ -270,6 +270,7 @@ CONTAINS
    ! pftfrac and forwards the patch sum to MOD_Tracer_Evapo.
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out
+   real(r8), intent(out), optional :: raw_trc_out
 
    real(r8), dimension(ps:pe), intent(out) :: &
         z0mpc,         &! z0m for individual PFT
@@ -451,8 +452,9 @@ CONTAINS
    real(r8) :: wet_area_cfw ! scheme-specific canopy area used in cfw [m2/m2]
    real(r8) :: wet_cond    ! scheme-specific wet-canopy conductance [m/s]
    real(r8) :: wet_cond_cfw ! scheme-specific wet conductance used in cfw [m/s]
-   real(r8) :: MaxInt_VIC  !VIC wet canopy capacity [mm] = 0.1*LAI (Wdmax)
    real(r8) :: wetfrac_VIC !VIC (S/Wmax)^(2/3) [-]
+   real(r8) :: satcap_rain_VIC_evap !grid-scale VIC liquid capacity [mm]
+   real(r8) :: satcap_MATSIRO_evap !MATSIRO canopy capacity used with step-start storage [mm]
    real(r8) :: ec_pot_VIC  !VIC potential wet-canopy evap [kg/m2/s]
    real(r8) :: f_VIC       !VIC supply-limit factor [-]
    logical  :: phase_change_owned_by_interception  ! NM-1-v2 gate
@@ -460,7 +462,10 @@ CONTAINS
    real(r8) :: dry_factor  !Scheme-specific (1 - wet fraction) for transpiration [-]
    ! sigf floors used to convert grid-scale ldew to
    ! per-vegetation before comparing with per-vegetation canopy capacity.
-   real(r8) :: sigf_safe_VIC, sigf_safe_JULES
+   real(r8) :: sigf_safe_JULES
+   real(r8), dimension(ps:pe) :: wetfrac_VIC_base
+   real(r8), dimension(ps:pe) :: ldew_VIC_evap !water available to scheme-specific evaporation [mm]
+   real(r8), dimension(ps:pe) :: ldew_JULES_rain_evap !JULES step-start liquid storage [mm]
    real(r8),dimension(ps:pe)   :: gb_mol_sun,gb_mol_sha
    real(r8),dimension(nl_soil) :: k_soil_root    ! radial root and soil conductance
    real(r8),dimension(nl_soil) :: k_ax_root      ! axial root conductance
@@ -571,6 +576,9 @@ CONTAINS
       lsai(:) = lai(:) + sai(:)
       is_vegetated_patch = .false.
 
+      wetfrac_VIC_base(:) = 0._r8
+      ldew_VIC_evap(:) = ldew(:)
+      ldew_JULES_rain_evap(:) = ldew_rain(:)
       DO i = ps, pe
          IF (fcover(i)>0 .and. lsai(i)>1.e-6) THEN
             is_vegetated_patch = .true.
@@ -676,6 +684,48 @@ CONTAINS
          IF (fcover(i)>0 .and. lsai(i)>1.e-6) THEN
             CALL dewfraction (sigf(i),lai(i),sai(i),dewmx,tl(i),&
                               ldew(i),ldew_rain(i),ldew_snow(i),fwet(i),fdry(i))
+            wetfrac_VIC_base(i) = fwet(i)
+            ! Original MATSIRO evaluates fcwet from step-start glwc, before
+            ! adding precipitation. Reconstruct that storage from CoLM's net
+            ! interception flux for the evaporation-side fwet and supply cap.
+            IF (DEF_Interception_scheme == 5) THEN
+               ldew_VIC_evap(i) = max(0._r8, ldew(i) &
+                                    - (qintr_rain(i) + qintr_snow(i)) * deltim)
+               satcap_MATSIRO_evap = 0.2_r8 * DEF_MATSIRO_CWCAP_SCALE * max(lai(i), 0._r8)
+               fwet(i) = 0._r8
+               IF (ldew_VIC_evap(i) > 0._r8 .AND. satcap_MATSIRO_evap > 1.e-10_r8) THEN
+                  fwet(i) = min(ldew_VIC_evap(i) / satcap_MATSIRO_evap, 1._r8)
+               ENDIF
+               fdry(i) = (1._r8 - fwet(i)) * lai(i) / max(lsai(i), 1.e-10_r8)
+               ldew_VIC_evap(i) = min(ldew(i), ldew_VIC_evap(i))
+            ENDIF
+            ! Match VIC canopy_evap(): warm-rain evaporation uses
+            ! storage present before current intercepted rain is added.
+            IF (DEF_Interception_scheme == 6 &
+                .AND. fsno <= 1.e-10_r8 .AND. ldew_snow(i) <= 1.e-10_r8 &
+                .AND. abs(qintr_snow(i)) <= 1.e-10_r8 &
+                .AND. abs(canopy_phase_heat(i)) <= 1.e-10_r8) THEN
+               ldew_VIC_evap(i) = max(0._r8, ldew_rain(i) - qintr_rain(i) * deltim)
+               satcap_rain_VIC_evap = canopy_rain_capacity_for_fwet(sigf(i), lai(i), sai(i), dewmx)
+               wetfrac_VIC_base(i) = 0._r8
+               IF (ldew_VIC_evap(i) > 0._r8 .AND. satcap_rain_VIC_evap > 1.e-10_r8) THEN
+                  wetfrac_VIC_base(i) = min((ldew_VIC_evap(i) / satcap_rain_VIC_evap)**.666666666666_r8, 1._r8)
+               ENDIF
+               fwet(i) = wetfrac_VIC_base(i)
+               ! Daily VIC may evaporate newly supplied rain. Use only the
+               ! intercepted mass retained after CoLM's earlier overflow.
+               IF (deltim >= 86400._r8) ldew_VIC_evap(i) = ldew_rain(i)
+            ENDIF
+            ! Match upstream JULES ordering for snow-free steps: evaporation
+            ! uses storage present before current precipitation enters sieve().
+            IF (DEF_Interception_scheme == 7 &
+                .AND. fsno <= 1.e-10_r8 .AND. ldew_snow(i) <= 1.e-10_r8 &
+                .AND. abs(qintr_snow(i)) <= 1.e-10_r8 &
+                .AND. abs(canopy_phase_heat(i)) <= 1.e-10_r8) THEN
+               ldew_JULES_rain_evap(i) = min(ldew_rain(i), &
+                    max(0._r8, ldew_rain(i) - qintr_rain(i) * deltim))
+               ldew_VIC_evap(i) = ldew_JULES_rain_evap(i)
+            ENDIF
             CALL qsadv(tl(i),psrf,ei(i),deiDT(i),qsatl(i),qsatlDT(i))
          ENDIF
       ENDDO
@@ -1246,21 +1296,12 @@ CONTAINS
                   gs0sha(i) = min( 1.e6, 1./(rssha(i)*tl(i)/tprcor) )/ laisha(i) * 1.e6 * o3coefg_sha(i)
 
                   IF (DEF_Interception_scheme == 6) THEN
-                     sigf_safe_VIC = max(sigf(i), 0.01_r8)
-                     ! See MOD_LeafTemperature.F90
-                     ! VIC branch. DEF_VEG_SNOW=T pre-scales lai by sigf
-                     ! upstream, so divide back out here for per-veg.
-                     IF (DEF_VEG_SNOW) THEN
-                        MaxInt_VIC = max(0.1_r8 * lai(i) / sigf_safe_VIC, 1.e-10_r8)
-                     ELSE
-                        MaxInt_VIC = max(0.1_r8 * lai(i), 1.e-10_r8)
-                     ENDIF
-                     wetfrac_VIC = min( ((ldew(i)/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8), 1.0_r8 )
+                     wetfrac_VIC = wetfrac_VIC_base(i)
                      wet_area = 1._r8
                      ec_pot_VIC  = rhoair * wetfrac_VIC * wet_area / rb(i) &
                                  * max(0._r8, qsatl(i) - qaf(clev))
-                     IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew(i) > 0._r8) THEN
-                        f_VIC = min(1.0_r8, ldew(i) / (ec_pot_VIC * deltim))
+                     IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew_VIC_evap(i) > 0._r8) THEN
+                        f_VIC = min(1.0_r8, ldew_VIC_evap(i) / (ec_pot_VIC * deltim))
                      ELSE
                         f_VIC = 1.0_r8
                      ENDIF
@@ -1283,8 +1324,10 @@ CONTAINS
                      epot_JULES  = rhoair / max(raw, 1.e-10_r8) * (qsatl(i) - qaf(clev))
                      IF (epot_JULES > 0._r8) THEN
                         epdt_JULES = epot_JULES * deltim
-                        IF (ldew_rain(i) > 0._r8 .AND. (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
-                           fraca_JULES_rain = min((ldew_rain(i) / sigf_safe_JULES) / (epdt_JULES + catch_JULES), 1.0_r8)
+                        IF (ldew_JULES_rain_evap(i) > 0._r8 .AND. &
+                            (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
+                           fraca_JULES_rain = min((ldew_JULES_rain_evap(i) / sigf_safe_JULES) / &
+                                                      (epdt_JULES + catch_JULES), 1.0_r8)
                         ELSE
                            fraca_JULES_rain = 0.0_r8
                         ENDIF
@@ -1382,9 +1425,14 @@ CONTAINS
 
                ! cfw uses the same scheme-specific wet conductance semantics
                ! as the wet-canopy flux itself so the qaf solve stays aligned.
-               cfw(i) = (1.-delta(i)*(1.-fwet(i)))*wet_cond_cfw + &
-                        (1.-fwet(i))*delta(i)* &
-                        ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) )
+               IF (DEF_Interception_scheme == 5) THEN
+                  cfw(i) = fwet(i)*wet_cond_cfw + (1.-fwet(i))*delta(i)* &
+                           ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) )
+               ELSE
+                  cfw(i) = (1.-delta(i)*(1.-fwet(i)))*wet_cond_cfw + &
+                           (1.-fwet(i))*delta(i)* &
+                           ( laisun(i)/(rb(i)+rssun(i)) + laisha(i)/(rb(i)+rssha(i)) )
+               ENDIF
             ENDIF
          ENDDO
 
@@ -1632,18 +1680,11 @@ ENDIF
                   IF (DEF_USE_PLANTHYDRAULICS) THEN
                      evp_weight = fwet(i)
                   ELSE
-                     sigf_safe_VIC = max(sigf(i), 0.01_r8)
-                     ! See VIC branch above for rationale.
-                     IF (DEF_VEG_SNOW) THEN
-                        MaxInt_VIC = max(0.1_r8 * lai(i) / sigf_safe_VIC, 1.e-10_r8)
-                     ELSE
-                        MaxInt_VIC = max(0.1_r8 * lai(i), 1.e-10_r8)
-                     ENDIF
-                     wetfrac_VIC = min( ((ldew(i)/sigf_safe_VIC)/MaxInt_VIC)**(2.0_r8/3.0_r8), 1.0_r8 )
+                     wetfrac_VIC = wetfrac_VIC_base(i)
                      ec_pot_VIC  = rhoair * wetfrac_VIC * wet_area / rb(i) &
                                  * max(0._r8, qsatl(i) - qaf(clev))
-                     IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew(i) > 0._r8) THEN
-                        f_VIC = min(1.0_r8, ldew(i) / (ec_pot_VIC * deltim))
+                     IF (ec_pot_VIC * deltim > 1.e-10_r8 .AND. ldew_VIC_evap(i) > 0._r8) THEN
+                        f_VIC = min(1.0_r8, ldew_VIC_evap(i) / (ec_pot_VIC * deltim))
                      ELSE
                         f_VIC = 1.0_r8
                      ENDIF
@@ -1673,8 +1714,10 @@ ENDIF
                      epot_JULES  = rhoair * wet_cond * (qsatl(i) - qaf(clev))
                      IF (epot_JULES > 0._r8) THEN
                         epdt_JULES = epot_JULES * deltim
-                        IF (ldew_rain(i) > 0._r8 .AND. (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
-                           fraca_JULES_rain = min((ldew_rain(i) / sigf_safe_JULES) / (epdt_JULES + catch_JULES), 1.0_r8)
+                        IF (ldew_JULES_rain_evap(i) > 0._r8 .AND. &
+                            (epdt_JULES + catch_JULES) > 1.e-10_r8) THEN
+                           fraca_JULES_rain = min((ldew_JULES_rain_evap(i) / sigf_safe_JULES) / &
+                                                      (epdt_JULES + catch_JULES), 1.0_r8)
                         ELSE
                            fraca_JULES_rain = 0.0_r8
                         ENDIF
@@ -1695,15 +1738,18 @@ ENDIF
                   dry_factor = 1._r8 - fwet(i)                    ! JULES: Ec/Et independent
 
                ELSEIF (DEF_Interception_scheme == 4) THEN
-                  wet_area = min(6._r8, max(lsai(i), 0._r8))
-                  wet_area_cfw = wet_area
+                  ! NoahMP applies VegFrac to the grid-cell flux, but not to
+                  ! its within-canopy humidity conductance.
+                  wet_area_cfw = min(6._r8, max(lsai(i), 0._r8))
+                  wet_area = max(0.05_r8, 1._r8 - exp(-0.52_r8 * &
+                             max(lsai(i), 0._r8))) * wet_area_cfw
                   wet_cond = wet_area / rb(i)
                   evp_weight = 1._r8 - delta(i)*(1._r8 - fwet(i))
                   dry_factor = 1._r8 - fwet(i)
 
                ELSEIF (DEF_Interception_scheme == 5) THEN
                   ! MATSIRO canopy water is LAI-only throughout fctint/cwcap/fcwet.
-                  evp_weight = 1._r8 - delta(i)*(1._r8 - fwet(i))
+                  evp_weight = fwet(i)
                   wet_area   = min(1._r8, max(lai(i), 0._r8))
                   wet_area_cfw = wet_area
                   wet_cond = wet_area / rb(i)
@@ -1770,8 +1816,8 @@ ENDIF
                ! 03/02/2018: convert evplwet from fc to whole area
                ! because ldew right now is for the whole area
                ! 09/05/2019: back to fc area
-               IF(evplwet(i).ge.ldew(i)/deltim)THEN
-                  evplwet(i) = ldew(i)/deltim
+               IF(evplwet(i).ge.ldew_VIC_evap(i)/deltim)THEN
+                  evplwet(i) = ldew_VIC_evap(i)/deltim
                   evplwet_dtl(i) = 0.
                ENDIF
 
@@ -2049,7 +2095,7 @@ ENDIF
             fevpl  (i) = fevpl_noadj(i)
             fevpl  (i) = fevpl(i)   +   fevpl_dtl(i)*dtl(it-1,i)
 
-            elwmax = ldew(i)/deltim
+            elwmax = ldew_VIC_evap(i)/deltim
 
             ! 03/02/2018, yuan: convert fc to whole area
             ! because ldew now is for the whole area
@@ -2276,6 +2322,7 @@ ENDIF
 
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
 
    END SUBROUTINE LeafTemperaturePC
 !----------------------------------------------------------------------
@@ -2393,19 +2440,16 @@ ENDIF
 
       ELSEIF (DEF_Interception_scheme == 4) THEN
          ! See MOD_LeafTemperature.F90 CASE(4) for rationale.
-         ! NoahMP fwet uses fvegc-scaled capacity from helper CASE(4).
          fwet = 0
-         IF (ldew > 0.) THEN
-            IF (tleaf > tfrz) THEN
-               satcap_rain_eff = canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx)
-               IF (satcap_rain_eff > 1.e-10_r8) THEN
-                  fwet = min((ldew / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
-               ENDIF
-            ELSE
-               satcap_rain_eff = canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf)
-               IF (satcap_rain_eff > 1.e-10_r8) THEN
-                  fwet = min((ldew / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
-               ENDIF
+         IF (ldew_snow > 0._r8) THEN
+            satcap_rain_eff = canopy_snow_capacity_for_fwet(sigf, lai, sai, dewmx, tleaf)
+            IF (satcap_rain_eff > 1.e-10_r8) THEN
+               fwet = min((ldew_snow / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
+            ENDIF
+         ELSEIF (ldew_rain > 0._r8) THEN
+            satcap_rain_eff = canopy_rain_capacity_for_fwet(sigf, lai, sai, dewmx)
+            IF (satcap_rain_eff > 1.e-10_r8) THEN
+               fwet = min((ldew_rain / satcap_rain_eff)**.666666666666_r8, 1.0_r8)
             ENDIF
          ENDIF
 
@@ -2433,7 +2477,8 @@ ENDIF
          ! See MOD_LeafTemperature.F90 for
          ! rationale. CLM4 (scheme=2) is single-bucket in interception;
          ! skip the double-bucket union formula for scheme=2 only.
-         IF ( DEF_VEG_SNOW .and. DEF_Interception_scheme /= 2 ) THEN
+         IF ( (DEF_VEG_SNOW .or. DEF_Interception_scheme == 6) .and. &
+              DEF_Interception_scheme /= 2 ) THEN
 
             fwet_rain = 0
             IF(ldew_rain > 0.) THEN
@@ -2452,7 +2497,7 @@ ENDIF
             ENDIF
 
             IF (DEF_Interception_scheme == 4) THEN
-               IF (ldew_snow > 0._r8 .AND. ldew_snow >= ldew_rain) THEN
+               IF (ldew_snow > 0._r8) THEN
                   fwet = fwet_snow
                ELSE
                   fwet = fwet_rain
@@ -2496,7 +2541,8 @@ ENDIF
          fvegc = max(0.05_r8, 1.0_r8 - exp(-0.52_r8 * lsai))
          satcap_rain_eff = fvegc * dewmx * lsai
       CASE (6)
-         satcap_rain_eff = sigf_safe * 0.1_r8 * max(lai_perveg, 0._r8)
+         ! VIC is evaluated inside the vegetation tile with F=1.
+         satcap_rain_eff = 0.1_r8 * max(lai_perveg, 0._r8)
       CASE (7)
          ! Mirror MOD_LeafTemperature.F90 canopy_rain_capacity_for_fwet.
          IF (DEF_VEG_SNOW) THEN
@@ -2555,7 +2601,7 @@ ENDIF
          ELSE
             Lr = 1.0_r8
          ENDIF
-         satcap_snow_eff = sigf_safe * 0.5_r8 * Lr * max(lai_perveg, 0._r8)
+         satcap_snow_eff = 0.5_r8 * Lr * max(lai_perveg, 0._r8)
       CASE (7)
          ! See canopy_rain_capacity_for_fwet CASE(7) above.
          IF (DEF_VEG_SNOW) THEN

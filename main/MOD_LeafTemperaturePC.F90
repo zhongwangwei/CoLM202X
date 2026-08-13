@@ -68,7 +68,7 @@ CONTAINS
                dheatl     ,smp        ,hk         ,hksati     ,&
                rootflux                                            &
 #ifdef TRACER
-              ,canopy_smelt_mass_p_out, canopy_frzc_mass_p_out    &
+              ,canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_trc_out &
 #endif
                )
 
@@ -263,6 +263,7 @@ CONTAINS
 #ifdef TRACER
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out ! snow->rain mass [mm]
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out  ! rain->snow mass [mm]
+   real(r8), intent(out), optional :: raw_trc_out
 #endif
 
    real(r8), dimension(ps:pe), intent(out) :: &
@@ -2015,6 +2016,9 @@ ENDIF
 
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+#ifdef TRACER
+      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
+#endif
 
    END SUBROUTINE LeafTemperaturePC
 !----------------------------------------------------------------------

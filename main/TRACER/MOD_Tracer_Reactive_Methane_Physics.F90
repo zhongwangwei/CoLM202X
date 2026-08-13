@@ -634,6 +634,11 @@ contains
       methane_prod_depth_lake     = 0._r8
       methane_oxid_depth_lake     = 0._r8
       methane_ebul_depth_lake     = 0._r8
+      co2_decomp_depth_lake       = 0._r8
+      co2_oxid_depth_lake         = 0._r8
+      co2_decomp_tot_lake         = 0._r8
+      co2_oxid_tot_lake           = 0._r8
+      co2_net_tot_lake            = 0._r8
 
       ! Adjustment to NEE for methane production - oxidation
       net_methane             = 0._r8
@@ -1839,14 +1844,14 @@ contains
 		! Compute a factor that preserves the unmodified HR partition-weight sum
 		! while applying exp(-z/z0_methane_prod) to partition_z later.  This does
 		! not claim to preserve final CH4 production after layer-specific
-		! temperature, pH, and redox modifiers.  Only include layers that can
-		! produce in the current branch (j > jwt = below water table).
+		! temperature, pH, and redox modifiers.  Use the same potential-
+		! production domain in this pre-pass and in the application below.
       walter_renorm = 1._r8
       if (DEF_METHANE%z0_methane_prod > 0._r8 .and. patchtype /= 4) then
          walter_w_raw   = 0._r8
          walter_w_atten = 0._r8
          do j = 1, nl_soil
-            if (j > jwt) then
+            if (j > jwt .or. DEF_METHANE%anoxicmicrosites) then
                walter_w_raw   = walter_w_raw   + hr_vr(j) * dz_soisno(j)
                walter_w_atten = walter_w_atten + hr_vr(j) * dz_soisno(j) * &
                   exp(-z_soisno(j) / DEF_METHANE%z0_methane_prod)
@@ -1923,7 +1928,8 @@ contains
 			! Multiply by exp(-z/z0)*walter_renorm to preserve the pre-modifier
 			! HR partition sum while sharpening the source profile (top layers up,
 			! deep layers down).  Subsequent layer modifiers may change the total.
-         if (DEF_METHANE%z0_methane_prod > 0._r8 .and. patchtype /= 4) then
+         if (DEF_METHANE%z0_methane_prod > 0._r8 .and. patchtype /= 4 .and. &
+             (j > jwt .or. DEF_METHANE%anoxicmicrosites)) then
             partition_z = partition_z * exp(-z_soisno(j) / DEF_METHANE%z0_methane_prod) * walter_renorm
          endif
 

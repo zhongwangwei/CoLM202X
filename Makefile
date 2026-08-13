@@ -5,6 +5,7 @@ LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
 TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
 METHANE_ENABLED := $(shell printf '\043include "include/define.h"\n\043if defined(TRACER) && defined(BGC)\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
+EXTENDED_INTERCEPTION_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef extend_interception\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -254,14 +255,14 @@ TRACER_MKINIDATA_OBJS = \
 
 MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc \
 				     $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS)
-MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
+MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o MOD_Namelist.o
 MOD_Tracer_Lifecycle.o: MOD_Tracer_Defs.o
 MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
 MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 MOD_Tracer_Forcing.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Isotope_Registry.o \
-				     MOD_Tracer_Isotope_Registrations.o MOD_Tracer_ForcingInput.o \
+				     MOD_Tracer_Isotope_Registrations.o MOD_Tracer_ForcingInput.o MOD_Tracer_Frac.o \
 				     MOD_Namelist.o MOD_SPMD_Task.o MOD_Grid.o MOD_DataType.o \
 				     MOD_NetCDFBlock.o MOD_SpatialMapping.o MOD_LandPatch.o \
 				     MOD_TimeManager.o MOD_UserSpecifiedForcing.o
@@ -287,7 +288,7 @@ MOD_Tracer_Hist.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Lifecycle.o \
 MOD_Tracer_Lifecycle_Registrations.o: include/tracer_lifecycle_providers.inc \
 				     $(TRACER_REACTIVE_REGISTERED_SPECIES_OBJS) \
 				     $(TRACER_PARTICLE_REGISTERED_SPECIES_OBJS)
-MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Lifecycle.o MOD_Tracer_Defs.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Lifecycle.o MOD_Tracer_Defs.o MOD_Vars_Global.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeFlow.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Lifecycle.o
 MOD_Tracer_RiverLake.o: MOD_Tracer_Defs.o MOD_Grid_RiverLakeLevee.o
 MOD_Tracer_RiverLake.o MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o
@@ -515,6 +516,7 @@ OBJS_MAIN = \
 				MOD_TurbulenceLEddy.o                     \
 				MOD_Ozone.o                               \
 				MOD_CanopyLayerProfile.o                  \
+				$(INTERCEPTION_EXTENDED_EXTRA_OBJS)       \
 				MOD_LeafTemperature.o                     \
 				MOD_LeafTemperaturePC.o                   \
 				MOD_SoilThermalParameters.o               \
@@ -578,8 +580,38 @@ OBJS_MAIN = \
 				CoLMMAIN.o                                \
 				CoLM.o
 
-$(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
+ifeq ($(EXTENDED_INTERCEPTION_ENABLED),YES)
+INTERCEPTION_EXTENDED_EXTRA_OBJS = MOD_PHSRootfluxBalance.o
+else
+INTERCEPTION_EXTENDED_EXTRA_OBJS =
+endif
+
+INTERCEPTION_CORE_OBJS = MOD_LeafInterception.o $(INTERCEPTION_EXTENDED_EXTRA_OBJS) MOD_LeafTemperature.o \
+	MOD_LeafTemperaturePC.o MOD_Thermal.o
+OBJS_MAIN_STANDARD = $(filter-out $(INTERCEPTION_CORE_OBJS),$(OBJS_MAIN))
+
+$(OBJS_MAIN_STANDARD) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+
+ifeq ($(EXTENDED_INTERCEPTION_ENABLED),YES)
+MOD_LeafInterception.o: extends/interception/MOD_LeafInterception_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+
+MOD_PHSRootfluxBalance.o: extends/interception/MOD_PHSRootfluxBalance.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+
+MOD_LeafTemperature.o: extends/interception/MOD_LeafTemperature_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_PHSRootfluxBalance.o | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+
+MOD_LeafTemperaturePC.o: extends/interception/MOD_LeafTemperaturePC_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+
+MOD_Thermal.o: extends/interception/MOD_Thermal_CanopyPhase_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+else
+$(INTERCEPTION_CORE_OBJS) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
+endif
 
 
 
@@ -823,7 +855,7 @@ MOD_Tracer_Conservation.o: MOD_Tracer_Frac.o MOD_Tracer_Vars.o
 MOD_Tracer_SoilInit.o: MOD_Tracer_Isotope_Registrations.o MOD_Tracer_Isotope_Registry.o MOD_Tracer_Vars.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
 MOD_Tracer_Forcing.o: MOD_Tracer_ForcingInput.o MOD_Tracer_Isotope_Registrations.o \
-	MOD_Tracer_Isotope_Registry.o MOD_Tracer_Vars.o MOD_UserSpecifiedForcing.o
+	MOD_Tracer_Isotope_Registry.o MOD_Tracer_Vars.o MOD_Tracer_Frac.o MOD_UserSpecifiedForcing.o
 MOD_Tracer_Precip.o: MOD_Tracer_Forcing.o
 MOD_Tracer_Evapo.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o
 MOD_Tracer_SoilWater.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o

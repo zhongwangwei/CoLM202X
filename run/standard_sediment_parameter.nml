@@ -28,7 +28,7 @@
     DEF_SEDIMENT%porosity         = 0.4                     ! bed porosity
     DEF_SEDIMENT%ndeposit_layers  = 5                       ! bed deposition layers (totlyrnum)
     DEF_SEDIMENT%ignore_depth_m   = 0.01                    ! min water depth for active sed (sed_ignore_dph)
-    DEF_SEDIMENT%active_layer_depth = 5.0e-5                ! active layer depth [m]
+    DEF_SEDIMENT%active_layer_depth = 5.0e-2                ! active layer depth [m]
     DEF_SEDIMENT%viscosity        = 1.0e-6                  ! kinematic viscosity [m2/s]
     DEF_SEDIMENT%von_karman       = 0.4                     ! von Karman constant
     DEF_SEDIMENT%settling_multiplier = 1.0                  ! settling velocity multiplier

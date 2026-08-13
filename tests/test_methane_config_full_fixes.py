@@ -61,7 +61,12 @@ def test_spatial_ph_requires_complete_vector_and_rejects_invalid_values() -> Non
 
 def test_mksrfdata_ph_is_sparse_area_weighted_and_fail_closed() -> None:
     aggregate = source("mksrfdata/Aggregation_MethanePH.F90")
+    lake_aggregate = source("mksrfdata/Aggregation_LakeSoilC.F90")
 
+    assert "#if (defined TRACER) && (defined BGC)" in aggregate
+    assert "#if (defined TRACER) && (defined BGC)" in lake_aggregate
+    assert aggregate.rstrip().endswith("#endif")
+    assert lake_aggregate.rstrip().endswith("#endif")
     assert aggregate.index("IF (relevant_global > 0) THEN") < aggregate.index(
         "required PHH2O raw file not found"
     )
@@ -96,6 +101,8 @@ def test_mksrfdata_ph_is_sparse_area_weighted_and_fail_closed() -> None:
     ph_mapping = source(
         "main/TRACER/MOD_Tracer_Reactive_Methane_PHMapping.F90"
     )
+    assert "#if (defined TRACER) && (defined BGC)" in ph_mapping
+    assert ph_mapping.rstrip().endswith("#endif")
     spatial_mapping = source("share/MOD_SpatialMapping.F90")
     assert "build_grid_sumarea" not in spatial_mapping
     assert "SUBROUTINE spatial_mapping_build_arealweighted (this, fgrid, pixelset)" in spatial_mapping

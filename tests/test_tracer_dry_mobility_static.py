@@ -41,8 +41,9 @@ def test_qlayer_and_qcharge_require_a_resolved_source_pool():
     qlayer = section(
         "! --- qlayer(j): layer j", "! 3. Groundwater: qcharge-driven"
     )
-    assert "ratio_src = current_liq_ratio(j)" in qlayer
-    assert "ratio_src = current_liq_ratio(j+1)" in qlayer
+    assert "layer_transport_ratio(j) = current_liq_ratio(j)" in qlayer
+    assert "ratio_src = layer_transport_ratio(j)" in qlayer
+    assert "ratio_src = layer_transport_ratio(j+1)" in qlayer
 
     groundwater = section(
         "! 3. Groundwater: qcharge-driven", "! A previously dry aquifer"
@@ -50,7 +51,7 @@ def test_qlayer_and_qcharge_require_a_resolved_source_pool():
     downward = groundwater.split("IF (qcharge_eff > trc_tiny) THEN", 1)[1].split(
         "ELSEIF (qcharge_eff < -trc_tiny) THEN", 1
     )[0]
-    assert "current_liq_ratio(j)" in downward
+    assert "layer_transport_ratio(j)" in downward
     assert "ratio_layer(j)" not in downward
 
     upward = groundwater.split("ELSEIF (qcharge_eff < -trc_tiny) THEN", 1)[1]

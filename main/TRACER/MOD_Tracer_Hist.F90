@@ -233,6 +233,24 @@ CONTAINS
                   ENDIF
 
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
+                     write(trc_varname , '(A,A)') 'f_trc_delta_precip_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'precipitation/deposition tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_tracer_delta_2d (DEF_hist_vars%xy_prc .or. DEF_hist_vars%xy_prl, &
+                        a_trc_precip(itrc_loc, :), a_water_precip(itrc_loc, :), &
+                        tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                        itime_in_file, filter, trim(trc_longname), 'permil', &
+                        water_min_override = trc_flux_water_min_for_delta)
+
+                     write(trc_varname , '(A,A)') 'f_trc_delta_runoff_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'total runoff tracer delta (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_tracer_delta_2d (DEF_hist_vars%rnof, &
+                        a_trc_rnof(itrc_loc, :), a_water_rnof(itrc_loc, :), &
+                        tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
+                        itime_in_file, filter, trim(trc_longname), 'permil', &
+                        water_min_override = trc_flux_water_min_for_delta)
+
                      ! --- Evapotranspiration flux delta ---
                      ! Pair a_trc_evap with gross evaporative water so the
                      ! denominator never goes near zero from dew/frost
@@ -250,6 +268,13 @@ CONTAINS
                            tracers(itrc_loc)%ref_ratio, file_hist, trim(trc_varname), &
                            itime_in_file, filter, trim(trc_longname), 'permil', &
                            water_min_override = trc_flux_water_min_for_delta)
+
+                     write(trc_varname , '(A,A)')   'f_trc_evap_mass_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'signed evapotranspiration tracer mass (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
+                        a_trc_evap(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
 
                      write(trc_varname , '(A,A)')   'f_trc_delta_soilevap_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
@@ -376,6 +401,40 @@ CONTAINS
                   ! tracer_uses_land_water_transport above and write history
                   ! through callbacks. Generic reactive tracers retain these
                   ! water-pool diagnostics just like conservative tracers.
+                  IF (.not. tracer_uses_delta_diagnostics(itrc_loc)) THEN
+                     write(trc_varname , '(A,A)') 'f_trc_conc_precip_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'precipitation/deposition tracer concentration (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_tracer_ratio_2d (DEF_hist_vars%xy_prc .or. DEF_hist_vars%xy_prl, &
+                        a_trc_precip(itrc_loc, :), a_water_precip(itrc_loc, :), &
+                        file_hist, trim(trc_varname), itime_in_file, filter, &
+                        trim(trc_longname), trim(trc_ratio_units))
+
+                     write(trc_varname , '(A,A)') 'f_trc_conc_runoff_', trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') 'total runoff tracer concentration (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_tracer_ratio_2d (DEF_hist_vars%rnof, &
+                        a_trc_rnof(itrc_loc, :), a_water_rnof(itrc_loc, :), &
+                        file_hist, trim(trc_varname), itime_in_file, filter, &
+                        trim(trc_longname), trim(trc_ratio_units))
+                  ENDIF
+
+                  ! Two-way equilibrium exchange with atmospheric vapour.
+                  ! Written as a MASS, not a delta: it carries no water
+                  ! flux by construction (zero net water, non-zero net
+                  ! tracer), so there is nothing to normalise a delta by.
+                  ! Signed -- positive means net uptake by the surface.
+                  IF (tracer_uses_delta_diagnostics(itrc_loc) .and. &
+                      allocated(a_trc_vapor_exchange)) THEN
+                     write(trc_varname , '(A,A)') 'f_trc_vapor_exchange_', &
+                        trim(tracers(itrc_loc)%name)
+                     write(trc_longname, '(A,A,A)') &
+                        'zero-water-flux equilibrium vapour exchange, signed (', &
+                        trim(tracers(itrc_loc)%name), ')'
+                     CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
+                        a_trc_vapor_exchange(itrc_loc, :), file_hist, trim(trc_varname), &
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                  ENDIF
 
                   ! Waterless residue is an areal tracer inventory, not a
                   ! concentration. Tie its output to the existing surface-water

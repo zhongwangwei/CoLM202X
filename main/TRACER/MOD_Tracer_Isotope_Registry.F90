@@ -25,10 +25,6 @@ MODULE MOD_Tracer_Isotope_Registry
          IMPORT :: r8
       END FUNCTION isotope_scalar_if
 
-      real(r8) FUNCTION isotope_leaf_kinetic_epsilon_if (ra, rb, rc)
-         IMPORT :: r8
-         real(r8), intent(in) :: ra, rb, rc
-      END FUNCTION isotope_leaf_kinetic_epsilon_if
    END INTERFACE
 
    TYPE :: isotope_physics_type
@@ -36,12 +32,15 @@ MODULE MOD_Tracer_Isotope_Registry
       character(len=isotope_patterns_len) :: name_patterns = ''
       real(r8) :: ref_ratio_hint = 0._r8
       real(r8) :: ref_ratio_tolerance = 0.1_r8
-      integer :: legacy_forcing_kind = 0
       character(len=isotope_varname_len) :: default_soil_init_varname = 'null'
+      ! Species scaling of the Merlivat & Jouzel (1979) open-water kinetic
+      ! factor, relative to 18O: 1.0 for 18O, 0.88 for HDO.  Published
+      ! species property, so it lives beside the diffusivity ratio rather
+      ! than as a name test inside the shared closure.
+      real(r8) :: mj79_relative_factor = 1._r8
       procedure(isotope_alpha_temp_if), pointer, nopass :: alpha_liq_vap => null()
       procedure(isotope_alpha_temp_if), pointer, nopass :: alpha_ice_vap => null()
       procedure(isotope_scalar_if), pointer, nopass :: diffusivity_ratio_air => null()
-      procedure(isotope_leaf_kinetic_epsilon_if), pointer, nopass :: leaf_kinetic_epsilon => null()
       procedure(isotope_alpha_temp_if), pointer, nopass :: leaf_liquid_diffusivity => null()
    END TYPE isotope_physics_type
 
@@ -55,41 +54,25 @@ MODULE MOD_Tracer_Isotope_Registry
    PUBLIC :: isotope_alpha_liq_vap
    PUBLIC :: isotope_alpha_ice_vap
    PUBLIC :: isotope_diffusivity_ratio_air
-   PUBLIC :: isotope_leaf_kinetic_epsilon
+   PUBLIC :: isotope_mj79_relative_factor
    PUBLIC :: isotope_leaf_liquid_diffusivity
-   PUBLIC :: isotope_legacy_forcing_kind
    PUBLIC :: isotope_default_soil_init_varname
-   PUBLIC :: isotope_weighted_leaf_epsilon
 
 CONTAINS
 
-   real(r8) FUNCTION isotope_weighted_leaf_epsilon (ra, rb, rc, eps_boundary, eps_stomatal)
-      real(r8), intent(in) :: ra, rb, rc, eps_boundary, eps_stomatal
-      real(r8) :: ra1, rb1, rc1, denom
-
-      ra1 = max(ra, 0._r8)
-      rb1 = max(rb, 0._r8)
-      rc1 = max(rc, 0._r8)
-      denom = ra1 + rb1 + rc1
-      isotope_weighted_leaf_epsilon = 0._r8
-      IF (denom <= 0._r8) RETURN
-      isotope_weighted_leaf_epsilon = (eps_boundary * rb1 + eps_stomatal * rc1) / denom
-   END FUNCTION isotope_weighted_leaf_epsilon
-
    SUBROUTINE register_isotope_physics (name, name_patterns, ref_ratio_hint, &
-      legacy_forcing_kind, default_soil_init_varname, ref_ratio_tolerance, &
+      default_soil_init_varname, ref_ratio_tolerance, mj79_relative_factor, &
       alpha_liq_vap_fn, alpha_ice_vap_fn, diffusivity_ratio_air_fn, &
-      leaf_kinetic_epsilon_fn, leaf_liquid_diffusivity_fn)
+      leaf_liquid_diffusivity_fn)
       character(len=*), intent(in) :: name
       character(len=*), intent(in) :: name_patterns
       real(r8), intent(in), optional :: ref_ratio_hint
-      integer, intent(in), optional :: legacy_forcing_kind
       character(len=*), intent(in), optional :: default_soil_init_varname
       real(r8), intent(in), optional :: ref_ratio_tolerance
+      real(r8), intent(in), optional :: mj79_relative_factor
       procedure(isotope_alpha_temp_if), optional :: alpha_liq_vap_fn
       procedure(isotope_alpha_temp_if), optional :: alpha_ice_vap_fn
       procedure(isotope_scalar_if), optional :: diffusivity_ratio_air_fn
-      procedure(isotope_leaf_kinetic_epsilon_if), optional :: leaf_kinetic_epsilon_fn
       procedure(isotope_alpha_temp_if), optional :: leaf_liquid_diffusivity_fn
       integer :: idx
 
@@ -108,15 +91,14 @@ CONTAINS
       isotope_physics(idx)%name_patterns = trim(name_patterns)
       IF (present(ref_ratio_hint)) isotope_physics(idx)%ref_ratio_hint = ref_ratio_hint
       IF (present(ref_ratio_tolerance)) isotope_physics(idx)%ref_ratio_tolerance = ref_ratio_tolerance
-      IF (present(legacy_forcing_kind)) isotope_physics(idx)%legacy_forcing_kind = legacy_forcing_kind
       IF (present(default_soil_init_varname)) &
          isotope_physics(idx)%default_soil_init_varname = trim(default_soil_init_varname)
+      IF (present(mj79_relative_factor)) &
+         isotope_physics(idx)%mj79_relative_factor = mj79_relative_factor
       IF (present(alpha_liq_vap_fn)) isotope_physics(idx)%alpha_liq_vap => alpha_liq_vap_fn
       IF (present(alpha_ice_vap_fn)) isotope_physics(idx)%alpha_ice_vap => alpha_ice_vap_fn
       IF (present(diffusivity_ratio_air_fn)) &
          isotope_physics(idx)%diffusivity_ratio_air => diffusivity_ratio_air_fn
-      IF (present(leaf_kinetic_epsilon_fn)) &
-         isotope_physics(idx)%leaf_kinetic_epsilon => leaf_kinetic_epsilon_fn
       IF (present(leaf_liquid_diffusivity_fn)) &
          isotope_physics(idx)%leaf_liquid_diffusivity => leaf_liquid_diffusivity_fn
    END SUBROUTINE register_isotope_physics
@@ -223,16 +205,14 @@ CONTAINS
          isotope_diffusivity_ratio_air = isotope_physics(idx)%diffusivity_ratio_air()
    END FUNCTION isotope_diffusivity_ratio_air
 
-   real(r8) FUNCTION isotope_leaf_kinetic_epsilon (itrc, ra, rb, rc)
+   real(r8) FUNCTION isotope_mj79_relative_factor (itrc)
       integer, intent(in) :: itrc
-      real(r8), intent(in) :: ra, rb, rc
       integer :: idx
 
-      isotope_leaf_kinetic_epsilon = 0._r8
+      isotope_mj79_relative_factor = 1._r8
       idx = find_isotope_physics(itrc)
-      IF (idx > 0 .and. associated(isotope_physics(idx)%leaf_kinetic_epsilon)) &
-         isotope_leaf_kinetic_epsilon = isotope_physics(idx)%leaf_kinetic_epsilon(ra, rb, rc)
-   END FUNCTION isotope_leaf_kinetic_epsilon
+      IF (idx > 0) isotope_mj79_relative_factor = isotope_physics(idx)%mj79_relative_factor
+   END FUNCTION isotope_mj79_relative_factor
 
    real(r8) FUNCTION isotope_leaf_liquid_diffusivity (itrc, temp_k)
       integer, intent(in) :: itrc
@@ -244,15 +224,6 @@ CONTAINS
       IF (idx > 0 .and. associated(isotope_physics(idx)%leaf_liquid_diffusivity)) &
          isotope_leaf_liquid_diffusivity = isotope_physics(idx)%leaf_liquid_diffusivity(temp_k)
    END FUNCTION isotope_leaf_liquid_diffusivity
-
-   integer FUNCTION isotope_legacy_forcing_kind (itrc)
-      integer, intent(in) :: itrc
-      integer :: idx
-
-      isotope_legacy_forcing_kind = 0
-      idx = find_isotope_physics(itrc)
-      IF (idx > 0) isotope_legacy_forcing_kind = isotope_physics(idx)%legacy_forcing_kind
-   END FUNCTION isotope_legacy_forcing_kind
 
    SUBROUTINE isotope_default_soil_init_varname (itrc, varname)
       integer, intent(in) :: itrc

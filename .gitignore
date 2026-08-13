@@ -14,3 +14,8 @@ lib
 ppt_tracer/node_modules/
 /ppt_tracer
 docs/superpowers/
+/tests
+/tests
+*.py
+/tests
+/tests

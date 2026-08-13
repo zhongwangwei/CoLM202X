@@ -42,6 +42,19 @@ def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
     assert "read_methane_ph_patch" in reload_body
 
 
+def test_lulcc_zero_to_nonzero_worker_fails_before_unallocated_tracer_use() -> None:
+    driver = source("main/LULCC/MOD_Lulcc_Driver.F90")
+    guard = driver.index(
+        "IF (p_is_worker .and. allocated(patchclass) .and. size(patchclass) > 0"
+    )
+    remap = driver.index(
+        "IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_)"
+    )
+    assert guard < remap
+    assert ".not. allocated(patchclass_)" in driver[guard:remap]
+    assert "CALL CoLM_stop" in driver[guard:remap]
+
+
 def test_reactive_lulcc_area_order_is_new_then_old() -> None:
     files = (
         "main/TRACER/MOD_Tracer_Lifecycle.F90",
@@ -69,3 +82,41 @@ def test_giems_distributes_only_requested_patch_pixels() -> None:
     month_loop = giems.index("DO t = 1, ntime")
     scatter = giems.index("MPI_Scatterv(requested_values")
     assert gather < month_loop < scatter
+
+
+def test_nonlake_patches_initialize_all_lake_outputs() -> None:
+    physics = source("main/TRACER/MOD_Tracer_Reactive_Methane_Physics.F90")
+    initialization = physics.split(
+        "methane_prod_tot_lake       = 0._r8", 1
+    )[1].split("! Adjustment to NEE", 1)[0]
+
+    for name in (
+        "co2_decomp_depth_lake",
+        "co2_oxid_depth_lake",
+        "co2_decomp_tot_lake",
+        "co2_oxid_tot_lake",
+        "co2_net_tot_lake",
+    ):
+        assert any(
+            line.split("=", 1) == [line.split("=", 1)[0], " 0._r8"]
+            and line.split("=", 1)[0].strip() == name
+            for line in initialization.splitlines()
+            if "=" in line
+        )
+
+
+def test_walter_depth_renormalization_uses_the_same_production_domain() -> None:
+    physics = source("main/TRACER/MOD_Tracer_Reactive_Methane_Physics.F90")
+    prod = physics.split("subroutine methane_prod", 1)[1].split(
+        "end subroutine methane_prod", 1
+    )[0]
+    domain = "j > jwt .or. DEF_METHANE%anoxicmicrosites"
+    assert prod.count(domain) >= 2
+    prepass = prod.split("walter_w_raw", 1)[1].split(
+        "! column loop to partition", 1
+    )[0]
+    application = prod.split(
+        "! Walter & Heimann 2001 explicit methanogenesis depth attenuation.", 1
+    )[1].split("! Adjust DEF_METHANE%f_methane", 1)[0]
+    assert domain in prepass
+    assert domain in application

@@ -22,13 +22,14 @@ MODULE MOD_Tracer_Conservation
    ! Urban simple patches use the same threshold as ordinary land patches;
    ! their impermeable qgtop<0 evaporation branch is mirrored explicitly in
    ! MOD_Tracer_SoilWater instead of hidden behind a local tolerance waiver.
-   real(r8), parameter :: trc_balance_abs_tol = 5.0e-6_r8
-   real(r8), parameter :: trc_balance_rel_tol = 1.0e-12_r8
+   real(r8), parameter :: trc_balance_abs_tol = 1.0e-12_r8
+   real(r8), parameter :: trc_balance_rel_tol = 1.0e-10_r8
    integer, parameter :: n_storage_diag = 12
    integer, parameter :: n_flux_diag = 7
 
    ! Per-step accumulator snapshots (saved at start of each timestep)
    real(r8), allocatable, save :: snap_precip(:,:)  ! (ntracers, numpatch)
+   real(r8), allocatable, save :: snap_vapor_exchange(:,:)
    real(r8), allocatable, save :: snap_evap  (:,:)
    real(r8), allocatable, save :: snap_rnof  (:,:)
    real(r8), allocatable, save :: snap_rsur  (:,:)
@@ -88,6 +89,7 @@ CONTAINS
    SUBROUTINE deallocate_tracer_conservation ()
       IMPLICIT NONE
       IF (allocated(snap_precip)) deallocate(snap_precip)
+      IF (allocated(snap_vapor_exchange)) deallocate(snap_vapor_exchange)
       IF (allocated(snap_evap  )) deallocate(snap_evap  )
       IF (allocated(snap_rnof  )) deallocate(snap_rnof  )
       IF (allocated(snap_rsur  )) deallocate(snap_rsur  )
@@ -119,6 +121,8 @@ CONTAINS
       ! Allocate snapshots on first call
       IF (.not. allocated(snap_precip)) THEN
          allocate(snap_precip(ntracers, size(trc_storage_beg,2))); snap_precip = 0._r8
+         allocate(snap_vapor_exchange(ntracers, size(trc_storage_beg,2)))
+         snap_vapor_exchange = 0._r8
          allocate(snap_evap  (ntracers, size(trc_storage_beg,2))); snap_evap   = 0._r8
          allocate(snap_rnof  (ntracers, size(trc_storage_beg,2))); snap_rnof   = 0._r8
          allocate(snap_rsur  (ntracers, size(trc_storage_beg,2))); snap_rsur   = 0._r8
@@ -197,6 +201,8 @@ CONTAINS
 
          ! Snapshot accumulators at start of this step
          snap_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch)
+         IF (allocated(a_trc_vapor_exchange)) &
+            snap_vapor_exchange(itrc, ipatch) = a_trc_vapor_exchange(itrc, ipatch)
          snap_evap  (itrc, ipatch) = a_trc_evap  (itrc, ipatch)
          snap_rnof  (itrc, ipatch) = a_trc_rnof  (itrc, ipatch)
          snap_rsur  (itrc, ipatch) = a_trc_rsur  (itrc, ipatch)
@@ -310,6 +316,7 @@ CONTAINS
       real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
       real(r8) :: step_input_check, step_evap_check, step_output_check
       real(r8) :: step_rsur, step_rsub, step_qinfl, step_qcharge
+      real(r8) :: step_vapor_exchange
       real(r8) :: R_init, water_err, water_err_R, err_minus_water, check_err
       real(r8) :: reactive_source_sink, numerical_source_sink
       real(r8) :: water_dS, water_input, water_output, water_evap, water_rnof
@@ -403,6 +410,17 @@ CONTAINS
 #endif
          ENDIF
 
+         ! Two-way equilibrium exchange with atmospheric vapour moves tracer
+         ! across the patch boundary with NO accompanying water flux, so it
+         ! cannot be validated against water_input * R_init and is added after
+         ! the fixed-signature override.  Signed: positive = net uptake.
+         step_vapor_exchange = 0._r8
+         IF (allocated(a_trc_vapor_exchange)) THEN
+            step_vapor_exchange = a_trc_vapor_exchange(itrc, ipatch) &
+                                - snap_vapor_exchange(itrc, ipatch)
+         ENDIF
+         step_input_check = step_input_check + step_vapor_exchange
+
          ! Conservation: Δstorage = input - output + source_sink.
          ! Reactive and numerical source/sink terms are explicit state mutations
          ! booked by their owning processes.  Subtract both from the hard check
@@ -462,6 +480,8 @@ CONTAINS
          ELSE
             water_rnof = 0._r8
          ENDIF
+         a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + max(water_input, 0._r8)
+         a_water_rnof(itrc, ipatch) = a_water_rnof(itrc, ipatch) + max(water_rnof, 0._r8)
          dS_minus_water_R  = (storage_end - trc_storage_beg(itrc, ipatch)) &
                            - water_dS * R_init
          in_minus_water_R  = step_input  - water_input  * R_init
@@ -469,10 +489,10 @@ CONTAINS
          evap_minus_water_R = step_evap - water_evap * R_init
          rnof_minus_water_R = step_rnof - water_rnof * R_init
 
-         balance_scale = max(1._r8, abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
+         balance_scale = max(abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
             abs(step_input_check), abs(step_output_check), &
             abs(reactive_source_sink), abs(numerical_source_sink))
-         balance_tol = max(trc_balance_abs_tol, trc_balance_rel_tol * balance_scale)
+         balance_tol = trc_balance_abs_tol + trc_balance_rel_tol * balance_scale
          resid_scale = max(1._r8, abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
             abs(step_input_check), abs(step_output_check), abs(reactive_source_sink))
          resid_tol = max(trc_resid_abs_tol, trc_resid_rel_tol * resid_scale)
@@ -581,6 +601,8 @@ CONTAINS
       include 'mpif.h'
 #endif
 
+      IF (ntracers <= 0) RETURN
+
       worst_abs = abs(balance_worst_err)
       nbad_total  = balance_nbad
       resid_abs_total  = resid_worst_abs
@@ -603,9 +625,8 @@ CONTAINS
          counts_total = counts_local
          CALL mpi_reduce(maxima_local, maxima_total, 3, MPI_REAL8, MPI_MAX, 0, &
                          p_comm_worker, p_err)
-         CALL mpi_reduce(counts_local, counts_total, 3, MPI_INTEGER, MPI_SUM, 0, &
-                         p_comm_worker, p_err)
-         CALL mpi_bcast(counts_total, 3, MPI_INTEGER, 0, p_comm_worker, p_err)
+         CALL mpi_allreduce(counts_local, counts_total, 3, MPI_INTEGER, MPI_SUM, &
+                            p_comm_worker, p_err)
 
          reduced_abs          = maxima_total(1)
          resid_abs_total      = maxima_total(2)

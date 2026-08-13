@@ -4,18 +4,23 @@
 MODULE MOD_Tracer_SpecialPatches
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, trc_tiny, trc_water_min_for_ratio, tracer_init_water_ratio, &
+   USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
+      trc_delta_sanity_max, tracer_init_water_ratio, &
       tracer_can_use_fixed_signature, tracer_uses_land_water_transport, tracer_is_nonvolatile_solute, &
       tracer_has_dissolved_limit, tracer_equilibrate_dissolved
+   USE MOD_Namelist, only: DEF_TRACER_SUBL_SKIN_MM
    USE MOD_Tracer_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
+   USE MOD_Tracer_EvapLimit, only: tracer_atmospheric_tracer_loss
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_ratio, &
+      tracer_alpha_kinetic_open_water, &
       tracer_equilibrium_deposition_ratio
    USE MOD_Tracer_Conservation, only: tracer_save_storage, tracer_balance_check, &
       tracer_apply_reactive_processes
    USE MOD_Tracer_Hist, only: tracer_hist_accumulate
    USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_scv, trc_wdsrf, &
       trc_ldew_rain, trc_ldew_snow, trc_rnof_step, a_trc_precip, tracer_book_evap_loss, &
+      TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL, &
       a_trc_rsur, a_trc_rnof, trc_wetwat, trc_waterstorage, trc_storage_beg, &
       trc_surface_residue, trc_subsurface_residue, trc_runtime_forced, &
       trc_solid_soisno, trc_canopy_solid, trc_surface_solid, &
@@ -45,26 +50,37 @@ CONTAINS
       real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
 
       integer  :: itrc, j_trc, snl_trc
-      real(r8) :: R_init, R_precip, R_vapor, R_out, R_final
-      real(r8) :: R_dew, R_frost, R_evap_liq, R_evap_ice, R_runoff
+      real(r8) :: R_init, R_precip, R_vapor, R_final
+      real(r8) :: R_dew, R_frost, R_runoff
       real(r8) :: precip_mass, rnof_mass
       real(r8) :: evap_mass, dep_mass
       real(r8) :: evap_liq_mass, evap_ice_mass, dep_liq_mass, dep_ice_mass
       real(r8) :: water_dS, water_end, water_beg, water_input
-      real(r8) :: water_before_output, water_after_evap
-      real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
+      real(r8) :: water_before_output, water_after_evap, water_after_liq
+      real(r8) :: trc_input, trc_evap, trc_evap_liq, trc_evap_ice, trc_after_liq
+      real(r8) :: trc_rnof, trc_available, trc_final
       real(r8) :: trc_held_storage, surface_residue_beg
       real(r8) :: surface_liquid_end, surface_carrier, surface_residue_export
-      real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
+      real(r8) :: xerr_tracer
       logical  :: mixed_signature, fixed_signature, frac_active, nonvolatile_solute
 
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+         ! Glacier physics exposes a single bulk snow carrier (scv).  Fold any
+         ! layered state left by the preceding patch/step into that carrier
+         ! before the balance snapshot instead of clearing it outside the
+         ! accounting window.
+         trc_scv(itrc, ipatch) = trc_scv(itrc, ipatch) + &
+            sum(trc_wliq_soisno(itrc, maxsnl+1:0, ipatch)) + &
+            sum(trc_wice_soisno(itrc, maxsnl+1:0, ipatch))
+         trc_wliq_soisno(itrc, maxsnl+1:0, ipatch) = 0._r8
+         trc_wice_soisno(itrc, maxsnl+1:0, ipatch) = 0._r8
          ! These carrier pools do not exist on glacier patches.  Quarantine
          ! conservative mass left by a patch-class transition before clearing
          ! the incompatible dissolved states; it will re-enter only through a
          ! resolved glacier surface carrier below.
          IF (tracer_is_nonvolatile_solute(itrc)) THEN
+            CALL move_special_subsurface_residue_to_surface(itrc, ipatch)
             IF (tracer_has_dissolved_limit(itrc)) THEN
                trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) + &
                   trc_surface_residue(itrc, ipatch) + trc_ldew_rain(itrc, ipatch) + &
@@ -147,30 +163,20 @@ CONTAINS
             trc_available = max(trc_storage_beg(itrc, ipatch) - &
                trc_held_storage + trc_input, 0._r8)
             water_before_output = water_beg + water_input
-            IF (water_before_output > trc_water_min_for_ratio) THEN
-               R_out = trc_available / water_before_output
-            ELSE
-               R_out = R_init
-            ENDIF
-            R_evap_liq = R_out
-            R_evap_ice = R_out
-            IF (frac_active) THEN
-               alpha_k_liq = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
-               alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
-               relhum_liq = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .false.)
-               relhum_ice = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .true.)
-               R_evap_liq = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_liq, alpha_k_liq, .false.)
-               R_evap_ice = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_ice, alpha_k_ice, .true.)
-               R_evap_liq = min(R_evap_liq, max(R_out, 0._r8))
-               R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
-            ENDIF
             IF (nonvolatile_solute) THEN
-               trc_evap = 0._r8
+               trc_evap_liq = 0._r8
+               trc_evap_ice = 0._r8
             ELSE
-               trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+               trc_evap_liq = tracer_atmospheric_tracer_loss(trc_available, water_before_output, &
+                  evap_liq_mass, t_grnd, .false., glacier_evap_ratio_for, trc_tiny, &
+                  tracer_ratio_cap(itrc), nonvolatile_solute)
+               trc_after_liq = trc_available - trc_evap_liq
+               water_after_liq = water_before_output - evap_liq_mass
+               trc_evap_ice = tracer_atmospheric_tracer_loss(trc_after_liq, water_after_liq, &
+                  evap_ice_mass, t_grnd, .true., glacier_evap_ratio_for, trc_tiny, &
+                  tracer_ratio_cap(itrc), nonvolatile_solute, skin_mass = DEF_TRACER_SUBL_SKIN_MM)
             ENDIF
+            trc_evap = trc_evap_liq + trc_evap_ice
             water_after_evap = water_before_output - evap_mass
             trc_final = max(trc_available - trc_evap, 0._r8)
             CALL tracer_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
@@ -208,13 +214,16 @@ CONTAINS
             ENDIF
          ELSE
             trc_input = water_input * R_init
-            trc_evap  = evap_mass * R_init
+            trc_evap_liq = evap_liq_mass * R_init
+            trc_evap_ice = evap_ice_mass * R_init
+            trc_evap = trc_evap_liq + trc_evap_ice
             trc_rnof  = rnof_mass * R_init
             R_final   = R_init
          ENDIF
 
          IF (trc_input > 0._r8) a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_input
-         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap, evap_mass)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_liq, evap_liq_mass, TRC_EVAP_KIND_SOILEVAP)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_ice, evap_ice_mass, TRC_EVAP_KIND_SUBL)
          IF (trc_rnof > 0._r8) THEN
             trc_rnof_step(itrc, ipatch) = trc_rnof
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_rnof
@@ -245,11 +254,29 @@ CONTAINS
       CALL tracer_hist_accumulate(ipatch, snl_trc, maxsnl, nl_soil, 0._r8, 0._r8, &
          wliq_soisno(snl_trc+1:nl_soil), wice_soisno(snl_trc+1:nl_soil), 0._r8, wdsrf, 0._r8, scv)
 
+   CONTAINS
+
+      real(r8) FUNCTION glacier_evap_ratio_for (source_ratio, temp_k, from_ice)
+         real(r8), intent(in) :: source_ratio, temp_k
+         logical,  intent(in) :: from_ice
+         real(r8) :: relhum, alpha_k, alpha_k_liq, alpha_k_ice
+
+         glacier_evap_ratio_for = source_ratio
+         IF (.not. tracer_fractionation_active(itrc)) RETURN
+         alpha_k_liq = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
+         alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
+         alpha_k = merge(alpha_k_ice, alpha_k_liq, from_ice)
+         relhum = tracer_surface_relhum(forc_q, forc_psrf, temp_k, from_ice)
+         glacier_evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
+            temp_k, relhum, alpha_k, from_ice)
+      END FUNCTION glacier_evap_ratio_for
+
    END SUBROUTINE tracer_glacier_patch
 
    SUBROUTINE tracer_waterbody_patch(ipatch, maxsnl, nl_soil, snl, deltim, &
       forc_rain, forc_snow, lake_deficit, rnof, qseva, qsubl, qsdew, qfros, &
       endwb, totwb, errorw, wa, wdsrf, scv, t_grnd, forc_q, forc_psrf, &
+      forc_us, forc_vs, &
       wliq_soisno, wice_soisno, use_dynamic_lake)
 
       IMPLICIT NONE
@@ -258,22 +285,26 @@ CONTAINS
       real(r8), intent(in) :: forc_rain, forc_snow, lake_deficit, rnof
       real(r8), intent(in) :: qseva, qsubl, qsdew, qfros
       real(r8), intent(in) :: endwb, totwb, errorw, wa, wdsrf, scv, t_grnd, forc_q, forc_psrf
+      ! Wind is needed because open-water kinetic fractionation is
+      ! wind-dependent (Merlivat & Jouzel 1979).
+      real(r8), intent(in) :: forc_us, forc_vs
       real(r8), intent(in) :: wliq_soisno(maxsnl+1:nl_soil)
       real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
       logical,  intent(in) :: use_dynamic_lake
 
       integer  :: itrc, j_trc
-      real(r8) :: R_init, R_precip, R_vapor, R_pool, R_out, R_final
-      real(r8) :: R_dew, R_frost, R_evap_liq, R_evap_ice, R_runoff
+      real(r8) :: R_init, R_precip, R_vapor, R_pool, R_final
+      real(r8) :: R_dew, R_frost, R_runoff
       real(r8) :: atm_precip_mass, deficit_mass, precip_mass, rnof_mass
       real(r8) :: evap_mass, dep_mass
       real(r8) :: evap_liq_mass, evap_ice_mass, dep_liq_mass, dep_ice_mass
       real(r8) :: water_dS, water_end, water_beg, water_input
-      real(r8) :: water_before_output, water_after_evap
-      real(r8) :: trc_input, trc_evap, trc_rnof, trc_available, trc_final
+      real(r8) :: water_before_output, water_after_evap, water_after_liq
+      real(r8) :: trc_input, trc_evap, trc_evap_liq, trc_evap_ice, trc_after_liq
+      real(r8) :: trc_rnof, trc_available, trc_final
       real(r8) :: trc_held_storage, surface_residue_beg
       real(r8) :: surface_liquid_end, surface_carrier, surface_residue_export
-      real(r8) :: relhum_liq, relhum_ice, alpha_k_liq, alpha_k_ice, xerr_tracer
+      real(r8) :: xerr_tracer
       logical  :: mixed_signature, fixed_signature, frac_active, nonvolatile_solute
 
       DO itrc = 1, ntracers
@@ -282,6 +313,7 @@ CONTAINS
          ! carrier in this branch. Preserve conservative transition mass in a
          ! surface quarantine instead of reporting a carrierless concentration.
          IF (tracer_is_nonvolatile_solute(itrc)) THEN
+            CALL move_special_subsurface_residue_to_surface(itrc, ipatch)
             IF (tracer_has_dissolved_limit(itrc)) THEN
                trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) + &
                   trc_surface_residue(itrc, ipatch) + trc_ldew_rain(itrc, ipatch) + &
@@ -348,11 +380,6 @@ CONTAINS
          surface_residue_beg = trc_surface_residue(itrc, ipatch)
          trc_held_storage = trc_subsurface_residue(itrc, ipatch) + surface_residue_beg + &
             solid_inventory(itrc, ipatch, maxsnl + 1, nl_soil)
-         IF (nonvolatile_solute .and. wa > trc_water_min_for_ratio .and. &
-             trc_subsurface_residue(itrc, ipatch) > trc_tiny) THEN
-            trc_held_storage = trc_held_storage - trc_subsurface_residue(itrc, ipatch)
-            trc_subsurface_residue(itrc, ipatch) = 0._r8
-         ENDIF
          fixed_signature = tracer_can_use_fixed_signature(itrc) .and. .not. frac_active
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature = fixed_signature .and. .not. trc_runtime_forced(itrc)
@@ -384,30 +411,20 @@ CONTAINS
             trc_available = max(trc_storage_beg(itrc, ipatch) - &
                trc_held_storage + trc_input, 0._r8)
             water_before_output = water_beg + water_input
-            IF (water_before_output > trc_water_min_for_ratio) THEN
-               R_out = trc_available / water_before_output
-            ELSE
-               R_out = R_init
-            ENDIF
-            R_evap_liq = R_out
-            R_evap_ice = R_out
-            IF (frac_active) THEN
-               alpha_k_liq = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
-               alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
-               relhum_liq = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .false.)
-               relhum_ice = tracer_surface_relhum(forc_q, forc_psrf, t_grnd, .true.)
-               R_evap_liq = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_liq, alpha_k_liq, .false.)
-               R_evap_ice = tracer_craig_gordon_evap_ratio(itrc, R_out, R_vapor, &
-                  t_grnd, relhum_ice, alpha_k_ice, .true.)
-               R_evap_liq = min(R_evap_liq, max(R_out, 0._r8))
-               R_evap_ice = min(R_evap_ice, max(R_out, 0._r8))
-            ENDIF
             IF (nonvolatile_solute) THEN
-               trc_evap = 0._r8
+               trc_evap_liq = 0._r8
+               trc_evap_ice = 0._r8
             ELSE
-               trc_evap = min(evap_liq_mass * R_evap_liq + evap_ice_mass * R_evap_ice, trc_available)
+               trc_evap_liq = tracer_atmospheric_tracer_loss(trc_available, water_before_output, &
+                  evap_liq_mass, t_grnd, .false., waterbody_evap_ratio_for, trc_tiny, &
+                  tracer_ratio_cap(itrc), nonvolatile_solute)
+               trc_after_liq = trc_available - trc_evap_liq
+               water_after_liq = water_before_output - evap_liq_mass
+               trc_evap_ice = tracer_atmospheric_tracer_loss(trc_after_liq, water_after_liq, &
+                  evap_ice_mass, t_grnd, .true., waterbody_evap_ratio_for, trc_tiny, &
+                  tracer_ratio_cap(itrc), nonvolatile_solute, skin_mass = DEF_TRACER_SUBL_SKIN_MM)
             ENDIF
+            trc_evap = trc_evap_liq + trc_evap_ice
             water_after_evap = water_before_output - evap_mass
             trc_final = max(trc_available - trc_evap, 0._r8)
             CALL tracer_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
@@ -446,13 +463,16 @@ CONTAINS
             ENDIF
          ELSE
             trc_input = water_input * R_init
-            trc_evap  = evap_mass * R_init
+            trc_evap_liq = evap_liq_mass * R_init
+            trc_evap_ice = evap_ice_mass * R_init
+            trc_evap = trc_evap_liq + trc_evap_ice
             trc_rnof  = rnof_mass * R_init
             R_final   = R_init
          ENDIF
 
          IF (trc_input > 0._r8) a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_input
-         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap, evap_mass)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_liq, evap_liq_mass, TRC_EVAP_KIND_SOILEVAP)
+         CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_ice, evap_ice_mass, TRC_EVAP_KIND_SUBL)
          IF (trc_rnof > 0._r8) THEN
             trc_rnof_step(itrc, ipatch) = trc_rnof
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_rnof
@@ -483,7 +503,39 @@ CONTAINS
       CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, 0._r8, 0._r8, &
          wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), wa, wdsrf, 0._r8, scv)
 
+   CONTAINS
+
+      real(r8) FUNCTION waterbody_evap_ratio_for (source_ratio, temp_k, from_ice)
+         real(r8), intent(in) :: source_ratio, temp_k
+         logical,  intent(in) :: from_ice
+         real(r8) :: relhum, alpha_k, alpha_k_liq, alpha_k_ice
+
+         waterbody_evap_ratio_for = source_ratio
+         IF (.not. tracer_fractionation_active(itrc)) RETURN
+         alpha_k_liq = tracer_alpha_kinetic_open_water(itrc, &
+            sqrt(max(forc_us*forc_us + forc_vs*forc_vs, 0._r8)))
+         alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
+         alpha_k = merge(alpha_k_ice, alpha_k_liq, from_ice)
+         relhum = tracer_surface_relhum(forc_q, forc_psrf, temp_k, from_ice)
+         waterbody_evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
+            temp_k, relhum, alpha_k, from_ice)
+      END FUNCTION waterbody_evap_ratio_for
+
    END SUBROUTINE tracer_waterbody_patch
+
+   SUBROUTINE move_special_subsurface_residue_to_surface (itrc, ipatch)
+      integer, intent(in) :: itrc, ipatch
+
+      IF (trc_subsurface_residue(itrc, ipatch) <= trc_tiny) RETURN
+      IF (tracer_has_dissolved_limit(itrc)) THEN
+         trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) + &
+            trc_subsurface_residue(itrc, ipatch)
+      ELSE
+         trc_surface_residue(itrc, ipatch) = trc_surface_residue(itrc, ipatch) + &
+            trc_subsurface_residue(itrc, ipatch)
+      ENDIF
+      trc_subsurface_residue(itrc, ipatch) = 0._r8
+   END SUBROUTINE move_special_subsurface_residue_to_surface
 
    real(r8) FUNCTION solid_inventory (itrc, ipatch, lb, nl_soil)
       integer, intent(in) :: itrc, ipatch, lb, nl_soil
@@ -494,6 +546,14 @@ CONTAINS
       IF (lb <= nl_soil) solid_inventory = solid_inventory + &
          sum(trc_solid_soisno(itrc, lb:nl_soil, ipatch))
    END FUNCTION solid_inventory
+
+
+   real(r8) FUNCTION tracer_ratio_cap (itrc)
+      integer, intent(in) :: itrc
+
+      tracer_ratio_cap = merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
+         0._r8, tracer_fractionation_active(itrc))
+   END FUNCTION tracer_ratio_cap
 
 END MODULE MOD_Tracer_SpecialPatches
 #endif

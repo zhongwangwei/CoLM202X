@@ -110,6 +110,13 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: lulcc_trc_leaf_iso_storage_old(:,:)
 
    real(r8), allocatable :: a_trc_precip   (:,:)
+   ! Signed tracer mass exchanged with atmospheric vapour with NO net water
+   ! flux (two-way equilibrium exchange on wet surfaces).  It is a genuine
+   ! boundary flux, so it must be tracked separately from a_trc_precip: the
+   ! latter is paired with a water flux and is cross-checked against
+   ! water_input * R_init on fixed-signature tracers.
+   real(r8), allocatable :: a_trc_vapor_exchange(:,:)
+   real(r8), allocatable :: a_water_precip (:,:)
 	   integer, parameter :: TRC_EVAP_KIND_TOTAL       = 0
 	   integer, parameter :: TRC_EVAP_KIND_TRANSP      = 1
 	   integer, parameter :: TRC_EVAP_KIND_SOILEVAP    = 2
@@ -132,6 +139,7 @@ MODULE MOD_Tracer_Vars
    real(r8), allocatable :: a_trc_rsur     (:,:)
    real(r8), allocatable :: a_trc_rsub     (:,:)
    real(r8), allocatable :: a_trc_rnof     (:,:)
+   real(r8), allocatable :: a_water_rnof   (:,:)
    real(r8), allocatable :: a_trc_qinfl    (:,:)
    real(r8), allocatable :: a_trc_qcharge  (:,:)
 
@@ -196,12 +204,13 @@ MODULE MOD_Tracer_Vars
 
    PUBLIC :: TRC_EVAP_KIND_TRANSP, TRC_EVAP_KIND_SOILEVAP
    PUBLIC :: TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SUBL, TRC_EVAP_KIND_WETLAND
-   PUBLIC :: a_trc_precip, a_trc_evap, a_water_evap_gross
+   PUBLIC :: a_trc_precip, a_water_precip, a_trc_evap, a_water_evap_gross
+   PUBLIC :: a_trc_vapor_exchange
    PUBLIC :: a_trc_transp, a_trc_transp_src, a_water_transp
    PUBLIC :: a_trc_soilevap, a_water_soilevap
    PUBLIC :: a_trc_canopyevap, a_water_canopyevap
    PUBLIC :: a_trc_subl, a_water_subl, a_trc_wetland_evap, a_water_wetland_evap
-   PUBLIC :: a_trc_rsur, a_trc_rsub, a_trc_rnof, a_trc_qinfl, a_trc_qcharge
+   PUBLIC :: a_trc_rsur, a_trc_rsub, a_trc_rnof, a_water_rnof, a_trc_qinfl, a_trc_qcharge
    PUBLIC :: a_trc_ldew_mass, a_water_ldew
    PUBLIC :: a_trc_soil_mass, a_water_soil, a_trc_snow_mass, a_water_snow
    PUBLIC :: a_trc_wa_mass, a_water_wa, a_trc_wa_debt_mass, a_water_wa_debt
@@ -251,6 +260,8 @@ CONTAINS
       ENDDO
 
 	      allocate(a_trc_precip    (ntracers, numpatch));           a_trc_precip    = 0._r8
+	      allocate(a_trc_vapor_exchange(ntracers, numpatch));       a_trc_vapor_exchange = 0._r8
+	      allocate(a_water_precip  (ntracers, numpatch));           a_water_precip  = 0._r8
 		      allocate(a_trc_evap      (ntracers, numpatch));           a_trc_evap      = 0._r8
 		      allocate(a_water_evap_gross(ntracers, numpatch));         a_water_evap_gross = 0._r8
 		      allocate(a_trc_transp    (ntracers, numpatch));           a_trc_transp    = 0._r8
@@ -267,6 +278,7 @@ CONTAINS
       allocate(a_trc_rsur      (ntracers, numpatch));           a_trc_rsur      = 0._r8
       allocate(a_trc_rsub      (ntracers, numpatch));           a_trc_rsub      = 0._r8
       allocate(a_trc_rnof      (ntracers, numpatch));           a_trc_rnof      = 0._r8
+      allocate(a_water_rnof    (ntracers, numpatch));           a_water_rnof    = 0._r8
       allocate(a_trc_qinfl     (ntracers, numpatch));           a_trc_qinfl     = 0._r8
       allocate(a_trc_qcharge   (ntracers, numpatch));           a_trc_qcharge   = 0._r8
 
@@ -327,6 +339,8 @@ CONTAINS
       IF (allocated(trc_leaf_iso_storage)) deallocate(trc_leaf_iso_storage)
       IF (allocated(trc_runtime_forced)) deallocate(trc_runtime_forced)
 		      IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
+		      IF (allocated(a_trc_vapor_exchange)) deallocate(a_trc_vapor_exchange)
+		      IF (allocated(a_water_precip )) deallocate(a_water_precip )
 		      IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
 		      IF (allocated(a_water_evap_gross)) deallocate(a_water_evap_gross)
 		      IF (allocated(a_trc_transp   )) deallocate(a_trc_transp   )
@@ -343,6 +357,7 @@ CONTAINS
       IF (allocated(a_trc_rsur     )) deallocate(a_trc_rsur     )
       IF (allocated(a_trc_rsub     )) deallocate(a_trc_rsub     )
       IF (allocated(a_trc_rnof     )) deallocate(a_trc_rnof     )
+      IF (allocated(a_water_rnof   )) deallocate(a_water_rnof   )
       IF (allocated(a_trc_qinfl    )) deallocate(a_trc_qinfl    )
       IF (allocated(a_trc_qcharge  )) deallocate(a_trc_qcharge  )
 	      IF (allocated(trc_storage_beg)) deallocate(trc_storage_beg)
@@ -929,6 +944,8 @@ CONTAINS
    SUBROUTINE flush_Tracer_Acc ()
       IMPLICIT NONE
 	      IF (allocated(a_trc_precip )) a_trc_precip  = 0._r8
+	      IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange = 0._r8
+	      IF (allocated(a_water_precip)) a_water_precip = 0._r8
 		      IF (allocated(a_trc_evap   )) a_trc_evap    = 0._r8
 		      IF (allocated(a_water_evap_gross)) a_water_evap_gross = 0._r8
 		      IF (allocated(a_trc_transp )) a_trc_transp  = 0._r8
@@ -945,6 +962,7 @@ CONTAINS
       IF (allocated(a_trc_rsur   )) a_trc_rsur    = 0._r8
       IF (allocated(a_trc_rsub   )) a_trc_rsub    = 0._r8
       IF (allocated(a_trc_rnof   )) a_trc_rnof    = 0._r8
+      IF (allocated(a_water_rnof )) a_water_rnof  = 0._r8
       IF (allocated(a_trc_qinfl  )) a_trc_qinfl   = 0._r8
       IF (allocated(a_trc_qcharge)) a_trc_qcharge  = 0._r8
       IF (allocated(a_trc_ldew_mass)) a_trc_ldew_mass = 0._r8
@@ -1011,6 +1029,8 @@ CONTAINS
          IF (allocated(trc_leaf_iso_storage)) trc_leaf_iso_storage(itrc, :) = 0._r8
 
          IF (allocated(a_trc_precip   )) a_trc_precip   (itrc, :) = 0._r8
+         IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange(itrc, :) = 0._r8
+         IF (allocated(a_water_precip )) a_water_precip (itrc, :) = 0._r8
          IF (allocated(a_trc_evap     )) a_trc_evap     (itrc, :) = 0._r8
          IF (allocated(a_water_evap_gross)) a_water_evap_gross(itrc, :) = 0._r8
          IF (allocated(a_trc_transp   )) a_trc_transp   (itrc, :) = 0._r8
@@ -1027,6 +1047,7 @@ CONTAINS
          IF (allocated(a_trc_rsur     )) a_trc_rsur     (itrc, :) = 0._r8
          IF (allocated(a_trc_rsub     )) a_trc_rsub     (itrc, :) = 0._r8
          IF (allocated(a_trc_rnof     )) a_trc_rnof     (itrc, :) = 0._r8
+         IF (allocated(a_water_rnof   )) a_water_rnof   (itrc, :) = 0._r8
          IF (allocated(a_trc_qinfl    )) a_trc_qinfl    (itrc, :) = 0._r8
          IF (allocated(a_trc_qcharge  )) a_trc_qcharge  (itrc, :) = 0._r8
          IF (allocated(trc_storage_beg)) trc_storage_beg(itrc, :) = 0._r8

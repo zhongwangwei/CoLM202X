@@ -17,21 +17,23 @@ MODULE MOD_Tracer_Forcing
       tracer_vapor_default_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
       tracer_uses_land_water_transport, tracer_lower
+   USE MOD_Tracer_Frac, only: tracer_fractionation_active
    USE MOD_Tracer_Vars, only: trc_runtime_forced
-   USE MOD_Tracer_Isotope_Registry, only: isotope_legacy_forcing_kind
    USE MOD_Tracer_Isotope_Registrations, only: ensure_isotope_physics_registered
    USE MOD_Tracer_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
-      tracer_forcing_input_get, tracer_forcing_input_find
+      tracer_forcing_input_get, tracer_forcing_input_find, tracer_forcing_input_final
 
    IMPLICIT NONE
    SAVE
-
-   integer, parameter :: TRC_FORC_NONE = 0
 
    integer, parameter :: STREAM_PRECIP = 1
    integer, parameter :: STREAM_VAPOR  = 2
    integer, parameter :: STREAM_TOTAL_PRECIP = 3
    integer, parameter :: STREAM_TOTAL_VAPOR  = 4
+
+   integer, parameter :: DECODE_INVALID  = 0
+   integer, parameter :: DECODE_NEAR_DRY = 1
+   integer, parameter :: DECODE_VALID    = 2
 
    integer, parameter :: MODE_VALUE = 1
    integer, parameter :: MODE_DELTA = 2
@@ -77,6 +79,12 @@ MODULE MOD_Tracer_Forcing
    real(r8), allocatable :: trc_forc_vapor_value(:,:)
    logical,  allocatable :: trc_forc_has_precip(:,:)
    logical,  allocatable :: trc_forc_has_vapor(:,:)
+   integer,  allocatable :: trc_forc_precip_status(:,:)
+   integer,  allocatable :: trc_forc_vapor_status(:,:)
+   logical,  allocatable :: trc_forc_precip_warned_dry(:)
+   logical,  allocatable :: trc_forc_precip_warned_invalid(:)
+   logical,  allocatable :: trc_forc_vapor_warned_dry(:)
+   logical,  allocatable :: trc_forc_vapor_warned_invalid(:)
 
    PUBLIC :: tracer_forcing_init
    PUBLIC :: read_tracer_forcing
@@ -88,7 +96,6 @@ MODULE MOD_Tracer_Forcing
    PUBLIC :: tracer_forcing_vapor_ratio
    PUBLIC :: tracer_forcing_has_precip
    PUBLIC :: tracer_forcing_has_vapor
-   PUBLIC :: tracer_forcing_tracer_kind
    PUBLIC :: tracer_forcing_ratio_to_delta
 
 CONTAINS
@@ -188,6 +195,7 @@ CONTAINS
       IF (allocated(trc_forc_patch)) deallocate(trc_forc_patch)
       CALL tracer_forcing_deallocate_config()
       CALL tracer_forcing_deallocate_state()
+      CALL tracer_forcing_input_final()
 
       IF (allocated(trc_runtime_forced)) trc_runtime_forced(:) = .false.
       trc_runtime_forcing_enabled = .false.
@@ -257,6 +265,16 @@ CONTAINS
                spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
             has_vapor(itrc) = n_trc_forc_vars > nold
          ENDIF
+
+         IF (tracer_fractionation_active(itrc) .and. .not. has_vapor(itrc)) THEN
+            IF (p_is_master) THEN
+               WRITE(*,'(A,I0,3A)') &
+                  'ERROR tracer_forcing_configure: fractionating tracer ', itrc, &
+                  ' (', trim(tracers(itrc)%name), &
+                  ') must define vapor forcing with role=''vapor'' in &nl_colm_tracer_forcing.'
+            ENDIF
+            CALL CoLM_stop()
+         ENDIF
       ENDDO
 
       trc_runtime_forcing_enabled = n_trc_forc_vars > 0
@@ -300,6 +318,13 @@ CONTAINS
       total_idx = 0
       IF (mode == MODE_HEAVY_OVER_TOTAL .or. mode == MODE_NORMALIZED_OVER_TOTAL) THEN
          total_idx = tracer_forcing_ensure_total(stream)
+         IF (dtime /= trc_var_dtime(total_idx) .or. offset /= trc_var_offset(total_idx) .or. &
+             trim(tracer_lower(tintalgo)) /= trim(trc_var_tintalgo(total_idx))) THEN
+            IF (p_is_master) WRITE(*,'(A,I0,A)') &
+               'ERROR tracer_forcing_add_var: raw/total forcing temporal config mismatch for tracer ', &
+               itrc, '.'
+            CALL CoLM_stop()
+         ENDIF
       ENDIF
 
       n_trc_forc_vars = n_trc_forc_vars + 1
@@ -311,6 +336,7 @@ CONTAINS
       trc_var_vname(n_trc_forc_vars) = trim(vname)
       trc_var_tintalgo(n_trc_forc_vars) = trim(tintalgo)
       trc_var_timelog(n_trc_forc_vars) = 'instant'
+      IF (total_idx > 0) trc_var_timelog(n_trc_forc_vars) = trc_var_timelog(total_idx)
       trc_var_dtime(n_trc_forc_vars) = dtime
       trc_var_offset(n_trc_forc_vars) = offset
    END SUBROUTINE tracer_forcing_add_var
@@ -369,12 +395,27 @@ CONTAINS
    SUBROUTINE tracer_forcing_allocate_state (numpatch)
       IMPLICIT NONE
       integer, intent(in) :: numpatch
+      integer :: itrc
 
       CALL tracer_forcing_deallocate_state()
       allocate(trc_forc_precip_value(ntracers, numpatch))
       allocate(trc_forc_vapor_value(ntracers, numpatch))
       allocate(trc_forc_has_precip(ntracers, numpatch))
       allocate(trc_forc_has_vapor(ntracers, numpatch))
+      allocate(trc_forc_precip_status(ntracers, numpatch))
+      allocate(trc_forc_vapor_status(ntracers, numpatch))
+      allocate(trc_forc_precip_warned_dry(ntracers))
+      allocate(trc_forc_precip_warned_invalid(ntracers))
+      allocate(trc_forc_vapor_warned_dry(ntracers))
+      allocate(trc_forc_vapor_warned_invalid(ntracers))
+      trc_forc_precip_warned_dry(:) = .false.
+      trc_forc_precip_warned_invalid(:) = .false.
+      trc_forc_vapor_warned_dry(:) = .false.
+      trc_forc_vapor_warned_invalid(:) = .false.
+      DO itrc = 1, ntracers
+         trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)
+         trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)
+      ENDDO
       CALL tracer_forcing_prepare_step()
    END SUBROUTINE tracer_forcing_allocate_state
 
@@ -385,20 +426,23 @@ CONTAINS
       IF (allocated(trc_forc_vapor_value)) deallocate(trc_forc_vapor_value)
       IF (allocated(trc_forc_has_precip)) deallocate(trc_forc_has_precip)
       IF (allocated(trc_forc_has_vapor)) deallocate(trc_forc_has_vapor)
+      IF (allocated(trc_forc_precip_status)) deallocate(trc_forc_precip_status)
+      IF (allocated(trc_forc_vapor_status)) deallocate(trc_forc_vapor_status)
+      IF (allocated(trc_forc_precip_warned_dry)) deallocate(trc_forc_precip_warned_dry)
+      IF (allocated(trc_forc_precip_warned_invalid)) deallocate(trc_forc_precip_warned_invalid)
+      IF (allocated(trc_forc_vapor_warned_dry)) deallocate(trc_forc_vapor_warned_dry)
+      IF (allocated(trc_forc_vapor_warned_invalid)) deallocate(trc_forc_vapor_warned_invalid)
    END SUBROUTINE tracer_forcing_deallocate_state
 
    SUBROUTINE tracer_forcing_prepare_step ()
       IMPLICIT NONE
-      integer :: itrc
 
       IF (.not. allocated(trc_forc_precip_value)) RETURN
 
-      DO itrc = 1, ntracers
-         trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)
-         trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)
-      ENDDO
       trc_forc_has_precip(:,:) = .false.
       trc_forc_has_vapor(:,:) = .false.
+      trc_forc_precip_status(:,:) = DECODE_INVALID
+      trc_forc_vapor_status(:,:) = DECODE_INVALID
    END SUBROUTINE tracer_forcing_prepare_step
 
    SUBROUTINE tracer_forcing_read_LBUB (idate, dir_forcing)
@@ -488,7 +532,7 @@ CONTAINS
 
    SUBROUTINE tracer_forcing_update_values ()
       IMPLICIT NONE
-      integer :: iv, ip, itrc
+      integer :: iv, ip, itrc, decode_status
       real(r8) :: value
       logical :: value_valid
 
@@ -500,7 +544,9 @@ CONTAINS
          itrc = trc_var_itrc(iv)
          IF (itrc < 1 .or. itrc > ntracers) CYCLE
          DO ip = 1, size(trc_forc_patch, 1)
-            CALL tracer_forcing_decode_value(iv, ip, value, value_valid)
+            CALL tracer_forcing_decode_value(iv, ip, value, value_valid, decode_status)
+            IF (trc_var_stream(iv) == STREAM_PRECIP) trc_forc_precip_status(itrc, ip) = decode_status
+            IF (trc_var_stream(iv) == STREAM_VAPOR) trc_forc_vapor_status(itrc, ip) = decode_status
             IF (.not. value_valid) CYCLE
             IF (trc_var_stream(iv) == STREAM_PRECIP) THEN
                trc_forc_precip_value(itrc, ip) = value
@@ -513,29 +559,48 @@ CONTAINS
       ENDDO
    END SUBROUTINE tracer_forcing_update_values
 
-   SUBROUTINE tracer_forcing_decode_value (iv, ip, value, valid)
+   SUBROUTINE tracer_forcing_decode_value (iv, ip, value, valid, status)
       IMPLICIT NONE
       integer, intent(in) :: iv, ip
       real(r8), intent(out) :: value
       logical, intent(out) :: valid
-      integer :: itrc, total_idx
+      integer, intent(out), optional :: status
+      integer :: itrc, total_idx, decode_status
       real(r8) :: raw, total, min_total, delta
 
       value = 0._r8
       valid = .false.
+      decode_status = DECODE_INVALID
       raw = trc_forc_patch(ip, iv)
-      IF (.not. tracer_forcing_valid_value(raw)) RETURN
 
       itrc = trc_var_itrc(iv)
       SELECT CASE (trc_var_mode(iv))
       CASE (MODE_HEAVY_OVER_TOTAL, MODE_NORMALIZED_OVER_TOTAL)
          total_idx = trc_var_total(iv)
-         IF (total_idx <= 0) RETURN
+         IF (total_idx <= 0) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
          total = trc_forc_patch(ip, total_idx)
-         IF (.not. tracer_forcing_valid_value(total)) RETURN
+         IF (.not. tracer_forcing_valid_value(total)) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
          min_total = trc_forc_min_q
          IF (trc_var_stream(iv) == STREAM_PRECIP) min_total = trc_forc_min_prcp
-         IF (total <= min_total .or. raw < 0._r8) RETURN
+         IF (total <= min_total) THEN
+            decode_status = DECODE_NEAR_DRY
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
+         IF (.not. tracer_forcing_valid_value(raw)) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
+         IF (raw < 0._r8) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
          value = raw / total
          IF (trc_var_mode(iv) == MODE_NORMALIZED_OVER_TOTAL) THEN
             ! `normalized_over_total` means the heavy/total stream is
@@ -548,25 +613,44 @@ CONTAINS
             value = value * tracers(itrc)%ref_ratio
          ENDIF
       CASE (MODE_DELTA)
+         IF (.not. tracer_forcing_valid_value(raw)) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
          IF (tracer_is_isotope(itrc)) THEN
             value = delta_to_R(raw, tracers(itrc)%ref_ratio)
          ELSE
             value = raw
          ENDIF
       CASE DEFAULT
+         IF (.not. tracer_forcing_valid_value(raw)) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
          value = raw
       END SELECT
 
       IF (tracer_is_isotope(itrc)) THEN
-         IF (value <= trc_tiny) RETURN
+         IF (value <= trc_tiny) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
          delta = tracer_forcing_ratio_to_delta(value, tracers(itrc)%ref_ratio)
-         IF (abs(delta) > trc_delta_sanity_max) RETURN
+         IF (abs(delta) > trc_delta_sanity_max) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
       ELSE
          ! Conservative/reactive forcings are concentrations per unit water;
          ! zero is a valid concentration, negative values are not.
-         IF (value < 0._r8) RETURN
+         IF (value < 0._r8) THEN
+            IF (present(status)) status = decode_status
+            RETURN
+         ENDIF
       ENDIF
       valid = .true.
+      decode_status = DECODE_VALID
+      IF (present(status)) status = decode_status
    END SUBROUTINE tracer_forcing_decode_value
 
    logical FUNCTION tracer_forcing_valid_value (x)
@@ -899,7 +983,7 @@ CONTAINS
       IF (.not. allocated(trc_forc_precip_value)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       IF (ipatch < 1 .or. ipatch > size(trc_forc_precip_value, 2)) RETURN
-      IF (trc_forc_has_precip(itrc, ipatch)) tracer_forcing_precip_value = trc_forc_precip_value(itrc, ipatch)
+      tracer_forcing_precip_value = trc_forc_precip_value(itrc, ipatch)
    END FUNCTION tracer_forcing_precip_value
 
    real(r8) FUNCTION tracer_forcing_vapor_value (itrc, ipatch)
@@ -910,7 +994,7 @@ CONTAINS
       IF (.not. allocated(trc_forc_vapor_value)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       IF (ipatch < 1 .or. ipatch > size(trc_forc_vapor_value, 2)) RETURN
-      IF (trc_forc_has_vapor(itrc, ipatch)) tracer_forcing_vapor_value = trc_forc_vapor_value(itrc, ipatch)
+      tracer_forcing_vapor_value = trc_forc_vapor_value(itrc, ipatch)
    END FUNCTION tracer_forcing_vapor_value
 
    real(r8) FUNCTION tracer_forcing_precip_ratio (itrc, ipatch)
@@ -933,7 +1017,8 @@ CONTAINS
       IF (.not. allocated(trc_forc_has_precip)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       IF (ipatch < 1 .or. ipatch > size(trc_forc_has_precip, 2)) RETURN
-      tracer_forcing_has_precip = trc_forc_has_precip(itrc, ipatch)
+      tracer_forcing_has_precip = trc_forc_has_precip(itrc, ipatch) .or. &
+         tracer_forcing_precip_configured(itrc)
    END FUNCTION tracer_forcing_has_precip
 
    logical FUNCTION tracer_forcing_has_vapor (itrc, ipatch)
@@ -944,20 +1029,38 @@ CONTAINS
       IF (.not. allocated(trc_forc_has_vapor)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       IF (ipatch < 1 .or. ipatch > size(trc_forc_has_vapor, 2)) RETURN
-      tracer_forcing_has_vapor = trc_forc_has_vapor(itrc, ipatch)
+      tracer_forcing_has_vapor = trc_forc_has_vapor(itrc, ipatch) .or. &
+         tracer_forcing_vapor_configured(itrc)
    END FUNCTION tracer_forcing_has_vapor
 
-   integer FUNCTION tracer_forcing_tracer_kind (itrc)
+
+   logical FUNCTION tracer_forcing_precip_configured (itrc)
       IMPLICIT NONE
       integer, intent(in) :: itrc
+      integer :: iv
 
-      tracer_forcing_tracer_kind = TRC_FORC_NONE
-      IF (.not. tracer_is_isotope(itrc)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      tracer_forcing_precip_configured = .false.
+      DO iv = 1, n_trc_forc_vars
+         IF (trc_var_stream(iv) == STREAM_PRECIP .and. trc_var_itrc(iv) == itrc) THEN
+            tracer_forcing_precip_configured = .true.
+            RETURN
+         ENDIF
+      ENDDO
+   END FUNCTION tracer_forcing_precip_configured
 
-      CALL ensure_isotope_physics_registered ()
-      tracer_forcing_tracer_kind = isotope_legacy_forcing_kind(itrc)
-   END FUNCTION tracer_forcing_tracer_kind
+   logical FUNCTION tracer_forcing_vapor_configured (itrc)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc
+      integer :: iv
+
+      tracer_forcing_vapor_configured = .false.
+      DO iv = 1, n_trc_forc_vars
+         IF (trc_var_stream(iv) == STREAM_VAPOR .and. trc_var_itrc(iv) == itrc) THEN
+            tracer_forcing_vapor_configured = .true.
+            RETURN
+         ENDIF
+      ENDDO
+   END FUNCTION tracer_forcing_vapor_configured
 
    real(r8) FUNCTION tracer_forcing_ratio_to_delta (ratio, ref_ratio)
       IMPLICIT NONE
@@ -975,20 +1078,24 @@ CONTAINS
       integer, intent(in) :: idate(3)
       integer :: itrc, ip
       real(r8), allocatable :: pmin(:), pmax(:), vmin(:), vmax(:)
-      integer, allocatable :: pcnt(:), vcnt(:)
+      integer, allocatable :: pcnt(:), vcnt(:), pmiss(:), pdry(:), vmiss(:), vdry(:)
       real(r8) :: outval
+      logical :: emit_header
 
-      IF (trc_forcing_log_count >= 3) RETURN
       IF (.not. allocated(trc_forc_precip_value)) RETURN
 
       allocate(pmin(ntracers), pmax(ntracers), vmin(ntracers), vmax(ntracers))
-      allocate(pcnt(ntracers), vcnt(ntracers))
+      allocate(pcnt(ntracers), vcnt(ntracers), pmiss(ntracers), pdry(ntracers), vmiss(ntracers), vdry(ntracers))
       pmin(:) = huge(1._r8)
       vmin(:) = huge(1._r8)
       pmax(:) = -huge(1._r8)
       vmax(:) = -huge(1._r8)
       pcnt(:) = 0
       vcnt(:) = 0
+      pmiss(:) = 0
+      pdry(:) = 0
+      vmiss(:) = 0
+      vdry(:) = 0
 
       IF (p_is_worker) THEN
          DO itrc = 1, ntracers
@@ -999,12 +1106,26 @@ CONTAINS
                   pmin(itrc) = min(pmin(itrc), outval)
                   pmax(itrc) = max(pmax(itrc), outval)
                   pcnt(itrc) = pcnt(itrc) + 1
+               ELSEIF (tracer_is_isotope(itrc) .and. tracer_forcing_precip_configured(itrc)) THEN
+                  IF (allocated(trc_forc_precip_status) .and. &
+                      trc_forc_precip_status(itrc, ip) == DECODE_NEAR_DRY) THEN
+                     pdry(itrc) = pdry(itrc) + 1
+                  ELSE
+                     pmiss(itrc) = pmiss(itrc) + 1
+                  ENDIF
                ENDIF
                IF (trc_forc_has_vapor(itrc, ip)) THEN
                   outval = tracer_forcing_diag_value(itrc, trc_forc_vapor_value(itrc, ip))
                   vmin(itrc) = min(vmin(itrc), outval)
                   vmax(itrc) = max(vmax(itrc), outval)
                   vcnt(itrc) = vcnt(itrc) + 1
+               ELSEIF (tracer_fractionation_active(itrc)) THEN
+                  IF (allocated(trc_forc_vapor_status) .and. &
+                      trc_forc_vapor_status(itrc, ip) == DECODE_NEAR_DRY) THEN
+                     vdry(itrc) = vdry(itrc) + 1
+                  ELSE
+                     vmiss(itrc) = vmiss(itrc) + 1
+                  ENDIF
                ENDIF
             ENDDO
          ENDDO
@@ -1017,25 +1138,74 @@ CONTAINS
       CALL mpi_allreduce(MPI_IN_PLACE, vmax, ntracers, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, pcnt, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
       CALL mpi_allreduce(MPI_IN_PLACE, vcnt, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pmiss, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pdry, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vmiss, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vdry, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
 
       IF (p_is_master) THEN
-         WRITE(*,'(/,A,I4.4,A,I3.3,A,I5.5)') 'Checking tracer forcing at ', idate(1), '-', idate(2), '-', idate(3)
+         emit_header = trc_forcing_log_count < 3
          DO itrc = 1, ntracers
             IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-            IF (pcnt(itrc) > 0) THEN
+            IF (pdry(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_dry(itrc))) &
+               emit_header = .true.
+            IF (pmiss(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_invalid(itrc))) &
+               emit_header = .true.
+            IF (vdry(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_dry(itrc))) &
+               emit_header = .true.
+            IF (vmiss(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_invalid(itrc))) &
+               emit_header = .true.
+         ENDDO
+         IF (emit_header) WRITE(*,'(/,A,I4.4,A,I3.3,A,I5.5)') &
+            'Checking tracer forcing at ', idate(1), '-', idate(2), '-', idate(3)
+         DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            IF (trc_forcing_log_count < 3 .and. pcnt(itrc) > 0) THEN
                WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  precip ', trim(tracers(itrc)%name), &
                   ' n=', pcnt(itrc), ' min=', pmin(itrc), ' max=', pmax(itrc)
             ENDIF
-            IF (vcnt(itrc) > 0) THEN
+            IF (trc_forcing_log_count < 3 .and. vcnt(itrc) > 0) THEN
                WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  vapor   ', trim(tracers(itrc)%name), &
                   ' n=', vcnt(itrc), ' min=', vmin(itrc), ' max=', vmax(itrc)
+            ENDIF
+            IF (pdry(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_dry(itrc))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(itrc)%name), &
+                  ' near-dry fallback patches=', pdry(itrc), &
+                  ' (retaining the previous valid/default precip ratio)'
+               trc_forc_precip_warned_dry(itrc) = .true.
+            ENDIF
+            IF (pmiss(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_invalid(itrc))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(itrc)%name), &
+                  ' invalid/missing wet fallback patches=', pmiss(itrc), &
+                  ' (retaining the previous valid/default precip ratio)'
+               trc_forc_precip_warned_invalid(itrc) = .true.
+            ENDIF
+            IF (vdry(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_dry(itrc))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING vapor ', trim(tracers(itrc)%name), &
+                  ' near-dry fallback patches=', vdry(itrc), &
+                  ' (retaining the previous valid/default vapor ratio)'
+               trc_forc_vapor_warned_dry(itrc) = .true.
+            ENDIF
+            IF (vmiss(itrc) > 0 .and. &
+                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_invalid(itrc))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING vapor ', trim(tracers(itrc)%name), &
+                  ' invalid/missing wet fallback patches=', vmiss(itrc), &
+                  ' (retaining the previous valid/default vapor ratio)'
+               trc_forc_vapor_warned_invalid(itrc) = .true.
             ENDIF
          ENDDO
       ENDIF
 
       trc_forcing_log_count = trc_forcing_log_count + 1
-      deallocate(pmin, pmax, vmin, vmax, pcnt, vcnt)
+      deallocate(pmin, pmax, vmin, vmax, pcnt, vcnt, pmiss, pdry, vmiss, vdry)
    END SUBROUTINE tracer_forcing_log_ranges
 
    real(r8) FUNCTION tracer_forcing_diag_value (itrc, value)

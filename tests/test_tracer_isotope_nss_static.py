@@ -7,6 +7,20 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 FRAC = (ROOT / "main/TRACER/MOD_Tracer_Frac.F90").read_text()
 SOIL = (ROOT / "main/TRACER/MOD_Tracer_SoilWater.F90").read_text()
+EVAPO = (ROOT / "main/TRACER/MOD_Tracer_Evapo.F90").read_text()
+O18 = (ROOT / "main/TRACER/MOD_Tracer_Isotope_O18.F90").read_text()
+HDO = (ROOT / "main/TRACER/MOD_Tracer_Isotope_HDO.F90").read_text()
+NAMELIST = (ROOT / "share/MOD_Namelist.F90").read_text()
+MAIN = (ROOT / "main/CoLMMAIN.F90").read_text()
+THERMAL = (ROOT / "main/MOD_Thermal.F90").read_text()
+LEAF = (ROOT / "main/MOD_LeafTemperature.F90").read_text()
+LEAF_PC = (ROOT / "main/MOD_LeafTemperaturePC.F90").read_text()
+LEAF_EXT = (
+    ROOT / "extends/interception/MOD_LeafTemperature_Extended.F90"
+).read_text()
+LEAF_PC_EXT = (
+    ROOT / "extends/interception/MOD_LeafTemperaturePC_Extended.F90"
+).read_text()
 
 
 class TracerIsotopeNssTests(unittest.TestCase):
@@ -23,7 +37,7 @@ class TracerIsotopeNssTests(unittest.TestCase):
         )
         self.assertRegex(
             FRAC,
-            r"tracer_leaf_kinetic_epsilon\(itrc,\s*0\._r8,\s*&\s*\n\s*"
+            r"tracer_alpha_kinetic_leaf\(itrc,\s*aerodynamic_resistance,\s*&\s*\n\s*"
             r"DEF_TRACER_NSS_LEAF_RB\s*/\s*max\(leaf_area,\s*trc_tiny\),\s*"
             r"stomatal_resistance\)",
         )
@@ -38,33 +52,115 @@ class TracerIsotopeNssTests(unittest.TestCase):
         p4 = 0.8 * water_moles_per_mm / (1800.0 * 4.0)
         self.assertAlmostEqual(p1, p4)
 
-        # rst is already canopy resistance; only leaf boundary resistance
-        # is divided by LAI before the serial resistances are combined.
+        # All three resistances are on the canopy/ground-area basis; only
+        # leaf boundary resistance needs conversion by LAI.
         rb = 100.0
-        self.assertAlmostEqual(50.0 + rb / 4.0, 75.0)
+        self.assertAlmostEqual(20.0 + 50.0 + rb / 4.0, 95.0)
 
-    def test_craig_gordon_has_no_humidity_switch(self):
-        self.assertNotIn("craig_gordon_relhum_fallback", FRAC)
-        self.assertIn(
-            "h = min(max(relhum, 0._r8), craig_gordon_relhum_max)", FRAC
-        )
+    def test_leaf_kinetic_fractionation_scheme_is_globally_selectable(self):
         self.assertRegex(
             FRAC,
-            r"max\(cg_ratio,\s*&\s*\n\s*"
-            r"craig_gordon_min_net_ratio_frac\s*\*\s*equilibrium_ratio\)",
+            r"alpha_k\s*=\s*tracer_alpha_kinetic_leaf\(itrc,\s*aerodynamic_resistance,\s*&",
+        )
+        self.assertNotIn("19._r8, 28._r8", O18)
+        self.assertNotIn("17._r8, 25._r8", HDO)
+        self.assertIn("DEF_TRACER_KINETIC_SCHEME = 'CAPPA2003'", NAMELIST)
+        self.assertIn("'MERLIVAT1978'", NAMELIST)
+        for source, cappa, merlivat in (
+            (O18, "1.03189_r8", "1.0285_r8"),
+            (HDO, "1.01636_r8", "1.0251_r8"),
+        ):
+            self.assertIn(cappa, source)
+            self.assertIn(merlivat, source)
+            self.assertIn("DEF_TRACER_KINETIC_SCHEME) == 'MERLIVAT1978'", source)
+
+        def epsilon(diffusivity_ratio):
+            alpha = 0.5 * (
+                diffusivity_ratio ** (2.0 / 3.0) + diffusivity_ratio
+            )
+            return 1000.0 * (alpha - 1.0)
+
+        self.assertAlmostEqual(epsilon(1.03189), 26.519287734590556)
+        self.assertAlmostEqual(epsilon(1.01636), 13.618571007655511)
+
+    def test_leaf_nss_uses_host_aerodynamic_moisture_resistance(self):
+        self.assertIn("raw_trc_th = raw_trc", MAIN)
+        self.assertIn("raw_trc_out=raw_trc_local", THERMAL)
+        self.assertIn("raw_trc_out=raw_trc_p(i)", THERMAL)
+        self.assertIn("raw_trc_out=raw_trc_pc", THERMAL)
+        for source in (LEAF, LEAF_PC, LEAF_EXT, LEAF_PC_EXT):
+            self.assertIn(
+                "IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)",
+                source,
+            )
+        # Snow/no-snow calls for both ordinary soil and non-dynamic wetland
+        # paths must use the host aerodynamic moisture resistance.
+        self.assertEqual(MAIN.count("ra_frac = raw_trc"), 4)
+        self.assertIn(
+            "max(aerodynamic_resistance, 0._r8) +",
+            FRAC,
+        )
+
+    def test_leaf_equilibrium_enrichment_matches_liquid_over_vapor_alpha(self):
+        self.assertIn("eps_eq = (alpha_eq - 1._r8) * 1000._r8", FRAC)
+        self.assertNotIn("eps_eq = (1._r8 - 1._r8 /", FRAC)
+
+    def test_craig_gordon_has_no_humidity_switch(self):
+        """Continuity contract: no humidity threshold at which the closure
+        switches to an equilibrium fallback, and a finite result at h -> 1.
+
+        The guard that enforces finiteness changed shape.  It used to be a
+        one-sided ``max(cg_ratio, 0.75*R_eq)`` floor plus a hard-coded 0.95
+        humidity cap.  Both were physical restrictions wearing a guard's
+        clothing: the floor made net heavy-isotope uptake (R_E < 0, real
+        whenever h*R_a exceeds the equilibrium vapour ratio) impossible to
+        express, and the 0.95 cap truncated ~176 permil of real depletion in
+        the humid regime.  The guard is now a SYMMETRIC magnitude bound and
+        the cap is namelist-controlled near saturation.
+
+        The continuity/finiteness properties below are unchanged; they are
+        additionally verified against the compiled closure in
+        test_tracer_isotope_frac_runtime.py.
+        """
+        self.assertNotIn("craig_gordon_relhum_fallback", FRAC)
+        self.assertIn(
+            "h = min(max(relhum, 0._r8), max(min(relhum_max, 0.999999_r8), 0._r8))",
+            FRAC,
+        )
+        self.assertNotIn("craig_gordon_min_net_ratio_frac", FRAC)
+        self.assertIn("craig_gordon_max_ratio_amplification", FRAC)
+
+        amplification = float(
+            re.search(
+                r"craig_gordon_max_ratio_amplification\s*=\s*([0-9.]+)_r8", FRAC
+            ).group(1)
+        )
+        cap = float(
+            re.search(
+                r"DEF_TRACER_CG_RELHUM_MAX\s*=\s*([0-9.]+)_r8", NAMELIST
+            ).group(1)
         )
 
         def ratio(humidity):
             equilibrium = 0.98
             vapor = 0.97
             kinetic = 1.02
-            h = min(max(humidity, 0.0), 0.95)
+            h = min(max(humidity, 0.0), cap)
             raw = (equilibrium - h * vapor) / (kinetic * (1.0 - h))
-            return max(raw, 0.75 * equilibrium)
+            bound = amplification * abs(equilibrium)
+            return min(max(raw, -bound), bound)
 
         self.assertLess(abs(ratio(0.900001) - ratio(0.899999)), 1.0e-4)
-        self.assertEqual(ratio(0.95), ratio(0.999999))
+        self.assertEqual(ratio(cap), ratio(0.999999))
         self.assertTrue(math.isfinite(ratio(1.0)))
+
+    def test_craig_gordon_flux_ratio_is_not_clipped_to_source_ratio(self):
+        for source in (EVAPO, SOIL):
+            self.assertNotRegex(
+                source,
+                r"evap_ratio_for\s*=\s*min\(\s*evap_ratio_for\s*,\s*"
+                r"max\(\s*source_ratio",
+            )
 
     def test_leaf_off_releases_signed_anomaly_without_negative_pools(self):
         self.assertIn("CALL release_leaf_iso_storage", SOIL)

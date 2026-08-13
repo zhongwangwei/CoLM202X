@@ -198,7 +198,7 @@ CONTAINS
 
     ! Set Default Values
     lambda           = 0.4_JPRB
-    lyrdph           = 0.00005d0    ! Default active layer depth 10cm
+    lyrdph           = 0.05d0       ! Default active layer depth 5 cm
     nsed             = 3
     psedD            = 2.65d0       !  
     pset             = 1.d0     ! typical value for natural sand

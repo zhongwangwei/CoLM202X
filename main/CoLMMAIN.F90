@@ -714,10 +714,9 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: glacier_overflow_mass_trc
 #endif
 #ifdef TRACER
-   ! Per-layer transpiration demand returned by WATER_VSF so the tracer path
-   ! can subtract the matching tracer mass from each soil layer. Only used
-   ! for the soil-ground branches; the wetland path ignores this and handles
-   ! etr inside the mixed pool of tracer_wetland.
+   ! Raw per-layer transpiration demand passed to the water solvers. They
+   ! return the post-cascade withdrawals in etroot_actual_trc and
+   ! etroot_aquifer_trc; tracer_soil_water consumes those actual amounts.
    real(r8) :: etroot_trc(nl_soil)
    ! Per-layer ice withdrawn inside WATER_VSF to close the ET water-balance
    ! deficit (wblc > 0 branch). Tracer path removes the matching trc_wice
@@ -737,6 +736,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: qcharge_trc
    real(r8) :: waterstorage_trc_beg
    real(r8) :: waterstorage_trc_ground
+   real(r8) :: raw_trc
    integer  :: itrc_loc
    real(r8) :: ratio_loc
 #endif
@@ -921,7 +921,11 @@ SUBROUTINE CoLMMAIN ( &
          IF (patchtype == 0) THEN
 
 #if (defined LULC_USGS || defined LULC_IGBP)
-            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
+            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,&
+#ifdef extend_interception
+                      fsno,&
+#endif
+                      lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
@@ -932,6 +936,9 @@ SUBROUTINE CoLMMAIN ( &
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
             CALL LEAF_interception_pftwrap (ipatch,deltim,dewmx,forc_us,forc_vs,forc_t,&
+#ifdef extend_interception
+                      fsno,&
+#endif
                       prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
@@ -941,7 +948,11 @@ SUBROUTINE CoLMMAIN ( &
 #endif
 
          ELSE
-            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
+            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,&
+#ifdef extend_interception
+                      fsno,&
+#endif
+                      lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
@@ -1120,11 +1131,19 @@ SUBROUTINE CoLMMAIN ( &
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
               qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                 &
+#ifdef extend_interception
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+             ,canopy_phase_heat, canopy_phase_heat_p                                    &
+#else
+             ,canopy_phase_heat                                                         &
+#endif
+#endif
 #ifdef TRACER
              ,canopy_smelt_mass_th = canopy_smelt_mass_th, &
               canopy_frzc_mass_th  = canopy_frzc_mass_th, &
               qphs_thaw_lay_th = soil_thaw_mass_th, &
-              qphs_frzc_lay_th = soil_frzc_mass_th &
+              qphs_frzc_lay_th = soil_frzc_mass_th, &
+              raw_trc_th = raw_trc &
 #endif
               )
 
@@ -1185,9 +1204,9 @@ SUBROUTINE CoLMMAIN ( &
             ! Update saved states to post-THERMAL for WATER delta tracking
             wliq_soisno_old_trc(lb:nl_soil) = wliq_soisno(lb:nl_soil)
             wice_soisno_old_trc(lb:nl_soil) = wice_soisno(lb:nl_soil)
-            ! WATER_VSF fills these TRACER diagnostics itself.  WATER_2014
-            ! has no TRACER arguments, so initialize its diagnostics here to
-            ! prevent stale stack values from being passed to tracer_soil_water.
+            ! Initialize all branch-specific water diagnostics before either
+            ! solver fills the outputs it supports, preventing stale values
+            ! from reaching tracer_soil_water.
             etroot_trc(:) = 0._r8
             wblc_ice_sink_trc(:) = 0._r8
             etroot_actual_trc(:) = 0._r8
@@ -1306,10 +1325,15 @@ SUBROUTINE CoLMMAIN ( &
                      t_soisno(snl+1:nl_soil), porsl(1:nl_soil), &
                      dz_soisno(snl+1:nl_soil), &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
-                     waterstorage_trc_ground, &
+                     forc_us, forc_vs, waterstorage_trc_ground, &
                      snow_qout_layer = snow_qout_layer_trc(snl+1:0), &
                      forc_q_frac = forc_q, &
-                     forc_psrf_frac = forc_psrf)
+                     forc_psrf_frac = forc_psrf, &
+                     tleaf_frac = tleaf, &
+                     lai_frac = lai, &
+                     rst_frac = rst, &
+                     ra_frac = raw_trc, &
+                     dz_sno_frac = dz_soisno(snl+1:0))
                ELSE
                   ! Do not pass snow_qout_layer_trc(1:0) when there are no
                   ! snow layers: Intel bounds checking treats the zero-length
@@ -1327,9 +1351,13 @@ SUBROUTINE CoLMMAIN ( &
                      t_soisno(snl+1:nl_soil), porsl(1:nl_soil), &
                      dz_soisno(snl+1:nl_soil), &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
-                     waterstorage_trc_ground, &
+                     forc_us, forc_vs, waterstorage_trc_ground, &
                      forc_q_frac = forc_q, &
-                     forc_psrf_frac = forc_psrf)
+                     forc_psrf_frac = forc_psrf, &
+                     tleaf_frac = tleaf, &
+                     lai_frac = lai, &
+                     rst_frac = rst, &
+                     ra_frac = raw_trc)
                ENDIF
             ELSE
                IF (snl < 0) THEN
@@ -1343,7 +1371,7 @@ SUBROUTINE CoLMMAIN ( &
                      wliq_soisno_old_trc, wice_soisno_old_trc, &
                      wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
                      wetwat, wetwat_old_trc, pg_rain, pg_snow, &
-                     etroot_trc, wblc_ice_sink_trc, &
+                     wblc_ice_sink_trc, &
                      etroot_actual_trc, etroot_aquifer_trc, &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
                      waterstorage_trc_ground, &
@@ -1356,7 +1384,12 @@ SUBROUTINE CoLMMAIN ( &
                      forc_q_frac = forc_q, &
                      forc_psrf_frac = forc_psrf, &
                      lai_frac = lai, &
-                     rst_frac = rst)
+                     rst_frac = rst, &
+                     ra_frac = raw_trc, &
+                     rss_frac = rss, &
+                     dz_soi_frac = dz_soisno(1:nl_soil), &
+                     porsl_frac = porsl(1:nl_soil), &
+                     dz_sno_frac = dz_soisno(snl+1:0))
                ELSE
                   CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
                      qlayer, qinfl, qcharge_trc, rsur, rsub, &
@@ -1368,7 +1401,7 @@ SUBROUTINE CoLMMAIN ( &
                      wliq_soisno_old_trc, wice_soisno_old_trc, &
                      wa, wa_old_trc, wdsrf, wdsrf_old_trc, &
                      wetwat, wetwat_old_trc, pg_rain, pg_snow, &
-                     etroot_trc, wblc_ice_sink_trc, &
+                     wblc_ice_sink_trc, &
                      etroot_actual_trc, etroot_aquifer_trc, &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
                      waterstorage_trc_ground, &
@@ -1380,7 +1413,11 @@ SUBROUTINE CoLMMAIN ( &
                      forc_q_frac = forc_q, &
                      forc_psrf_frac = forc_psrf, &
                      lai_frac = lai, &
-                     rst_frac = rst)
+                     rst_frac = rst, &
+                     ra_frac = raw_trc, &
+                     rss_frac = rss, &
+                     dz_soi_frac = dz_soisno(1:nl_soil), &
+                     porsl_frac = porsl(1:nl_soil))
                ENDIF
             ENDIF
 
@@ -2002,6 +2039,7 @@ SUBROUTINE CoLMMAIN ( &
             CALL tracer_waterbody_patch(ipatch, maxsnl, nl_soil, snl, deltim, &
                forc_rain, forc_snow, lake_deficit, rnof, qseva, qsubl, qsdew, qfros, &
                endwb, totwb, errorw, wa, wdsrf, scv, t_grnd, forc_q, forc_psrf, &
+               forc_us, forc_vs, &
                wliq_soisno, wice_soisno, DEF_USE_Dynamic_Lake)
 #endif
 
