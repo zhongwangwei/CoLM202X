@@ -427,10 +427,12 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! (pore_volume is ~0.04 m, so the max() always selected 1.0), which is
       ! round-off level and aborted global runs on their first timestep.
       !
-      ! Within the tolerance the column is rescaled (liquid, ice and total
-      ! together, so the host mass balance is preserved) and the largest
-      ! residual seen is reported once. Beyond it the run still stops: a
-      ! disagreement that large is invalid forcing, not numerical drift.
+      ! Within the tolerance the host water is left exactly as it is; the
+      ! saturated-column allocation is capped instead, so the area-weighted
+      ! total still reproduces the host state and no water is created. The
+      ! largest residual seen is reported once. Beyond the tolerance the run
+      ! still stops: a disagreement that large is invalid forcing, not
+      ! numerical drift.
       real(r8) :: host_water_tolerance = 0.05_r8
       ! By default a missing/non-positive lake depth emits one warning and
       ! continues.  Set true for production global runs to fail fast when

@@ -25,7 +25,7 @@ def _partition_block() -> str:
     start = src.index("Partition host soil water between conditional columns")
     # Anchor on the actual statement, not the prose: the explanatory comment
     # inside this block quotes the same expression without spaces.
-    end = src.index("vliq_sat_alloc = pore_volume * vliq / max", start)
+    end = src.index("wliq_soisno_sat(j) =", start)
     return _flat(src[start:end])
 
 
@@ -62,13 +62,9 @@ def test_tolerated_band_is_reported_not_silent() -> None:
     assert "WARNING: methane host-water disagreement" in block
 
 
-def test_no_clamping_so_host_mass_balance_is_preserved() -> None:
-    """The module must neither create nor discard host water.
-
-    PR #11's TEMP clamp rescaled vtot without rescaling vliq/vice, which both
-    broke `vliq + vice == vtot` and silently changed the saturated allocation.
-    Rescaling in the other direction would invent water outright.
-    """
+def test_host_water_itself_is_never_modified() -> None:
+    """PR #11's TEMP clamp rescaled vtot without rescaling vliq/vice, breaking
+    `vliq + vice == vtot`. The host state must be read, not rewritten."""
     block = _partition_block()
     for forbidden in (
         "vtot = pore_volume",
@@ -79,19 +75,49 @@ def test_no_clamping_so_host_mass_balance_is_preserved() -> None:
         assert forbidden not in block, forbidden
 
 
-def test_allocation_cannot_exceed_pore_volume_without_a_clamp() -> None:
-    """vliq_sat_alloc = pore_volume*vliq/vtot with vliq <= vtot = vliq+vice.
+def test_unsaturated_floor_is_not_load_bearing() -> None:
+    """max(0,...) must be a safety net, not the conservation mechanism.
 
-    This is why no clamp is needed; assert the algebra the argument rests on
-    is still what the source computes.
+    It was previously relied on to 'leave the column dry rather than invent
+    water' -- but zeroing the unsaturated side does not undo an over-allocated
+    saturated side, which is exactly how water was being created. The cap on
+    the allocation is what conserves; this asserts both are present.
     """
     src = _flat(PHYSICS.read_text(encoding="utf-8"))
     assert "vtot = vliq + vice" in src
-    assert "vliq_sat_alloc = pore_volume * vliq / max(vtot, 1.e-12_r8)" in src
-    assert "vice_sat_alloc = pore_volume * vice / max(vtot, 1.e-12_r8)" in src
-    # and the unsaturated branch stays dry rather than inventing water
     assert "wliq_soisno_unsat(j) = max(0._r8," in src
+    block = _partition_block()
+    assert "host_water_scale" in block
 
 
 def test_temp_marker_from_pr11_is_not_present() -> None:
     assert "TEMP-METHANE-TOL" not in PHYSICS.read_text(encoding="utf-8")
+
+
+def test_saturated_allocation_is_capped_so_no_water_is_created() -> None:
+    """The conservation bug this file previously missed.
+
+    With sat = pore*v/vtot and no cap, a column holding less than
+    finundated*pore_volume gets an allocation the unsaturated side cannot pay
+    for; its max(0,...) floor stops it going negative but does not undo the
+    over-allocation, so the area-weighted total lands on finundated*pore_volume
+    and (finundated*pore_volume - vtot) of water is created per layer.
+
+    Numerical proof lives in tests/methane_host_water_harness.F90; this pins
+    the source so the two cannot drift apart.
+    """
+    block = _partition_block()
+    assert "host_water_scale = min(pore_volume / max(vtot, 1.e-12_r8)" in block
+    assert "1._r8 / max(finundated, 1.e-12_r8))" in block
+    assert "vliq_sat_alloc = vliq * host_water_scale" in block
+    assert "vice_sat_alloc = vice * host_water_scale" in block
+    # the un-capped form must not come back
+    assert "vliq_sat_alloc = pore_volume * vliq" not in block
+
+
+def test_numerical_harness_mirrors_the_source_formula() -> None:
+    """A mirrored formula is only useful while it still mirrors."""
+    harness = (ROOT / "tests/methane_host_water_harness.F90").read_text(encoding="utf-8")
+    assert "min(pore_volume / max(vtot, 1.e-12_r8)" in harness
+    assert "1._r8 / max(finundated, 1.e-12_r8))" in harness
+    assert "MHW PASS" in harness

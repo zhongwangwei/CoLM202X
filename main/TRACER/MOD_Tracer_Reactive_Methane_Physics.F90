@@ -533,7 +533,7 @@ contains
 
 		real(r8) :: err
 		real(r8) :: vliq, vice, vtot, pore_volume, vliq_sat_alloc, vice_sat_alloc
-		real(r8) :: host_water_tol, host_water_resid
+		real(r8) :: host_water_tol, host_water_resid, host_water_scale
 		real(r8) :: vol_liq_init, vol_ice_init, vol_gas_init
 		real(r8) :: wtd_arg
 
@@ -1067,17 +1067,12 @@ contains
 					CALL CoLM_stop ('methane inundation exceeds host soil water')
 				endif
 
-				! Inside the tolerance nothing is rescaled. The allocation below
-				! is already safe and already conservative:
-				!   vliq_sat_alloc = pore_volume*vliq/vtot <= pore_volume,
-				! because vliq <= vtot by construction, and when the inundated
-				! fraction asks for more water than the column holds the
-				! unsaturated branch's max(0,...) leaves it dry rather than
-				! inventing water. Clamping vtot here would either discard host
-				! water or create it, breaking the mass balance this routine
-				! promises above; the only thing the old guard was really
-				! protecting was a physical precondition, not the arithmetic.
-				! So record the worst residual and warn once, so that tolerating
+				! Inside the tolerance the host state is left untouched: vtot,
+				! vliq and vice are never modified, so no host water is created
+				! or discarded here.  What absorbs the disagreement is the
+				! saturated-column allocation below, which is capped so the
+				! area-weighted total reproduces the host exactly.
+				! Record the worst residual and warn once, so that tolerating
 				! the disagreement cannot hide one that is growing.
 				host_water_resid = max(                                        &
 					(vtot - pore_volume) / pore_volume,                         &
@@ -1093,8 +1088,25 @@ contains
 							DEF_METHANE%host_water_tolerance, '); tolerated'
 					endif
 				endif
-				vliq_sat_alloc = pore_volume * vliq / max(vtot, 1.e-12_r8)
-				vice_sat_alloc = pore_volume * vice / max(vtot, 1.e-12_r8)
+				! Saturate the inundated column, but never beyond what the host
+				! water can support.  Without the 1/finundated cap, a column
+				! holding less than finundated*pore_volume gets a saturated
+				! allocation the unsaturated side cannot pay for: its max(0,...)
+				! floor stops the unsaturated column going negative but does NOT
+				! undo the over-allocation, so the area-weighted total comes out
+				! at finundated*pore_volume and the module creates exactly
+				! (finundated*pore_volume - vtot) of water per layer.  That is
+				! the precondition the old machine-epsilon guard enforced by
+				! aborting; widening the tolerance without this cap silently
+				! turned it into invented water.
+				!
+				! With the cap the area-weighted total is vliq (and vice)
+				! exactly, in every branch: the inundated column is simply not
+				! fully saturated when there is not enough water to saturate it.
+				host_water_scale = min(pore_volume / max(vtot, 1.e-12_r8), &
+				                       1._r8 / max(finundated, 1.e-12_r8))
+				vliq_sat_alloc = vliq * host_water_scale
+				vice_sat_alloc = vice * host_water_scale
 				wliq_soisno_sat(j) = vliq_sat_alloc * denh2o
 				wice_soisno_sat(j) = vice_sat_alloc * denice
 				if (finundated < 1._r8) then
