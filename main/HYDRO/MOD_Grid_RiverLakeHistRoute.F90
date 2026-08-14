@@ -179,6 +179,14 @@ CONTAINS
 
       IF (p_is_io) THEN
          inquire (file=trim(rh_file_shard), exist=fexists)
+         ! A restart inside one history period re-opens the SAME shard and
+         ! appends time records: there is one segment per shard, not two
+         ! merged. That is coherent only while the IO-group count is unchanged.
+         ! If it changed, this shard set is a mix of two layouts -- some stale
+         ! shards from the old one may still be on disk with a different
+         ! shard_count, and the ids no longer partition the domain. Refuse it
+         ! here rather than let the aggregator try to reconcile it.
+         IF (fexists) CALL assert_shard_layout_unchanged ()
          IF (.not. fexists) THEN
             CALL create_shard_skeleton (lon_ucat, lat_ucat)
             ! The aggregator decides which shards belong together purely from
@@ -244,6 +252,31 @@ CONTAINS
          0._r8, 0._r8, 0)
 
    END SUBROUTINE write_shard_identity
+
+   !> Refuse a restart that changed the IO-group count.
+   SUBROUTINE assert_shard_layout_unchanged ()
+
+   USE netcdf
+   integer :: nc, e, prev_count
+
+      e = nf90_open (trim(rh_file_shard), NF90_NOWRITE, nc)
+      IF (e /= NF90_NOERR) RETURN
+      prev_count = -1
+      e = nf90_get_att (nc, NF90_GLOBAL, 'shard_count', prev_count)
+      e = nf90_close (nc)
+
+      IF (prev_count > 0 .and. prev_count /= max(p_np_io,1)) THEN
+         write(6,*) '***** ERROR: route history shard set was written with ', &
+            prev_count, ' IO groups but this run has ', max(p_np_io,1), '.'
+         write(6,*) '      Restarting into an existing history period with a ', &
+            'different IO-group count is not supported: the existing shards ', &
+            'partition the domain differently and stale ones may remain.'
+         write(6,*) '      Either restart with the original layout, or move ', &
+            'the existing shards aside and regenerate the period.'
+         CALL CoLM_stop ('route history: IO-group count changed across restart')
+      ENDIF
+
+   END SUBROUTINE assert_shard_layout_unchanged
 
    SUBROUTINE route_hist_end ()
 

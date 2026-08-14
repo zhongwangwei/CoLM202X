@@ -63,10 +63,11 @@ echo "== building shard harness"
 
 NUCAT=${RH_TOTALNUMUCAT:-1200}; NLON=${RH_NLON:-40}; NLAT=${RH_NLAT:-30}
 NPTH=${RH_TOTALNPTHOUT:-131}; NLEV=${RH_NPTHLEV:-3}
+NRESV=${RH_TOTALNUMRESV:-37}
 
 echo "== writing shards (7 ranks, 3 IO groups; one group owns nothing)"
 ( cd "$wd" && RH_NGROUP=3 RH_TOTALNUMUCAT=$NUCAT RH_NLON=$NLON RH_NLAT=$NLAT \
-    RH_TOTALNPTHOUT=$NPTH RH_NPTHLEV=$NLEV RH_OUT="$wd/e2e.nc" \
+    RH_TOTALNPTHOUT=$NPTH RH_NPTHLEV=$NLEV RH_TOTALNUMRESV=$NRESV RH_OUT="$wd/e2e.nc" \
     env OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
         OMPI_MCA_rmaps_base_oversubscribe=1 \
     "$launcher" -n 7 "$wd/h" ) > "$wd/harness.log" 2>&1
@@ -81,12 +82,12 @@ grep -E "shards, identity consistent|rebuilt" "$wd/agg.log" | sed 's/^/   /'
   echo "missing output or .complete marker"; exit 1; }
 
 echo "== verifying every id landed in the right place"
-python3 - "$wd/e2e.nc" "$NUCAT" "$NLON" "$NLAT" "$NPTH" "$NLEV" <<'PY'
+python3 - "$wd/e2e.nc" "$NUCAT" "$NLON" "$NLAT" "$NPTH" "$NLEV" "${RH_TOTALNUMRESV:-37}" <<'PY'
 import sys
 import numpy as np
 from netCDF4 import Dataset
 
-path, nuc, nlon, nlat, npth, nlev = sys.argv[1], *map(int, sys.argv[2:])
+path, nuc, nlon, nlat, npth, nlev, nresv = sys.argv[1], *map(int, sys.argv[2:])
 fail = 0
 with Dataset(path) as ds:
     g = np.asarray(ds.variables['f_ucat_shard'][0])
@@ -109,6 +110,25 @@ for gid in range(1, npth + 1):
 badb = int((~np.isclose(b, expb, rtol=0, atol=1e-9)).sum())
 print(f"   pathways       : {badb} of {b.size} cells wrong")
 fail += badb != 0
+
+# Reservoir fields must SURVIVE aggregation. Excluding them from the
+# unit-catchment sweep stopped the wrong reconstruction but silently dropped
+# them, which is why this check exists at all.
+expr = np.arange(1, nresv + 1, dtype=np.float64) + 0.25
+with Dataset(path) as ds:
+    for name in ("volresv", "qresv_in", "qresv_out"):
+        if name not in ds.variables:
+            print(f"   FAIL: {name} missing from the aggregate (silently dropped)")
+            fail += 1
+            continue
+        r = np.asarray(ds.variables[name][0], dtype=np.float64)
+        if r.shape != expr.shape:
+            print(f"   FAIL: {name} shape {r.shape} != {expr.shape}")
+            fail += 1
+            continue
+        badr = int((~np.isclose(r, expr, rtol=0, atol=1e-9)).sum())
+        print(f"   {name:<14} : {badr} of {r.size} values wrong")
+        fail += badr != 0
 
 sys.exit(1 if fail else 0)
 PY

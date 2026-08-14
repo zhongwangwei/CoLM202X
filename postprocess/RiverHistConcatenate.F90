@@ -182,6 +182,7 @@ CONTAINS
          CALL rebuild_ucat_variable (trim(varnames(ivar)))
       ENDDO
 
+      CALL rebuild_resv_variables ()
       CALL rebuild_bif_matrix ()
 
       write(*,'(A,I0,A,I0,A)') '  rebuilt ', nvar, ' unit-catchment fields over ', &
@@ -258,6 +259,98 @@ CONTAINS
       deallocate (grid)
 
    END SUBROUTINE rebuild_ucat_variable
+
+   !> Reservoir fields are (reservoir_local, time) -- the same shape as a
+   !! unit-catchment field, which is why they must be selected by dimension
+   !! name rather than by shape. Excluding them from the unit-catchment sweep
+   !! is necessary but not sufficient: without this they were written into the
+   !! shards and then silently absent from the aggregate, which is worse than
+   !! being visibly wrong. Rebuilt on resv_global_index, never on rank order.
+   SUBROUTINE rebuild_resv_variables ()
+
+   character(len=256) :: names(256)
+   real(r8), allocatable :: col(:), vals(:)
+   integer,  allocatable :: ids(:), seen(:)
+   integer :: nv, v, nd, e, dimids(NF90_MAX_VAR_DIMS), tdim, rdim
+   integer :: nnames, it, k, n, i, vid, totalresv
+   character(len=256) :: nm
+
+      ! total reservoir count and the variable list, from shard 0
+      nnames = 0
+      totalresv = 0
+      DO ish = 0, shard_count-1
+         CALL shard_name (ish, fname)
+         ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
+         CALL read_int (ncid, 'resv_global_index', ids)
+         totalresv = totalresv + size(ids)
+         IF (nnames == 0) THEN
+            ierr = nf90_inq_dimid (ncid, 'time', tdim)
+            e = nf90_inq_dimid (ncid, 'reservoir_local', rdim)
+            IF (e /= NF90_NOERR) rdim = -1
+            ierr = nf90_inquire (ncid, nVariables=nv)
+            DO v = 1, nv
+               e = nf90_inquire_variable (ncid, v, name=nm, ndims=nd, dimids=dimids)
+               IF (nd /= 2) CYCLE
+               IF (dimids(2) /= tdim) CYCLE
+               IF (dimids(1) /= rdim) CYCLE
+               nnames = nnames + 1
+               names(nnames) = nm
+            ENDDO
+         ENDIF
+         IF (allocated(ids)) deallocate (ids)
+         ierr = nf90_close (ncid)
+      ENDDO
+
+      IF (nnames == 0 .or. totalresv == 0) RETURN
+
+      CALL ncio_define_dimension (trim(filetmp), 'reservoir', totalresv)
+      allocate (col(totalresv))
+      allocate (seen(totalresv))
+
+      DO i = 1, nnames
+         DO it = 1, ntime
+            col = SPVAL
+            seen = 0
+            DO ish = 0, shard_count-1
+               CALL shard_name (ish, fname)
+               ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
+               ierr = nf90_inq_varid (ncid, trim(names(i)), vid)
+               IF (ierr /= NF90_NOERR) THEN
+                  ierr = nf90_close (ncid); CYCLE
+               ENDIF
+               CALL read_int (ncid, 'resv_global_index', ids)
+               n = size(ids)
+               IF (n > 0) THEN
+                  CALL read_slice (ncid, vid, n, it, vals)
+                  DO k = 1, n
+                     IF (ids(k) < 1 .or. ids(k) > totalresv) CALL CoLM_stop &
+                        ('river_hist_concatenate: reservoir id out of range')
+                     IF (seen(ids(k)) /= 0) CALL CoLM_stop &
+                        ('river_hist_concatenate: duplicate reservoir id')
+                     seen(ids(k)) = 1
+                     col(ids(k)) = vals(k)
+                  ENDDO
+                  deallocate (vals)
+               ENDIF
+               IF (allocated(ids)) deallocate (ids)
+               ierr = nf90_close (ncid)
+            ENDDO
+            IF (count(seen == 0) > 0) THEN
+               write(*,'(A,I0,A,A)') 'ERROR: ', count(seen == 0), &
+                  ' reservoirs missing from the shard set for ', trim(names(i))
+               CALL CoLM_stop ('river_hist_concatenate: incomplete reservoir coverage')
+            ENDIF
+            CALL ncio_write_serial_time (trim(filetmp), trim(names(i)), it, col, &
+               'reservoir', 'time', DEF_HIST_CompressLevel)
+         ENDDO
+         CALL copy_var_attrs (trim(names(i)))
+      ENDDO
+
+      write(*,'(A,I0,A,I0,A)') '  rebuilt ', nnames, ' reservoir fields over ', &
+         totalresv, ' reservoirs'
+      deallocate (col, seen)
+
+   END SUBROUTINE rebuild_resv_variables
 
    !> Bifurcation pathways are keyed strictly on pth_global_id.
    SUBROUTINE rebuild_bif_matrix ()

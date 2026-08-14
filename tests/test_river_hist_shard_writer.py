@@ -177,3 +177,27 @@ def test_shard_identity_carries_a_run_segment() -> None:
     route = ROUTE_MOD.read_text(encoding="utf-8")
     assert "rh_seg_date" in route
     assert "segment_id" in route
+
+
+def test_restart_with_a_changed_io_group_count_is_refused() -> None:
+    """A restart inside one period re-opens the SAME shard and appends time
+    records, so there is one segment per shard rather than two merged. That is
+    only coherent while the IO-group count is unchanged; if it changed, stale
+    shards from the old layout remain and the ids no longer partition the
+    domain. Cross-layout restart is rejected, not silently reconciled."""
+    route = ROUTE_MOD.read_text(encoding="utf-8")
+    assert "assert_shard_layout_unchanged" in route
+    body = route[route.index("SUBROUTINE assert_shard_layout_unchanged"):]
+    body = body[: body.index("END SUBROUTINE assert_shard_layout_unchanged")]
+    assert "'shard_count'" in body
+    assert "p_np_io" in body
+    assert "CoLM_stop" in body
+
+
+def test_harness_stamps_identity_through_the_production_routine() -> None:
+    """The harness must not hand-roll identity: that is exactly what hid the
+    fact that production never wrote it."""
+    h = (ROOT / "tests/river_hist_shard_harness.F90").read_text(encoding="utf-8")
+    assert "CALL route_shard_write_identity" in h
+    assert "route_shard_grid_fingerprint" in h, "use the real fingerprint helper"
+    assert "max(p_np_io,1)" in h, "shard_count must come from the real IO group count"

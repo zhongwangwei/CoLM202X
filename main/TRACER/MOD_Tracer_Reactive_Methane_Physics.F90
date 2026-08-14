@@ -67,6 +67,7 @@ module MOD_Tracer_Reactive_Methane_Physics
 	! patch; the driver's patch loop is not OpenMP-parallel (CoLMDRIVER.F90),
 	! so a plain saved scalar is safe here.
 	real(r8) :: host_water_max_resid = 0._r8
+	real(r8) :: host_water_reported  = 0._r8
 	logical  :: host_water_warned    = .false.
 
 contains
@@ -77,14 +78,21 @@ contains
 	!! inherit the previous run's worst residual or its already-warned flag.
 	subroutine methane_host_water_reset ()
 		host_water_max_resid = 0._r8
+		host_water_reported  = 0._r8
 		host_water_warned    = .false.
 	end subroutine methane_host_water_reset
 
-	!> Report the worst host-water disagreement across ALL ranks.
+	!> Report the worst host-water disagreement across all worker ranks.
 	!!
 	!! The running maximum and the one-shot warning are per-rank state, so
-	!! without this every rank warns independently and the global worst case
-	!! is never printed. Call once at the end of a run.
+	!! without this every rank warns independently and the global worst case is
+	!! never printed.
+	!!
+	!! NOTE this runs from tracer_report, i.e. once per CoLMDRIVER call, not
+	!! once per run -- an earlier comment claimed otherwise. The reduction is
+	!! one double and cheap enough per timestep, but the summary line must not
+	!! be printed every step, so worker 0 prints only when the global worst
+	!! case grows past what it last reported.
 	subroutine methane_host_water_report ()
 
 		USE MOD_SPMD_Task
@@ -102,7 +110,8 @@ contains
 		CALL mpi_reduce (host_water_max_resid, gmax, 1, MPI_REAL8, MPI_MAX, &
 			0, p_comm_worker, p_err)
 #endif
-		if (p_iam_worker == 0 .and. gmax > 0._r8) then
+		if (p_iam_worker == 0 .and. gmax > host_water_reported) then
+			host_water_reported = gmax
 			write(6,'(A,E12.4,A,E12.4,A)') &
 				' methane host-water: worst disagreement over all ranks ', gmax, &
 				' of pore volume (tolerance ', DEF_METHANE%host_water_tolerance, ')'
@@ -1116,7 +1125,9 @@ contains
 					write(6,*) 'ERROR: host soil water exceeds pore volume in methane partition: ', &
 						ipatch, j, vtot, pore_volume, &
 						' excess/pore =', (vtot - pore_volume) / pore_volume, &
-						' tolerance =', DEF_METHANE%host_water_tolerance
+						' tolerance =', host_water_excess_tol / pore_volume, &
+						' (excess side is round-off only and NOT host_water_tolerance,', &
+						'  because vtot > pore_volume cannot be partitioned conservatively)'
 					CALL CoLM_stop ('invalid host soil water for methane columns')
 				endif
 				if (vtot < finundated * pore_volume - host_water_tol) then

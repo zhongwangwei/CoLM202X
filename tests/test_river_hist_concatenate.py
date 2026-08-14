@@ -134,3 +134,25 @@ def test_reservoir_fields_are_not_treated_as_unit_catchment() -> None:
     body = body[: body.index("END SUBROUTINE collect_varnames")]
     assert "nf90_inq_dimid (nc, 'unitcat_local', udim)" in body
     assert "IF (dimids(1) /= udim) CYCLE" in body
+
+
+def test_reservoir_fields_are_rebuilt_not_merely_excluded() -> None:
+    """Excluding reservoir from the unit-catchment sweep stopped the wrong
+    reconstruction but silently dropped the variables from the aggregate --
+    worse than being visibly wrong, because nothing reports it."""
+    agg = _src(AGG)
+    assert "CALL rebuild_resv_variables ()" in agg
+    body = agg[agg.index("SUBROUTINE rebuild_resv_variables"):]
+    body = body[: body.index("END SUBROUTINE rebuild_resv_variables")]
+    assert "resv_global_index" in body, "reservoirs must be keyed on their global index"
+    assert "'reservoir'" in body
+    for failure in ("reservoir id out of range", "duplicate reservoir id",
+                    "incomplete reservoir coverage"):
+        assert failure in body, failure
+
+
+def test_e2e_covers_reservoir_survival() -> None:
+    e2e = (ROOT / "tests/run_river_hist_concat_e2e.sh").read_text(encoding="utf-8")
+    for name in ("volresv", "qresv_in", "qresv_out"):
+        assert name in e2e, name
+    assert "silently dropped" in e2e

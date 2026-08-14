@@ -36,10 +36,14 @@ PROGRAM river_hist_shard_harness
    integer :: nlon_g, nlat_g
    character(len=256) :: fileout, fileshard
 
-   type(route_shard_layout_type) :: ucat_layout, path_layout
+   type(route_shard_layout_type) :: ucat_layout, path_layout, resv_layout
    integer,  allocatable :: ucat_gid(:), path_gid(:)
    real(r8), allocatable :: ucat_val(:), path_val(:,:)
-   integer  :: numucat, npthout_local
+   integer  :: numucat, npthout_local, numresv_local
+   integer,  allocatable :: resv_gid(:)
+   real(r8), allocatable :: resv_val(:)
+   real(r8), allocatable :: lon_h(:), lat_h(:)
+   integer  :: totalnumresv
    integer  :: i, il, shard_count, failures
    real(r8) :: t_first, t_last
 
@@ -51,6 +55,7 @@ PROGRAM river_hist_shard_harness
       CALL read_env_int ('RH_TOTALNPTHOUT', 131, totalnpthout)
       CALL read_env_int ('RH_NLON',           40, nlon_g)
       CALL read_env_int ('RH_NLAT',           30, nlat_g)
+      CALL read_env_int ('RH_TOTALNUMRESV',   37, totalnumresv)
       CALL read_env_str ('RH_OUT', 'river_hist_shard_test.nc', fileout)
 
       CALL divide_processes_into_groups (ngroup)
@@ -59,11 +64,14 @@ PROGRAM river_hist_shard_harness
 
       CALL build_local_ucat ()
       CALL build_local_paths ()
+      CALL build_local_resv ()
+      CALL build_axes ()
 
       ! ---- layouts: built once, reused by every variable
       IF (p_is_io .or. p_is_worker) THEN
          CALL route_shard_layout_build (ucat_layout, numucat,       ucat_gid)
          CALL route_shard_layout_build (path_layout, npthout_local, path_gid)
+         CALL route_shard_layout_build (resv_layout, numresv_local, resv_gid)
       ENDIF
 
       ! ---- each IO rank creates its own shard and writes both fields
@@ -76,6 +84,10 @@ PROGRAM river_hist_shard_harness
          CALL ncio_define_dimension (trim(fileshard), 'bifurcation_level', npthlev)
          CALL ncio_define_dimension (trim(fileshard), 'bifurcation_pathway_local', &
             max(path_layout%ntotal, 0))
+         CALL ncio_define_dimension (trim(fileshard), 'reservoir_local', &
+            max(resv_layout%ntotal, 0))
+         CALL ncio_write_serial (trim(fileshard), 'resv_global_index', &
+            resv_layout%gid(1:max(resv_layout%ntotal,0)), 'reservoir_local')
          ! the ids this shard owns, so the aggregator never guesses
          CALL ncio_write_serial (trim(fileshard), 'ucat_ucid', &
             ucat_layout%gid(1:max(ucat_layout%ntotal,0)), 'unitcat_local')
@@ -93,14 +105,26 @@ PROGRAM river_hist_shard_harness
          CALL route_shard_write_matrix (path_layout, path_val, npthlev, trim(fileshard), &
             'f_bifflw_lev', 'bifurcation_level', 'bifurcation_pathway_local', 1, &
             'synthetic pathway flow', 'm^3/s')
+         ! Production reservoir variable names, so the aggregator is exercised
+         ! on the shape it will actually meet.
+         CALL route_shard_write_vector (resv_layout, resv_val, trim(fileshard), &
+            'volresv', 'reservoir_local', 1, 'reservoir water volume', 'm^3')
+         CALL route_shard_write_vector (resv_layout, resv_val, trim(fileshard), &
+            'qresv_in', 'reservoir_local', 1, 'reservoir inflow', 'm^3/s')
+         CALL route_shard_write_vector (resv_layout, resv_val, trim(fileshard), &
+            'qresv_out', 'reservoir_local', 1, 'reservoir outflow', 'm^3/s')
       ENDIF
 
+      ! Identity is stamped through the same public routine production calls,
+      ! with the same argument shape (grid fingerprint from the real helper,
+      ! shard_count from p_np_io), so a divergence between harness and
+      ! production shows up here rather than only in a real run.
       IF (p_is_io) THEN
-         t_first = 1._r8
-         t_last  = 1._r8
          CALL route_shard_write_identity (trim(fileshard), trim(fileout), &
-            'harness_case', '2000-01', 'seg0001', p_iam_io, shard_count, &
-            'harness-grid', t_first, t_last, 1)
+            'harness_case', '2000-001', 'seg2000001000000', &
+            max(p_iam_io,0), max(p_np_io,1), &
+            trim(route_shard_grid_fingerprint (nlon_g, nlat_g, lon_h, lat_h)), &
+            0._r8, 0._r8, 0)
       ENDIF
 
       CALL mpi_barrier (p_comm_glb, p_err)
@@ -168,6 +192,51 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE build_local_ucat
+
+   ! Reservoirs are dealt round-robin like pathways, so consecutive global
+   ! indices live on different shards.
+   SUBROUTINE build_local_resv ()
+
+   integer :: iw, nactive, ir, k
+
+      numresv_local = 0
+      IF (p_is_worker .and. worker_is_active(p_iam_worker)) THEN
+         nactive = 0
+         DO iw = 0, p_np_worker-1
+            IF (worker_is_active(iw)) nactive = nactive + 1
+         ENDDO
+         DO ir = 1, totalnumresv
+            IF (mod(ir-1, nactive) == active_rank(p_iam_worker)) &
+               numresv_local = numresv_local + 1
+         ENDDO
+         allocate (resv_gid (max(numresv_local,1)))
+         allocate (resv_val (max(numresv_local,1)))
+         k = 0
+         DO ir = 1, totalnumresv
+            IF (mod(ir-1, nactive) == active_rank(p_iam_worker)) THEN
+               k = k + 1
+               resv_gid(k) = ir
+               resv_val(k) = real(ir, r8) + 0.25_r8
+            ENDIF
+         ENDDO
+      ENDIF
+      IF (.not. allocated(resv_gid)) THEN
+         allocate (resv_gid (1)); resv_gid = 0
+         allocate (resv_val (1)); resv_val = spval
+      ENDIF
+
+   END SUBROUTINE build_local_resv
+
+   SUBROUTINE build_axes ()
+   integer :: k
+      allocate (lon_h(nlon_g), lat_h(nlat_g))
+      DO k = 1, nlon_g
+         lon_h(k) = -180._r8 + 360._r8 * (real(k,r8) - 0.5_r8) / real(nlon_g,r8)
+      ENDDO
+      DO k = 1, nlat_g
+         lat_h(k) =   90._r8 - 180._r8 * (real(k,r8) - 0.5_r8) / real(nlat_g,r8)
+      ENDDO
+   END SUBROUTINE build_axes
 
    SUBROUTINE build_local_paths ()
 
@@ -374,7 +443,7 @@ CONTAINS
       ENDIF
       sval = ''
       ierr = nf90_get_att (ncid, NF90_GLOBAL, 'segment_id', sval)
-      IF (ierr /= NF90_NOERR .or. trim(sval) /= 'seg0001') THEN
+      IF (ierr /= NF90_NOERR .or. trim(sval) /= 'seg2000001000000') THEN
          write(*,'(A,A)') 'RHSHARD bad segment_id in ', trim(fname)
          failures = failures + 1
       ENDIF
