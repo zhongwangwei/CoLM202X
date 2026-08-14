@@ -506,19 +506,24 @@ CONTAINS
    integer, intent(in) :: nc
    character(len=256), allocatable, intent(out) :: names(:)
    integer, intent(out) :: n
-   integer :: nv, v, nd, e, dimids(NF90_MAX_VAR_DIMS), tdim
+   integer :: nv, v, nd, e, dimids(NF90_MAX_VAR_DIMS), tdim, udim
    character(len=256) :: nm
    character(len=256) :: tmp(512)
       n = 0
       e = nf90_inq_dimid (nc, 'time', tdim)
       e = nf90_inquire (nc, nVariables=nv)
-      ! A unit-catchment field is (unitcat_local, time): two dimensions on
-      ! disk, the second being time. The bifurcation matrix has three and is
-      ! rebuilt separately; coordinates and id arrays have no time dimension.
+      ! A unit-catchment field is (unitcat_local, time). Matching on "two
+      ! dimensions, second is time" is NOT enough: reservoir fields are
+      ! (reservoir_local, time) and would be swept up here, then rebuilt
+      ! against ucat_ucid/x_ucat/y_ucat, whose length is unitcat_local. The
+      ! first dimension must be unitcat_local explicitly.
+      e = nf90_inq_dimid (nc, 'unitcat_local', udim)
+      IF (e /= NF90_NOERR) udim = -1
       DO v = 1, nv
          e = nf90_inquire_variable (nc, v, name=nm, ndims=nd, dimids=dimids)
          IF (nd /= 2) CYCLE
          IF (dimids(2) /= tdim) CYCLE
+         IF (dimids(1) /= udim) CYCLE
          IF (trim(nm) == 'time') CYCLE
          n = n + 1
          tmp(n) = nm

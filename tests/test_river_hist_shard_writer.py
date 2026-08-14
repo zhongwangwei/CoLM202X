@@ -148,3 +148,32 @@ def test_harness_checks_coverage_is_complete_and_exclusive() -> None:
     assert "coverage broken" in harness
     # values must travel with their id, not with their rank
     assert "value misplaced" in harness
+
+
+ROUTE_MOD = ROOT / "main/HYDRO/MOD_Grid_RiverLakeHistRoute.F90"
+
+
+def test_production_actually_writes_shard_identity() -> None:
+    """The aggregator refuses a shard without identity attributes, so a writer
+    that exists but is never called from production makes block mode unusable
+    while every test still passes -- the harness wrote them itself.
+
+    Assert the CALL SITE, not the routine's existence.
+    """
+    route = re.sub(r"!.*", "", ROUTE_MOD.read_text(encoding="utf-8"))
+    assert "CALL route_shard_write_identity" in route, (
+        "production never stamps shard identity; the aggregator will reject "
+        "every real block-mode shard"
+    )
+    # and it must happen where the shard is created
+    begin = route[route.index("SUBROUTINE route_hist_begin"):]
+    begin = begin[: begin.index("END SUBROUTINE route_hist_begin")]
+    assert "write_shard_identity" in begin
+
+
+def test_shard_identity_carries_a_run_segment() -> None:
+    """A restart inside one period writes a second segment of the same period;
+    without a distinguishing id the aggregator cannot tell them apart."""
+    route = ROUTE_MOD.read_text(encoding="utf-8")
+    assert "rh_seg_date" in route
+    assert "segment_id" in route

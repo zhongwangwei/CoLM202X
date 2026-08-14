@@ -121,3 +121,16 @@ def test_aggregator_is_wired_into_the_build() -> None:
     assert re.search(r"postprocess\.x :.*river_hist_concatenate\.x", mk)
     # and removed by the clean target, like its siblings
     assert "run/river_hist_concatenate.x" in mk
+
+
+def test_reservoir_fields_are_not_treated_as_unit_catchment() -> None:
+    """Reservoir shards are (reservoir_local, time) -- the same shape as a
+    unit-catchment field. Matching on 'two dims, second is time' swept them up
+    and rebuilt them against ucat_ucid/x_ucat/y_ucat, whose length is
+    unitcat_local. The first dimension must be matched by name.
+    """
+    agg = _src(AGG)
+    body = agg[agg.index("SUBROUTINE collect_varnames"):]
+    body = body[: body.index("END SUBROUTINE collect_varnames")]
+    assert "nf90_inq_dimid (nc, 'unitcat_local', udim)" in body
+    assert "IF (dimids(1) /= udim) CYCLE" in body

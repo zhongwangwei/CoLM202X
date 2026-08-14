@@ -49,7 +49,7 @@ def test_threshold_scales_with_pore_volume_not_machine_epsilon() -> None:
 def test_the_guard_still_aborts_beyond_tolerance() -> None:
     block = _partition_block()
     assert block.count("CALL CoLM_stop") == 2
-    assert "if (vtot > pore_volume + host_water_tol) then" in block
+    assert "if (vtot > pore_volume + host_water_excess_tol) then" in block
     assert "if (vtot < finundated * pore_volume - host_water_tol) then" in block
     # and says what to set, not just that it failed
     assert "tolerance =" in block
@@ -121,3 +121,28 @@ def test_numerical_harness_mirrors_the_source_formula() -> None:
     assert "min(pore_volume / max(vtot, 1.e-12_r8)" in harness
     assert "1._r8 / max(finundated, 1.e-12_r8))" in harness
     assert "MHW PASS" in harness
+
+
+def test_report_collective_matches_the_ranks_that_reach_it() -> None:
+    """CoLM.F90 calls CoLMDRIVER inside IF (p_is_worker), so tracer_report --
+    and this reduction -- is worker-only. A p_comm_glb collective there
+    deadlocks every MPI run with methane enabled."""
+    src = PHYSICS.read_text(encoding="utf-8")
+    body = src[src.index("subroutine methane_host_water_report"):]
+    body = body[: body.index("end subroutine methane_host_water_report")]
+    code = _flat(re.sub(r"!.*", "", body))
+    assert "p_comm_worker" in code
+    assert "p_comm_glb" not in code, "global collective on a worker-only path"
+    # and it must not report from a rank that never arrives
+    assert "p_is_master" not in code
+    assert "p_iam_worker == 0" in body
+
+
+def test_excess_side_keeps_a_roundoff_only_tolerance() -> None:
+    """vtot > pore_volume cannot be partitioned conservatively, so it must not
+    share the wide deficit tolerance."""
+    block = _partition_block()
+    assert "host_water_excess_tol = 1.e-9_r8 * pore_volume" in block
+    assert "if (vtot > pore_volume + host_water_excess_tol) then" in block
+    # the wide tolerance stays on the deficit side only
+    assert "if (vtot < finundated * pore_volume - host_water_tol) then" in block

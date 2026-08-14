@@ -65,6 +65,15 @@ MODULE MOD_Grid_RiverLakeHistRoute
    type(route_shard_layout_type) :: rh_bif_layout
    logical :: rh_bif_layout_built = .false.
 
+   ! Identity of the current run segment: the date at which this process first
+   ! wrote a shard. A restart re-enters with a different one, which is what
+   ! lets the aggregator tell two segments of the same period apart.
+   integer :: rh_seg_date(3) = 0
+   logical :: rh_seg_set = .false.
+   ! Grid coordinates are owned by MOD_Grid_RiverLakeHist and passed in; cache
+   ! them so the fingerprint can be recomputed without re-plumbing them.
+   real(r8), allocatable :: rh_lon_cache(:), rh_lat_cache(:)
+
 CONTAINS
 
    logical FUNCTION route_hist_is_block ()
@@ -112,6 +121,14 @@ CONTAINS
 
       rh_file_one = file_hist_ucat
       rh_first    = is_first_in_file
+      IF (.not. rh_seg_set) THEN
+         rh_seg_date = idate
+         rh_seg_set  = .true.
+      ENDIF
+      IF (.not. allocated(rh_lon_cache)) THEN
+         allocate (rh_lon_cache(size(lon_ucat))); rh_lon_cache = lon_ucat
+         allocate (rh_lat_cache(size(lat_ucat))); rh_lat_cache = lat_ucat
+      ENDIF
       rh_block    = (trim(DEF_HIST_mode) == 'block')
       rh_active   = .true.
       itime_in_file_ucat = 0
@@ -164,6 +181,12 @@ CONTAINS
          inquire (file=trim(rh_file_shard), exist=fexists)
          IF (.not. fexists) THEN
             CALL create_shard_skeleton (lon_ucat, lat_ucat)
+            ! The aggregator decides which shards belong together purely from
+            ! these attributes and refuses a shard without them, so writing
+            ! them is not optional. They were previously written only by the
+            ! test harness, which is why every test passed while production
+            ! block output could not be aggregated at all.
+            CALL write_shard_identity (idate)
             ! Leave a discoverable note next to the target the moment the first
             ! shard appears. Block-mode output is not the file analysis scripts
             ! expect, and a run that ends without aggregation would otherwise
@@ -197,6 +220,30 @@ CONTAINS
       CLOSE (u)
 
    END SUBROUTINE route_hist_write_pending_manifest
+
+   !> Stamp this shard's identity. segment_id distinguishes continuous run
+   !! segments: a restart re-enters with a new one, and the aggregator merges
+   !! across segments but refuses conflicting time records.
+   SUBROUTINE write_shard_identity (idate)
+
+   USE MOD_Namelist, only: DEF_CASE_NAME
+   integer, intent(in) :: idate(3)
+
+   character(len=64)  :: period_key, segment_id
+   character(len=256) :: fingerprint
+   integer :: i
+
+      write(period_key,'(I4.4,A,I3.3)') idate(1), '-', idate(2)
+      write(segment_id,'(A,I4.4,I3.3,I6.6)') 'seg', rh_seg_date(1), rh_seg_date(2), rh_seg_date(3)
+      fingerprint = route_shard_grid_fingerprint (griducat%nlon, griducat%nlat, &
+         rh_lon_cache, rh_lat_cache)
+
+      CALL route_shard_write_identity (trim(rh_file_shard), trim(rh_file_one), &
+         trim(DEF_CASE_NAME), trim(period_key), trim(segment_id), &
+         max(p_iam_io,0), max(p_np_io,1), trim(fingerprint), &
+         0._r8, 0._r8, 0)
+
+   END SUBROUTINE write_shard_identity
 
    SUBROUTINE route_hist_end ()
 

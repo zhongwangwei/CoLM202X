@@ -92,12 +92,17 @@ contains
 		implicit none
 		real(r8) :: gmax
 
+		! Reduce over the WORKER communicator, not p_comm_glb.  This runs
+		! from tracer_report, which CoLM.F90 reaches inside IF (p_is_worker):
+		! master and IO ranks never arrive, so a p_comm_glb collective here
+		! deadlocks every MPI run with methane enabled.  Report from worker 0
+		! for the same reason -- p_is_master is not among the callers.
 		gmax = host_water_max_resid
 #ifdef USEMPI
 		CALL mpi_reduce (host_water_max_resid, gmax, 1, MPI_REAL8, MPI_MAX, &
-			p_address_master, p_comm_glb, p_err)
+			0, p_comm_worker, p_err)
 #endif
-		if (p_is_master .and. gmax > 0._r8) then
+		if (p_iam_worker == 0 .and. gmax > 0._r8) then
 			write(6,'(A,E12.4,A,E12.4,A)') &
 				' methane host-water: worst disagreement over all ranks ', gmax, &
 				' of pore volume (tolerance ', DEF_METHANE%host_water_tolerance, ')'
@@ -569,7 +574,8 @@ contains
 
 		real(r8) :: err
 		real(r8) :: vliq, vice, vtot, pore_volume, vliq_sat_alloc, vice_sat_alloc
-		real(r8) :: host_water_tol, host_water_resid, host_water_scale
+		real(r8) :: host_water_tol, host_water_excess_tol
+		real(r8) :: host_water_resid, host_water_scale
 		real(r8) :: vol_liq_init, vol_ice_init, vol_gas_init
 		real(r8) :: wtd_arg
 
@@ -1088,7 +1094,25 @@ contains
 				! computed from each other.
 				host_water_tol = DEF_METHANE%host_water_tolerance * pore_volume
 
-				if (vtot > pore_volume + host_water_tol) then
+				! The two sides are NOT symmetric and must not share a tolerance.
+				!
+				! Deficit (vtot < finundated*pore_volume) is a legitimate
+				! disagreement between two independently computed quantities, and
+				! the capped allocation below reproduces the host exactly: the
+				! inundated column is simply not fully saturated.
+				!
+				! Excess (vtot > pore_volume) says the host holds more water than
+				! the pore space can contain. No partition into two columns each
+				! bounded by pore_volume can reproduce that: at finundated = 1 the
+				! surplus is silently discarded, and as finundated -> 1 the
+				! unsaturated column blows up past porosity (17x pore_volume at
+				! finundated = 0.999) and is clamped downstream instead. So the
+				! excess side keeps a round-off-only tolerance -- it is a host
+				! state violation, not numerical drift, and tolerating it cannot
+				! conserve.
+				host_water_excess_tol = 1.e-9_r8 * pore_volume
+
+				if (vtot > pore_volume + host_water_excess_tol) then
 					write(6,*) 'ERROR: host soil water exceeds pore volume in methane partition: ', &
 						ipatch, j, vtot, pore_volume, &
 						' excess/pore =', (vtot - pore_volume) / pore_volume, &

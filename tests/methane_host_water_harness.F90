@@ -39,7 +39,16 @@ PROGRAM methane_host_water_harness
       CALL check ('deficit 4.9%% (just inside)',  0.04_r8, 0.8_r8, 0.03004_r8, 0.0_r8)
       CALL check ('exact vtot = f*pore',          0.04_r8, 0.8_r8, 0.03200_r8, 0.0_r8)
       CALL check ('normal',                       0.04_r8, 0.8_r8, 0.03600_r8, 0.0_r8)
-      CALL check ('excess 1.6%% over pore',       0.04_r8, 0.8_r8, 0.04064_r8, 0.0_r8)
+      ! NOTE on the excess side (vtot > pore_volume): it is deliberately absent
+      ! here because production now rejects it beyond round-off. No partition
+      ! into two columns each bounded by pore_volume can reproduce such a host
+      ! state -- at finundated = 1 the surplus is discarded, and as
+      ! finundated -> 1 the unsaturated column runs past porosity (1.08x at
+      ! f=0.8, 17x at f=0.999) and is clamped downstream. Widening the
+      ! tolerance there was the bug; the cases below are the reachable domain.
+      CALL check ('at pore, f=1',                 0.04_r8, 1.0_r8, 0.04000_r8, 0.0_r8)
+      CALL check ('at pore, f=0.99',              0.04_r8, 0.99_r8, 0.04000_r8, 0.0_r8)
+      CALL check ('just under pore, f=0.999',     0.04_r8, 0.999_r8, 0.03999_r8, 0.0_r8)
       CALL check ('fully inundated f=1',          0.04_r8, 1.0_r8, 0.03000_r8, 0.0_r8)
       CALL check ('dry column',                   0.04_r8, 0.8_r8, 0.0_r8,     0.0_r8)
       CALL check ('all ice',                      0.04_r8, 0.7_r8, 0.0_r8,     0.02500_r8)
@@ -94,6 +103,9 @@ CONTAINS
       IF (abs(wice - vice) > tol * max(vice, 1._r8)) ok = .false.
       IF (vliq_sat_alloc + vice_sat_alloc > pore_volume * (1._r8 + 1.e-12_r8)) ok = .false.
       IF (uliq < -tol .or. uice < -tol) ok = .false.
+      ! A column above porosity is unphysical and gets clamped downstream,
+      ! which breaks conservation there instead of here.
+      IF (uliq + uice > pore_volume * (1._r8 + 1.e-9_r8)) ok = .false.
 
       IF (.not. ok) THEN
          nfail = nfail + 1
