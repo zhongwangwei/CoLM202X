@@ -3040,9 +3040,11 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE write_sediment_history (file_hist_ucat, itime_in_file_ucat)
    !-------------------------------------------------------------------------------------
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
-                                         x_ucat, y_ucat, griducat
-   USE MOD_Vector_ReadWrite
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   ! Route history is dispatched, not written directly: the same call must
+   ! land in the single file under DEF_HIST_mode='one' and in this IO group's
+   ! shard under 'block'.
+   USE MOD_Grid_RiverLakeHistRoute, only: route_hist_write_ucat
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_hist_ucat
@@ -3061,7 +3063,7 @@ CONTAINS
       IF (.not. sediment_particle_enabled()) RETURN
 
       ! Allocate on ALL processes (zero-size on non-workers) to avoid
-      ! passing unallocated arrays to vector_gather_map2grid_and_write.
+      ! passing unallocated arrays to the route-history dispatcher.
       IF (p_is_worker .and. numucat > 0) THEN
          allocate (a_sedcon_avg  (nsed, numucat))
          allocate (a_sedout_avg  (nsed, numucat))
@@ -3104,68 +3106,61 @@ CONTAINS
       IF (DEF_hist_vars%sedcon) THEN
          DO ised = 1, nsed
             WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_sedcon_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_sedcon_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'suspended sediment concentration, size class ' // trim(cised), 'm^3/m^3')
+            CALL route_hist_write_ucat (a_sedcon_avg(ised,:), 'f_sedcon_' // trim(cised), &
+               longname = 'suspended sediment concentration, size class ' // trim(cised), &
+               units = 'm^3/m^3')
          ENDDO
       ENDIF
 
       IF (DEF_hist_vars%sedout) THEN
          DO ised = 1, nsed
             WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_sedout_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_sedout_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'suspended sediment flux, size class ' // trim(cised), 'm^3/s')
+            CALL route_hist_write_ucat (a_sedout_avg(ised,:), 'f_sedout_' // trim(cised), &
+               longname = 'suspended sediment flux, size class ' // trim(cised), &
+               units = 'm^3/s')
          ENDDO
       ENDIF
 
       IF (DEF_hist_vars%bedout) THEN
          DO ised = 1, nsed
             WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_bedout_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_bedout_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'bedload solid-volume flux, size class ' // trim(cised), 'm^3/s')
+            CALL route_hist_write_ucat (a_bedout_avg(ised,:), 'f_bedout_' // trim(cised), &
+               longname = 'bedload solid-volume flux, size class ' // trim(cised), &
+               units = 'm^3/s')
          ENDDO
       ENDIF
 
       IF (DEF_hist_vars%sedinp) THEN
          DO ised = 1, nsed
             WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_sedinp_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_sedinp_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'sediment erosion input, size class ' // trim(cised), 'm^3/s')
+            CALL route_hist_write_ucat (a_sedinp_avg(ised,:), 'f_sedinp_' // trim(cised), &
+               longname = 'sediment erosion input, size class ' // trim(cised), &
+               units = 'm^3/s')
          ENDDO
       ENDIF
 
       IF (DEF_hist_vars%netflw) THEN
          DO ised = 1, nsed
             WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_netflw_avg(ised,:), numucat,     &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_netflw_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'net bed-water exchange flux (incl. shallow deposit), size class ' // trim(cised), 'm^3/s')
+            CALL route_hist_write_ucat (a_netflw_avg(ised,:), 'f_netflw_' // trim(cised), &
+               longname = 'net bed-water exchange flux (incl. shallow deposit), size class ' // trim(cised), &
+               units = 'm^3/s')
          ENDDO
       ENDIF
 
       IF (DEF_hist_vars%sedlayer) THEN
          DO ised = 1, nsed
             WRITE(cised, '(I0)') ised
-            CALL vector_gather_map2grid_and_write ( a_layer_avg(ised,:), numucat,      &
-               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-               file_hist_ucat, 'f_layer_' // trim(cised), 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-               'active layer storage, size class ' // trim(cised), 'm^3')
+            CALL route_hist_write_ucat (a_layer_avg(ised,:), 'f_layer_' // trim(cised), &
+               longname = 'active layer storage, size class ' // trim(cised), &
+               units = 'm^3')
          ENDDO
       ENDIF
 
       IF (DEF_hist_vars%shearvel) THEN
-         CALL vector_gather_map2grid_and_write ( a_shearvel_avg, numucat,              &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_shearvel', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,  &
-            'shear velocity', 'm/s')
+         CALL route_hist_write_ucat (a_shearvel_avg, 'f_shearvel', &
+            longname = 'shear velocity', &
+            units = 'm/s')
       ENDIF
 
       IF (allocated(a_sedcon_avg  )) deallocate (a_sedcon_avg  )

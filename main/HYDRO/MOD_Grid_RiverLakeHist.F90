@@ -269,6 +269,7 @@ CONTAINS
    USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_Reservoir
    USE MOD_Vector_ReadWrite
+   USE MOD_Grid_RiverLakeHistRoute
    USE MOD_HistGridded
 #ifdef UNSTRUCTURED
    USE MOD_HistVector
@@ -285,12 +286,10 @@ CONTAINS
 
    ! Local variables
    character(len=256) :: file_hist_ucat
-   logical :: fexists
    integer :: itime_in_file_ucat, i, ncol_local_bif
    integer, allocatable :: pth_global_id_bif(:)
 
    real(r8), allocatable :: acc_vec_grid    (:)
-   real(r8), allocatable :: bifflw_wdata    (:,:)
    real(r8), allocatable :: bifflw_local    (:,:)
    real(r8), allocatable :: a_floodfrc_ucat (:)  ! flooded area fraction
    real(r8), allocatable :: levsto_local    (:)  ! safe buffer for levee hist
@@ -301,29 +300,22 @@ CONTAINS
    real(r8), allocatable :: qresv_out_local (:)  ! safe buffer for reservoir hist
    real(r8), allocatable :: a_floodfrc_inpm (:)  ! flooded area fraction
 
-      IF (p_is_master) THEN
-         i = len_trim (file_hist)
-         DO WHILE (file_hist(i:i) /= '_')
-            i = i - 1
-         ENDDO
-         file_hist_ucat = file_hist(1:i) // 'unitcat_' // file_hist(i+1:)
+      ! Derived on every rank, not just the master: under DEF_HIST_mode='block'
+      ! each IO rank builds its own shard name from this, and the transform is
+      ! a pure function of file_hist, which every rank already has.
+      i = len_trim (file_hist)
+      DO WHILE (file_hist(i:i) /= '_')
+         i = i - 1
+      ENDDO
+      file_hist_ucat = file_hist(1:i) // 'unitcat_' // file_hist(i+1:)
 
-         inquire (file=file_hist_ucat, exist=fexists)
-         IF (.not. fexists) THEN
-
-            CALL ncio_create_file (trim(file_hist_ucat))
-
-            CALL ncio_define_dimension (file_hist_ucat, 'time', 0)
-            CALL ncio_define_dimension (file_hist_ucat, 'lat_ucat', griducat%nlat)
-            CALL ncio_define_dimension (file_hist_ucat, 'lon_ucat', griducat%nlon)
-
-            CALL ncio_write_serial (file_hist_ucat, 'lat_ucat', lat_ucat, 'lat_ucat')
-            CALL ncio_write_serial (file_hist_ucat, 'lon_ucat', lon_ucat, 'lon_ucat')
-         ENDIF
-
-         CALL ncio_write_time (file_hist_ucat, 'time', idate, itime_in_file_ucat, DEF_HIST_FREQ)
-
-      ENDIF
+      ! Opens the output for this write and returns its time record. Both the
+      ! single-file and the sharded skeleton live inside this call, so the two
+      ! modes cannot grow separate copies of the layout. Every route variable
+      ! below is then written through route_hist_write_*, which is what keeps
+      ! one/block coverage identical without a hand-maintained list.
+      CALL route_hist_begin (file_hist_ucat, idate, is_first_in_file, &
+         lon_ucat, lat_ucat, itime_in_file_ucat)
 
       IF (is_first_in_file) THEN
          IF (trim(histform) == 'Gridded') THEN
@@ -338,10 +330,10 @@ CONTAINS
 #endif
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( &
-            allups_mask_ucat, numucat, totalnumucat, ucat_data_address, griducat%nlon, x_ucat,       &
-            griducat%nlat, y_ucat, file_hist_ucat, 'mask_complete_upstream', 'lon_ucat', 'lat_ucat', &
-            longname = 'Mask of grids with all upstream located in simulation region', units = '100%')
+         CALL route_hist_write_ucat (allups_mask_ucat, 'mask_complete_upstream', &
+            longname = 'Mask of grids with all upstream located in simulation region', &
+            units = '100%', &
+            no_time = .true.)
       ENDIF
 
       IF (p_is_worker) THEN
@@ -362,10 +354,9 @@ CONTAINS
                fillvalue = spval, mode = 'average')
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( a_wdsrf_ucat, numucat,                    &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_wdpth_ucat', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,    &
-            'deepest water depth in river and flood plain', 'm')
+         CALL route_hist_write_ucat (a_wdsrf_ucat, 'f_wdpth_ucat', &
+            longname = 'deepest water depth in river and flood plain', &
+            units = 'm')
       ENDIF
 
       IF (DEF_hist_vars%riv_veloct) THEN
@@ -382,10 +373,9 @@ CONTAINS
                fillvalue = spval, mode = 'average')
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( a_veloc_riv, numucat,                     &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_veloc_riv', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-            'water velocity in river', 'm/s')
+         CALL route_hist_write_ucat (a_veloc_riv, 'f_veloc_riv', &
+            longname = 'water velocity in river', &
+            units = 'm/s')
       ENDIF
 
       IF (DEF_hist_vars%discharge) THEN
@@ -411,10 +401,9 @@ CONTAINS
                fillvalue = spval, mode = 'sum')
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( a_discharge, numucat,                     &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_discharge', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-            'discharge in river and flood plain', 'm^3/s')
+         CALL route_hist_write_ucat (a_discharge, 'f_discharge', &
+            longname = 'discharge in river and flood plain', &
+            units = 'm^3/s')
 
          IF (p_is_worker) THEN
             IF (numucat > 0)  THEN
@@ -434,10 +423,9 @@ CONTAINS
                fillvalue = spval, mode = 'sum')
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( a_discharge, numucat,                            &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat,        &
-            file_hist_ucat, 'f_discharge_rivermouth', 'lon_ucat', 'lat_ucat', itime_in_file_ucat, &
-            'river mouth discharge into ocean', 'm^3/s')
+         CALL route_hist_write_ucat (a_discharge, 'f_discharge_rivermouth', &
+            longname = 'river mouth discharge into ocean', &
+            units = 'm^3/s')
       ENDIF
 
       IF (DEF_hist_vars%floodfrc) THEN
@@ -475,15 +463,13 @@ CONTAINS
             allocate (a_floodfrc_ucat (0))
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( a_floodarea, numucat,                      &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat,  &
-            file_hist_ucat, 'f_floodarea', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-            'flooded area', 'm^2')
+         CALL route_hist_write_ucat (a_floodarea, 'f_floodarea', &
+            longname = 'flooded area', &
+            units = 'm^2')
 
-         CALL vector_gather_map2grid_and_write ( a_floodfrc_ucat, numucat,                  &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat,  &
-            file_hist_ucat, 'f_floodfrc', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,      &
-            'flooded area fraction', '-')
+         CALL route_hist_write_ucat (a_floodfrc_ucat, 'f_floodfrc', &
+            longname = 'flooded area fraction', &
+            units = '-')
 
       ENDIF
 
@@ -500,30 +486,25 @@ CONTAINS
          ENDIF
       ENDIF
 
-      CALL vector_gather_map2grid_and_write ( a_rivsto, numucat,                       &
-         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-         file_hist_ucat, 'f_rivsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-         'river channel storage', 'm^3')
+      CALL route_hist_write_ucat (a_rivsto, 'f_rivsto', &
+         longname = 'river channel storage', &
+         units = 'm^3')
 
-      CALL vector_gather_map2grid_and_write ( a_fldsto, numucat,                       &
-         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-         file_hist_ucat, 'f_fldsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-         'visible river-side floodplain storage excluding levee-protected storage', 'm^3')
+      CALL route_hist_write_ucat (a_fldsto, 'f_fldsto', &
+         longname = 'visible river-side floodplain storage excluding levee-protected storage', &
+         units = 'm^3')
 
-      CALL vector_gather_map2grid_and_write ( a_flddph, numucat,                       &
-         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-         file_hist_ucat, 'f_flddph', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-         'visible river-side floodplain water depth excluding levee-protected depth', 'm')
+      CALL route_hist_write_ucat (a_flddph, 'f_flddph', &
+         longname = 'visible river-side floodplain water depth excluding levee-protected depth', &
+         units = 'm')
 
-      CALL vector_gather_map2grid_and_write ( a_storge, numucat,                       &
-         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-         file_hist_ucat, 'f_storge', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-         'total water storage (river+floodplain+levee)', 'm^3')
+      CALL route_hist_write_ucat (a_storge, 'f_storge', &
+         longname = 'total water storage (river+floodplain+levee)', &
+         units = 'm^3')
 
-      CALL vector_gather_map2grid_and_write ( a_sfcelv, numucat,                       &
-         totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-         file_hist_ucat, 'f_sfcelv', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-         'water surface elevation', 'm')
+      CALL route_hist_write_ucat (a_sfcelv, 'f_sfcelv', &
+         longname = 'water surface elevation', &
+         units = 'm')
 
       ! ----- levee variables -----
       IF (DEF_USE_LEVEE) THEN
@@ -542,15 +523,13 @@ CONTAINS
             allocate (levdph_local (0))
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( levsto_local, numucat,                    &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_levsto', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-            'water storage in levee-protected area', 'm^3')
+         CALL route_hist_write_ucat (levsto_local, 'f_levsto', &
+            longname = 'water storage in levee-protected area', &
+            units = 'm^3')
 
-         CALL vector_gather_map2grid_and_write ( levdph_local, numucat,                    &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_levdph', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-            'water depth in levee-protected area', 'm')
+         CALL route_hist_write_ucat (levdph_local, 'f_levdph', &
+            longname = 'water depth in levee-protected area', &
+            units = 'm')
 
          deallocate (levsto_local)
          deallocate (levdph_local)
@@ -570,10 +549,9 @@ CONTAINS
             allocate (bifout_local (0))
          ENDIF
 
-         CALL vector_gather_map2grid_and_write ( bifout_local, numucat,                    &
-            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-            file_hist_ucat, 'f_bifout', 'lon_ucat', 'lat_ucat', itime_in_file_ucat,       &
-            'net bifurcation outflow', 'm^3/s')
+         CALL route_hist_write_ucat (bifout_local, 'f_bifout', &
+            longname = 'net bifurcation outflow', &
+            units = 'm^3/s')
 
          deallocate (bifout_local)
 
@@ -607,17 +585,11 @@ CONTAINS
                allocate (pth_global_id_bif (0))
             ENDIF
 
-            CALL vector_gather_matrix_to_master ( &
-               bifflw_local, npthlev_bif, ncol_local_bif, totalnpthout, pth_global_id_bif, bifflw_wdata)
-
-            IF (p_is_master) THEN
-               CALL ncio_write_serial_time (file_hist_ucat, 'f_bifflw_lev', itime_in_file_ucat, bifflw_wdata, &
-                  'bifurcation_level', 'bifurcation_pathway', 'time', DEF_HIST_CompressLevel)
-               CALL ncio_put_attr (file_hist_ucat, 'f_bifflw_lev', 'long_name', &
-                  'effective bifurcation pathway-layer flow')
-               CALL ncio_put_attr (file_hist_ucat, 'f_bifflw_lev', 'units', 'm^3/s')
-               deallocate (bifflw_wdata)
-            ENDIF
+            CALL route_hist_write_bif_matrix ( &
+               bifflw_local, npthlev_bif, ncol_local_bif, pth_global_id_bif, totalnpthout, &
+               'f_bifflw_lev', &
+               longname = 'effective bifurcation pathway-layer flow', &
+               units = 'm^3/s')
 
             deallocate (bifflw_local)
             deallocate (pth_global_id_bif)
@@ -627,7 +599,6 @@ CONTAINS
       IF (allocated (a_floodfrc_ucat)) deallocate (a_floodfrc_ucat)
       IF (allocated (a_floodfrc_inpm)) deallocate (a_floodfrc_inpm)
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
-      IF (allocated (bifflw_wdata   )) deallocate (bifflw_wdata   )
 
 #ifdef TRACER
       CALL tracer_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
@@ -642,14 +613,6 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          IF (totalnumresv > 0) THEN
 
-            IF (p_is_master) THEN
-               IF (.not. fexists) THEN
-                  CALL ncio_define_dimension(file_hist_ucat, 'reservoir', totalnumresv)
-                  CALL ncio_write_serial (file_hist_ucat, 'resv_GRAND_ID' , dam_GRAND_ID, 'reservoir')
-                  CALL ncio_put_attr (file_hist_ucat, 'resv_GRAND_ID', 'long_name', 'reservoir GRAND ID')
-               ENDIF
-            ENDIF
-
             IF (DEF_hist_vars%volresv) THEN
                IF (p_is_worker .and. numresv > 0) THEN
                   allocate (volresv_local (numresv))
@@ -662,8 +625,8 @@ CONTAINS
                   allocate (volresv_local (0))
                ENDIF
 
-               CALL vector_gather_and_write ( volresv_local, numresv, totalnumresv, resv_data_address, &
-                  file_hist_ucat, 'volresv', 'reservoir', itime_in_file_ucat, 'reservoir water volume', 'm^3')
+               CALL route_hist_write_resv (volresv_local, 'volresv', &
+                  longname = 'reservoir water volume', units = 'm^3')
                deallocate (volresv_local)
             ENDIF
 
@@ -679,8 +642,8 @@ CONTAINS
                   allocate (qresv_in_local (0))
                ENDIF
 
-               CALL vector_gather_and_write ( qresv_in_local, numresv, totalnumresv, resv_data_address, &
-                  file_hist_ucat, 'qresv_in', 'reservoir', itime_in_file_ucat, 'reservoir inflow', 'm^3/s')
+               CALL route_hist_write_resv (qresv_in_local, 'qresv_in', &
+                  longname = 'reservoir inflow', units = 'm^3/s')
                deallocate (qresv_in_local)
             ENDIF
 
@@ -696,13 +659,15 @@ CONTAINS
                   allocate (qresv_out_local (0))
                ENDIF
 
-               CALL vector_gather_and_write ( qresv_out_local, numresv, totalnumresv, resv_data_address, &
-                  file_hist_ucat, 'qresv_out', 'reservoir', itime_in_file_ucat, 'reservoir outflow', 'm^3/s')
+               CALL route_hist_write_resv (qresv_out_local, 'qresv_out', &
+                  longname = 'reservoir outflow', units = 'm^3/s')
                deallocate (qresv_out_local)
             ENDIF
 
          ENDIF
       ENDIF
+
+      CALL route_hist_end ()
 
       CALL flush_acc_fluxes_riverlake ()
 
