@@ -404,19 +404,19 @@ CONTAINS
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_surf_aere_soil'), a_methane_surf_aere_soil, file_hist, &
                   'f_methane_surf_aere_soil', itime_in_file, sumarea, filter, &
-                  'non-rice CH4 aerenchyma flux contribution per land area', 'mol/m2/s', &
+                  'non-rice CH4 aerenchyma flux contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_surf_aere_rice'), a_methane_surf_aere_rice, file_hist, &
                   'f_methane_surf_aere_rice', itime_in_file, sumarea, filter, &
-                  'rice CH4 aerenchyma flux contribution per land area', 'mol/m2/s', &
+                  'rice CH4 aerenchyma flux contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_surf_ebul_soil'), a_methane_surf_ebul_soil, file_hist, &
                   'f_methane_surf_ebul_soil', itime_in_file, sumarea, filter, &
-                  'non-rice CH4 ebullition flux contribution per land area', 'mol/m2/s', &
+                  'non-rice CH4 ebullition flux contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_surf_ebul_rice'), a_methane_surf_ebul_rice, file_hist, &
                   'f_methane_surf_ebul_rice', itime_in_file, sumarea, filter, &
-                  'rice CH4 ebullition flux contribution per land area', 'mol/m2/s', &
+                  'rice CH4 ebullition flux contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                      CALL write_history_variable_2d (mhist_on('f_methane_surf_diff'), a_methane_surf_diff, file_hist, &
                         'f_methane_surf_diff', itime_in_file, sumarea, filter, &
@@ -425,12 +425,12 @@ CONTAINS
                      CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_soil'), &
                         a_methane_surf_diff_soil, file_hist, &
                         'f_methane_surf_diff_soil', itime_in_file, sumarea, filter, &
-                        'non-rice CH4 diffusive flux contribution per land area', 'mol/m2/s', &
+                        'non-rice CH4 diffusive flux contribution per active area', 'mol/m2/s', &
                         acc_num=a_methane_acc_num)
                      CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_rice'), &
                         a_methane_surf_diff_rice, file_hist, &
                         'f_methane_surf_diff_rice', itime_in_file, sumarea, filter, &
-                        'rice CH4 diffusive flux contribution per land area', 'mol/m2/s', &
+                        'rice CH4 diffusive flux contribution per active area', 'mol/m2/s', &
                         acc_num=a_methane_acc_num)
                      CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_phys'), a_methane_surf_diff_phys, file_hist, &
                         'f_methane_surf_diff_phys', itime_in_file, sumarea, filter, &
@@ -466,19 +466,19 @@ CONTAINS
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_prod_tot_soil'), a_methane_prod_tot_soil, file_hist, &
                   'f_methane_prod_tot_soil', itime_in_file, sumarea, filter, &
-                  'non-rice CH4 production contribution per land area', 'mol/m2/s', &
+                  'non-rice CH4 production contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_prod_tot_rice'), a_methane_prod_tot_rice, file_hist, &
                   'f_methane_prod_tot_rice', itime_in_file, sumarea, filter, &
-                  'rice CH4 production contribution per land area', 'mol/m2/s', &
+                  'rice CH4 production contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot_soil'), a_methane_oxid_tot_soil, file_hist, &
                   'f_methane_oxid_tot_soil', itime_in_file, sumarea, filter, &
-                  'non-rice CH4 oxidation contribution per land area', 'mol/m2/s', &
+                  'non-rice CH4 oxidation contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot_rice'), a_methane_oxid_tot_rice, file_hist, &
                   'f_methane_oxid_tot_rice', itime_in_file, sumarea, filter, &
-                  'rice CH4 oxidation contribution per land area', 'mol/m2/s', &
+                  'rice CH4 oxidation contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_co2_decomp_tot'), a_co2_decomp_tot, file_hist, &
                   'f_co2_decomp_tot', itime_in_file, sumarea, filter, &

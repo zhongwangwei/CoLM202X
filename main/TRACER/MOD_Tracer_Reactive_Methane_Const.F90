@@ -415,6 +415,25 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! CH4/O2 numerical correction exceeds this mol/m2 threshold.  A
       ! non-positive value keeps the existing diagnostic-only behavior.
       real(r8) :: numerical_correction_fatal_threshold = -1._r8
+      ! Tolerance, as a FRACTION OF PORE VOLUME, on the disagreement between the
+      ! host soil water (wliq/denh2o + wice/denice) and what the inundated
+      ! fraction implies, when methane partitions the column into its saturated
+      ! and unsaturated halves.
+      !
+      ! The two quantities are computed independently -- vtot from the host soil
+      ! state, finundated from a water-table S-curve -- so they cannot be
+      ! compared at machine epsilon. The guard this replaces used
+      ! 1.e-10*max(pore_volume,1), i.e. a flat 1e-10 m absolute tolerance
+      ! (pore_volume is ~0.04 m, so the max() always selected 1.0), which is
+      ! round-off level and aborted global runs on their first timestep.
+      !
+      ! Within the tolerance the host water is left exactly as it is; the
+      ! saturated-column allocation is capped instead, so the area-weighted
+      ! total still reproduces the host state and no water is created. The
+      ! largest residual seen is reported once. Beyond the tolerance the run
+      ! still stops: a disagreement that large is invalid forcing, not
+      ! numerical drift.
+      real(r8) :: host_water_tolerance = 0.05_r8
       ! By default a missing/non-positive lake depth emits one warning and
       ! continues.  Set true for production global runs to fail fast when
       ! lake CH4 is enabled but landdata lacks valid lakedepth.
@@ -686,6 +705,7 @@ CONTAINS
          DEF_METHANE%wtd_inflection_soil, DEF_METHANE%wtd_steepness_soil, &
          DEF_METHANE%hybrid_soil_threshold, DEF_METHANE%rice_drain_window_days, &
          DEF_METHANE%rice_substrate_boost, DEF_METHANE%numerical_correction_fatal_threshold, &
+         DEF_METHANE%host_water_tolerance, &
          DEF_METHANE_hydrology%vdcf, &
          DEF_METHANE_hydrology%slopebeta, DEF_METHANE_hydrology%slopemax, &
          DEF_METHANE_hydrology%pc]))) THEN
@@ -824,6 +844,15 @@ CONTAINS
       ENDIF
       IF (DEF_METHANE%atm_methane < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: atm_methane must be >= 0: ', DEF_METHANE%atm_methane
+         bad = .true.
+      ENDIF
+      ! A fraction of pore volume: 0 restores the machine-epsilon behaviour that
+      ! aborted on its first timestep, and >=1 would accept any disagreement at
+      ! all, which defeats the guard.
+      IF (DEF_METHANE%host_water_tolerance < 0._r8 .or. &
+          DEF_METHANE%host_water_tolerance >= 1._r8) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: host_water_tolerance out of [0,1): ', DEF_METHANE%host_water_tolerance
          bad = .true.
       ENDIF
       IF (DEF_METHANE%wtd_steepness <= 0._r8) THEN

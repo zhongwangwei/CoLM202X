@@ -194,8 +194,15 @@ def test_soil_o2_uses_positive_backward_euler_and_allows_supersaturation():
     o2_postsolve = source.split("elseif (s == 2)", 1)[1].split("endif ! species", 1)[0]
     assert "logical, parameter :: backward_euler_transport = .true." in source
     assert "if (backward_euler_transport) then" in o2_postsolve
-    assert "negative o2 after backward-euler transport" in o2_postsolve
+    # No per-layer abort on a negative ratio: conc_o2_rel is conc_o2/epsilon_t,
+    # so solver round-off is amplified by 1/epsilon_t, a factor that varies
+    # continuously with how frozen the layer is. The clip is still applied and
+    # still credited, but the guard that can abort is the column-integrated
+    # stock below, which is immune to that amplification.
+    assert "negative o2 after backward-euler transport" not in o2_postsolve
     assert "conc_o2_rel(j) = max (conc_o2_rel(j), 0._r8)" in o2_postsolve
+    assert "o2_cap_gain_col = o2_cap_gain_col" in o2_postsolve
+    assert "numerical_correction_fatal_threshold" in source
     assert "conc_o2_rel(j) = min" not in o2_postsolve
     assert "o2_rel_cap = c_atm(2)" not in o2_postsolve
     assert "o2_rel_cap = k_h_cc(j,2) * c_atm(2)" not in o2_postsolve

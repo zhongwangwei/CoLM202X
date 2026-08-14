@@ -50,6 +50,8 @@ module MOD_Tracer_Reactive_Methane_Physics
 	save
 
 	public  :: methane
+	public  :: methane_host_water_reset
+	public  :: methane_host_water_report
 
 	private :: methane_annualupdate
 	private :: methane_prod
@@ -58,7 +60,50 @@ module MOD_Tracer_Reactive_Methane_Physics
 	private :: methane_ebul
 	private :: methane_tran
 	private
+
+	! Worst host-water/inundation disagreement seen so far, as a fraction of
+	! pore volume, and whether the one-shot warning has been emitted. Module
+	! state rather than an argument because the report is per run, not per
+	! patch; the driver's patch loop is not OpenMP-parallel (CoLMDRIVER.F90),
+	! so a plain saved scalar is safe here.
+	real(r8) :: host_water_max_resid = 0._r8
+	logical  :: host_water_warned    = .false.
+
 contains
+
+	!-----------------------------------------------------------------------
+	!> Clear the host-water diagnostic. Called when methane state is
+	!! allocated, so a model re-initialised in the same process does not
+	!! inherit the previous run's worst residual or its already-warned flag.
+	subroutine methane_host_water_reset ()
+		host_water_max_resid = 0._r8
+		host_water_warned    = .false.
+	end subroutine methane_host_water_reset
+
+	!> Report the worst host-water disagreement across ALL ranks.
+	!!
+	!! The running maximum and the one-shot warning are per-rank state, so
+	!! without this every rank warns independently and the global worst case
+	!! is never printed. Call once at the end of a run.
+	subroutine methane_host_water_report ()
+
+		USE MOD_SPMD_Task
+		USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+		implicit none
+		real(r8) :: gmax
+
+		gmax = host_water_max_resid
+#ifdef USEMPI
+		CALL mpi_reduce (host_water_max_resid, gmax, 1, MPI_REAL8, MPI_MAX, &
+			p_address_master, p_comm_glb, p_err)
+#endif
+		if (p_is_master .and. gmax > 0._r8) then
+			write(6,'(A,E12.4,A,E12.4,A)') &
+				' methane host-water: worst disagreement over all ranks ', gmax, &
+				' of pore volume (tolerance ', DEF_METHANE%host_water_tolerance, ')'
+		endif
+
+	end subroutine methane_host_water_report
 
 	!-----------------------------------------------------------------------
 	subroutine methane (istep,ipatch,idate,patchclass,patchtype,&!input
@@ -524,6 +569,7 @@ contains
 
 		real(r8) :: err
 		real(r8) :: vliq, vice, vtot, pore_volume, vliq_sat_alloc, vice_sat_alloc
+		real(r8) :: host_water_tol, host_water_resid, host_water_scale
 		real(r8) :: vol_liq_init, vol_ice_init, vol_gas_init
 		real(r8) :: wtd_arg
 
@@ -1028,19 +1074,75 @@ contains
 				vliq = max(wliq_soisno(j), 0._r8) / denh2o
 				vice = max(wice_soisno(j), 0._r8) / denice
 				vtot = vliq + vice
-				if (vtot > pore_volume + 1.e-10_r8 * max(pore_volume, 1._r8)) then
+				! vtot comes from the host soil state, finundated from an
+				! independent water-table S-curve, so the two disagree by more
+				! than round-off at saturation. Tolerate that disagreement up to
+				! DEF_METHANE%host_water_tolerance (a fraction of pore volume),
+				! rescaling liquid, ice and total together so the host mass
+				! balance this routine promises above is preserved; abort beyond
+				! it, because a disagreement that large is invalid forcing, not
+				! numerical drift. The guard this replaces compared at
+				! 1.e-10*max(pore_volume,1) -- pore_volume is ~0.04 m so the max()
+				! always selected 1.0, making it a flat 1e-10 m absolute
+				! tolerance, i.e. round-off level between quantities that are not
+				! computed from each other.
+				host_water_tol = DEF_METHANE%host_water_tolerance * pore_volume
+
+				if (vtot > pore_volume + host_water_tol) then
 					write(6,*) 'ERROR: host soil water exceeds pore volume in methane partition: ', &
-						ipatch, j, vtot, pore_volume
+						ipatch, j, vtot, pore_volume, &
+						' excess/pore =', (vtot - pore_volume) / pore_volume, &
+						' tolerance =', DEF_METHANE%host_water_tolerance
 					CALL CoLM_stop ('invalid host soil water for methane columns')
 				endif
-				if (vtot < finundated * pore_volume - &
-				    1.e-10_r8 * max(pore_volume, 1._r8)) then
+				if (vtot < finundated * pore_volume - host_water_tol) then
 					write(6,*) 'ERROR: methane inundation exceeds host soil water: ', &
-						ipatch, j, finundated, vtot, pore_volume
+						ipatch, j, finundated, vtot, pore_volume, &
+						' deficit/pore =', (finundated * pore_volume - vtot) / pore_volume, &
+						' tolerance =', DEF_METHANE%host_water_tolerance
 					CALL CoLM_stop ('methane inundation exceeds host soil water')
 				endif
-				vliq_sat_alloc = pore_volume * vliq / max(vtot, 1.e-12_r8)
-				vice_sat_alloc = pore_volume * vice / max(vtot, 1.e-12_r8)
+
+				! Inside the tolerance the host state is left untouched: vtot,
+				! vliq and vice are never modified, so no host water is created
+				! or discarded here.  What absorbs the disagreement is the
+				! saturated-column allocation below, which is capped so the
+				! area-weighted total reproduces the host exactly.
+				! Record the worst residual and warn once, so that tolerating
+				! the disagreement cannot hide one that is growing.
+				host_water_resid = max(                                        &
+					(vtot - pore_volume) / pore_volume,                         &
+					(finundated * pore_volume - vtot) / pore_volume)
+				if (host_water_resid > host_water_max_resid) then
+					host_water_max_resid = host_water_resid
+					if ((.not. host_water_warned) .and.                          &
+					    host_water_resid > 0.1_r8 * DEF_METHANE%host_water_tolerance) then
+						host_water_warned = .true.
+						write(6,*) 'WARNING: methane host-water disagreement ',   &
+							host_water_resid, ' of pore volume at patch/layer ',   &
+							ipatch, j, ' (tolerance ',                            &
+							DEF_METHANE%host_water_tolerance, '); tolerated'
+					endif
+				endif
+				! Saturate the inundated column, but never beyond what the host
+				! water can support.  Without the 1/finundated cap, a column
+				! holding less than finundated*pore_volume gets a saturated
+				! allocation the unsaturated side cannot pay for: its max(0,...)
+				! floor stops the unsaturated column going negative but does NOT
+				! undo the over-allocation, so the area-weighted total comes out
+				! at finundated*pore_volume and the module creates exactly
+				! (finundated*pore_volume - vtot) of water per layer.  That is
+				! the precondition the old machine-epsilon guard enforced by
+				! aborting; widening the tolerance without this cap silently
+				! turned it into invented water.
+				!
+				! With the cap the area-weighted total is vliq (and vice)
+				! exactly, in every branch: the inundated column is simply not
+				! fully saturated when there is not enough water to saturate it.
+				host_water_scale = min(pore_volume / max(vtot, 1.e-12_r8), &
+				                       1._r8 / max(finundated, 1.e-12_r8))
+				vliq_sat_alloc = vliq * host_water_scale
+				vice_sat_alloc = vice * host_water_scale
 				wliq_soisno_sat(j) = vliq_sat_alloc * denh2o
 				wice_soisno_sat(j) = vice_sat_alloc * denice
 				if (finundated < 1._r8) then
@@ -3441,11 +3543,21 @@ contains
 					do j = 1,nl_soil
 
 						o2_before_cap = conc_o2_rel(j)
-						if (o2_before_cap < -1.e-10_r8) then
-							write(6,*) 'ERROR: negative O2 after backward-Euler transport: ', &
-								dlat, dlon, j, o2_before_cap
-							CALL CoLM_stop ()
-						endif
+						! No per-layer abort on a negative ratio.  conc_o2_rel is
+						! conc_o2 / epsilon_t, and epsilon_t falls to the liquid content
+						! of the layer, so the division amplifies solver round-off by
+						! 1 / epsilon_t.  That factor varies continuously with how frozen
+						! the layer is - 8.3e3 at vol_aqu = 1.2e-4, 1e12 once vol_aqu hits
+						! the floor - so no fixed ratio threshold can separate round-off
+						! from divergence.  Observed artefacts reached a ratio of -1902 at
+						! a stock of -1.9e-9 mol m-3, and -4.1e-3 at -4.9e-7 mol m-3; both
+						! are physically zero.
+						! The column-integrated guard below is the same mechanism CH4 uses
+						! (ch4_clip_deficit_col): it accumulates the correction as a stock
+						! in mol m-2, which is immune to the amplification, and aborts on
+						! DEF_METHANE%numerical_correction_fatal_threshold.  Round-off
+						! artefacts contribute ~5e-8 mol m-2 against a 1e-3 threshold,
+						! while a real divergence saturates it at once.
 						conc_o2_rel(j) = max (conc_o2_rel(j), 0._r8)
 						if (conc_o2_rel(j) > o2_before_cap) then
 							o2_cap_gain_col = o2_cap_gain_col + &

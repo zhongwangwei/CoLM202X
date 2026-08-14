@@ -18,6 +18,8 @@ MODULE MOD_Tracer_Reactive_Methane
    USE MOD_Namelist, only: DEF_file_GIEMS, DEF_wetland_finundation_scheme
    USE MOD_Vars_TimeInvariants, only: patchtype, lake_soilc_srf, patchlatr, patchlonr
    USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
+   USE MOD_Tracer_Reactive_Methane_Physics,  only: methane_host_water_reset, &
+      methane_host_water_report
    USE MOD_Tracer_Reactive_Methane_State,    only: allocate_methane_state, &
       init_methane_wetland_fraction_cache, deallocate_methane_state, &
       read_methane_restart, write_methane_restart, initialize_methane_lake_soilc_from_surface, &
@@ -139,6 +141,10 @@ CONTAINS
       CALL deallocate_methane_state ()
 
       CALL allocate_methane_state (numpatch)
+      ! Per-rank diagnostic counters must not survive a re-initialisation in
+      ! the same process, or the second run inherits the first's worst case
+      ! and its already-warned flag.
+      CALL methane_host_water_reset ()
       CALL init_methane_wetland_fraction_cache (numpatch)
       IF (DEF_METHANE%use_microbial_pools) THEN
          CALL allocate_methane_microbes_state (numpatch)
@@ -604,6 +610,10 @@ CONTAINS
 
       ! Generic tracer conservation is reported unconditionally from
       ! MOD_Tracer_LandPhase::tracer_report so non-CH4 tracer runs are covered too.
+
+      ! The host-water residual is tracked per rank; reduce it so the run
+      ! reports one global worst case rather than each rank its own.
+      CALL methane_host_water_report ()
 
    END SUBROUTINE ch4_reactive_report
 
