@@ -611,8 +611,15 @@ CONTAINS
       ! Generic tracer conservation is reported unconditionally from
       ! MOD_Tracer_LandPhase::tracer_report so non-CH4 tracer runs are covered too.
 
-      ! The host-water residual is tracked per rank; reduce it so the run
-      ! reports one global worst case rather than each rank its own.
+      ! The host-water residual reduce stays on this per-timestep path on
+      ! purpose. tracer_report is reached only under CoLM.F90's IF (p_is_worker),
+      ! so p_comm_worker is exactly the set of ranks that get here -- the one
+      ! property that matters for a collective. The enclosing tracer_balance_report
+      ! already performs four p_comm_worker collectives per call, so one more
+      ! reduce of a single double adds no new synchronisation point. Moving it to
+      ! ch4_reactive_final was tried and reverted: land_final is reachable from
+      ! two call paths whose rank membership could not be established, and a
+      ! collective on an unproven rank set is how the earlier deadlock happened.
       CALL methane_host_water_report ()
 
    END SUBROUTINE ch4_reactive_report

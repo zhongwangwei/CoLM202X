@@ -93,6 +93,11 @@ PROGRAM river_hist_shard_harness
             max(resv_layout%ntotal, 0))
          CALL ncio_write_serial (trim(fileshard), 'resv_global_index', &
             resv_layout%gid(1:max(resv_layout%ntotal,0)), 'reservoir_local')
+         ! Static per-reservoir metadata, as production writes from dam_GRAND_ID.
+         ! Value is a deterministic function of the global id so the aggregator's
+         ! scatter can be checked element by element.
+         CALL ncio_write_serial (trim(fileshard), 'resv_GRAND_ID', &
+            70000 + resv_layout%gid(1:max(resv_layout%ntotal,0)), 'reservoir_local')
          ! the ids this shard owns, so the aggregator never guesses
          CALL ncio_write_serial (trim(fileshard), 'ucat_ucid', &
             ucat_layout%gid(1:max(ucat_layout%ntotal,0)), 'unitcat_local')
@@ -131,8 +136,12 @@ PROGRAM river_hist_shard_harness
       ! shard_count from p_np_io), so a divergence between harness and
       ! production shows up here rather than only in a real run.
       IF (p_is_io) THEN
+         ! The period key comes from route_shard_period_key, the same function
+         ! production uses -- NOT a literal. A hardcoded key agrees across
+         ! segments by accident and so hides a date-derived key, which is
+         ! precisely the defect that made cross-day restarts unmergeable.
          CALL route_shard_write_identity (trim(fileshard), trim(fileout), &
-            'harness_case', '2000-001', trim(seg_str), &
+            'harness_case', trim(route_shard_period_key (trim(fileout))), trim(seg_str), &
             max(p_iam_io,0), max(p_np_io,1), &
             trim(route_shard_grid_fingerprint (nlon_g, nlat_g, lon_h, lat_h)), &
             0._r8, 0._r8, 0)

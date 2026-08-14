@@ -99,7 +99,7 @@ def test_zero_length_ranks_still_enter_the_collective() -> None:
 
 def test_shard_identity_is_written_and_versioned() -> None:
     src = SHARD.read_text(encoding="utf-8")
-    assert "ROUTE_SHARD_SCHEMA_VERSION = 1" in src
+    assert "ROUTE_SHARD_SCHEMA_VERSION = 2" in src
     identity = _routine("route_shard_write_identity")
     for attr in (
         "river_hist_shard_schema_version",

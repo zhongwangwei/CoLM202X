@@ -149,6 +149,25 @@ with Dataset(path) as ds:
             print(f"   {name:<12} t{t}: {badr} of {r.size} values wrong")
             fail += badr != 0
 
+# Static per-reservoir metadata. Time-varying reservoir fields surviving does
+# not prove this one did: it takes a separate rebuild path (no time axis), and
+# the harness writes 70000+gid so a mis-scattered value is visible, not just a
+# missing variable.
+with Dataset(path) as ds:
+    if "resv_GRAND_ID" not in ds.variables:
+        print("   FAIL: resv_GRAND_ID missing from the aggregate")
+        fail += 1
+    else:
+        g = np.asarray(ds.variables["resv_GRAND_ID"][:], dtype=np.int64)
+        expg = 70000 + np.arange(1, nresv + 1, dtype=np.int64)
+        if g.shape != expg.shape:
+            print(f"   FAIL: resv_GRAND_ID shape {g.shape} != {expg.shape}")
+            fail += 1
+        else:
+            badg = int((g != expg).sum())
+            print(f"   resv_GRAND_ID    : {badg} of {g.size} values wrong")
+            fail += badg != 0
+
 sys.exit(1 if fail else 0)
 PY
 

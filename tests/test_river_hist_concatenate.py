@@ -57,7 +57,7 @@ def test_shards_are_merged_on_identity_not_filename() -> None:
 
 def test_unsupported_schema_version_is_refused() -> None:
     agg = _src(AGG)
-    assert "SUPPORTED_SCHEMA_VERSION = 1" in agg
+    assert "SUPPORTED_SCHEMA_VERSION = 2" in agg
     assert "unsupported shard schema" in agg
 
 

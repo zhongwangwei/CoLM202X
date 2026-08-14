@@ -38,7 +38,9 @@ MODULE MOD_Grid_RiverLakeHistShard
 
    ! Bump when the shard layout changes in a way an older aggregator
    ! would misread.  The aggregator refuses versions it does not know.
-   integer, PUBLIC, parameter :: ROUTE_SHARD_SCHEMA_VERSION = 1
+   ! 2: shard filenames carry the run segment, so a restart writes its own
+   !    complete set instead of reusing the previous one.
+   integer, PUBLIC, parameter :: ROUTE_SHARD_SCHEMA_VERSION = 2
 
    type, PUBLIC :: route_shard_layout_type
       logical :: built  = .false.
@@ -56,6 +58,7 @@ MODULE MOD_Grid_RiverLakeHistShard
    PUBLIC :: route_shard_write_identity
    PUBLIC :: route_shard_filename
    PUBLIC :: route_shard_grid_fingerprint
+   PUBLIC :: route_shard_period_key
 
 CONTAINS
 
@@ -359,6 +362,27 @@ CONTAINS
       fileshard = trim(file_target) // trim(seg) // '_shard' // trim(cidx) // '.nc'
 
    END SUBROUTINE route_shard_filename
+
+   !> The period key that identifies the target history file, derived from that
+   !! file's own path. It must NOT be built from the current date: a restart
+   !! partway through a period writes a segment whose start date differs from
+   !! the period, and the aggregator requires every segment of one file to carry
+   !! the same key. The basename is exactly the period by construction of
+   !! DEF_HIST_groupby. Lives here, public, so the test harness derives the key
+   !! through the same code production does instead of hardcoding one that
+   !! happens to agree.
+   FUNCTION route_shard_period_key (file_target) RESULT (key)
+
+   IMPLICIT NONE
+   character(len=*), intent(in) :: file_target
+   character(len=256) :: key
+
+   integer :: i
+
+      i   = index(file_target, '/', back=.true.)
+      key = file_target(i+1:)
+
+   END FUNCTION route_shard_period_key
 
    !> Deterministic description of the output grid, compared by the
    !! aggregator so shards from a different grid can never be merged.

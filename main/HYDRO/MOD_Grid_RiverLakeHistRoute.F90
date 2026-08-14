@@ -239,11 +239,13 @@ CONTAINS
    USE MOD_Namelist, only: DEF_CASE_NAME
    integer, intent(in) :: idate(3)
 
-   character(len=64)  :: period_key, segment_id
+   character(len=256) :: period_key, segment_id
    character(len=256) :: fingerprint
-   integer :: i
 
-      write(period_key,'(I4.4,A,I3.3)') idate(1), '-', idate(2)
+      ! Derived from the target file, never from idate -- see the comment on
+      ! route_shard_period_key. The harness calls the same function, so a
+      ! divergence cannot hide behind a hardcoded key that happens to agree.
+      period_key = route_shard_period_key (trim(rh_file_one))
       segment_id = rh_segment_id
       fingerprint = route_shard_grid_fingerprint (griducat%nlon, griducat%nlat, &
          rh_lon_cache, rh_lat_cache)

@@ -36,7 +36,11 @@ PROGRAM river_hist_concatenate
 
    IMPLICIT NONE
 
-   integer, parameter :: SUPPORTED_SCHEMA_VERSION = 1
+   ! 2: shard filenames carry the run segment (<base>_<seg>_shardNNNNN.nc).
+   !    A version-1 shard set has no segment in its name and is invisible to
+   !    the discovery glob, so it must be refused by version rather than
+   !    silently reported as "no shards found".
+   integer, parameter :: SUPPORTED_SCHEMA_VERSION = 2
    real(r8), parameter :: SPVAL = -1.e36_r8
 
    character(len=256) :: nlfile, filetarget, filetmp, filedone
@@ -54,6 +58,7 @@ PROGRAM river_hist_concatenate
    integer,  allocatable :: rec_seg(:), rec_local(:)  ! global record -> segment, local
    character(len=256), allocatable :: varnames(:)
    real(r8), allocatable :: tvals_global(:)
+   integer,  allocatable :: vals_i(:)
    logical :: ok
 
       CALL spmd_init
@@ -94,16 +99,20 @@ CONTAINS
    !! must not overlap is the time records.
    SUBROUTINE scan_shards ()
 
-   integer :: i, v, n, u, iseg, k
+   integer :: i, v, n, u, iseg, k, j
    character(len=256) :: c, listfile, line
+   real(r8), allocatable :: tref(:), tcmp(:)
    logical :: fexists
 
       ! Enumerate segments from the shard-0 files on disk. Fortran has no
       ! portable directory listing, and the segment id is a timestamp that
       ! cannot be guessed, so shell out once.
       listfile = trim(filetarget) // '.segments.tmp'
-      CALL system ('ls ' // trim(stem()) // '_seg*_shard00000.nc 2>/dev/null > ' &
-         // trim(listfile))
+      ! Single-quote both paths: they come from the command line, so a space
+      ! would split the argument and a metacharacter would be interpreted.
+      ! The glob must stay outside the quotes to remain a glob.
+      CALL system ("ls '" // trim(stem()) // "'_seg*_shard00000.nc 2>/dev/null > '" &
+         // trim(listfile) // "'")
 
       nseg = 0
       OPEN (newunit=u, file=trim(listfile), status='old', action='read', iostat=ierr)
@@ -169,10 +178,43 @@ CONTAINS
                IF (trim(c) /= trim(ref_target)) CALL identity_error (fname, 'target_history_basename')
             ENDIF
 
-            IF (ish == 0) CALL read_dim (ncid, 'time', seg_ntime(iseg))
+            ! Identity is what decides membership, so check the attributes
+            ! that name this file's place in the set -- not just the ones
+            ! shared across the set. A shard whose recorded index disagrees
+            ! with its filename means the set is not what it claims.
+            CALL get_att_str (ncid, 'segment_id', c)
+            IF (trim(c) /= trim(seg_id(iseg))) CALL identity_error (fname, 'segment_id')
+            CALL get_att_int (ncid, 'shard_index', k)
+            IF (k /= ish) CALL identity_error (fname, 'shard_index')
+
+            ! Every shard of a segment must carry the SAME time axis: the
+            ! aggregator addresses them all by one record index, so a shard
+            ! whose axis differs would be silently combined at the wrong
+            ! instant.
+            IF (ish == 0) THEN
+               CALL read_dim  (ncid, 'time', seg_ntime(iseg))
+               CALL read_real (ncid, 'time', tref)
+            ELSE
+               CALL read_dim  (ncid, 'time', ntime)
+               IF (ntime /= seg_ntime(iseg)) THEN
+                  write(*,'(A,A,A,I0,A,I0)') 'ERROR: ', trim(fname), &
+                     ' has ', ntime, ' time records but shard 0 has ', seg_ntime(iseg)
+                  CALL CoLM_stop ('river_hist_concatenate: shard time axis length differs')
+               ENDIF
+               CALL read_real (ncid, 'time', tcmp)
+               DO j = 1, seg_ntime(iseg)
+                  IF (tcmp(j) /= tref(j)) THEN
+                     write(*,'(A,A,A,I0,A,2ES16.8)') 'ERROR: ', trim(fname), &
+                        ' time record ', j, ' differs from shard 0: ', tcmp(j), tref(j)
+                     CALL CoLM_stop ('river_hist_concatenate: shard time axis differs')
+                  ENDIF
+               ENDDO
+               IF (allocated(tcmp)) deallocate (tcmp)
+            ENDIF
             ierr = nf90_close (ncid)
          ENDDO
 
+         IF (allocated(tref)) deallocate (tref)
          write(*,'(A,A,A,I0,A,I0,A)') '  segment ', trim(seg_id(iseg)), ': ', &
             seg_shards(iseg), ' shards, ', seg_ntime(iseg), ' time records'
       ENDDO
@@ -422,9 +464,17 @@ CONTAINS
          ierr = nf90_close (ncid)
       ENDDO
 
-      IF (nnames == 0 .or. totalresv == 0) RETURN
+      IF (totalresv == 0) RETURN
 
       CALL ncio_define_dimension (trim(filetmp), 'reservoir', totalresv)
+
+      ! The reservoir identity itself. It has no time dimension, so it is not
+      ! among the fields collected above, and without it the aggregate has a
+      ! reservoir axis with no way to say which dam each entry is -- a schema
+      ! the 'one' file does not share.
+      CALL rebuild_resv_grand_id (totalresv)
+
+      IF (nnames == 0) RETURN
       allocate (col(totalresv))
       allocate (seen(totalresv))
 
@@ -472,6 +522,65 @@ CONTAINS
       deallocate (col, seen)
 
    END SUBROUTINE rebuild_resv_variables
+
+   !> resv_GRAND_ID(reservoir), reassembled on resv_global_index like the
+   !! time-varying reservoir fields.
+   SUBROUTINE rebuild_resv_grand_id (totalresv)
+
+   integer, intent(in) :: totalresv
+   integer, allocatable :: gid(:), ids(:), seen(:)
+   integer :: k, n, vid, e, nwith
+
+      allocate (gid(totalresv)); gid = -9999
+      allocate (seen(totalresv)); seen = 0
+      nwith = 0
+
+      DO ish = 0, seg_shards(1)-1
+         CALL shard_name (1, ish, fname)
+         ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
+         e = nf90_inq_varid (ncid, 'resv_GRAND_ID', vid)
+         IF (e /= NF90_NOERR) THEN
+            ierr = nf90_close (ncid); CYCLE
+         ENDIF
+         nwith = nwith + 1
+         CALL read_int (ncid, 'resv_global_index', ids)
+         n = size(ids)
+         IF (n > 0) THEN
+            CALL read_int (ncid, 'resv_GRAND_ID', vals_i)
+            DO k = 1, n
+               IF (ids(k) < 1 .or. ids(k) > totalresv) CALL CoLM_stop &
+                  ('river_hist_concatenate: reservoir id out of range')
+               gid(ids(k)) = vals_i(k)
+               seen(ids(k)) = 1
+            ENDDO
+            IF (allocated(vals_i)) deallocate (vals_i)
+         ENDIF
+         IF (allocated(ids)) deallocate (ids)
+         ierr = nf90_close (ncid)
+      ENDDO
+
+      ! No shard carries the variable at all -- a run without dams, or shards
+      ! from a build that did not emit it. There is nothing to rebuild, and
+      ! that is not an error. Partial coverage IS an error: it would write a
+      ! GRAND ID array silently padded with -9999.
+      IF (nwith == 0) THEN
+         deallocate (gid, seen)
+         RETURN
+      ENDIF
+
+      IF (count(seen == 0) == 0) THEN
+         CALL ncio_write_serial (trim(filetmp), 'resv_GRAND_ID', gid, 'reservoir')
+         CALL ncio_put_attr (trim(filetmp), 'resv_GRAND_ID', 'long_name', &
+            'reservoir GRAND ID')
+      ELSE
+         write(*,'(A,I0,A)') 'ERROR: ', count(seen == 0), &
+            ' reservoirs have no GRAND ID in the shard set'
+         CALL CoLM_stop ('river_hist_concatenate: incomplete reservoir GRAND ID')
+      ENDIF
+
+      deallocate (gid, seen)
+
+   END SUBROUTINE rebuild_resv_grand_id
 
    !> Bifurcation pathways are keyed strictly on pth_global_id.
    SUBROUTINE rebuild_bif_matrix ()
