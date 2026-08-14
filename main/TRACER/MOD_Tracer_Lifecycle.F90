@@ -449,6 +449,25 @@ CONTAINS
          ENDIF
       ENDDO
       IF (active == 0) RETURN
+
+      ! sumarea/filter are SCRATCH for the callee, not accumulators. They are
+      ! intent(inout) because a provider overwrites filter outright and
+      ! repeatedly -- methane_reactive_history does
+      ! filter = (patchtype == 4) .and. patchmask -- to select the patches each
+      ! of its variables applies to.
+      !
+      ! That is why the multi-provider path below hands each provider a private
+      ! copy and never writes it back: writing back would give the next
+      ! provider, or the caller, one provider's private mask. It is discarded
+      ! on purpose, not by omission.
+      !
+      ! With one provider there is nobody to be isolated from, so it gets the
+      ! caller's arrays directly and the deep copy of sumarea is skipped. The
+      ! contract that makes this safe belongs to the caller: filter must be
+      ! dead after this dispatch. Today it is -- tracer_hist_out ends here and
+      ! MOD_Hist deallocates filter on the next line. Anything reading filter
+      ! after this call would see one provider's leftovers with a single
+      ! provider registered and the original mask with two.
       IF (active == 1) THEN
          CALL lifecycle(sole)%land_history(file_hist, itime_in_file, sumarea, filter, &
             nl_soil, forcing_has_missing_value, forcmask_pch)

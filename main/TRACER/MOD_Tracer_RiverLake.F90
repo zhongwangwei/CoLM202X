@@ -2544,7 +2544,9 @@ CONTAINS
                tmp = spval
 
                IF (tracers(itrc)%ref_ratio > trc_tiny) THEN
-                  tmp = (trc_conc(itrc,:) / tracers(itrc)%ref_ratio - 1.0_r8) * 1000.0_r8
+                  ! tmp is rebuilt element by element in the loop below; the
+                  ! whole-array delta that used to be computed here was
+                  ! overwritten on the next line without ever being read.
                   tmp = spval
                   DO i = 1, numucat
                      volwater = 0._r8

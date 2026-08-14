@@ -558,7 +558,17 @@ CONTAINS
             ENDIF
          ENDIF
 
-         xerr_tracer = max(xerr_tracer, abs(check_err) / deltim)
+         ! deltim is intent(in) and never checked. Every Makeoptions builds
+         ! with -ffpe-trap=zero, so a caller passing 0 would not produce a
+         ! harmless Inf in a diagnostic -- it would abort the model inside the
+         ! conservation check, pointing the backtrace at the wrong place
+         ! entirely. Report the raw residual instead; a rate is meaningless
+         ! without a timestep anyway.
+         IF (deltim > 0._r8) THEN
+            xerr_tracer = max(xerr_tracer, abs(check_err) / deltim)
+         ELSE
+            xerr_tracer = max(xerr_tracer, abs(check_err))
+         ENDIF
       ENDDO
    END SUBROUTINE tracer_balance_check
 
