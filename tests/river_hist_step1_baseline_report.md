@@ -14,9 +14,15 @@
 | `tests/test_river_hist_schema_lock.py` | 用合成损坏样本证明能抓到变量缺失、维度转置、ID 错位、时间轴与属性差异 |
 | `tests/river_hist_memory_baseline.py` | 按计划 1.5 公式估算 root 峰值内存 |
 | `tests/test_river_hist_baseline_step1.py` | 固定公式、校验 harness/驱动接线 |
-| `tests/artifacts/river_hist_ref_r{4,8}.nc` | 参考输出 |
+| `tests/artifacts/river_hist_ref_r{4,8}.nc` | 参考输出（**未提交**：可由驱动脚本重新生成，不把二进制放进仓库） |
 
-## 1.1 / 1.2 参考输出与 schema 锁定 — 通过
+## 1.1 / 1.2 参考输出与 schema 锁定 — 部分通过
+
+**锁住的是写出机制，不是生产变量集合。** harness 写的是合成变量 `f_ucat_synthNN`，
+不是 `hist_grid_riverlake_out` 实际产生的 river / Levee / reservoir / sediment /
+tracer 全集——那需要 landdata 和 forcing，本机没有。因此下面验证的是"gather → 重映射
+→ 串行写"这条路径本身与 ID 归位，生产 schema 的锁定要靠
+`tests/run_river_hist_mode_parity.sh` 在目标机器上完成。
 
 harness 走的是真实 writer（`vector_gather_to_master` /
 `vector_gather_map2grid_and_write` / `vector_gather_matrix_to_master`）与真实
@@ -47,20 +53,26 @@ worker**。数值编码为 `global_id + 1e-3*ivar + 1e-6*itime`，因此 ID 错�
 | 8  | 5 | 0.112–0.641 s | 0.725–0.988 s | 0.34–0.61 s | 0.0087–0.052 s |
 | 12 | 8 | 1.746 s | 1.996 s | 0.250 s | 0.105 s |
 
-标度倍数（中位数比）：
+标度倍数——**这些数字不可用作门槛或立项依据**：
 
-- `gather_only`：4→8 **30.1×**，8→12 **15.7×**
-- `bif_matrix`：4→8 **130×**，8→12 **12.0×**
-- `full_write`：4→8 1.42×，8→12 2.75×
+ranks=8 有两次独立测量，中位数相差 **5.7×**（0.112 vs 0.641 s）。取哪一个，结论
+完全不同：
 
-**结论**：master gather 阶段随 rank 数**显著超线性增长**，与计划的诊断一致
-（每个变量一次串行 `mpi_recv` 循环 + 一次全局 `mpi_barrier`，本例每次 history 写出
-21 次）。交叉点很低：4 ranks 时 NetCDF 串行写占 97%，到 12 ranks 时 gather 已占
-87%。
+| 取 8-rank 值 | 4→8 | 8→12 |
+|---|---|---|
+| 0.641 s | 30.1× | 2.7× |
+| 0.112 s | 5.3× | 15.6× |
 
-**必须声明的局限**：笔记本超订阅运行，MPI 争用被放大；ranks=8 两次独立测量的
-gather 中位数相差 5.7×（0.112 vs 0.641 s），噪声很大。方向和量级可信，绝对值不可
-外推到生产机器。
+本报告早先版本写的"4→8 增 30×、8→12 增 16×"是**把两次不同的 8-rank 测量拼接**
+得到的（30× 用 0.641，16× 用 0.112），两者不可能同时成立。该表述已从这里和计划
+正文中撤除。
+
+**能成立的只有定性结论**：master gather 随 rank 数增长且快于线性；4 ranks 时它只占
+`hist_grid_riverlake_out` 的 3%，12 ranks 时已占多数。这与计划的机制诊断一致（每个
+变量一次串行 `mpi_recv` 循环 + 一次全局 `mpi_barrier`，本例每次 history 写出 21 次）。
+
+**到此为止。** 笔记本超订阅 + 5.7× 的运行间波动，使任何具体倍数都不可外推。真实标度
+必须在目标机器的生产 rank 数上重测——这也是 go/no-go 仍未闭合的原因之一。
 
 ## 1.5 root 内存基线 — **未达到 go/no-go 门槛**
 
@@ -71,6 +83,9 @@ gather 中位数相差 5.7×（0.112 vs 0.641 s），噪声很大。方向和量
 | 15 arcmin | 86,400 | 1440×720 | 9 MB | 0.00% |
 | 6 arcmin | 540,000 | 3600×1800 | 56 MB | 0.02% |
 | 3 arcmin | 2,160,000 | 7200×3600 | **225 MB** | **0.08%** |
+
+（估算值。实测 RSS/HWM 仍待在目标机器上采集；结论"内存不是瓶颈"在三个数量级的
+裕度下不会被实测推翻，但严格说这一栏是下界而非观测。）
 
 `vector_gather_map2grid_and_write` 在每个变量末尾 `deallocate` 掉 `wdata` 和
 `wdata2d`，因此峰值是**单变量**的，不随变量数累积。即使全球 3 arcmin，root 侧也

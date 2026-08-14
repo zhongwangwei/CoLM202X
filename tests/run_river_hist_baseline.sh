@@ -171,5 +171,44 @@ if len(scales) == 2:
 PY
 
 cp -f "$summary" "$repo_root/tests/artifacts/river_hist_baseline_summary.txt" 2>/dev/null || true
+
+# Verify the artifacts we just produced, rather than trusting that they are
+# fine because the runs exited zero: the schema lock is the thing that would
+# notice an id landing in the wrong cell.
+echo
+echo "== validating the generated reference files"
+python3 - "$repo_root" $scales <<PYEOF
+import sys, pathlib
+root = pathlib.Path(sys.argv[1])
+sys.path.insert(0, str(root / "tests"))
+from river_hist_schema_lock import (describe, compare_schema,
+                                    check_ucat_values, check_bif_values)
+scales = sys.argv[2:]
+files = [root / f"tests/artifacts/river_hist_ref_r{r}.nc" for r in scales]
+problems = []
+if len(files) == 2:
+    problems += [f"r{scales[0]} vs r{scales[1]}: {p}" for p in
+                 compare_schema(describe(files[0]), describe(files[1]))]
+for f, r in zip(files, scales):
+    for ivar in range(1, ${RH_NVAR} + 1):
+        for itime in range(1, ${RH_NTIME} + 1):
+            problems += [f"r{r}: {p}" for p in check_ucat_values(
+                str(f), f"f_ucat_synth{ivar:02d}", ${RH_TOTALNUMUCAT},
+                ${RH_NLON}, ${RH_NLAT}, ivar, itime)]
+    for itime in range(1, ${RH_NTIME} + 1):
+        problems += [f"r{r}: {p}" for p in check_bif_values(
+            str(f), "f_bifflw_lev", ${RH_NPTHLEV}, ${RH_TOTALNPTHOUT}, itime)]
+for p in problems[:20]:
+    print("   FAIL", p)
+if problems:
+    sys.exit(1)
+print("   layout-invariant schema; every global id in the right cell")
+PYEOF
+rc=$?
+if [[ $rc -ne 0 ]]; then
+  echo "river history baseline: FAILED validation" >&2
+  exit 1
+fi
+
 echo
 echo "river history baseline: PASS (reference files in tests/artifacts/)"
