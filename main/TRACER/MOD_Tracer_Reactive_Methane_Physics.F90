@@ -50,6 +50,8 @@ module MOD_Tracer_Reactive_Methane_Physics
 	save
 
 	public  :: methane
+	public  :: methane_host_water_reset
+	public  :: methane_host_water_report
 
 	private :: methane_annualupdate
 	private :: methane_prod
@@ -68,6 +70,40 @@ module MOD_Tracer_Reactive_Methane_Physics
 	logical  :: host_water_warned    = .false.
 
 contains
+
+	!-----------------------------------------------------------------------
+	!> Clear the host-water diagnostic. Called when methane state is
+	!! allocated, so a model re-initialised in the same process does not
+	!! inherit the previous run's worst residual or its already-warned flag.
+	subroutine methane_host_water_reset ()
+		host_water_max_resid = 0._r8
+		host_water_warned    = .false.
+	end subroutine methane_host_water_reset
+
+	!> Report the worst host-water disagreement across ALL ranks.
+	!!
+	!! The running maximum and the one-shot warning are per-rank state, so
+	!! without this every rank warns independently and the global worst case
+	!! is never printed. Call once at the end of a run.
+	subroutine methane_host_water_report ()
+
+		USE MOD_SPMD_Task
+		USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE
+		implicit none
+		real(r8) :: gmax
+
+		gmax = host_water_max_resid
+#ifdef USEMPI
+		CALL mpi_reduce (host_water_max_resid, gmax, 1, MPI_REAL8, MPI_MAX, &
+			p_address_master, p_comm_glb, p_err)
+#endif
+		if (p_is_master .and. gmax > 0._r8) then
+			write(6,'(A,E12.4,A,E12.4,A)') &
+				' methane host-water: worst disagreement over all ranks ', gmax, &
+				' of pore volume (tolerance ', DEF_METHANE%host_water_tolerance, ')'
+		endif
+
+	end subroutine methane_host_water_report
 
 	!-----------------------------------------------------------------------
 	subroutine methane (istep,ipatch,idate,patchclass,patchtype,&!input
