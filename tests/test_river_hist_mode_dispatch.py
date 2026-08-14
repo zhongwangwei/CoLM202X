@@ -72,17 +72,37 @@ def test_file_creation_and_time_axis_are_shared_by_both_modes() -> None:
     assert route.count("ncio_create_file") == 2
 
 
-def test_unmigrated_writers_fail_loudly_under_block_mode() -> None:
-    """A shard set missing tracer variables would still look complete."""
-    body = _hist_out()
-    assert body.count("CALL route_hist_require_migrated") == 2
-    for what in ("tracer_lifecycle_route_write_history", "write_tracer_history"):
-        assert f"route_hist_require_migrated ('{what}')" in body
-    guard = ROUTE.read_text(encoding="utf-8")
-    guard_body = guard[guard.index("SUBROUTINE route_hist_require_migrated"):]
-    guard_body = guard_body[: guard_body.index("END SUBROUTINE route_hist_require_migrated")]
-    assert "CoLM_stop" in guard_body
-    assert "IF (rh_block)" in guard_body
+# (file, routine) -- only the route-HISTORY writers. The same modules also
+# gather for restart output, which is a different file and must stay as it is.
+TRACER_ROUTE_WRITERS = (
+    (ROOT / "main/TRACER/MOD_Tracer_RiverLake.F90", "write_tracer_history"),
+    (ROOT / "main/TRACER/MOD_Tracer_Particle_Sediment.F90", "write_sediment_history"),
+)
+
+
+def _routine_body(path: pathlib.Path, name: str) -> str:
+    src = path.read_text(encoding="utf-8")
+    start = src.index(f"SUBROUTINE {name} ")
+    end = src.index(f"END SUBROUTINE {name}", start)
+    return _strip_comments(src[start:end])
+
+
+def test_tracer_and_sediment_route_writers_use_the_dispatcher() -> None:
+    """These are separate write sites; a shard set missing their variables
+    would still look complete, so they must share the same dispatch."""
+    for path, routine in TRACER_ROUTE_WRITERS:
+        body = _routine_body(path, routine)
+        for writer in LOW_LEVEL_WRITERS:
+            assert writer not in body, f"{routine} still calls {writer} directly"
+        assert "route_hist_write_ucat" in body, routine
+
+
+def test_no_route_writer_anywhere_bypasses_the_dispatcher() -> None:
+    """The guard that used to stop block mode is gone because nothing is left
+    unmigrated; this is the check that keeps it that way."""
+    assert "route_hist_require_migrated" not in _strip_comments(_hist_out())
+    for path, routine in TRACER_ROUTE_WRITERS:
+        assert "route_hist_require_migrated" not in _routine_body(path, routine)
 
 
 def test_dispatcher_layering_keeps_the_network_out_of_the_generic_utility() -> None:

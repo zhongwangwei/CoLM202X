@@ -601,16 +601,11 @@ CONTAINS
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
 
 #ifdef TRACER
-      ! These still write through the global-master path, so block mode would
-      ! silently produce shards without them.  Fail loudly until they are
-      ! migrated to the dispatcher (plan step 3.6).
-      CALL route_hist_require_migrated ('tracer_lifecycle_route_write_history')
       CALL tracer_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
 #endif
 
       ! ----- tracer variables -----
 #ifdef TRACER
-         CALL route_hist_require_migrated ('write_tracer_history')
          CALL write_tracer_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
 #endif
 

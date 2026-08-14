@@ -308,6 +308,8 @@ MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNet
 MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
 MOD_Grid_RiverLakeHistState.o: MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
+MOD_Tracer_RiverLake.o: MOD_Grid_RiverLakeHistRoute.o
+MOD_Tracer_Particle_Sediment.o: MOD_Grid_RiverLakeHistRoute.o
 MOD_Grid_RiverLakeHistRoute.o: MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
 MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o \
 				     MOD_Vector_ReadWrite.o MOD_HistGridded.o MOD_WorkerPushData.o MOD_LandPatch.o

@@ -2217,9 +2217,10 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE write_tracer_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat_hist)
 
-	   USE MOD_Vector_ReadWrite
-	   USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
-	      x_ucat, y_ucat, griducat, allups_mask_ucat
+	   USE MOD_Grid_RiverLakeNetwork, only: numucat, allups_mask_ucat
+	   ! Route history is dispatched, not written directly, so 'one' and
+	   ! 'block' cannot drift apart variable by variable.
+	   USE MOD_Grid_RiverLakeHistRoute, only: route_hist_write_ucat
 	   USE MOD_Tracer_Defs, only: tracer_uses_delta_diagnostics, tracers, trc_tiny, &
 	      trc_delta_sanity_max
 	   USE MOD_Vars_Global, only: spval
@@ -2289,10 +2290,9 @@ CONTAINS
          write(longname, '(5A)') 'tracer ', trim(conc_word), &
             ' (', trim(tracer_names(itrc)), ')'
 
-	         CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-	            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-	            file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-	            trim(longname), trim(conc_units))
+	         CALL route_hist_write_ucat (tmpvec, trim(varname), &
+	            longname = trim(longname), &
+	            units = trim(conc_units))
 
 	         IF (tracer_uses_delta_diagnostics(itrc)) THEN
 	            IF (p_is_worker .and. numucat > 0) THEN
@@ -2318,10 +2318,9 @@ CONTAINS
 
 	            write(varname, '(A,A)') 'f_trc_delta_', trim(tracer_names(itrc))
 	            write(longname, '(A,A,A)') 'tracer delta (', trim(tracer_names(itrc)), ')'
-	            CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-	               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-	               file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-	               trim(longname), 'permil')
+	            CALL route_hist_write_ucat (tmpvec, trim(varname), &
+	               longname = trim(longname), &
+	               units = 'permil')
 	         ENDIF
 
 	         ! --- Tracer outflux ---
@@ -2338,10 +2337,9 @@ CONTAINS
          write(varname, '(A,A)') 'f_trc_flux_', trim(tracer_names(itrc))
          write(longname, '(A,A,A)') 'tracer outflux (', trim(tracer_names(itrc)), ')'
 
-	         CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-	            totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-	            file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-	            trim(longname), trim(flux_units))
+	         CALL route_hist_write_ucat (tmpvec, trim(varname), &
+	            longname = trim(longname), &
+	            units = trim(flux_units))
 
 		         IF (DEF_USE_LEVEE) THEN
 		            ! --- Protected-side tracer storage behind levees ---
@@ -2362,10 +2360,9 @@ CONTAINS
 		            write(varname, '(A,A)') 'f_trc_levsto_', trim(tracer_names(itrc))
 		            write(longname, '(A,A,A)') 'protected-side levee tracer storage (', trim(tracer_names(itrc)), ')'
 
-		            CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-		               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-		               file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-		               trim(longname), trim(mass_units))
+		            CALL route_hist_write_ucat (tmpvec, trim(varname), &
+		               longname = trim(longname), &
+		               units = trim(mass_units))
 
 		            IF (tracer_uses_delta_diagnostics(itrc)) THEN
 		               IF (p_is_worker .and. numucat > 0) THEN
@@ -2390,10 +2387,9 @@ CONTAINS
 
 		               write(varname, '(A,A)') 'f_trc_levdelta_', trim(tracer_names(itrc))
 		               write(longname, '(A,A,A)') 'protected-side levee tracer delta (', trim(tracer_names(itrc)), ')'
-		               CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-		                  totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-		                  file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-		                  trim(longname), 'permil')
+		               CALL route_hist_write_ucat (tmpvec, trim(varname), &
+		                  longname = trim(longname), &
+		                  units = 'permil')
 		            ENDIF
 		         ENDIF
 
@@ -2412,10 +2408,9 @@ CONTAINS
 		            write(varname, '(A,A)') 'f_trc_bifout_', trim(tracer_names(itrc))
 		            write(longname, '(A,A,A)') 'tracer net bifurcation outflux (', trim(tracer_names(itrc)), ')'
 
-		            CALL vector_gather_map2grid_and_write ( tmpvec, numucat,                        &
-		               totalnumucat, ucat_data_address, griducat%nlon, x_ucat, griducat%nlat, y_ucat, &
-		               file_hist_ucat, trim(varname), 'lon_ucat', 'lat_ucat', itime_in_file_ucat,     &
-		               trim(longname), trim(flux_units))
+		            CALL route_hist_write_ucat (tmpvec, trim(varname), &
+		               longname = trim(longname), &
+		               units = trim(flux_units))
 		         ENDIF
 
       ENDDO
