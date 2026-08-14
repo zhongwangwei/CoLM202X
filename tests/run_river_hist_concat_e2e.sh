@@ -69,6 +69,15 @@ NUCAT=${RH_TOTALNUMUCAT:-1200}; NLON=${RH_NLON:-40}; NLAT=${RH_NLAT:-30}
 NPTH=${RH_TOTALNPTHOUT:-131}; NLEV=${RH_NPTHLEV:-3}
 NRESV=${RH_TOTALNUMRESV:-37}
 
+write_segment_to () { # $1 = target, $2 = ranks, $3 = groups, $4 = day, $5 = log
+  ( cd "$wd" && RH_NGROUP=$3 RH_DAY=$4 RH_TOTALNUMUCAT=$NUCAT RH_NLON=$NLON RH_NLAT=$NLAT \
+      RH_TOTALNPTHOUT=$NPTH RH_NPTHLEV=$NLEV RH_TOTALNUMRESV=$NRESV RH_OUT="$1" \
+      env OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+          OMPI_MCA_rmaps_base_oversubscribe=1 \
+      "$launcher" -n "$2" "$wd/h" ) > "$5" 2>&1
+  grep -q "RHSHARD PASS" "$5" || { echo "harness FAILED"; cat "$5"; exit 1; }
+}
+
 write_segment () {   # $1 = ranks, $2 = groups, $3 = day, $4 = log
   ( cd "$wd" && RH_NGROUP=$2 RH_DAY=$3 RH_TOTALNUMUCAT=$NUCAT RH_NLON=$NLON RH_NLAT=$NLAT \
       RH_TOTALNPTHOUT=$NPTH RH_NPTHLEV=$NLEV RH_TOTALNUMRESV=$NRESV RH_OUT="$wd/e2e.nc" \
@@ -180,5 +189,30 @@ with Dataset(path) as ds:
 
 sys.exit(1 if fail else 0)
 PY
+
+# The official entry point, not the binary. Everything above calls
+# river_hist_concatenate.x directly, which is exactly how a wrapper defect
+# stayed invisible: the wrapper derives the target name from a shard name, and
+# it did not know shard names had gained a segment.
+echo "== via run/scripts/concatenate_history (the documented entry point)"
+wrapdir="$wd/viawrapper"
+mkdir -p "$wrapdir"
+write_segment_to "$wrapdir/w.nc" 7 3 1 "$wd/wrap1.log"
+write_segment_to "$wrapdir/w.nc" 5 2 2 "$wd/wrap2.log"
+echo "   $(ls "$wrapdir"/w_seg*_shard*.nc | wc -l | tr -d ' ') shards"
+
+if ! bash run/scripts/concatenate_history "$nml" "$wrapdir" > "$wd/wrap.log" 2>&1; then
+  echo "   FAIL: the wrapper exited non-zero"; tail -20 "$wd/wrap.log"; exit 1
+fi
+[[ -f "$wrapdir/w.nc" && -f "$wrapdir/w.nc.complete" ]] || {
+  echo "   FAIL: the wrapper produced no aggregate at $wrapdir/w.nc"
+  tail -20 "$wd/wrap.log"; exit 1; }
+# A wrong target derivation leaves stray aggregates named after a segment.
+# find, not ls|grep -v: grep exits 1 when it filters everything out, and
+# under pipefail that aborts the script on the healthy case.
+stray=$(find "$wrapdir" -maxdepth 1 -name 'w_seg*.nc' ! -name '*_shard*' | wc -l | tr -d " ")
+[[ "$stray" == "0" ]] || {
+  echo "   FAIL: $stray aggregate(s) named after a segment, not the target"; exit 1; }
+echo "   ok: wrapper produced w.nc and its .complete marker"
 
 echo "river history concatenate e2e: PASS"

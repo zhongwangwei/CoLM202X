@@ -76,6 +76,15 @@ PROGRAM river_hist_concatenate
          CALL CoLM_stop ('river_hist_concatenate: missing arguments')
       ENDIF
 
+      ! BEFORE anything shells out. scan_shards builds an ls command with the
+      ! target single-quoted, and a single quote is the one character single
+      ! quotes cannot contain -- a target of  x'; rm -rf ~; #.nc  closes the
+      ! quote and the rest runs as commands. Checking this inside rename_file
+      ! was useless: that runs at the very end, long after the injected
+      ! command has executed.
+      CALL reject_unquotable (nlfile,     'namelist')
+      CALL reject_unquotable (filetarget, 'target')
+
       CALL read_namelist (nlfile)
 
       filetmp  = trim(filetarget) // '.tmp'
@@ -90,6 +99,23 @@ PROGRAM river_hist_concatenate
       CALL spmd_exit
 
 CONTAINS
+
+   !> Refuse a path that cannot be safely single-quoted in a shell command.
+   !!
+   !! Every other metacharacter -- space, $, ;, &, backtick, newline -- is
+   !! inert inside single quotes. A single quote is not: it ends the quoted
+   !! string and hands the remainder to the shell. Rather than attempt to
+   !! escape it, refuse the path. This must run before the first shell
+   !! command, not before the last one.
+   SUBROUTINE reject_unquotable (path, what)
+   character(len=*), intent(in) :: path, what
+      IF (index(path, "'") > 0) THEN
+         write(*,'(4A)') 'ERROR: the ', trim(what), ' path contains a single quote, ', &
+            'which cannot be passed safely to the shell:'
+         write(*,'(2A)') '       ', trim(path)
+         CALL CoLM_stop ('river_hist_concatenate: unsupported path')
+      ENDIF
+   END SUBROUTINE reject_unquotable
 
    !> Discover every run segment of this period and check identity agreement.
    !!
@@ -872,12 +898,9 @@ CONTAINS
       ! to a truncated name, or failing outright. Single quotes handle every
       ! shell metacharacter except a single quote itself, which cannot be
       ! escaped inside them, so that case is refused rather than mangled.
-      IF (index(src, "'") > 0 .or. index(dst, "'") > 0) THEN
-         write(*,'(A)') 'ERROR: file paths containing a single quote are not supported'
-         write(*,'(2A)') '       src: ', trim(src)
-         write(*,'(2A)') '       dst: ', trim(dst)
-         CALL CoLM_stop ('river_hist_concatenate: unsupported path')
-      ENDIF
+      ! Defence in depth; the real gate is reject_unquotable at startup.
+      CALL reject_unquotable (src, 'source')
+      CALL reject_unquotable (dst, 'destination')
 
       inquire (file=trim(dst), exist=fexists)
       IF (fexists) THEN
