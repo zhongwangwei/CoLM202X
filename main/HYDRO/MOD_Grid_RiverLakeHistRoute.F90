@@ -50,6 +50,7 @@ MODULE MOD_Grid_RiverLakeHistRoute
    PUBLIC :: route_hist_is_block
    PUBLIC :: route_hist_shard_file
    PUBLIC :: route_hist_require_migrated
+   PUBLIC :: route_hist_write_pending_manifest
 
    ! ---- state for the current history write ----
    logical            :: rh_active     = .false.
@@ -161,7 +162,14 @@ CONTAINS
 
       IF (p_is_io) THEN
          inquire (file=trim(rh_file_shard), exist=fexists)
-         IF (.not. fexists) CALL create_shard_skeleton (lon_ucat, lat_ucat)
+         IF (.not. fexists) THEN
+            CALL create_shard_skeleton (lon_ucat, lat_ucat)
+            ! Leave a discoverable note next to the target the moment the first
+            ! shard appears. Block-mode output is not the file analysis scripts
+            ! expect, and a run that ends without aggregation would otherwise
+            ! look finished.
+            IF (p_iam_io == 0) CALL route_hist_write_pending_manifest ()
+         ENDIF
          CALL ncio_write_time (trim(rh_file_shard), 'time', idate, &
             itime_in_file_ucat, DEF_HIST_FREQ)
       ENDIF
@@ -170,6 +178,26 @@ CONTAINS
    END SUBROUTINE route_hist_begin
 
    ! ------------------------------------------------------------------
+   !> Records that this history file still needs offline aggregation, and the
+   !! exact command that does it.  Removed by the aggregator on success.
+   SUBROUTINE route_hist_write_pending_manifest ()
+
+   integer :: u
+
+      OPEN (newunit=u, file=trim(rh_file_one)//'.pending', status='replace', action='write')
+      write(u,'(A)')   'This history output is SHARDED and not yet aggregated.'
+      write(u,'(A)')   'DEF_HIST_mode = block writes one shard per IO group; the single'
+      write(u,'(A)')   'file that analysis scripts expect does not exist yet.'
+      write(u,'(A)')   ''
+      write(u,'(A,A)') 'target : ', trim(rh_file_one)
+      write(u,'(A,A)') 'shards : ', trim(rh_file_shard(1:index(rh_file_shard,'_shard')+5))//'NNNNN.nc'
+      write(u,'(A)')   ''
+      write(u,'(A)')   'Run before analysing:'
+      write(u,'(A)')   '   run/scripts/concatenate_history <namelist> <this directory>'
+      CLOSE (u)
+
+   END SUBROUTINE route_hist_write_pending_manifest
+
    SUBROUTINE route_hist_end ()
 
       rh_active = .false.

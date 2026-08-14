@@ -33,6 +33,7 @@ PROGRAM river_hist_shard_harness
    IMPLICIT NONE
 
    integer :: totalnumucat, ngroup, npthlev, totalnpthout
+   integer :: nlon_g, nlat_g
    character(len=256) :: fileout, fileshard
 
    type(route_shard_layout_type) :: ucat_layout, path_layout
@@ -48,6 +49,8 @@ PROGRAM river_hist_shard_harness
       CALL read_env_int ('RH_NGROUP',         2, ngroup)
       CALL read_env_int ('RH_NPTHLEV',        3, npthlev)
       CALL read_env_int ('RH_TOTALNPTHOUT', 131, totalnpthout)
+      CALL read_env_int ('RH_NLON',           40, nlon_g)
+      CALL read_env_int ('RH_NLAT',           30, nlat_g)
       CALL read_env_str ('RH_OUT', 'river_hist_shard_test.nc', fileout)
 
       CALL divide_processes_into_groups (ngroup)
@@ -78,6 +81,9 @@ PROGRAM river_hist_shard_harness
             ucat_layout%gid(1:max(ucat_layout%ntotal,0)), 'unitcat_local')
          CALL ncio_write_serial (trim(fileshard), 'pth_global_id', &
             path_layout%gid(1:max(path_layout%ntotal,0)), 'bifurcation_pathway_local')
+         ! Grid metadata, matching what create_shard_skeleton writes, so the
+         ! aggregator can be exercised end-to-end against these shards.
+         CALL write_grid_metadata ()
          CALL ncio_write_time (trim(fileshard), 'time', (/2000, 1, 0/), i, 'DAILY')
       ENDIF
 
@@ -216,6 +222,38 @@ CONTAINS
          IF (worker_is_active(k)) active_rank = active_rank + 1
       ENDDO
    END FUNCTION active_rank
+
+   !> x/y for the ids this shard owns, plus the global axes.
+   SUBROUTINE write_grid_metadata ()
+
+   integer  :: k, n
+   integer,  allocatable :: xs(:), ys(:)
+   real(r8), allocatable :: lon(:), lat(:)
+
+      n = max(ucat_layout%ntotal, 0)
+      allocate (xs(max(n,1))); xs = 0
+      allocate (ys(max(n,1))); ys = 0
+      DO k = 1, n
+         xs(k) = mod(ucat_layout%gid(k)-1, nlon_g) + 1
+         ys(k) = mod((ucat_layout%gid(k)-1)/nlon_g, nlat_g) + 1
+      ENDDO
+      CALL ncio_write_serial (trim(fileshard), 'x_ucat', xs(1:n), 'unitcat_local')
+      CALL ncio_write_serial (trim(fileshard), 'y_ucat', ys(1:n), 'unitcat_local')
+
+      allocate (lon(nlon_g), lat(nlat_g))
+      DO k = 1, nlon_g
+         lon(k) = -180._r8 + 360._r8 * (real(k,r8) - 0.5_r8) / real(nlon_g,r8)
+      ENDDO
+      DO k = 1, nlat_g
+         lat(k) =   90._r8 - 180._r8 * (real(k,r8) - 0.5_r8) / real(nlat_g,r8)
+      ENDDO
+      CALL ncio_define_dimension (trim(fileshard), 'lon_ucat', nlon_g)
+      CALL ncio_define_dimension (trim(fileshard), 'lat_ucat', nlat_g)
+      CALL ncio_write_serial (trim(fileshard), 'lon_ucat', lon, 'lon_ucat')
+      CALL ncio_write_serial (trim(fileshard), 'lat_ucat', lat, 'lat_ucat')
+      deallocate (xs, ys, lon, lat)
+
+   END SUBROUTINE write_grid_metadata
 
    SUBROUTINE verify_shards ()
 
