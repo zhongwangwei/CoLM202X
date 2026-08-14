@@ -143,3 +143,19 @@ def test_flush_ordering_is_unchanged() -> None:
     assert body.count("CALL flush_acc_fluxes_riverlake ()") == 1
     assert body.index("CALL route_hist_end ()") < body.index(
         "CALL flush_acc_fluxes_riverlake ()")
+
+
+def test_invalid_hist_mode_fails_at_namelist_init() -> None:
+    """Plan design decision: validate once, centrally.
+
+    The gridded writer branches IF 'one' ... ELSEIF 'block' with no ELSE, so a
+    typo used to produce no output at all rather than an error -- and the route
+    writers now key on the same string, which would have doubled that silence.
+    """
+    nml = (ROOT / "share/MOD_Namelist.F90").read_text(encoding="utf-8")
+    block = nml[nml.index("SELECT CASE (trim(adjustl(DEF_HIST_mode)))"):]
+    block = block[: block.index("END SELECT")]
+    assert "CASE ('one', 'block')" in block
+    assert "CASE DEFAULT" in block
+    assert "CoLM_stop" in block
+    assert "is invalid; use one or block" in block

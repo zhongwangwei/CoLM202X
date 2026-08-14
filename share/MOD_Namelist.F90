@@ -1416,6 +1416,20 @@ CONTAINS
          DEF_HIST_mode = 'one'
 #endif
 
+         ! Validate the history mode here, once, rather than letting each
+         ! writer decide.  The gridded writer branches IF 'one' ... ELSEIF
+         ! 'block', with no ELSE, so a typo silently produced no output at
+         ! all; the route-history writers now key on the same string, which
+         ! would have doubled that failure mode.
+         SELECT CASE (trim(adjustl(DEF_HIST_mode)))
+         CASE ('one', 'block')
+            DEF_HIST_mode = trim(adjustl(DEF_HIST_mode))
+         CASE DEFAULT
+            write(*,'(A,A,A)') 'Fatal ERROR: DEF_HIST_mode="', &
+               trim(DEF_HIST_mode), '" is invalid; use one or block.'
+            CALL CoLM_stop ()
+         END SELECT
+
          IF (.not. ieee_is_finite(DEF_simulation_time%timestep)) THEN
             write(*,*) '                  *****                  '
             write(*,*) 'ERROR: timestep must be finite and greater than zero.'
