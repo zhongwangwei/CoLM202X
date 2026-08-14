@@ -257,9 +257,21 @@ CONTAINS
 
             ! --- FREEZE: liquid → ice (internal transfer) ---
             IF (freeze_amt > trc_tiny) THEN
-               IF (wliq_soisno_bef(j) > trc_tiny) THEN
+               ! Denominator is the liquid pool the freeze actually draws from,
+               ! which is the pre-THERMAL liquid PLUS whatever just thawed --
+               ! the same quantity wliq_post_phase is built from a few lines
+               ! below, and the same convention the canopy path uses
+               ! (ldew_rain_pre_phase + thaw_amt). The numerator
+               ! trc_wliq_soisno has already been incremented by the thaw flux
+               ! above, so pairing it with the pre-thaw liquid overstated the
+               ! ratio by (wliq_bef + thaw)/wliq_bef. Only reachable when
+               ! THERMAL reports thaw and freeze for the same layer in one
+               ! step, which the explicit soil_thaw_mass_th / soil_frzc_mass_th
+               ! path allows; with thaw_amt = 0 this is exactly the old
+               ! expression.
+               IF (wliq_soisno_bef(j) + thaw_amt > trc_tiny) THEN
                   trc_flux = tracer_rayleigh_freezing_loss(itrc, trc_wliq_soisno(itrc, j, ipatch), &
-                     wliq_soisno_bef(j), freeze_amt, layer_temp(j))
+                     wliq_soisno_bef(j) + thaw_amt, freeze_amt, layer_temp(j))
                   trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) - trc_flux
                   trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux
                ENDIF
