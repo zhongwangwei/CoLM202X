@@ -48,12 +48,16 @@
     ! particle module derives hillslope sediment yield from the model's own
     ! precipitation and does not consume this external forcing block.
     ! ------------------------------------------------------------------
-    forcing_num        = 1
-    forcing_role       = 'erosion_yield'
-    forcing_fprefix    = 'null'
-    forcing_vname      = 'null'
-    forcing_tintalgo   = 'nearest'
-    forcing_dtime      = 86400
-    forcing_offset     = 0
-    forcing_input_mode = 'direct'
+    ! Declared with forcing_num = 0: a role with no consumer is now refused
+    ! at startup instead of being stored and ignored.
+    !
+    !   forcing_num        = 1
+    !   forcing_role       = 'erosion_yield'
+    !   forcing_fprefix    = 'null'
+    !   forcing_vname      = 'null'
+    !   forcing_tintalgo   = 'nearest'
+    !   forcing_dtime      = 86400
+    !   forcing_offset     = 0
+    !   forcing_input_mode = 'direct'
+    forcing_num        = 0
 /

@@ -31,14 +31,42 @@ end module MOD_Precision
             """
 module MOD_Tracer_Defs
   implicit none
+  integer, parameter :: STATE_OWNER_UNKNOWN       = 0
+  integer, parameter :: STATE_OWNER_GENERIC_WATER = 1
+  integer, parameter :: STATE_OWNER_PROVIDER      = 2
   integer :: ntracers = 1
   type :: tracer_info_type
     character(len=32) :: name = 'TEST'
     character(len=16) :: category = 'isotope'
+    integer :: state_owner = STATE_OWNER_UNKNOWN
   end type tracer_info_type
   type(tracer_info_type), allocatable :: tracers(:)
   character(len=256) :: parameter_file = ''
 contains
+  ! Mirrors set_tracer_category_defaults in the real MOD_Tracer_Defs: the
+  ! stub must derive state_owner the same way, or these tests would pass
+  ! against a mapping production does not have.
+  subroutine stub_set_state_owner(itrc)
+    integer, intent(in) :: itrc
+    select case (trim(tracers(itrc)%category))
+    case ('isotope', 'conservative', 'solute', 'reactive')
+      tracers(itrc)%state_owner = STATE_OWNER_GENERIC_WATER
+    case ('particle', 'gas')
+      tracers(itrc)%state_owner = STATE_OWNER_PROVIDER
+    case default
+      tracers(itrc)%state_owner = STATE_OWNER_UNKNOWN
+    end select
+  end subroutine stub_set_state_owner
+
+  logical function tracer_uses_land_water_transport(itrc)
+    integer, intent(in) :: itrc
+    tracer_uses_land_water_transport = .false.
+    if (.not. allocated(tracers)) return
+    if (itrc < 1 .or. itrc > ntracers) return
+    tracer_uses_land_water_transport = &
+      tracers(itrc)%state_owner == STATE_OWNER_GENERIC_WATER
+  end function tracer_uses_land_water_transport
+
   subroutine tracer_param_file_for_index(itrc, aliases, file_param, found)
     integer, intent(in) :: itrc
     character(len=*), intent(in) :: aliases
@@ -87,6 +115,7 @@ program forcing_input_driver
   allocate(tracers(1))
   call get_command_argument(1, parameter_file)
   call get_command_argument(2, tracers(1)%category)
+  call stub_set_state_owner(1)
   call tracer_forcing_input_load()
   write(*,'(I0)') tracer_forcing_input_count(1)
   if (tracer_forcing_input_count(1) > 0) then
@@ -241,37 +270,45 @@ def test_water_isotope_rejects_provider_owned_roles(forcing_input_driver):
     assert "atm" in result.stdout
 
 
-def test_provider_owned_known_roles_are_allowed(forcing_input_driver):
-    gas = run_forcing_driver(
+@pytest.mark.parametrize(
+    ("category", "role", "hint_fragment"),
+    [
+        ("gas", "inundation", "DEF_file_GIEMS"),
+        ("gas", "ATM", "atm_methane"),
+        ("particle", "erosion_yield", "MOD_Tracer_Particle_Sediment"),
+    ],
+)
+def test_roles_without_a_consumer_are_refused(
+    forcing_input_driver, category, role, hint_fragment
+):
+    """These three roles used to be ACCEPTED for their category.
+
+    Nothing ever read them, so a run could name a real GIEMS file here and
+    have it ignored for its entire length. Refusing them is the fix; the
+    message has to say where the field really comes from, otherwise the
+    user is only told 'no' with nowhere to go.
+    """
+    result = run_forcing_driver(
         forcing_input_driver,
-        """
+        f"""
 &nl_colm_tracer_forcing
   forcing_num = 1
-  forcing_role = 'ATM'
+  forcing_role = '{role}'
   forcing_fprefix = 'test'
   forcing_vname = 'test'
 /
 """,
-        category="gas",
+        category=category,
     )
-    assert gas.returncode == 0, gas.stdout + gas.stderr
-
-    particle = run_forcing_driver(
-        forcing_input_driver,
-        """
-&nl_colm_tracer_forcing
-  forcing_num = 1
-  forcing_role = 'erosion_yield'
-  forcing_fprefix = 'test'
-  forcing_vname = 'test'
-/
-""",
-        category="particle",
-    )
-    assert particle.returncode == 0, particle.stdout + particle.stderr
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "forcing_role(1)" in result.stdout
+    assert "no consumer reads this role" in result.stdout
+    assert hint_fragment in result.stdout
 
 
-def test_provider_owned_families_reject_water_roles(forcing_input_driver):
+def test_supported_role_on_a_provider_owned_species_is_refused(forcing_input_driver):
+    """'precip' is a real role, but the consumer loop skips provider-owned
+    species -- so on a gas tracer it is just as dead as 'inundation' was."""
     result = run_forcing_driver(
         forcing_input_driver,
         """
@@ -285,8 +322,38 @@ def test_provider_owned_families_reject_water_roles(forcing_input_driver):
         category="gas",
     )
     assert result.returncode != 0
-    assert "forcing_role(1)" in result.stdout
-    assert "precip" in result.stdout
+    assert "provider-owned" in result.stdout
+    assert "MOD_Tracer_Forcing" in result.stdout
+
+
+def test_accepted_roles_match_the_roles_any_consumer_queries():
+    """The invariant that keeps validation and consumers from drifting apart.
+
+    A role is worth accepting only if some code looks it up. If a consumer
+    for a new role is added, validation must learn it; if validation learns
+    a role with no consumer, the silent no-op is back.
+    """
+    import re
+
+    consumed = set()
+    for path in (ROOT / "main").rglob("*.F90"):
+        if path.name == "MOD_Tracer_ForcingInput.F90":
+            continue
+        for match in re.finditer(
+            r"tracer_forcing_input_find\s*\([^,]+,\s*'([^']+)'", path.read_text(encoding="utf-8")
+        ):
+            consumed.add(match.group(1))
+
+    source = FORCING_INPUT.read_text(encoding="utf-8")
+    body = source.split("logical FUNCTION tracer_forcing_role_valid", 1)[1].split(
+        "END FUNCTION tracer_forcing_role_valid", 1
+    )[0]
+    accepted = set(re.findall(r"trim\(role\) == '([^']+)'", body))
+
+    assert consumed == {"precip", "vapor"}
+    assert accepted == consumed, (
+        f"validation accepts {accepted} but consumers query {consumed}"
+    )
 
 
 def test_forcing_enums_are_case_insensitive_and_normalized(forcing_input_driver):

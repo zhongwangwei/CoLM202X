@@ -21,10 +21,17 @@ MODULE MOD_Tracer_ForcingInput
    !      forcing_input_mode = 'normalized_over_total', 'normalized_over_total'
    !   /
    !
-   ! `role` is a validated extension point. Water-isotope species may use only
-   ! 'precip' and 'vapor' (consumed by MOD_Tracer_Forcing). Provider-owned
-   ! species keep their known roles (CH4: 'inundation'/'atm'; sediment:
-   ! 'erosion_yield'), but typos fail fast instead of being silently ignored.
+   ! `role` names a CONSUMER, and only two exist: 'precip' and 'vapor', both
+   ! read by MOD_Tracer_Forcing. A role is accepted only if something reads it.
+   !
+   ! 'inundation', 'atm' and 'erosion_yield' were once accepted here for gas and
+   ! particle species. Nothing ever read them, so those species could be given
+   ! only roles that did nothing: the forcing file was opened, validated, stored
+   ! in the spec and then silently ignored for the whole run. They are now
+   ! refused with a message naming where that field actually comes from --
+   ! DEF_file_GIEMS for inundation, DEF_METHANE%atm_methane (or the transient
+   ! table) for atmospheric CH4, and the internal precipitation-driven
+   ! calculation in MOD_Tracer_Particle_Sediment for erosion yield.
    !
    ! This module replaces the former global DEF_forcing%tracer_* / legacy
    ! per-species DEF_forcing%precipitation_O18_* namelist path: tracer
@@ -33,7 +40,8 @@ MODULE MOD_Tracer_ForcingInput
    ! ------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_param_file_for_index, tracer_lower
+   USE MOD_Tracer_Defs, only: ntracers, tracers, tracer_param_file_for_index, tracer_lower, &
+                             tracer_uses_land_water_transport
 
    IMPLICIT NONE
    SAVE
@@ -69,6 +77,7 @@ CONTAINS
       integer :: itrc, k, nf, ierr, unit_nml
       logical :: found, fexists
       character(len=256) :: nlfile
+      character(len=256) :: role_hint
       character(len=512) :: iomsg
 
       ! namelist scratch (parallel arrays for cross-compiler robustness)
@@ -156,9 +165,18 @@ CONTAINS
             END SELECT
             forcing_role(k) = tracer_lower(adjustl(forcing_role(k)))
             IF (.not. tracer_forcing_role_valid(itrc, forcing_role(k))) THEN
-               IF (p_is_master) WRITE(*,'(A,I0,5A)') &
-                  'ERROR tracer_forcing_input_load: forcing_role(', k, ') for tracer "', &
-                  trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_role(k)), '".'
+               role_hint = tracer_forcing_role_hint (itrc, forcing_role(k))
+               IF (p_is_master) THEN
+                  WRITE(*,'(A,I0,5A)') &
+                     'ERROR tracer_forcing_input_load: forcing_role(', k, ') for tracer "', &
+                     trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_role(k)), '".'
+                  IF (len_trim(role_hint) > 0) THEN
+                     ! Accepting it and reading nothing is what this replaces.
+                     WRITE(*,'(2A)') '       no consumer reads this role: ', trim(role_hint)
+                  ELSE
+                     WRITE(*,'(A)')  '       supported roles are "precip" and "vapor".'
+                  ENDIF
+               ENDIF
                CALL CoLM_stop()
             ENDIF
             tracer_forcing_specs(k,itrc)%role       = adjustl(forcing_role(k))
@@ -222,18 +240,49 @@ CONTAINS
       integer, intent(in) :: itrc
       character(len=*), intent(in) :: role
 
-      tracer_forcing_role_valid = .false.
-      SELECT CASE (trim(tracers(itrc)%category))
-      CASE ('isotope', 'solute', 'reactive', 'conservative')
-         tracer_forcing_role_valid = (trim(role) == 'precip' .or. trim(role) == 'vapor')
-      CASE ('gas')
-         tracer_forcing_role_valid = (trim(role) == 'inundation' .or. trim(role) == 'atm')
-      CASE ('particle')
-         tracer_forcing_role_valid = (trim(role) == 'erosion_yield')
-      CASE DEFAULT
-         tracer_forcing_role_valid = .false.
-      END SELECT
+      ! Validity means "some code reads this", not "this name is spelled
+      ! correctly for this category". The only consumers are the two
+      ! tracer_forcing_input_find calls in MOD_Tracer_Forcing, and that loop
+      ! skips any tracer without generic land-water transport -- so the same
+      ! role is live for one species and dead for another, and the category
+      ! alone cannot tell them apart.
+      tracer_forcing_role_valid = &
+         (trim(role) == 'precip' .or. trim(role) == 'vapor') .and. &
+         tracer_uses_land_water_transport (itrc)
+
    END FUNCTION tracer_forcing_role_valid
+
+   !> Explains a role that names a real field but has no consumer here, so the
+   !! error can point at the mechanism that does supply it. Empty when the role
+   !! is simply unrecognised -- that is a typo, not a misdirected configuration.
+   FUNCTION tracer_forcing_role_hint (itrc, role) RESULT (hint)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc
+      character(len=*), intent(in) :: role
+      character(len=256) :: hint
+
+      ! A supported role on a species the consumer loop skips. The name is
+      ! right and the file would load, but MOD_Tracer_Forcing never reaches
+      ! this tracer, so the data would go nowhere.
+      IF ((trim(role) == 'precip' .or. trim(role) == 'vapor') .and. &
+          .not. tracer_uses_land_water_transport (itrc)) THEN
+         hint = 'this species is provider-owned and is skipped by the ' // &
+                'precip/vapor loop in MOD_Tracer_Forcing'
+         RETURN
+      ENDIF
+
+      SELECT CASE (trim(role))
+      CASE ('inundation')
+         hint = 'inundated fraction is read from DEF_file_GIEMS, not from tracer forcing'
+      CASE ('atm')
+         hint = 'atmospheric CH4 comes from DEF_METHANE%atm_methane or its transient table'
+      CASE ('erosion_yield')
+         hint = 'hillslope erosion is computed from precipitation in MOD_Tracer_Particle_Sediment'
+      CASE DEFAULT
+         hint = ''
+      END SELECT
+
+   END FUNCTION tracer_forcing_role_hint
 
    logical FUNCTION tracer_forcing_group_present (nlfile)
       IMPLICIT NONE

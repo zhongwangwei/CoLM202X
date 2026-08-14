@@ -242,8 +242,9 @@ CONTAINS
 
       ! Per-species forcing: each tracer declares its own precip/vapor inputs
       ! in &nl_colm_tracer_forcing (loaded above by MOD_Tracer_ForcingInput).
-      ! Roles other than precip/vapor (e.g. CH4 'inundation'/'atm') are stored
-      ! for the owning species' module to consume and are ignored here.
+      ! These two find() calls are the ONLY consumers of a forcing role in the
+      ! whole model, and this loop skips provider-owned species. Anything else
+      ! is refused by tracer_forcing_role_valid rather than stored and ignored.
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          k = tracer_forcing_input_find(itrc, 'precip')

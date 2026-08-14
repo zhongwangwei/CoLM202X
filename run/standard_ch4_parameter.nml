@@ -295,18 +295,23 @@
     ! paths -- DEF_file_GIEMS (monthly inundated/saturated wetland fraction,
     ! MOD_Tracer_Reactive_Methane_GIEMS) and DEF_METHANE%atm_methane_file
     ! (atmospheric CH4 mixing ratio table, MOD_Tracer_Reactive_Methane_Const).
-    ! These entries are loaded + stored here so the CH4 module can be switched
-    ! to consume them via MOD_Tracer_ForcingInput with no further namelist
-    ! changes. The water-isotope forcing path ignores non precip/vapor roles,
-    ! so this block is inert for isotope runs.
-    ! Replace fprefix/vname with the real GIEMS / atmospheric-CH4 datasets.
+    ! forcing_num is 0 because NOTHING READS THESE ROLES. The entries below
+    ! are kept commented as the intended future shape only; enabling them
+    ! now is refused at startup rather than accepted and ignored, which is
+    ! what used to happen -- a real GIEMS path could be configured here and
+    ! silently have no effect for an entire run.
+    !
+    !   forcing_num        = 2
+    !   forcing_role       = 'inundation', 'atm'
+    !   forcing_fprefix    = 'GIEMS_MC_v1.1', 'atm_ch4_global'
+    !   forcing_vname      = 'wetland_frac', 'ch4_molmol'
+    !   forcing_tintalgo   = 'nearest', 'linear'
+    !   forcing_dtime      = 2592000, 2592000
+    !   forcing_offset     = 0, 0
+    !   forcing_input_mode = 'direct', 'direct'
+    !
+    ! To supply these fields today, use DEF_file_GIEMS and
+    ! DEF_METHANE%atm_methane_file as described above.
     ! ------------------------------------------------------------------
-    forcing_num        = 2
-    forcing_role       = 'inundation', 'atm'
-    forcing_fprefix    = 'GIEMS_MC_v1.1', 'atm_ch4_global'
-    forcing_vname      = 'wetland_frac', 'ch4_molmol'
-    forcing_tintalgo   = 'nearest', 'linear'
-    forcing_dtime      = 2592000, 2592000
-    forcing_offset     = 0, 0
-    forcing_input_mode = 'direct', 'direct'
+    forcing_num        = 0
 /
