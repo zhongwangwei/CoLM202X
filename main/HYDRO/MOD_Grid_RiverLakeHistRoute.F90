@@ -35,7 +35,10 @@ MODULE MOD_Grid_RiverLakeHistRoute
    USE MOD_SPMD_Task
    USE MOD_Namelist
    USE MOD_NetCDFSerial
+   ! Sharded (block-mode) writers live in their own module; the generic
+   ! master-gather writers stay in MOD_Vector_ReadWrite.
    USE MOD_Vector_ReadWrite
+   USE MOD_Grid_RiverLakeHistShard
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
       ucat_ucid, x_ucat, y_ucat, griducat
    USE MOD_Grid_Reservoir, only: numresv, totalnumresv, resv_data_address, dam_GRAND_ID

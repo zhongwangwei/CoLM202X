@@ -106,15 +106,20 @@ def test_no_route_writer_anywhere_bypasses_the_dispatcher() -> None:
 
 
 def test_dispatcher_layering_keeps_the_network_out_of_the_generic_utility() -> None:
+    """MOD_Vector_ReadWrite is an upstream file (Shupeng Zhang, 2023) whose job
+    is generic vector read/write. Neither the river network nor the sharding
+    subsystem belongs in it -- adding either would also collide on every merge
+    from CoLM-SYSU."""
     vrw = (ROOT / "main/HYDRO/MOD_Vector_ReadWrite.F90").read_text(encoding="utf-8")
     assert "MOD_Grid_RiverLakeNetwork" not in vrw
     assert "MOD_Grid_Reservoir" not in vrw
+    assert "route_shard" not in vrw, "sharding must stay out of the upstream utility"
     route = ROUTE.read_text(encoding="utf-8")
     assert "USE MOD_Grid_RiverLakeNetwork" in route
     assert "USE MOD_Vector_ReadWrite" in route
     # and the dispatcher must not depend back on the history module
-    assert "USE MOD_Grid_RiverLakeHist" not in route.replace(
-        "MOD_Grid_RiverLakeHistRoute", "")
+    # must not depend back on the history module (the Shard sibling is fine)
+    assert not re.search(r"USE\s+MOD_Grid_RiverLakeHist\s*(,|$)", route, re.M)
 
 
 def test_dispatcher_is_wired_into_the_build() -> None:

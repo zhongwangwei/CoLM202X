@@ -26,7 +26,7 @@ PROGRAM river_hist_shard_harness
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_NetCDFSerial
-   USE MOD_Vector_ReadWrite
+   USE MOD_Grid_RiverLakeHistShard
    USE MOD_Vars_Global, only: spval
    USE netcdf
 
