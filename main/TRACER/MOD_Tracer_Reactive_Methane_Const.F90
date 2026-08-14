@@ -143,7 +143,7 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! ---------------------------------------------------- Variable parameter ----------------------------------------------------
       ! methane production constants
       real(r8) :: q10methane =2._r8             ! additional Q10 for methane production ABOVE the soil decomposition temperature relationship (doc:Q10 Baseline:2 Range:1.5~4) (params:2.0)
-      real(r8) :: f_methane = 0.2            ! ratio of CH4 production to total C mineralization (Baseline:0.2 Range:NA params:0.2)
+      real(r8) :: f_methane = 0.2_r8            ! ratio of CH4 production to total C mineralization (Baseline:0.2 Range:NA params:0.2)
 
       ! Biome-specific f_methane lookup (CH4 yield = CH4 / total anaerobic decomp).
       ! When use_biome_f_methane=.true., per-patch f_methane is selected by
@@ -280,10 +280,10 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       real(r8) :: mino2lim = 0.2_r8         ! minimum anaerobic decomposition rate as a fraction of potential aerobic rate (0.2+ params:0.2)
       real(r8) :: q10methane_base = 295._r8 ! temperature at which the effective f_methane actually equals the constant f_methane (295+ params:295)
       real(r8) :: q10lakebase = 298._r8       ! (K) base temperature for lake CH4 production (params:298. code:298._r8)
-      real(r8) :: cnscalefactor=1.        ! scale factor on CN decomposition for assigning methane flux (?- params:1.)
+      real(r8) :: cnscalefactor=1._r8        ! scale factor on CN decomposition for assigning methane flux (?- params:1.)
 
-      real(r8) :: redoxlag =30.           ! Number of days to lag in the calculation of finundated_lag (30+ params:30.)
-      real(r8) :: lake_decomp_fact =9e-11    ! Base decomposition rate (1/s) at 25C (1 params:9e-11)
+      real(r8) :: redoxlag =30._r8           ! Number of days to lag in the calculation of finundated_lag (30+ params:30.)
+      real(r8) :: lake_decomp_fact =9.e-11_r8    ! Base decomposition rate (1/s) at 25C (1 params:9e-11)
       real(r8) :: redoxlag_vertical=30._r8   ! time lag (days) to inhibit production for newly unsaturated layers (30+ params:0.)
       real(r8) :: pHmax = 9._r8          ! maximum pH for methane production(params:9. code:9.)
       real(r8) :: pHmin = 2.2_r8         ! minimum pH for methane production(params:2.2 code:2.2)
