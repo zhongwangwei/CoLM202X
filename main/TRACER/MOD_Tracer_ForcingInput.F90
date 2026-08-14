@@ -74,7 +74,7 @@ CONTAINS
    SUBROUTINE tracer_forcing_input_load ()
       USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
       IMPLICIT NONE
-      integer :: itrc, k, nf, ierr, unit_nml
+      integer :: itrc, k, kdup, nf, ierr, unit_nml
       logical :: found, fexists
       character(len=256) :: nlfile
       character(len=256) :: role_hint
@@ -179,6 +179,25 @@ CONTAINS
                ENDIF
                CALL CoLM_stop()
             ENDIF
+
+            ! tracer_forcing_input_find returns the FIRST match, so a second
+            ! entry with the same role is stored, passes every check above and
+            ! is then never read -- the same silent no-op the role check just
+            ! closed, arrived at from the other direction. A user who lists two
+            ! precip files means one of them to be used.
+            DO kdup = 1, k-1
+               IF (trim(forcing_role(kdup)) == trim(forcing_role(k))) THEN
+                  IF (p_is_master) THEN
+                     WRITE(*,'(A,I0,A,I0,4A)') &
+                        'ERROR tracer_forcing_input_load: forcing_role(', kdup, ') and (', k, &
+                        ') for tracer "', trim(tracers(itrc)%name), '" are both "', &
+                        trim(forcing_role(k))//'".'
+                     WRITE(*,'(A)') '       only the first would ever be read; each role may appear once.'
+                  ENDIF
+                  CALL CoLM_stop()
+               ENDIF
+            ENDDO
+
             tracer_forcing_specs(k,itrc)%role       = adjustl(forcing_role(k))
             tracer_forcing_specs(k,itrc)%fprefix    = adjustl(forcing_fprefix(k))
             tracer_forcing_specs(k,itrc)%vname      = adjustl(forcing_vname(k))

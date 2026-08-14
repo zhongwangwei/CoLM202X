@@ -858,15 +858,61 @@ CONTAINS
       IF (n > 0) names(1:n) = tmp(1:n)
    END SUBROUTINE collect_varnames
 
+   !> Move src onto dst, or stop. Nothing downstream may treat a failed
+   !! promotion as success: the .complete marker written afterwards is what
+   !! tells an operator the aggregate is trustworthy.
    SUBROUTINE rename_file (src, dst)
    character(len=*), intent(in) :: src, dst
-   integer :: u
+   integer :: u, estat, cstat
    logical :: fexists
+   character(len=256) :: cmsg
+
+      ! Both paths come from the command line. Unquoted, a path containing a
+      ! space was split into separate mv arguments -- observed moving the file
+      ! to a truncated name, or failing outright. Single quotes handle every
+      ! shell metacharacter except a single quote itself, which cannot be
+      ! escaped inside them, so that case is refused rather than mangled.
+      IF (index(src, "'") > 0 .or. index(dst, "'") > 0) THEN
+         write(*,'(A)') 'ERROR: file paths containing a single quote are not supported'
+         write(*,'(2A)') '       src: ', trim(src)
+         write(*,'(2A)') '       dst: ', trim(dst)
+         CALL CoLM_stop ('river_hist_concatenate: unsupported path')
+      ENDIF
+
       inquire (file=trim(dst), exist=fexists)
       IF (fexists) THEN
          OPEN (newunit=u, file=trim(dst), status='old'); CLOSE (u, status='delete')
       ENDIF
-      CALL system ('mv ' // trim(src) // ' ' // trim(dst))
+
+      ! execute_command_line, not system: it is standard Fortran and it reports
+      ! the exit status. system() gave none, so mv could fail and the program
+      ! carried on to write the success marker.
+      cmsg = ''
+      CALL execute_command_line ("mv '" // trim(src) // "' '" // trim(dst) // "'", &
+         wait = .true., exitstat = estat, cmdstat = cstat, cmdmsg = cmsg)
+
+      IF (cstat /= 0) THEN
+         write(*,'(A,I0,2A)') 'ERROR: could not run mv (cmdstat=', cstat, '): ', trim(cmsg)
+         CALL CoLM_stop ('river_hist_concatenate: rename failed')
+      ENDIF
+      IF (estat /= 0) THEN
+         write(*,'(A,I0)') 'ERROR: mv exited with status ', estat
+         write(*,'(4A)') '       ', trim(src), ' -> ', trim(dst)
+         CALL CoLM_stop ('river_hist_concatenate: rename failed')
+      ENDIF
+
+      ! A zero exit status is not proof the file arrived. Check the filesystem.
+      inquire (file=trim(dst), exist=fexists)
+      IF (.not. fexists) THEN
+         write(*,'(2A)') 'ERROR: rename reported success but the target is absent: ', trim(dst)
+         CALL CoLM_stop ('river_hist_concatenate: rename failed')
+      ENDIF
+      inquire (file=trim(src), exist=fexists)
+      IF (fexists) THEN
+         write(*,'(2A)') 'ERROR: rename reported success but the source remains: ', trim(src)
+         CALL CoLM_stop ('river_hist_concatenate: rename failed')
+      ENDIF
+
    END SUBROUTINE rename_file
 
 END PROGRAM river_hist_concatenate

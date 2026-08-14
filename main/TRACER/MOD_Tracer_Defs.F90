@@ -312,7 +312,7 @@ CONTAINS
             IF (p_is_master) THEN
                write(*,'(A,A,A,A)') 'ERROR tracer_defs_init: unknown tracer category "', &
                   trim(tracers(i)%category), '" for ', trim(tracers(i)%name)
-               write(*,'(A)') '   Valid types: isotope, solute, particle, gas; legacy: conservative, reactive.'
+               write(*,'(A)') '   Valid types: isotope, solute, reactive, particle, gas; legacy alias: conservative (= solute).'
             ENDIF
             CALL CoLM_stop()
          ENDIF

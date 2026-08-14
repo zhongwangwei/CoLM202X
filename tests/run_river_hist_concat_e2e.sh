@@ -39,7 +39,11 @@ fi
 nc_rpath=()
 for f in "${nc_lib[@]}"; do [[ "$f" == -L* ]] && nc_rpath+=("-Wl,-rpath,${f#-L}"); done
 
-wd=$(mktemp -d /tmp/colm-river-concat-e2e.XXXXXX)
+# The directory name contains a space ON PURPOSE. The aggregator moves its
+# .tmp onto the target with a shell command; unquoted, that split the path into
+# separate arguments, the move failed, and the .complete success marker was
+# written anyway. A tidy path would never have shown it.
+wd=$(mktemp -d "/tmp/colm river concat e2e.XXXXXX")
 trap 'rm -rf "$wd"' EXIT
 
 # A namelist the aggregator can actually read on this machine: the shipped ones
@@ -90,6 +94,12 @@ echo "== aggregating"
 grep -E "shards, identity consistent|rebuilt" "$wd/agg.log" | sed 's/^/   /'
 [[ -f "$wd/e2e.nc" && -f "$wd/e2e.nc.complete" ]] || {
   echo "missing output or .complete marker"; exit 1; }
+# The marker must never outlive a failed promotion: if the target is absent the
+# marker has to be absent too, or an operator is told to trust a file that is
+# not there.
+if [[ ! -f "$wd/e2e.nc" && -f "$wd/e2e.nc.complete" ]]; then
+  echo "FAIL: .complete written without a target file"; exit 1
+fi
 
 echo "== verifying every id landed in the right place"
 python3 - "$wd/e2e.nc" "$NUCAT" "$NLON" "$NLAT" "$NPTH" "$NLEV" "${RH_TOTALNUMRESV:-37}" <<'PY'

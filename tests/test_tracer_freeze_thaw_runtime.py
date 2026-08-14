@@ -142,17 +142,21 @@ program freeze_thaw_driver
  implicit none
  real(r8) :: wliq(1:1), wice(1:1), wliq_bef(1:1), wice_bef(1:1)
  real(r8) :: thaw(1:1), frzc(1:1), tfrac(1:1)
+ character(len=32) :: arg
+ real(r8) :: wl0
  allocate(trc_wliq_soisno(1,1,1),trc_wice_soisno(1,1,1),trc_solid_soisno(1,1,1))
  allocate(trc_ldew_rain(1,1),trc_ldew_snow(1,1),trc_canopy_solid(1,1))
  allocate(a_trc_precip(1,1),a_trc_vapor_exchange(1,1),trc_numerical_residual_step(1,1))
  trc_ldew_rain=0; trc_ldew_snow=0; trc_canopy_solid=0
  a_trc_precip=0; a_trc_vapor_exchange=0; trc_numerical_residual_step=0
  trc_solid_soisno=0
- trc_wliq_soisno(1,1,1)=2._r8
+ call get_command_argument(1, arg)
+ read(arg,*) wl0
+ trc_wliq_soisno(1,1,1)=wl0
  trc_wice_soisno(1,1,1)=8._r8
- wliq_bef=2._r8; wice_bef=8._r8
+ wliq_bef=wl0; wice_bef=8._r8
  thaw=8._r8; frzc=1._r8
- wliq=2._r8+8._r8-1._r8      ! 9
+ wliq=wl0+8._r8-1._r8
  wice=8._r8-8._r8+1._r8      ! 1
  tfrac=273._r8
  call tracer_evapo(1, 1._r8, 0, 1, &
@@ -202,7 +206,7 @@ def test_soil_freeze_uses_the_post_thaw_liquid_pool(tmp_path: Path) -> None:
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
 
     result = subprocess.run(
-        [str(exe)], cwd=tmp_path, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT
+        [str(exe), "2.0"], cwd=tmp_path, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT
     )
     assert result.returncode == 0, result.stdout + result.stderr
     liq, ice = map(float, result.stdout.split())
@@ -214,3 +218,52 @@ def test_soil_freeze_uses_the_post_thaw_liquid_pool(tmp_path: Path) -> None:
     assert abs(liq - 9.0) < 1e-12, f"liquid left {liq}, expected 9.0"
     # Nothing is created or destroyed by an internal phase transfer.
     assert abs((liq + ice) - 10.0) < 1e-12
+
+
+def test_freeze_is_not_truncated_when_the_layer_started_fully_frozen(tmp_path: Path) -> None:
+    """wliq_bef = 0, thaw > 0, freeze > 0 -- the case the 2 mm test cannot see.
+
+    freeze_amt was capped against wliq_soisno_bef alone, so a layer that began
+    fully frozen had its freeze truncated to zero however much had just
+    thawed. The cap has to be the liquid that will actually be there,
+    wliq_bef + thaw, matching the Rayleigh denominator.
+
+    Not a live defect: CoLM's MOD_PhaseChange emits thaw and freeze as the
+    positive and negative parts of one ice difference, so only one is ever
+    non-zero. It is the public interface that accepts both, and it has to be
+    coherent for a caller that supplies them independently.
+    """
+    compiler = require_runnable_fortran_compiler(tmp_path)
+    _write_stubs(tmp_path)
+    exe = tmp_path / "freeze_thaw_driver"
+    compiled = subprocess.run(
+        [
+            compiler, "-cpp", "-ffree-line-length-0", "-I", str(tmp_path),
+            *(
+                str(tmp_path / name)
+                for name in (
+                    "precision.f90", "defs.f90", "namelist.f90",
+                    "forcing.f90", "frac.f90", "vars.f90",
+                )
+            ),
+            str(ROOT / "main/TRACER/MOD_Tracer_EvapLimit.F90"),
+            str(ROOT / "main/TRACER/MOD_Tracer_Evapo.F90"),
+            str(tmp_path / "driver.f90"),
+            "-o", str(exe),
+        ],
+        cwd=tmp_path, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT,
+    )
+    assert compiled.returncode == 0, compiled.stdout + compiled.stderr
+
+    result = subprocess.run(
+        [str(exe), "0.0"], cwd=tmp_path, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    liq, ice = map(float, result.stdout.split())
+
+    # 8 units thaw into an 8 mm pool at ratio 1.0; freezing 1 mm carries 1.
+    # With the cap on wliq_bef alone, freeze_amt is min(1, 0) = 0 and the ice
+    # pool stays empty.
+    assert abs(ice - 1.0) < 1e-12, f"freeze carried {ice}, expected 1.0"
+    assert abs(liq - 7.0) < 1e-12, f"liquid left {liq}, expected 7.0"
+    assert abs((liq + ice) - 8.0) < 1e-12

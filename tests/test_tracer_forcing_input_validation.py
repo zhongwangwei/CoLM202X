@@ -419,3 +419,46 @@ def test_forcing_count_out_of_range_fails_fast(forcing_input_driver, forcing_num
     assert result.returncode != 0
     assert "forcing_num" in result.stdout
     assert "must be between 0 and 8" in result.stdout
+
+
+def test_duplicate_role_is_refused(forcing_input_driver):
+    """Two entries with the same role: only the first would ever be read.
+
+    tracer_forcing_input_find returns the first match, so a second 'precip'
+    passes every other check, is stored in the spec, and is then ignored for
+    the whole run -- the same silent no-op the role check closed, reached from
+    the other direction. A user listing two precip files means both to matter.
+    """
+    result = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 2
+  forcing_role = 'precip', 'precip'
+  forcing_fprefix = 'a', 'b'
+  forcing_vname = 'x', 'y'
+/
+""",
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "are both" in result.stdout
+    assert "precip" in result.stdout
+
+
+def test_distinct_roles_still_load(forcing_input_driver):
+    """The duplicate check must not reject a legitimate precip+vapor pair."""
+    result = run_forcing_driver(
+        forcing_input_driver,
+        """
+&nl_colm_tracer_forcing
+  forcing_num = 2
+  forcing_role = 'precip', 'vapor'
+  forcing_fprefix = 'a', 'b'
+  forcing_vname = 'x', 'y'
+/
+""",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    # The driver prints the loaded count on its own line, after the loader's
+    # own informational line.
+    assert "2" in [ln.strip() for ln in result.stdout.splitlines()]

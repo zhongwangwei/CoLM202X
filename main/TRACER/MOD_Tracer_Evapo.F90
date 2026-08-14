@@ -234,7 +234,18 @@ CONTAINS
                   thaw_amt = min(max(soil_thaw_mass_th(j), 0._r8), max(wice_soisno_bef(j), 0._r8))
                ENDIF
                IF (present(soil_frzc_mass_th)) THEN
-                  freeze_amt = min(max(soil_frzc_mass_th(j), 0._r8), max(wliq_soisno_bef(j), 0._r8))
+                  ! Cap against the liquid that will actually be there: the
+                  ! pre-THERMAL liquid plus whatever thaws first, matching the
+                  ! Rayleigh denominator below. Capping on wliq_soisno_bef
+                  ! alone silently truncated -- with a fully frozen layer it
+                  ! dropped the freeze entirely, however much had just thawed.
+                  ! CoLM's own MOD_PhaseChange reports thaw and freeze as the
+                  ! positive and negative parts of one ice difference, so only
+                  ! one is ever non-zero and this changes nothing today; the
+                  ! interface accepts both independently and must be coherent
+                  ! for any caller that supplies them that way.
+                  freeze_amt = min(max(soil_frzc_mass_th(j), 0._r8), &
+                                   max(wliq_soisno_bef(j), 0._r8) + thaw_amt)
                ENDIF
             ELSE
                IF (d_wice < -trc_tiny .and. d_wliq > trc_tiny) THEN
