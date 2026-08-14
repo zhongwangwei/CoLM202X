@@ -2445,7 +2445,11 @@ CONTAINS
    integer, allocatable :: ucat2resv_check(:)
    real(r8) :: worst_neg_mass
    real(r8) :: volwater, delta_loc
-   real(r8), parameter :: trc_mass_fp_dust  = 1.0e-12_r8
+   real(r8), parameter :: trc_mass_fp_dust  = 1.0e-12_r8   ! [R*m3]
+   ! Same magnitude, different dimension. Declared separately so the flux
+   ! path cannot be read as comparing a rate against an absolute mass, and
+   ! so the two can be tuned independently if the residue ever differs.
+   real(r8), parameter :: trc_flux_fp_dust  = 1.0e-12_r8   ! [R*m3/s]
    real(r8), parameter :: trc_mass_neg_warn = -1.0e-6_r8
 
       ! Workers that never ran river_lake_tracer_init have no data to check.
@@ -2530,11 +2534,18 @@ CONTAINS
 
          IF (p_is_worker .and. numucat > 0) THEN
             tmp = trc_conc(itrc,:)
-            ! Same cosmetic dust clamp on the conc display path — a tiny
-            ! negative trc_mass (below fp_dust threshold) propagates into
-            ! trc_conc with opposite sign on division; we don't want that
-            ! to show up in min/max or in downstream diagnostic readers.
-            WHERE (abs(tmp) < trc_mass_fp_dust) tmp = 0._r8
+            ! Cosmetic dust clamp on the conc display path, keyed on the MASS
+            ! that produced each concentration rather than on the
+            ! concentration itself. What this suppresses is a trc_mass of
+            ! FP-residue size propagating into trc_conc, with the sign flipped
+            ! by division -- so the test belongs on trc_mass.
+            !
+            ! It used to compare trc_conc against trc_mass_fp_dust directly.
+            ! That threshold is an absolute mass in R*m3; trc_conc is a ratio
+            ! or a concentration per unit water, so the comparison had no
+            ! defined meaning and the cells it caught depended on cell volume.
+            ! Display only either way -- trc_conc itself is never modified.
+            WHERE (abs(trc_mass(itrc,:)) < trc_mass_fp_dust) tmp = 0._r8
          ENDIF
          write(label,'(5A)') 'trc_conc_', trim(tracer_names(itrc)), ' [', trim(trc_conc_units), ']'
          CALL check_vector_data (label, tmp)
@@ -2574,9 +2585,9 @@ CONTAINS
             tmp = trc_flux_out(itrc,:)
             ! FP-dust clamp on the flux display path (same rationale
             ! as trc_mass / trc_conc above). Real flux magnitudes are
-            ! many orders above trc_mass_fp_dust so this only hides
-            ! the alternating +/- 1e-15 numerical residue.
-            WHERE (abs(tmp) < trc_mass_fp_dust) tmp = 0._r8
+            ! many orders above the residue so this only hides
+            ! the alternating +/- 1e-15 numerical noise.
+            WHERE (abs(tmp) < trc_flux_fp_dust) tmp = 0._r8
          ENDIF
          write(label,'(5A)') 'trc_outflux_', trim(tracer_names(itrc)), ' [', trim(trc_flux_units), ']'
          CALL check_vector_data (label, tmp)

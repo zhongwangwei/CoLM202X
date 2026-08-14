@@ -298,6 +298,33 @@ class TracerMiscStaticChecks(unittest.TestCase):
                 used |= {n.strip() for n in names.split(",") if n.strip()}
         assert used <= exported, f"used but not exported: {sorted(used - exported)}"
 
+    def test_display_dust_clamps_compare_like_with_like(self) -> None:
+        """check_tracer_state's cosmetic clamps must be dimensionally sane.
+
+        trc_mass_fp_dust is an absolute mass in R*m3. It was also applied to
+        trc_conc -- a ratio, or a concentration per unit water -- where the
+        comparison has no defined meaning and the cells it caught depended on
+        cell volume. What that clamp is really suppressing is an FP-residue
+        trc_mass propagating into trc_conc through the division, so the test
+        belongs on trc_mass. Display only in every case; no state is touched.
+        """
+        src = (TRACER / "MOD_Tracer_RiverLake.F90").read_text(encoding="utf-8")
+        routine = src.split("SUBROUTINE check_tracer_state", 1)[1].split(
+            "END SUBROUTINE check_tracer_state", 1
+        )[0]
+
+        # The concentration display is clamped on the mass that produced it.
+        conc = routine.split("tmp = trc_conc(itrc,:)", 1)[1].split("CALL check_vector_data", 1)[0]
+        self.assertIn("WHERE (abs(trc_mass(itrc,:)) < trc_mass_fp_dust)", conc)
+        self.assertNotIn("WHERE (abs(tmp) < trc_mass_fp_dust)", conc)
+
+        # A rate is compared against a rate.
+        flux = routine.split("tmp = trc_flux_out(itrc,:)", 1)[1].split("CALL check_vector_data", 1)[0]
+        self.assertIn("trc_flux_fp_dust", flux)
+        self.assertNotIn("trc_mass_fp_dust", flux)
+
+        self.assertIn("trc_flux_fp_dust  = 1.0e-12_r8", src)
+
     def test_conservative_is_normalised_to_solute(self) -> None:
         """The single point where the legacy alias disappears.
 
