@@ -308,7 +308,8 @@ MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNet
 MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
 MOD_Grid_RiverLakeHistState.o: MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
-MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o \
+MOD_Grid_RiverLakeHistRoute.o: MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
+MOD_Grid_RiverLakeHist.o: MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o \
 				     MOD_Vector_ReadWrite.o MOD_HistGridded.o MOD_WorkerPushData.o MOD_LandPatch.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o \
 				     MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
@@ -327,6 +328,7 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeNetwork.o    \
 				 MOD_Grid_Reservoir.o           \
 				 MOD_Grid_RiverLakeHistState.o  \
+				 MOD_Grid_RiverLakeHistRoute.o  \
 				 MOD_Grid_RiverLakeLevee.o      \
 				 MOD_Grid_RiverLakeBifurcation.o \
 				 $(TRACER_BASIC_PRE_ROUTING_OBJS) \
