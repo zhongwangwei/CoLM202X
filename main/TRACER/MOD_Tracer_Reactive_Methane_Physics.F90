@@ -3441,11 +3441,21 @@ contains
 					do j = 1,nl_soil
 
 						o2_before_cap = conc_o2_rel(j)
-						if (o2_before_cap < -1.e-10_r8) then
-							write(6,*) 'ERROR: negative O2 after backward-Euler transport: ', &
-								dlat, dlon, j, o2_before_cap
-							CALL CoLM_stop ()
-						endif
+						! No per-layer abort on a negative ratio.  conc_o2_rel is
+						! conc_o2 / epsilon_t, and epsilon_t falls to the liquid content
+						! of the layer, so the division amplifies solver round-off by
+						! 1 / epsilon_t.  That factor varies continuously with how frozen
+						! the layer is - 8.3e3 at vol_aqu = 1.2e-4, 1e12 once vol_aqu hits
+						! the floor - so no fixed ratio threshold can separate round-off
+						! from divergence.  Observed artefacts reached a ratio of -1902 at
+						! a stock of -1.9e-9 mol m-3, and -4.1e-3 at -4.9e-7 mol m-3; both
+						! are physically zero.
+						! The column-integrated guard below is the same mechanism CH4 uses
+						! (ch4_clip_deficit_col): it accumulates the correction as a stock
+						! in mol m-2, which is immune to the amplification, and aborts on
+						! DEF_METHANE%numerical_correction_fatal_threshold.  Round-off
+						! artefacts contribute ~5e-8 mol m-2 against a 1e-3 threshold,
+						! while a real divergence saturates it at once.
 						conc_o2_rel(j) = max (conc_o2_rel(j), 0._r8)
 						if (conc_o2_rel(j) > o2_before_cap) then
 							o2_cap_gain_col = o2_cap_gain_col + &

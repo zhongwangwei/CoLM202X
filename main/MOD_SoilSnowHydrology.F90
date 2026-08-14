@@ -594,7 +594,7 @@ ENDIF
 
    USE MOD_Precision
    USE MOD_Hydro_SoilWater
-   USE MOD_Vars_TimeInvariants, only: wetwatmax
+   USE MOD_Vars_TimeInvariants, only: wetwatmax, smpmin
    USE MOD_Const_Physical,      only: denice, denh2o, tfrz
    USE MOD_Vars_TimeInvariants, only: vic_b_infilt, vic_Dsmax, vic_Ds, vic_Ws, vic_c
    USE MOD_Vars_1DFluxes,       only: fevpg
@@ -1324,6 +1324,37 @@ ELSE
          ENDDO
 
          wetwat = wetwat + sum(wresi)
+
+         ! The loop above holds every thawed layer at saturation but never wrote
+         ! the matric potential or the hydraulic conductivity that go with it,
+         ! and nothing else on this branch does either -- smp and hk are both
+         ! intent(out) of this routine, so on a wetland tile they were undefined
+         ! on return for the whole run. Both are consumed: BGC decomposition
+         ! reads smp for its moisture scalar (a tile held saturated was
+         ! simultaneously judged drier than wilting point, pinning w_scalar on
+         ! its floor and suppressing heterotrophic respiration), and both are
+         ! written to the restart, range-checked, and handed to THERMAL on the
+         ! next step.
+         !
+         ! Set what the soil path sets for a layer below the water table:
+         ! smp = psi0 and hk = hksati at saturation (soil-model independent --
+         ! both Campbell and van Genuchten reduce to K = Ksat there). A frozen
+         ! layer's potential follows temperature, not water content (Fuchs et
+         ! al. 1978), and its conductivity carries the same ice impedance the
+         ! soil branch applies above, exactly as in soilwater().
+         DO j = 1, nl_soil
+            IF (t_soisno(j) > tfrz) THEN
+               smp(j) = psi0(j)
+               hk (j) = hksati(j)
+            ELSE
+               smp(j) = 1.e3 * 0.3336e6/9.80616*(t_soisno(j)-tfrz)/t_soisno(j)
+               smp(j) = max(smpmin, smp(j))
+               vol_ice(j) = max(min(porsl(j), wice_soisno(j)/(dz_soisno(j)*denice)), 0.)
+               icefrac(j) = vol_ice(j)/porsl(j)
+               imped      = 10.**(-e_ice*icefrac(j))
+               hk (j)     = imped * hksati(j)
+            ENDIF
+         ENDDO
 
          IF (wetwat > wetwatmax) THEN
             wdsrf  = wetwat - wetwatmax

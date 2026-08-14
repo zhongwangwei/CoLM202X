@@ -91,7 +91,17 @@ def test_mksrfdata_ph_is_sparse_area_weighted_and_fail_closed() -> None:
     assert "logical, allocatable :: methane_ph_valid(:)" in aggregate
     assert "patch_valid(iset) = .true." in aggregate
     assert "requires_spatial_ph .and. .not. methane_ph_valid(ipatch)" in aggregate
-    assert "incomplete methane spatial-pH aggregation" in aggregate
+
+    # Patches with no spatial pH fall back to the neutral default instead of
+    # aborting: PHH2O only spans latitude -56..84, so demanding a valid pH on
+    # every soil/wetland patch was unsatisfiable for any global run. The
+    # fallback must stay counted and reported so its share is traceable.
+    assert "incomplete methane spatial-pH aggregation" not in aggregate
+    assert "CALL CoLM_Stop" not in aggregate.split(
+        "IF (invalid_global > 0", 1
+    )[1][:600]
+    assert "NOTE: PHH2O has no spatial pH for" in aggregate
+    assert "methane_ph_fallback, ' is used there.'" in aggregate
 
     assert "type(methane_ph_mapping_type) :: map_ph" in aggregate
     assert (

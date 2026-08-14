@@ -72,7 +72,14 @@ CONTAINS
       snowdp = snowdp + dz_snowf*deltim
       scv = scv + pg_snow*deltim              ! snow water equivalent (mm)
 
-      IF(patchtype==2 .and. t_grnd>tfrz)THEN  ! snowfall on warmer wetland
+      ! Fresh snow on a warm wetland melts straight into the wetland store.
+      ! Guard on snl==0: this only clears the scalar scv/snowdp, so it is valid
+      ! only when there is no explicit snow layer. With a pre-existing layer
+      ! (snl<0) the layer ice would remain, scv would be recomputed from it, and
+      ! the water double counted (wetwat balance violation). A pre-existing layer
+      ! is instead left to the normal snow/thermal path, which melts it on a
+      ! warm ground while conserving water.
+      IF(patchtype==2 .and. t_grnd>tfrz .and. snl==0)THEN  ! fresh snow on warm wetland
          IF (present(wetwat) .and. DEF_USE_VariablySaturatedFlow) THEN
             wetwat = wetwat + scv
          ENDIF

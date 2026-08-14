@@ -199,11 +199,18 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
             CALL CoLM_Stop (' ***** ERROR: PHH2O latitude must be strictly monotonic')
          IF (.not. all(lon_g(2:nlon) > lon_g(1:nlon-1))) &
             CALL CoLM_Stop (' ***** ERROR: PHH2O longitude must be strictly increasing')
-         dlon = lon_g(2) - lon_g(1)
+         ! Derive the mean spacing from the full span instead of one adjacent
+         ! difference.  PHH2O stores lon as float32, whose resolution near 180
+         ! degrees is about 1.5e-5, so a single difference of 0.0083 keeps only
+         ! three significant digits; scaling that by nlon amplifies the
+         ! quantisation noise roughly 4e4 times and rejects a perfectly valid
+         ! cyclic grid.  Comparing the span itself keeps the same intent without
+         ! that amplification.
+         dlon = (lon_g(nlon) - lon_g(1)) / real(nlon - 1, r8)
          IF (any(abs((lon_g(2:nlon) - lon_g(1:nlon-1)) - dlon) > &
                  max(1.e-6_r8, 1.e-2_r8 * dlon))) &
             CALL CoLM_Stop (' ***** ERROR: PHH2O longitude spacing must be regular')
-         IF (abs(dlon * real(nlon, r8) - 360._r8) > max(1.e-6_r8, dlon)) &
+         IF (abs(lon_g(nlon) - lon_g(1) + dlon - 360._r8) > max(1.e-4_r8, dlon)) &
             CALL CoLM_Stop (' ***** ERROR: PHH2O longitude does not cover a cyclic global grid')
          deallocate(depth_g)
          ierr = nf90_close(ncid)
@@ -258,11 +265,17 @@ SUBROUTINE Aggregation_MethanePH (dir_rawdata, dir_model_landdata, lc_year)
 #ifdef USEMPI
       CALL mpi_allreduce (invalid_local, invalid_global, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
-      IF (invalid_global > 0) THEN
-         IF (p_is_master) write(*,'(A,I0,A)') &
-            ' ERROR: PHH2O has no valid spatial pH for ', invalid_global, ' soil/wetland patches.'
-         CALL CoLM_Stop (' ***** ERROR: incomplete methane spatial-pH aggregation')
-      ENDIF
+      ! PHH2O only spans latitude -56..84, so polar islands and a few remote
+      ! islets carry no soil pH at all -- the abort that used to stand here was
+      ! an unsatisfiable precondition for any global run.  Those patches keep
+      ! the neutral default assigned at allocation instead, because disabling
+      ! spatial pH globally would bias every other patch far more: pH 4.5 peat
+      ! produces ~4x less methane than the pH 6.2 optimum.  The count is
+      ! reported so the fallback share stays traceable in the log.
+      IF (invalid_global > 0 .and. p_is_master) write(*,'(A,I0,A,I0,A,F4.1,A)') &
+         '  NOTE: PHH2O has no spatial pH for ', invalid_global, ' of ', relevant_global, &
+         ' soil/wetland patches (outside the -56..84 data window or all-missing); ', &
+         methane_ph_fallback, ' is used there.'
 
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
