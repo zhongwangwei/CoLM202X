@@ -35,9 +35,9 @@ class TracerMPIStaticChecks(unittest.TestCase):
             2,
         )
         self.assertIn("IF (ntracers <= 0) RETURN", unconditional)
-        self.assertIn("maxima_local, maxima_total, 3", unconditional)
-        self.assertIn("counts_local, counts_total, 3", unconditional)
-        self.assertIn("mpi_allreduce(counts_local, counts_total, 3", unconditional)
+        self.assertIn("maxima_local, maxima_total, 4", unconditional)
+        self.assertIn("counts_local, counts_total, 4", unconditional)
+        self.assertIn("mpi_allreduce(counts_local, counts_total, 4", unconditional)
         self.assertNotIn("mpi_bcast(counts_total, 3", unconditional)
 
     def test_maxloc_collectives_run_only_for_failures(self) -> None:
@@ -49,6 +49,10 @@ class TracerMPIStaticChecks(unittest.TestCase):
             report,
             r"IF \(resid_hard_nbad_total > 0\) THEN[\s\S]*?MPI_MAXLOC",
         )
+        self.assertRegex(
+            report,
+            r"IF \(signature_nbad_total > 0\) THEN[\s\S]*?MPI_MAXLOC",
+        )
         self.assertRegex(report, r"IF \(nbad_total > 0\) THEN[\s\S]*?MPI_MAXLOC")
         self.assertEqual(
             len(
@@ -58,7 +62,7 @@ class TracerMPIStaticChecks(unittest.TestCase):
                     re.I,
                 )
             ),
-            2,
+            3,
         )
 
     def test_gathers_keep_only_the_field_boundary_barrier(self) -> None:

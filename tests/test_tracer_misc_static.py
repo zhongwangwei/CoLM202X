@@ -160,6 +160,33 @@ class TracerMiscStaticChecks(unittest.TestCase):
         )
         self.assertNotIn("balance_scale = max(1._r8", source)
 
+    def test_fixed_signature_check_does_not_hide_bookkeeping_errors(self) -> None:
+        source = (TRACER / "MOD_Tracer_Conservation.F90").read_text(encoding="utf-8")
+        accounting = source.split("step_input_check = step_input\n", 1)[1].split(
+            "! Conservation:", 1
+        )[0]
+        self.assertIn("step_output_check = step_output", accounting)
+        self.assertNotIn("water_input_in * R_init", accounting)
+        self.assertNotIn("water_evap_in  * R_init", accounting)
+        self.assertIn(
+            "step_input_check = step_input_check + step_vapor_exchange", accounting
+        )
+
+        signature = source.split("signature_error = 0._r8", 1)[1].split(
+            "IF (abs(check_err) > balance_tol)", 1
+        )[0]
+        for term in (
+            "abs(in_minus_water_R)",
+            "abs(evap_minus_water_R)",
+            "abs(rnof_minus_water_R)",
+        ):
+            self.assertIn(term, signature)
+        self.assertIn(
+            "fixed_signature_step .and. signature_error > signature_tol",
+            signature,
+        )
+        self.assertIn("TRC_SIG step report", source)
+
     def test_precipitation_and_runoff_tracer_signatures_are_written(self) -> None:
         variables = (TRACER / "MOD_Tracer_Vars.F90").read_text(encoding="utf-8")
         conservation = (TRACER / "MOD_Tracer_Conservation.F90").read_text(
