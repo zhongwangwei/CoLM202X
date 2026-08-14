@@ -224,8 +224,16 @@ CONTAINS
                      ENDIF
                   ENDIF
                   IF (.not. tracer_uses_land_water_transport(itrc_loc)) CYCLE
+                  ! The pool diagnostics below are named f_trc_conc_* for every
+                  ! tracer, but for isotopes they hold a heavy/total ratio, not
+                  ! a concentration -- unlike the flux diagnostics, which split
+                  ! into f_trc_delta_* and f_trc_conc_* by category. The names
+                  ! are kept because renaming them would silently drop these
+                  ! fields from every existing DEF_hist_vars list and break
+                  ! analysis scripts, so long_name has to carry the distinction:
+                  ! say what the ratio is OF, not just that it is one.
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
-                     trc_ratio_word  = 'ratio'
+                     trc_ratio_word  = 'heavy/total ratio'
                      trc_ratio_units = 'R'
                   ELSE
                      trc_ratio_word  = 'concentration'

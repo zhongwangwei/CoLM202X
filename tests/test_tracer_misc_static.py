@@ -179,6 +179,30 @@ class TracerMiscStaticChecks(unittest.TestCase):
         self.assertIn("a_trc_precip(itrc_loc, :), a_water_precip(itrc_loc, :)", history)
         self.assertIn("a_trc_rnof(itrc_loc, :), a_water_rnof(itrc_loc, :)", history)
 
+    def test_isotope_pool_diagnostics_say_they_are_ratios(self) -> None:
+        """f_trc_conc_ldew_/soisno_/snowpack_/wa_ hold R for isotopes.
+
+        The flux diagnostics split by category (f_trc_delta_* vs
+        f_trc_conc_*), the pool ones do not -- so the only thing separating
+        a ratio from a concentration there is the metadata. 'ratio' alone
+        does not say a ratio of what, which is how the name wins the
+        argument and the user reads R as a concentration.
+        """
+        history = (TRACER / "MOD_Tracer_Hist.F90").read_text(encoding="utf-8")
+        self.assertIn("trc_ratio_word  = 'heavy/total ratio'", history)
+        self.assertIn("trc_ratio_units = 'R'", history)
+        # Every pool long_name must be built from that word, or the ones
+        # that are not would silently read as concentrations again.
+        for pool in (
+            "canopy tracer ",
+            "soil/snow layer tracer ",
+            "total snowpack tracer ",
+            "aquifer tracer ",
+            "surface water tracer ",
+            "wetland pool tracer ",
+        ):
+            self.assertIn(f"'{pool}', trim(trc_ratio_word)", history)
+
     def test_cama_average_handles_zero_accumulated_duration(self) -> None:
         source = (
             ROOT / "extends/CaMa/src/cmf_ctrl_tracer_mod.F90"
