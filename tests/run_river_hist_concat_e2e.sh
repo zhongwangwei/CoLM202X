@@ -65,14 +65,24 @@ NUCAT=${RH_TOTALNUMUCAT:-1200}; NLON=${RH_NLON:-40}; NLAT=${RH_NLAT:-30}
 NPTH=${RH_TOTALNPTHOUT:-131}; NLEV=${RH_NPTHLEV:-3}
 NRESV=${RH_TOTALNUMRESV:-37}
 
-echo "== writing shards (7 ranks, 3 IO groups; one group owns nothing)"
-( cd "$wd" && RH_NGROUP=3 RH_TOTALNUMUCAT=$NUCAT RH_NLON=$NLON RH_NLAT=$NLAT \
-    RH_TOTALNPTHOUT=$NPTH RH_NPTHLEV=$NLEV RH_TOTALNUMRESV=$NRESV RH_OUT="$wd/e2e.nc" \
-    env OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
-        OMPI_MCA_rmaps_base_oversubscribe=1 \
-    "$launcher" -n 7 "$wd/h" ) > "$wd/harness.log" 2>&1
-grep -q "RHSHARD PASS" "$wd/harness.log" || { echo "harness FAILED"; cat "$wd/harness.log"; exit 1; }
-echo "   $(ls "$wd"/e2e_shard*.nc | wc -l | tr -d ' ') shards"
+write_segment () {   # $1 = ranks, $2 = groups, $3 = day, $4 = log
+  ( cd "$wd" && RH_NGROUP=$2 RH_DAY=$3 RH_TOTALNUMUCAT=$NUCAT RH_NLON=$NLON RH_NLAT=$NLAT \
+      RH_TOTALNPTHOUT=$NPTH RH_NPTHLEV=$NLEV RH_TOTALNUMRESV=$NRESV RH_OUT="$wd/e2e.nc" \
+      env OMPI_ALLOW_RUN_AS_ROOT=1 OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1 \
+          OMPI_MCA_rmaps_base_oversubscribe=1 \
+      "$launcher" -n "$1" "$wd/h" ) > "$4" 2>&1
+  grep -q "RHSHARD PASS" "$4" || { echo "harness FAILED"; cat "$4"; exit 1; }
+}
+
+echo "== segment 1 (7 ranks, 3 IO groups; one group owns nothing)"
+write_segment 7 3 1 "$wd/seg1.log"
+echo "   $(ls "$wd"/e2e_seg*_shard*.nc | wc -l | tr -d ' ') shards"
+
+# A restart inside the same history period, with a DIFFERENT IO-group count.
+# The previous segment's shards stay valid; this writes its own complete set.
+echo "== segment 2: restart, 5 ranks / 2 IO groups, next day"
+write_segment 5 2 2 "$wd/seg2.log"
+echo "   $(ls "$wd"/e2e_seg*_shard*.nc | wc -l | tr -d ' ') shards total"
 
 echo "== aggregating"
 "$launcher" -n 1 "$aggx" "$nml" "$wd/e2e.nc" > "$wd/agg.log" 2>&1 || {
@@ -90,45 +100,54 @@ from netCDF4 import Dataset
 path, nuc, nlon, nlat, npth, nlev, nresv = sys.argv[1], *map(int, sys.argv[2:])
 fail = 0
 with Dataset(path) as ds:
-    g = np.asarray(ds.variables['f_ucat_shard'][0])
+    nt = len(ds.dimensions['time'])
+    if nt != 2:
+        print(f"   FAIL: expected 2 merged time records, got {nt}")
+        fail += 1
     if ds.variables['f_ucat_shard'].dimensions != ('time', 'lat_ucat', 'lon_ucat'):
         print("   FAIL: unexpected dimension order", ds.variables['f_ucat_shard'].dimensions)
         fail += 1
-    b = np.asarray(ds.variables['f_bifflw_lev'][0])
+    grids = [np.asarray(ds.variables['f_ucat_shard'][t]) for t in range(nt)]
+    bifs  = [np.asarray(ds.variables['f_bifflw_lev'][t]) for t in range(nt)]
 
-exp = np.full((nlat, nlon), -1e36)
-for gid in range(1, nuc + 1):
-    exp[((gid - 1) // nlon) % nlat, (gid - 1) % nlon] = gid + 0.5
-bad = int((~np.isclose(g, exp, rtol=0, atol=1e-9)).sum())
-print(f"   unit catchments: {bad} of {g.size} cells wrong")
-fail += bad != 0
+# Each segment encodes its day into the values, so a record taken from the
+# wrong segment is visible rather than plausible.
+for t in range(len(grids)):
+    day = t + 1
+    exp = np.full((nlat, nlon), -1e36)
+    for gid in range(1, nuc + 1):
+        exp[((gid - 1) // nlon) % nlat, (gid - 1) % nlon] = gid + 0.5 + 1000.0 * day
+    bad = int((~np.isclose(grids[t], exp, rtol=0, atol=1e-9)).sum())
+    print(f"   unit catchments t{t}: {bad} of {grids[t].size} cells wrong")
+    fail += bad != 0
 
-expb = np.empty((npth, nlev))
-for gid in range(1, npth + 1):
-    for l in range(1, nlev + 1):
-        expb[gid - 1, l - 1] = gid + 0.001 * l
-badb = int((~np.isclose(b, expb, rtol=0, atol=1e-9)).sum())
-print(f"   pathways       : {badb} of {b.size} cells wrong")
-fail += badb != 0
+    expb = np.empty((npth, nlev))
+    for gid in range(1, npth + 1):
+        for l in range(1, nlev + 1):
+            expb[gid - 1, l - 1] = gid + 0.001 * l + 1000.0 * day
+    badb = int((~np.isclose(bifs[t], expb, rtol=0, atol=1e-9)).sum())
+    print(f"   pathways       t{t}: {badb} of {bifs[t].size} cells wrong")
+    fail += badb != 0
 
 # Reservoir fields must SURVIVE aggregation. Excluding them from the
 # unit-catchment sweep stopped the wrong reconstruction but silently dropped
 # them, which is why this check exists at all.
-expr = np.arange(1, nresv + 1, dtype=np.float64) + 0.25
 with Dataset(path) as ds:
     for name in ("volresv", "qresv_in", "qresv_out"):
         if name not in ds.variables:
             print(f"   FAIL: {name} missing from the aggregate (silently dropped)")
             fail += 1
             continue
-        r = np.asarray(ds.variables[name][0], dtype=np.float64)
-        if r.shape != expr.shape:
-            print(f"   FAIL: {name} shape {r.shape} != {expr.shape}")
-            fail += 1
-            continue
-        badr = int((~np.isclose(r, expr, rtol=0, atol=1e-9)).sum())
-        print(f"   {name:<14} : {badr} of {r.size} values wrong")
-        fail += badr != 0
+        for t in range(len(grids)):
+            expr = np.arange(1, nresv + 1, dtype=np.float64) + 0.25 + 1000.0 * (t + 1)
+            r = np.asarray(ds.variables[name][t], dtype=np.float64)
+            if r.shape != expr.shape:
+                print(f"   FAIL: {name} shape {r.shape} != {expr.shape}")
+                fail += 1
+                continue
+            badr = int((~np.isclose(r, expr, rtol=0, atol=1e-9)).sum())
+            print(f"   {name:<12} t{t}: {badr} of {r.size} values wrong")
+            fail += badr != 0
 
 sys.exit(1 if fail else 0)
 PY

@@ -44,7 +44,16 @@ PROGRAM river_hist_concatenate
    integer :: shard_count, ish, ncid, ierr, nlon, nlat, ntime, nvar, ivar
    integer :: totalnumucat, totalnpthout, npthlev
    integer, allocatable :: seen_ucat(:), seen_path(:)
+   ! Run segments. A restart inside one history period writes a NEW complete
+   ! shard set under a new segment id, so the period is the union of segments
+   ! and each time record lives in exactly one of them.
+   integer, parameter :: MAX_SEG = 64
+   character(len=64) :: seg_id(MAX_SEG)
+   integer :: seg_shards(MAX_SEG), seg_ntime(MAX_SEG), nseg
+   real(r8), allocatable :: seg_time(:,:)          ! (record, segment)
+   integer,  allocatable :: rec_seg(:), rec_local(:)  ! global record -> segment, local
    character(len=256), allocatable :: varnames(:)
+   real(r8), allocatable :: tvals_global(:)
    logical :: ok
 
       CALL spmd_init
@@ -77,66 +86,180 @@ PROGRAM river_hist_concatenate
 
 CONTAINS
 
-   !> Locate the shard set and check that every member agrees on identity.
+   !> Discover every run segment of this period and check identity agreement.
+   !!
+   !! A restart writes a new segment rather than reusing the previous shards,
+   !! so the IO-group count may legitimately differ between segments. What must
+   !! agree across all of them is the case, target file, period and grid; what
+   !! must not overlap is the time records.
    SUBROUTINE scan_shards ()
 
-   integer :: i, v, n
-   character(len=256) :: c
+   integer :: i, v, n, u, iseg, k
+   character(len=256) :: c, listfile, line
    logical :: fexists
 
-      shard_count = -1
-      ish = 0
-      DO
-         CALL shard_name (ish, fname)
-         inquire (file=trim(fname), exist=fexists)
-         IF (.not. fexists) EXIT
+      ! Enumerate segments from the shard-0 files on disk. Fortran has no
+      ! portable directory listing, and the segment id is a timestamp that
+      ! cannot be guessed, so shell out once.
+      listfile = trim(filetarget) // '.segments.tmp'
+      CALL system ('ls ' // trim(stem()) // '_seg*_shard00000.nc 2>/dev/null > ' &
+         // trim(listfile))
 
-         ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
-         IF (ierr /= NF90_NOERR) CALL CoLM_stop &
-            ('river_hist_concatenate: cannot open '//trim(fname))
-
-         CALL get_att_int (ncid, 'river_hist_shard_schema_version', v)
-         IF (v /= SUPPORTED_SCHEMA_VERSION) THEN
-            write(*,'(A,I0,A,I0,A,A)') 'ERROR: shard schema version ', v, &
-               ' is not supported (this build reads ', SUPPORTED_SCHEMA_VERSION, &
-               '): ', trim(fname)
-            CALL CoLM_stop ('river_hist_concatenate: unsupported shard schema')
-         ENDIF
-
-         CALL get_att_int (ncid, 'shard_count', n)
-         IF (shard_count < 0) THEN
-            shard_count = n
-            CALL get_att_str (ncid, 'case_name',               ref_case)
-            CALL get_att_str (ncid, 'history_period_key',      ref_period)
-            CALL get_att_str (ncid, 'grid_fingerprint',        ref_grid)
-            CALL get_att_str (ncid, 'target_history_basename', ref_target)
-         ELSE
-            IF (n /= shard_count) CALL identity_error (fname, 'shard_count')
-            CALL get_att_str (ncid, 'case_name', c)
-            IF (trim(c) /= trim(ref_case))   CALL identity_error (fname, 'case_name')
-            CALL get_att_str (ncid, 'history_period_key', c)
-            IF (trim(c) /= trim(ref_period)) CALL identity_error (fname, 'history_period_key')
-            CALL get_att_str (ncid, 'grid_fingerprint', c)
-            IF (trim(c) /= trim(ref_grid))   CALL identity_error (fname, 'grid_fingerprint')
-            CALL get_att_str (ncid, 'target_history_basename', c)
-            IF (trim(c) /= trim(ref_target)) CALL identity_error (fname, 'target_history_basename')
-         ENDIF
-
-         ierr = nf90_close (ncid)
-         ish = ish + 1
-      ENDDO
-
-      IF (ish == 0) CALL CoLM_stop &
-         ('river_hist_concatenate: no shards found for '//trim(filetarget))
-      IF (ish /= shard_count) THEN
-         write(*,'(A,I0,A,I0)') 'ERROR: found ', ish, ' shards but they declare shard_count = ', &
-            shard_count
-         CALL CoLM_stop ('river_hist_concatenate: incomplete shard set')
+      nseg = 0
+      OPEN (newunit=u, file=trim(listfile), status='old', action='read', iostat=ierr)
+      IF (ierr == 0) THEN
+         DO
+            READ (u,'(A)',iostat=ierr) line
+            IF (ierr /= 0) EXIT
+            IF (len_trim(line) == 0) CYCLE
+            IF (nseg >= MAX_SEG) CALL CoLM_stop &
+               ('river_hist_concatenate: too many run segments')
+            nseg = nseg + 1
+            seg_id(nseg) = segment_of (trim(line))
+         ENDDO
+         CLOSE (u, status='delete')
       ENDIF
 
-      write(*,'(A,I0,A)') '  ', shard_count, ' shards, identity consistent'
+      IF (nseg == 0) CALL CoLM_stop &
+         ('river_hist_concatenate: no shards found for '//trim(filetarget))
+
+      shard_count = -1
+      DO iseg = 1, nseg
+         ! count this segment's shards and check identity
+         n = 0
+         DO
+            CALL shard_name (iseg, n, fname)
+            inquire (file=trim(fname), exist=fexists)
+            IF (.not. fexists) EXIT
+            n = n + 1
+         ENDDO
+         seg_shards(iseg) = n
+
+         DO ish = 0, n-1
+            CALL shard_name (iseg, ish, fname)
+            ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
+            IF (ierr /= NF90_NOERR) CALL CoLM_stop &
+               ('river_hist_concatenate: cannot open '//trim(fname))
+
+            CALL get_att_int (ncid, 'river_hist_shard_schema_version', v)
+            IF (v /= SUPPORTED_SCHEMA_VERSION) THEN
+               write(*,'(A,I0,A,I0,A,A)') 'ERROR: shard schema version ', v, &
+                  ' is not supported (this build reads ', SUPPORTED_SCHEMA_VERSION, &
+                  '): ', trim(fname)
+               CALL CoLM_stop ('river_hist_concatenate: unsupported shard schema')
+            ENDIF
+
+            CALL get_att_int (ncid, 'shard_count', k)
+            IF (k /= n) CALL identity_error (fname, 'shard_count')
+
+            IF (shard_count < 0) THEN
+               shard_count = n
+               CALL get_att_str (ncid, 'case_name',               ref_case)
+               CALL get_att_str (ncid, 'history_period_key',      ref_period)
+               CALL get_att_str (ncid, 'grid_fingerprint',        ref_grid)
+               CALL get_att_str (ncid, 'target_history_basename', ref_target)
+            ELSE
+               CALL get_att_str (ncid, 'case_name', c)
+               IF (trim(c) /= trim(ref_case))   CALL identity_error (fname, 'case_name')
+               CALL get_att_str (ncid, 'history_period_key', c)
+               IF (trim(c) /= trim(ref_period)) CALL identity_error (fname, 'history_period_key')
+               CALL get_att_str (ncid, 'grid_fingerprint', c)
+               IF (trim(c) /= trim(ref_grid))   CALL identity_error (fname, 'grid_fingerprint')
+               CALL get_att_str (ncid, 'target_history_basename', c)
+               IF (trim(c) /= trim(ref_target)) CALL identity_error (fname, 'target_history_basename')
+            ENDIF
+
+            IF (ish == 0) CALL read_dim (ncid, 'time', seg_ntime(iseg))
+            ierr = nf90_close (ncid)
+         ENDDO
+
+         write(*,'(A,A,A,I0,A,I0,A)') '  segment ', trim(seg_id(iseg)), ': ', &
+            seg_shards(iseg), ' shards, ', seg_ntime(iseg), ' time records'
+      ENDDO
+
+      CALL build_time_map ()
 
    END SUBROUTINE scan_shards
+
+   !> Global time axis = union of the segments, with each record owned by
+   !! exactly one segment. The same time appearing twice is a conflict, not a
+   !! merge: two runs wrote the same instant and we cannot know which is right.
+   SUBROUTINE build_time_map ()
+
+   integer :: iseg, it, g, j
+   real(r8), allocatable :: tv(:)
+   real(r8) :: tbest
+   integer  :: nbest_s, nbest_r, total
+
+      allocate (seg_time(maxval(seg_ntime(1:nseg)), nseg)); seg_time = -huge(1._r8)
+      DO iseg = 1, nseg
+         CALL shard_name (iseg, 0, fname)
+         ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
+         CALL read_real (ncid, 'time', tv)
+         DO it = 1, seg_ntime(iseg)
+            seg_time(it, iseg) = tv(it)
+         ENDDO
+         IF (allocated(tv)) deallocate (tv)
+         ierr = nf90_close (ncid)
+      ENDDO
+
+      total = sum(seg_ntime(1:nseg))
+      allocate (rec_seg(total), rec_local(total))
+      allocate (tvals_global(total))
+
+      ! selection sort over the (segment, record) pairs by time value
+      DO g = 1, total
+         tbest = huge(1._r8); nbest_s = 0; nbest_r = 0
+         DO iseg = 1, nseg
+            DO it = 1, seg_ntime(iseg)
+               IF (seg_time(it,iseg) < tbest) THEN
+                  tbest = seg_time(it,iseg); nbest_s = iseg; nbest_r = it
+               ENDIF
+            ENDDO
+         ENDDO
+         IF (nbest_s == 0) CALL CoLM_stop ('river_hist_concatenate: time map failed')
+         IF (g > 1) THEN
+            IF (tbest == tvals_global(g-1)) THEN
+               write(*,'(A,ES16.8,A)') 'ERROR: time ', tbest, &
+                  ' appears in more than one run segment'
+               CALL CoLM_stop ('river_hist_concatenate: conflicting time record')
+            ENDIF
+         ENDIF
+         tvals_global(g) = tbest
+         rec_seg(g)   = nbest_s
+         rec_local(g) = nbest_r
+         seg_time(nbest_r, nbest_s) = huge(1._r8)   ! consume
+      ENDDO
+
+      ntime = total
+      write(*,'(A,I0,A,I0,A)') '  ', ntime, ' time records across ', nseg, ' segment(s)'
+
+   END SUBROUTINE build_time_map
+
+   !> filetarget without the trailing .nc, for glob construction.
+   FUNCTION stem () RESULT (t)
+   character(len=256) :: t
+   integer :: i
+      i = len_trim(filetarget)
+      IF (i > 3 .and. filetarget(max(i-2,1):i) == '.nc') THEN
+         t = filetarget(1:i-3)
+      ELSE
+         t = trim(filetarget)
+      ENDIF
+   END FUNCTION stem
+
+   !> '<stem>_<seg>_shard00000.nc' -> '<seg>'
+   FUNCTION segment_of (path) RESULT (sg)
+   character(len=*), intent(in) :: path
+   character(len=64) :: sg
+   integer :: a, b
+      sg = ''
+      b = index(path, '_shard', back=.true.)
+      IF (b <= 1) RETURN
+      a = index(path(1:b-1), '_seg', back=.true.)
+      IF (a <= 0) RETURN
+      sg = path(a+1:b-1)
+   END FUNCTION segment_of
 
    !> Rebuild every variable on the global grid / pathway axis.
    SUBROUTINE build_output ()
@@ -147,15 +270,13 @@ CONTAINS
 
       ! geometry and time come from shard 0; identity checks above guarantee
       ! every shard agrees.
-      CALL shard_name (0, fname)
+      CALL shard_name (1, 0, fname)
       ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
 
       CALL read_dim  (ncid, 'lon_ucat', nlon)
       CALL read_dim  (ncid, 'lat_ucat', nlat)
-      CALL read_dim  (ncid, 'time',     ntime)
       CALL read_real (ncid, 'lon_ucat', lon)
       CALL read_real (ncid, 'lat_ucat', lat)
-      CALL read_real (ncid, 'time',     tvals)
       CALL collect_varnames (ncid, varnames, nvar)
       ierr = nf90_close (ncid)
 
@@ -165,11 +286,11 @@ CONTAINS
       CALL ncio_define_dimension (trim(filetmp), 'lon_ucat', nlon)
       CALL ncio_write_serial (trim(filetmp), 'lat_ucat', lat, 'lat_ucat')
       CALL ncio_write_serial (trim(filetmp), 'lon_ucat', lon, 'lon_ucat')
-      CALL ncio_write_serial (trim(filetmp), 'time', tvals, 'time')
+      CALL ncio_write_serial (trim(filetmp), 'time', tvals_global, 'time')
 
       totalnumucat = 0
-      DO ish = 0, shard_count-1
-         CALL shard_name (ish, fname)
+      DO ish = 0, seg_shards(rec_seg(1))-1
+         CALL shard_name (rec_seg(1), ish, fname)
          ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
          CALL read_int (ncid, 'ucat_ucid', ids)
          totalnumucat = totalnumucat + size(ids)
@@ -205,8 +326,8 @@ CONTAINS
          grid = SPVAL
          seen_ucat = 0
 
-         DO ish = 0, shard_count-1
-            CALL shard_name (ish, fname)
+         DO ish = 0, seg_shards(rec_seg(it))-1
+            CALL shard_name (rec_seg(it), ish, fname)
             ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
 
             ierr = nf90_inq_varid (ncid, trim(varname), vid)
@@ -219,7 +340,7 @@ CONTAINS
             CALL read_int (ncid, 'y_ucat',    ys)
             n = size(ids)
             IF (n > 0) THEN
-               CALL read_slice (ncid, vid, n, it, vals)
+               CALL read_slice (ncid, vid, n, rec_local(it), vals)
                DO k = 1, n
                   IF (ids(k) < 1 .or. ids(k) > totalnumucat) THEN
                      write(*,'(A,I0,A,A)') 'ERROR: unit-catchment id ', ids(k), &
@@ -278,8 +399,8 @@ CONTAINS
       ! total reservoir count and the variable list, from shard 0
       nnames = 0
       totalresv = 0
-      DO ish = 0, shard_count-1
-         CALL shard_name (ish, fname)
+      DO ish = 0, seg_shards(rec_seg(1))-1
+         CALL shard_name (rec_seg(1), ish, fname)
          ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
          CALL read_int (ncid, 'resv_global_index', ids)
          totalresv = totalresv + size(ids)
@@ -311,8 +432,8 @@ CONTAINS
          DO it = 1, ntime
             col = SPVAL
             seen = 0
-            DO ish = 0, shard_count-1
-               CALL shard_name (ish, fname)
+            DO ish = 0, seg_shards(rec_seg(it))-1
+               CALL shard_name (rec_seg(it), ish, fname)
                ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
                ierr = nf90_inq_varid (ncid, trim(names(i)), vid)
                IF (ierr /= NF90_NOERR) THEN
@@ -321,7 +442,7 @@ CONTAINS
                CALL read_int (ncid, 'resv_global_index', ids)
                n = size(ids)
                IF (n > 0) THEN
-                  CALL read_slice (ncid, vid, n, it, vals)
+                  CALL read_slice (ncid, vid, n, rec_local(it), vals)
                   DO k = 1, n
                      IF (ids(k) < 1 .or. ids(k) > totalresv) CALL CoLM_stop &
                         ('river_hist_concatenate: reservoir id out of range')
@@ -363,8 +484,8 @@ CONTAINS
       present_any = .false.
       totalnpthout = 0
       npthlev = 0
-      DO ish = 0, shard_count-1
-         CALL shard_name (ish, fname)
+      DO ish = 0, seg_shards(rec_seg(1))-1
+         CALL shard_name (rec_seg(1), ish, fname)
          ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
          ierr = nf90_inq_varid (ncid, 'f_bifflw_lev', vid)
          IF (ierr == NF90_NOERR) THEN
@@ -388,8 +509,8 @@ CONTAINS
       DO it = 1, ntime
          mat = SPVAL
          seen_path = 0
-         DO ish = 0, shard_count-1
-            CALL shard_name (ish, fname)
+         DO ish = 0, seg_shards(rec_seg(it))-1
+            CALL shard_name (rec_seg(it), ish, fname)
             ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
             ierr = nf90_inq_varid (ncid, 'f_bifflw_lev', vid)
             IF (ierr /= NF90_NOERR) THEN
@@ -399,7 +520,7 @@ CONTAINS
             n = size(ids)
             IF (n > 0) THEN
                allocate (part(npthlev, n))
-               ierr = nf90_get_var (ncid, vid, part, start=[1,1,it], count=[npthlev,n,1])
+               ierr = nf90_get_var (ncid, vid, part, start=[1,1,rec_local(it)], count=[npthlev,n,1])
                IF (ierr /= NF90_NOERR) CALL CoLM_stop &
                   ('river_hist_concatenate: cannot read f_bifflw_lev')
                DO k = 1, n
@@ -477,17 +598,20 @@ CONTAINS
 
    ! ================== small helpers ==================
 
-   SUBROUTINE shard_name (idx, f)
-   integer, intent(in) :: idx
+   SUBROUTINE shard_name (iseg, idx, f)
+   integer, intent(in) :: iseg, idx
    character(len=256), intent(out) :: f
    integer :: i
    character(len=8) :: c
+   character(len=80) :: sg
       write(c,'(I5.5)') idx
+      sg = ''
+      IF (iseg >= 1 .and. iseg <= nseg) sg = '_' // trim(seg_id(iseg))
       i = len_trim(filetarget)
       IF (i > 3 .and. filetarget(max(i-2,1):i) == '.nc') THEN
-         f = filetarget(1:i-3) // '_shard' // trim(c) // '.nc'
+         f = filetarget(1:i-3) // trim(sg) // '_shard' // trim(c) // '.nc'
       ELSE
-         f = trim(filetarget) // '_shard' // trim(c) // '.nc'
+         f = trim(filetarget) // trim(sg) // '_shard' // trim(c) // '.nc'
       ENDIF
    END SUBROUTINE shard_name
 
@@ -577,7 +701,7 @@ CONTAINS
    integer :: nc, vid, e
    character(len=256) :: c
    real(r8) :: mv
-      CALL shard_name (0, fname)
+      CALL shard_name (1, 0, fname)
       e = nf90_open (trim(fname), NF90_NOWRITE, nc)
       IF (e /= NF90_NOERR) RETURN
       e = nf90_inq_varid (nc, trim(varname), vid)

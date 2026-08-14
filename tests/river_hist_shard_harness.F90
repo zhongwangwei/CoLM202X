@@ -43,7 +43,8 @@ PROGRAM river_hist_shard_harness
    integer,  allocatable :: resv_gid(:)
    real(r8), allocatable :: resv_val(:)
    real(r8), allocatable :: lon_h(:), lat_h(:)
-   integer  :: totalnumresv
+   integer  :: totalnumresv, iday, itime_rec
+   character(len=64) :: seg_str
    integer  :: i, il, shard_count, failures
    real(r8) :: t_first, t_last
 
@@ -56,9 +57,13 @@ PROGRAM river_hist_shard_harness
       CALL read_env_int ('RH_NLON',           40, nlon_g)
       CALL read_env_int ('RH_NLAT',           30, nlat_g)
       CALL read_env_int ('RH_TOTALNUMRESV',   37, totalnumresv)
+      ! A restart writes a later day into the same period.
+      CALL read_env_int ('RH_DAY',             1, iday)
       CALL read_env_str ('RH_OUT', 'river_hist_shard_test.nc', fileout)
 
       CALL divide_processes_into_groups (ngroup)
+      itime_rec = 0
+      write(seg_str,'(A,I4.4,I3.3,I6.6)') 'seg', 2000, iday, 0
 
       shard_count = p_np_io
 
@@ -76,7 +81,7 @@ PROGRAM river_hist_shard_harness
 
       ! ---- each IO rank creates its own shard and writes both fields
       IF (p_is_io) THEN
-         CALL route_shard_filename (fileout, p_iam_io, fileshard)
+         CALL route_shard_filename (fileout, p_iam_io, fileshard, trim(seg_str))
          CALL ncio_create_file (trim(fileshard))
          CALL ncio_define_dimension (trim(fileshard), 'time', 0)
          CALL ncio_define_dimension (trim(fileshard), 'unitcat_local', &
@@ -96,23 +101,29 @@ PROGRAM river_hist_shard_harness
          ! Grid metadata, matching what create_shard_skeleton writes, so the
          ! aggregator can be exercised end-to-end against these shards.
          CALL write_grid_metadata ()
-         CALL ncio_write_time (trim(fileshard), 'time', (/2000, 1, 0/), i, 'DAILY')
+         CALL ncio_write_time (trim(fileshard), 'time', (/2000, iday, 0/), itime_rec, 'DAILY')
       ENDIF
+
+      ! Workers never open the file, so broadcast the record index the IO rank
+      ! obtained; every rank must pass the same one to the collective writers.
+#ifdef USEMPI
+      CALL mpi_bcast (itime_rec, 1, MPI_INTEGER, 0, p_comm_group, p_err)
+#endif
 
       IF (p_is_io .or. p_is_worker) THEN
          CALL route_shard_write_vector (ucat_layout, ucat_val, trim(fileshard), &
-            'f_ucat_shard', 'unitcat_local', 1, 'synthetic unitcat field', 'm')
+            'f_ucat_shard', 'unitcat_local', itime_rec, 'synthetic unitcat field', 'm')
          CALL route_shard_write_matrix (path_layout, path_val, npthlev, trim(fileshard), &
-            'f_bifflw_lev', 'bifurcation_level', 'bifurcation_pathway_local', 1, &
+            'f_bifflw_lev', 'bifurcation_level', 'bifurcation_pathway_local', itime_rec, &
             'synthetic pathway flow', 'm^3/s')
          ! Production reservoir variable names, so the aggregator is exercised
          ! on the shape it will actually meet.
          CALL route_shard_write_vector (resv_layout, resv_val, trim(fileshard), &
-            'volresv', 'reservoir_local', 1, 'reservoir water volume', 'm^3')
+            'volresv', 'reservoir_local', itime_rec, 'reservoir water volume', 'm^3')
          CALL route_shard_write_vector (resv_layout, resv_val, trim(fileshard), &
-            'qresv_in', 'reservoir_local', 1, 'reservoir inflow', 'm^3/s')
+            'qresv_in', 'reservoir_local', itime_rec, 'reservoir inflow', 'm^3/s')
          CALL route_shard_write_vector (resv_layout, resv_val, trim(fileshard), &
-            'qresv_out', 'reservoir_local', 1, 'reservoir outflow', 'm^3/s')
+            'qresv_out', 'reservoir_local', itime_rec, 'reservoir outflow', 'm^3/s')
       ENDIF
 
       ! Identity is stamped through the same public routine production calls,
@@ -121,7 +132,7 @@ PROGRAM river_hist_shard_harness
       ! production shows up here rather than only in a real run.
       IF (p_is_io) THEN
          CALL route_shard_write_identity (trim(fileshard), trim(fileout), &
-            'harness_case', '2000-001', 'seg2000001000000', &
+            'harness_case', '2000-001', trim(seg_str), &
             max(p_iam_io,0), max(p_np_io,1), &
             trim(route_shard_grid_fingerprint (nlon_g, nlat_g, lon_h, lat_h)), &
             0._r8, 0._r8, 0)
@@ -181,7 +192,7 @@ CONTAINS
             allocate (ucat_val (max(numucat,1)))
             DO k = 1, numucat
                ucat_gid(k) = mystart + k
-               ucat_val(k) = real(ucat_gid(k), r8) + 0.5_r8
+               ucat_val(k) = real(ucat_gid(k), r8) + 0.5_r8 + 1000._r8*real(iday,r8)
             ENDDO
          ENDIF
       ENDIF
@@ -216,7 +227,7 @@ CONTAINS
             IF (mod(ir-1, nactive) == active_rank(p_iam_worker)) THEN
                k = k + 1
                resv_gid(k) = ir
-               resv_val(k) = real(ir, r8) + 0.25_r8
+               resv_val(k) = real(ir, r8) + 0.25_r8 + 1000._r8*real(iday,r8)
             ENDIF
          ENDDO
       ENDIF
@@ -260,7 +271,7 @@ CONTAINS
                k = k + 1
                path_gid(k) = ip
                DO il = 1, npthlev
-                  path_val(il,k) = real(ip, r8) + 0.001_r8 * real(il, r8)
+                  path_val(il,k) = real(ip, r8) + 0.001_r8*real(il,r8) + 1000._r8*real(iday,r8)
                ENDDO
             ENDIF
          ENDDO
@@ -336,7 +347,7 @@ CONTAINS
       allocate (seen_path (totalnpthout));  seen_path = 0
 
       DO ish = 0, shard_count-1
-         CALL route_shard_filename (fileout, ish, fname)
+         CALL route_shard_filename (fileout, ish, fname, trim(seg_str))
 
          ierr = nf90_open (trim(fname), NF90_NOWRITE, ncid)
          IF (ierr /= NF90_NOERR) THEN
@@ -363,7 +374,7 @@ CONTAINS
                   failures = failures + 1
                ENDIF
                seen_ucat(gid) = seen_ucat(gid) + 1
-               IF (abs(vals(k) - (real(gid,r8) + 0.5_r8)) > 1.e-9_r8) THEN
+               IF (abs(vals(k) - (real(gid,r8) + 0.5_r8 + 1000._r8*real(iday,r8))) > 1.e-9_r8) THEN
                   write(*,'(A,I0,A,E20.10)') 'RHSHARD ucat value misplaced for id ', gid, &
                      ' got ', vals(k)
                   failures = failures + 1
@@ -390,7 +401,7 @@ CONTAINS
                ENDIF
                seen_path(gid) = seen_path(gid) + 1
                DO il = 1, npthlev
-                  IF (abs(mat(il,k) - (real(gid,r8) + 0.001_r8*real(il,r8))) > 1.e-9_r8) THEN
+                  IF (abs(mat(il,k) - (real(gid,r8) + 0.001_r8*real(il,r8) + 1000._r8*real(iday,r8))) > 1.e-9_r8) THEN
                      write(*,'(A,I0,A,I0)') 'RHSHARD pathway value misplaced for id ', gid, &
                         ' level ', il
                      failures = failures + 1
@@ -443,7 +454,7 @@ CONTAINS
       ENDIF
       sval = ''
       ierr = nf90_get_att (ncid, NF90_GLOBAL, 'segment_id', sval)
-      IF (ierr /= NF90_NOERR .or. trim(sval) /= 'seg2000001000000') THEN
+      IF (ierr /= NF90_NOERR .or. trim(sval) /= trim(seg_str)) THEN
          write(*,'(A,A)') 'RHSHARD bad segment_id in ', trim(fname)
          failures = failures + 1
       ENDIF

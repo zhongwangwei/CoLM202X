@@ -796,26 +796,38 @@ CONTAINS
 
    !> Shard file name. Purely for locating the file: correctness of the
    !! aggregation is decided by the identity attributes, never by this.
-   SUBROUTINE route_shard_filename (file_target, shard_index, fileshard)
+   !!
+   !! The segment is part of the name because a restart inside one history
+   !! period must not reuse the previous run's shards: if the IO-group count
+   !! changed, those shards partition the domain differently and stale ones
+   !! would linger. Each continuous run segment writes its own complete set,
+   !! and the aggregator merges the segments by time record.
+   SUBROUTINE route_shard_filename (file_target, shard_index, fileshard, segment)
 
    IMPLICIT NONE
    character(len=*),   intent(in)  :: file_target
    integer,            intent(in)  :: shard_index
    character(len=256), intent(out) :: fileshard
+   character(len=*),   intent(in), optional :: segment
 
    integer :: i
-   character(len=8) :: cidx
+   character(len=8)  :: cidx
+   character(len=80) :: seg
 
       write(cidx,'(I5.5)') shard_index
+      seg = ''
+      IF (present(segment)) THEN
+         IF (len_trim(segment) > 0) seg = '_' // trim(segment)
+      ENDIF
 
       i = len_trim(file_target)
       IF (i > 3) THEN
          IF (file_target(i-2:i) == '.nc') THEN
-            fileshard = file_target(1:i-3) // '_shard' // trim(cidx) // '.nc'
+            fileshard = file_target(1:i-3) // trim(seg) // '_shard' // trim(cidx) // '.nc'
             RETURN
          ENDIF
       ENDIF
-      fileshard = trim(file_target) // '_shard' // trim(cidx) // '.nc'
+      fileshard = trim(file_target) // trim(seg) // '_shard' // trim(cidx) // '.nc'
 
    END SUBROUTINE route_shard_filename
 

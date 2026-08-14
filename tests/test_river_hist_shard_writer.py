@@ -179,19 +179,27 @@ def test_shard_identity_carries_a_run_segment() -> None:
     assert "segment_id" in route
 
 
-def test_restart_with_a_changed_io_group_count_is_refused() -> None:
-    """A restart inside one period re-opens the SAME shard and appends time
-    records, so there is one segment per shard rather than two merged. That is
-    only coherent while the IO-group count is unchanged; if it changed, stale
-    shards from the old layout remain and the ids no longer partition the
-    domain. Cross-layout restart is rejected, not silently reconciled."""
+def test_restart_writes_a_new_segment_rather_than_reusing_shards() -> None:
+    """A restart inside one history period must not reuse the previous run's
+    shards: if the IO-group count changed they partition the domain
+    differently and stale ones would linger. Each continuous run segment gets
+    its own complete set, and the aggregator merges segments by time record.
+    """
     route = ROUTE_MOD.read_text(encoding="utf-8")
-    assert "assert_shard_layout_unchanged" in route
-    body = route[route.index("SUBROUTINE assert_shard_layout_unchanged"):]
-    body = body[: body.index("END SUBROUTINE assert_shard_layout_unchanged")]
-    assert "'shard_count'" in body
-    assert "p_np_io" in body
-    assert "CoLM_stop" in body
+    assert "rh_segment_id" in route
+    # the segment must reach the filename, not only the attributes
+    assert "route_shard_filename" in route
+    # the call is continued across lines, so flatten before matching
+    call = re.sub(r"&\s*\n\s*", " ", route[route.index("CALL route_shard_filename"):])
+    call = call[: call.index("\n")]
+    assert "rh_segment_id" in call, "segment must be part of the shard filename"
+
+    vrw = (ROOT / "main/HYDRO/MOD_Vector_ReadWrite.F90").read_text(encoding="utf-8")
+    sig = vrw[vrw.index("SUBROUTINE route_shard_filename"):]
+    sig = sig[: sig.index("END SUBROUTINE route_shard_filename")]
+    assert "segment" in sig
+    assert "'_shard'" in sig
+
 
 
 def test_harness_stamps_identity_through_the_production_routine() -> None:

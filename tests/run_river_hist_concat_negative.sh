@@ -83,7 +83,7 @@ fi
 
 echo "== schema version mismatch"
 make_shards "$wd/ver.nc"
-python3 - "$wd/ver_shard00001.nc" <<'PY'
+python3 - $(ls "$wd"/ver_seg*_shard00001.nc | head -1) <<'PY'
 import sys
 from netCDF4 import Dataset
 with Dataset(sys.argv[1], 'a') as ds:
@@ -93,7 +93,7 @@ expect_fail "schema version" "$wd/ver.nc" || status=1
 
 echo "== history period mismatch"
 make_shards "$wd/per.nc"
-python3 - "$wd/per_shard00001.nc" <<'PY'
+python3 - $(ls "$wd"/per_seg*_shard00001.nc | head -1) <<'PY'
 import sys
 from netCDF4 import Dataset
 with Dataset(sys.argv[1], 'a') as ds:
@@ -103,7 +103,7 @@ expect_fail "period key" "$wd/per.nc" || status=1
 
 echo "== grid fingerprint mismatch"
 make_shards "$wd/grid.nc"
-python3 - "$wd/grid_shard00001.nc" <<'PY'
+python3 - $(ls "$wd"/grid_seg*_shard00001.nc | head -1) <<'PY'
 import sys
 from netCDF4 import Dataset
 with Dataset(sys.argv[1], 'a') as ds:
@@ -113,7 +113,7 @@ expect_fail "grid fingerprint" "$wd/grid.nc" || status=1
 
 echo "== incomplete shard set (one shard removed)"
 make_shards "$wd/miss.nc"
-rm -f "$wd/miss_shard00001.nc"
+rm -f "$wd"/miss_seg*_shard00001.nc
 expect_fail "missing shard" "$wd/miss.nc" || status=1
 
 echo "== duplicated global id across shards"
@@ -124,7 +124,7 @@ import numpy as np
 from netCDF4 import Dataset
 # An IO group can legitimately own nothing, so pick two shards that actually
 # hold ids -- mutating an empty one would test nothing.
-files = sorted(glob.glob(f"{sys.argv[1]}/{sys.argv[2]}_shard*.nc"))
+files = sorted(glob.glob(f"{sys.argv[1]}/{sys.argv[2]}_seg*_shard*.nc"))
 nonempty = []
 for f in files:
     with Dataset(f) as ds:
@@ -147,7 +147,7 @@ python3 - "$wd" range <<'PY'
 import glob, sys
 import numpy as np
 from netCDF4 import Dataset
-for f in sorted(glob.glob(f"{sys.argv[1]}/{sys.argv[2]}_shard*.nc")):
+for f in sorted(glob.glob(f"{sys.argv[1]}/{sys.argv[2]}_seg*_shard*.nc")):
     with Dataset(f, 'a') as ds:
         ids = np.asarray(ds.variables['ucat_ucid'][:])
         if ids.size:

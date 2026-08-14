@@ -69,7 +69,8 @@ def test_incomplete_or_overlapping_coverage_stops_the_job() -> None:
         "incomplete coverage",
         "duplicate pathway id",
         "incomplete pathway coverage",
-        "incomplete shard set",
+        # a time instant written by two segments cannot be merged
+        "conflicting time record",
     ):
         assert failure in agg, failure
 

@@ -68,7 +68,7 @@ for case in $cases; do
     echo "   FAILED (nonzero exit)"; cat "$workdir/log_${ranks}_${groups}.txt"; status=1; continue
   fi
   if grep -q "RHSHARD PASS" "$workdir/log_${ranks}_${groups}.txt"; then
-    echo "   PASS  ($(ls "$workdir"/case_${ranks}_${groups}_shard*.nc 2>/dev/null | wc -l | tr -d ' ') shards)"
+    echo "   PASS  ($(ls "$workdir"/case_${ranks}_${groups}_seg*_shard*.nc 2>/dev/null | wc -l | tr -d ' ') shards)"
   else
     echo "   FAILED"; cat "$workdir/log_${ranks}_${groups}.txt"; status=1
   fi
