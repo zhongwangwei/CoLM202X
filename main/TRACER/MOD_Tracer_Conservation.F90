@@ -53,6 +53,17 @@ MODULE MOD_Tracer_Conservation
    integer,  save :: balance_worst_itrc   = 0
    integer,  save :: balance_worst_ptype  = -1
    integer,  save :: balance_nbad         = 0
+   ! Fixed-signature tracers have a second, independent contract: each water-
+   ! carrying boundary flux must equal the matching water flux times R_init.
+   ! Keep this separate from mass conservation so neither check can hide the
+   ! other by substituting theoretical fluxes for the amounts actually booked.
+   real(r8), save :: signature_worst_abs      = 0._r8
+   real(r8), save :: signature_worst_tol      = 0._r8
+   real(r8), save :: signature_worst_terms(3) = 0._r8 ! input, evap, runoff
+   integer,  save :: signature_worst_ipatch = 0
+   integer,  save :: signature_worst_itrc   = 0
+   integer,  save :: signature_worst_ptype  = -1
+   integer,  save :: signature_nbad         = 0
    ! P1 diagnostic: the per-layer trc_wliq<->wliq_soisno reconciliation
    ! (MOD_Tracer_SoilWater) injects/removes tracer booked as numerical_source_sink.
    ! This is an explicit solver-closure term, not an unbooked transport leak, so
@@ -314,7 +325,7 @@ CONTAINS
 
       integer  :: itrc, j, lb_store
       real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
-      real(r8) :: step_input_check, step_evap_check, step_output_check
+      real(r8) :: step_input_check, step_output_check
       real(r8) :: step_rsur, step_rsub, step_qinfl, step_qcharge
       real(r8) :: step_vapor_exchange
       real(r8) :: R_init, water_err, water_err_R, err_minus_water, check_err
@@ -323,6 +334,7 @@ CONTAINS
       real(r8) :: dS_minus_water_R, in_minus_water_R, out_minus_water_R
       real(r8) :: evap_minus_water_R, rnof_minus_water_R
       real(r8) :: balance_scale, balance_tol, resid_scale, resid_tol
+      real(r8) :: signature_error, signature_scale, signature_tol
       real(r8) :: storage_comp_end(n_storage_diag)
       real(r8) :: storage_comp_beg(n_storage_diag)
       real(r8) :: storage_comp_dS (n_storage_diag)
@@ -383,9 +395,10 @@ CONTAINS
          ENDIF
 
          ! Per-step fluxes = current accumulator - snapshot at step start.
-         ! Legacy fixed-signature tests use a constant atmospheric ratio
-         ! R_init. Runtime-forced tracers must keep process-owned flux
-         ! signatures even when fractionation is off.
+         ! Conservation always uses the amounts actually booked. Fixed-
+         ! signature agreement with water_flux*R_init is checked independently
+         ! below; substituting theoretical values here would hide accounting
+         ! errors in precipitation or evaporation.
          step_input  = a_trc_precip(itrc, ipatch) - snap_precip(itrc, ipatch)
          step_evap   = a_trc_evap(itrc, ipatch) - snap_evap(itrc, ipatch)
          step_rsur   = a_trc_rsur(itrc, ipatch) - snap_rsur(itrc, ipatch)
@@ -399,21 +412,12 @@ CONTAINS
          step_output = step_output + step_rnof
 #endif
          step_input_check = step_input
-         step_evap_check  = step_evap
          step_output_check = step_output
-         IF (fixed_signature_step) THEN
-            IF (present(water_input_in)) step_input_check = water_input_in * R_init
-            IF (present(water_evap_in))  step_evap_check  = water_evap_in  * R_init
-            step_output_check = step_evap_check
-#ifndef CatchLateralFlow
-            step_output_check = step_output_check + step_rnof
-#endif
-         ENDIF
 
          ! Two-way equilibrium exchange with atmospheric vapour moves tracer
          ! across the patch boundary with NO accompanying water flux, so it
-         ! cannot be validated against water_input * R_init and is added after
-         ! the fixed-signature override.  Signed: positive = net uptake.
+         ! is included in mass conservation but excluded from the separate
+         ! fixed-signature check. Signed: positive = net uptake.
          step_vapor_exchange = 0._r8
          IF (allocated(a_trc_vapor_exchange)) THEN
             step_vapor_exchange = a_trc_vapor_exchange(itrc, ipatch) &
@@ -496,6 +500,42 @@ CONTAINS
          resid_scale = max(1._r8, abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
             abs(step_input_check), abs(step_output_check), abs(reactive_source_sink))
          resid_tol = max(trc_resid_abs_tol, trc_resid_rel_tol * resid_scale)
+
+         signature_error = 0._r8
+         signature_scale = 0._r8
+         IF (fixed_signature_step) THEN
+            IF (present(water_input_in)) THEN
+               signature_error = max(signature_error, abs(in_minus_water_R))
+               signature_scale = max(signature_scale, abs(step_input), abs(water_input * R_init))
+            ENDIF
+            IF (present(water_evap_in)) THEN
+               signature_error = max(signature_error, abs(evap_minus_water_R))
+               signature_scale = max(signature_scale, abs(step_evap), abs(water_evap * R_init))
+            ENDIF
+#ifndef CatchLateralFlow
+            IF (present(water_rnof_in)) THEN
+               signature_error = max(signature_error, abs(rnof_minus_water_R))
+               signature_scale = max(signature_scale, abs(step_rnof), abs(water_rnof * R_init))
+            ENDIF
+#endif
+         ENDIF
+         signature_tol = trc_balance_abs_tol + trc_balance_rel_tol * signature_scale
+         IF (fixed_signature_step .and. signature_error > signature_tol) THEN
+            signature_nbad = signature_nbad + 1
+            IF (signature_error > signature_worst_abs) THEN
+               signature_worst_abs = signature_error
+               signature_worst_tol = signature_tol
+               signature_worst_terms = (/ in_minus_water_R, evap_minus_water_R, rnof_minus_water_R /)
+               signature_worst_ipatch = ipatch
+               signature_worst_itrc = itrc
+               IF (present(patchtype_in)) THEN
+                  signature_worst_ptype = patchtype_in
+               ELSE
+                  signature_worst_ptype = -1
+               ENDIF
+            ENDIF
+         ENDIF
+
          IF (abs(check_err) > balance_tol) THEN
             ! Track worst-ever failure within this step (worker-local).
             ! tracer_balance_report surfaces the accumulated bulk at end of step.
@@ -597,12 +637,17 @@ CONTAINS
       real(r8) :: resid_hard_abs_total, resid_hard_tol_total
       integer  :: resid_nbad_total
       integer  :: resid_hard_nbad_total
+      real(r8) :: signature_abs_total, signature_tol_total
+      real(r8) :: signature_terms_total(3)
+      integer  :: signature_nbad_total
       integer  :: winner_rank
       integer  :: resid_winner_rank
+      integer  :: signature_winner_rank
       integer  :: resid_hard_ipatch_total, resid_hard_itrc_total, resid_hard_ptype_total
+      integer  :: signature_ipatch_total, signature_itrc_total, signature_ptype_total
       logical  :: print_me
-      real(r8) :: maxima_local(3), maxima_total(3)
-      integer  :: counts_local(3), counts_total(3)
+      real(r8) :: maxima_local(4), maxima_total(4)
+      integer  :: counts_local(4), counts_total(4)
       ! MAXLOC reduction: pair |err| with rank so we can ship ipatch/itrc
       ! from the rank that owns the worst patch. Standard MPI_MAXLOC on
       ! real+int works with MPI_2DOUBLE_PRECISION wrapping (rank as real).
@@ -623,27 +668,37 @@ CONTAINS
       resid_hard_ipatch_total = resid_hard_worst_ipatch
       resid_hard_itrc_total   = resid_hard_worst_itrc
       resid_hard_ptype_total  = resid_hard_worst_ptype
+      signature_abs_total     = signature_worst_abs
+      signature_tol_total     = signature_worst_tol
+      signature_terms_total   = signature_worst_terms
+      signature_nbad_total    = signature_nbad
+      signature_ipatch_total  = signature_worst_ipatch
+      signature_itrc_total    = signature_worst_itrc
+      signature_ptype_total   = signature_worst_ptype
       winner_rank = 0
       resid_winner_rank = 0
+      signature_winner_rank = 0
 
 #ifdef USEMPI
       reduced_abs = worst_abs
       IF (p_is_worker) THEN
-         maxima_local = (/ worst_abs, resid_worst_abs, resid_hard_worst_abs /)
+         maxima_local = (/ worst_abs, resid_worst_abs, resid_hard_worst_abs, signature_worst_abs /)
          maxima_total = maxima_local
-         counts_local = (/ balance_nbad, resid_nbad, resid_hard_nbad /)
+         counts_local = (/ balance_nbad, resid_nbad, resid_hard_nbad, signature_nbad /)
          counts_total = counts_local
-         CALL mpi_reduce(maxima_local, maxima_total, 3, MPI_REAL8, MPI_MAX, 0, &
+         CALL mpi_reduce(maxima_local, maxima_total, 4, MPI_REAL8, MPI_MAX, 0, &
                          p_comm_worker, p_err)
-         CALL mpi_allreduce(counts_local, counts_total, 3, MPI_INTEGER, MPI_SUM, &
+         CALL mpi_allreduce(counts_local, counts_total, 4, MPI_INTEGER, MPI_SUM, &
                             p_comm_worker, p_err)
 
          reduced_abs          = maxima_total(1)
          resid_abs_total      = maxima_total(2)
          resid_hard_abs_total = maxima_total(3)
+         signature_abs_total  = maxima_total(4)
          nbad_total            = counts_total(1)
          resid_nbad_total      = counts_total(2)
          resid_hard_nbad_total = counts_total(3)
+         signature_nbad_total  = counts_total(4)
 
          IF (resid_hard_nbad_total > 0) THEN
             in_pair = (/ resid_hard_worst_abs, real(p_iam_worker, r8) /)
@@ -664,6 +719,33 @@ CONTAINS
                   CALL mpi_recv(resid_hard_ptype_total,  1, MPI_INTEGER, resid_winner_rank, 103, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
                   CALL mpi_recv(resid_hard_tol_total,    1, MPI_REAL8,   resid_winner_rank, 104, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+               ENDIF
+            ENDIF
+         ENDIF
+
+         IF (signature_nbad_total > 0) THEN
+            in_pair = (/ signature_worst_abs, real(p_iam_worker, r8) /)
+            CALL mpi_allreduce(in_pair, out_pair, 1, MPI_2DOUBLE_PRECISION, &
+                               MPI_MAXLOC, p_comm_worker, p_err)
+            signature_winner_rank = nint(out_pair(2))
+            IF (signature_winner_rank /= 0) THEN
+               IF (p_iam_worker == signature_winner_rank) THEN
+                  CALL mpi_send(signature_worst_ipatch, 1, MPI_INTEGER, 0, 105, p_comm_worker, p_err)
+                  CALL mpi_send(signature_worst_itrc,   1, MPI_INTEGER, 0, 106, p_comm_worker, p_err)
+                  CALL mpi_send(signature_worst_ptype,  1, MPI_INTEGER, 0, 107, p_comm_worker, p_err)
+                  CALL mpi_send(signature_worst_tol,    1, MPI_REAL8,   0, 108, p_comm_worker, p_err)
+                  CALL mpi_send(signature_worst_terms,  3, MPI_REAL8,   0, 109, p_comm_worker, p_err)
+               ELSEIF (p_iam_worker == 0) THEN
+                  CALL mpi_recv(signature_ipatch_total, 1, MPI_INTEGER, signature_winner_rank, 105, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(signature_itrc_total,   1, MPI_INTEGER, signature_winner_rank, 106, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(signature_ptype_total,  1, MPI_INTEGER, signature_winner_rank, 107, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(signature_tol_total,    1, MPI_REAL8, signature_winner_rank, 108, &
+                                p_comm_worker, MPI_STATUS_IGNORE, p_err)
+                  CALL mpi_recv(signature_terms_total,  3, MPI_REAL8, signature_winner_rank, 109, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
                ENDIF
             ENDIF
@@ -813,6 +895,24 @@ CONTAINS
          CALL CoLM_stop ('TRC_BAL hard failure: numerical residual exceeds independent threshold')
       ENDIF
 
+      IF (print_me .and. signature_nbad_total > 0) THEN
+         WRITE(*,'(A,I8,A,E12.5,A,E12.5,A,I8,A,I4,A,I3,A,I4,A,E12.5,A,E12.5,A,E12.5)') &
+            'TRC_SIG step report: nbad_entries=', signature_nbad_total, &
+            ' worst_abs=', signature_abs_total, &
+            ' tol=', signature_tol_total, &
+            ' @ipatch=', signature_ipatch_total, &
+            ' itrc=', signature_itrc_total, &
+            ' ptype=', signature_ptype_total, &
+            ' owner=', signature_winner_rank, &
+            ' input_minus_water_R=', signature_terms_total(1), &
+            ' evap_minus_water_R=', signature_terms_total(2), &
+            ' rnof_minus_water_R=', signature_terms_total(3)
+      ENDIF
+
+      IF (print_me .and. signature_nbad_total > DEF_TRACER_BALANCE_ABORT_NBAD) THEN
+         CALL CoLM_stop ('TRC_SIG hard failure: fixed-signature flux differs from water flux times R_init')
+      ENDIF
+
       IF (print_me .and. nbad_total > DEF_TRACER_BALANCE_ABORT_NBAD) THEN
          CALL CoLM_stop ('TRC_BAL hard failure: tracer balance error exceeds aggregate threshold')
       ENDIF
@@ -827,6 +927,13 @@ CONTAINS
       balance_worst_itrc   = 0
       balance_worst_ptype  = -1
       balance_nbad         = 0
+      signature_worst_abs      = 0._r8
+      signature_worst_tol      = 0._r8
+      signature_worst_terms    = 0._r8
+      signature_worst_ipatch   = 0
+      signature_worst_itrc     = 0
+      signature_worst_ptype    = -1
+      signature_nbad           = 0
       resid_worst_abs      = 0._r8
       resid_nbad           = 0
       resid_hard_worst_abs = 0._r8
