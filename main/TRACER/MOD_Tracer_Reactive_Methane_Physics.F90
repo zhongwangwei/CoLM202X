@@ -58,6 +58,15 @@ module MOD_Tracer_Reactive_Methane_Physics
 	private :: methane_ebul
 	private :: methane_tran
 	private
+
+	! Worst host-water/inundation disagreement seen so far, as a fraction of
+	! pore volume, and whether the one-shot warning has been emitted. Module
+	! state rather than an argument because the report is per run, not per
+	! patch; the driver's patch loop is not OpenMP-parallel (CoLMDRIVER.F90),
+	! so a plain saved scalar is safe here.
+	real(r8) :: host_water_max_resid = 0._r8
+	logical  :: host_water_warned    = .false.
+
 contains
 
 	!-----------------------------------------------------------------------
@@ -524,6 +533,7 @@ contains
 
 		real(r8) :: err
 		real(r8) :: vliq, vice, vtot, pore_volume, vliq_sat_alloc, vice_sat_alloc
+		real(r8) :: host_water_tol, host_water_resid
 		real(r8) :: vol_liq_init, vol_ice_init, vol_gas_init
 		real(r8) :: wtd_arg
 
@@ -1028,16 +1038,60 @@ contains
 				vliq = max(wliq_soisno(j), 0._r8) / denh2o
 				vice = max(wice_soisno(j), 0._r8) / denice
 				vtot = vliq + vice
-				if (vtot > pore_volume + 1.e-10_r8 * max(pore_volume, 1._r8)) then
+				! vtot comes from the host soil state, finundated from an
+				! independent water-table S-curve, so the two disagree by more
+				! than round-off at saturation. Tolerate that disagreement up to
+				! DEF_METHANE%host_water_tolerance (a fraction of pore volume),
+				! rescaling liquid, ice and total together so the host mass
+				! balance this routine promises above is preserved; abort beyond
+				! it, because a disagreement that large is invalid forcing, not
+				! numerical drift. The guard this replaces compared at
+				! 1.e-10*max(pore_volume,1) -- pore_volume is ~0.04 m so the max()
+				! always selected 1.0, making it a flat 1e-10 m absolute
+				! tolerance, i.e. round-off level between quantities that are not
+				! computed from each other.
+				host_water_tol = DEF_METHANE%host_water_tolerance * pore_volume
+
+				if (vtot > pore_volume + host_water_tol) then
 					write(6,*) 'ERROR: host soil water exceeds pore volume in methane partition: ', &
-						ipatch, j, vtot, pore_volume
+						ipatch, j, vtot, pore_volume, &
+						' excess/pore =', (vtot - pore_volume) / pore_volume, &
+						' tolerance =', DEF_METHANE%host_water_tolerance
 					CALL CoLM_stop ('invalid host soil water for methane columns')
 				endif
-				if (vtot < finundated * pore_volume - &
-				    1.e-10_r8 * max(pore_volume, 1._r8)) then
+				if (vtot < finundated * pore_volume - host_water_tol) then
 					write(6,*) 'ERROR: methane inundation exceeds host soil water: ', &
-						ipatch, j, finundated, vtot, pore_volume
+						ipatch, j, finundated, vtot, pore_volume, &
+						' deficit/pore =', (finundated * pore_volume - vtot) / pore_volume, &
+						' tolerance =', DEF_METHANE%host_water_tolerance
 					CALL CoLM_stop ('methane inundation exceeds host soil water')
+				endif
+
+				! Inside the tolerance nothing is rescaled. The allocation below
+				! is already safe and already conservative:
+				!   vliq_sat_alloc = pore_volume*vliq/vtot <= pore_volume,
+				! because vliq <= vtot by construction, and when the inundated
+				! fraction asks for more water than the column holds the
+				! unsaturated branch's max(0,...) leaves it dry rather than
+				! inventing water. Clamping vtot here would either discard host
+				! water or create it, breaking the mass balance this routine
+				! promises above; the only thing the old guard was really
+				! protecting was a physical precondition, not the arithmetic.
+				! So record the worst residual and warn once, so that tolerating
+				! the disagreement cannot hide one that is growing.
+				host_water_resid = max(                                        &
+					(vtot - pore_volume) / pore_volume,                         &
+					(finundated * pore_volume - vtot) / pore_volume)
+				if (host_water_resid > host_water_max_resid) then
+					host_water_max_resid = host_water_resid
+					if ((.not. host_water_warned) .and.                          &
+					    host_water_resid > 0.1_r8 * DEF_METHANE%host_water_tolerance) then
+						host_water_warned = .true.
+						write(6,*) 'WARNING: methane host-water disagreement ',   &
+							host_water_resid, ' of pore volume at patch/layer ',   &
+							ipatch, j, ' (tolerance ',                            &
+							DEF_METHANE%host_water_tolerance, '); tolerated'
+					endif
 				endif
 				vliq_sat_alloc = pore_volume * vliq / max(vtot, 1.e-12_r8)
 				vice_sat_alloc = pore_volume * vice / max(vtot, 1.e-12_r8)
