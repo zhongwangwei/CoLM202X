@@ -91,6 +91,12 @@ MODULE MOD_Tracer_Reactive_Methane_Const
 	!------------------------------------------------------------------
 
 	real(r8), public, parameter :: catomw = 12.011_r8 ! molar mass of C atoms (g/mol)
+	! Carbon content of soil organic matter, gC per kg OM. Converts between
+	! cellorg [kg OM m-3] and organic carbon: BgcLink divides by it going
+	! C -> OM, the microbial substrate pools multiply by it going OM -> C.
+	! Named because a bare 580 repeated across files is one edit away from
+	! the two directions disagreeing, and nothing would catch that.
+	real(r8), public, parameter :: gc_per_kg_om = 580._r8
 	real(r8), public, parameter :: methane_atomw = 16.04_r8 ! molar mass of CH4 atoms (g/mol)
 
 	real(r8), public :: s_con(ngases,4)    ! Schmidt # calculation constants (spp, #)

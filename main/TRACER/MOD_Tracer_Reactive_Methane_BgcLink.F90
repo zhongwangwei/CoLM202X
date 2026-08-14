@@ -16,7 +16,7 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    USE MOD_TimeManager, only: isleapyear
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan
    USE MOD_Vars_Global, only: nl_soil, dz_soi, spval
-   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, catomw, &
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, catomw, gc_per_kg_om, &
       METHANE_COMP_SOIL, METHANE_COMP_RICE, N_METHANE_COMP
    USE MOD_Tracer_Reactive_Methane_pH, only: get_ph_for_patch
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
@@ -214,7 +214,7 @@ CONTAINS
                ENDIF
             END DO
          END DO
-         cellorg(:) = cellorg(:) / 580._r8
+         cellorg(:) = cellorg(:) / gc_per_kg_om
       ENDIF
 
       IF (allocated(decomp_hr_vr) .and. ipatch >= 1 .and. ipatch <= size(decomp_hr_vr,3)) THEN

@@ -27,7 +27,7 @@ MODULE MOD_Tracer_Reactive_Methane_Microbes
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_nan
    USE MOD_Vars_Global,        only: nl_soil, spval
    USE MOD_Const_Physical,     only: tfrz
-   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, secspday, catomw, &
+   USE MOD_Tracer_Reactive_Methane_Const, only: DEF_METHANE, secspday, catomw, gc_per_kg_om, &
       METHANE_COMP_SOIL, METHANE_COMP_RICE, N_METHANE_COMP
 
    IMPLICIT NONE
@@ -351,7 +351,7 @@ CONTAINS
       dt_day = deltim / secspday
 
       DO j = 1, nl_soil
-	         organic_c_layer = max(cellorg(j), 0._r8) * 580._r8
+	         organic_c_layer = max(cellorg(j), 0._r8) * gc_per_kg_om
 	         IF (t_soisno(j) <= tfrz) THEN
 	            freeze_loss = min(1._r8, max(0._r8, DEF_METHANE%gamma_microbial_freeze * dt_day))
 	            B_methanogen_comp(j,component,ipatch) = max(DEF_METHANE%B_min_methanogen, &
@@ -381,7 +381,7 @@ CONTAINS
          ! cellorg is [kg OM m-3]; convert to [mol C m-3] using the
          ! same 580 gC kgOM-1 convention as the wetland/lake surface-data
          ! fallbacks and BgcLink.
-         sub_pool = max(cellorg(j), 0._r8) * 580._r8 / catomw
+         sub_pool = max(cellorg(j), 0._r8) * gc_per_kg_om / catomw
          sub_rate = max(hr_vr(j) / catomw, 0._r8)
          f_s = sub_pool / (DEF_METHANE%K_substrate_methanogen_pool + sub_pool + small)
          f_o2 = DEF_METHANE%K_inh_O2_methanogen / &

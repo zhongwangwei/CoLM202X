@@ -21,6 +21,26 @@ MODULE MOD_Tracer_Hist
    USE MOD_Tracer_Vars
 
    IMPLICIT NONE
+   PRIVATE
+
+   ! Everything else in here is internal. Without this the module exported all
+   ! twelve write_history_* procedures plus everything it USEs, so any module
+   ! could reach past the two entry points into the writers -- the kind of
+   ! coupling that makes the history path impossible to change safely.
+   !
+   ! The list is exactly what is used from outside today:
+   !   tracer_hist_accumulate  CoLMMAIN, MOD_Tracer_SpecialPatches
+   !   tracer_hist_out         MOD_Hist
+   !   the rest                MOD_Tracer_Reactive_Methane_Hist, which writes
+   !                           its own variables through the shared writers
+   ! A provider needing another writer should be added here deliberately, which
+   ! is the point: the compiler now asks the question.
+   PUBLIC :: tracer_hist_accumulate
+   PUBLIC :: tracer_hist_out
+   PUBLIC :: HistForm
+   PUBLIC :: write_history_tracer_ratio_2d
+   PUBLIC :: write_history_variable_2d
+   PUBLIC :: write_history_variable_3d
 
    character(len=10) :: HistForm = 'Gridded'
 

@@ -252,6 +252,72 @@ class TracerMiscStaticChecks(unittest.TestCase):
         self.assertIn("acc_num=a_annavg_finrw_acc_num", finrw_write)
         self.assertNotIn("acc_num=a_methane_acc_num_extra", finrw_write)
 
+    def test_history_module_exports_only_its_entry_points(self) -> None:
+        """MOD_Tracer_Hist must not re-export its internal writers.
+
+        Without a PRIVATE default the module exported all twelve
+        write_history_* procedures plus everything it USEs, so any module could
+        reach past the two entry points into the writers. The public list is
+        exactly what is used from outside; a provider needing another writer
+        should have to add it here deliberately.
+        """
+        src = (TRACER / "MOD_Tracer_Hist.F90").read_text(encoding="utf-8")
+        header = src.split("CONTAINS", 1)[0]
+        assert re.search(r"^\s*PRIVATE\s*$", header, re.M), "module is not PRIVATE by default"
+
+        exported = set(re.findall(r"^\s*PUBLIC\s*::\s*(\w+)", header, re.M))
+        assert exported == {
+            "tracer_hist_accumulate",
+            "tracer_hist_out",
+            "HistForm",
+            "write_history_tracer_ratio_2d",
+            "write_history_variable_2d",
+            "write_history_variable_3d",
+        }, f"public surface changed: {sorted(exported)}"
+
+        # Whatever is exported has to be what callers actually ask for, or the
+        # list is decoration. Collect every USE ... only: name in the tree.
+        used = set()
+        for path in (ROOT / "main").rglob("*.F90"):
+            if path.name == "MOD_Tracer_Hist.F90":
+                continue
+            text = path.read_text(encoding="utf-8")
+            # Join Fortran continuation lines explicitly. A regex spanning
+            # newlines swallows whatever follows -- here it ate #endif and
+            # reported it as an imported name.
+            src_lines = text.splitlines()
+            for i, line in enumerate(src_lines):
+                if not re.match(r"\s*USE\s+MOD_Tracer_Hist\s*,\s*only\s*:", line, re.I):
+                    continue
+                logical = line
+                j = i
+                while logical.rstrip().endswith("&") and j + 1 < len(src_lines):
+                    j += 1
+                    logical = logical.rstrip().rstrip("&") + " " + src_lines[j]
+                names = logical.split(":", 1)[1]
+                used |= {n.strip() for n in names.split(",") if n.strip()}
+        assert used <= exported, f"used but not exported: {sorted(used - exported)}"
+
+    def test_organic_matter_carbon_fraction_is_a_named_constant(self) -> None:
+        """580 gC/kgOM converts cellorg both ways in different files.
+
+        Repeated as a bare literal, one edit leaves the C->OM and OM->C
+        directions disagreeing, and no test would notice.
+        """
+        const = (TRACER / "MOD_Tracer_Reactive_Methane_Const.F90").read_text(encoding="utf-8")
+        assert "gc_per_kg_om = 580._r8" in const
+
+        for name in (
+            "MOD_Tracer_Reactive_Methane_BgcLink.F90",
+            "MOD_Tracer_Reactive_Methane_Microbes.F90",
+        ):
+            text = (TRACER / name).read_text(encoding="utf-8")
+            assert "gc_per_kg_om" in text
+            body = "\n".join(
+                ln for ln in text.splitlines() if not ln.lstrip().startswith("!")
+            )
+            assert "580._r8" not in body, f"{name} still has a bare 580"
+
 
 if __name__ == "__main__":
     unittest.main()
