@@ -298,6 +298,29 @@ class TracerMiscStaticChecks(unittest.TestCase):
                 used |= {n.strip() for n in names.split(",") if n.strip()}
         assert used <= exported, f"used but not exported: {sorted(used - exported)}"
 
+    def test_conservative_is_normalised_to_solute(self) -> None:
+        """The single point where the legacy alias disappears.
+
+        Downstream SELECT CASE blocks match 'solute' only. They used to carry
+        an unreachable 'conservative' label as well; dead code is not a safety
+        net, so the labels went and this pins the normalisation that makes
+        their absence correct. Drop the normalisation and legacy tracers fall
+        into DEFAULT with no family and no state owner.
+        """
+        defs = (TRACER / "MOD_Tracer_Defs.F90").read_text(encoding="utf-8")
+        canonical = defs.split("FUNCTION canonical_tracer_category", 1)[1].split(
+            "END FUNCTION canonical_tracer_category", 1
+        )[0]
+        self.assertIn("IF (trim(category) == 'conservative') category = 'solute'", canonical)
+
+        # No SELECT CASE may still branch on the alias: after normalisation
+        # such a label is unreachable and misleads the next reader.
+        body = "\n".join(
+            ln for ln in defs.splitlines() if not ln.lstrip().startswith("!")
+        )
+        self.assertNotIn("CASE ('conservative'", body)
+        self.assertNotIn("'conservative', 'solute'", body)
+
     def test_organic_matter_carbon_fraction_is_a_named_constant(self) -> None:
         """580 gC/kgOM converts cellorg both ways in different files.
 

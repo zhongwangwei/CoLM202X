@@ -157,6 +157,29 @@ for f in sorted(glob.glob(f"{sys.argv[1]}/{sys.argv[2]}_seg*_shard*.nc")):
 PY
 expect_fail "id out of range" "$wd/range.nc" || status=1
 
+# ---------------------------------------------------------------------------
+# Shell injection. The aggregator shells out to enumerate segments, quoting the
+# target in single quotes -- the one character that cannot appear inside them
+# is a single quote itself, so a target of  x'; touch sentinel; #.nc  closed
+# the quote and ran the rest as commands. This was reproduced by hand once and
+# had no test, which is how the same class of defect survived a fix: the first
+# attempt to close it validated the path in rename_file, at the very end, long
+# after the injected command had already run.
+#
+# The path must be SHORT. filetarget is character(len=256); a long temporary
+# directory truncates the payload and the run looks safe when it is not.
+echo "== shell injection via the target path"
+inj=$(mktemp -d /tmp/cinj.XXXX)
+sentinel=$inj/SENTINEL
+if "$launcher" -n 1 "$aggx" "$nml" "$inj/x'; touch $sentinel; #.nc" >/dev/null 2>&1; then
+  echo "   FAIL: injection target was accepted"; status=1
+elif [[ -e "$sentinel" ]]; then
+  echo "   FAIL: injected command ran (the exit code alone proves nothing)"; status=1
+else
+  echo "   ok: injection refused and no command ran"
+fi
+rm -rf "$inj"
+
 echo
 if [[ $status -eq 0 ]]; then
   echo "river history concatenate negative tests: PASS"

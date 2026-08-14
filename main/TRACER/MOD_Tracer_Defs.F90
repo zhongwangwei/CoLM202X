@@ -629,6 +629,12 @@ CONTAINS
       character(len=16) :: category
 
       category = tracer_lower(raw)
+      ! 'conservative' is a legacy alias, normalised away here and nowhere
+      ! else. Every SELECT CASE downstream therefore matches 'solute' only;
+      ! they used to carry a 'conservative' label too, which could never be
+      ! reached. Removing this line without updating them would silently
+      ! drop legacy tracers into the DEFAULT branch, which is what
+      ! test_conservative_is_normalised_to_solute pins.
       IF (trim(category) == 'conservative') category = 'solute'
    END FUNCTION canonical_tracer_category
 
@@ -661,7 +667,7 @@ CONTAINS
          tracers(itrc)%unit_kind = 'ratio'
          tracers(itrc)%family_id = FAMILY_ISOTOPE
          tracers(itrc)%state_owner = STATE_OWNER_GENERIC_WATER
-      CASE ('conservative', 'solute')
+      CASE ('solute')
          tracers(itrc)%family_id = FAMILY_SOLUTE
          tracers(itrc)%state_owner = STATE_OWNER_GENERIC_WATER
       CASE ('reactive')
@@ -687,7 +693,7 @@ CONTAINS
       SELECT CASE (trim(tracers(itrc)%category))
       CASE ('isotope')
          tracers(itrc)%family_id = FAMILY_ISOTOPE
-      CASE ('conservative', 'solute')
+      CASE ('solute')
          tracers(itrc)%family_id = FAMILY_SOLUTE
       CASE ('particle')
          tracers(itrc)%family_id = FAMILY_PARTICLE
