@@ -132,19 +132,41 @@ jobs:
      #- name: Test netcdf
      #  run: nc-config --all
      - name: Build CoLM202X
-     #  run: make clean && make all
        run: |
+            set -euo pipefail
             cd ${{ github.workspace }}
             TestList=./.github/workflows/TestCaseLists
-            for CaseName in `awk '{print $1}' $TestList`
+
+            # Compile every configuration once on the canonical toolchain.
+            # The remaining compiler/MPI matrix entries are compatibility
+            # smoke tests; rebuilding all 91 cases in each entry made MPICH /
+            # GCC 12 hit GitHub's six-hour job limit without a compiler error.
+            if [[ "${{ matrix.os }}" == "ubuntu-latest" && \
+                  "${{ matrix.mpi }}" == "openmpi" && \
+                  "${{ matrix.toolchain.version }}" == "12" ]]; then
+              mapfile -t CaseNames < <(awk 'NF {print $1}' "$TestList")
+            else
+              CaseNames=(
+                GRID_PFT_URBANON_CAMBELL_CAMAON_BGCON_CROPON
+                GRID_PC_TRACER_CH4_vanGen_CAMAOFF_BGCON_CROPOFF
+                GRID_PFT_TRACER_ONLY_vanGen_CAMAON_BGCOFF_CROPOFF
+              )
+            fi
+
+            ((${#CaseNames[@]} > 0)) || { echo "ERROR: no build cases selected"; exit 1; }
+            for CaseName in "${CaseNames[@]}"
             do
+              CaseLine=$(awk -v name="$CaseName" '$1 == name {print; exit}' "$TestList")
+              [[ -n "$CaseLine" ]] || { echo "ERROR: unknown test case $CaseName"; exit 1; }
+              read -r -a CaseFields <<< "$CaseLine"
+
               echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
               echo "Create test cases"
               echo $CaseName
               echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
  
-              echo defineh `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8,$9}'`
-              ./.github/workflows/create_defineh.bash `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8,$9}'`
+              echo defineh "${CaseFields[@]:1}"
+              ./.github/workflows/create_defineh.bash "${CaseFields[@]:1}"
 
               echo "Create test case $CaseName Complete!"
               cat ./include/define.h
