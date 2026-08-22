@@ -1702,6 +1702,7 @@ ENDIF
 
          u_site_urblai = readflag .and. ncio_var_exist(fsrfdata,'TREE_LAI',readflag)
          IF ( u_site_urblai) THEN
+            CALL ncio_read_serial (fsrfdata, 'LAI_year', SITE_LAI_year     )
             CALL ncio_read_serial (fsrfdata, 'TREE_LAI', SITE_LAI_monthly  )
             CALL ncio_read_serial (fsrfdata, 'TREE_SAI', SITE_SAI_monthly  )
          ELSE
@@ -2039,7 +2040,7 @@ IF (DEF_USE_CANYON_HWR) THEN
 ENDIF
 
          ! (6) lake depth
-         readflag         = u_site_lakedepth
+         readflag         = ((.not. mksrfdata) .or. USE_SITE_lakedepth)
          u_site_lakedepth = readflag .and. ncio_var_exist(fsrfdata,'lakedepth',readflag)
          IF (u_site_lakedepth) THEN
             CALL ncio_read_serial (fsrfdata, 'lakedepth', SITE_lakedepth)
