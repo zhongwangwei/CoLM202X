@@ -101,21 +101,21 @@ CONTAINS
       ENDIF
 
       ! ----- get longitude and latitude -----
-      IF (p_is_master) THEN
-         allocate (lon_ucat (griducat%nlon))
-         allocate (lat_ucat (griducat%nlat))
+      ! route_hist_begin is collective, and block mode also writes coordinates
+      ! from IO ranks, so every rank needs valid coordinate arrays.
+      allocate (lon_ucat (griducat%nlon))
+      allocate (lat_ucat (griducat%nlat))
 
-         lat_ucat = (griducat%lat_s + griducat%lat_n) * 0.5
+      lat_ucat = (griducat%lat_s + griducat%lat_n) * 0.5
 
-         DO ilon = 1, griducat%nlon
-            IF (griducat%lon_w(ilon) > griducat%lon_e(ilon)) THEN
-               lon_ucat(ilon) = (griducat%lon_w(ilon) + griducat%lon_e(ilon)+360.) * 0.5
-               CALL normalize_longitude (lon_ucat(ilon))
-            ELSE
-               lon_ucat(ilon) = (griducat%lon_w(ilon) + griducat%lon_e(ilon)) * 0.5
-            ENDIF
-         ENDDO
-      ENDIF
+      DO ilon = 1, griducat%nlon
+         IF (griducat%lon_w(ilon) > griducat%lon_e(ilon)) THEN
+            lon_ucat(ilon) = (griducat%lon_w(ilon) + griducat%lon_e(ilon)+360.) * 0.5
+            CALL normalize_longitude (lon_ucat(ilon))
+         ELSE
+            lon_ucat(ilon) = (griducat%lon_w(ilon) + griducat%lon_e(ilon)) * 0.5
+         ENDIF
+      ENDDO
 
       ! ----- for auxiliary data -----
       IF (p_is_worker) THEN
@@ -723,7 +723,10 @@ CONTAINS
    !---------------------------------------
    SUBROUTINE hist_grid_riverlake_final ()
 
+   USE MOD_Grid_RiverLakeHistRoute, only: route_hist_final
    IMPLICIT NONE
+
+      CALL route_hist_final ()
 
       IF (allocated(acctime_ucat    )) deallocate (acctime_ucat    )
       IF (allocated(a_wdsrf_ucat    )) deallocate (a_wdsrf_ucat    )

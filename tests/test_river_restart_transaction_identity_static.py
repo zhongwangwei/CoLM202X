@@ -111,14 +111,40 @@ def test_reservoir_identity_binds_ordinal_state_to_dam_ucatch() -> None:
     )
 
 
-def test_reservoir_parameter_ordinals_are_total_and_one_to_one() -> None:
+def test_reservoir_parameter_mapping_allows_global_catalogue_rows() -> None:
     initializer = routine(RESERVOIR, "reservoir_init")
 
     assert "ucat2resv = 0" in initializer
-    assert "ordinal_count(resv_global_id(irsv))" in initializer
+    assert "duplicate dam_seq entries in reservoir parameter file" in initializer
+    assert "ordinal_count(loc2all(irsv))" in initializer
     assert "CALL mpi_allreduce" in initializer
-    assert "any(ordinal_count /= 1)" in initializer
-    assert "reservoir parameter rows must map one-to-one to active ucatch IDs" in initializer
+    assert "any(ordinal_count > 1)" in initializer
+    assert "any(ordinal_count /= 1)" not in initializer
+    assert "Reservoir catalogue rows outside active domain" in initializer
+    assert "catalogue_to_active(i) = totalnumresv" in initializer
+    assert "resv_global_id = catalogue_to_active(loc2all(1:numresv))" in initializer
+    assert "dam_GRAND_ID = pack(dam_GRAND_ID, ordinal_count > 0)" in initializer
+    assert "CALL mpi_send (resv_global_id" in initializer
+
+
+def test_reservoir_inputs_are_validated_before_operation() -> None:
+    initializer = routine(RESERVOIR, "reservoir_init")
+    operation = routine(RESERVOIR, "reservoir_operation")
+
+    assert "DEF_Reservoir_Method /= 1" in initializer
+    for field in (
+        "dam_year",
+        "dam_TotalVol_mcm",
+        "dam_ConVol_mcm",
+        "dam_Qn",
+        "dam_Qf",
+    ):
+        assert f"reservoir {field} and dam_seq lengths differ" in initializer
+    assert "invalid active reservoir volume or outflow parameter" in initializer
+    assert "ieee_is_finite" in initializer
+    assert "SELECT CASE (method)" in operation
+    assert "CASE DEFAULT" in operation
+    assert "unsupported reservoir operation method" in operation
 
 
 def test_top_level_commits_only_after_all_gridriver_writers_return() -> None:

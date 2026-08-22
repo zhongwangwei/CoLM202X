@@ -100,6 +100,25 @@ def test_three_coupled_flux_fields_use_one_batch_push() -> None:
         assert FLOW.count(old_call) == 0
 
 
+def test_each_substep_clears_unfiltered_flux_send_buffers() -> None:
+    substep = FLOW.split("DO WHILE (loop_active)", 1)[1].split(
+        "! Keep restart-visible state", 1
+    )[0]
+    active_loop = substep.index("DO i = 1, numucat")
+    upstream_push = substep.index(
+        "CALL worker_push_data (push_ups2ucat, upstream_flux_fields"
+    )
+
+    for field in ("hflux_fc", "mflux_fc", "zgrad_dn"):
+        clear = substep.index(f"{field} = 0._r8")
+        assert clear < active_loop < upstream_push
+
+    reservoir = substep.split("! reservoir operation.", 1)[1]
+    reservoir_loop = reservoir.index("DO i = 1, numucat")
+    for field in ("hflux_resv", "mflux_resv"):
+        assert reservoir.index(f"{field} = 0._r8") < reservoir_loop
+
+
 def test_batch_push_preserves_field_order_and_single_message_phase() -> None:
     batch = routine(PUSH, "worker_push_data_multi_real8_batch")
     assert batch.count("CALL mpi_isend") == 1
