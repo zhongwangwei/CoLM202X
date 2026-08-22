@@ -685,6 +685,13 @@ CONTAINS
 
             ntimestep = ntimestep + 1
 
+            ! River systems can finish at different substeps. Inactive cells
+            ! are skipped below but still participate in the unfiltered MPI
+            ! push, so clear last-substep fluxes before rebuilding active ones.
+            hflux_fc = 0._r8
+            mflux_fc = 0._r8
+            zgrad_dn = 0._r8
+
             ! Water depth and velocity use the same one-to-one downstream
             ! mapping.  Pack them into one peer message per routing substep.
             CALL worker_push_data (push_next2ucat, downstream_state_fields)
@@ -860,12 +867,12 @@ CONTAINS
             ! reservoir operation.
             IF (DEF_Reservoir_Method > 0) THEN
 
+               hflux_resv = 0._r8
+               mflux_resv = 0._r8
+
                DO i = 1, numucat
 
                   IF ((.not. ucatfilter(i)) .or. (ucat_next(i) == -10)) CYCLE
-
-                  hflux_resv(i) = 0.
-                  mflux_resv(i) = 0.
 
                   IF (is_built_resv(i)) THEN
 

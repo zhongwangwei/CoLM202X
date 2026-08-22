@@ -142,6 +142,47 @@ def test_filename_is_derived_on_every_rank() -> None:
     assert preceding.rstrip().rsplit("\n", 1)[-1].strip() != "IF (p_is_master) THEN"
 
 
+def test_route_coordinates_are_initialized_on_every_rank() -> None:
+    """Every rank enters route_hist_begin, which caches these arrays."""
+    source = HIST.read_text(encoding="utf-8")
+    coordinate_init = source.split("! ----- get longitude and latitude -----", 1)[1].split(
+        "! ----- for auxiliary data -----", 1
+    )[0]
+
+    assert "IF (p_is_master)" not in coordinate_init
+    assert "allocate (lon_ucat (griducat%nlon))" in coordinate_init
+    assert "allocate (lat_ucat (griducat%nlat))" in coordinate_init
+
+
+def test_block_reservoir_layout_uses_worker_local_global_ids() -> None:
+    route = ROUTE.read_text(encoding="utf-8")
+    body = route.split("FUNCTION local_resv_ids ()", 1)[1].split(
+        "END FUNCTION local_resv_ids", 1
+    )[0]
+
+    assert "resv_global_id" in body
+    assert "resv_data_address" not in body
+
+
+def test_route_final_resets_cached_grid_and_shard_layouts() -> None:
+    route = ROUTE.read_text(encoding="utf-8")
+    finalizer = route.split("SUBROUTINE route_hist_final ()", 1)[1].split(
+        "END SUBROUTINE route_hist_final", 1
+    )[0]
+    hist = HIST.read_text(encoding="utf-8")
+    hist_final = hist.split("SUBROUTINE hist_grid_riverlake_final ()", 1)[1].split(
+        "END SUBROUTINE hist_grid_riverlake_final", 1
+    )[0]
+
+    for layout in ("rh_ucat_layout", "rh_resv_layout", "rh_bif_layout"):
+        assert f"route_shard_layout_free ({layout})" in finalizer
+    assert "deallocate (rh_lon_cache)" in finalizer
+    assert "deallocate (rh_lat_cache)" in finalizer
+    assert "rh_seg_set = .false." in finalizer
+    assert "USE MOD_Grid_RiverLakeHistRoute, only: route_hist_final" in hist_final
+    assert "CALL route_hist_final ()" in hist_final
+
+
 def test_flush_ordering_is_unchanged() -> None:
     """Each history window must still be zeroed exactly once, after the write."""
     body = _hist_out()
