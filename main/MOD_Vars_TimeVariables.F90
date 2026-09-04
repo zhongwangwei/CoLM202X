@@ -204,6 +204,21 @@ IF(DEF_USE_OZONESTRESS)THEN
       CALL ncio_read_vector (file_restart, 'lai_old_p    ', landpft, lai_old_p    , defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'o3uptakesun_p', landpft, o3uptakesun_p, defval = 0._r8)
       CALL ncio_read_vector (file_restart, 'o3uptakesha_p', landpft, o3uptakesha_p, defval = 0._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefv_sun_p', landpft, o3coefv_sun_p, defval = 1._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefv_sha_p', landpft, o3coefv_sha_p, defval = 1._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefg_sun_p', landpft, o3coefg_sun_p, defval = 1._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefg_sha_p', landpft, o3coefg_sha_p, defval = 1._r8)
+
+      ! These arrays are allocated only on worker processes that own PFTs.
+      ! Cold-start files made before ozone state was initialized can contain spval.
+      IF (allocated(o3coefv_sun_p)) THEN
+         WHERE (o3uptakesun_p <= -1.e30_r8) o3uptakesun_p = 0._r8
+         WHERE (o3uptakesha_p <= -1.e30_r8) o3uptakesha_p = 0._r8
+         WHERE (o3coefv_sun_p <= -1.e30_r8) o3coefv_sun_p = 1._r8
+         WHERE (o3coefv_sha_p <= -1.e30_r8) o3coefv_sha_p = 1._r8
+         WHERE (o3coefg_sun_p <= -1.e30_r8) o3coefg_sun_p = 1._r8
+         WHERE (o3coefg_sha_p <= -1.e30_r8) o3coefg_sha_p = 1._r8
+      ENDIF
 ENDIF
 IF(DEF_USE_IRRIGATION)THEN
       CALL ncio_read_vector (file_restart,'irrig_method_p', landpft,irrig_method_p, defval = 0)
@@ -279,6 +294,12 @@ IF(DEF_USE_OZONESTRESS)THEN
       CALL ncio_write_vector (file_restart, 'lai_old_p    ', 'pft', landpft, lai_old_p    , compress)
       CALL ncio_write_vector (file_restart, 'o3uptakesun_p', 'pft', landpft, o3uptakesun_p, compress)
       CALL ncio_write_vector (file_restart, 'o3uptakesha_p', 'pft', landpft, o3uptakesha_p, compress)
+! ==== FIX 2026-08-16 #3 BEGIN: write pft-level ozone stress coefficients to restart ====
+      CALL ncio_write_vector (file_restart, 'o3coefv_sun_p', 'pft', landpft, o3coefv_sun_p, compress)
+      CALL ncio_write_vector (file_restart, 'o3coefv_sha_p', 'pft', landpft, o3coefv_sha_p, compress)
+      CALL ncio_write_vector (file_restart, 'o3coefg_sun_p', 'pft', landpft, o3coefg_sun_p, compress)
+      CALL ncio_write_vector (file_restart, 'o3coefg_sha_p', 'pft', landpft, o3coefg_sha_p, compress)
+! ==== FIX 2026-08-16 #3 END ====
 ENDIF
 IF(DEF_USE_IRRIGATION)THEN
       CALL ncio_write_vector (file_restart,'irrig_method_p','pft', landpft, irrig_method_p, compress)
@@ -1396,13 +1417,22 @@ ENDIF
       CALL ncio_read_vector (file_restart, 'tsai    '   , landpatch, tsai       ) ! stem area index
       CALL ncio_read_vector (file_restart, 'coszen  '   , landpatch, coszen     ) ! cosine of solar zenith angle
 IF(DEF_USE_OZONESTRESS)THEN
-      CALL ncio_read_vector (file_restart, 'lai_old    ', landpatch, lai_old    )
-      CALL ncio_read_vector (file_restart, 'o3uptakesun', landpatch, o3uptakesun)
-      CALL ncio_read_vector (file_restart, 'o3uptakesha', landpatch, o3uptakesha)
-      CALL ncio_read_vector (file_restart, 'o3coefv_sun', landpatch, o3coefv_sun)
-      CALL ncio_read_vector (file_restart, 'o3coefv_sha', landpatch, o3coefv_sha)
-      CALL ncio_read_vector (file_restart, 'o3coefg_sun', landpatch, o3coefg_sun)
-      CALL ncio_read_vector (file_restart, 'o3coefg_sha', landpatch, o3coefg_sha)
+      CALL ncio_read_vector (file_restart, 'lai_old    ', landpatch, lai_old    , defval = 0._r8)
+      CALL ncio_read_vector (file_restart, 'o3uptakesun', landpatch, o3uptakesun, defval = 0._r8)
+      CALL ncio_read_vector (file_restart, 'o3uptakesha', landpatch, o3uptakesha, defval = 0._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefv_sun', landpatch, o3coefv_sun, defval = 1._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefv_sha', landpatch, o3coefv_sha, defval = 1._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefg_sun', landpatch, o3coefg_sun, defval = 1._r8)
+      CALL ncio_read_vector (file_restart, 'o3coefg_sha', landpatch, o3coefg_sha, defval = 1._r8)
+
+      IF (allocated(o3coefv_sun)) THEN
+         WHERE (o3uptakesun <= -1.e30_r8) o3uptakesun = 0._r8
+         WHERE (o3uptakesha <= -1.e30_r8) o3uptakesha = 0._r8
+         WHERE (o3coefv_sun <= -1.e30_r8) o3coefv_sun = 1._r8
+         WHERE (o3coefv_sha <= -1.e30_r8) o3coefv_sha = 1._r8
+         WHERE (o3coefg_sun <= -1.e30_r8) o3coefg_sun = 1._r8
+         WHERE (o3coefg_sha <= -1.e30_r8) o3coefg_sha = 1._r8
+      ENDIF
 ENDIF
       CALL ncio_read_vector (file_restart, 'alb     '   , 2, 2, landpatch, alb  ) ! averaged albedo [-]
       CALL ncio_read_vector (file_restart, 'ssun    '   , 2, 2, landpatch, ssun ) ! sunlit canopy absorption for solar radiation (0-1)
