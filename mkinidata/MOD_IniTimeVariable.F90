@@ -42,7 +42,7 @@ CONTAINS
                      ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
 #endif
 !Ozone Variables
-                     ,o3coefv_sun,o3coefv_sha,o3coefg_sun,o3coefg_sha&
+                     ,o3uptakesun,o3uptakesha,o3coefv_sun,o3coefv_sha,o3coefg_sun,o3coefg_sha&
 #if (defined BGC)
                      ,use_cnini, totlitc, totsomc, totcwdc, decomp_cpools, decomp_cpools_vr, ctrunc_veg, ctrunc_soil, ctrunc_vr &
                      ,totlitn, totsomn, totcwdn, decomp_npools, decomp_npools_vr, ntrunc_veg, ntrunc_soil, ntrunc_vr &
@@ -244,7 +244,9 @@ CONTAINS
          fm,                     &! integral of profile function for momentum
          fh,                     &! integral of profile function for heat
          fq                       ! integral of profile function for moisture
-    real(r8), intent(out) ::      &
+   real(r8), intent(out) ::      &
+         o3uptakesun,            &! Ozone dose, sunlit leaf (mmol O3/m^2)
+         o3uptakesha,            &! Ozone dose, shaded leaf (mmol O3/m^2)
          o3coefv_sun,            &! Ozone stress factor for photosynthesis on sunlit leaf
          o3coefv_sha,            &! Ozone stress factor for photosynthesis on sunlit leaf
          o3coefg_sun,            &! Ozone stress factor for stomata on shaded leaf
@@ -650,9 +652,6 @@ CONTAINS
                sigf = fveg
                lai  = tlai(ipatch)
                sai  = tsai(ipatch) * sigf
-               IF(DEF_USE_OZONESTRESS)THEN
-                  lai_old = lai
-               ENDIF
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -665,19 +664,29 @@ CONTAINS
                sigf  = 1.
                lai   = tlai(ipatch)
                sai   = sum(sai_p(ps:pe) * pftfrac(ps:pe))
-               IF(DEF_USE_OZONESTRESS)THEN
-                  lai_old = lai
-                  lai_old_p(ps:pe) = lai_p(ps:pe)
-               ENDIF
 #endif
             ELSE
                sigf  = fveg
                lai   = tlai(ipatch)
                sai   = tsai(ipatch) * sigf
-               IF(DEF_USE_OZONESTRESS)THEN
-                  lai_old = lai
-               ENDIF
             ENDIF
+         ENDIF
+
+         IF (DEF_USE_OZONESTRESS) THEN
+            lai_old = lai
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+            IF (patchtype == 0) THEN
+               ps = patch_pft_s(ipatch)
+               pe = patch_pft_e(ipatch)
+               lai_old_p(ps:pe) = lai_p(ps:pe)
+               o3uptakesun_p(ps:pe) = 0._r8
+               o3uptakesha_p(ps:pe) = 0._r8
+               o3coefv_sun_p(ps:pe) = 1._r8
+               o3coefv_sha_p(ps:pe) = 1._r8
+               o3coefg_sun_p(ps:pe) = 1._r8
+               o3coefg_sha_p(ps:pe) = 1._r8
+            ENDIF
+#endif
          ENDIF
 
          ! (7) SNICAR
@@ -876,14 +885,6 @@ CONTAINS
                !            totcoln = totcoln + (leafn_p(m) + leafn_storage_p(m) + deadstemn_p(m))* pftfrac(m)
                !            totvegn = totvegn + (leafn_p(m) + leafn_storage_p(m) + deadstemn_p(m))* pftfrac(m)
             ENDDO
-            IF(DEF_USE_OZONESTRESS)THEN
-               o3uptakesun_p         (ps:pe) = 0._r8
-               o3uptakesha_p         (ps:pe) = 0._r8
-               o3coefv_sun_p         (ps:pe) = 1._r8
-               o3coefv_sha_p         (ps:pe) = 1._r8
-               o3coefg_sun_p         (ps:pe) = 1._r8
-               o3coefg_sha_p         (ps:pe) = 1._r8
-            ENDIF
             leafc_xfer_p             (ps:pe) = 0.0
             frootc_xfer_p            (ps:pe) = 0.0
             livestemc_storage_p      (ps:pe) = 0.0
@@ -1277,10 +1278,12 @@ CONTAINS
       fm    = alog(30.)
       fh    = alog(30.)
       fq    = alog(30.)
-      o3coefv_sun = 1.0
-      o3coefv_sha = 1.0
-      o3coefg_sun = 1.0
-      o3coefg_sha = 1.0
+      o3uptakesun = 0._r8
+      o3uptakesha = 0._r8
+      o3coefv_sun = 1._r8
+      o3coefv_sha = 1._r8
+      o3coefg_sun = 1._r8
+      o3coefg_sha = 1._r8
 
    END SUBROUTINE IniTimeVar
    !-----------------------------------------------------------------------
