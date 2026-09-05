@@ -1414,7 +1414,6 @@ ENDIF
                ,urban_albedo, mean_albedo, lat_north, lat_south, lon_east, lon_west&
 #endif
 !Ozone Vairables
-               ,o3uptakesun(i),o3uptakesha(i)&
                ,o3coefv_sun(i),o3coefv_sha(i),o3coefg_sun(i),o3coefg_sha(i)&
 #ifdef BGC
                ,use_cnini, totlitc(i), totsomc(i), totcwdc(i), decomp_cpools(:,i), decomp_cpools_vr(:,:,i) &
