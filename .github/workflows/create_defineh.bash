@@ -225,9 +225,17 @@ $TRACER
 #if (defined TRACER) && (defined Campbell_SOIL_MODEL)
 #error "TRACER requires vanGenuchten_Mualem_SOIL_MODEL; disable TRACER explicitly before using Campbell_SOIL_MODEL"
 #endif
-#if (defined TRACER) && (!defined GridRiverLakeFlow)
-#error "TRACER requires GridRiverLakeFlow to be defined in include/define.h"
-#endif
+! NOTE: TRACER as a whole does NOT require GridRiverLakeFlow. The tracer
+! subsystem has four families (isotope, solute, particle, gas) and only the
+! river-lake ones need a river network: MOD_Tracer_RiverLake.F90 and
+! MOD_Tracer_Particle_Sediment.F90 already guard themselves with
+! "#ifdef GridRiverLakeFlow", so they simply are not compiled without it.
+! The other 38 MOD_Tracer_*.F90 modules -- water isotopes, snow tracers,
+! forcing tracers -- are independent of the river network and are perfectly
+! meaningful for SinglePoint runs, where water-isotope observations are common.
+!
+! A blanket #error here made TRACER impossible for every SinglePoint build,
+! because SinglePoint unconditionally undefines GridRiverLakeFlow above.
 #if (defined TRACER) && (defined BGC)
 #if (!defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
 #error "Methane (TRACER+BGC) requires LULC_IGBP_PFT or LULC_IGBP_PC for pftfrac access."
