@@ -1,5 +1,6 @@
 PROGRAM river_restart_mpi_harness
    USE MOD_Precision, only: r8
+   USE MOD_Vars_Global, only: spval
    USE MOD_SPMD_Task
    USE MOD_DataType, only: pointer_int32_1d
    USE MOD_Grid_RiverLakeNetwork
@@ -277,7 +278,10 @@ CONTAINS
 
    real(r8) FUNCTION expected_reservoir_volume(gid)
       integer, intent(in) :: gid
+      ! Round-trip unbuilt, empty, and positive storage across MPI repartition.
       expected_reservoir_volume = 700000._r8 + 101._r8 * real(gid, r8)
+      IF (gid == 1) expected_reservoir_volume = spval
+      IF (gid == 2) expected_reservoir_volume = 0._r8
    END FUNCTION expected_reservoir_volume
 
    SUBROUTINE cleanup_test_state()

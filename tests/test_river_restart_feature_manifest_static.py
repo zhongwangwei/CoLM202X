@@ -119,5 +119,5 @@ def test_schema_v2_base_payload_is_complete_and_finite_first() -> None:
     assert "ieee_is_finite(volwater_ucat(i))" in reader
     assert "ELSEIF (volwater_ucat(i) < 0._r8)" in reader
     assert "ieee_is_finite(volresv(i))" in reader
-    assert "ELSEIF (volresv(i) < 0._r8)" in reader
+    assert "ELSEIF (volresv(i) < 0._r8 .and. volresv(i) /= spval)" in reader
     assert "invalid GridRiverLake restart base state" in reader

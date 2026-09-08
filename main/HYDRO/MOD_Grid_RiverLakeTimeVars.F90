@@ -624,6 +624,8 @@ CONTAINS
          ENDIF
       ENDDO
       IF (DEF_Reservoir_Method > 0 .and. totalnumresv > 0 .and. base_var_flags(6) == 1) THEN
+         ! mkinidata uses spval for unbuilt reservoirs; routing restores volume
+         ! from stage when they become active. Preserve this exact sentinel.
          DO i = 1, size(volresv)
             IF (.not. ieee_is_finite(volresv(i))) THEN
                invalid_base_count = invalid_base_count + 1
