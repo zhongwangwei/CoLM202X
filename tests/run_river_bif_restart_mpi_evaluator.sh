@@ -125,10 +125,21 @@ run_mpi 5 "$build_dir/river_bif_restart_mpi_harness" read-valid "$restart" "$rep
 check_cold_start() {
   local label=$1
   local damaged=$2
+  local mode=${3:-read-cold}
   local rewritten="$build_dir/${label}-cold.nc"
-  run_mpi 5 "$build_dir/river_bif_restart_mpi_harness" read-cold "$damaged" "$rewritten"
+  run_mpi 5 "$build_dir/river_bif_restart_mpi_harness" "$mode" "$damaged" "$rewritten"
   "$build_dir/river_restart_netcdf_mutator" check-bif-cold "$rewritten"
 }
+
+# A levee-mode change cold-starts paired depth/momentum, not water storage.
+check_cold_start levee-off-to-on "$restart" read-cold-levee
+levee_restart="$build_dir/bif-levee-write-3r.nc"
+levee_repartitioned="$build_dir/bif-levee-readwrite-5r.nc"
+run_mpi 3 "$build_dir/river_bif_restart_mpi_harness" write-levee "$levee_restart"
+"$build_dir/river_restart_netcdf_mutator" check-bif-nonzero "$levee_restart"
+run_mpi 5 "$build_dir/river_bif_restart_mpi_harness" read-valid-levee "$levee_restart" "$levee_repartitioned"
+"$build_dir/river_restart_netcdf_mutator" compare-bif-state "$levee_restart" "$levee_repartitioned"
+check_cold_start levee-on-to-off "$levee_restart"
 
 check_declared_bif_corruption() {
   local label=$1
