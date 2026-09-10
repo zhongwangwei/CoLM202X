@@ -1839,7 +1839,7 @@ CONTAINS
    real(r8), allocatable, intent(out) :: bif_elev_all  (:,:)
    real(r8), allocatable, intent(out) :: bif_wdth_all  (:,:)
    real(r8), allocatable, intent(out) :: bif_mann_all  (:)
-   integer :: ip, ilev
+   integer :: ip, ilev, prev_active_lev
 
       CALL ncio_inquire_length (parafile, 'bifurcation_upst',    totalnpthout)
       CALL ncio_inquire_length (parafile, 'bifurcation_manning', npthlev_bif)
@@ -1892,16 +1892,19 @@ CONTAINS
          IF (.not. any(bif_wdth_all(:, ip) > 0._r8)) THEN
             CALL CoLM_stop ('bifurcation pathway has no active positive-width layer')
          ENDIF
-         DO ilev = 2, npthlev_bif
-            IF (bif_wdth_all(ilev, ip) > 0._r8) THEN
-               IF (bif_wdth_all(ilev-1, ip) <= 0._r8) THEN
-                  CALL CoLM_stop ('active bifurcation layers must be contiguous from layer 1')
-               ENDIF
-               IF (bif_elev_all(ilev, ip) < bif_elev_all(ilev-1, ip)) THEN
+         ! Zero-width layers are inactive, including leading or interior gaps.
+         ! Their elevations may be sentinels; compare only active sills without
+         ! renumbering layers (layer 1 is channel flow, layers 2+ are overland).
+         prev_active_lev = 0
+         DO ilev = 1, npthlev_bif
+            IF (bif_wdth_all(ilev, ip) <= 0._r8) CYCLE
+            IF (prev_active_lev > 0) THEN
+               IF (bif_elev_all(ilev, ip) < bif_elev_all(prev_active_lev, ip)) THEN
                   CALL CoLM_stop ( &
-                     'active bifurcation layer elevation must be non-decreasing from layer 1')
+                     'active bifurcation layer elevation must be non-decreasing')
                ENDIF
             ENDIF
+            prev_active_lev = ilev
          ENDDO
       ENDDO
 

@@ -27,11 +27,11 @@ PROGRAM river_bif_restart_mpi_harness
 
    CALL spmd_init()
    CALL configure_roles()
-   DEF_USE_LEVEE = .false.
+   DEF_USE_LEVEE = index(trim(mode), '-levee') > 0
    DEF_USE_BIFURCATION = .true.
 
    SELECT CASE (trim(mode))
-   CASE ('write')
+   CASE ('write', 'write-levee')
       IF (p_np_glb /= 3) CALL CoLM_stop('BIF restart write requires 3 ranks')
       CALL configure_network()
       CALL allocate_GridRiverLakeTimeVars()
@@ -42,10 +42,10 @@ PROGRAM river_bif_restart_mpi_harness
       CALL write_GridRiverLakeTimeVars(trim(input_file))
       CALL commit_GridRiverLakeRestart(trim(input_file))
 
-   CASE ('read-valid', 'read-cold')
+   CASE ('read-valid', 'read-cold', 'read-valid-levee', 'read-cold-levee')
       IF (p_np_glb /= 5) CALL CoLM_stop('BIF restart read requires 5 ranks')
       IF (len_trim(output_file) == 0) CALL CoLM_stop('BIF restart read requires output file')
-      expect_loaded = trim(mode) == 'read-valid'
+      expect_loaded = index(trim(mode), 'read-valid') == 1
       CALL configure_network()
       CALL allocate_GridRiverLakeTimeVars()
       CALL read_GridRiverLakeTimeVars(trim(input_file))
@@ -303,7 +303,7 @@ CONTAINS
       CALL read_bifurcation_restart(trim(input_file), &
          wdsrf_ucat_prev_restart_found, restart_loaded, &
          restart_transaction_validated, restart_feature_manifest_present, &
-         restart_bifurcation_enabled)
+         restart_bifurcation_enabled, restart_levee_enabled)
       failures = merge(0, 1, restart_loaded .eqv. expect_restart_loaded)
       IF (.not. restart_loaded) THEN
          wdsrf_ucat_prev = wdsrf_ucat
