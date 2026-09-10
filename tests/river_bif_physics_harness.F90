@@ -5,6 +5,7 @@ PROGRAM river_bif_physics_harness
       MPI_SUM_F => MPI_SUM, MPI_MAX_F => MPI_MAX
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    USE MOD_Precision, only: r8
+   USE MOD_Const_Physical, only: grav
    USE MOD_SPMD_Task, only: p_err, p_comm_glb, p_comm_worker, p_iam_glb, &
       p_iam_worker, p_np_glb, p_np_worker, p_np_io, p_address_master, &
       p_is_master, p_is_worker, p_is_io, p_is_writeback, p_itis_worker, &
@@ -67,6 +68,9 @@ PROGRAM river_bif_physics_harness
    CALL bifurcation_final()
    CALL bifurcation_init()
    CALL test_multilayer_conservation_and_wet_dry(local_failures)
+
+   CALL test_opposed_layer_path_cap(local_failures)
+   CALL test_sparse_layer_activation(local_failures)
 
    CALL MPI_Allreduce(local_failures, global_failures, 1, MPI_INTEGER_F, MPI_SUM_F, &
       MPI_COMM_WORLD_F, p_err)
@@ -420,6 +424,132 @@ CONTAINS
          IF (abs(measured_ratio-expected_ratio) > 2.e-11_r8) failures = failures + 1
       ENDIF
    END SUBROUTINE test_nonlevee_multilayer_semi_implicit
+
+
+   SUBROUTINE test_opposed_layer_path_cap(failures)
+      integer, intent(inout) :: failures
+      real(r8) :: flood_fraction, transfer, cap, local_sum, global_sum, expected
+      real(r8) :: limited_channel(npath), saved_height(ncell), saved_width(2,npath)
+      integer :: i, ip, failures_before
+
+      failures_before = failures
+      saved_height = levee_hgt_data
+      saved_width = pth_wth
+      CALL bifurcation_final()
+      CALL bifurcation_init()
+      ! Different levee crests give opposed channel/overland slopes. The
+      ! protected donor has only 0.001 m3, so its reverse flux is clipped.
+      DO i = 1, ncell
+         IF (modulo(ucat_ucid(i), 2) == 1) THEN
+            levee_hgt_data(i) = 3._r8
+            total_initial(i) = 7000._r8
+         ELSE
+            levee_hgt_data(i) = 1.5_r8
+            total_initial(i) = 5500.001_r8
+         ENDIF
+      ENDDO
+      CALL levee_init()
+      DO i = 1, ncell
+         CALL levee_fldstg(i, total_initial(i), stage(i), levsto(i), levdph(i), flood_fraction)
+         visible_volume(i) = total_initial(i) - levsto(i)
+      ENDDO
+      stage_previous = stage
+      pth_wth(1,:) = 10._r8
+      pth_wth(2,:) = 20._r8
+      dt_all = 60._r8
+      CALL bifurcation_invalidate_static_dn()
+      CALL bifurcation_calc(stage, stage_previous, visible_volume, .true., &
+         empty_reservoir, is_reservoir, dt_all, river_system, active, normal_outgoing)
+      cap = 0.05_r8 * 5500.001_r8
+      DO ip = 1, npath
+         transfer = abs(sum(bif_hflux_lev(:,ip))) * dt_all(1)
+         IF (abs(transfer-cap) > 1.e-10_r8 * cap) failures = failures + 1
+         IF (bif_hflux_lev(1,ip) * bif_hflux_lev(2,ip) >= 0._r8) failures = failures + 1
+      ENDDO
+      IF (any(levsto-bif_lev_hflux_sum*dt_all(1) < -1.e-10_r8)) failures = failures + 1
+      IF (any(visible_volume-(bif_hflux_sum-bif_lev_hflux_sum)*dt_all(1) < 0._r8)) failures = failures + 1
+      local_sum = sum(bif_hflux_sum)
+      CALL MPI_Allreduce(local_sum, global_sum, 1, MPI_REAL8_F, MPI_SUM_F, MPI_COMM_WORLD_F, p_err)
+      IF (abs(global_sum) > 1.e-10_r8) failures = failures + 1
+
+      ! With level water and ample storage, the next step must decay the
+      ! LIMITED momentum, not retain the oversized pre-cap channel flow.
+      limited_channel = bif_hflux_lev(1,:)
+      stage = 4._r8
+      stage_previous = stage
+      visible_volume = 1.e8_r8
+      levsto = 0._r8
+      levdph = 0._r8
+      CALL bifurcation_calc(stage, stage_previous, visible_volume, .true., &
+         empty_reservoir, is_reservoir, dt_all, river_system, active, normal_outgoing)
+      DO ip = 1, npath
+         expected = limited_channel(ip) / (1._r8 + grav * pth_man(1)**2 / 4._r8**(7._r8/3._r8) &
+            * abs(limited_channel(ip) / pth_wth(1,ip)) * dt_all(1))
+         IF (abs(bif_hflux_lev(1,ip)-expected) > 2.e-11_r8 * max(1._r8, abs(expected))) failures = failures + 1
+      ENDDO
+      IF (failures > failures_before) write(*,'(A)') 'FAIL: opposed-layer final path cap / carried momentum'
+      levee_hgt_data = saved_height
+      pth_wth = saved_width
+      CALL levee_init()
+   END SUBROUTINE test_opposed_layer_path_cap
+
+
+   SUBROUTINE test_sparse_layer_activation(failures)
+      integer, intent(inout) :: failures
+      real(r8), parameter :: widths(5,2) = reshape( &
+         [0._r8, 0._r8, 0._r8, 46.97_r8, 93.95_r8, &
+          0._r8, 46.64_r8, 140.89_r8, 0._r8, 94.73_r8], [5,2])
+      real(r8) :: local_sum, global_sum
+      integer :: profile, levee_mode, step, i, level
+
+      CALL bifurcation_final()
+      npthlev_bif = 5
+      deallocate (pth_elv, pth_wth, pth_man)
+      allocate (pth_elv(5,npath), pth_wth(5,npath), pth_man(5))
+      pth_man = 0.05_r8
+      dt_all = 1._r8
+      DO levee_mode = 0, 1
+         DEF_USE_LEVEE = levee_mode == 1
+         DO profile = 1, 2
+            DO i = 1, npath
+               pth_wth(:,i) = widths(:,profile)
+               pth_elv(:,i) = [0._r8, 2._r8, 3._r8, 4._r8, 5._r8]
+            ENDDO
+            WHERE (pth_wth == 0._r8) pth_elv = 1.e20_r8
+            CALL bifurcation_init()
+            ! Low -> high -> low: high layers must activate across gaps, then
+            ! become dry again without carrying residual momentum into flux.
+            DO step = 1, 3
+               DO i = 1, ncell
+                  stage(i) = merge(6._r8, 1._r8, step == 2)
+                  IF (modulo(ucat_ucid(i), 2) == 0) stage(i) = stage(i) - 0.1_r8
+                  levdph(i) = max(0._r8, stage(i) - 2._r8)
+               ENDDO
+               stage_previous = stage
+               visible_volume = 1.e8_r8
+               levsto = 1.e8_r8
+               CALL bifurcation_invalidate_static_dn()
+               CALL bifurcation_calc(stage, stage_previous, visible_volume, .true., &
+                  empty_reservoir, is_reservoir, dt_all, river_system, active, normal_outgoing)
+               IF (any(.not. ieee_is_finite(bif_hflux_lev))) failures = failures + 1
+               DO level = 1, 5
+                  IF (step == 2 .and. widths(level,profile) > 0._r8) THEN
+                     IF (any(abs(bif_hflux_lev(level,:)) <= 0._r8)) failures = failures + 1
+                  ELSE
+                     IF (any(bif_hflux_lev(level,:) /= 0._r8)) failures = failures + 1
+                  ENDIF
+               ENDDO
+               local_sum = sum(bif_hflux_sum)
+               CALL MPI_Allreduce(local_sum, global_sum, 1, MPI_REAL8_F, MPI_SUM_F, &
+                  MPI_COMM_WORLD_F, p_err)
+               IF (abs(global_sum) > 1.e-10_r8) failures = failures + 1
+               ! With no layer-1 channel, every flux retains its overland ID.
+               IF (any(abs(bif_hflux_sum-bif_lev_hflux_sum) > 1.e-10_r8)) failures = failures + 1
+            ENDDO
+            CALL bifurcation_final()
+         ENDDO
+      ENDDO
+   END SUBROUTINE test_sparse_layer_activation
 
 
    SUBROUTINE test_tiny_residual_zero_donor(failures)

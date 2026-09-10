@@ -932,6 +932,19 @@ CONTAINS
                pth_hflux_total(ipth) = pth_hflux_total(ipth) + bif_hflux_lev(ilev, ipth)
             ENDDO
 
+            ! Donor limits can remove cancellation between opposed layers.
+            ! Reapply the path cap to the final net flux, scaling state together.
+            IF (abs(pth_hflux_total(ipth)) > 0._r8) THEN
+               storage_ref = max(min(storage_ucat(i_up), storage_dn_pth(ipth)), 0._r8)
+               rate = min(1._r8, 0.05_r8 * storage_ref / (abs(pth_hflux_total(ipth)) * dt))
+               IF (rate < 1._r8) THEN
+                  bif_hflux_lev(:, ipth) = bif_hflux_lev(:, ipth) * rate
+                  pth_momen(:, ipth) = pth_momen(:, ipth) * rate
+                  pth_veloc(:, ipth) = pth_veloc(:, ipth) * rate
+                  pth_hflux_total(ipth) = sum(bif_hflux_lev(:, ipth))
+               ENDIF
+            ENDIF
+
             ! ----- Step 5: Accumulate to upstream ucat (local) -----
          bif_hflux_sum(i_up) = bif_hflux_sum(i_up) + pth_hflux_total(ipth)
 
