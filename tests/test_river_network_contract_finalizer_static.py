@@ -13,17 +13,19 @@ def routine(name: str) -> str:
     )[0]
 
 
-def test_bif_width_and_layer_geometry_contracts_are_explicit() -> None:
+def test_bif_width_and_sparse_layer_geometry_contracts_are_explicit() -> None:
     reader = routine("read_bifurcation_global_arrays")
     assert "any(bif_wdth_all < 0._r8)" in reader
     assert "bifurcation width must be non-negative" in reader
-    assert "active bifurcation layers must be contiguous from layer 1" in reader
+    assert "active bifurcation layers must be contiguous from layer 1" not in reader
     assert (
-        "active bifurcation layer elevation must be non-decreasing from layer 1"
+        "active bifurcation layer elevation must be non-decreasing"
         in reader
     )
-    assert "bif_wdth_all(ilev-1, ip) <= 0._r8" in reader
-    assert "bif_elev_all(ilev, ip) < bif_elev_all(ilev-1, ip)" in reader
+    assert "IF (bif_wdth_all(ilev, ip) <= 0._r8) CYCLE" in reader
+    assert "prev_active_lev = 0" in reader
+    assert "bif_elev_all(ilev, ip) < bif_elev_all(prev_active_lev, ip)" in reader
+    assert "prev_active_lev = ilev" in reader
 
 
 def test_equal_active_layer_elevations_remain_valid() -> None:
