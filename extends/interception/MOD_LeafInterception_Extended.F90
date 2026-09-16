@@ -1117,10 +1117,16 @@ CONTAINS
          ! Now matches original CLM5 exactly.
          IF (ldew_snow > 1.e-8) THEN
             U10           = sqrt(forc_us*forc_us + forc_vs*forc_vs)
+            ! unl_snow_temp/unl_snow_wind are RATES [mm/s] (CLM5
+            ! CanopyHydrologyMod.F90 qflx_snow_unload convention: storage
+            ! * per-second unloading-timescale constant). Cap the rate
+            ! against the max rate that would empty the bucket this step,
+            ! then convert rate -> mass by *deltim before touching storage.
             unl_snow_temp = max(0._r8, ldew_snow * (tair - 270.15_r8) / 1.87e5_r8)
             unl_snow_wind = max(0._r8, 0.5_r8 * U10 * ldew_snow / 1.56e5_r8)
             unl_snow      = unl_snow_temp + unl_snow_wind
-            unl_snow      = min(unl_snow, ldew_snow)
+            unl_snow      = min(unl_snow, ldew_snow/deltim)
+            unl_snow      = unl_snow * deltim
             ldew_snow     = ldew_snow - unl_snow
          ENDIF
 
