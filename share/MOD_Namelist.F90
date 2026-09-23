@@ -288,11 +288,7 @@ MODULE MOD_Namelist
    ! ----- Account for vegetation snow process -----
    ! NOTE: This option will be activated in the new release, accompanied by
    !       a new set of canopy structure data, include the snow-free LAI.
-#ifdef extend_interception
-   logical :: DEF_VEG_SNOW = .true.
-#else
    logical :: DEF_VEG_SNOW = .false.
-#endif
 
    ! ----- Variably Saturated Flow Soil Water -----
    logical :: DEF_USE_VariablySaturatedFlow = .true.
