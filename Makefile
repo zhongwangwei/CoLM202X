@@ -80,6 +80,7 @@ OBJS_MKSRFDATA = \
 				  Aggregation_SoilBrightness.o      \
 				  Aggregation_LakeDepth.o           \
 				  Aggregation_ForestHeight.o        \
+				  Aggregation_CanopyStructure.o     \
 				  Aggregation_SoilParameters.o      \
 				  Aggregation_DBedrock.o            \
 				  Aggregation_Topography.o          \
