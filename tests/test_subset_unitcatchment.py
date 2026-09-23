@@ -71,7 +71,7 @@ def make_network(path):
         put("bifurcation_distance", "f8", ("npthout",), [10.0, 20.0, 30.0])
         put("bifurcation_manning", "f8", ("npthlev",), [0.03])
         put("dam_seq", "i4", ("dam_ndams",), [2, 4, 6, 8])
-        names = netCDF4.stringtochar(np.array(["d2", "d4", "d6", "d8"], dtype="S6"))
+        names = np.array([list(name.ljust(6, "\0")) for name in ("d2", "d4", "d6", "d8")], dtype="S1")
         put("dam_DamName", "S1", ("dam_ndams", "dam_namelen"), names)
 
 
