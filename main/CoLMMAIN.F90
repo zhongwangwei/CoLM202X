@@ -618,14 +618,6 @@ SUBROUTINE CoLMMAIN ( &
         qintr_rain  ,&! rainfall interception (mm h2o/s)
         qintr_snow    ! snowfall interception (mm h2o/s)
 
-#ifdef extend_interception
-   real(r8) :: gross_intr_rain, gross_intr_snow, xsc_rain_out, xsc_snow_out
-   real(r8) :: ldew_smelt_out, ldew_frzc_out, canopy_phase_heat
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-   real(r8), allocatable :: canopy_phase_heat_p(:)
-#endif
-#endif
-
 #ifdef HYPERSPECTRAL
   real(r8) :: &
         dir_frac(211),&! direct beam fraction
@@ -799,65 +791,31 @@ SUBROUTINE CoLMMAIN ( &
 !----------------------------------------------------------------------
          IF (patchtype == 0) THEN
 
-#ifdef extend_interception
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-            allocate(canopy_phase_heat_p(patch_pft_s(ipatch):patch_pft_e(ipatch)))
-            canopy_phase_heat_p = 0._r8
-#endif
-#endif
-
 #if (defined LULC_USGS || defined LULC_IGBP)
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,&
-#ifdef extend_interception
-                      fsno,&
-#endif
                       lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow &
-#ifdef extend_interception
-                      ,gross_intr_rain,gross_intr_snow,xsc_rain_out,xsc_snow_out,&
-                      ldew_smelt_out,ldew_frzc_out,canopy_phase_heat &
-#endif
                       )
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
             CALL LEAF_interception_pftwrap (ipatch,deltim,dewmx,forc_us,forc_vs,forc_t,&
-#ifdef extend_interception
-                      fsno,&
-#endif
                       prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow &
-#ifdef extend_interception
-                      ,gross_intr_rain,gross_intr_snow,xsc_rain_out,xsc_snow_out,&
-                      ldew_smelt_out,ldew_frzc_out,canopy_phase_heat,canopy_phase_heat_p &
-#endif
                       )
 #endif
 
          ELSE
-#ifdef extend_interception
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-            allocate(canopy_phase_heat_p(1:1))
-            canopy_phase_heat_p = 0._r8
-#endif
-#endif
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,&
-#ifdef extend_interception
-                      fsno,&
-#endif
                       lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
                       patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow &
-#ifdef extend_interception
-                      ,gross_intr_rain,gross_intr_snow,xsc_rain_out,xsc_snow_out,&
-                      ldew_smelt_out,ldew_frzc_out,canopy_phase_heat &
-#endif
                       )
          ENDIF
 
@@ -935,19 +893,7 @@ SUBROUTINE CoLMMAIN ( &
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
               qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   &
-#ifdef extend_interception
-              ,canopy_phase_heat &
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-              ,canopy_phase_heat_p &
-#endif
-#endif
               )
-
-#ifdef extend_interception
-#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-         deallocate(canopy_phase_heat_p)
-#endif
-#endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
 
