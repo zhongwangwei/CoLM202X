@@ -193,7 +193,7 @@ $CaMa
 
 #define GridRiverLakeFlow
 !    Conflicts :
-#if (defined CATCHMENT || defined SinglePoint)
+#if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
 #undef GridRiverLakeFlow
 #endif
 
