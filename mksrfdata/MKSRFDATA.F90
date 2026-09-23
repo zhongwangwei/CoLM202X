@@ -473,6 +473,10 @@ IF (.not. (skip_rest)) THEN
 
       CALL Aggregation_ForestHeight    (grid_htop, dir_rawdata, dir_landdata, lc_year)
 
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL Aggregation_CanopyStructure (grid_htop, dir_rawdata, dir_landdata, lc_year)
+      ENDIF
+
       CALL Aggregation_Topography      (grid_topo, dir_rawdata, dir_landdata, lc_year)
 
       IF (DEF_Runoff_SCHEME == 0) THEN

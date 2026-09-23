@@ -104,3 +104,5 @@
 
 ! 12. Hyperspectral scheme.
 #undef HYPERSPECTRAL
+
+#undef extend_interception

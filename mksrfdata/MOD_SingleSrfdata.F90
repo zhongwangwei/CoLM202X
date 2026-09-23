@@ -30,8 +30,10 @@ MODULE MOD_SingleSrfdata
 #endif
 
    real(r8) :: SITE_htop
+   real(r8) :: SITE_ncd, SITE_ncw, SITE_bcw
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    real(r8), allocatable :: SITE_htop_pfts (:)
+   real(r8), allocatable :: SITE_ncd_pfts (:), SITE_ncw_pfts (:), SITE_bcw_pfts (:)
 #endif
 
    real(r8), allocatable :: SITE_LAI_monthly (:,:)
@@ -222,6 +224,7 @@ CONTAINS
 
    integer, parameter :: N_PFT_modis = 16
    logical            :: readflag
+   logical            :: pft_structure(3)
 
       CALL Init_GlobalVars
       CALL Init_LC_Const
@@ -490,6 +493,35 @@ CONTAINS
          ENDIF
 #else
          write(*,'(A,F8.2,3A)') 'Forest height : ', SITE_htop, ' (from ',trim(datasource(u_site_htop)),')'
+#endif
+      ENDIF
+
+      IF (DEF_Interception_scheme == 8) THEN
+         IF (.not. all([ncio_var_exist(fsrfdata, 'ncd', readflag=.false.), &
+                        ncio_var_exist(fsrfdata, 'ncw', readflag=.false.), &
+                        ncio_var_exist(fsrfdata, 'bcw', readflag=.false.)])) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs ncd, ncw, and bcw in surface data')
+         CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
+         CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
+         CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (numpft > 0) THEN
+            allocate (SITE_ncd_pfts(numpft), SITE_ncw_pfts(numpft), SITE_bcw_pfts(numpft))
+            pft_structure = [ncio_var_exist(fsrfdata, 'ncd_pfts', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'ncw_pfts', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'bcw_pfts', readflag=.false.)]
+            IF (any(pft_structure) .and. .not. all(pft_structure)) &
+               CALL CoLM_stop('SinglePoint CoLM2024 PFT canopy structure is incomplete')
+            IF (all(pft_structure)) THEN
+               CALL ncio_read_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts)
+               CALL ncio_read_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts)
+               CALL ncio_read_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts)
+            ELSE
+               SITE_ncd_pfts = SITE_ncd
+               SITE_ncw_pfts = SITE_ncw
+               SITE_bcw_pfts = SITE_bcw
+            ENDIF
+         ENDIF
 #endif
       ENDIF
 
@@ -2851,6 +2883,18 @@ ENDIF
       CALL ncio_put_attr     (fsrfdata, 'canopy_height', 'source', trim(datasource(u_site_htop)))
       CALL ncio_put_attr     (fsrfdata, 'canopy_height', 'long_name', 'canopy height')
       CALL ncio_put_attr     (fsrfdata, 'canopy_height', 'units', 'm')
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_write_serial (fsrfdata, 'ncd', SITE_ncd)
+         CALL ncio_write_serial (fsrfdata, 'ncw', SITE_ncw)
+         CALL ncio_write_serial (fsrfdata, 'bcw', SITE_bcw)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (allocated(SITE_ncd_pfts)) THEN
+            CALL ncio_write_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts, 'pft')
+            CALL ncio_write_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts, 'pft')
+            CALL ncio_write_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts, 'pft')
+         ENDIF
+#endif
+      ENDIF
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (numpft > 0) THEN
          CALL ncio_write_serial (fsrfdata, 'canopy_height_pfts', SITE_htop_pfts, 'pft')
@@ -3420,6 +3464,9 @@ ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (allocated(SITE_htop_pfts)) deallocate(SITE_htop_pfts)
+      IF (allocated(SITE_ncd_pfts)) deallocate(SITE_ncd_pfts)
+      IF (allocated(SITE_ncw_pfts)) deallocate(SITE_ncw_pfts)
+      IF (allocated(SITE_bcw_pfts)) deallocate(SITE_bcw_pfts)
 #endif
 
       IF (allocated(SITE_LAI_monthly)) deallocate(SITE_LAI_monthly)
