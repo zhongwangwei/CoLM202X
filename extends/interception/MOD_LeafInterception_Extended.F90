@@ -8,6 +8,10 @@ MODULE MOD_LeafInterception
 ! For calculating vegetation canopy precipitation interception.
 !
 ! This MODULE is the coupler for the colm and CaMa-Flood model.
+! CoLM2024 interception: Zhongwang Wei @ SYSU.
+! Li, Q., Jin, X., Wei, Z. et al. (2026), Three-dimensional canopy morphology
+! and wind dynamics govern global rainfall interception.
+! Commun. Earth Environ. 7, 699. doi:10.1038/s43247-026-03694-7
 
 !ANCILLARY FUNCTIONS AND SUBROUTINES
 !-------------------
@@ -536,7 +540,7 @@ CONTAINS
 !===========
    ! CoLM2024 uses the CoLM2014 interception physics unchanged and replaces
    ! only the maximum canopy-water storage capacity with the morphology- and
-   ! wind-dependent parameterization of Xiang et al. (2026).
+   ! wind-dependent parameterization of Li et al. (2026).
 
    IMPLICIT NONE
 
