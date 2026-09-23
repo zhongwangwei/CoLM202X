@@ -2,6 +2,12 @@
 
 include include/Makeoptions
 HEADER = include/define.h
+EXTENDED_INTERCEPTION_ENABLED := $(shell cpp -dM -Iinclude -include $(HEADER) /dev/null | grep -q '^\#define extend_interception' && echo YES || echo NO)
+INTERCEPTION_CORE_OBJS = MOD_LeafInterception.o
+ifeq ($(EXTENDED_INTERCEPTION_ENABLED),YES)
+INTERCEPTION_CORE_OBJS += MOD_LeafTemperature.o MOD_LeafTemperaturePC.o MOD_Thermal.o MOD_PHSRootfluxBalance.o
+INTERCEPTION_EXTRA_OBJS = MOD_PHSRootfluxBalance.o
+endif
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -80,6 +86,7 @@ OBJS_MKSRFDATA = \
 				  Aggregation_SoilBrightness.o      \
 				  Aggregation_LakeDepth.o           \
 				  Aggregation_ForestHeight.o        \
+				  Aggregation_CanopyStructure.o     \
 				  Aggregation_SoilParameters.o      \
 				  Aggregation_DBedrock.o            \
 				  Aggregation_Topography.o          \
@@ -300,6 +307,7 @@ OBJS_MAIN = \
 				MOD_TurbulenceLEddy.o                     \
 				MOD_Ozone.o                               \
 				MOD_CanopyLayerProfile.o                  \
+				$(INTERCEPTION_EXTRA_OBJS)                 \
 				MOD_LeafTemperature.o                     \
 				MOD_LeafTemperaturePC.o                   \
 				MOD_SoilThermalParameters.o               \
@@ -361,8 +369,28 @@ OBJS_MAIN = \
 				CoLMMAIN.o                                \
 				CoLM.o
 
-$(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
+$(filter-out $(INTERCEPTION_CORE_OBJS),$(OBJS_MAIN)) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+ifeq ($(EXTENDED_INTERCEPTION_ENABLED),YES)
+MOD_LeafInterception.o: extends/interception/MOD_LeafInterception_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+MOD_PHSRootfluxBalance.o: extends/interception/MOD_PHSRootfluxBalance.F90 ${HEADER} ${OBJS_SHARED}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+MOD_LeafTemperature.o: extends/interception/MOD_LeafTemperature_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_LeafInterception.o MOD_PHSRootfluxBalance.o
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+MOD_LeafTemperaturePC.o: extends/interception/MOD_LeafTemperaturePC_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_LeafInterception.o
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+MOD_Thermal.o: extends/interception/MOD_Thermal_CanopyPhase_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_LeafTemperature.o MOD_LeafTemperaturePC.o
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+else
+$(INTERCEPTION_CORE_OBJS) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+endif
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
 MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
