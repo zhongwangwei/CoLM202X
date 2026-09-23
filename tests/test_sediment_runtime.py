@@ -94,6 +94,11 @@ def test_special_patch_evaporation_split_runtime_conserves_cap_and_branches(tmp_
         "module MOD_Precision\n implicit none\n integer,parameter::r8=selected_real_kind(12)\nend module\n",
         encoding="utf-8",
     )
+    (tmp_path / "spmd.f90").write_text(
+        "module MOD_SPMD_Task\ncontains\n subroutine CoLM_stop(message)\n"
+        " character(*),intent(in)::message\n error stop 9\n end subroutine\nend module\n",
+        encoding="utf-8",
+    )
     (tmp_path / "defs.f90").write_text(
         """
 module MOD_Tracer_Defs
@@ -195,6 +200,7 @@ module MOD_Tracer_Vars
  implicit none
  integer,parameter::TRC_EVAP_KIND_SOILEVAP=1,TRC_EVAP_KIND_SUBL=2
  real(r8),allocatable::trc_wliq_soisno(:,:,:),trc_wice_soisno(:,:,:),trc_scv(:,:),trc_wdsrf(:,:),trc_ldew_rain(:,:),trc_ldew_snow(:,:),trc_rnof_step(:,:),a_trc_precip(:,:),a_trc_rsur(:,:),a_trc_rnof(:,:),trc_wetwat(:,:),trc_waterstorage(:,:),trc_storage_beg(:,:),trc_surface_residue(:,:),trc_subsurface_residue(:,:),trc_solid_soisno(:,:,:),trc_canopy_solid(:,:),trc_surface_solid(:,:),trc_subsurface_solid(:,:),trc_waterstorage_solid(:,:)
+ real(r8),allocatable::trc_aquifer_ref_water(:)
  logical,allocatable::trc_runtime_forced(:)
  real(r8)::booked(3,2)
 contains
@@ -212,7 +218,8 @@ program special_patch_driver
  use MOD_Tracer_SpecialPatches
  implicit none
  real(r8) :: wliq(1:1), wice(1:1)
- allocate(trc_wliq_soisno(3,1,1),trc_wice_soisno(3,1,1),trc_scv(3,1),trc_wdsrf(3,1),trc_ldew_rain(3,1),trc_ldew_snow(3,1),trc_rnof_step(3,1),a_trc_precip(3,1),a_trc_rsur(3,1),a_trc_rnof(3,1),trc_wetwat(3,1),trc_storage_beg(3,1),trc_surface_residue(3,1),trc_subsurface_residue(3,1),trc_solid_soisno(3,1,1),trc_canopy_solid(3,1),trc_surface_solid(3,1),trc_subsurface_solid(3,1),trc_waterstorage_solid(3,1),trc_runtime_forced(3))
+ allocate(trc_wliq_soisno(3,1,1),trc_wice_soisno(3,1,1),trc_scv(3,1),trc_wdsrf(3,1),trc_ldew_rain(3,1),trc_ldew_snow(3,1),trc_rnof_step(3,1),a_trc_precip(3,1),a_trc_rsur(3,1),a_trc_rnof(3,1),trc_wetwat(3,1),trc_storage_beg(3,1),trc_surface_residue(3,1),trc_subsurface_residue(3,1),trc_solid_soisno(3,1,1),trc_canopy_solid(3,1),trc_surface_solid(3,1),trc_subsurface_solid(3,1),trc_waterstorage_solid(3,1),trc_runtime_forced(3),trc_aquifer_ref_water(1))
+ trc_aquifer_ref_water=0._r8
  trc_wliq_soisno=0; trc_wice_soisno=0; trc_scv=0; trc_wdsrf=0; trc_ldew_rain=0; trc_ldew_snow=0; trc_rnof_step=0; a_trc_precip=0; a_trc_rsur=0; a_trc_rnof=0; trc_wetwat=0; trc_storage_beg=0; trc_surface_residue=0; trc_subsurface_residue=0; trc_solid_soisno=0; trc_canopy_solid=0; trc_surface_solid=0; trc_subsurface_solid=0; trc_waterstorage_solid=0; trc_runtime_forced=.false.; booked=0
  trc_storage_beg(1,1)=4._r8
  wliq=0; wice=0
@@ -234,7 +241,7 @@ end program special_patch_driver
             "-ffree-line-length-0",
             "-I",
             str(tmp_path),
-            *(str(tmp_path / name) for name in ("precision.f90", "defs.f90", "namelist.f90", "forcing.f90", "frac.f90", "cons.f90", "hist.f90", "vars.f90")),
+                *(str(tmp_path / name) for name in ("precision.f90", "spmd.f90", "defs.f90", "namelist.f90", "forcing.f90", "frac.f90", "cons.f90", "hist.f90", "vars.f90")),
             # Real source, not a stub: the finite-pool limiter is the logic
             # under test here, so stubbing it would leave the assertions
             # checking the stub.

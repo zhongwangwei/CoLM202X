@@ -1087,6 +1087,9 @@ CONTAINS
    ! Local Variables
    integer  :: i, j
    real(r8) :: val, sumarea
+   logical  :: do_average
+
+      do_average = (trim(mode) == 'average')
 
       IF (p_is_worker) THEN
 
@@ -1116,7 +1119,7 @@ CONTAINS
                   ENDIF
                ENDDO
 
-               IF (trim(mode) == 'average') THEN
+               IF (do_average) THEN
                   IF (vec_recv(j) /= fillvalue .and. sumarea > 0._r8) THEN
                      vec_recv(j) = vec_recv(j) / sumarea
                   ENDIF
@@ -1185,6 +1188,7 @@ CONTAINS
    integer :: ifield, i, j, i_to
    real(r8) :: val, sumarea
    character(len=16) :: batch_mode
+   logical :: do_average
 #ifdef USEMPI
    integer :: iworker, iproc, npeer, ibase, istt, iend
 #endif
@@ -1196,6 +1200,7 @@ CONTAINS
          CALL ensure_worker_push_real8_batch_scratch (pushdata, size(fields))
          batch_mode = ''
          IF (present(mode)) batch_mode = mode
+         do_average = (trim(batch_mode) == 'average')
 
          DO ifield = 1, size(fields)
             fields(ifield)%recv(:) = fields(ifield)%fillvalue
@@ -1288,7 +1293,7 @@ CONTAINS
                         ENDIF
                      ENDDO
 
-                     IF (trim(batch_mode) == 'average') THEN
+                     IF (do_average) THEN
                         IF (fields(ifield)%recv(j) /= fields(ifield)%fillvalue .and. &
                             sumarea > 0._r8) THEN
                            fields(ifield)%recv(j) = fields(ifield)%recv(j) / sumarea
@@ -1402,6 +1407,9 @@ CONTAINS
    ! Local Variables
    integer  :: iset, ipart, iloc
    real(r8) :: area, sumarea
+   logical  :: do_average
+
+      do_average = (trim(mode) == 'average')
 
       IF (p_is_worker) THEN
          IF (remapdata%npset > 0) THEN
@@ -1427,7 +1435,7 @@ CONTAINS
                   ENDIF
                ENDDO
 
-               IF (trim(mode) == 'average') THEN
+               IF (do_average) THEN
                   IF (vec_out(iset) /= fillvalue .and. sumarea > 0._r8) THEN
                      vec_out(iset) = vec_out(iset) / sumarea
                   ENDIF

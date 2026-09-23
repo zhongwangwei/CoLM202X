@@ -74,6 +74,9 @@ CONTAINS
                        tstar         ,fm            ,fh            ,fq            ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
                        qintr_snow    ,snofrz        ,sabg_snow_lyr                 &
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+                      ,flddepth      ,fldfrc        ,fevpg_fld                    &
+#endif
 #ifdef TRACER
                       ,canopy_smelt_mass_th, canopy_frzc_mass_th                  ,&
                        qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th             &
@@ -137,6 +140,14 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   USE MOD_CaMa_colmCaMa, only: get_fldevp
+#ifdef CaMa_Flood
+   USE YOS_CMF_INPUT, only: LWEVAP
+#else
+   USE MOD_Namelist, only: LWEVAP => DEF_GridRiverLake_FloodFeedback
+#endif
+#endif
 
    IMPLICIT NONE
 
@@ -379,6 +390,12 @@ CONTAINS
        fh,                       &! integral of profile function for heat
        fq                         ! integral of profile function for moisture
 
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   real(r8), intent(inout) :: flddepth  ! conditional inundation depth [mm]
+   real(r8), intent(in)    :: fldfrc    ! inundated fraction [0-1]
+   real(r8), intent(out)   :: fevpg_fld ! area-mean flood evaporation [mm/s]
+#endif
+
 !Ozone stress variables
    real(r8),intent(inout) ::     &
         o3coefv_sun,&! Ozone stress factor for photosynthesis on sunlit leaf
@@ -448,6 +465,17 @@ CONTAINS
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
+   real(r8) :: fevpg_wat, fevpg_soil_wat, fevpg_snow_wat
+   real(r8) :: lfevpg_ground
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   logical  :: flood_evap_active
+   real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
+   real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
+   real(r8) :: taux_fld, tauy_fld, tref_fld, qref_fld, z0m_fld, zol_fld, rib_fld
+   real(r8) :: ustar_fld, qstar_fld, tstar_fld, fm_fld, fh_fld, fq_fld
+   real(r8) :: fseng_land, fseng_soil_land, fseng_snow_land
+   real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
+#endif
 
    integer p, ps, pe, pn
 
@@ -507,6 +535,18 @@ CONTAINS
       lfevpa = 0.;  fsenl  = 0.
       fevpl  = 0.;  etr    = 0.
       fseng  = 0.;  fevpg  = 0.
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      fevpg_fld = 0._r8
+      flood_evap_active = .FALSE.
+      fldfrc_eff = 0._r8
+      fevpg_fld_local = 0._r8
+      fseng_fld_local = 0._r8
+      fseng_land = 0._r8; fseng_soil_land = 0._r8; fseng_snow_land = 0._r8
+      fevpg_land = 0._r8; fevpg_soil_land = 0._r8; fevpg_snow_land = 0._r8
+      fevpg_wat = 0._r8; fevpg_soil_wat = 0._r8; fevpg_snow_wat = 0._r8
+      cgrnd_land = 0._r8; cgrndl_land = 0._r8; cgrnds_land = 0._r8
+#endif
+      lfevpg_ground = 0._r8
 
       cgrnds = 0.;  cgrndl = 0.
       cgrnd  = 0.;  tref   = 0.
@@ -961,9 +1001,11 @@ IF (patchtype == 0) THEN
 #ifdef TRACER
                 ,canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
                  canopy_frzc_mass_out =canopy_frzc_mass_p_local (i), &
-                 raw_trc_out=raw_trc_p(i)                            &
+                 raw_trc_out=raw_trc_p(i),                           &
+                 ipft_index=i)
+#else
+                ,ipft_index=i)
 #endif
-                 )
          ELSE
 
             CALL GroundFluxes (zlnd,zsno,forc_hgt_u,forc_hgt_t,forc_hgt_q,forc_hpbl, &
@@ -1262,6 +1304,35 @@ ENDIF
       IF (present(raw_trc_th)) raw_trc_th = raw_trc_local
 #endif
 
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (LWEVAP .and. patchtype == 0 .and. flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
+         fldfrc_eff = MIN(1._r8, MAX(0._r8, fldfrc))
+         flood_evap_active = fldfrc_eff > 0._r8
+         fseng_land = fseng; fseng_soil_land = fseng_soil; fseng_snow_land = fseng_snow
+         fevpg_land = fevpg; fevpg_soil_land = fevpg_soil; fevpg_snow_land = fevpg_snow
+         cgrnd_land = cgrnd; cgrndl_land = cgrndl; cgrnds_land = cgrnds
+         CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q, &
+            forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,t_grnd, &
+            forc_hpbl, taux_fld,tauy_fld,fseng_fld_local,fevpg_fld_local, &
+            tref_fld,qref_fld,z0m_fld,zol_fld,rib_fld,ustar_fld,qstar_fld, &
+            tstar_fld,fm_fld,fh_fld,fq_fld)
+         ! CaMa receives only nonnegative evaporation sinks; condensation over
+         ! inundation is not credited to the river/flood store in this coupling.
+         fevpg_fld_local = MIN(MAX(fevpg_fld_local,0._r8), flddepth/deltim)
+         fevpg_fld = fevpg_fld_local * fldfrc_eff
+         flddepth = MAX(0._r8, flddepth - deltim*fevpg_fld_local)
+         fseng = fseng_fld_local*fldfrc_eff + fseng_land*(1._r8-fldfrc_eff)
+         fevpg = (hvap/htvp)*fevpg_fld + fevpg_land*(1._r8-fldfrc_eff)
+         fseng_soil = fseng_fld_local*fldfrc_eff + fseng_soil_land*(1._r8-fldfrc_eff)
+         fevpg_soil = (hvap/htvp)*fevpg_fld + fevpg_soil_land*(1._r8-fldfrc_eff)
+         fseng_snow = fseng_fld_local*fldfrc_eff + fseng_snow_land*(1._r8-fldfrc_eff)
+         fevpg_snow = (hvap/htvp)*fevpg_fld + fevpg_snow_land*(1._r8-fldfrc_eff)
+         cgrnd = cgrnd_land*(1._r8-fldfrc_eff)
+         cgrndl = cgrndl_land*(1._r8-fldfrc_eff)
+         cgrnds = cgrnds_land*(1._r8-fldfrc_eff)
+      ENDIF
+#endif
+
 !=======================================================================
 ! [5] Ground temperature
 !=======================================================================
@@ -1308,6 +1379,17 @@ ENDIF
       fevpg_soil = fevpg_soil + tinc*cgrndl
       fevpg_snow = fevpg_snow + tinc*cgrndl
 
+      fevpg_wat = fevpg
+      fevpg_soil_wat = fevpg_soil
+      fevpg_snow_wat = fevpg_snow
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) THEN
+         fevpg_wat = fevpg - (hvap/htvp)*fevpg_fld
+         fevpg_soil_wat = fevpg_soil - (hvap/htvp)*fevpg_fld
+         fevpg_snow_wat = fevpg_snow - (hvap/htvp)*fevpg_fld
+      ENDIF
+#endif
+
 ! calculation of evaporative potential; flux in kg m-2 s-1.
 ! egidif holds the excess energy IF all water is evaporated
 ! during the timestep. This energy is later added to the sensible heat flux.
@@ -1328,70 +1410,70 @@ ENDIF
 
 IF (.not. DEF_SPLIT_SOILSNOW) THEN
       egsmax = (wice_soisno(lb)+wliq_soisno(lb)) / deltim
-      egidif = max( 0., fevpg - egsmax )
-      fevpg  = min( fevpg, egsmax )
+      egidif = max( 0., fevpg_wat - egsmax )
+      fevpg_wat  = min( fevpg_wat, egsmax )
       fseng  = fseng + htvp*egidif
 
-      IF (fevpg >= 0.) THEN
+      IF (fevpg_wat >= 0.) THEN
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
-         qseva = min(wliq_soisno(lb)/deltim, fevpg)
-         qsubl = fevpg - qseva
+         qseva = min(wliq_soisno(lb)/deltim, fevpg_wat)
+         qsubl = fevpg_wat - qseva
       ELSE
          IF (t_grnd < tfrz) THEN
-            qfros = abs(fevpg)
+            qfros = abs(fevpg_wat)
          ELSE
-            qsdew = abs(fevpg)
+            qsdew = abs(fevpg_wat)
          ENDIF
       ENDIF
 
 ELSE
       IF (lb < 1) THEN   ! snow layer exist
          egsmax = (wice_soisno(lb)+wliq_soisno(lb)) / deltim
-         egidif = max( 0., fevpg_snow - egsmax )
-         fevpg_snow = min ( fevpg_snow, egsmax )
+         egidif = max( 0., fevpg_snow_wat - egsmax )
+         fevpg_snow_wat = min ( fevpg_snow_wat, egsmax )
          fseng_snow = fseng_snow + htvp*egidif
       ELSE               ! no snow layer, attribute to soil
-         fevpg_soil = fevpg_soil*(1.-fsno) + fevpg_snow*fsno
+         fevpg_soil_wat = fevpg_soil_wat*(1.-fsno) + fevpg_snow_wat*fsno
       ENDIF
 
       egsmax = (wice_soisno(1)+wliq_soisno(1)) / deltim
-      egidif = max( 0., fevpg_soil - egsmax )
-      fevpg_soil = min ( fevpg_soil, egsmax )
+      egidif = max( 0., fevpg_soil_wat - egsmax )
+      fevpg_soil_wat = min ( fevpg_soil_wat, egsmax )
       fseng_soil = fseng_soil + htvp*egidif
 
       IF (lb < 1) THEN   ! snow layer exist
          fseng = fseng_soil*(1.-fsno) + fseng_snow*fsno
-         fevpg = fevpg_soil*(1.-fsno) + fevpg_snow*fsno
+         fevpg_wat = fevpg_soil_wat*(1.-fsno) + fevpg_snow_wat*fsno
       ELSE               ! no snow layer, attribute to soil
          fseng = fseng_soil; fseng_snow = 0.
-         fevpg = fevpg_soil; fevpg_snow = 0.
+         fevpg_wat = fevpg_soil_wat; fevpg_snow_wat = 0.
       ENDIF
 
-      IF(fevpg_snow >= 0.)THEN
+      IF(fevpg_snow_wat >= 0.)THEN
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
-         qseva_snow = min(wliq_soisno(lb)/deltim, fevpg_snow)
-         qsubl_snow = fevpg_snow - qseva_snow
+         qseva_snow = min(wliq_soisno(lb)/deltim, fevpg_snow_wat)
+         qsubl_snow = fevpg_snow_wat - qseva_snow
          qseva_snow = qseva_snow*fsno
          qsubl_snow = qsubl_snow*fsno
       ELSE
          ! snow temperature < tfrz
          IF(t_soisno(lb) < tfrz)THEN
-            qfros_snow = abs(fevpg_snow*fsno)
+            qfros_snow = abs(fevpg_snow_wat*fsno)
          ELSE
-            qsdew_snow = abs(fevpg_snow*fsno)
+            qsdew_snow = abs(fevpg_snow_wat*fsno)
          ENDIF
       ENDIF
 
-      IF(fevpg_soil >= 0.)THEN
+      IF(fevpg_soil_wat >= 0.)THEN
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
-         qseva_soil = min(wliq_soisno(1)/deltim, fevpg_soil)
-         qsubl_soil = fevpg_soil - qseva_soil
+         qseva_soil = min(wliq_soisno(1)/deltim, fevpg_soil_wat)
+         qsubl_soil = fevpg_soil_wat - qseva_soil
       ELSE
          ! soil temperature < tfrz
          IF(t_soisno(1) < tfrz)THEN
-            qfros_soil = abs(fevpg_soil)
+            qfros_soil = abs(fevpg_soil_wat)
          ELSE
-            qsdew_soil = abs(fevpg_soil)
+            qsdew_soil = abs(fevpg_soil_wat)
          ENDIF
       ENDIF
 
@@ -1403,18 +1485,36 @@ ELSE
       ENDIF
 ENDIF
 
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) THEN
+         fevpg = fevpg_fld + fevpg_wat
+         fevpg_soil = fevpg_fld + fevpg_soil_wat
+         fevpg_snow = fevpg_fld + fevpg_snow_wat
+         lfevpg_ground = htvp*fevpg_wat + hvap*fevpg_fld
+      ELSE
+         fevpg = fevpg_wat
+         fevpg_soil = fevpg_soil_wat
+         fevpg_snow = fevpg_snow_wat
+         lfevpg_ground = htvp*fevpg
+      ENDIF
+#else
+      fevpg = fevpg_wat
+      fevpg_soil = fevpg_soil_wat
+      fevpg_snow = fevpg_snow_wat
+      lfevpg_ground = htvp*fevpg
+#endif
 
 ! total fluxes to atmosphere
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
-      lfevpa = hvap*fevpl + htvp*fevpg   ! W/m^2 (accounting for sublimation)
+      lfevpa = hvap*fevpl + lfevpg_ground
 
 ! ground heat flux
 IF (.not.DEF_SPLIT_SOILSNOW) THEN
       fgrnd = sabg + dlrad*emg &
             - emg*stefnc*t_grnd_bef**4 &
             - emg*stefnc*t_grnd_bef**3*(4.*tinc) &
-            - (fseng+fevpg*htvp) &
+            - (fseng+lfevpg_ground) &
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ELSE
@@ -1422,7 +1522,7 @@ ELSE
             - fsno*emg*stefnc*t_snow**4 &
             - (1.-fsno)*emg*stefnc*t_soil**4 &
             - emg*stefnc*t_grnd_bef**3*(4.*tinc) &
-            - (fseng+fevpg*htvp) &
+            - (fseng+lfevpg_ground) &
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ENDIF
@@ -1442,7 +1542,7 @@ ENDIF
       IF (olrg < 0) THEN
          print *, "MOD_Thermal.F90: Error! Negative outgoing longwave radiation flux: "
          write(6,*) ipatch, olrg, tinc, ulrad
-         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,fgrnd
+         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,lfevpg_ground,xmf,fgrnd
       ENDIF
 
       trad = (olrg/stefnc)**0.25
@@ -1480,7 +1580,7 @@ ENDIF
 #if (defined CoLMDEBUG)
       IF (abs(errore) > .5) THEN
       write(6,*) 'MOD_Thermal.F90: energy balance violation'
-      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,hprl
+      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,lfevpg_ground,xmf,hprl
       write(6,*) cpliq*pg_rain*(t_precip-t_grnd), cpice*pg_snow*(t_precip-t_grnd)
       CALL CoLM_stop ()
       ENDIF

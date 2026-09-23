@@ -32,7 +32,8 @@ def test_finite_liquid_ratios_use_the_physical_water_floor():
     groundwater = section(
         "! 3. Groundwater: qcharge-driven", "! A previously dry aquifer"
     )
-    assert "abs(wa_bef) > trc_water_min_for_ratio" in groundwater
+    assert "tracer_aquifer_actual_water(aquifer_water_pre_qcharge," in groundwater
+    assert "trc_water_min_for_ratio" in groundwater
     assert "tracer_is_nonvolatile_solute(itrc)" in groundwater
     assert "ratio_src = 0._r8" in groundwater
 
@@ -55,7 +56,9 @@ def test_qlayer_and_qcharge_require_a_resolved_source_pool():
     assert "ratio_layer(j)" not in downward
 
     upward = groundwater.split("ELSEIF (qcharge_eff < -trc_tiny) THEN", 1)[1]
-    assert "abs(wa_bef) > trc_water_min_for_ratio" in upward
+    assert "tracer_aquifer_actual_water(aquifer_water_pre_qcharge," in upward
+    assert "tracer_aquifer_isotope_ratio(aquifer_water_pre_qcharge," in upward
+    assert "trc_wa(itrc, ipatch) / wa_bef" not in upward
     assert "tracer_is_nonvolatile_solute(itrc)" in upward
     assert "ratio_src = 0._r8" in upward
 

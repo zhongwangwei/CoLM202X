@@ -326,6 +326,7 @@ CONTAINS
    ! Local variables
    integer :: iproc
    integer :: iset, ie, xblk, yblk, iblk, jblk, scnt, iblkgrp, iblkall
+   integer, allocatable :: gathered_counts(:)
    logical, allocatable :: nonzero(:,:)
 
 #ifdef USEMPI
@@ -390,14 +391,16 @@ CONTAINS
          ENDIF
 
          this%vecgs%vcnt(:,:,:) = 0
+         allocate (gathered_counts(0:p_np_group-1))
          DO jblk = 1, gblock%nyblk
             DO iblk = 1, gblock%nxblk
                IF (gblock%pio(iblk,jblk) == p_iam_glb) THEN
 
                   scnt = 0
                   CALL mpi_gather (scnt, 1, MPI_INTEGER, &
-                     this%vecgs%vcnt(:,iblk,jblk), 1, MPI_INTEGER, &
+                     gathered_counts, 1, MPI_INTEGER, &
                      p_root, p_comm_group, p_err)
+                  this%vecgs%vcnt(:,iblk,jblk) = gathered_counts
 
                   this%vecgs%vdsp(0,iblk,jblk) = 0
                   DO iproc = 1, p_np_group-1
@@ -410,6 +413,7 @@ CONTAINS
                ENDIF
             ENDDO
          ENDDO
+         deallocate (gathered_counts)
       ENDIF
 #endif
 

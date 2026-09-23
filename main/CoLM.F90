@@ -108,7 +108,8 @@ PROGRAM CoLM
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &
-                                 tracer_forcing_reset, tracer_forcing_final
+                                 tracer_forcing_reset, tracer_forcing_final, tracer_forcing_read_restart, &
+                                 tracer_forcing_lulcc_save, tracer_forcing_lulcc_restore
 #endif
 
 #ifdef DataAssimilation
@@ -153,10 +154,15 @@ PROGRAM CoLM
    integer :: s_year, s_month, s_day, s_seconds, s_julian
    integer :: e_year, e_month, e_day, e_seconds, e_julian
    integer :: p_year, p_month, p_day, p_seconds, p_julian
-   integer :: lc_year, lai_year
+   integer :: lc_year, lai_year, restart_lc_year
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
    logical :: is_spinup
+   logical :: history_saved_raw
+#ifdef TRACER
+   logical :: tracer_loaded_restart
+   character(len=256) :: tracer_restart_file
+#endif
 
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
 
@@ -327,7 +333,8 @@ PROGRAM CoLM
 #ifdef TRACER
       CALL land_tracer_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
          casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
-         wice_soisno, wa, wdsrf, wetwat, scv, waterstorage)
+         wice_soisno, wa, wdsrf, wetwat, scv, waterstorage, &
+         loaded_restart=tracer_loaded_restart, restart_file=tracer_restart_file)
 #endif
 
       ! Read in SNICAR optical and aging parameters
@@ -355,11 +362,13 @@ PROGRAM CoLM
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
 #ifdef TRACER
       CALL tracer_forcing_init (gforc, numpatch)
+      CALL tracer_forcing_read_restart (tracer_restart_file, tracer_loaded_restart)
 #endif
       CALL allocate_2D_Forcing (gforc)
 
       ! Initialize history data module
       CALL hist_init (dir_hist)
+      CALL read_history_acc_restart (jdate, lc_year, casename, dir_restart)
       CALL allocate_1D_Fluxes ()
 
       CALL CheckEqb_init (n_spinupcycle, lc_year)
@@ -368,7 +377,7 @@ PROGRAM CoLM
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      CALL colm_CaMa_init !initialize CaMa-Flood
+      CALL colm_CaMa_init(jdate) !initialize CaMa-Flood
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
@@ -388,10 +397,12 @@ PROGRAM CoLM
          CALL init_nitrif_data (ststamp)
       ENDIF
 
+      ! Calendar-year inputs must not use sdate: adj2end represents Jan 1
+      ! midnight as Dec 31 of the preceding year with seconds = 86400.
       IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
-         CALL init_ndep_data_annually (sdate(1))
+         CALL init_ndep_data_annually (s_year)
       ELSEIF(DEF_NDEP_FREQUENCY==2)THEN ! Initial monthly ndep data readin
-         CALL init_ndep_data_monthly (sdate(1),s_month)
+         CALL init_ndep_data_monthly (s_year,s_month)
       ELSE
          write(6,*) 'ERROR: DEF_NDEP_FREQUENCY should be only 1-2, Current is:', &
                      DEF_NDEP_FREQUENCY
@@ -399,7 +410,7 @@ PROGRAM CoLM
       ENDIF
 
       IF (DEF_USE_FIRE) THEN
-         CALL init_fire_data (sdate(1))
+         CALL init_fire_data (s_year)
          CALL init_lightning_data (sdate)
       ENDIF
 #endif
@@ -412,7 +423,8 @@ PROGRAM CoLM
       CALL lateral_flow_init (lc_year)
 #endif
 #ifdef GridRiverLakeFlow
-      CALL grid_riverlake_flow_init ()
+      CALL grid_riverlake_flow_init (s_year)
+      CALL restore_river_history_acc_restart (jdate, casename, dir_restart)
 #endif
 
       CALL ParaOpt_init (jdate, lc_year)
@@ -529,7 +541,8 @@ PROGRAM CoLM
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-         CALL colm_CaMa_drv(idate(3)) ! run CaMa-Flood
+         CALL colm_CaMa_drv(idate(3), deltim, &
+            save_to_restart(idate,deltim,itstamp,ptstamp,etstamp) .OR. .NOT.(itstamp<etstamp)) ! run CaMa-Flood
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
@@ -543,7 +556,8 @@ PROGRAM CoLM
 
          ! Write out the model histroy file
          ! ----------------------------------------------------------------------
-         CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, dir_hist, casename)
+         CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, &
+            dir_hist, casename, jdate, dir_restart, history_saved_raw)
 
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
@@ -556,6 +570,7 @@ PROGRAM CoLM
             CALL deallocate_1D_Fluxes
 
 #ifdef TRACER
+            CALL tracer_forcing_lulcc_save ()
             CALL tracer_forcing_final ()
 #endif
             CALL forcing_final ()
@@ -570,6 +585,7 @@ PROGRAM CoLM
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
 #ifdef TRACER
             CALL tracer_forcing_init (gforc, numpatch)
+            CALL tracer_forcing_lulcc_restore ()
 #endif
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
@@ -617,15 +633,25 @@ PROGRAM CoLM
          ! Write out the model state variables for restart run
          ! ----------------------------------------------------------------------
          IF (save_to_restart (idate, deltim, itstamp, ptstamp, etstamp)) THEN
+            ! Prepare an incomplete history sidecar before replacing the
+            ! physical checkpoint. Forced terminal windows were saved raw in
+            ! hist_out; all other windows are still available here.
+            IF (.not.history_saved_raw) &
+               CALL write_history_acc_restart (jdate, casename, dir_restart)
 #ifdef LULCC
             IF (jdate(1) >= 2000) THEN
+               restart_lc_year = jdate(1)
                CALL WRITE_TimeVariables (jdate, jdate(1), casename, dir_restart)
             ELSE
+               restart_lc_year = (jdate(1)/5)*5
                CALL WRITE_TimeVariables (jdate, (jdate(1)/5)*5, casename, dir_restart)
             ENDIF
 #else
+            restart_lc_year = lc_year
             CALL WRITE_TimeVariables (jdate, lc_year,  casename, dir_restart)
 #endif
+            CALL mark_history_acc_restart (jdate, restart_lc_year, casename, dir_restart)
+            CALL complete_history_acc_restart (jdate, casename, dir_restart)
 
 #if (defined CaMa_Flood)
 #ifdef USEMPI

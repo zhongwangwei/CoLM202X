@@ -28,9 +28,10 @@ MODULE MOD_Tracer_Lifecycle
       SUBROUTINE lifecycle_noarg_if ()
       END SUBROUTINE lifecycle_noarg_if
 
-      SUBROUTINE lifecycle_land_init_if (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
+      SUBROUTINE lifecycle_land_init_if (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
          integer, intent(in) :: numpatch, lc_year, jdate(3)
          character(len=*), intent(in) :: casename, dir_restart, dir_landdata
+         character(len=*), intent(in), optional :: file_restart
       END SUBROUTINE lifecycle_land_init_if
 
       SUBROUTINE lifecycle_read_restart_if (file_restart)
@@ -79,7 +80,7 @@ MODULE MOD_Tracer_Lifecycle
          USE MOD_Precision
          integer, intent(in) :: patchclass_new(:), patchclass_old(:)
          integer*8, intent(in) :: eindex_new(:), eindex_old(:)
-         real(r8), intent(in), optional :: lccpct_patches(:,:), new_patch_area(:), old_patch_area(:)
+         real(r8), intent(in), optional :: lccpct_patches(:,0:), new_patch_area(:), old_patch_area(:)
       END SUBROUTINE lifecycle_land_remap_lulcc_if
 
       SUBROUTINE lifecycle_land_reload_lulcc_if (lc_year, dir_landdata)
@@ -97,16 +98,18 @@ MODULE MOD_Tracer_Lifecycle
          real(r8), intent(in) :: fldfrc_patch(:), flddph_patch(:)
       END SUBROUTINE lifecycle_publish_flood_if
 
-      SUBROUTINE lifecycle_route_forcing_put_if (precip, dt)
+      SUBROUTINE lifecycle_route_forcing_put_if (precip, dt, valid_fraction)
          USE MOD_Precision
          real(r8), intent(in) :: precip(:), dt
+         real(r8), optional, intent(in) :: valid_fraction(:)
       END SUBROUTINE lifecycle_route_forcing_put_if
 
       SUBROUTINE lifecycle_route_diag_if (dt_all, irivsys, ucatfilter, veloc, wdsrf, &
-         rivsto_input, rivout_fc, floodarea)
+         rivsto_start, rivsto_input, rivout_fc, floodarea, protected_start, protected_end, protected_area)
          USE MOD_Precision
          real(r8), intent(in) :: dt_all(:), veloc(:), wdsrf(:)
-         real(r8), intent(in) :: rivsto_input(:), rivout_fc(:), floodarea(:)
+         real(r8), intent(in) :: rivsto_start(:), rivsto_input(:), rivout_fc(:), floodarea(:)
+         real(r8), optional, intent(in) :: protected_start(:), protected_end(:), protected_area(:)
          integer, intent(in) :: irivsys(:)
          logical, intent(in) :: ucatfilter(:)
       END SUBROUTINE lifecycle_route_diag_if
@@ -115,6 +118,20 @@ MODULE MOD_Tracer_Lifecycle
          USE MOD_Precision
          real(r8), intent(in) :: deltime
       END SUBROUTINE lifecycle_route_calc_if
+
+      SUBROUTINE lifecycle_route_sediment_bif_if (dt_all, irivsys, ucatfilter, bif_hflux_lev)
+         USE MOD_Precision
+         real(r8), intent(in) :: dt_all(:), bif_hflux_lev(:,:)
+         integer, intent(in) :: irivsys(:)
+         logical, intent(in) :: ucatfilter(:)
+      END SUBROUTINE lifecycle_route_sediment_bif_if
+
+      SUBROUTINE lifecycle_route_sediment_levee_if (i, visible_before, protected_before, &
+         visible_after, protected_after)
+         USE MOD_Precision
+         integer, intent(in) :: i
+         real(r8), intent(in) :: visible_before, protected_before, visible_after, protected_after
+      END SUBROUTINE lifecycle_route_sediment_levee_if
 
       SUBROUTINE lifecycle_route_history_if (file_hist_ucat, itime_in_file_ucat)
          character(len=*), intent(in) :: file_hist_ucat
@@ -145,6 +162,8 @@ MODULE MOD_Tracer_Lifecycle
       procedure(lifecycle_route_forcing_put_if), pointer, nopass :: route_forcing_put => null()
       procedure(lifecycle_route_diag_if), pointer, nopass :: route_diag_accumulate => null()
       procedure(lifecycle_route_calc_if), pointer, nopass :: route_calc => null()
+      procedure(lifecycle_route_sediment_bif_if), pointer, nopass :: route_sediment_bif => null()
+      procedure(lifecycle_route_sediment_levee_if), pointer, nopass :: route_sediment_levee => null()
       procedure(lifecycle_route_history_if), pointer, nopass :: route_history => null()
       procedure(lifecycle_noarg_if), pointer, nopass :: route_flush_history => null()
       procedure(lifecycle_noarg_if), pointer, nopass :: route_final => null()
@@ -168,6 +187,7 @@ MODULE MOD_Tracer_Lifecycle
    PUBLIC :: tracer_lifecycle_route_has_active, tracer_lifecycle_route_init, tracer_lifecycle_route_final
    PUBLIC :: tracer_lifecycle_route_read_restart, tracer_lifecycle_route_write_restart
    PUBLIC :: tracer_lifecycle_route_forcing_put, tracer_lifecycle_route_diag_accumulate, tracer_lifecycle_route_calc
+   PUBLIC :: tracer_lifecycle_route_sediment_bif_accumulate, tracer_lifecycle_route_sediment_levee_repartition
    PUBLIC :: tracer_lifecycle_route_write_history, tracer_lifecycle_route_flush_history
 
 CONTAINS
@@ -337,14 +357,15 @@ CONTAINS
       IF (lifecycle_row_registered(itrc)) provider = provider_name(itrc)
    END FUNCTION tracer_lifecycle_provider
 
-   SUBROUTINE tracer_lifecycle_land_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
+   SUBROUTINE tracer_lifecycle_land_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
       integer, intent(in) :: numpatch, lc_year, jdate(3)
       character(len=*), intent(in) :: casename, dir_restart, dir_landdata
+      character(len=*), intent(in), optional :: file_restart
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%land_init)) &
-            CALL lifecycle(i)%land_init(numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
+            CALL lifecycle(i)%land_init(numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
       ENDDO
    END SUBROUTINE tracer_lifecycle_land_init
 
@@ -498,7 +519,7 @@ CONTAINS
       lccpct_patches, new_patch_area, old_patch_area)
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
-      real(r8), intent(in), optional :: lccpct_patches(:,:), new_patch_area(:), old_patch_area(:)
+      real(r8), intent(in), optional :: lccpct_patches(:,0:), new_patch_area(:), old_patch_area(:)
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
@@ -616,20 +637,22 @@ CONTAINS
       ENDDO
    END SUBROUTINE tracer_lifecycle_route_write_restart
 
-   SUBROUTINE tracer_lifecycle_route_forcing_put (precip, dt)
+   SUBROUTINE tracer_lifecycle_route_forcing_put (precip, dt, valid_fraction)
       real(r8), intent(in) :: precip(:), dt
+      real(r8), optional, intent(in) :: valid_fraction(:)
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_forcing_put)) &
-            CALL lifecycle(i)%route_forcing_put(precip, dt)
+            CALL lifecycle(i)%route_forcing_put(precip, dt, valid_fraction)
       ENDDO
    END SUBROUTINE tracer_lifecycle_route_forcing_put
 
    SUBROUTINE tracer_lifecycle_route_diag_accumulate (dt_all, irivsys, ucatfilter, &
-      veloc, wdsrf, rivsto_input, rivout_fc, floodarea)
+      veloc, wdsrf, rivsto_start, rivsto_input, rivout_fc, floodarea, protected_start, protected_end, protected_area)
       real(r8), intent(in) :: dt_all(:), veloc(:), wdsrf(:)
-      real(r8), intent(in) :: rivsto_input(:), rivout_fc(:), floodarea(:)
+      real(r8), intent(in) :: rivsto_start(:), rivsto_input(:), rivout_fc(:), floodarea(:)
+      real(r8), optional, intent(in) :: protected_start(:), protected_end(:), protected_area(:)
       integer, intent(in) :: irivsys(:)
       logical, intent(in) :: ucatfilter(:)
       integer :: i
@@ -637,9 +660,35 @@ CONTAINS
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_diag_accumulate)) &
             CALL lifecycle(i)%route_diag_accumulate(dt_all, irivsys, ucatfilter, &
-               veloc, wdsrf, rivsto_input, rivout_fc, floodarea)
+               veloc, wdsrf, rivsto_start, rivsto_input, rivout_fc, floodarea, &
+               protected_start, protected_end, protected_area)
       ENDDO
    END SUBROUTINE tracer_lifecycle_route_diag_accumulate
+
+   SUBROUTINE tracer_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
+      real(r8), intent(in) :: dt_all(:), bif_hflux_lev(:,:)
+      integer, intent(in) :: irivsys(:)
+      logical, intent(in) :: ucatfilter(:)
+      integer :: i
+      IF (.not. allocated(lifecycle)) RETURN
+      DO i = 1, size(lifecycle)
+         IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_sediment_bif)) &
+            CALL lifecycle(i)%route_sediment_bif(dt_all, irivsys, ucatfilter, bif_hflux_lev)
+      ENDDO
+   END SUBROUTINE tracer_lifecycle_route_sediment_bif_accumulate
+
+   SUBROUTINE tracer_lifecycle_route_sediment_levee_repartition (i, visible_before, protected_before, &
+      visible_after, protected_after)
+      integer, intent(in) :: i
+      real(r8), intent(in) :: visible_before, protected_before, visible_after, protected_after
+      integer :: itrc
+      IF (.not. allocated(lifecycle)) RETURN
+      DO itrc = 1, size(lifecycle)
+         IF (lifecycle_row_registered(itrc) .and. associated(lifecycle(itrc)%route_sediment_levee)) &
+            CALL lifecycle(itrc)%route_sediment_levee(i, visible_before, protected_before, &
+               visible_after, protected_after)
+      ENDDO
+   END SUBROUTINE tracer_lifecycle_route_sediment_levee_repartition
 
    SUBROUTINE tracer_lifecycle_route_calc (deltime)
       real(r8), intent(in) :: deltime

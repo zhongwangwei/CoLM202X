@@ -53,7 +53,7 @@ MODULE MOD_Grid_RiverLakeTimeVars
    !    serialise them without a circular USE; Flow imports them via the
    !    existing USE MOD_Grid_RiverLakeTimeVars at the top of that module.
    real(r8), save       :: acctime_rnof = 0._r8     ! accumulated land time since last routing flush [s]
-   real(r8), allocatable :: acc_rnof_uc (:)         ! accumulated runoff depth per ucatch [m]
+   real(r8), allocatable :: acc_rnof_uc (:)         ! accumulated runoff volume per ucatch [m3]
 
    ! -- restart file path (saved for deferred particle-tracer restart read) --
    character(len=512) :: gridriver_restart_file = ''

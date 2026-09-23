@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+import re
 import tempfile
 
 import pytest
@@ -50,22 +51,23 @@ end module MOD_Precision
 """,
             encoding="utf-8",
         )
+        # Compile the actual production defaults, not a duplicate test-only set.
+        source = (ROOT / "share/MOD_Namelist.F90").read_text()
+        names = (
+            "NUM", "NAMES", "TYPES", "MRAT", "REF_RATIO", "INIT_DELTA",
+            "REACTIVE_DECAY_RATE", "PARAM_FILES", "USE_FRACTIONATION",
+            "AQUIFER_MIXING_WATER_MM",
+        )
+        declarations = [
+            re.search(rf"^.*::\s*DEF_TRACER_{name}\s*=.*$", source, re.M).group(0)
+            for name in names
+        ]
+        declarations.append(
+            re.search(r"^.*::\s*DEF_USE_VariablySaturatedFlow\s*=.*$", source, re.M).group(0)
+        )
         (tmp / "namelist.f90").write_text(
-            """
-module MOD_Namelist
-  use MOD_Precision, only: r8
-  implicit none
-  integer :: DEF_TRACER_NUM = 1
-  character(len=256) :: DEF_TRACER_NAMES = 'CL'
-  character(len=256) :: DEF_TRACER_TYPES = 'solute'
-  character(len=256) :: DEF_TRACER_MRAT = '35.453'
-  character(len=256) :: DEF_TRACER_REF_RATIO = '1.0'
-  character(len=256) :: DEF_TRACER_INIT_DELTA = '0.0'
-  character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = '0.0'
-  character(len=512) :: DEF_TRACER_PARAM_FILES = 'null'
-  logical :: DEF_TRACER_USE_FRACTIONATION = .false.
-end module MOD_Namelist
-""",
+            "module MOD_Namelist\n  use MOD_Precision, only: r8\n  implicit none\n"
+            + "\n".join(declarations) + "\nend module MOD_Namelist\n",
             encoding="utf-8",
         )
         (tmp / "spmd.f90").write_text(
@@ -101,7 +103,7 @@ program descriptor_driver
   use MOD_Tracer_Defs
   use MOD_Tracer_EvapLimit, only: tracer_atmospheric_tracer_loss
   implicit none
-  character(len=512) :: parameter_file
+  character(len=2048) :: parameter_file
   character(len=256) :: tracer_name, tracer_category
   character(len=TRACER_DESCRIPTOR_IDENTITY_WIDTH) :: descriptor_text
   character(len=32) :: action, tracer_num_text
@@ -116,8 +118,11 @@ program descriptor_driver
   call get_command_argument(5, action)
   if (len_trim(tracer_num_text) > 0) read(tracer_num_text, *) DEF_TRACER_NUM
   if (len_trim(tracer_name) > 0) DEF_TRACER_NAMES = trim(tracer_name)
-  if (len_trim(tracer_category) > 0) DEF_TRACER_TYPES = trim(tracer_category)
-  if (trim(action) == 'raw_param_files') then
+      if (len_trim(tracer_category) > 0) DEF_TRACER_TYPES = trim(tracer_category)
+      ! Descriptor taxonomy is independent of the VSF aquifer model.  The
+      ! production run requires an explicit finite reference when both are on.
+      DEF_USE_VariablySaturatedFlow = .false.
+      if (trim(action) == 'raw_param_files') then
     DEF_TRACER_PARAM_FILES = trim(parameter_file)
   elseif (len_trim(parameter_file) > 0) then
     DEF_TRACER_PARAM_FILES = trim(DEF_TRACER_NAMES) // ':' // trim(parameter_file)
@@ -355,7 +360,7 @@ def test_transport_identity_is_empty_for_provider_owned_particle(
         action="transport_identity",
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stdout.splitlines() == ["IDENTITY_COUNT=0"]
+    assert [line for line in result.stdout.splitlines() if line.startswith("IDENTITY")] == ["IDENTITY_COUNT=0"]
 
 
 def test_zero_tracers_is_a_safe_noop(descriptor_driver):
@@ -729,3 +734,39 @@ def test_first_parameter_file_mapping_match_still_wins(descriptor_driver):
         raw_param_files="CL:null,CL:not_a_real_parameter_file.nml",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_parameter_mapping_after_byte_512_is_not_lost(descriptor_driver):
+    _, _, tmp = descriptor_driver
+    parameter_file = tmp / 'chloride_late.nml'
+    parameter_file.write_text(STANDARD_CHLORIDE.read_text())
+    prefix = ','.join(f'OTHER{i}:null' for i in range(45))
+    mapping = f'{prefix},CL:{parameter_file}'
+    assert 512 < len(mapping) < 2048
+    result = run_driver(descriptor_driver, action='raw_param_files', raw_param_files=mapping)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'UNIT_KIND=mass_fraction' in result.stdout
+
+
+@pytest.mark.parametrize('raw_mapping', ['CL:' + 'x' * 513, 'x' * 513])
+def test_overlong_parameter_file_path_is_rejected(descriptor_driver, raw_mapping):
+    result = run_driver(
+        descriptor_driver, action='raw_param_files',
+        raw_param_files=raw_mapping,
+    )
+    assert result.returncode != 0
+    assert 'tracer parameter file path exceeds supported length' in result.stdout + result.stderr
+
+
+def test_production_defaults_do_not_enable_implicit_isotopes(descriptor_driver):
+    executable, _, _ = descriptor_driver
+    result = subprocess.run(
+        [str(executable)], capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "NTRACERS=0" in result.stdout
+    assert "ALLOCATED=F" in result.stdout
+    source = (ROOT / "share/MOD_Namelist.F90").read_text()
+    for name in ("NAMES", "TYPES", "MRAT", "REF_RATIO", "INIT_DELTA",
+                 "REACTIVE_DECAY_RATE", "SOIL_INIT_VARS"):
+        assert re.search(rf"DEF_TRACER_{name}\s*=\s*(['\"])\1", source)

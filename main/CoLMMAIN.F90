@@ -20,7 +20,7 @@ SUBROUTINE CoLMMAIN ( &
            hksati,       csol,         k_solids,     dksatu,       &
            dksatf,       dkdry,        BA_alpha,     BA_beta,      &
            rootfr,       lakedepth,    dz_lake,      elvstd,  BVIC,&
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
            ! add flood depth, flood fraction, flood evaporation and
            ! flood re-infiltration
            flddepth,     fldfrc,       fevpg_fld,    qinfl_fld,    &
@@ -163,6 +163,7 @@ SUBROUTINE CoLMMAIN ( &
 
    USE MOD_Precision
    USE MOD_Vars_Global
+   USE MOD_Vars_TimeInvariants, only: ncd, ncw, bcw
    USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice
    USE MOD_Vars_TimeVariables, only: tlai, tsai, waterstorage
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -177,7 +178,7 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_NetSolar, only: netsolar
 #endif
    USE MOD_OrbCoszen, only: orb_coszen
-   USE MOD_NewSnow, only: newsnow
+   USE MOD_NewSnow, only: newsnow, relocate_soil_frost_ice
    USE MOD_Thermal, only: THERMAL
    USE MOD_SoilSnowHydrology, only: WATER_2014, WATER_VSF
    USE MOD_SnowFraction, only: snowfraction
@@ -202,11 +203,16 @@ SUBROUTINE CoLMMAIN ( &
       DEF_USE_Dynamic_Wetland, DEF_VEG_SNOW, DEF_URBAN_RUN
 #ifdef TRACER
    USE MOD_Tracer_LandPhase, only: ntracers, trc_tiny, tracer_uses_land_water_transport, &
-      tracer_precip, tracer_evapo, tracer_soil_water, tracer_wetland, &
+      tracer_precip, tracer_evapo, tracer_flood_evap_loss, tracer_soil_water, tracer_wetland, &
       tracer_newsnow, tracer_save_storage, tracer_balance_check, &
       tracer_apply_reactive_processes, &
       trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv, &
       trc_ldew_rain, trc_ldew_snow, trc_sm_carry
+#ifdef GridRiverLakeFlow
+   USE MOD_Tracer_Defs, only: tracers, tracer_has_dissolved_limit
+   USE MOD_Grid_RiverLakeFlow, only: flood_credit_patch, flood_tracer_credit_patch, &
+      flood_tracer_evap_patch, flood_tracer_land_patch
+#endif
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Hist, only: tracer_hist_accumulate
@@ -222,10 +228,13 @@ SUBROUTINE CoLMMAIN ( &
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LeafInterception, only: LEAF_interception_pftwrap
 #endif
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
-   USE MOD_CaMa_colmCaMa, only: get_fldevp
-   USE YOS_CMF_INPUT, only: LWINFILT,LWEVAP
+#ifdef CaMa_Flood
+   USE YOS_CMF_INPUT, only: LWINFILT
+#else
+   USE MOD_Namelist, only: LWINFILT => DEF_GridRiverLake_FloodFeedback
+#endif
 #endif
 #ifdef CROP
    USE MOD_Irrigation, only: CalIrrigationApplicationFluxes
@@ -401,7 +410,7 @@ SUBROUTINE CoLMMAIN ( &
         forc_hpbl   ,&! atmospheric boundary layer height [m]
         forc_aerdep(14)!atmospheric aerosol deposition data [kg/m/s]
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    real(r8), intent(in)    :: fldfrc    !inundation fraction
                                         ! --> allow re-evaporation and infiltration![0-1]
    real(r8), intent(inout) :: flddepth  !inundation depth
@@ -674,7 +683,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: qflx_irrig_flood        ! flood irrigation rate [mm/s]
    real(r8) :: qflx_irrig_paddy        ! paddy irrigation rate [mm/s]
    !----------------------------------------------------------------------
-   real(r8) :: a, aa, gwat
+   real(r8) :: a, aa, gwat, fevpa_wb, flood_input_wb
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
 
@@ -728,7 +737,10 @@ SUBROUTINE CoLMMAIN ( &
    ! cascade-driven ET does not leave tracer behind in a dry layer or
    ! miss the aquifer withdrawal entirely.
    real(r8) :: etroot_actual_trc(nl_soil)
+   logical :: permeable_soil_trc(nl_soil) ! exact WATER_VSF connected-layer mask
    real(r8) :: etroot_aquifer_trc
+   real(r8) :: etroot_surface_trc, dew_overflow_trc, frost_displaced_trc, late_runoff_trc
+   real(r8) :: rsub_source_layer_trc(nl_soil), rsub_source_surface_trc, rsub_source_aquifer_trc
    real(r8) :: imperv_evap_wdsrf_trc
    real(r8) :: imperv_evap_soil_trc
    real(r8) :: imperv_subl_soil_trc
@@ -739,30 +751,18 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: raw_trc
    integer  :: itrc_loc
    real(r8) :: ratio_loc
+#ifdef GridRiverLakeFlow
+   real(r8) :: flood_input_tracer(ntracers)
+   real(r8) :: flood_evap_temp_trc
 #endif
-
-#if (defined CaMa_Flood)
-   !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
-   real(r8) :: kk
-   real(r8) :: taux_fld    ! wind stress: E-W [kg/m/s**2]
-   real(r8) :: tauy_fld    ! wind stress: N-S [kg/m/s**2]
-   real(r8) :: fsena_fld   ! sensible heat from agcm reference height to atmosphere [W/m2]
-   real(r8) :: fevpa_fld   ! evaporation from agcm reference height to atmosphere [mm/s]
-   real(r8) :: fseng_fld   ! sensible heat flux from ground [W/m2]
-   real(r8) :: tref_fld    ! 2 m height air temperature [kelvin]
-   real(r8) :: qref_fld    ! 2 m height air humidity
-   real(r8) :: z0m_fld     ! effective roughness [m]
-   real(r8) :: zol_fld     ! dimensionless height (z/L) used in Monin-Obukhov theory
-   real(r8) :: rib_fld     ! bulk Richardson number in surface layer
-   real(r8) :: ustar_fld   ! friction velocity [m/s]
-   real(r8) :: tstar_fld   ! temperature scaling parameter
-   real(r8) :: qstar_fld   ! moisture scaling parameter
-   real(r8) :: fm_fld      ! integral of profile function for momentum
-   real(r8) :: fh_fld      ! integral of profile function for heat
-   real(r8) :: fq_fld      ! integral of profile function for moisture
 #endif
 
 !-----------------------------------------------------------------------
+
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      fevpg_fld = 0._r8
+      qinfl_fld = 0._r8
+#endif
 
       z_soisno (maxsnl+1:0) = z_sno (maxsnl+1:0)
       z_soisno (1:nl_soil ) = z_soi (1:nl_soil )
@@ -927,6 +927,7 @@ SUBROUTINE CoLMMAIN ( &
 #endif
                       lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
+                      patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
                       xsc_rain_out,xsc_snow_out,&
@@ -954,6 +955,7 @@ SUBROUTINE CoLMMAIN ( &
 #endif
                       lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
+                      patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
                       xsc_rain_out,xsc_snow_out,&
@@ -1075,6 +1077,11 @@ SUBROUTINE CoLMMAIN ( &
             ldew_snow_bef_th = ldew_snow
 #endif
 
+#if defined(TRACER) && defined(GridRiverLakeFlow)
+         flood_evap_temp_trc = t_soisno(lb)
+         IF (DEF_SPLIT_SOILSNOW) flood_evap_temp_trc = &
+            fsno*t_soisno(lb) + (1._r8-fsno)*t_soisno(1)
+#endif
          CALL THERMAL (ipatch,patchtype,is_dry_lake,lb                ,deltim            ,&
               trsmx0            ,zlnd              ,zsno              ,csoilc            ,&
               dewmx             ,capr              ,cnfac             ,vf_quartz         ,&
@@ -1131,6 +1138,9 @@ SUBROUTINE CoLMMAIN ( &
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
               qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                 &
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+             ,flddepth          ,fldfrc            ,fevpg_fld                            &
+#endif
 #ifdef extend_interception
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
              ,canopy_phase_heat, canopy_phase_heat_p                                    &
@@ -1148,6 +1158,15 @@ SUBROUTINE CoLMMAIN ( &
               )
 
 #ifdef TRACER
+#ifdef GridRiverLakeFlow
+            IF (allocated(flood_tracer_evap_patch)) THEN
+               flood_tracer_evap_patch(:,ipatch) = 0._r8
+               IF (LWINFILT .and. patchtype == 0 .and. fevpg_fld > 0._r8) &
+                  CALL tracer_flood_evap_loss(ipatch, flood_credit_patch(ipatch)*1000._r8, &
+                     flood_tracer_credit_patch(:,ipatch), fevpg_fld*deltim, flood_evap_temp_trc, &
+                     forc_q, forc_psrf, forc_us, forc_vs, flood_tracer_evap_patch(:,ipatch))
+            ENDIF
+#endif
             ! TRACER-only exact phase-change diagnostics are exported by
             ! the THERMAL/PhaseChange path above. Passing them here avoids
             ! the net-storage fallback when melt/freezing coexists with
@@ -1210,7 +1229,15 @@ SUBROUTINE CoLMMAIN ( &
             etroot_trc(:) = 0._r8
             wblc_ice_sink_trc(:) = 0._r8
             etroot_actual_trc(:) = 0._r8
+            permeable_soil_trc(:) = .false.
             etroot_aquifer_trc = 0._r8
+            etroot_surface_trc = 0._r8
+            dew_overflow_trc = 0._r8
+            frost_displaced_trc = 0._r8
+            late_runoff_trc = 0._r8
+            rsub_source_layer_trc(:) = 0._r8
+            rsub_source_surface_trc = 0._r8
+            rsub_source_aquifer_trc = 0._r8
             imperv_evap_wdsrf_trc = 0._r8
             imperv_evap_soil_trc  = 0._r8
             imperv_subl_soil_trc  = 0._r8
@@ -1233,10 +1260,11 @@ SUBROUTINE CoLMMAIN ( &
 	                 wdsrf             ,wa                ,qcharge           &
 #ifdef TRACER
 	                ,qlayer            ,etroot_trc        ,etroot_actual_trc &
-	                ,etroot_aquifer_trc,snow_qout_layer_trc(lbsn:0)          &
+	                ,etroot_aquifer_trc,dew_overflow_trc,frost_displaced_trc,late_runoff_trc &
+	                ,snow_qout_layer_trc(lbsn:0)                              &
 #endif
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
 	                 !add variables for flood depth [mm], flood fraction [0-1]
 	                 !and re-infiltration [mm/s] calculation.
 	                ,flddepth          ,fldfrc            ,qinfl_fld         &
@@ -1246,7 +1274,8 @@ SUBROUTINE CoLMMAIN ( &
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
                  mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)  ,&
 !  irrigation variables
-	                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
+	                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy, &
+                    defer_surface_ice_overflow=(patchtype==0))
 	                 rsub = rnof - rsur
 	         ELSE
 
@@ -1274,13 +1303,15 @@ SUBROUTINE CoLMMAIN ( &
                 ,etroot_trc                                                                 &
                 ,wblc_ice_sink_trc                                                          &
                 ,etroot_actual_trc                                                          &
-                ,etroot_aquifer_trc                                                         &
+                ,etroot_aquifer_trc,etroot_surface_trc,dew_overflow_trc,frost_displaced_trc &
+                ,late_runoff_trc                                                            &
+                ,rsub_source_layer_trc,rsub_source_surface_trc,rsub_source_aquifer_trc     &
                 ,imperv_evap_wdsrf_trc                                                      &
                 ,imperv_evap_soil_trc                                                       &
                 ,imperv_subl_soil_trc                                                       &
                 ,snow_qout_layer_trc(lbsn:0)                                                 &
 #endif
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
                  !add variables for flood depth [mm], flood fraction [0-1]
                  !and re-infiltration [mm/s] calculation.
                 ,flddepth          ,fldfrc            ,qinfl_fld         &
@@ -1290,16 +1321,53 @@ SUBROUTINE CoLMMAIN ( &
                  mss_bcpho(lbsn:0) ,mss_bcphi(lbsn:0) ,mss_ocpho(lbsn:0) ,mss_ocphi(lbsn:0) ,&
                  mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)  ,&
 !  irrigation variables
-                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
+                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy, &
+                 defer_surface_ice_overflow=(patchtype==0) &
+#ifdef TRACER
+                ,permeable_soil_out=permeable_soil_trc &
+#endif
+                 )
          ENDIF
 
+         ! Dry lakes do not calculate a saturated-area fraction in either water solver.
+         IF (is_dry_lake) frcsat = spval
+
 #ifdef TRACER
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+            IF (LWINFILT .and. patchtype == 0 .and. qinfl_fld > trc_tiny) THEN
+#ifdef CaMa_Flood
+               DO itrc_loc=1,ntracers
+                  IF (.NOT.tracer_uses_land_water_transport(itrc_loc)) CYCLE
+                  write(6,*) 'ERROR: CaMa flood infiltration has no composition for active water-borne tracers.'
+                  write(6,*) '       Supply a conservative CaMa tracer exchange before enabling this combination.'
+                  CALL CoLM_stop()
+               ENDDO
+#endif
+            ENDIF
+#ifdef GridRiverLakeFlow
+            flood_input_tracer = 0._r8
+            IF (LWINFILT .and. patchtype == 0 .and. qinfl_fld > 0._r8 .and. &
+                allocated(flood_tracer_credit_patch)) THEN
+               IF (flood_credit_patch(ipatch)*1000._r8 <= fevpg_fld*deltim) &
+                  CALL CoLM_stop('grid flood feedback: infiltration without published tracer credit')
+               flood_input_tracer = (flood_tracer_credit_patch(:,ipatch) - &
+                  flood_tracer_evap_patch(:,ipatch)) * &
+                  (qinfl_fld*deltim/(flood_credit_patch(ipatch)*1000._r8-fevpg_fld*deltim))
+               DO itrc_loc = 1, ntracers
+                  IF (.not. tracer_has_dissolved_limit(itrc_loc)) CYCLE
+                  flood_input_tracer(itrc_loc) = min(max(flood_input_tracer(itrc_loc),0._r8), &
+                     tracers(itrc_loc)%max_dissolved_conc*qinfl_fld*deltim)
+               ENDDO
+            ENDIF
+#endif
+#endif
             IF (DEF_USE_VariablySaturatedFlow) THEN
                ! WATER_VSF mutates wa through soilwater_aquifer_exchange.
                ! etroot_aquifer_trc is already removed explicitly by
                ! tracer_soil_water, so add it back when deriving the net
                ! soil<->aquifer exchange seen by tracer Section 3.
-               qcharge_trc = (wa - wa_old_trc + max(etroot_aquifer_trc, 0._r8)) / max(deltim, trc_tiny)
+               qcharge_trc = (wa - wa_old_trc + etroot_aquifer_trc + &
+                  max(rsub_source_aquifer_trc, 0._r8)) / max(deltim, trc_tiny)
             ELSE
                qcharge_trc = qcharge
             ENDIF
@@ -1375,6 +1443,11 @@ SUBROUTINE CoLMMAIN ( &
                      etroot_actual_trc, etroot_aquifer_trc, &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
                      waterstorage_trc_ground, &
+                     etroot_surface = etroot_surface_trc, dew_overflow = dew_overflow_trc, &
+                     frost_displaced = frost_displaced_trc, late_surface_runoff = late_runoff_trc, &
+                     rsub_source_layer = rsub_source_layer_trc, &
+                     rsub_source_surface = rsub_source_surface_trc, &
+                     rsub_source_aquifer = rsub_source_aquifer_trc, &
                      imperv_evap_wdsrf = imperv_evap_wdsrf_trc, &
                      imperv_evap_soil = imperv_evap_soil_trc, &
                      imperv_subl_soil = imperv_subl_soil_trc, &
@@ -1389,7 +1462,12 @@ SUBROUTINE CoLMMAIN ( &
                      rss_frac = rss, &
                      dz_soi_frac = dz_soisno(1:nl_soil), &
                      porsl_frac = porsl(1:nl_soil), &
-                     dz_sno_frac = dz_soisno(snl+1:0))
+                     dz_sno_frac = dz_soisno(snl+1:0) &
+                     , permeable_soil = permeable_soil_trc &
+#ifdef GridRiverLakeFlow
+                     , flood_tracer_input = flood_input_tracer, flood_infil_water = qinfl_fld*deltim &
+#endif
+                     )
                ELSE
                   CALL tracer_soil_water(ipatch, deltim, snl, nl_soil, &
                      qlayer, qinfl, qcharge_trc, rsur, rsub, &
@@ -1405,6 +1483,11 @@ SUBROUTINE CoLMMAIN ( &
                      etroot_actual_trc, etroot_aquifer_trc, &
                      qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy, &
                      waterstorage_trc_ground, &
+                     etroot_surface = etroot_surface_trc, dew_overflow = dew_overflow_trc, &
+                     frost_displaced = frost_displaced_trc, late_surface_runoff = late_runoff_trc, &
+                     rsub_source_layer = rsub_source_layer_trc, &
+                     rsub_source_surface = rsub_source_surface_trc, &
+                     rsub_source_aquifer = rsub_source_aquifer_trc, &
                      imperv_evap_wdsrf = imperv_evap_wdsrf_trc, &
                      imperv_evap_soil = imperv_evap_soil_trc, &
                      imperv_subl_soil = imperv_subl_soil_trc, &
@@ -1417,8 +1500,17 @@ SUBROUTINE CoLMMAIN ( &
                      ra_frac = raw_trc, &
                      rss_frac = rss, &
                      dz_soi_frac = dz_soisno(1:nl_soil), &
-                     porsl_frac = porsl(1:nl_soil))
+                     porsl_frac = porsl(1:nl_soil) &
+                     , permeable_soil = permeable_soil_trc &
+#ifdef GridRiverLakeFlow
+                     , flood_tracer_input = flood_input_tracer, flood_infil_water = qinfl_fld*deltim &
+#endif
+                     )
                ENDIF
+#ifdef GridRiverLakeFlow
+               IF (allocated(flood_tracer_land_patch)) &
+                  flood_tracer_land_patch(:,ipatch) = flood_input_tracer
+#endif
             ENDIF
 
             ! tracer_runoff removed: surface and subsurface runoff
@@ -1512,6 +1604,38 @@ SUBROUTINE CoLMMAIN ( &
             ENDIF
          ENDIF
 
+         ! WATER deposits frost in the soil before tracer transport.  Its
+         ! liquid displacement is already routed; only pore-excess ice is
+         ! moved here, after tracer transport and snow-layer topology updates.
+         IF (patchtype == 0) THEN
+#ifdef TRACER
+            IF (ntracers > 0) THEN
+               CALL relocate_soil_frost_ice(maxsnl, porsl(1), snl, &
+                 zi_soisno(maxsnl:0), z_soisno(maxsnl+1:1), dz_soisno(maxsnl+1:1), &
+                 t_soisno(maxsnl+1:1), wliq_soisno(maxsnl+1:1), wice_soisno(maxsnl+1:1), &
+                 fiold(maxsnl+1:1), imelt(maxsnl+1:1), snofrz(maxsnl+1:0), snw_rds(maxsnl+1:0), &
+                 scv, snowdp, mss_bcpho(maxsnl+1:0), mss_bcphi(maxsnl+1:0), &
+                 mss_ocpho(maxsnl+1:0), mss_ocphi(maxsnl+1:0), &
+                 mss_dst1(maxsnl+1:0), mss_dst2(maxsnl+1:0), &
+                 mss_dst3(maxsnl+1:0), mss_dst4(maxsnl+1:0), &
+                 trc_wice=trc_wice_soisno(:,maxsnl+1:1,ipatch), &
+                 trc_wliq=trc_wliq_soisno(:,maxsnl+1:1,ipatch), &
+                 trc_solid=trc_solid_soisno(:,maxsnl+1:1,ipatch), trc_scv=trc_scv(:,ipatch))
+            ELSE
+#endif
+            CALL relocate_soil_frost_ice(maxsnl, porsl(1), snl, &
+                 zi_soisno(maxsnl:0), z_soisno(maxsnl+1:1), dz_soisno(maxsnl+1:1), &
+                 t_soisno(maxsnl+1:1), wliq_soisno(maxsnl+1:1), wice_soisno(maxsnl+1:1), &
+                 fiold(maxsnl+1:1), imelt(maxsnl+1:1), snofrz(maxsnl+1:0), snw_rds(maxsnl+1:0), &
+                 scv, snowdp, mss_bcpho(maxsnl+1:0), mss_bcphi(maxsnl+1:0), &
+                 mss_ocpho(maxsnl+1:0), mss_ocphi(maxsnl+1:0), &
+                 mss_dst1(maxsnl+1:0), mss_dst2(maxsnl+1:0), &
+                 mss_dst3(maxsnl+1:0), mss_dst4(maxsnl+1:0))
+#ifdef TRACER
+            ENDIF
+#endif
+         ENDIF
+
          ! Set zero to the empty node
          IF (snl > maxsnl) THEN
             wice_soisno(maxsnl+1:snl) = 0.
@@ -1562,19 +1686,20 @@ SUBROUTINE CoLMMAIN ( &
                endwb = endwb + wetwat
             ENDIF
          ENDIF
-#if (defined CaMa_Flood)
-         IF (LWINFILT) THEN
-            IF (patchtype == 0) THEN
-               endwb=endwb - qinfl_fld*deltim
-            ENDIF
-         ENDIF
+         flood_input_wb = 0._r8
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+         IF (LWINFILT .and. patchtype == 0) flood_input_wb = qinfl_fld
 #endif
 
+         fevpa_wb = fevpa
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+         IF (patchtype == 0) fevpa_wb = fevpa - fevpg_fld
+#endif
 #ifndef CatchLateralFlow
-         errorw=(endwb-totwb)-(forc_prc+forc_prl-fevpa-rnof)*deltim
+         errorw=(endwb-totwb)-(forc_prc+forc_prl+flood_input_wb-fevpa_wb-rnof)*deltim
 #else
          ! for lateral flow, "rsur" is considered in HYDRO/MOD_Hydro_SurfaceFlow.F90
-         errorw=(endwb-totwb)-(forc_prc+forc_prl-fevpa)*deltim
+         errorw=(endwb-totwb)-(forc_prc+forc_prl+flood_input_wb-fevpa_wb)*deltim
 #endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
@@ -1589,18 +1714,26 @@ SUBROUTINE CoLMMAIN ( &
             CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer, &
                patchtype_in = patchtype, water_err_in = errorw, &
                water_dS_in = endwb - totwb, &
-               water_input_in = (forc_prc + forc_prl) * deltim, &
-               water_output_in = (fevpa + rnof) * deltim, &
-               water_evap_in = fevpa * deltim, &
-               water_rnof_in = rnof * deltim)
+               water_input_in = (forc_prc + forc_prl + flood_input_wb) * deltim, &
+               water_output_in = (fevpa_wb + rnof) * deltim, &
+               water_evap_in = fevpa_wb * deltim, &
+               water_rnof_in = rnof * deltim &
+#ifdef GridRiverLakeFlow
+               , flood_heterogeneous_in = LWINFILT .and. patchtype == 0 &
+#endif
+               )
 #else
             CALL tracer_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer, &
                patchtype_in = patchtype, water_err_in = errorw, &
                water_dS_in = endwb - totwb, &
-               water_input_in = (forc_prc + forc_prl) * deltim, &
-               water_output_in = fevpa * deltim, &
-               water_evap_in = fevpa * deltim, &
-               water_rnof_in = 0._r8)
+               water_input_in = (forc_prc + forc_prl + flood_input_wb) * deltim, &
+               water_output_in = fevpa_wb * deltim, &
+               water_evap_in = fevpa_wb * deltim, &
+               water_rnof_in = 0._r8 &
+#ifdef GridRiverLakeFlow
+               , flood_heterogeneous_in = LWINFILT .and. patchtype == 0 &
+#endif
+               )
 #endif
 
             CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, ldew_rain, ldew_snow, &
@@ -2080,33 +2213,9 @@ SUBROUTINE CoLMMAIN ( &
 !======================================================================
       ENDIF
 
-#if (defined CaMa_Flood)
-      IF (LWEVAP) THEN
-         IF ((flddepth .gt. 1.e-6).and.(fldfrc .gt. 0.05).and.patchtype == 0)THEN
-            CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q,&
-               forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,t_grnd,&
-               forc_hpbl, &
-               taux_fld,tauy_fld,fseng_fld,fevpg_fld,tref_fld,qref_fld,&
-               z0m_fld,zol_fld,rib_fld,ustar_fld,qstar_fld,tstar_fld,fm_fld,fh_fld,fq_fld)
-
-            IF (fevpg_fld<0.0) fevpg_fld=0.0d0
-
-            IF ((flddepth-deltim*fevpg_fld .gt. 0.0) .and. (fevpg_fld.gt.0.0)) THEN
-               flddepth=flddepth-deltim*fevpg_fld
-               fseng= fseng_fld*fldfrc+(1.0-fldfrc)*fseng
-               fevpg= fevpg_fld*fldfrc+(1.0-fldfrc)*fevpg
-               fevpg_fld=fevpg_fld*fldfrc
-            ELSE
-               fevpg_fld=0.0d0
-            ENDIF
-
-         ELSE
-            fevpg_fld=0.0d0
-         ENDIF
-
-      ELSE
-         fevpg_fld=0.0d0
-      ENDIF
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      ! Flood evaporation is mixed inside THERMAL before the ground energy solve;
+      ! WATER receives only the unflooded land evaporation demand.
 #endif
 
 

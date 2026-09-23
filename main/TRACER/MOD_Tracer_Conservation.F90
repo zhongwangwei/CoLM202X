@@ -178,6 +178,9 @@ CONTAINS
                storage_comp(2) = storage_comp(2) + trc_wliq_soisno(itrc, j, ipatch)
                storage_comp(3) = storage_comp(3) + trc_wice_soisno(itrc, j, ipatch)
             ENDDO
+         ! The aquifer reference isotope mass is fixed for this patch. Keep
+         ! the relative component here: Mref cancels from the step's delta,
+         ! matching hydrology's wa-only budget (the fixed Vref also cancels).
          storage_comp(4) = trc_wa(itrc, ipatch)
          storage_comp(5) = trc_wdsrf(itrc, ipatch)
          storage_comp(6) = trc_wetwat(itrc, ipatch)
@@ -307,7 +310,7 @@ CONTAINS
    SUBROUTINE tracer_balance_check (ipatch, snl, nl_soil, deltim, xerr_tracer, &
                                     patchtype_in, water_err_in, water_dS_in, &
                                     water_input_in, water_output_in, &
-                                    water_evap_in, water_rnof_in)
+                                    water_evap_in, water_rnof_in, flood_heterogeneous_in)
       IMPLICIT NONE
       integer,  intent(in)  :: ipatch, snl, nl_soil
       real(r8), intent(in)  :: deltim
@@ -322,6 +325,7 @@ CONTAINS
       real(r8), intent(in), optional :: water_output_in
       real(r8), intent(in), optional :: water_evap_in
       real(r8), intent(in), optional :: water_rnof_in
+      logical, intent(in), optional :: flood_heterogeneous_in
 
       integer  :: itrc, j, lb_store
       real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
@@ -392,6 +396,21 @@ CONTAINS
          fixed_signature_step = water_corrected_check .and. .not. tracer_fractionation_active(itrc)
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature_step = fixed_signature_step .and. .not. trc_runtime_forced(itrc)
+         ENDIF
+         ! Floodwater can carry a river signature different from R_init even
+         ! when precipitation is fixed-signature. That signature persists in
+         ! soil after a wet step and across restart. With feedback enabled,
+         ! retain raw conservation but do not use R_init as a soil-patch
+         ! flux or host-closure correction on later dry steps either.
+         IF (present(flood_heterogeneous_in)) THEN
+            IF (flood_heterogeneous_in) THEN
+               fixed_signature_step = .false.
+               ! The raw tracer budget already subtracts its explicitly
+               ! booked numerical source/sink. Applying R_init times the
+               ! host water closure as well would double-correct a flooded
+               ! column whose incoming isotope ratio is not R_init.
+               water_corrected_check = .false.
+            ENDIF
          ENDIF
 
          ! Per-step fluxes = current accumulator - snapshot at step start.

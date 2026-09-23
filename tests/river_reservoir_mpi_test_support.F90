@@ -18,7 +18,13 @@ END MODULE MOD_TimeManager
 MODULE MOD_Namelist
    IMPLICIT NONE
    integer, parameter :: DEF_Reservoir_Method = 1
+   logical, parameter :: DEF_UnitCatchment_regional = .false.
    character(len=1024) :: DEF_ReservoirPara_file = ''
+CONTAINS
+   FUNCTION regional_unitcatchment_file () RESULT(filename)
+      character(len=1024) :: filename
+      filename = ''
+   END FUNCTION regional_unitcatchment_file
 END MODULE MOD_Namelist
 
 MODULE MOD_Vars_Global

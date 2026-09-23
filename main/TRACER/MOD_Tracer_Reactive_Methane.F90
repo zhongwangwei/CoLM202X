@@ -99,8 +99,10 @@ CONTAINS
 
    END FUNCTION ch4_reactive_has
 
-   SUBROUTINE ch4_reactive_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
+   SUBROUTINE ch4_reactive_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
 
+      USE MOD_LandPatch, only: landpatch
+      USE MOD_NetCDFVector, only: ncio_vector_group_presence
       IMPLICIT NONE
       integer, intent(in) :: numpatch
       integer, intent(in) :: lc_year
@@ -108,10 +110,14 @@ CONTAINS
       character(len=*), intent(in) :: casename
       character(len=*), intent(in) :: dir_restart
       character(len=*), intent(in) :: dir_landdata
+      character(len=*), intent(in), optional :: file_restart
 
       character(len=256) :: cyear_restart
       character(len=256) :: file_param
       logical :: use_param
+      logical :: lake_restart_present(2)
+      character(len=32), parameter :: lake_restart_fields(2) = &
+         [character(len=32) :: 'ch4_conc_methane', 'ch4_lake_soilc']
       real(r8), allocatable :: giems_dummy_patch(:)
 
       IF (.not. ch4_reactive_has()) RETURN
@@ -152,14 +158,15 @@ CONTAINS
       CALL allocate_methane_acc_fluxes (numpatch)
 
       write(cyear_restart,'(i4.4)') lc_year
-      IF (p_is_worker .and. allocated(patchtype)) THEN
-         IF (DEF_METHANE%allowlakeprod .and. count(patchtype == 4) > 0 .and. &
-             .not. allocated(lake_soilc_srf)) THEN
-            CALL CoLM_stop (' ***** ERROR: lake CH4 production requires allocated lake_soilc surface data.')
-         ENDIF
-         IF (allocated(lake_soilc_srf)) THEN
-            CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, DEF_METHANE%allowlakeprod)
-         ENDIF
+      ! Probe on all ranks, but leave transaction/value validation and the
+      ! actual read to land_read_restart. A valid zero (exhausted) inventory
+      ! is still authoritative and must not be refilled from surface data.
+      lake_restart_present = .false.
+      IF (present(file_restart)) THEN
+         CALL ncio_vector_group_presence(file_restart, lake_restart_fields, landpatch, lake_restart_present)
+      ENDIF
+      IF (p_is_worker .and. allocated(patchtype) .and. .not. all(lake_restart_present)) THEN
+         CALL initialize_methane_lake_soilc_from_surface (patchtype, lake_soilc_srf, DEF_METHANE%allowlakeprod)
       ENDIF
 
       CALL allocate_methane_giems (numpatch)
@@ -656,7 +663,7 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
-      real(r8), intent(in), optional :: lccpct_patches(:,:)
+      real(r8), intent(in), optional :: lccpct_patches(:,0:)
       real(r8), intent(in), optional :: new_patch_area(:)
       real(r8), intent(in), optional :: old_patch_area(:)
       integer :: nnew

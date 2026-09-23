@@ -38,6 +38,11 @@ includes=(-Iinclude -I"$moddir" -I.bld -J"$moddir")
 # Compile the modules under test from the current source tree.  Keeping the
 # freshly generated module directory before .bld prevents a stale .mod file
 # from hiding an interface change in WorkerPushData, Network, Levee, or BIF.
+# MOD_Namelist is one of them: MOD_Grid_RiverLakeNetwork takes the network file
+# name from it (get_unitcatchment_file), so a stale .bld/MOD_Namelist.mod hides
+# that interface.
+"$compiler" "${flags[@]}" "${includes[@]}" -c \
+  share/MOD_Namelist.F90 -o "$moddir/MOD_Namelist.o"
 "$compiler" "${flags[@]}" "${includes[@]}" -c \
   share/MOD_WorkerPushData.F90 -o "$moddir/MOD_WorkerPushData.o"
 "$compiler" "${flags[@]}" "${includes[@]}" -c \
@@ -54,7 +59,7 @@ shared_line=$("$make_cmd" --no-print-directory \
 read -r -a shared_objects <<< "$shared_line"
 link_objects=()
 for object in "${shared_objects[@]}"; do
-  if [[ "$object" != .bld/MOD_WorkerPushData.o ]]; then
+  if [[ "$object" != .bld/MOD_WorkerPushData.o && "$object" != .bld/MOD_Namelist.o ]]; then
     link_objects+=("$object")
   fi
 done
@@ -73,6 +78,7 @@ fi
 "$compiler" -fopenmp -o "$moddir/river_bif_physics_harness" \
   "${link_objects[@]}" \
   .bld/MOD_Vector_ReadWrite.o .bld/MOD_Grid_Reservoir.o \
+  "$moddir/MOD_Namelist.o" \
   "$moddir/MOD_WorkerPushData.o" \
   "$moddir/MOD_Grid_RiverLakeNetwork.o" \
   "$moddir/MOD_Grid_RiverLakeLevee.o" \

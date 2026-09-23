@@ -23,6 +23,9 @@ MODULE MOD_Grid_RiverLakeHist
    PUBLIC :: hist_grid_riverlake_init
    PUBLIC :: hist_grid_riverlake_out
    PUBLIC :: hist_grid_riverlake_final
+   ! Needed by the spinup early-return path in MOD_Hist.F90, which must discard
+   ! river-lake/tracer history accumulation even when no record is written.
+   PUBLIC :: flush_acc_fluxes_riverlake
 
 !--------------------------------------------------------------------------
 CONTAINS
@@ -299,6 +302,7 @@ CONTAINS
    real(r8), allocatable :: qresv_in_local  (:)  ! safe buffer for reservoir hist
    real(r8), allocatable :: qresv_out_local (:)  ! safe buffer for reservoir hist
    real(r8), allocatable :: a_floodfrc_inpm (:)  ! flooded area fraction
+   real(r8) :: window_seconds
 
       ! Derived on every rank, not just the master: under DEF_HIST_mode='block'
       ! each IO rank builds its own shard name from this, and the transform is
@@ -314,8 +318,13 @@ CONTAINS
       ! modes cannot grow separate copies of the layout. Every route variable
       ! below is then written through route_hist_write_*, which is what keeps
       ! one/block coverage identical without a hand-maintained list.
+      window_seconds=0._r8
+      IF (p_is_worker .and. size(acctime_ucat)>0) window_seconds=maxval(acctime_ucat)
+#ifdef USEMPI
+      CALL mpi_allreduce(MPI_IN_PLACE, window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+#endif
       CALL route_hist_begin (file_hist_ucat, idate, is_first_in_file, &
-         lon_ucat, lat_ucat, itime_in_file_ucat)
+         lon_ucat, lat_ucat, itime_in_file_ucat, window_seconds)
 
       IF (is_first_in_file) THEN
          IF (trim(histform) == 'Gridded') THEN

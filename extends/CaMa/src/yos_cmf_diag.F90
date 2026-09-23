@@ -40,8 +40,8 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2OUTFLW(:,:)           !! total o
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2STORGE(:,:)           !! total storage       [m3]   (rivsto + fldsto)
 
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2OUTINS(:,:)           !! instantaneous discharge [m3/s] (unrouted runoff)
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX(:,:)          !! Evaporation water extracted
-real(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX(:,:)          !! Infiltration water extracted
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX(:,:)          !! Evaporation water extracted [m3/s]
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX(:,:)        !! Infiltration water extracted [m3/s]
 
 !================================================
 
@@ -69,8 +69,8 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2PTHOUT_aAVG(:,:)       !! flood 
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2GDWRTN_aAVG(:,:)       !! average ground water return flow
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2RUNOFF_aAVG(:,:)       !! average input runoff
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2ROFSUB_aAVG(:,:)       !! average input sub-surface runoff
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_aAVG(:,:)      !! average extracted water evaporation
-real(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_aAVG(:,:)          !! Infiltration water extracted
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_aAVG(:,:)      !! average extracted evaporation [m3/s]
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_aAVG(:,:)   !! average extracted infiltration [m3/s]
 
 !*** Average diagnostics (1D) for output
 REAL(KIND=JPRB),ALLOCATABLE                :: D1PTHFLW_aAVG(:,:)       !! bifurcation flow (1D, not 2D variable)
@@ -94,8 +94,8 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2PTHOUT_oAVG(:,:)       !! flood 
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2GDWRTN_oAVG(:,:)       !! average ground water return flow
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2RUNOFF_oAVG(:,:)       !! average input runoff
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2ROFSUB_oAVG(:,:)       !! average input sub-surface runoff
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_oAVG(:,:)      !! average extracted water evaporation
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_oAVG(:,:)    !! average extracted water evaporation
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_oAVG(:,:)      !! average extracted evaporation [m3/s]
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_oAVG(:,:)    !! average extracted infiltration [m3/s]
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2DAMINF_oAVG(:,:)       !! average reservoir inflow [m3/s]  !!!added
 
 !*** Average diagnostics (1D) for output
@@ -131,6 +131,52 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2DAMINF_aAVG(:,:) !! average rese
 !!!*** levee variables
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2LEVDPH(:,:) !! flood depth in protected side (water depth betwen river & levee)
 
+CONTAINS
+
+! Raw daily integrals/maxima shared by history's partial flush and NC restart.
+SUBROUTINE RESTART_DIAG_FIELD(INDEX,NAME,FIELD)
+INTEGER(KIND=JPIM), INTENT(IN) :: INDEX
+CHARACTER(LEN=*), INTENT(OUT) :: NAME
+REAL(KIND=JPRB), POINTER, INTENT(OUT) :: FIELD(:,:)
+NULLIFY(FIELD)
+NAME=''
+SELECT CASE(INDEX)
+CASE(1)
+  NAME='history_rivout'; FIELD=>D2RIVOUT_oAVG
+CASE(2)
+  NAME='history_fldout'; FIELD=>D2FLDOUT_oAVG
+CASE(3)
+  NAME='history_outflw'; FIELD=>D2OUTFLW_oAVG
+CASE(4)
+  NAME='history_rivvel'; FIELD=>D2RIVVEL_oAVG
+CASE(5)
+  NAME='history_pthout'; FIELD=>D2PTHOUT_oAVG
+CASE(6)
+  NAME='history_gdwrtn'; FIELD=>D2GDWRTN_oAVG
+CASE(7)
+  NAME='history_runoff'; FIELD=>D2RUNOFF_oAVG
+CASE(8)
+  NAME='history_rofsub'; FIELD=>D2ROFSUB_oAVG
+CASE(9)
+  NAME='history_outflw_max'; FIELD=>D2OUTFLW_oMAX
+CASE(10)
+  NAME='history_rivdph_max'; FIELD=>D2RIVDPH_oMAX
+CASE(11)
+  NAME='history_storge_max'; FIELD=>D2STORGE_oMAX
+CASE(12)
+  IF (ALLOCATED(D2DAMINF_oAVG)) THEN
+    NAME='history_daminf'; FIELD=>D2DAMINF_oAVG
+  ENDIF
+CASE(13)
+  IF (ALLOCATED(D2WEVAPEX_oAVG)) THEN
+    NAME='history_wevapex'; FIELD=>D2WEVAPEX_oAVG
+  ENDIF
+CASE(14)
+  IF (ALLOCATED(D2WINFILTEX_oAVG)) THEN
+    NAME='history_winfiltex'; FIELD=>D2WINFILTEX_oAVG
+  ENDIF
+END SELECT
+END SUBROUTINE RESTART_DIAG_FIELD
 
 
 END MODULE YOS_CMF_DIAG

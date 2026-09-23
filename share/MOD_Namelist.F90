@@ -238,7 +238,7 @@ MODULE MOD_Namelist
 ! ----- Part 11: parameterization schemes -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   integer :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES; 8:CoLM202x
+   integer :: DEF_Interception_scheme = 8  !1:CoLM2014; 2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES; 8:CoLM2024
    real(r8) :: DEF_MATSIRO_CWCAP_SCALE = 1.0_r8
 
    ! ----- SOIL parameters and supercool water setting ------
@@ -283,9 +283,9 @@ MODULE MOD_Namelist
    logical :: DEF_SPLIT_SOILSNOW = .false.
 
    ! ----- Account for vegetation snow process -----
-   ! NOTE: This option will be activated in the new release, accompanied by
-   !       a new set of canopy structure data, include the snow-free LAI.
-   logical :: DEF_VEG_SNOW = .false.
+   ! Default is ON so canopy snow interception/unloading and phase storage
+   ! are handled explicitly; runtime namelists may still set it false.
+   logical :: DEF_VEG_SNOW = .true.
 
    ! ----- Variably Saturated Flow Soil Water -----
    logical :: DEF_USE_VariablySaturatedFlow = .true.
@@ -324,16 +324,45 @@ MODULE MOD_Namelist
    integer :: DEF_NDEP_FREQUENCY = 1
 
    ! ----- CaMa-Flood -----
-   character(len=256) :: DEF_CaMa_Namelist = 'null'
+   character(len=256) :: DEF_CaMa_Namelist = 'null' ! legacy data/configuration only
+   character(len=256) :: DEF_CaMa_Restart_file = 'null' ! main-NC mode: matching CaMa NetCDF checkpoint
+   ! main-NC mode: flood evaporation and infiltration exchange between the land and
+   ! the flooded routing cells (two-way coupling).  .false.: the land sees no flood
+   ! water and CaMa takes nothing back, i.e. one-way runoff coupling.
+   logical :: DEF_CaMa_FloodFeedback = .true.
+   ! main-NC mode: .true. stops the run when the land domain does not hold complete
+   ! drainage basins (a river link or bifurcation crosses the domain edge) or land
+   ! runoff falls on a grid cell that no routing cell receives.  .false. (default):
+   ! warn, route what can be routed, and report the runoff that is dropped.
+   logical :: DEF_CaMa_StrictDomain = .false.
 
    ! ----- lateral flow related -----
    character(len=256) :: DEF_ElementNeighbour_file = 'null'
    character(len=256) :: DEF_UnitCatchment_file    = 'null'
+   ! .true.: mksrfdata cuts DEF_UnitCatchment_file down to the river systems that
+   ! receive runoff from the land domain and stores the result in the landdata
+   ! directory; mkinidata and the model then read that file instead.  Saves the
+   ! cost of routing a network that is dry everywhere outside a regional domain.
+   ! Only for GridRiverLakeFlow; CaMa-Flood always reads the full file.
+   ! Restart files belong to the network in use: after switching this on or off,
+   ! rerun mkinidata (or cut an existing restart with tools/subset_unitcatchment.py).
+   ! Unit catchments are renumbered in the regional file; the reservoir catalogue
+   ! (dam_seq in DEF_ReservoirPara_file) is translated to the new numbers.
+   logical  :: DEF_UnitCatchment_regional = .false.
+   character(len=*), parameter :: REGIONAL_UNITCATCHMENT_SUFFIX = '/riverlake/unitcatchment_regional.nc'
    character(len=256) :: DEF_ReservoirPara_file    = 'null'
 
    logical  :: DEF_USE_EstimatedRiverDepth  = .true.
    integer  :: DEF_Reservoir_Method         = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
+   ! .true.: also shorten the routing substep so that no river cell's momentum
+   ! passes through zero within it (dt <= |momentum / net momentum flux|).  On the
+   ! global 15-min network this, not the CFL condition, sets the substep in most
+   ! substeps.  .false.: CFL and storage limits only, as in CaMa-Flood.
+   logical  :: DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT = .true.
+   ! Exchange routed inundation water with land evaporation and infiltration.
+   ! Off preserves the historical one-way runoff coupling and its cost.
+   logical  :: DEF_GridRiverLake_FloodFeedback = .false.
 
    ! ----- levee module -----
    logical  :: DEF_USE_LEVEE           = .false.
@@ -425,23 +454,27 @@ MODULE MOD_Namelist
    real(r8) :: DEF_TRACER_NSS_LEAF_WATER_PER_LAI = 0.12_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
    real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
-   integer  :: DEF_TRACER_NUM          = 2
+   ! Calibrated effective isotope-mixing water above the aquifer anomaly wa [mm].
+   ! Deliberately unset: an isotope run with VSF must provide this explicitly.
+   real(r8) :: DEF_TRACER_AQUIFER_MIXING_WATER_MM = -1._r8
+   ! No species is implicit: isotopes, gases, solutes and particles use the same list.
+   integer  :: DEF_TRACER_NUM          = 0
    ! Allowed aggregate bad entries before abort; zero preserves strict behavior.
    integer  :: DEF_TRACER_BALANCE_ABORT_NBAD = 0
    integer  :: DEF_TRACER_RESID_ABORT_NBAD   = 0
    integer  :: DEF_TRACER_LULCC_ABORT_NBAD   = 0
-   character(len=256) :: DEF_TRACER_NAMES     = "H2_18O,HDO"
-   character(len=256) :: DEF_TRACER_TYPES     = "isotope,isotope"
-   character(len=256) :: DEF_TRACER_MRAT      = "20.0,19.0"
-   character(len=256) :: DEF_TRACER_REF_RATIO = "2.0052e-3,1.5576e-4"
-   character(len=256) :: DEF_TRACER_INIT_DELTA = "-10.0,-70.0"
-   character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = "0.0,0.0"
+   character(len=256) :: DEF_TRACER_NAMES     = ""
+   character(len=256) :: DEF_TRACER_TYPES     = ""
+   character(len=256) :: DEF_TRACER_MRAT      = ""
+   character(len=256) :: DEF_TRACER_REF_RATIO = ""
+   character(len=256) :: DEF_TRACER_INIT_DELTA = ""
+   character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = ""
    logical  :: DEF_TRACER_USE_SOIL_INIT = .false.
    character(len=256) :: DEF_TRACER_SOIL_INIT_FILE = 'null'
-   character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = 'soilwat_O18,soilwat_H2'
+   character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = ''
    ! Per-species files carry unit/capability metadata plus optional
    ! species-owned parameter groups; use NAME:path mappings where possible.
-   character(len=512) :: DEF_TRACER_PARAM_FILES = 'null'
+   character(len=2048) :: DEF_TRACER_PARAM_FILES = 'null'
 #if (defined TRACER) && (defined BGC)
    ! ----- Generic BGC/reactive-tracer shared inputs -----
    character(len=256) :: DEF_file_GIEMS = 'null'
@@ -1269,6 +1302,8 @@ CONTAINS
       DEF_USE_EstimatedRiverDepth,            &
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
+      DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT, &
+      DEF_GridRiverLake_FloodFeedback, &
 
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
@@ -1286,6 +1321,7 @@ CONTAINS
       DEF_TRACER_NSS_LEAF_WATER_PER_LAI,      &
       DEF_TRACER_NSS_LEAF_PATH_LENGTH,        &
       DEF_TRACER_NSS_LEAF_RB,                 &
+      DEF_TRACER_AQUIFER_MIXING_WATER_MM,     &
       DEF_TRACER_NUM,                         &
       DEF_TRACER_BALANCE_ABORT_NBAD,          &
       DEF_TRACER_RESID_ABORT_NBAD,            &
@@ -1331,9 +1367,13 @@ CONTAINS
       DEF_file_snowaging ,                    &
 
       DEF_CaMa_Namelist,                      &
+      DEF_CaMa_Restart_file,                  &
+      DEF_CaMa_FloodFeedback,                 &
+      DEF_CaMa_StrictDomain,                  &
 
       DEF_ElementNeighbour_file,              &
       DEF_UnitCatchment_file,                 &
+      DEF_UnitCatchment_regional,             &
       DEF_ReservoirPara_file,                 &
 
       DEF_DA_obsdir,                          &
@@ -1388,6 +1428,10 @@ CONTAINS
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(nlfile))
          ENDIF
          close(10)
+         ! A saturated fixed-length value may already have been silently truncated.
+         IF (len_trim(DEF_TRACER_PARAM_FILES) == len(DEF_TRACER_PARAM_FILES)) THEN
+            CALL CoLM_Stop('DEF_TRACER_PARAM_FILES exceeds supported length; use shorter paths or fewer species.')
+         ENDIF
 
          open(10, status='OLD', file=trim(DEF_forcing_namelist), form="FORMATTED")
          read(10, nml=nl_colm_forcing, iostat=ierr, iomsg=iomesg)
@@ -1429,6 +1473,51 @@ CONTAINS
                trim(DEF_HIST_mode), '" is invalid; use one or block.'
             CALL CoLM_stop ()
          END SELECT
+
+         IF (.not. ieee_is_finite(DEF_GRIDBASED_ROUTING_MAX_DT)) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: DEF_GRIDBASED_ROUTING_MAX_DT must be finite and greater than zero.'
+            CALL CoLM_Stop ()
+         ELSEIF (DEF_GRIDBASED_ROUTING_MAX_DT <= 0._r8) THEN
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: DEF_GRIDBASED_ROUTING_MAX_DT must be finite and greater than zero.'
+            CALL CoLM_Stop ()
+         ENDIF
+
+         IF (DEF_UnitCatchment_regional) THEN
+#ifdef LULCC
+            ! The regional file is cut to the land domain of one land-cover year;
+            ! later years may cover different coastal pixels.
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: DEF_UnitCatchment_regional is not supported with LULCC.'
+            CALL CoLM_Stop ()
+#endif
+            IF (trim(DEF_UnitCatchment_file) == 'null') THEN
+               write(*,*) '                  *****                  '
+               write(*,*) 'ERROR: DEF_UnitCatchment_regional needs DEF_UnitCatchment_file.'
+               CALL CoLM_Stop ()
+            ENDIF
+#ifndef GridRiverLakeFlow
+            ! Only the river-lake routing cuts its network.  CaMa-Flood (which
+            ! reads DEF_UnitCatchment_file itself), the catchment-based lateral flow
+            ! and single-point runs keep the full map.
+            write(*,*) '                  *****                  '
+            write(*,*) 'ERROR: DEF_UnitCatchment_regional applies to GridRiverLakeFlow builds only.'
+            CALL CoLM_Stop ()
+#endif
+            IF (len_trim(DEF_dir_landdata) + len(REGIONAL_UNITCATCHMENT_SUFFIX) > len(DEF_dir_landdata)) THEN
+               write(*,*) '                  *****                  '
+               write(*,*) 'ERROR: the landdata path is too long for the regional unit-catchment file.'
+               CALL CoLM_Stop ()
+            ENDIF
+         ENDIF
+
+#ifndef GridRiverLakeFlow
+         IF (DEF_GridRiverLake_FloodFeedback) THEN
+            write(*,*) 'ERROR: DEF_GridRiverLake_FloodFeedback needs a GridRiverLakeFlow build.'
+            CALL CoLM_Stop ()
+         ENDIF
+#endif
 
          IF (.not. ieee_is_finite(DEF_simulation_time%timestep)) THEN
             write(*,*) '                  *****                  '
@@ -1530,15 +1619,6 @@ CONTAINS
             write(*,*) 'Fatal ERROR: TRACER requires DEF_USE_VariablySaturatedFlow = .true.'
             write(*,*) 'Please enable VariablySaturatedFlow/vanGenuchten_Mualem soil hydrology'
             write(*,*) 'or rebuild with #undef TRACER.'
-            CALL CoLM_stop ()
-         ENDIF
-         IF (DEF_USE_BIFURCATION .and. DEF_TRACER_NUM > 0) THEN
-            write(*,*) '                  *****                  '
-            write(*,*) 'Fatal ERROR: TRACER (DEF_TRACER_NUM > 0) and DEF_USE_BIFURCATION'
-            write(*,*) 'cannot be enabled together. River bifurcation forces a single global'
-            write(*,*) 'routing sub-step shared by every river system; coupling that to tracer'
-            write(*,*) 'transport is prohibitively slow. Disable DEF_USE_BIFURCATION, or set'
-            write(*,*) 'DEF_TRACER_NUM = 0 (or rebuild with #undef TRACER) for bifurcation runs.'
             CALL CoLM_stop ()
          ENDIF
 #endif
@@ -2016,9 +2096,13 @@ CONTAINS
       CALL mpi_bcast (DEF_file_snowaging                     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_CaMa_Namelist                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_Restart_file                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_FloodFeedback                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_StrictDomain                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_ElementNeighbour_file              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_UnitCatchment_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_UnitCatchment_regional             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_ReservoirPara_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_DA_obsdir                          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -2041,6 +2125,8 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GridRiverLake_FloodFeedback       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
@@ -2058,6 +2144,7 @@ CONTAINS
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_WATER_PER_LAI      ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH        ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                 ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_AQUIFER_MIXING_WATER_MM     ,1   ,mpi_double_precision,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_NUM                         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_BALANCE_ABORT_NBAD          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_RESID_ABORT_NBAD            ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
@@ -2071,7 +2158,8 @@ CONTAINS
       CALL mpi_bcast (DEF_TRACER_USE_SOIL_INIT               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_SOIL_INIT_FILE              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_TRACER_SOIL_INIT_VARS              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_TRACER_PARAM_FILES        ,512 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_PARAM_FILES, len(DEF_TRACER_PARAM_FILES), &
+         mpi_character, p_address_master, p_comm_glb, p_err)
 #if (defined TRACER) && (defined BGC)
       CALL mpi_bcast (DEF_file_GIEMS                         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
@@ -2218,6 +2306,31 @@ CONTAINS
       CALL sync_hist_vars (set_defaults = .false.)
 
    END SUBROUTINE read_namelist
+
+   ! ---------------
+   FUNCTION regional_unitcatchment_file () RESULT (fname)
+
+   IMPLICIT NONE
+   character(len=256) :: fname
+
+      fname = trim(DEF_dir_landdata) // REGIONAL_UNITCATCHMENT_SUFFIX
+
+   END FUNCTION regional_unitcatchment_file
+
+   ! ---------------
+   FUNCTION get_unitcatchment_file () RESULT (fname)
+
+   ! The unit-catchment network the run actually uses.
+   IMPLICIT NONE
+   character(len=256) :: fname
+
+      IF (DEF_UnitCatchment_regional) THEN
+         fname = regional_unitcatchment_file ()
+      ELSE
+         fname = DEF_UnitCatchment_file
+      ENDIF
+
+   END FUNCTION get_unitcatchment_file
 
    ! ---------------
    SUBROUTINE sync_hist_vars (set_defaults)

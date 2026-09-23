@@ -11,9 +11,9 @@ MODULE MOD_Tracer_Evapo
    USE MOD_Tracer_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
       tracer_rayleigh_freezing_loss, tracer_surface_relhum, &
-      tracer_equilibration_exchange, tracer_alpha_liq_vap
+      tracer_equilibration_exchange, tracer_alpha_liq_vap, tracer_alpha_kinetic_open_water
    USE MOD_Namelist, only: DEF_TRACER_SUBL_SKIN_MM, DEF_TRACER_CANOPY_EQUILIBRATION
-   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss, &
+   USE MOD_Tracer_EvapLimit, only: tracer_evaporative_tracer_loss, tracer_atmospheric_tracer_loss, &
       tracer_skin_limited_tracer_loss
 	   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
 	      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_canopy_solid, &
@@ -24,6 +24,45 @@ MODULE MOD_Tracer_Evapo
    IMPLICIT NONE
 
 CONTAINS
+
+   SUBROUTINE tracer_flood_evap_loss(ipatch, water_credit, tracer_credit, water_evap, &
+      temp_k, forc_q, forc_psrf, forc_us, forc_vs, tracer_loss)
+      ! Flood evaporation belongs to the routing pool, not land a_trc_evap.
+      ! A negative Craig-Gordon loss is atmospheric isotope uptake.
+      integer, intent(in) :: ipatch
+      real(r8), intent(in) :: water_credit, tracer_credit(:), water_evap
+      real(r8), intent(in) :: temp_k, forc_q, forc_psrf, forc_us, forc_vs
+      real(r8), intent(out) :: tracer_loss(:)
+      integer :: itrc
+      real(r8) :: vapor_ratio
+
+      tracer_loss = 0._r8
+      IF (water_credit <= trc_tiny .or. water_evap <= trc_tiny) RETURN
+      DO itrc = 1, ntracers
+         IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+         IF (tracer_is_nonvolatile_solute(itrc)) CYCLE
+         vapor_ratio = tracer_forcing_vapor_value(itrc, ipatch)
+         tracer_loss(itrc) = tracer_atmospheric_tracer_loss( &
+            tracer_credit(itrc), water_credit, water_evap, temp_k, .false., &
+            evap_ratio, trc_tiny, &
+            merge(tracers(itrc)%ref_ratio * (1._r8+trc_delta_sanity_max/1000._r8), &
+                  0._r8, tracer_fractionation_active(itrc)), .false.)
+      ENDDO
+
+   CONTAINS
+      real(r8) FUNCTION evap_ratio(source_ratio, temp, from_ice)
+         real(r8), intent(in) :: source_ratio, temp
+         logical, intent(in) :: from_ice
+         real(r8) :: relhum, alpha_k
+         evap_ratio = source_ratio
+         IF (.not. tracer_fractionation_active(itrc)) RETURN
+         relhum = tracer_surface_relhum(forc_q, forc_psrf, temp, from_ice)
+         alpha_k = tracer_alpha_kinetic_open_water(itrc, &
+            sqrt(max(forc_us*forc_us+forc_vs*forc_vs,0._r8)))
+         evap_ratio = tracer_craig_gordon_evap_ratio(itrc, source_ratio, vapor_ratio, &
+            temp, relhum, alpha_k, from_ice)
+      END FUNCTION evap_ratio
+   END SUBROUTINE tracer_flood_evap_loss
 
    !---------------------------------------------------------------
    ! Delta-based ET tracer update after THERMAL.
