@@ -9,6 +9,9 @@ MODULE MOD_SingleSrfdata
 !    "SinglePoint".
 !
 !  Created by Shupeng Zhang, May 2023
+!  Missing CoLM2024 site scalars are read independently from their raw
+!  pixels or nearest valid pixels in a +/-5-cell window of the 500-m tile,
+!  unless complete site PFT data exist; regional mode uses area weighting.
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
@@ -209,14 +212,14 @@ CONTAINS
    ! Local Variables
    real(r8) :: lat_in, lon_in
    real(r8) :: LAI, lakedepth, slp, asp, zenith_angle
-   integer  :: i, isc, nsl, typ, a, z, arraysize
+   integer  :: i, isc, nsl, typ, a, z, arraysize, start2(2)
    integer  :: iyear, idate(3), simulation_lai_year_start, simulation_lai_year_end
    integer  :: start_year, end_year, ntime, itime
 
    character(len=256) :: filename, dir_5x5, fmt_str
    character(len=4)   :: cyear, c
 
-   type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridlai, gridlake,  &
+   type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridcanopy, gridlai, gridlake,  &
                       gridbright, gridsoil, gridrock, gridtopo, grid_topo_factor
 
    integer,  allocatable :: croptyp(:), pfttyp (:)
@@ -225,6 +228,8 @@ CONTAINS
    integer, parameter :: N_PFT_modis = 16
    logical            :: readflag
    logical            :: scalar_structure(3)
+   logical            :: raw_structure
+   real(r8)           :: raw_canopy(3)
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    logical            :: pft_structure(3)
 #endif
@@ -512,16 +517,42 @@ CONTAINS
             IF (any(pft_structure) .and. .not. all(pft_structure)) &
                CALL CoLM_stop('SinglePoint CoLM2024 PFT canopy structure is incomplete')
          ENDIF
-         IF (.not. all(scalar_structure) .and. .not. all(pft_structure)) &
-            CALL CoLM_stop('SinglePoint CoLM2024 needs ncd/ncw/bcw or complete PFT canopy structure')
-#else
-         IF (.not. all(scalar_structure)) &
-            CALL CoLM_stop('SinglePoint CoLM2024 needs ncd, ncw, and bcw')
 #endif
-         IF (all(scalar_structure)) THEN
+         raw_structure = .false.
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (.not. all(scalar_structure) .and. .not. all(pft_structure)) THEN
+#else
+         IF (.not. all(scalar_structure)) THEN
+#endif
+            CALL gridcanopy%define_by_name ('colm_500m')
+            dir_5x5 = trim(DEF_dir_rawdata)//'/canopy_data'
+            CALL get_5x5_filename (gridcanopy, dir_5x5, 'CanopyStructure_500m_CH90_aggregated', &
+               SITE_lon_location, SITE_lat_location, filename, start2)
+            inquire(file=trim(filename), exist=raw_structure)
+            IF (raw_structure) CALL read_single_canopy_structure (gridcanopy, dir_5x5, &
+               SITE_lon_location, SITE_lat_location, raw_canopy)
+         ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (.not. raw_structure .and. .not. all(scalar_structure) .and. .not. all(pft_structure)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs canopy_data or site canopy structure')
+#else
+         IF (.not. raw_structure .and. .not. all(scalar_structure)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs canopy_data or site ncd/ncw/bcw')
+#endif
+         IF (scalar_structure(1)) THEN
             CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
+         ELSEIF (raw_structure) THEN
+            SITE_ncd = raw_canopy(1)
+         ENDIF
+         IF (scalar_structure(2)) THEN
             CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
+         ELSEIF (raw_structure) THEN
+            SITE_ncw = raw_canopy(2)
+         ENDIF
+         IF (scalar_structure(3)) THEN
             CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+         ELSEIF (raw_structure) THEN
+            SITE_bcw = raw_canopy(3)
          ENDIF
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
          IF (numpft > 0) THEN
@@ -545,6 +576,10 @@ CONTAINS
             ENDIF
          ENDIF
 #endif
+         IF (.not. (SITE_ncd > 0._r8 .and. SITE_ncd < 1000._r8 .and. &
+                    SITE_ncw > 0._r8 .and. SITE_ncw < 1000._r8 .and. &
+                    SITE_bcw > 0._r8 .and. SITE_bcw < 1000._r8)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 canopy structure has invalid values')
       ENDIF
 
 
@@ -1466,6 +1501,47 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE read_surface_data_single
+
+   SUBROUTINE read_single_canopy_structure (grid, directory, lon, lat, canopy)
+   USE netcdf
+   USE MOD_Grid
+   USE MOD_NetCDFPoint, only: get_5x5_filename
+   USE MOD_NetCDFSerial, only: nccheck
+   IMPLICIT NONE
+
+   type(grid_type), intent(in) :: grid
+   character(len=*), intent(in) :: directory
+   real(r8), intent(in) :: lon, lat
+   real(r8), intent(out) :: canopy(3)
+   character(len=256) :: filename
+   character(len=28), parameter :: names(3) = [character(len=28) :: &
+      'NEEDLELEAF_CROWN_DEPTH', 'NEEDLELEAF_CROWN_WIDTH', 'BROADLEAF_CROWN_WIDTH']
+   real(r8) :: values(11,11)
+   integer :: ncid, varid, center(2), first(2), count(2), nearest, distance
+   integer :: i, j, k
+
+      CALL get_5x5_filename (grid, directory, 'CanopyStructure_500m_CH90_aggregated', &
+         lon, lat, filename, center)
+      first = max(1, center-5)
+      count = min(1200, center+5)-first+1
+      CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid))
+      canopy = -1.e36_r8
+      DO k = 1, 3
+         CALL nccheck (nf90_inq_varid(ncid, trim(names(k)), varid))
+         CALL nccheck (nf90_get_var(ncid, varid, values(1:count(1),1:count(2)), first, count))
+         nearest = huge(nearest)
+         DO j = 1, count(2)
+            DO i = 1, count(1)
+               distance = (first(1)+i-1-center(1))**2 + (first(2)+j-1-center(2))**2
+               IF (values(i,j) > 0._r8 .and. values(i,j) < 1000._r8 .and. distance < nearest) THEN
+                  canopy(k) = values(i,j)
+                  nearest = distance
+               ENDIF
+            ENDDO
+         ENDDO
+      ENDDO
+      CALL nccheck (nf90_close(ncid))
+   END SUBROUTINE read_single_canopy_structure
 
 !-----------------------------------------------------------------------
    SUBROUTINE read_urban_surface_data_single (fsrfdata, mksrfdata, mkrun)
