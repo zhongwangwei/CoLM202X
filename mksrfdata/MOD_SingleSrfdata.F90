@@ -224,7 +224,10 @@ CONTAINS
 
    integer, parameter :: N_PFT_modis = 16
    logical            :: readflag
+   logical            :: scalar_structure(3)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    logical            :: pft_structure(3)
+#endif
 
       CALL Init_GlobalVars
       CALL Init_LC_Const
@@ -497,26 +500,45 @@ CONTAINS
       ENDIF
 
       IF (DEF_Interception_scheme == 8) THEN
-         IF (.not. all([ncio_var_exist(fsrfdata, 'ncd', readflag=.false.), &
-                        ncio_var_exist(fsrfdata, 'ncw', readflag=.false.), &
-                        ncio_var_exist(fsrfdata, 'bcw', readflag=.false.)])) &
-            CALL CoLM_stop('SinglePoint CoLM2024 needs ncd, ncw, and bcw in surface data')
-         CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
-         CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
-         CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+         scalar_structure = [ncio_var_exist(fsrfdata, 'ncd', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'ncw', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'bcw', readflag=.false.)]
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
-         IF (numpft > 0) THEN
-            allocate (SITE_ncd_pfts(numpft), SITE_ncw_pfts(numpft), SITE_bcw_pfts(numpft))
+         pft_structure = .false.
+         IF (numpft > 0 .and. patchtypes(SITE_landtype) == 0) THEN
             pft_structure = [ncio_var_exist(fsrfdata, 'ncd_pfts', readflag=.false.), &
                              ncio_var_exist(fsrfdata, 'ncw_pfts', readflag=.false.), &
                              ncio_var_exist(fsrfdata, 'bcw_pfts', readflag=.false.)]
             IF (any(pft_structure) .and. .not. all(pft_structure)) &
                CALL CoLM_stop('SinglePoint CoLM2024 PFT canopy structure is incomplete')
+         ENDIF
+         IF (.not. all(scalar_structure) .and. .not. all(pft_structure)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs ncd/ncw/bcw or complete PFT canopy structure')
+#else
+         IF (.not. all(scalar_structure)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs ncd, ncw, and bcw')
+#endif
+         IF (all(scalar_structure)) THEN
+            CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
+            CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
+            CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+         ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (numpft > 0) THEN
             IF (all(pft_structure)) THEN
                CALL ncio_read_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts)
                CALL ncio_read_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts)
                CALL ncio_read_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts)
+               IF (size(SITE_ncd_pfts) /= numpft .or. size(SITE_ncw_pfts) /= numpft .or. &
+                   size(SITE_bcw_pfts) /= numpft) &
+                  CALL CoLM_stop('SinglePoint CoLM2024 PFT canopy structure size differs from active PFTs')
+               IF (.not. all(scalar_structure)) THEN
+                  SITE_ncd = sum(SITE_ncd_pfts * SITE_pctpfts)
+                  SITE_ncw = sum(SITE_ncw_pfts * SITE_pctpfts)
+                  SITE_bcw = sum(SITE_bcw_pfts * SITE_pctpfts)
+               ENDIF
             ELSE
+               allocate (SITE_ncd_pfts(numpft), SITE_ncw_pfts(numpft), SITE_bcw_pfts(numpft))
                SITE_ncd_pfts = SITE_ncd
                SITE_ncw_pfts = SITE_ncw
                SITE_bcw_pfts = SITE_bcw

@@ -237,11 +237,7 @@ MODULE MOD_Namelist
 ! ----- Part 11: parameterization schemes -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-#ifdef extend_interception
-   integer :: DEF_Interception_scheme = 8
-#else
    integer :: DEF_Interception_scheme = 1
-#endif
    real(r8) :: DEF_MATSIRO_CWCAP_SCALE = 1.0_r8
 
    ! ----- SOIL parameters and supercool water setting ------

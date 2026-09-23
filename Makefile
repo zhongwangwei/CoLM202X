@@ -2,12 +2,6 @@
 
 include include/Makeoptions
 HEADER = include/define.h
-EXTENDED_INTERCEPTION_ENABLED := $(shell cpp -dM -Iinclude -include $(HEADER) /dev/null | grep -q '^\#define extend_interception' && echo YES || echo NO)
-INTERCEPTION_CORE_OBJS = MOD_LeafInterception.o
-ifeq ($(EXTENDED_INTERCEPTION_ENABLED),YES)
-INTERCEPTION_CORE_OBJS += MOD_LeafTemperature.o MOD_LeafTemperaturePC.o MOD_Thermal.o MOD_PHSRootfluxBalance.o
-INTERCEPTION_EXTRA_OBJS = MOD_PHSRootfluxBalance.o
-endif
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
@@ -251,6 +245,13 @@ $(OBJECTS_CAMA) : %.o : %.F90 ${HEADER}
 
 OBJS_CAMA_T = $(addprefix .bld/,${OBJECTS_CAMA})
 
+endif
+
+EXTENDED_INTERCEPTION_ENABLED := $(shell cpp -dM -Iinclude -include $(HEADER) /dev/null | grep -q '^\#define extend_interception' && echo YES || echo NO)
+INTERCEPTION_CORE_OBJS = MOD_LeafInterception.o
+ifeq ($(EXTENDED_INTERCEPTION_ENABLED),YES)
+INTERCEPTION_CORE_OBJS += MOD_LeafTemperature.o MOD_LeafTemperaturePC.o MOD_Thermal.o MOD_PHSRootfluxBalance.o
+INTERCEPTION_EXTRA_OBJS = MOD_PHSRootfluxBalance.o
 endif
 
 OBJS_MAIN = \
