@@ -49,6 +49,8 @@ module MOD_Namelist
   character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = ''
   character(len=512) :: DEF_TRACER_PARAM_FILES = 'null'
   logical :: DEF_TRACER_USE_FRACTIONATION = .false.
+  logical :: DEF_USE_VariablySaturatedFlow = .false.
+  real(r8) :: DEF_TRACER_AQUIFER_MIXING_WATER_MM = -1._r8
 end module MOD_Namelist
 """,
             encoding="utf-8",
@@ -100,9 +102,10 @@ contains
   subroutine noop_noarg()
   end subroutine noop_noarg
 
-  subroutine noop_land_init(numpatch, lc_year, jdate, casename, dir_restart, dir_landdata)
+  subroutine noop_land_init(numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
     integer, intent(in) :: numpatch, lc_year, jdate(3)
     character(len=*), intent(in) :: casename, dir_restart, dir_landdata
+    character(len=*), intent(in), optional :: file_restart
   end subroutine noop_land_init
 
   subroutine noop_restart(file_restart)

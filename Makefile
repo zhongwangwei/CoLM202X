@@ -1,6 +1,12 @@
 # Makefile for CoLM program
 
+BUILD_PROFILE ?= debug
 include include/Makeoptions
+ifeq ($(BUILD_PROFILE),release)
+ifneq ($(RELEASE_PROFILE_SUPPORTED),yes)
+$(error Selected include/Makeoptions does not support the release profile)
+endif
+endif
 LINK_FOPTS ?= ${FOPTS}
 HEADER = include/define.h
 TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
@@ -24,8 +30,24 @@ all : mkdir_build mksrfdata.x mkinidata.x colm.x postprocess.x lib
 # ******* End of Targets ALL ******
 
 .PHONY: mkdir_build
+# Explicit production build. Replaces current objects/binaries; return to the
+# checked default with `make clean && make colm.x`. Never mix profile objects.
+.PHONY: release
+release:
+	@test "$(RELEASE_PROFILE_SUPPORTED)" = yes || \
+	   { echo 'Selected include/Makeoptions does not support the release profile.' >&2; exit 1; }
+	$(MAKE) clean
+	$(MAKE) BUILD_PROFILE=release colm.x
+
 mkdir_build :
 	mkdir -p .bld
+	@if test -f .bld/.profile; then \
+	   test "$$(cat .bld/.profile)" = "$(BUILD_PROFILE)" || \
+	      { echo 'Build profile changed: run make clean before rebuilding.' >&2; exit 1; }; \
+	elif test "$(BUILD_PROFILE)" != debug && test -n "$$(find .bld -name '*.o' -print -quit)"; then \
+	   echo 'Unmarked objects present: run make clean before release.' >&2; exit 1; \
+	fi
+	@printf '%s\n' '$(BUILD_PROFILE)' > .bld/.profile
 
 OBJS_SHARED =    \
 				  MOD_Precision.o              \
@@ -145,6 +167,7 @@ OBJS_MKSRFDATA = \
 					  Aggregation_LakeDepth.o           \
 						  $(TRACER_MKSRFDATA_SPECIES_OBJS) \
 					  Aggregation_ForestHeight.o        \
+					  Aggregation_CanopyStructure.o     \
 				  Aggregation_SoilParameters.o      \
 				  Aggregation_DBedrock.o            \
 				  Aggregation_Topography.o          \
@@ -154,7 +177,12 @@ OBJS_MKSRFDATA = \
 				  Aggregation_Urban.o               \
 				  Aggregation_SoilTexture.o         \
 				  MOD_Lulcc_TransferTrace.o         \
+				  MOD_UnitCatchmentSubset.o         \
+				  MOD_UnitCatchmentRegional.o       \
 				  MKSRFDATA.o
+
+MOD_UnitCatchmentRegional.o: MOD_UnitCatchmentSubset.o
+MKSRFDATA.o: MOD_UnitCatchmentRegional.o
 
 $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
@@ -257,21 +285,23 @@ MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc \
 				     $(TRACER_ISOTOPE_REGISTERED_SPECIES_OBJS)
 MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o MOD_Namelist.o
 MOD_Tracer_Lifecycle.o: MOD_Tracer_Defs.o
-MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
+MOD_Tracer_Vars.o: MOD_Tracer_Defs.o MOD_Const_LC.o MOD_LandPatch.o include/tracer_land_history_restart.inc
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
 MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 MOD_Tracer_Forcing.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Isotope_Registry.o \
+				     MOD_Const_LC.o MOD_Vars_Global.o \
 				     MOD_Tracer_Isotope_Registrations.o MOD_Tracer_ForcingInput.o MOD_Tracer_Frac.o \
 				     MOD_Namelist.o MOD_SPMD_Task.o MOD_Grid.o MOD_DataType.o \
-				     MOD_NetCDFBlock.o MOD_SpatialMapping.o MOD_LandPatch.o \
+				     MOD_NetCDFBlock.o MOD_NetCDFSerial.o MOD_NetCDFVector.o MOD_Block.o \
+				     MOD_SpatialMapping.o MOD_LandPatch.o \
 				     MOD_TimeManager.o MOD_UserSpecifiedForcing.o
 MOD_Tracer_Precip.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.o MOD_Tracer_Vars.o
 MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_Defs.o MOD_Tracer_Forcing.o \
 				     MOD_Tracer_Frac.o MOD_Tracer_EvapLimit.o MOD_Tracer_Vars.o
 MOD_Tracer_Snow.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o
 MOD_Tracer_Conservation.o: MOD_Tracer_Defs.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o
-MOD_Tracer_Rest.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Lifecycle.o
+MOD_Tracer_Rest.o: MOD_Tracer_Defs.o MOD_Tracer_Vars.o MOD_Tracer_Forcing.o MOD_Tracer_Lifecycle.o MOD_Vars_TimeInvariants.o
 MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS) MOD_Tracer_Lifecycle.o
 MOD_HistVector.o: MOD_Vars_1DAccFluxes.o MOD_HRUVector.o MOD_ElmVector.o \
 				     MOD_LandElm.o MOD_LandHRU.o MOD_LandPatch.o
@@ -308,7 +338,7 @@ MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNet
 MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
 MOD_Grid_RiverLakeHistState.o: MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
-MOD_Tracer_RiverLake.o: MOD_Grid_RiverLakeHistRoute.o
+MOD_Tracer_RiverLake.o: MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o
 MOD_Tracer_Particle_Sediment.o: MOD_Grid_RiverLakeHistRoute.o
 MOD_Grid_RiverLakeHistShard.o: MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeHistRoute.o: MOD_Grid_RiverLakeHistShard.o MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_Reservoir.o
@@ -439,6 +469,7 @@ OBJECTS_CAMA=\
 				  yos_cmf_prog.o          \
 				  yos_cmf_diag.o          \
 				  cmf_utils_mod.o         \
+				  cmf_coupling_budget_mod.o \
 				  cmf_calc_outflw_mod.o   \
 				  cmf_calc_pthout_mod.o   \
 				  cmf_calc_fldstg_mod.o   \
@@ -606,10 +637,10 @@ MOD_LeafInterception.o: extends/interception/MOD_LeafInterception_Extended.F90 $
 MOD_PHSRootfluxBalance.o: extends/interception/MOD_PHSRootfluxBalance.F90 ${HEADER} ${OBJS_SHARED} | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
-MOD_LeafTemperature.o: extends/interception/MOD_LeafTemperature_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_PHSRootfluxBalance.o | mkdir_build
+MOD_LeafTemperature.o: extends/interception/MOD_LeafTemperature_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_LeafInterception.o MOD_PHSRootfluxBalance.o | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
-MOD_LeafTemperaturePC.o: extends/interception/MOD_LeafTemperaturePC_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
+MOD_LeafTemperaturePC.o: extends/interception/MOD_LeafTemperaturePC_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} MOD_LeafInterception.o | mkdir_build
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD} .bld
 
 MOD_Thermal.o: extends/interception/MOD_Thermal_CanopyPhase_Extended.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} | mkdir_build
@@ -788,9 +819,9 @@ MOD_DA_Main.o: MOD_DA_Ensemble.o MOD_DA_SM.o MOD_DA_TWS.o
 MOD_ParameterOptimization.o: MOD_Opt_Baseflow.o
 MOD_CanopyLayerProfile.o: MOD_FrictionVelocity.o
 MOD_LeafTemperature.o: MOD_AssimStomataConductance.o MOD_CanopyLayerProfile.o MOD_Ozone.o \
-	MOD_PlantHydraulic.o MOD_TurbulenceLEddy.o
+	MOD_LeafInterception.o MOD_PlantHydraulic.o MOD_TurbulenceLEddy.o
 MOD_LeafTemperaturePC.o: MOD_AssimStomataConductance.o MOD_CanopyLayerProfile.o MOD_Ozone.o \
-	MOD_PlantHydraulic.o MOD_TurbulenceLEddy.o
+	MOD_LeafInterception.o MOD_PlantHydraulic.o MOD_TurbulenceLEddy.o
 MOD_Hydro_VIC.o: MOD_Hydro_VIC_Variables.o
 MOD_SoilSnowHydrology.o: MOD_DA_TWS.o MOD_Hydro_VIC.o MOD_Opt_Baseflow.o MOD_Runoff.o
 MOD_Glacier.o: MOD_FrictionVelocity.o MOD_PhaseChange.o MOD_SnowLayersCombineDivide.o \
@@ -802,8 +833,9 @@ MOD_GroundFluxes.o: MOD_FrictionVelocity.o MOD_TurbulenceLEddy.o
 MOD_GroundTemperature.o: MOD_PhaseChange.o MOD_SoilThermalParameters.o
 MOD_RainSnowTemp.o: MOD_WetBulb.o
 MOD_Thermal.o: MOD_GroundFluxes.o MOD_GroundTemperature.o MOD_LeafTemperature.o MOD_LeafTemperaturePC.o \
-	MOD_SoilSurfaceResistance.o
-MOD_Vars_1DAccFluxes.o: MOD_Catch_Hist.o MOD_Forcing.o MOD_FrictionVelocity.o MOD_TurbulenceLEddy.o
+	MOD_SoilSurfaceResistance.o MOD_CaMa_colmCaMa.o
+MOD_Vars_1DAccFluxes.o: MOD_Catch_Hist.o MOD_Forcing.o MOD_FrictionVelocity.o MOD_TurbulenceLEddy.o \
+	include/land_history_restart.inc
 MOD_HistGridded.o: MOD_HistWriteBack.o MOD_Vars_1DAccFluxes.o
 MOD_HistVector.o: MOD_Vars_1DAccFluxes.o
 MOD_HistSingle.o: MOD_Vars_1DAccFluxes.o
@@ -844,8 +876,10 @@ MOD_Lulcc_MassEnergyConserve.o: MOD_GroundTemperature.o MOD_Lulcc_TransferTraceR
 MOD_Lulcc_Initialize.o: MOD_Lulcc_Vars_TimeVariables.o
 MOD_Lulcc_Driver.o: MOD_Lulcc_Initialize.o MOD_Lulcc_MassEnergyConserve.o
 CoLMDRIVER.o: MOD_CaMa_Vars.o
+CoLMDRIVER.o: MOD_Grid_RiverLakeFlow.o
 CoLMMAIN.o: MOD_CaMa_colmCaMa.o MOD_Glacier.o MOD_Irrigation.o MOD_Lake.o MOD_LeafInterception.o \
 	MOD_NetSolar.o MOD_NetSolar_Hyper.o MOD_NewSnow.o MOD_RainSnowTemp.o MOD_SimpleOcean.o MOD_Thermal.o
+CoLMMAIN.o: MOD_Grid_RiverLakeFlow.o
 CoLM.o: MOD_CaMa_colmCaMa.o MOD_Catch_LateralFlow.o MOD_CheckEquilibrium.o MOD_DA_Main.o \
 	MOD_Grid_RiverLakeFlow.o MOD_Hist.o MOD_LightningData.o MOD_Lulcc_Driver.o MOD_Ozone.o \
 	MOD_ParameterOptimization.o
@@ -853,26 +887,30 @@ HistConcatenate.o: MOD_Concatenate.o
 POST_Vector2Grid.o: MOD_Vector2Grid.o
 
 ifeq (${TRACER_ENABLED},YES)
+MOD_Lulcc_Driver.o: MOD_Tracer_Forcing.o
+MOD_Lulcc_Initialize.o: MOD_Tracer_Defs.o
 MOD_Tracer_Lifecycle.o: MOD_Tracer_Defs.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Tracer_Lifecycle.o
 MOD_Tracer_Isotope_Registry.o: MOD_Tracer_Defs.o
 MOD_Tracer_Isotope_O18.o: MOD_Tracer_Isotope_Registry.o
 MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
 MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registrations.o MOD_Tracer_Isotope_Registry.o
-MOD_Tracer_Vars.o: MOD_Tracer_Defs.o
+MOD_Tracer_Vars.o: MOD_Tracer_Defs.o MOD_Const_LC.o MOD_LandPatch.o include/tracer_land_history_restart.inc
 MOD_Tracer_RiverLake.o: MOD_Grid_RiverLakeTimeVars.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o
 MOD_Tracer_Conservation.o: MOD_Tracer_Frac.o MOD_Tracer_Vars.o
 MOD_Tracer_SoilInit.o: MOD_Tracer_Isotope_Registrations.o MOD_Tracer_Isotope_Registry.o MOD_Tracer_Vars.o
 MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
 MOD_Tracer_Forcing.o: MOD_Tracer_ForcingInput.o MOD_Tracer_Isotope_Registrations.o \
-	MOD_Tracer_Isotope_Registry.o MOD_Tracer_Vars.o MOD_Tracer_Frac.o MOD_UserSpecifiedForcing.o
+	MOD_Tracer_Isotope_Registry.o MOD_Tracer_Vars.o MOD_Tracer_Frac.o MOD_UserSpecifiedForcing.o \
+	MOD_NetCDFSerial.o MOD_NetCDFVector.o MOD_Block.o
 MOD_Tracer_Precip.o: MOD_Tracer_Forcing.o
 MOD_Tracer_Evapo.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o
 MOD_Tracer_SoilWater.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o MOD_Tracer_Frac.o
 MOD_Tracer_Snow.o: MOD_Tracer_Vars.o
-MOD_Tracer_Rest.o: MOD_Tracer_Lifecycle.o MOD_Tracer_Vars.o
+MOD_Tracer_Rest.o: MOD_Tracer_Forcing.o MOD_Tracer_Lifecycle.o MOD_Tracer_Vars.o MOD_Vars_TimeInvariants.o
 MOD_Vars_TimeVariables.o: MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
 MOD_Vars_1DAccFluxes.o: MOD_Tracer_LandPhase.o
+MOD_Vars_1DAccFluxes.o: MOD_Grid_RiverLakeHistState.o MOD_Tracer_RiverLake.o MOD_Tracer_Particle_Sediment.o
 MOD_Tracer_Hist.o: MOD_Tracer_Lifecycle.o MOD_HistGridded.o MOD_HistSingle.o MOD_HistVector.o
 MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemCompetition.o MOD_BGC_Soil_BiogeochemDecomp.o \
 	MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o MOD_BGC_Soil_BiogeochemPotential.o
@@ -909,16 +947,19 @@ CoLMMAIN.o: MOD_Tracer_SpecialPatches.o
 endif
 
 ifeq (${CaMa},YES)
+MOD_CaMa_colmCaMa.o: cmf_coupling_budget_mod.o cmf_drv_advance_mod.o cmf_drv_control_mod.o
+MOD_CaMa_Vars.o: cmf_calc_diag_mod.o
 yos_cmf_input.o: parkind1.o
 yos_cmf_time.o: parkind1.o
 yos_cmf_map.o: parkind1.o
 yos_cmf_prog.o: parkind1.o
 yos_cmf_diag.o: parkind1.o
+cmf_coupling_budget_mod.o: parkind1.o
 cmf_utils_mod.o: yos_cmf_input.o yos_cmf_map.o yos_cmf_time.o
 cmf_calc_outflw_mod.o: yos_cmf_diag.o yos_cmf_input.o yos_cmf_map.o yos_cmf_prog.o
 cmf_calc_pthout_mod.o: yos_cmf_diag.o yos_cmf_input.o yos_cmf_map.o yos_cmf_prog.o
 cmf_calc_fldstg_mod.o: yos_cmf_diag.o yos_cmf_input.o yos_cmf_map.o yos_cmf_prog.o
-cmf_calc_stonxt_mod.o: yos_cmf_diag.o yos_cmf_input.o yos_cmf_map.o yos_cmf_prog.o
+cmf_calc_stonxt_mod.o: cmf_coupling_budget_mod.o yos_cmf_diag.o yos_cmf_input.o yos_cmf_map.o yos_cmf_prog.o
 cmf_opt_outflw_mod.o: yos_cmf_diag.o yos_cmf_input.o yos_cmf_map.o yos_cmf_prog.o
 cmf_ctrl_tracer_mod.o: cmf_ctrl_mpi_mod.o cmf_utils_mod.o yos_cmf_diag.o yos_cmf_prog.o
 cmf_ctrl_mpi_mod.o: yos_cmf_input.o yos_cmf_map.o
@@ -927,7 +968,7 @@ cmf_ctrl_levee_mod.o: cmf_utils_mod.o yos_cmf_diag.o yos_cmf_prog.o
 cmf_ctrl_forcing_mod.o: cmf_ctrl_mpi_mod.o cmf_utils_mod.o yos_cmf_diag.o yos_cmf_prog.o
 cmf_ctrl_boundary_mod.o: cmf_utils_mod.o
 cmf_ctrl_output_mod.o: cmf_ctrl_mpi_mod.o cmf_utils_mod.o yos_cmf_diag.o yos_cmf_prog.o
-cmf_ctrl_restart_mod.o: cmf_ctrl_mpi_mod.o cmf_utils_mod.o yos_cmf_prog.o
+cmf_ctrl_restart_mod.o: cmf_ctrl_mpi_mod.o cmf_utils_mod.o yos_cmf_prog.o yos_cmf_diag.o
 cmf_ctrl_sed_mod.o: cmf_ctrl_restart_mod.o yos_cmf_diag.o
 cmf_calc_diag_mod.o: cmf_ctrl_sed_mod.o
 cmf_ctrl_physics_mod.o: cmf_calc_diag_mod.o cmf_calc_fldstg_mod.o cmf_calc_outflw_mod.o \

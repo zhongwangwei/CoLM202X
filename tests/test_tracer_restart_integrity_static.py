@@ -78,7 +78,7 @@ def test_land_restart_rejects_descriptor_mismatch_before_state_reads():
         "reactive_decay_rate",
     ):
         assert f"tracers(itrc)%{field}" in identity
-    assert reader.index("land_tracer_descriptor_matches(file_restart)") < reader.index(
+    assert reader.index("land_tracer_descriptor_matches(file_restart, state_present, restart_schema)") < reader.index(
         "CALL read_transport_patch_field(file_restart, 'trc_ldew_rain'"
     )
     identity_check = source.split(
@@ -134,7 +134,7 @@ def test_land_restart_zero_transport_avoids_zero_length_vector_io():
 
     read_zero = reader.split("IF (ntransport <= 0) THEN", 1)[1].split("ENDIF", 1)[0]
     write_zero = writer.split("IF (ntransport <= 0) THEN", 1)[1].split("ENDIF", 1)[0]
-    assert reader.index("descriptor_matches = land_tracer_descriptor_matches(file_restart)") < reader.index(
+    assert reader.index("descriptor_matches = land_tracer_descriptor_matches(file_restart, state_present, restart_schema)") < reader.index(
         "IF (ntransport <= 0) THEN"
     )
     assert "found_restart = .true." in read_zero
@@ -157,7 +157,7 @@ def test_land_restart_empty_transaction_is_explicit_and_cannot_revive_stale_stat
         "SUBROUTINE write_land_tracer_descriptor_metadata", 1
     )[1].split("END SUBROUTINE write_land_tracer_descriptor_metadata", 1)[0]
 
-    assert "LAND_TRACER_RESTART_SCHEMA_VERSION = 4" in source
+    assert "LAND_TRACER_RESTART_SCHEMA_VERSION = 5" in source
     assert "'trc_land_transport_count', size(identity, 2)" in metadata
     assert metadata.index("IF (size(identity, 2) > 0) THEN") < metadata.index(
         "'trc_land_descriptor_identity'"

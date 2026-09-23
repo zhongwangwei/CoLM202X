@@ -14,6 +14,29 @@ import pytest
 SMOKE_TIMEOUT = 30
 
 
+def netcdf_fortran_flags() -> tuple[list[str], list[str]]:
+    """Return one NetCDF-Fortran toolchain and matching runtime paths."""
+    nf_config = shutil.which("nf-config")
+    if nf_config:
+        includes = subprocess.check_output([nf_config, "--fflags"], text=True).split()
+        libs = subprocess.check_output([nf_config, "--flibs"], text=True).split()
+        nc_config = str(Path(nf_config).with_name("nc-config"))
+        if Path(nc_config).is_file():
+            for flag in subprocess.check_output([nc_config, "--libs"], text=True).split():
+                if flag not in libs:
+                    libs.append(flag)
+    else:
+        includes = ["-I/opt/homebrew/Cellar/netcdf-fortran/4.6.3/include"]
+        libs = [
+            "-L/opt/homebrew/Cellar/netcdf-fortran/4.6.3/lib",
+            "-lnetcdff",
+            "-L/opt/homebrew/Cellar/netcdf/4.10.1/lib",
+            "-lnetcdf",
+        ]
+    rpaths = [f"-Wl,-rpath,{flag[2:]}" for flag in libs if flag.startswith("-L")]
+    return includes, [*libs, *rpaths]
+
+
 def require_runnable_fortran_compiler(workdir: Path) -> str:
     compiler = shutil.which("gfortran") or shutil.which("mpif90")
     if compiler is None:

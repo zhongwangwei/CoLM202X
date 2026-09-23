@@ -1133,6 +1133,10 @@ CONTAINS
    character(len=14)  :: cdate
    character(len=256) :: cyear         !character for lc_year
    integer :: compress
+#ifdef TRACER
+   ! Collective tracer restart calls also run on ranks without patch state.
+   real(r8) :: empty_patch(0), empty_soilsnow(maxsnl+1:nl_soil,0)
+#endif
 
       compress = DEF_REST_CompressLevel
 
@@ -1265,13 +1269,36 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fh   ', 'patch', landpatch, fh   , compress) ! integral of profile FUNCTION for heat
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
 #ifdef TRACER
-         IF (allocated(waterstorage)) THEN
-            CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, numpatch, &
-               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, &
-               compress, waterstorage)
+         IF (allocated(ldew_rain)) THEN
+            IF (.not. p_is_worker) ERROR STOP 'tracer restart patch state on non-worker'
+            IF (numpatch < 0) ERROR STOP 'invalid tracer restart patch count'
+            IF (.not. allocated(ldew_snow) .or. .not. allocated(wliq_soisno) .or. &
+                .not. allocated(wice_soisno) .or. .not. allocated(wa) .or. &
+                .not. allocated(wdsrf) .or. .not. allocated(wetwat) .or. &
+                .not. allocated(scv)) ERROR STOP 'incomplete tracer restart water state'
+            IF (size(ldew_rain) /= numpatch .or. size(ldew_snow) /= numpatch .or. &
+                size(wa) /= numpatch .or. size(wdsrf) /= numpatch .or. &
+                size(wetwat) /= numpatch .or. size(scv) /= numpatch .or. &
+                size(wliq_soisno,1) /= nl_soil-maxsnl .or. size(wliq_soisno,2) /= numpatch .or. &
+                size(wice_soisno,1) /= nl_soil-maxsnl .or. size(wice_soisno,2) /= numpatch) &
+                ERROR STOP 'tracer restart water shape mismatch'
+            IF (allocated(waterstorage)) THEN
+               IF (size(waterstorage) /= numpatch) ERROR STOP 'tracer restart waterstorage shape mismatch'
+               CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, numpatch, &
+                  ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, &
+                  compress, waterstorage)
+            ELSE
+               CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, numpatch, &
+                  ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, compress)
+            ENDIF
          ELSE
-            CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, numpatch, &
-               ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, compress)
+            ! Empty workers do not allocate time variables, but must join the collective write.
+            IF (p_is_worker) THEN
+               IF (numpatch /= 0) ERROR STOP 'missing tracer restart patch state on worker'
+            ENDIF
+            CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, 0, &
+               empty_patch, empty_patch, empty_soilsnow, empty_soilsnow, &
+               empty_patch, empty_patch, empty_patch, empty_patch, compress)
          ENDIF
 #endif
 

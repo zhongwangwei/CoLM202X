@@ -101,6 +101,7 @@ contains
  end function
  real(r8) function tracer_surface_relhum(a,b,c,d); real(r8),intent(in)::a,b,c; logical,intent(in)::d; tracer_surface_relhum=0._r8; end
  real(r8) function tracer_alpha_kinetic_craig_gordon(a,b); integer,intent(in)::a; logical,intent(in)::b; tracer_alpha_kinetic_craig_gordon=1._r8; end
+ real(r8) function tracer_alpha_kinetic_open_water(a,b); integer,intent(in)::a; real(r8),intent(in)::b; tracer_alpha_kinetic_open_water=1._r8; end
  real(r8) function tracer_alpha_liq_vap(a,b); integer,intent(in)::a; real(r8),intent(in)::b; tracer_alpha_liq_vap=1._r8; end
  real(r8) function tracer_craig_gordon_evap_ratio(a,b,c,d,e,f,g); integer,intent(in)::a; real(r8),intent(in)::b,c,d,e,f; logical,intent(in)::g; tracer_craig_gordon_evap_ratio=b; end
  real(r8) function tracer_equilibrium_deposition_ratio(a,b,c,d); integer,intent(in)::a; real(r8),intent(in)::b,c; logical,intent(in)::d; tracer_equilibrium_deposition_ratio=b; end

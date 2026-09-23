@@ -28,7 +28,8 @@ def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
         "CALL tracer_lifecycle_land_reload_lulcc_inputs (jdate(1), dir_landdata)"
     )
     assert worker_remap < reload_call
-    assert "ENDIF\n      ! GIEMS broadcasts" in driver[worker_remap:reload_call]
+    assert "ENDIF\n      IF (allocated(old_patch_area)) deallocate" in driver[worker_remap:reload_call]
+    assert driver.index("IF (allocated(old_patch_area)) deallocate", worker_remap) < reload_call
 
     remap_start = methane.index("SUBROUTINE ch4_reactive_remap_lulcc_state")
     remap_end = methane.index("END SUBROUTINE ch4_reactive_remap_lulcc_state", remap_start)
@@ -44,15 +45,16 @@ def test_lulcc_collective_reload_is_outside_worker_remap() -> None:
 
 def test_lulcc_zero_to_nonzero_worker_fails_before_unallocated_tracer_use() -> None:
     driver = source("main/LULCC/MOD_Lulcc_Driver.F90")
-    guard = driver.index(
-        "IF (p_is_worker .and. allocated(patchclass) .and. size(patchclass) > 0"
+    guard = driver.index("IF (p_is_worker .and. allocated(patchclass)) THEN")
+    size_check = driver.index(
+        "IF (size(patchclass) > 0 .and. .not. allocated(patchclass_))", guard
     )
+    stop = driver.index("CALL CoLM_stop('TRACER LULCC cannot remap a worker", size_check)
+    guard_end = driver.index("ENDIF", stop)
     remap = driver.index(
         "IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_)"
     )
-    assert guard < remap
-    assert ".not. allocated(patchclass_)" in driver[guard:remap]
-    assert "CALL CoLM_stop" in driver[guard:remap]
+    assert guard < size_check < stop < guard_end < remap
 
 
 def test_reactive_lulcc_area_order_is_new_then_old() -> None:
@@ -66,9 +68,9 @@ def test_reactive_lulcc_area_order_is_new_then_old() -> None:
     for relative_path in files:
         text = source(relative_path)
         assert "old_patch_area, new_patch_area" not in text
-    assert "landpatch%pctshared, landpatch_%pctshared" in source(
-        "main/LULCC/MOD_Lulcc_Driver.F90"
-    )
+    driver = source("main/LULCC/MOD_Lulcc_Driver.F90")
+    assert driver.count("inventory_trace, new_patch_area, old_patch_area)") == 2
+    assert "landpatch%pctshared, landpatch_%pctshared" not in driver
 
 
 def test_giems_distributes_only_requested_patch_pixels() -> None:

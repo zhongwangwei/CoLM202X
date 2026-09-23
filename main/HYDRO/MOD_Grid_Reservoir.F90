@@ -54,7 +54,8 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_NetCDFSerial
    USE MOD_Utils
-   USE MOD_Namelist,              only: DEF_ReservoirPara_file, DEF_Reservoir_Method
+   USE MOD_Namelist,              only: DEF_ReservoirPara_file, DEF_Reservoir_Method, &
+      DEF_UnitCatchment_regional, regional_unitcatchment_file
    USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_ucid, lake_type
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
@@ -69,6 +70,7 @@ CONTAINS
    integer,  allocatable :: icache (:)
 
    integer :: i, iloc, irsv, nresv, iworker, nresv_catalogue
+   integer,  allocatable :: src_index(:), regional_index(:)
 
 
       parafile = DEF_ReservoirPara_file
@@ -82,6 +84,30 @@ CONTAINS
       nresv_catalogue = size(dam_seq)
       IF (size(dam_GRAND_ID) /= nresv_catalogue) &
          CALL CoLM_stop ('reservoir dam_GRAND_ID and dam_seq lengths differ')
+
+      IF (DEF_UnitCatchment_regional) THEN
+         ! dam_seq numbers the unit catchments of the full network, but the
+         ! regional network renumbers them.  Translate through the source index
+         ! stored in the regional file; dams outside the region get distinct
+         ! negative placeholders, which never match an active unit catchment.
+         CALL ncio_read_bcast_serial (regional_unitcatchment_file (), 'seq_src_index', src_index)
+         allocate (regional_index (max(maxval(src_index), 1)))
+         regional_index = 0
+         DO i = 1, size(src_index)
+            regional_index(src_index(i)) = i
+         ENDDO
+         DO i = 1, nresv_catalogue
+            iloc = 0
+            IF (dam_seq(i) >= 1 .and. dam_seq(i) <= size(regional_index)) iloc = regional_index(dam_seq(i))
+            IF (iloc > 0) THEN
+               dam_seq(i) = iloc
+            ELSE
+               dam_seq(i) = -i
+            ENDIF
+         ENDDO
+         deallocate (src_index, regional_index)
+      ENDIF
+
       numresv = 0  ! Safe default for all ranks; workers overwrite below
 
       allocate (order (nresv_catalogue))

@@ -76,6 +76,7 @@ PROGRAM MKSRFDATA
    USE MOD_LandCrop
 #endif
    USE MOD_RegionClip
+   USE MOD_UnitCatchmentRegional, only: unitcatchment_regional_build
 #if (defined TRACER) && (defined BGC)
    USE MOD_Tracer_Reactive_Methane_Preprocessing, only: methane_preprocessing_requirements
 #endif
@@ -434,6 +435,11 @@ PROGRAM MKSRFDATA
       CALL pixelset_save_to_file  (dir_landdata, 'landurban', landurban, lc_year)
 #endif
 
+      ! Routing network for the land domain only (see DEF_UnitCatchment_regional).
+      IF (DEF_UnitCatchment_regional) THEN
+         CALL unitcatchment_regional_build ()
+      ENDIF
+
 ! ................................................................
 ! 3. Mapping land characteristic parameters to the model grids
 ! ................................................................
@@ -486,6 +492,8 @@ IF (.not. (skip_rest)) THEN
       CALL Aggregation_LAI             (grid_lai,  dir_rawdata, dir_landdata, lc_year)
 
       CALL Aggregation_ForestHeight    (grid_htop, dir_rawdata, dir_landdata, lc_year)
+
+      CALL Aggregation_CanopyStructure (grid_htop, dir_rawdata, dir_landdata, lc_year)
 
       CALL Aggregation_Topography      (grid_topo, dir_rawdata, dir_landdata, lc_year)
 

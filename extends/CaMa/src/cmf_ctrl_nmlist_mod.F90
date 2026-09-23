@@ -38,7 +38,7 @@ USE YOS_CMF_INPUT,      ONLY: LADPSTP,  LFPLAIN,  LKINE,    LFLDOUT,  LPTHOUT,  
                             & LROSPLIT, LGDWDLY,  LSLPMIX,  LMEANSL,  LSEALEV,  LOUTPUT,  &
                             & LRESTART, LSTOONLY, LGRIDMAP, LLEAPYR,  LMAPEND,  LBITSAFE, &
                             & LSTG_ES,  LLEVEE,   LOUTINS,  LOUTINI,  LSEDIMENT,  LTRACE,   &
-                            & LSLOPEMOUTH,LWEVAP,LWINFILT, LWEVAPFIX,LWINFILTFIX,LWEXTRACTRIV,       LSPAMAT
+                            & LSLOPEMOUTH,LWEVAP,LWINFILT, LWEVAPFIX,LWINFILTFIX,LWEXTRACTRIV,       LSPAMAT, LCOLMFEEDBACK
 ! dimention & time
 USE YOS_CMF_INPUT,      ONLY: CDIMINFO, DT,       NX,NY,    NLFP,     NXIN,NYIN,    INPN, &
                             & IFRQ_INP, DTIN,     WEST,EAST,NORTH,SOUTH
@@ -66,8 +66,8 @@ WRITE(LOGNAM,*) "!--------------------"
 
 ! *** 0. SET INPUT UNIT AND OPEN FILE 
 NSETFILE=INQUIRE_FID()               !!  for namelist
-OPEN(NSETFILE,FILE=CSETFILE,STATUS="OLD")
-WRITE(LOGNAM,*) "CMF::CONFIG_NMLIST: namelist opened: ", TRIM(CSETFILE), NSETFILE 
+IF( CSETFILE/="NONE" ) OPEN(NSETFILE,FILE=CSETFILE,STATUS="OLD")
+IF( CSETFILE/="NONE" ) WRITE(LOGNAM,*) "CMF::CONFIG_NMLIST: namelist opened: ", TRIM(CSETFILE), NSETFILE
 
 !============================
 !*** 1. basic simulation run version
@@ -89,8 +89,8 @@ LSPAMAT  = .TRUE.            !! true: use quasi sparse matrix (fast but addition
 LROSPLIT = .FALSE.           !! true: input if surface (Qs) and sub-surface (Qsb) runoff
 LWEVAP   = .FALSE.           !! true: input evaporation to extract from river 
 LWINFILT   = .FALSE.         !! true: input infiltration to extract from river 
-LWEVAPFIX= .FALSE.           !! true: water balance closure extracting water from evap when available
-LWINFILTFIX= .FALSE.         !! true: water balance closure extracting water from infiltration when available
+LWEVAPFIX= .FALSE.           !! deprecated compatibility option; no effect
+LWINFILTFIX= .FALSE.         !! deprecated compatibility option; no effect
 LGDWDLY  = .FALSE.           !! true: Activate ground water reservoir and delay
 LSLPMIX  = .FALSE.           !! true: activate mixed kinematic and local inertia based on slope
 LWEXTRACTRIV=.FALSE.         !! true: also extract water from rivers 
@@ -114,8 +114,14 @@ LBITSAFE = .FALSE.           !! true: for Bit Identical (not used from v410, set
 LSTG_ES  = .FALSE.           !! true: for Vector Processor optimization (CMF_OPT_FLDSTG_ES) 
 
 !* change
-REWIND(NSETFILE)
-READ(NSETFILE,NML=NRUNVER)
+IF( CSETFILE/="NONE" ) REWIND(NSETFILE)
+IF( CSETFILE/="NONE" ) READ(NSETFILE,NML=NRUNVER)
+IF( CSETFILE=="NONE" )THEN
+  ! CoLM NC coupling: fixed local-inertial floodplain solver and two-way sinks.
+  LWEVAP=LCOLMFEEDBACK      ! two-way exchange, unless CoLM switched it off (DEF_CaMa_FloodFeedback)
+  LWINFILT=LCOLMFEEDBACK
+  LOUTPUT=.TRUE.       ! select diagnostics; CoLM owns history file writing
+ENDIF
 
 WRITE(LOGNAM,*) ""
 WRITE(LOGNAM,*) "=== NAMELIST, NRUNVER ==="
@@ -161,12 +167,12 @@ WRITE(LOGNAM,*) "LSPAMAT " , LSPAMAT
 
 !* defaults (from namelist)
 CDIMINFO ="NONE"
-DT       = 24*60*60          !! dt = 1day (automatically set by adaptive time step)
-IFRQ_INP = 24                !! daily (24h) input
+DT       = 60*60             !! hourly outer step (adaptive substeps may be shorter)
+IFRQ_INP = 1                 !! hourly input/coupling
 
 !* change
-REWIND(NSETFILE)
-READ(NSETFILE,NML=NDIMTIME)
+IF( CSETFILE/="NONE" ) REWIND(NSETFILE)
+IF( CSETFILE/="NONE" ) READ(NSETFILE,NML=NDIMTIME)
 
 DTIN  = IFRQ_INP*60*60       !! hour -> second
 
@@ -190,36 +196,7 @@ EAST  =  180._JPRB
 NORTH =  90._JPRB
 SOUTH = -90._JPRB
 
-!* value from CDIMINFO
-IF( CDIMINFO/="NONE" )THEN
-  WRITE(LOGNAM,*) "CMF::CONFIG_NMLIST: read DIMINFO ", TRIM(CDIMINFO)
-
-  TMPNAM=INQUIRE_FID()
-  OPEN(TMPNAM,FILE=CDIMINFO,FORM='FORMATTED')
-  READ(TMPNAM,*) NX
-  READ(TMPNAM,*) NY
-  READ(TMPNAM,*) NLFP
-  READ(TMPNAM,*) NXIN
-  READ(TMPNAM,*) NYIN
-  READ(TMPNAM,*) INPN
-  READ(TMPNAM,*) 
-  IF( LGRIDMAP )THEN
-    READ(TMPNAM,*) WEST
-    READ(TMPNAM,*) EAST
-    READ(TMPNAM,*) NORTH
-    READ(TMPNAM,*) SOUTH
-  ENDIF
-  CLOSE(TMPNAM)
-ENDIF
-
-!* check
-WRITE(LOGNAM,*) ""
-WRITE(LOGNAM,*) "=== DIMINFO ==="
-WRITE(LOGNAM,*) "NX,NY,NLFP     ", NX,  NY,  NLFP
-WRITE(LOGNAM,*) "NXIN,NYIN,INPN ", NXIN,NYIN,INPN
-IF( LGRIDMAP ) THEN
-  WRITE(LOGNAM,*) "WEST,EAST,NORTH,SOUTH ", WEST,EAST,NORTH,SOUTH
-ENDIF
+! Dimension-file I/O is deferred to CMF_MAPS_NMLIST, after routing NC selection.
 
 !============================
 !*** 3. set PARAM: parameters
@@ -241,8 +218,8 @@ CSUFPTH='.pth'
 CSUFCDF='.nc'
 
 ! * change
-REWIND(NSETFILE)
-READ(NSETFILE,NML=NPARAM)
+IF( CSETFILE/="NONE" ) REWIND(NSETFILE)
+IF( CSETFILE/="NONE" ) READ(NSETFILE,NML=NPARAM)
 
 WRITE(LOGNAM,*) ""
 WRITE(LOGNAM,*) "=== NAMELIST, NPARAM ==="
@@ -264,7 +241,7 @@ WRITE(LOGNAM,*) "CSUFCDF  ", TRIM(CSUFCDF)
 
 !===============================
 !*** CLOSE FILE 
-CLOSE(NSETFILE)
+IF( CSETFILE/="NONE" ) CLOSE(NSETFILE)
 
 WRITE(LOGNAM,*) "CMF::CONFIG_NMLIST: end "
 
@@ -341,14 +318,9 @@ IF ( LGDWDLY .AND. .NOT. LROSPLIT ) THEN
   WRITE(LOGNAM,*) "Ground water reservoir can only be active when runoff splitting is on"
 ENDIF
 
-IF ( LWEVAPFIX .AND. .NOT. LWEVAP ) THEN
-  WRITE(LOGNAM,*) "LWEVAPFIX=true and LWEVAP=false"
-  WRITE(LOGNAM,*) "LWEVAPFIX can only be active if LWEVAP is active"
-ENDIF 
-!  add water re-infiltration calculation 
-IF ( LWINFILTFIX .and. .not. LWINFILT ) THEN
-    write(LOGNAM,*) "LWINFILTFIX=true and LWINFILT=false"
-    write(LOGNAM,*) "LWINFILTFIX can only be active if LWINFILT is active"
+IF ( LWEVAPFIX .OR. LWINFILTFIX ) THEN
+  WRITE(LOGNAM,*) 'WARNING: LWEVAPFIX/LWINFILTFIX are deprecated and have no effect.'
+  WRITE(LOGNAM,*) 'CoLM floodwater credit/debit accounting is always applied to enabled sinks.'
 ENDIF
 IF ( LWEXTRACTRIV .AND. .NOT. LWEVAP ) THEN
   WRITE(LOGNAM,*) "LWEXTRACTRIV=true and LWEVAP=false"

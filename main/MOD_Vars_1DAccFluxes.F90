@@ -15,6 +15,10 @@ MODULE MOD_Vars_1DAccFluxes
    USE MOD_Tracer_LandPhase, only: tracer_flush_acc_fluxes, tracer_accumulate_fluxes
 #endif
 
+   interface history_acc_write
+      module procedure history_acc_write1, history_acc_write2, history_acc_write3
+   end interface
+
    real(r8) :: nac ! number of accumulation
    real(r8), allocatable :: nac_ln      (:)
    real(r8), allocatable :: nac_dt      (:)
@@ -2001,7 +2005,8 @@ CONTAINS
    USE MOD_Vars_1DForcing
    USE MOD_Vars_1DFluxes
    USE MOD_FrictionVelocity
-   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_OZONESTRESS, DEF_USE_PLANTHYDRAULICS, DEF_USE_NITRIF
+   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_OZONESTRESS, DEF_USE_PLANTHYDRAULICS, &
+      DEF_USE_NITRIF, DEF_USE_VariablySaturatedFlow
    USE MOD_TurbulenceLEddy
    USE MOD_Vars_Global
 #ifdef CatchLateralFlow
@@ -2142,7 +2147,7 @@ CONTAINS
             CALL acc1d (etrsun_out    , a_etrsun         )
             CALL acc1d (etrsha_out    , a_etrsha         )
 
-            CALL acc1d (qcharge       , a_qcharge        )
+            IF (.not. DEF_USE_VariablySaturatedFlow) CALL acc1d (qcharge, a_qcharge)
 
             CALL acc1d (t_grnd        , a_t_grnd         )
             CALL acc1d (tleaf         , a_tleaf          )
@@ -2981,6 +2986,8 @@ CONTAINS
       ENDDO
 
    END SUBROUTINE acc3d
+
+#include <land_history_restart.inc>
 
 END MODULE MOD_Vars_1DAccFluxes
 ! ---------- EOP ------------

@@ -18,9 +18,17 @@
 
   MOD_CMD = -J
 
-  FOPTS = -fdefault-real-8 -ffree-form -g -fcheck=all \
-          -ffpe-trap=invalid,zero,overflow -fbacktrace -cpp \
-          -ffree-line-length-0
+  RELEASE_PROFILE_SUPPORTED := yes
+  BUILD_PROFILE ?= debug
+  ifeq ($(BUILD_PROFILE),release)
+     FOPTS = -fdefault-real-8 -ffree-form -O2 -cpp -ffree-line-length-0
+  else ifeq ($(BUILD_PROFILE),debug)
+     FOPTS = -fdefault-real-8 -ffree-form -g -fcheck=all \
+             -ffpe-trap=invalid,zero,overflow -fbacktrace -cpp \
+             -ffree-line-length-0
+  else
+     $(error BUILD_PROFILE must be debug or release)
+  endif
   GFORTRAN_MAJOR := $(shell $(word 1,$(FF)) -dumpversion 2>/dev/null | cut -d. -f1)
   ifneq ($(shell test "$(GFORTRAN_MAJOR)" -ge 10 2>/dev/null && echo yes),)
      FOPTS += -fallow-argument-mismatch

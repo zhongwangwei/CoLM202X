@@ -21,7 +21,7 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeHistState
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto, levdph, &
       levee_init, read_levee_restart, levee_apply_protected_flux, &
-      levee_repartition_storage, &
+      levee_repartition_storage, levee_fldstg, &
       levee_visible_volume_from_stage, levee_final
    USE MOD_Grid_RiverLakeBifurcation, only: bifurcation_init, bifurcation_calc, &
       read_bifurcation_restart, bifurcation_final, bifurcation_invalidate_static_dn, &
@@ -29,15 +29,17 @@ MODULE MOD_Grid_RiverLakeFlow
 #ifdef TRACER
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_route_has_active, tracer_lifecycle_route_init, &
       tracer_lifecycle_route_calc, tracer_lifecycle_route_final, tracer_lifecycle_route_diag_accumulate, &
-      tracer_lifecycle_route_forcing_put, tracer_lifecycle_route_read_restart
+      tracer_lifecycle_route_forcing_put, tracer_lifecycle_route_read_restart, &
+      tracer_lifecycle_route_sediment_bif_accumulate, tracer_lifecycle_route_sediment_levee_repartition
 #endif
 #ifdef TRACER
    USE MOD_Tracer_RiverLake, only: river_lake_tracer_init, tracer_init_from_water, &
       tracer_input_from_runoff, &
-      tracer_substep, tracer_flush_acc, &
+      tracer_substep, tracer_flush_acc, tracer_limiter_stats, &
       read_tracer_restart, river_lake_tracer_final, acc_trc_inp, acc_rnof_ref, trc_mass, trc_inp_buf, trc_flux_out, &
-      tracer_refresh_state, tracer_diag_accumulate_substep, &
-      trc_levsto, trc_dry_drain, trc_reactive_source, levee_tracer_repartition, &
+      tracer_diag_accumulate_substep, &
+      trc_levsto, trc_solid, trc_levsto_solid, trc_dry_drain, trc_reactive_source, &
+      levee_tracer_repartition, equilibrate_river_tracer_cell, &
       get_cell_volume_dep => get_cell_volume, trc_conc_dep => trc_conc
       USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_publish_levee_flood_patch, &
          tracer_lifecycle_publish_flood_patch, &
@@ -47,7 +49,6 @@ MODULE MOD_Grid_RiverLakeFlow
 
    real(r8), parameter :: RIVERMIN  = RIVERLAKE_DRY_DEPTH
    real(r8), parameter :: RIVERLAKE_FLOOD_MISSING_VALUE = -1.e30_r8
-   real(r8), parameter :: ROUTING_STORAGE_DT_EPS = 1.e-6_r8
    real(r8), parameter :: ROUTING_PATHOLOGICAL_DT_FALLBACK = 10._r8
 
    real(r8), save :: acctime_rnof_max
@@ -58,26 +59,54 @@ MODULE MOD_Grid_RiverLakeFlow
    ! MOD_Grid_RiverLakeTimeVars (imported via the module-wide USE above)
    ! so their mid-period state is serialised by WRITE/READ_GridRiverLakeTimeVars.
    logical,  allocatable :: filter_rnof (:)
+   ! Patch-side flood exchange for the optional land/routing feedback.  These
+   ! are derived credits/fluxes, not additional hydrodynamic state.
+   real(r8), allocatable :: flood_depth_patch(:), flood_fraction_patch(:)
+   real(r8), allocatable :: flood_evap_patch(:), flood_infil_patch(:)
+   ! A publication is a finite credit, retained until the next routing call.
+   ! The two donor pools must not be conflated by the reverse land mapping.
+   real(r8), allocatable :: flood_visible_uc(:), flood_protected_uc(:)
+   logical, allocatable :: flood_reservoir_uc(:)
+   real(r8), allocatable :: flood_credit_patch(:)
+   real(r8), allocatable :: flood_grid_area(:)
+   real(r8), allocatable :: flood_evap_acc(:), flood_infil_acc(:)
+#ifdef TRACER
+   ! Derived publication credits; the prognostic pools remain in MOD_Tracer_RiverLake.
+   real(r8), allocatable :: flood_tracer_credit_patch(:,:)
+   real(r8), allocatable :: flood_tracer_evap_patch(:,:)
+   real(r8), allocatable :: flood_tracer_land_patch(:,:)
+   real(r8), allocatable :: flood_visible_tracer_uc(:,:), flood_protected_tracer_uc(:,:)
+   integer, save :: flood_tracer_ledger_reports = 0
+#endif
+   real(r8), save :: flood_evap_period = 0._r8, flood_infil_period = 0._r8
 CONTAINS
 
    ! ---------
-   SUBROUTINE grid_riverlake_flow_init ()
+   SUBROUTINE grid_riverlake_flow_init (start_year)
 
    USE MOD_LandPatch,           only: numpatch
    USE MOD_Forcing,             only: forcmask_pch
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
+   USE MOD_Vars_Global,         only: spval
 #ifdef TRACER
-   USE MOD_Tracer_Defs,          only: ntracers, tracer_uses_land_water_transport
+   USE MOD_Tracer_Defs,          only: ntracers, tracer_uses_land_water_transport, &
+      tracer_is_nonvolatile_solute, tracer_has_dissolved_limit
 #endif
    IMPLICIT NONE
 
+      integer, intent(in) :: start_year
+
 #ifdef TRACER
       logical :: trc_restart_found
+      logical :: has_flood_tracer
       logical, allocatable :: trc_missing(:)
       real(r8), allocatable :: wdsrf_safe(:), volresv_safe(:)
       integer,  allocatable :: ucat2resv_safe(:)
+      logical, allocatable :: is_built_resv_init(:)
 #endif
       logical :: bif_restart_loaded
+      integer :: i, irsv
+      real(r8), allocatable :: grid_area_local(:)
 
       acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
       ! acctime_rnof / acc_rnof_uc are allocated + zero-initialised in
@@ -135,6 +164,38 @@ CONTAINS
          ENDIF
       ENDIF
 
+      ! A legacy restart can mark tracked river storage valid while leaving a
+      ! zero placeholder at a wet stage. Materialize the carrier before the
+      ! first flood publication/debit or cold tracer seeding; otherwise a
+      ! feedback debit can replace the wet stage with depth(0) while retaining
+      ! the stage-derived tracer mass.
+      IF (DEF_GridRiverLake_FloodFeedback .and. p_is_worker) THEN
+         DO i = 1, numucat
+            IF ((.not. volwater_ucat_valid) .or. &
+                (volwater_ucat(i) <= 0._r8 .and. wdsrf_ucat(i) > RIVERMIN)) THEN
+               IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                  volwater_ucat(i) = levee_visible_volume_from_stage(i, wdsrf_ucat(i), levsto(i))
+               ELSE
+                  volwater_ucat(i) = floodplain_curve(i)%volume(wdsrf_ucat(i))
+               ENDIF
+            ENDIF
+         ENDDO
+         volwater_ucat_valid = .true.
+         ! A built reservoir uses volresv rather than volwater_ucat for the
+         ! first publication. Recover its legacy missing-value sentinel from
+         ! stage before feedback can turn that stage into depth(0) as well.
+         IF (allocated(volresv) .and. allocated(ucat2resv) .and. allocated(dam_build_year)) THEN
+            DO i = 1, numucat
+               IF (lake_type(i) /= 2) CYCLE
+               irsv = ucat2resv(i)
+               IF (irsv < 1 .or. irsv > size(volresv) .or. irsv > size(dam_build_year)) CYCLE
+               IF (start_year < dam_build_year(irsv)) CYCLE
+               IF (volresv(irsv) == spval) &
+                  volresv(irsv) = floodplain_curve(i)%volume(wdsrf_ucat(i))
+            ENDDO
+         ENDIF
+      ENDIF
+
 #ifdef TRACER
          trc_restart_found = .false.
          CALL river_lake_tracer_init()
@@ -166,12 +227,71 @@ CONTAINS
                ELSE
                   allocate(ucat2resv_safe(0))
                ENDIF
-               CALL tracer_init_from_water(wdsrf_safe, volresv_safe, ucat2resv_safe, trc_missing)
-               deallocate(wdsrf_safe, volresv_safe, ucat2resv_safe)
+               allocate(is_built_resv_init(size(wdsrf_safe)))
+               is_built_resv_init = .false.
+               IF (allocated(lake_type) .and. allocated(dam_build_year)) THEN
+                  DO i = 1, min(size(is_built_resv_init), size(lake_type), size(ucat2resv_safe))
+                     IF (lake_type(i) /= 2) CYCLE
+                     irsv = ucat2resv_safe(i)
+                     IF (irsv < 1 .or. irsv > size(dam_build_year)) CYCLE
+                     is_built_resv_init(i) = start_year >= dam_build_year(irsv)
+                  ENDDO
+               ENDIF
+               CALL tracer_init_from_water(wdsrf_safe, volresv_safe, ucat2resv_safe, trc_missing, is_built_resv_init)
+               deallocate(wdsrf_safe, volresv_safe, ucat2resv_safe, is_built_resv_init)
             ENDIF
             deallocate(trc_missing)
          ENDIF
 #endif
+
+      ! Every reader has consumed the start-of-run restart.  Clear the path so a
+      ! later hist_init (LULCC re-initialisation) cannot reload start-of-run
+      ! history accumulators over the current ones.
+      gridriver_restart_file = ''
+
+      IF (p_is_worker) THEN
+         allocate(flood_depth_patch(numpatch), flood_fraction_patch(numpatch), &
+            flood_evap_patch(numpatch), flood_infil_patch(numpatch))
+         flood_depth_patch = 0._r8
+         flood_fraction_patch = 0._r8
+         flood_evap_patch = 0._r8
+         flood_infil_patch = 0._r8
+         IF (DEF_GridRiverLake_FloodFeedback) THEN
+#ifdef TRACER
+            has_flood_tracer = .false.
+            DO i = 1, ntracers
+               IF (.not. tracer_uses_land_water_transport(i)) CYCLE
+               has_flood_tracer = .true.
+            ENDDO
+            IF (has_flood_tracer) THEN
+               allocate(flood_tracer_credit_patch(ntracers,numpatch), flood_tracer_evap_patch(ntracers,numpatch), &
+                  flood_tracer_land_patch(ntracers,numpatch), &
+                  flood_visible_tracer_uc(ntracers,numucat), flood_protected_tracer_uc(ntracers,numucat))
+               flood_tracer_credit_patch = 0._r8
+               flood_tracer_evap_patch = 0._r8
+               flood_tracer_land_patch = 0._r8
+            ENDIF
+#endif
+            allocate(flood_visible_uc(numucat), flood_protected_uc(numucat), &
+               flood_credit_patch(numpatch), &
+               flood_evap_acc(numpatch), flood_infil_acc(numpatch), flood_reservoir_uc(numucat), &
+               flood_grid_area(numinpm))
+            flood_evap_acc = 0._r8
+            flood_infil_acc = 0._r8
+            flood_evap_period = 0._r8
+            flood_infil_period = 0._r8
+         ENDIF
+      ENDIF
+      IF (DEF_GridRiverLake_FloodFeedback .and. p_is_worker) THEN
+         allocate(grid_area_local(numinpm))
+         grid_area_local = 0._r8
+         flood_credit_patch = 1._r8
+         IF (numpatch > 0) CALL worker_remap_data_pset2grid(remap_patch2inpm, &
+            flood_credit_patch, grid_area_local, fillvalue=0._r8, filter=flood_credit_patch>0._r8)
+         CALL worker_push_data(allreduce_inpm, grid_area_local, flood_grid_area, fillvalue=0._r8)
+         flood_grid_area = max(flood_grid_area, push_ucat2inpm%sum_area)
+      ENDIF
+      IF (DEF_GridRiverLake_FloodFeedback) CALL publish_flood_feedback(start_year)
 
    END SUBROUTINE grid_riverlake_flow_init
 
@@ -179,15 +299,19 @@ CONTAINS
    SUBROUTINE grid_riverlake_flow (year, deltime)
 
    USE MOD_Utils
-   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_LEVEE, DEF_USE_BIFURCATION
+   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_LEVEE, DEF_USE_BIFURCATION, &
+      DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT
    USE MOD_Vars_1DFluxes,  only: rnof
+   USE MOD_Forcing,        only: forcmask_pch
+   USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
    USE MOD_LandPatch,      only: elm_patch, numpatch
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
    USE MOD_WorkerPushData, only: worker_push_real8_field_type
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 #ifdef TRACER
-   USE MOD_Tracer_Defs,    only: ntracers, tracer_uses_land_water_transport
+   USE MOD_Tracer_Defs,    only: ntracers, tracer_uses_land_water_transport, &
+      tracer_has_dissolved_limit, tracer_equilibrate_dissolved
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Vars,    only: trc_rnof_step
@@ -202,6 +326,8 @@ CONTAINS
 
    ! Local Variables
    integer  :: i, irsv, ntimestep, ipth, i_up, itrc
+   integer  :: lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft
+   integer, save :: lim_diag_printed = 0
    real(r8) :: dt_this
 
    real(r8), allocatable :: rnof_gd(:)
@@ -210,11 +336,17 @@ CONTAINS
    real(r8), allocatable :: trc_rnof_uc(:,:)
 
 #ifdef TRACER
-   real(r8), allocatable :: prcp_gd(:)
-   real(r8), allocatable :: prcp_uc(:)
+   real(r8), allocatable, target :: prcp_gd(:)
+   real(r8), allocatable, target :: prcp_uc(:)
+   real(r8), allocatable, target :: prcp_area_gd(:), prcp_area_uc(:)
    real(r8), allocatable :: prcp_pch(:)
+   logical, allocatable :: filter_prcp(:)
+   type(worker_push_real8_field_type) :: prcp_push_fields(2)
    real(r8), allocatable :: particle_floodarea(:)
+   real(r8), allocatable :: particle_protected_area(:)
+   real(r8), allocatable :: particle_water_storage_start(:)
    real(r8), allocatable :: particle_water_storage(:)
+   real(r8), allocatable :: particle_protected_start(:), particle_protected_end(:)
 #endif
 
    logical,  allocatable :: is_built_resv(:)
@@ -239,6 +371,7 @@ CONTAINS
    real(r8), allocatable :: sum_hflux_riv(:)
    real(r8), allocatable :: sum_hflux_base(:)
    real(r8), allocatable :: normal_outgoing_rate(:)
+   real(r8), allocatable :: ordinary_scale(:), ordinary_scale_next(:)
    real(r8), allocatable :: sum_mflux_riv(:)
    real(r8), allocatable :: sum_zgrad_riv(:)
 
@@ -262,8 +395,9 @@ CONTAINS
    logical,   allocatable :: ucatfilter(:)
    logical :: loop_active, next_loop_active
    real(r8) :: totalvol_bef, totalvol_aft, totalrnof, totaldis
+   real(r8) :: totalflood_evap, totalflood_infil
    real(r8) :: water_balance_err, water_balance_tol
-   real(r8) :: water_balance_vec(4)
+   real(r8) :: water_balance_vec(6)
 #ifdef CoLMDEBUG
    real(r8) :: totalclip
    real(r8), allocatable :: trc_mass_bef(:), trc_mass_aft(:)
@@ -297,12 +431,15 @@ CONTAINS
       totalvol_aft = 0._r8
       totalrnof = 0._r8
       totaldis = 0._r8
+      totalflood_evap = 0._r8
+      totalflood_infil = 0._r8
       water_balance_err = 0._r8
       water_balance_tol = 0._r8
 
       IF (p_is_worker) THEN
          allocate (rnof_gd (numinpm))
          allocate (rnof_uc (numucat))
+         rnof_gd = 0._r8
 #ifdef TRACER
          IF (ntracers > 0) THEN
             allocate (trc_rnof_gd (ntracers, numinpm))
@@ -312,8 +449,14 @@ CONTAINS
          END IF
 #endif
 
-         CALL worker_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
-            fillvalue = 0., filter = filter_rnof)
+         ! Forcing coverage can change after initialization.  Water and tracer
+         ! runoff must be remapped from exactly the same current patch support.
+         IF (numpatch > 0) THEN
+            filter_rnof = patchtype < 99 .and. patchmask
+            IF (DEF_forcing%has_missing_value) filter_rnof = filter_rnof .and. forcmask_pch
+            CALL worker_remap_data_pset2grid (remap_patch2inpm, rnof, rnof_gd, &
+               fillvalue = 0., filter = filter_rnof)
+         ENDIF
 
          IF (numinpm > 0) THEN
             WHERE (push_ucat2inpm%sum_area > 0)
@@ -328,8 +471,9 @@ CONTAINS
          IF (ntracers > 0) THEN
             DO itrc = 1, ntracers
                IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
-               CALL worker_remap_data_pset2grid(remap_patch2inpm, trc_rnof_step(itrc, :), trc_rnof_gd(itrc, :), &
-                  fillvalue = 0._r8, filter = filter_rnof)
+               IF (numpatch > 0) &
+                  CALL worker_remap_data_pset2grid(remap_patch2inpm, trc_rnof_step(itrc, :), trc_rnof_gd(itrc, :), &
+                     fillvalue = 0._r8, filter = filter_rnof)
                IF (numinpm > 0) THEN
                   WHERE (push_ucat2inpm%sum_area > 0._r8)
                      trc_rnof_gd(itrc, :) = trc_rnof_gd(itrc, :) / push_ucat2inpm%sum_area
@@ -348,8 +492,8 @@ CONTAINS
 #ifdef TRACER
                   IF (ntracers > 0) THEN
                      ! trc_rnof_uc is in R×mm (from land: rsur*ratio*dt, rsur in mm/s)
-                     ! rnof_uc * 1.e-3 * deltime is in m (depth, not volume)
-                     ! Need to convert trc_rnof_uc from mm to m to match water units
+                     ! Area-weighted rnof_uc * 1.e-3 * deltime is in m3.
+                     ! Convert area-weighted tracer runoff from mm to m3 too.
                      CALL tracer_input_from_runoff(rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc*1.e-3)
                   ENDIF
 #endif
@@ -362,57 +506,82 @@ CONTAINS
 
 #ifdef TRACER
          IF (tracer_lifecycle_route_has_active()) THEN
-            ! Allocate zero-length arrays on empty workers to avoid passing unallocated
-            ! arrays to assumed-shape dummy arguments in MPI communication routines.
+            ! Intensive rain forcing uses the same valid support in both mappings.
+            ! Runoff above remains an extensive volume: never renormalize it here.
+            allocate(prcp_pch(numpatch), filter_prcp(numpatch))
+            allocate(prcp_gd(numinpm), prcp_area_gd(numinpm))
+            allocate(prcp_uc(numucat), prcp_area_uc(numucat))
+            prcp_pch = 0._r8
+            prcp_gd = 0._r8
+            prcp_area_gd = 0._r8
             IF (numpatch > 0) THEN
-               allocate (prcp_pch (numpatch))
-               prcp_pch = forc_prc + forc_prl
-            ELSE
-               allocate (prcp_pch (0))
+               filter_prcp = patchtype < 99 .and. patchmask
+               IF (DEF_forcing%has_missing_value) filter_prcp = filter_prcp .and. forcmask_pch
+               filter_prcp = filter_prcp .and. ieee_is_finite(forc_prc) .and. ieee_is_finite(forc_prl)
+               ! Do not compare NaNs under trapping builds, or add missing sentinels.
+               DO i = 1, numpatch
+                  IF (.not. filter_prcp(i)) CYCLE
+                  filter_prcp(i) = forc_prc(i) /= spval .and. forc_prl(i) /= spval
+                  IF (filter_prcp(i)) filter_prcp(i) = forc_prc(i) >= 0._r8 .and. forc_prl(i) >= 0._r8
+               ENDDO
+               WHERE (filter_prcp) prcp_pch = forc_prc + forc_prl
+               CALL worker_remap_data_pset2grid(remap_patch2inpm, prcp_pch, prcp_gd, &
+                  fillvalue = 0._r8, filter = filter_prcp)
             ENDIF
-            IF (numinpm > 0) THEN
-               allocate (prcp_gd (numinpm))
-            ELSE
-               allocate (prcp_gd (0))
-            ENDIF
-            IF (numucat > 0) THEN
-               allocate (prcp_uc (numucat))
-            ELSE
-               allocate (prcp_uc (0))
-            ENDIF
-
-            CALL worker_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_gd, &
-               fillvalue = 0., filter = filter_rnof)
-
-            IF (numinpm > 0) THEN
-               WHERE (push_ucat2inpm%sum_area > 0)
-                  prcp_gd = prcp_gd / push_ucat2inpm%sum_area
-               END WHERE
-            ENDIF
-
-            CALL worker_push_data (push_inpm2ucat, prcp_gd, prcp_uc, &
-               fillvalue = 0., mode = 'sum')
-
-            ! Convert from area-integrated [mm/s * m²] back to flux density [mm/s].
-            ! push_data(mode='sum') produces area-integrated values (like rnof_uc),
-            ! particle species expect rates and do their own areal scaling internally.
-            IF (numucat > 0) THEN
-               WHERE (topo_area > 0._r8)
-                  prcp_uc = prcp_uc / topo_area
-               END WHERE
-            ENDIF
-
-            CALL tracer_lifecycle_route_forcing_put(prcp_uc, deltime)
-
-            deallocate(prcp_pch)
-            deallocate(prcp_gd)
-            deallocate(prcp_uc)
+            ! A dry but valid patch contributes area even when its rain is zero.
+            prcp_pch = 1._r8
+            IF (numpatch > 0) &
+               CALL worker_remap_data_pset2grid(remap_patch2inpm, prcp_pch, prcp_area_gd, &
+                  fillvalue = 0._r8, filter = filter_prcp)
+            WHERE (push_ucat2inpm%sum_area > 0._r8)
+               prcp_gd = prcp_gd / push_ucat2inpm%sum_area
+               prcp_area_gd = prcp_area_gd / push_ucat2inpm%sum_area
+            ELSEWHERE
+               prcp_gd = 0._r8
+               prcp_area_gd = 0._r8
+            END WHERE
+            ! Rain and its valid area share one mapping and one mode, so they go
+            ! in a single batched exchange rather than two.
+            prcp_push_fields(1)%send => prcp_gd
+            prcp_push_fields(1)%recv => prcp_uc
+            prcp_push_fields(1)%fillvalue = 0._r8
+            prcp_push_fields(2)%send => prcp_area_gd
+            prcp_push_fields(2)%recv => prcp_area_uc
+            prcp_push_fields(2)%fillvalue = 0._r8
+            CALL worker_push_data(push_inpm2ucat, prcp_push_fields, mode = 'sum')
+            WHERE (prcp_area_uc > 0._r8)
+               prcp_uc = prcp_uc / prcp_area_uc
+            ELSEWHERE
+               prcp_uc = 0._r8
+            END WHERE
+            ! Existing erosion uses uniform rain over the full catchment. Its
+            ! sampled mean is weighted by valid area * time, not missing zeros.
+            ! Zero coverage means no observation, distinct from observed zero rain.
+            WHERE (topo_area > 0._r8)
+               prcp_area_uc = prcp_area_uc / topo_area
+            ELSEWHERE
+               prcp_area_uc = 0._r8
+            END WHERE
+            CALL tracer_lifecycle_route_forcing_put(prcp_uc, deltime, prcp_area_uc)
+            deallocate(prcp_pch, filter_prcp, prcp_gd, prcp_area_gd, prcp_uc, prcp_area_uc)
          ENDIF
 #endif
 
       ENDIF
 
 
+      IF (DEF_GridRiverLake_FloodFeedback .and. p_is_worker) THEN
+         flood_evap_acc = flood_evap_acc + flood_evap_patch*deltime
+         flood_infil_acc = flood_infil_acc + flood_infil_patch*deltime
+         flood_evap_patch = 0._r8
+         flood_infil_patch = 0._r8
+      ENDIF
+      IF (DEF_GridRiverLake_FloodFeedback) THEN
+         CALL debit_flood_feedback(totalflood_evap, totalflood_infil)
+         flood_evap_period = flood_evap_period + totalflood_evap
+         flood_infil_period = flood_infil_period + totalflood_infil
+         CALL publish_flood_feedback(year)
+      ENDIF
       acctime_rnof = acctime_rnof + deltime
 
       IF (acctime_rnof+0.01 < acctime_rnof_max) THEN
@@ -440,10 +609,8 @@ CONTAINS
             allocate (mflux_fc      (numucat))
             allocate (zgrad_dn      (numucat))
             allocate (sum_hflux_riv (numucat))
-            IF (DEF_USE_BIFURCATION) THEN
-               allocate (sum_hflux_base(numucat))
-               allocate (normal_outgoing_rate(numucat))
-            ENDIF
+            IF (DEF_USE_BIFURCATION) allocate (sum_hflux_base(numucat))
+            allocate (normal_outgoing_rate(numucat), ordinary_scale(numucat), ordinary_scale_next(numucat))
             allocate (sum_mflux_riv (numucat))
             allocate (sum_zgrad_riv (numucat))
             allocate (ucatfilter    (numucat))
@@ -460,6 +627,21 @@ CONTAINS
             total_floodarea = 0.
             allocate (total_flooddepth (numucat))
             total_flooddepth = 0.
+#ifdef TRACER
+            ! Per-substep inputs of the particle (sediment) diagnostics; sized
+            ! once per routing period instead of once per substep.
+            allocate (particle_floodarea (numucat))
+            allocate (particle_protected_area(numucat))
+            allocate (particle_water_storage_start (numucat))
+            allocate (particle_water_storage (numucat))
+            allocate (particle_protected_start(numucat), particle_protected_end(numucat))
+            particle_floodarea = 0._r8
+            particle_protected_area = 0._r8
+            particle_water_storage_start = 0._r8
+            particle_water_storage = 0._r8
+            particle_protected_start = 0._r8
+            particle_protected_end = 0._r8
+#endif
 
             allocate (hflux_sumups  (numucat))
             allocate (mflux_sumups  (numucat))
@@ -510,6 +692,11 @@ CONTAINS
 
          ! Tracer conservation: snapshot old state and the queued input
          ! before merging that input into the pending pool below.
+#ifdef TRACER
+         ! Reset this period diagnostic even without CoLMDEBUG; reactive
+         ! chemistry can still produce increments in production builds.
+         IF (allocated(trc_reactive_source)) trc_reactive_source = 0._r8
+#endif
 #ifdef CoLMDEBUG
 #ifdef TRACER
          IF (numucat > 0) THEN
@@ -518,11 +705,12 @@ CONTAINS
                trc_mass_bef(itrc) = sum(trc_mass(itrc,:)) + sum(trc_inp_buf(itrc,:))
                IF (allocated(trc_levsto)) &
                   trc_mass_bef(itrc) = trc_mass_bef(itrc) + sum(trc_levsto(itrc,:))
+               IF (allocated(trc_solid)) trc_mass_bef(itrc) = trc_mass_bef(itrc) &
+                  + sum(trc_solid(itrc,:)) + sum(trc_levsto_solid(itrc,:))
                trc_mass_inp(itrc) = sum(acc_trc_inp(itrc,:))
                trc_mass_dis(itrc) = 0._r8
                trc_mass_reactive(itrc) = 0._r8
             ENDDO
-            IF (allocated(trc_reactive_source)) trc_reactive_source = 0._r8
          ELSE
             trc_mass_bef = 0._r8
             trc_mass_inp = 0._r8
@@ -612,7 +800,11 @@ CONTAINS
                      fldfrc_levee, vis_vol_bef_lv, levsto_bef_lv)
                   volwater_ucat(i) = volwater
 #ifdef TRACER
-                  CALL levee_tracer_repartition(i, &
+                  IF (ntracers > 0) CALL tracer_lifecycle_route_sediment_levee_repartition(i, &
+                     vis_vol_bef_lv, levsto_bef_lv, volwater_ucat(i), levsto(i))
+                  ! The optional pending pool is unallocated when no tracer is
+                  ! configured; do not form an array section before the callee.
+                  IF (ntracers > 0) CALL levee_tracer_repartition(i, &
                      vis_vol_bef_lv, levsto_bef_lv, &
                      volwater_ucat(i), levsto(i), &
                      pending_trc_pool = trc_inp_buf(:, i))
@@ -697,11 +889,13 @@ CONTAINS
             ! mapping.  Pack them into one peer message per routing substep.
             CALL worker_push_data (push_next2ucat, downstream_state_fields)
 
-            dt_all(:) = min(dt_res(:), 60.)
+            ! Preserve the original 60 s upper bound; the local CFL, storage,
+            ! and momentum constraints below may shorten this further.
+            dt_all(:) = min(dt_res(:), 60._r8)
             ! In BIF mode every active system starts with the same residual
             ! time: the first substep starts from acctime_rnof and every later
             ! one subtracts the globally reduced dt.  Synchronizing this
-            ! initial 60 s cap is therefore redundant.  Reduce only once,
+            ! initial residual is therefore redundant.  Reduce only once,
             ! after the local CFL/storage/momentum constraints below, before
             ! any cross-system BIF flux is evaluated.
 
@@ -873,7 +1067,19 @@ CONTAINS
 
                DO i = 1, numucat
 
-                  IF ((.not. ucatfilter(i)) .or. (ucat_next(i) == -10)) CYCLE
+                  IF (.not. ucatfilter(i)) CYCLE
+
+                  IF (ucat_next(i) == -10) THEN
+                     ! Inland depression: hflux_fc is fixed at zero, so nothing is
+                     ! released, but the reservoir history must still report the
+                     ! current inflow instead of the last value it was given.
+                     IF (is_built_resv(i)) THEN
+                        irsv = ucat2resv(i)
+                        qresv_in(irsv)  = - sum_hflux_riv(i)
+                        qresv_out(irsv) = 0._r8
+                     ENDIF
+                     CYCLE
+                  ENDIF
 
                   IF (is_built_resv(i)) THEN
 
@@ -910,28 +1116,6 @@ CONTAINS
 
             ENDIF
 
-            IF (DEF_USE_BIFURCATION) THEN
-               ! CaMa-style aggregate limiter input: gross ordinary routing
-               ! outflow per donor cell.  Positive hflux leaves the current cell;
-               ! negative hflux leaves the downstream cell and must be pushed there.
-               normal_outgoing_rate(:) = 0._r8
-               hflux_sumups(:) = 0._r8
-               DO i = 1, numucat
-                  IF (.not. ucatfilter(i)) CYCLE
-                  IF (hflux_fc(i) >= 0._r8) THEN
-                     normal_outgoing_rate(i) = hflux_fc(i)
-                  ELSE
-                     hflux_sumups(i) = -hflux_fc(i)
-                  ENDIF
-               ENDDO
-               CALL worker_push_data (push_ups2ucat, hflux_sumups, mflux_sumups, fillvalue = 0._r8, mode = 'sum')
-               IF (numucat > 0) THEN
-                  WHERE (ucatfilter)
-                     normal_outgoing_rate = normal_outgoing_rate + mflux_sumups
-                  END WHERE
-               ENDIF
-            ENDIF
-
             DO i = 1, numucat
 
                IF (.not. ucatfilter(i)) CYCLE
@@ -953,16 +1137,22 @@ CONTAINS
                   ELSE
                      volwater = volresv(ucat2resv(i))
                   ENDIF
-                  IF (volwater > ROUTING_STORAGE_DT_EPS) &
+                  ! Tiny storage is protected by the gross outgoing-face
+                  ! limiter below, rather than forcing a pathological dt.
+                  IF (volwater > 1.e-6_r8) &
                      dt_this = min(dt_this, volwater / sum_hflux_riv(i))
                ENDIF
 
-               ! constraint 3: avoid change of flow direction (only for rivers)
-               IF (.not. is_built_resv(i)) THEN
-                  IF ((abs(veloc_riv(i)) > 0.1_r8) &
-                     .and. (veloc_riv(i) * (sum_mflux_riv(i)-sum_zgrad_riv(i)) > 0._r8)) THEN
-                     dt_this = min(dt_this, &
-                        abs(momen_riv(i) * topo_rivare(i) / (sum_mflux_riv(i)-sum_zgrad_riv(i))))
+               ! constraint 3: avoid change of flow direction (only for rivers).
+               ! Optional: DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT = .false. leaves the
+               ! momentum update to the semi-implicit friction term, as CaMa-Flood does.
+               IF (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT) THEN
+                  IF (.not. is_built_resv(i)) THEN
+                     IF ((abs(veloc_riv(i)) > 0.1_r8) &
+                        .and. (veloc_riv(i) * (sum_mflux_riv(i)-sum_zgrad_riv(i)) > 0._r8)) THEN
+                        dt_this = min(dt_this, &
+                           abs(momen_riv(i) * topo_rivare(i) / (sum_mflux_riv(i)-sum_zgrad_riv(i))))
+                     ENDIF
                   ENDIF
                ENDIF
 
@@ -974,22 +1164,105 @@ CONTAINS
             ! dt-feedback loop is intentionally gone: ordinary routing still
             ! uses CFL/storage/momentum adaptive dt; BIF uses storage limiters.
 
+            ! A net-flux dt bound cannot protect a nearly dry donor with two
+            ! outgoing faces: upstream inflow can mask one outgoing face, and
+            ! the old tiny-storage exemption skipped the bound altogether.
+            ! Limit each donor's GROSS ordinary outflow to its current storage.
+            ! Positive faces belong to this cell; negative faces belong to the
+            ! downstream cell, so exchange both gross reverse outflow and the
+            ! resulting donor scale before changing either shared face.
+            normal_outgoing_rate = 0._r8
+            hflux_sumups = 0._r8
+            DO i = 1, numucat
+               IF (.not. ucatfilter(i)) CYCLE
+               IF (hflux_fc(i) >= 0._r8) THEN
+                  normal_outgoing_rate(i) = hflux_fc(i)
+               ELSE
+                  hflux_sumups(i) = -hflux_fc(i)
+               ENDIF
+            ENDDO
+            CALL worker_push_data(push_ups2ucat, hflux_sumups, mflux_sumups, fillvalue = 0._r8, mode = 'sum')
+            WHERE (ucatfilter)
+               normal_outgoing_rate = normal_outgoing_rate + mflux_sumups
+            END WHERE
+            ordinary_scale = 1._r8
+            DO i = 1, numucat
+               IF (.not. ucatfilter(i)) CYCLE
+               IF (normal_outgoing_rate(i) <= 0._r8) CYCLE
+               IF (is_built_resv(i)) THEN
+                  volwater = volresv(ucat2resv(i))
+               ELSE
+                  volwater = volwater_ucat(i)
+               ENDIF
+               ! Final synchronization can only shorten this provisional dt,
+               ! so capping against it is conservative even across workers.
+               ! A pathological provisional dt is handled by the synchronizer;
+               ! transfer no ordinary water from that donor in the meantime.
+               IF (.not. ieee_is_finite(dt_all(irivsys(i)))) THEN
+                  ordinary_scale(i) = 0._r8
+               ELSEIF (dt_all(irivsys(i)) <= 0._r8) THEN
+                  ordinary_scale(i) = 0._r8
+               ELSE
+                  ordinary_scale(i) = min(1._r8, max(volwater, 0._r8) / &
+                     (normal_outgoing_rate(i) * dt_all(irivsys(i))))
+               ENDIF
+               normal_outgoing_rate(i) = normal_outgoing_rate(i) * ordinary_scale(i)
+            ENDDO
+            CALL worker_push_data(push_next2ucat, ordinary_scale, ordinary_scale_next, fillvalue = 1._r8)
+            DO i = 1, numucat
+               IF (.not. ucatfilter(i)) CYCLE
+               IF (hflux_fc(i) >= 0._r8) THEN
+                  dt_this = ordinary_scale(i)
+               ELSE
+                  dt_this = ordinary_scale_next(i)
+               ENDIF
+               hflux_fc(i) = hflux_fc(i) * dt_this
+               mflux_fc(i) = mflux_fc(i) * dt_this
+               IF (is_built_resv(i)) qresv_out(ucat2resv(i)) = hflux_fc(i)
+            ENDDO
+            ! Rebuild net fluxes from the capped faces.  Sender and receiver
+            ! then use one identical volume/momentum transfer, including MPI
+            ! boundaries, reverse flow, reservoirs and the tracer substep.
+            CALL worker_push_data(push_ups2ucat, upstream_flux_fields, mode = 'sum')
+            WHERE (ucatfilter)
+               sum_hflux_riv = hflux_fc - hflux_sumups
+               sum_mflux_riv = mflux_fc - mflux_sumups
+            END WHERE
+            DO i = 1, numucat
+               IF (.not. ucatfilter(i)) CYCLE
+               IF (is_built_resv(i)) qresv_in(ucat2resv(i)) = hflux_sumups(i)
+            ENDDO
+            ! The face limiter also scales momentum fluxes.  Recheck the
+            ! optional non-reversal bound against their FINAL net force: an
+            ! upstream donor may have been capped more than this cell.
+            IF (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT) THEN
+               DO i = 1, numucat
+                  IF (.not. ucatfilter(i) .or. is_built_resv(i)) CYCLE
+                  IF ((abs(veloc_riv(i)) > 0.1_r8) .and. &
+                     (veloc_riv(i) * (sum_mflux_riv(i)-sum_zgrad_riv(i)) > 0._r8)) THEN
+                     dt_this = abs(momen_riv(i) * topo_rivare(i) / &
+                        (sum_mflux_riv(i)-sum_zgrad_riv(i)))
+                     ! Never let the synchronizer's invalid-dt fallback grow
+                     ! a step after faces were capped against a smaller one.
+                     IF (.not. ieee_is_finite(dt_this)) &
+                        CALL CoLM_stop('grid_riverlake_flow: invalid final momentum dt')
+                     IF (dt_this <= 0._r8) &
+                        CALL CoLM_stop('grid_riverlake_flow: non-positive final momentum dt')
+                     dt_all(irivsys(i)) = min(dt_all(irivsys(i)), dt_this)
+                  ENDIF
+               ENDDO
+            ENDIF
             IF (DEF_USE_BIFURCATION) THEN
-               IF (numucat > 0) sum_hflux_base = sum_hflux_riv
-               ! Bifurcation pairs donor/receiver cells across river systems; a
-               ! single synchronized global dt keeps the paired volume transfer
-               ! conservative and all collective-bearing calls in lockstep.
+               ! One global step keeps cross-system BIF transfers paired.
                CALL sync_global_routing_dt(dt_res, dt_all, next_loop_active)
 #ifdef USEMPI
             ELSE IF (rivsys_by_multiple_procs) THEN
-               ! Baseline behaviour: each river system keeps its own adaptive dt;
-               ! only a system split across multiple processes needs a reduction,
-               ! over the per-river-system communicator (not all workers).
                CALL mpi_allreduce (MPI_IN_PLACE, dt_all, 1, MPI_REAL8, MPI_MIN, &
                   p_comm_rivsys, p_err)
 #endif
             ENDIF
             IF (DEF_USE_BIFURCATION) THEN
+               IF (numucat > 0) sum_hflux_base = sum_hflux_riv
                ! Production BIF transport: storage limiters inside
                ! bifurcation_calc prevent donor overdraft without a predictive
                ! dt-feedback loop.
@@ -1056,6 +1329,8 @@ CONTAINS
             ! with water BEFORE the water state update so concentration
             ! is computed from the pre-update volume.
 #ifdef TRACER
+            IF (ntracers > 0 .and. DEF_USE_BIFURCATION) &
+               CALL tracer_lifecycle_route_sediment_bif_accumulate(dt_all, irivsys, ucatfilter, bif_hflux_lev)
             IF (allocated(volresv)) volresv_safe = volresv
             IF (DEF_USE_BIFURCATION) THEN
                CALL tracer_substep (acctime_rnof, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
@@ -1076,6 +1351,17 @@ CONTAINS
                   ELSE
                   volwater = volresv(ucat2resv(i))
                ENDIF
+
+#ifdef TRACER
+               ! The particle provider needs the carrier before this HYDRO
+               ! substep, including protected levee water when present.
+               particle_water_storage_start(i) = max(volwater, 0._r8)
+               particle_protected_start(i) = 0._r8
+               IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) &
+                  particle_water_storage_start(i) = particle_water_storage_start(i) + max(levsto(i), 0._r8)
+               IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) &
+                  particle_protected_start(i) = max(levsto(i), 0._r8)
+#endif
 
                   visible_hflux = sum_hflux_riv(i)
                   protected_hflux = 0._r8
@@ -1102,6 +1388,11 @@ CONTAINS
 #ifdef CoLMDEBUG
                IF (volwater < 0._r8) totalclip = totalclip - volwater
 #endif
+               ! Water created by this clip is not silent in any build: it enters
+               ! totalvol_aft, so it appears in the always-on closure check
+               ! (water_balance_err vs water_balance_tol, the analogue of CaMa's
+               ! CALC_WATBAL) at the end of the routing period.  CoLMDEBUG only
+               ! breaks the amount out as totalclip.
                volwater = max(volwater, 0.)
 
                ! Inland depression overflow is a post-transport water correction.
@@ -1112,6 +1403,7 @@ CONTAINS
                   IF (volwater > topo_rivstomax(i)) THEN
                      ! Remove excess water after transport has already run.
                      hflux_fc(i) = (volwater - topo_rivstomax(i)) / dt_all(irivsys(i))
+                     IF (is_built_resv(i)) qresv_out(ucat2resv(i)) = hflux_fc(i)
                      ! Remove corresponding tracer proportionally.
                      ! Update trc_flux_out so the unified discharge diagnostic
                      ! at line ~895 (ucat_next <= 0) picks up the correct value.
@@ -1126,6 +1418,11 @@ CONTAINS
                            vol_post = max(vol_post, 1.e-6_r8)
                         DO itrc_dep = 1, ntracers
                            IF (.not. tracer_uses_land_water_transport(itrc_dep)) CYCLE
+                           IF (allocated(trc_solid)) THEN
+                              IF (tracer_has_dissolved_limit(itrc_dep)) &
+                                 CALL tracer_equilibrate_dissolved(itrc_dep, volwater, &
+                                    trc_mass(itrc_dep, i), trc_solid(itrc_dep, i))
+                           ENDIF
                            trc_removed = trc_mass(itrc_dep, i) * frac_remove
                            trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) - trc_removed
                            trc_flux_out(itrc_dep, i) = trc_removed / dt_all(irivsys(i))
@@ -1148,6 +1445,8 @@ CONTAINS
                   volwater_ucat(i) = volwater
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
 #ifdef TRACER
+                     IF (ntracers > 0) CALL tracer_lifecycle_route_sediment_levee_repartition(i, &
+                        vis_vol_bef_lv2, levsto_bef_lv2, volwater_ucat(i), levsto(i))
                      CALL levee_tracer_repartition(i, &
                         vis_vol_bef_lv2, levsto_bef_lv2, &
                         volwater_ucat(i), levsto(i))
@@ -1194,7 +1493,7 @@ CONTAINS
                   IF (p_is_worker .and. numucat > 0) THEN
                      IF (allocated(volresv)) volresv_safe = volresv
                      CALL tracer_diag_accumulate_substep (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
-                        volresv_safe, ucat2resv_safe)
+                        volresv_safe, ucat2resv_safe, is_built_resv)
                   END IF
 #endif
 
@@ -1286,39 +1585,44 @@ CONTAINS
 
 #ifdef TRACER
             IF (tracer_lifecycle_route_has_active()) THEN
-               IF (numucat > 0) THEN
-                  allocate(particle_floodarea(numucat))
-                  allocate(particle_water_storage(numucat))
-                  DO i = 1, numucat
-                     IF (ucatfilter(i)) THEN
-                        IF (DEF_USE_LEVEE .and. levee_floodarea(i) > 0.) THEN
-                           particle_floodarea(i) = levee_floodarea(i)
+               DO i = 1, numucat
+                  IF (ucatfilter(i)) THEN
+                     particle_protected_end(i) = 0._r8
+                     ! Same levee/floodplain flood area the history block above
+                     ! stored for this substep; do not evaluate the curve again.
+                     particle_floodarea(i) = total_floodarea(i)
+                     particle_protected_area(i) = 0._r8
+                     IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) &
+                        particle_protected_area(i) = min(max(levee_floodarea(i) - &
+                           levee_frc_data(i) * topo_area(i), 0._r8), &
+                           (1._r8 - levee_frc_data(i)) * topo_area(i))
+                     ! Sediment concentration uses the same full water volume
+                     ! HYDRO just advanced, not a channel-width rectangle that
+                     ! omits floodplain (and protected levee) storage.
+                     IF (is_built_resv(i) .and. allocated(volresv) .and. allocated(ucat2resv)) THEN
+                        irsv = ucat2resv(i)
+                        IF (irsv >= 1 .and. irsv <= size(volresv) .and. volresv(irsv) /= spval) THEN
+                           particle_water_storage(i) = max(volresv(irsv), 0._r8)
                         ELSE
-                           particle_floodarea(i) = floodplain_curve(i)%floodarea(wdsrf_ucat(i))
-                        ENDIF
-                        IF (is_built_resv(i) .and. allocated(volresv) .and. allocated(ucat2resv)) THEN
-                           irsv = ucat2resv(i)
-                           IF (irsv >= 1 .and. irsv <= size(volresv) .and. volresv(irsv) /= spval) THEN
-                              particle_water_storage(i) = max(volresv(irsv), 0._r8)
-                           ELSE
-                              particle_water_storage(i) = max(wdsrf_ucat(i), 0._r8) * topo_rivwth(i) * topo_rivlen(i)
-                           ENDIF
-                        ELSE
-                           particle_water_storage(i) = max(wdsrf_ucat(i), 0._r8) * topo_rivwth(i) * topo_rivlen(i)
+                           particle_water_storage(i) = max(volwater_ucat(i), 0._r8)
                         ENDIF
                      ELSE
-                        particle_floodarea(i) = 0._r8
-                        particle_water_storage(i) = 0._r8
+                        particle_water_storage(i) = max(volwater_ucat(i), 0._r8)
+                        IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                           particle_water_storage(i) = particle_water_storage(i) + max(levsto(i), 0._r8)
+                           particle_protected_end(i) = max(levsto(i), 0._r8)
+                        ENDIF
                      ENDIF
-                  ENDDO
-               ELSE
-                  allocate(particle_floodarea(0))
-                  allocate(particle_water_storage(0))
-               ENDIF
+                  ELSE
+                     particle_floodarea(i) = 0._r8
+                     particle_protected_area(i) = 0._r8
+                     particle_water_storage(i) = 0._r8
+                  ENDIF
+               ENDDO
                CALL tracer_lifecycle_route_diag_accumulate(dt_all, irivsys, ucatfilter, &
-                  veloc_riv, wdsrf_ucat, particle_water_storage, hflux_fc, particle_floodarea)
-               deallocate(particle_floodarea)
-               deallocate(particle_water_storage)
+                  veloc_riv, wdsrf_ucat, particle_water_storage_start, particle_water_storage, &
+                  hflux_fc, particle_floodarea, particle_protected_start, particle_protected_end, &
+                  particle_protected_area)
             ENDIF
 #endif
 
@@ -1361,6 +1665,8 @@ CONTAINS
                trc_mass_aft(itrc) = sum(trc_mass(itrc,:)) + sum(trc_inp_buf(itrc,:))
                IF (allocated(trc_levsto)) &
                   trc_mass_aft(itrc) = trc_mass_aft(itrc) + sum(trc_levsto(itrc,:))
+               IF (allocated(trc_solid)) trc_mass_aft(itrc) = trc_mass_aft(itrc) &
+                  + sum(trc_solid(itrc,:)) + sum(trc_levsto_solid(itrc,:))
             ENDDO
          ELSE
             trc_mass_aft = 0._r8
@@ -1372,14 +1678,27 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      water_balance_vec = (/ totalvol_bef, totalvol_aft, totalrnof, totaldis /)
+      water_balance_vec = (/ totalvol_bef, totalvol_aft, totalrnof, totaldis, &
+         flood_evap_period, flood_infil_period /)
       IF (.not. p_is_worker) water_balance_vec = 0._r8
-      CALL mpi_allreduce (MPI_IN_PLACE, water_balance_vec, 4, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      IF (DEF_GridRiverLake_FloodFeedback) THEN
+         CALL mpi_allreduce (MPI_IN_PLACE, water_balance_vec, 6, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      ELSE
+         CALL mpi_allreduce (MPI_IN_PLACE, water_balance_vec, 4, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      ENDIF
       totalvol_bef = water_balance_vec(1)
       totalvol_aft = water_balance_vec(2)
       totalrnof    = water_balance_vec(3)
       totaldis     = water_balance_vec(4)
 #endif
+      IF (p_is_master .and. (water_balance_vec(5) > 0._r8 .or. water_balance_vec(6) > 0._r8)) &
+         write(*,'(A,2(1X,ES24.16))') 'Grid flood feedback evap/infil [m3]:', &
+            water_balance_vec(5), water_balance_vec(6)
+      IF (p_is_master .and. DEF_GridRiverLake_FloodFeedback) &
+         write(*,'(A,4(1X,ES24.16))') 'Grid flood route S0/S1/R/Q [m3]:', &
+            totalvol_bef, totalvol_aft, totalrnof, totaldis
+      flood_evap_period = 0._r8
+      flood_infil_period = 0._r8
 
       water_balance_err = totalvol_aft - totalvol_bef - totalrnof + totaldis
       water_balance_tol = max(1.e-6_r8, 1.e-10_r8 * max(abs(totalvol_bef), abs(totalvol_aft), &
@@ -1480,6 +1799,33 @@ CONTAINS
 #endif
 
 #ifdef TRACER
+      ! Donor-limiter work for the routing period just finished.  Every worker
+      ! must take part: each rank reads and clears its own counters, then the
+      ! totals are reduced (SUM for work, MAX for the peak) so the report covers
+      ! the whole domain instead of one rank's share.  Printed for the first few
+      ! periods (the repo's one-shot convention) and whenever some rank needed
+      ! the long-chain fast path.
+      IF (p_is_worker) THEN
+         CALL tracer_limiter_stats (lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft, &
+            reset = .true.)
+#ifdef USEMPI
+         CALL mpi_allreduce (MPI_IN_PLACE, lim_calls, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, lim_iter_sum, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, lim_over_soft, 1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, lim_iter_peak, 1, MPI_INTEGER, MPI_MAX, p_comm_worker, p_err)
+#endif
+         IF (p_iam_worker == p_root) THEN
+            IF (lim_calls > 0 .and. (lim_diag_printed < 5 .or. lim_over_soft > 0)) THEN
+               IF (lim_diag_printed < 5) lim_diag_printed = lim_diag_printed + 1
+               write(*,'(A,I0,A,F9.3,A,I0,A,I0)') 'River tracer donor limiter: calls=', lim_calls, &
+                  ' mean iter=', real(lim_iter_sum, r8) / real(lim_calls, r8), &
+                  ' peak=', lim_iter_peak, ' over_soft=', lim_over_soft
+            ENDIF
+         ENDIF
+      ENDIF
+#endif
+
+#ifdef TRACER
       IF (tracer_lifecycle_route_has_active() .and. p_is_worker) THEN
          ! All workers must participate (MPI point-to-point inside push_data).
          ! Particle tracers compute their own flood-exposure diagnostics from
@@ -1491,9 +1837,12 @@ CONTAINS
 #ifdef TRACER
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
-            acc_trc_inp = 0._r8
-            acc_rnof_ref = 0._r8
-            trc_dry_drain = 0._r8
+            ! With TRACER compiled in but no tracer configured
+            ! (DEF_TRACER_NUM = 0) river_lake_tracer_init returns early and
+            ! leaves these arrays unallocated.
+            IF (allocated(acc_trc_inp)) acc_trc_inp = 0._r8
+            IF (allocated(acc_rnof_ref)) acc_rnof_ref = 0._r8
+            IF (allocated(trc_dry_drain)) trc_dry_drain = 0._r8
          ENDIF
       END IF
 #endif
@@ -1521,6 +1870,7 @@ CONTAINS
             CALL publish_fldfrc_to_patches (total_floodarea, total_flooddepth)
          ENDIF
 #endif
+         IF (DEF_GridRiverLake_FloodFeedback) CALL publish_flood_feedback(year)
 
       IF (allocated(is_built_resv)) deallocate(is_built_resv)
       IF (allocated(wdsrf_next   )) deallocate(wdsrf_next   )
@@ -1536,12 +1886,21 @@ CONTAINS
       IF (allocated(sum_hflux_riv)) deallocate(sum_hflux_riv)
       IF (allocated(sum_hflux_base)) deallocate(sum_hflux_base)
       IF (allocated(normal_outgoing_rate)) deallocate(normal_outgoing_rate)
+      IF (allocated(ordinary_scale)) deallocate(ordinary_scale)
+      IF (allocated(ordinary_scale_next)) deallocate(ordinary_scale_next)
       IF (allocated(sum_mflux_riv)) deallocate(sum_mflux_riv)
       IF (allocated(sum_zgrad_riv)) deallocate(sum_zgrad_riv)
       IF (allocated(ucatfilter      )) deallocate(ucatfilter      )
       IF (allocated(levee_floodarea)) deallocate(levee_floodarea)
          IF (allocated(total_floodarea)) deallocate(total_floodarea)
          IF (allocated(total_flooddepth)) deallocate(total_flooddepth)
+#ifdef TRACER
+         IF (allocated(particle_floodarea)) deallocate(particle_floodarea)
+         IF (allocated(particle_protected_area)) deallocate(particle_protected_area)
+         IF (allocated(particle_water_storage_start)) deallocate(particle_water_storage_start)
+         IF (allocated(particle_water_storage)) deallocate(particle_water_storage)
+         IF (allocated(particle_protected_start)) deallocate(particle_protected_start, particle_protected_end)
+#endif
             IF (allocated(dt_res         )) deallocate(dt_res         )
             IF (allocated(dt_all       )) deallocate(dt_all       )
          IF (allocated(volresv_safe)) deallocate(volresv_safe)
@@ -1777,6 +2136,395 @@ CONTAINS
 
    END SUBROUTINE sync_global_routing_dt
 
+   SUBROUTINE publish_flood_feedback(year)
+   ! Publish only exposed overbank/protected storage.  The same ucat/grid
+   ! intersection areas are used in reverse by debit_flood_feedback.
+   USE MOD_LandPatch, only: numpatch
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: ntracers, tracer_uses_land_water_transport
+#endif
+   IMPLICIT NONE
+   integer, intent(in) :: year
+   integer :: i
+   real(r8) :: visible, protected, stage, protected_stage, protected_new, fraction
+   real(r8), allocatable :: density(:), grid_visible(:), grid_protected(:)
+   real(r8), allocatable :: frac_uc(:), frac_grid(:)
+#ifdef TRACER
+   integer :: itrc
+   real(r8), allocatable :: grid_tracer(:), patch_tracer(:)
+#endif
+
+      IF (.not. p_is_worker) RETURN
+      allocate(density(numucat), grid_visible(numinpm), grid_protected(numinpm), &
+         frac_uc(numucat), frac_grid(numinpm))
+      flood_visible_uc = 0._r8
+      flood_protected_uc = 0._r8
+      flood_reservoir_uc = .false.
+#ifdef TRACER
+      IF (allocated(flood_visible_tracer_uc)) THEN
+         flood_visible_tracer_uc = 0._r8
+         flood_protected_tracer_uc = 0._r8
+         flood_tracer_credit_patch = 0._r8
+         flood_tracer_evap_patch = 0._r8
+         flood_tracer_land_patch = 0._r8
+      ENDIF
+#endif
+      frac_uc = 0._r8
+      DO i = 1, numucat
+         IF (lake_type(i) == 2 .and. allocated(ucat2resv)) THEN
+            IF (ucat2resv(i) > 0 .and. allocated(dam_build_year)) THEN
+               flood_reservoir_uc(i) = year >= dam_build_year(ucat2resv(i))
+            ENDIF
+         ENDIF
+         visible = max(0._r8, volwater_ucat(i))
+         IF (flood_reservoir_uc(i)) visible = max(0._r8, volresv(ucat2resv(i)))
+         IF (.not. volwater_ucat_valid) visible = max(0._r8, floodplain_curve(i)%volume(wdsrf_ucat(i)))
+         IF (flood_reservoir_uc(i)) visible = max(0._r8, volresv(ucat2resv(i)))
+         protected = 0._r8
+         IF (DEF_USE_LEVEE .and. has_levee(i)) protected = max(0._r8, levsto(i))
+#ifdef TRACER
+         IF (allocated(trc_solid)) CALL equilibrate_river_tracer_cell(i, visible, protected)
+#endif
+         IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+            CALL levee_fldstg(i, visible+protected, stage, protected_new, protected_stage, fraction)
+         ELSE
+            stage = floodplain_curve(i)%depth(visible)
+            fraction = floodplain_curve(i)%floodarea(stage) / max(topo_area(i), 1._r8)
+         ENDIF
+         IF (fraction <= 0._r8) CYCLE
+         flood_visible_uc(i) = max(0._r8, visible - topo_rivstomax(i))
+         flood_protected_uc(i) = protected
+         frac_uc(i) = min(1._r8, fraction)
+#ifdef TRACER
+         IF (allocated(flood_visible_tracer_uc)) THEN
+            IF (visible > 0._r8) flood_visible_tracer_uc(:,i) = &
+               max(trc_mass(:,i), 0._r8) * (flood_visible_uc(i) / visible)
+            IF (protected > 0._r8) flood_protected_tracer_uc(:,i) = max(trc_levsto(:,i), 0._r8)
+         ENDIF
+#endif
+      ENDDO
+
+      density = 0._r8
+      WHERE (push_inpm2ucat%sum_area > 0._r8) &
+         density = flood_visible_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
+      CALL worker_push_data(push_ucat2inpm, density, grid_visible, fillvalue=0._r8, mode='sum')
+      density = 0._r8
+      WHERE (push_inpm2ucat%sum_area > 0._r8) &
+         density = flood_protected_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
+      CALL worker_push_data(push_ucat2inpm, density, grid_protected, fillvalue=0._r8, mode='sum')
+      CALL worker_push_data(push_ucat2inpm, frac_uc, frac_grid, fillvalue=0._r8, mode='average')
+      WHERE (flood_grid_area > 0._r8)
+         frac_grid = min(1._r8, max(0._r8, frac_grid))
+         grid_visible = grid_visible / max(flood_grid_area, tiny(1._r8))
+         grid_protected = grid_protected / max(flood_grid_area, tiny(1._r8))
+      ELSEWHERE
+         frac_grid = 0._r8
+         grid_visible = 0._r8
+         grid_protected = 0._r8
+      END WHERE
+      IF (numpatch > 0) THEN
+         CALL worker_remap_data_grid2pset(remap_patch2inpm, grid_visible, &
+            flood_credit_patch, fillvalue=RIVERLAKE_FLOOD_MISSING_VALUE, mode='average')
+         WHERE (flood_credit_patch == RIVERLAKE_FLOOD_MISSING_VALUE) flood_credit_patch = 0._r8
+         CALL worker_remap_data_grid2pset(remap_patch2inpm, grid_protected, &
+            flood_depth_patch, fillvalue=RIVERLAKE_FLOOD_MISSING_VALUE, mode='average')
+         WHERE (flood_depth_patch == RIVERLAKE_FLOOD_MISSING_VALUE) flood_depth_patch = 0._r8
+         flood_credit_patch = max(0._r8, flood_credit_patch) + max(0._r8, flood_depth_patch)
+         CALL worker_remap_data_grid2pset(remap_patch2inpm, frac_grid, &
+            flood_fraction_patch, fillvalue=RIVERLAKE_FLOOD_MISSING_VALUE, mode='average')
+         WHERE (flood_fraction_patch == RIVERLAKE_FLOOD_MISSING_VALUE) flood_fraction_patch = 0._r8
+         flood_fraction_patch = min(1._r8, max(0._r8, flood_fraction_patch))
+         flood_depth_patch = 0._r8
+         WHERE (flood_fraction_patch > epsilon(1._r8)) &
+            flood_depth_patch = 1000._r8 * flood_credit_patch / max(flood_fraction_patch, tiny(1._r8))
+      ENDIF
+#ifdef TRACER
+      IF (allocated(flood_visible_tracer_uc)) THEN
+         allocate(grid_tracer(numinpm), patch_tracer(numpatch))
+         DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            density = 0._r8
+            WHERE (push_inpm2ucat%sum_area > 0._r8) &
+               density = flood_visible_tracer_uc(itrc,:) / &
+                  max(push_inpm2ucat%sum_area, tiny(1._r8))
+            CALL worker_push_data(push_ucat2inpm, density, grid_tracer, fillvalue=0._r8, mode='sum')
+            WHERE (flood_grid_area > 0._r8)
+               grid_tracer = grid_tracer / max(flood_grid_area, tiny(1._r8))
+            ELSEWHERE
+               grid_tracer = 0._r8
+            END WHERE
+            IF (numpatch > 0) THEN
+               CALL worker_remap_data_grid2pset(remap_patch2inpm, grid_tracer, &
+                  flood_tracer_credit_patch(itrc,:), fillvalue=RIVERLAKE_FLOOD_MISSING_VALUE, mode='average')
+               WHERE (flood_tracer_credit_patch(itrc,:) == RIVERLAKE_FLOOD_MISSING_VALUE) &
+                  flood_tracer_credit_patch(itrc,:) = 0._r8
+            ENDIF
+            density = 0._r8
+            WHERE (push_inpm2ucat%sum_area > 0._r8) &
+               density = flood_protected_tracer_uc(itrc,:) / &
+                  max(push_inpm2ucat%sum_area, tiny(1._r8))
+            CALL worker_push_data(push_ucat2inpm, density, grid_tracer, fillvalue=0._r8, mode='sum')
+            WHERE (flood_grid_area > 0._r8)
+               grid_tracer = grid_tracer / max(flood_grid_area, tiny(1._r8))
+            ELSEWHERE
+               grid_tracer = 0._r8
+            END WHERE
+            IF (numpatch > 0) THEN
+               CALL worker_remap_data_grid2pset(remap_patch2inpm, grid_tracer, &
+                  patch_tracer, fillvalue=RIVERLAKE_FLOOD_MISSING_VALUE, mode='average')
+               WHERE (patch_tracer == RIVERLAKE_FLOOD_MISSING_VALUE) patch_tracer = 0._r8
+               flood_tracer_credit_patch(itrc,:) = 1000._r8 * &
+                  (flood_tracer_credit_patch(itrc,:) + patch_tracer)
+            ENDIF
+         ENDDO
+      ENDIF
+#endif
+   END SUBROUTINE publish_flood_feedback
+
+   SUBROUTINE debit_flood_feedback(evap_volume, infil_volume)
+   USE MOD_LandPatch, only: numpatch
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: ntracers, tracer_uses_land_water_transport, &
+      tracer_is_nonvolatile_solute, tracer_has_dissolved_limit
+#endif
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+   IMPLICIT NONE
+   real(r8), intent(out) :: evap_volume, infil_volume
+   real(r8), allocatable :: ratio_patch(:), ratio_grid(:), ratio_uc(:), fraction_sum(:)
+#ifdef TRACER
+   real(r8), allocatable :: gain_patch(:), coefficient_uc(:), gain_uc(:)
+   real(r8), allocatable :: tracer_exchange_ledger(:,:)
+   real(r8) :: patch_area, tracer_cell_debit, ledger_tol
+   real(r8) :: water_credit, tracer_credit, vapor_loss, positive_loss, vapor_gain
+   real(r8) :: infiltrated_fraction, evaporated_fraction, tracer_after
+   integer :: itrc
+#endif
+   real(r8) :: debit_fraction, sink, credit, tol, fraction
+   real(r8) :: visible_before, protected_before
+   integer :: i, j
+
+      evap_volume = 0._r8
+      infil_volume = 0._r8
+      IF (.not. p_is_worker) RETURN
+      allocate(ratio_patch(numpatch), ratio_grid(numinpm), ratio_uc(numucat), fraction_sum(numucat))
+      fraction_sum = 0._r8
+#ifdef TRACER
+      IF (allocated(flood_visible_tracer_uc)) THEN
+         allocate(gain_patch(numpatch), coefficient_uc(numucat), gain_uc(numucat), &
+            tracer_exchange_ledger(3,ntracers))
+         tracer_exchange_ledger = 0._r8
+      ENDIF
+#endif
+      DO i = 1, numpatch
+         IF (.not. ieee_is_finite(flood_evap_acc(i)) .or. &
+             .not. ieee_is_finite(flood_infil_acc(i))) &
+            CALL CoLM_stop('grid flood feedback: nonfinite land sink')
+         sink = (flood_evap_acc(i) + flood_infil_acc(i)) * 1.e-3_r8
+         credit = flood_credit_patch(i)
+         tol = 1.e-10_r8 * max(credit, 1.e-6_r8)
+         IF (sink < -tol .or. sink > credit + tol) &
+            CALL CoLM_stop('grid flood feedback: land exceeded published patch credit')
+      ENDDO
+      ! Land flux is patch-mean mm.  The ratio to published patch-mean
+      ! metres reconstructs each patch/grid contribution without assuming
+      ! that a patch belongs to only one grid.
+      DO i = 1, 2
+         ratio_patch = 0._r8
+         IF (i == 1) THEN
+            WHERE (flood_credit_patch > 0._r8) &
+               ratio_patch = max(0._r8, flood_evap_acc*1.e-3_r8) / max(flood_credit_patch, tiny(1._r8))
+         ELSE
+            WHERE (flood_credit_patch > 0._r8) &
+               ratio_patch = max(0._r8, flood_infil_acc*1.e-3_r8) / max(flood_credit_patch, tiny(1._r8))
+         ENDIF
+         CALL worker_remap_data_pset2grid(remap_patch2inpm, ratio_patch, ratio_grid, &
+            fillvalue=0._r8, filter=flood_credit_patch>0._r8)
+         WHERE (flood_grid_area > 0._r8)
+            ratio_grid = ratio_grid / max(flood_grid_area, tiny(1._r8))
+         ELSEWHERE
+            ratio_grid = 0._r8
+         END WHERE
+         IF (any(ratio_grid < -1.e-10_r8) .or. any(ratio_grid > 1._r8+1.e-10_r8)) &
+            CALL CoLM_stop('grid flood feedback: grid sink exceeded donor credit')
+         CALL worker_push_data(push_inpm2ucat, ratio_grid, ratio_uc, fillvalue=0._r8, mode='sum')
+         DO j = 1, numucat
+            IF (push_inpm2ucat%sum_area(j) > 0._r8) THEN
+               debit_fraction = min(1._r8, max(0._r8, ratio_uc(j) / push_inpm2ucat%sum_area(j)))
+            ELSE
+               debit_fraction = 0._r8
+            ENDIF
+            IF (i == 1) THEN
+               evap_volume = evap_volume + debit_fraction * &
+                  (flood_visible_uc(j) + flood_protected_uc(j))
+            ELSE
+               infil_volume = infil_volume + debit_fraction * &
+                  (flood_visible_uc(j) + flood_protected_uc(j))
+            ENDIF
+            fraction_sum(j) = fraction_sum(j) + debit_fraction
+         ENDDO
+      ENDDO
+      IF (any(fraction_sum > 1._r8+1.e-10_r8)) &
+         CALL CoLM_stop('grid flood feedback: donor overdraft')
+#ifdef TRACER
+      IF (allocated(flood_visible_tracer_uc)) THEN
+         ! Patch-scale open-water evaporation (signed for isotopic vapour
+         ! uptake) precedes infiltration. Adjoint coefficients preserve each
+         ! source pool's concentration without homogenising ucatchments.
+         DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            ratio_patch = 0._r8
+            gain_patch = 0._r8
+            DO i = 1, numpatch
+               water_credit = flood_credit_patch(i)*1000._r8
+               IF (water_credit <= 0._r8) CYCLE
+               tracer_credit = flood_tracer_credit_patch(itrc,i)
+               vapor_loss = flood_tracer_evap_patch(itrc,i)
+               IF (.not. ieee_is_finite(vapor_loss)) &
+                  CALL CoLM_stop('grid flood feedback: nonfinite isotope vapor exchange')
+               positive_loss = max(vapor_loss,0._r8)
+               vapor_gain = max(-vapor_loss,0._r8)
+               ledger_tol = max(1.e-12_r8, 1.e-10_r8*abs(tracer_credit))
+               IF (positive_loss > tracer_credit+ledger_tol) &
+                  CALL CoLM_stop('grid flood feedback: isotope evaporation overdrew tracer')
+               evaporated_fraction = 0._r8
+               IF (tracer_credit > 0._r8) evaporated_fraction = &
+                  min(1._r8,positive_loss/tracer_credit)
+               infiltrated_fraction = 0._r8
+               IF (flood_infil_acc(i) > 0._r8) THEN
+                  IF (water_credit <= flood_evap_acc(i)) &
+                     CALL CoLM_stop('grid flood feedback: infiltration after full evaporation')
+                  infiltrated_fraction = flood_infil_acc(i)/(water_credit-flood_evap_acc(i))
+               ENDIF
+               IF (infiltrated_fraction > 1._r8+1.e-10_r8) &
+                  CALL CoLM_stop('grid flood feedback: tracer infiltration overdraft')
+               infiltrated_fraction = min(1._r8,max(0._r8,infiltrated_fraction))
+               ratio_patch(i) = evaporated_fraction + &
+                  (1._r8-evaporated_fraction)*infiltrated_fraction
+               IF (tracer_has_dissolved_limit(itrc) .and. tracer_credit > 0._r8) &
+                  ratio_patch(i) = min(1._r8,max(0._r8,flood_tracer_land_patch(itrc,i)/tracer_credit))
+               gain_patch(i) = vapor_gain*(1._r8-infiltrated_fraction)/water_credit
+               patch_area = sum(remap_patch2inpm%areapart(i)%val)*1.e-3_r8
+               IF (tracer_has_dissolved_limit(itrc)) THEN
+                  IF (flood_tracer_land_patch(itrc,i) < -ledger_tol .or. &
+                      flood_tracer_land_patch(itrc,i) > &
+                      (tracer_credit-vapor_loss)*infiltrated_fraction + ledger_tol) &
+                     CALL CoLM_stop('grid flood feedback: finite solute input exceeds donor exchange')
+               ELSE
+                  IF (abs(flood_tracer_land_patch(itrc,i) - &
+                      (tracer_credit-vapor_loss)*infiltrated_fraction) > &
+                      max(1.e-12_r8,1.e-10_r8*max(abs(tracer_credit),abs(flood_tracer_land_patch(itrc,i))))) &
+                     CALL CoLM_stop('grid flood feedback: land tracer input differs from donor exchange')
+               ENDIF
+               tracer_exchange_ledger(1,itrc) = tracer_exchange_ledger(1,itrc) + &
+                  flood_tracer_land_patch(itrc,i)*patch_area
+               tracer_exchange_ledger(2,itrc) = tracer_exchange_ledger(2,itrc) + &
+                  vapor_loss*patch_area
+            ENDDO
+            CALL worker_remap_data_pset2grid(remap_patch2inpm, ratio_patch, ratio_grid, &
+               fillvalue=0._r8, filter=flood_credit_patch>0._r8)
+            WHERE (flood_grid_area > 0._r8)
+               ratio_grid = ratio_grid/max(flood_grid_area,tiny(1._r8))
+            ELSEWHERE
+               ratio_grid = 0._r8
+            END WHERE
+            CALL worker_push_data(push_inpm2ucat, ratio_grid, ratio_uc, fillvalue=0._r8, mode='sum')
+            coefficient_uc = 0._r8
+            WHERE (push_inpm2ucat%sum_area > 0._r8) &
+               coefficient_uc = min(1._r8,max(0._r8,ratio_uc/push_inpm2ucat%sum_area))
+            gain_uc = 0._r8
+            IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
+               CALL worker_remap_data_pset2grid(remap_patch2inpm, gain_patch, ratio_grid, &
+                  fillvalue=0._r8, filter=flood_credit_patch>0._r8)
+               WHERE (flood_grid_area > 0._r8)
+                  ratio_grid = ratio_grid/max(flood_grid_area,tiny(1._r8))
+               ELSEWHERE
+                  ratio_grid = 0._r8
+               END WHERE
+               CALL worker_push_data(push_inpm2ucat, ratio_grid, ratio_uc, fillvalue=0._r8, mode='sum')
+               WHERE (push_inpm2ucat%sum_area > 0._r8) &
+                  gain_uc = ratio_uc/push_inpm2ucat%sum_area
+            ENDIF
+            DO j = 1, numucat
+               tracer_after = trc_mass(itrc,j) - coefficient_uc(j)*flood_visible_tracer_uc(itrc,j) &
+                  + gain_uc(j)*flood_visible_uc(j)
+               IF (tracer_after < -1.e-10_r8*max(1._r8,trc_mass(itrc,j))) &
+                  CALL CoLM_stop('grid flood feedback: negative visible tracer')
+               ! Accumulate explicit transfer instead of subtracting large
+               ! stored masses; include the effect of the existing zero clamp.
+               tracer_cell_debit = coefficient_uc(j)*flood_visible_tracer_uc(itrc,j) &
+                  - gain_uc(j)*flood_visible_uc(j) + min(tracer_after,0._r8)
+               trc_mass(itrc,j) = max(0._r8,tracer_after)
+               tracer_after = trc_levsto(itrc,j) - coefficient_uc(j)*flood_protected_tracer_uc(itrc,j) &
+                  + gain_uc(j)*flood_protected_uc(j)
+               IF (tracer_after < -1.e-10_r8*max(1._r8,trc_levsto(itrc,j))) &
+                  CALL CoLM_stop('grid flood feedback: negative protected tracer')
+               tracer_cell_debit = tracer_cell_debit + coefficient_uc(j)*flood_protected_tracer_uc(itrc,j) &
+                  - gain_uc(j)*flood_protected_uc(j) + min(tracer_after,0._r8)
+               ! Unlimited nonvolatile solute retains the legacy protected
+               ! pool behavior; finite solute is partitioned into solid below.
+               trc_levsto(itrc,j) = max(0._r8,tracer_after)
+               tracer_exchange_ledger(3,itrc) = tracer_exchange_ledger(3,itrc) + &
+                  tracer_cell_debit
+            ENDDO
+         ENDDO
+#ifdef USEMPI
+         CALL mpi_allreduce(MPI_IN_PLACE, tracer_exchange_ledger, 3*ntracers, MPI_REAL8, &
+            MPI_SUM, p_comm_worker, p_err)
+#endif
+         DO itrc = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
+            ledger_tol = max(1.e-8_r8, 1.e-10_r8*maxval(abs(tracer_exchange_ledger(:,itrc))))
+            IF (abs(tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc) - &
+                   tracer_exchange_ledger(3,itrc)) > ledger_tol) &
+               CALL CoLM_stop('grid flood feedback: land/river tracer exchange ledger mismatch')
+            IF (p_iam_worker == p_root .and. flood_tracer_ledger_reports < 5 .and. &
+                tracer_exchange_ledger(1,itrc) > 0._r8) THEN
+               write(*,'(A,I0,4(1X,ES16.8))') 'Grid flood tracer land/vapor/donor/residual:', itrc, &
+                  tracer_exchange_ledger(1,itrc), tracer_exchange_ledger(2,itrc), &
+                  tracer_exchange_ledger(3,itrc), &
+                  tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc)-tracer_exchange_ledger(3,itrc)
+               flood_tracer_ledger_reports = flood_tracer_ledger_reports + 1
+            ENDIF
+         ENDDO
+      ENDIF
+#endif
+      DO j = 1, numucat
+         IF (flood_reservoir_uc(j)) THEN
+            volresv(ucat2resv(j)) = max(0._r8, volresv(ucat2resv(j)) - fraction_sum(j)*flood_visible_uc(j))
+            volwater_ucat(j) = volresv(ucat2resv(j))
+         ELSE
+            volwater_ucat(j) = max(0._r8, volwater_ucat(j) - fraction_sum(j)*flood_visible_uc(j))
+         ENDIF
+         IF (DEF_USE_LEVEE .and. has_levee(j)) &
+            levsto(j) = max(0._r8, levsto(j) - fraction_sum(j)*flood_protected_uc(j))
+#ifdef TRACER
+         IF (allocated(trc_solid)) THEN
+            protected_before = 0._r8
+            IF (DEF_USE_LEVEE .and. has_levee(j)) protected_before = levsto(j)
+            CALL equilibrate_river_tracer_cell(j, volwater_ucat(j), protected_before)
+         ENDIF
+#endif
+         IF (fraction_sum(j) > 0._r8) THEN
+            IF (DEF_USE_LEVEE .and. has_levee(j) .and. .not. flood_reservoir_uc(j)) THEN
+               CALL levee_repartition_storage(j, volwater_ucat(j), wdsrf_ucat(j), &
+                  fraction, visible_before, protected_before)
+#ifdef TRACER
+               IF (ntracers > 0) CALL tracer_lifecycle_route_sediment_levee_repartition(j, &
+                  visible_before, protected_before, volwater_ucat(j), levsto(j))
+               IF (ntracers > 0) CALL levee_tracer_repartition(j, &
+                  visible_before, protected_before, volwater_ucat(j), levsto(j))
+#endif
+            ELSEIF (flood_reservoir_uc(j)) THEN
+               wdsrf_ucat(j) = floodplain_curve(j)%depth(volresv(ucat2resv(j)))
+            ELSE
+               wdsrf_ucat(j) = floodplain_curve(j)%depth(volwater_ucat(j))
+            ENDIF
+         ENDIF
+      ENDDO
+      flood_evap_acc = 0._r8
+      flood_infil_acc = 0._r8
+   END SUBROUTINE debit_flood_feedback
+
    ! ---------
    SUBROUTINE grid_riverlake_flow_final ()
 
@@ -1799,6 +2547,15 @@ CONTAINS
       ! acc_rnof_uc is owned by MOD_Grid_RiverLakeTimeVars and freed by
       ! deallocate_GridRiverLakeTimeVars; don't deallocate it here.
       IF (allocated(filter_rnof)) deallocate(filter_rnof)
+      IF (allocated(flood_depth_patch)) deallocate(flood_depth_patch, flood_fraction_patch, &
+         flood_evap_patch, flood_infil_patch)
+      IF (allocated(flood_visible_uc)) deallocate(flood_visible_uc, flood_protected_uc, &
+         flood_credit_patch, flood_evap_acc, flood_infil_acc, flood_reservoir_uc, flood_grid_area)
+#ifdef TRACER
+      IF (allocated(flood_tracer_credit_patch)) deallocate(flood_tracer_credit_patch, &
+         flood_tracer_evap_patch, flood_tracer_land_patch, &
+         flood_visible_tracer_uc, flood_protected_tracer_uc)
+#endif
 
    END SUBROUTINE grid_riverlake_flow_final
 

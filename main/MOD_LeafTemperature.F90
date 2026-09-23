@@ -5,9 +5,10 @@ MODULE MOD_LeafTemperature
 !-----------------------------------------------------------------------
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
-                           DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
+                           DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
                            DEF_VEG_SNOW
    USE MOD_SPMD_Task
+   USE MOD_LeafInterception, only: canopy_storage_capacity_colm2024
 
    IMPLICIT NONE
 
@@ -18,6 +19,7 @@ MODULE MOD_LeafTemperature
 
 ! PRIVATE MEMBER FUNCTIONS:
    PRIVATE :: dewfraction
+   PRIVATE :: colm2024_rain_capacity_for_fwet
 !-----------------------------------------------------------------------
 
 CONTAINS
@@ -60,7 +62,7 @@ CONTAINS
 #ifdef TRACER
              ,canopy_smelt_mass_out, canopy_frzc_mass_out, raw_trc_out               &
 #endif
-              )
+             ,ipft_index)
 
 !=======================================================================
 ! !DESCRIPTION:
@@ -125,6 +127,7 @@ CONTAINS
 !-------------------------- Dummy Arguments ----------------------------
 
    integer,  intent(in) :: ipatch,ivt
+   integer,  intent(in), optional :: ipft_index
    real(r8), intent(in) :: &
         deltim,     &! seconds in a time step [second]
         csoilc,     &! drag coefficient for soil under canopy [-]
@@ -496,7 +499,8 @@ CONTAINS
          clai = 0.2*(lai+sai)*cpliq + ldew_rain*cpliq + ldew_snow*cpice
       ENDIF
 
-      CALL dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+      CALL dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry, &
+                        colm2024_rain_capacity_for_fwet(ipatch,ivt,ipft_index,dewmx,lai,sai,us,vs,htop))
 
       CALL qsadv(tl,psrf,ei,deiDT,qsatl,qsatlDT)
 
@@ -1100,6 +1104,17 @@ ENDIF
       fevpl   = fevpl_noadj
       fevpl   = fevpl   +   fevpl_dtl*dtl(it-1)
 
+      ! Dry-leaf transpiration cannot supply condensation to the roots.  If
+      ! the final linear flux update crosses zero, retain the total canopy
+      ! vapor/energy flux by routing that condensation through canopy dew.
+      IF (etr < 0._r8) THEN
+         evplwet = evplwet + etr
+         etr = 0._r8
+         etrsun = 0._r8
+         etrsha = 0._r8
+         IF (DEF_USE_PLANTHYDRAULICS) rootflux = 0._r8
+      ENDIF
+
       elwmax  = ldew/deltim
       elwdif  = max(0., evplwet-elwmax)
       evplwet = min(evplwet, elwmax)
@@ -1289,7 +1304,7 @@ ENDIF
    END SUBROUTINE LeafTemperature
 !----------------------------------------------------------------------
 
-   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry,satcap_rain_override)
    !DESCRIPTION
    !===========
       ! determine fraction of foliage covered by water and
@@ -1329,6 +1344,7 @@ ENDIF
    real(r8), intent(in)  :: ldew_snow !depth of snow on foliage [kg/m2/s]
    real(r8), intent(out) :: fwet      !fraction of foliage covered by water&snow [-]
    real(r8), intent(out) :: fdry      !fraction of foliage that is green and dry [-]
+   real(r8), intent(in), optional :: satcap_rain_override !liquid canopy capacity [mm]
 
    real(r8) :: lsai                   !lai + sai
    real(r8) :: dewmxi                 !inverse of maximum allowed dew [1/mm]
@@ -1345,10 +1361,12 @@ ENDIF
       dewmxi = 1.0/dewmx
       ! 06/2018, yuan: remove sigf, to compatible with PFT
       vegt   =  lsai
+      satcap_rain = dewmx * vegt
+      IF (present(satcap_rain_override)) satcap_rain = max(0._r8, satcap_rain_override)
 
       fwet = 0
       IF (ldew > 0.) THEN
-         fwet = ((dewmxi/vegt)*ldew)**.666666666666
+         fwet = (ldew/max(satcap_rain,1.e-10_r8))**.666666666666
          ! Check for maximum limit of fwet
          fwet = min(fwet,1.0)
       ENDIF
@@ -1359,7 +1377,7 @@ ENDIF
 
          fwet_rain = 0
          IF(ldew_rain > 0.) THEN
-            fwet_rain = ((dewmxi/vegt)*ldew_rain)**.666666666666
+            fwet_rain = (ldew_rain/max(satcap_rain,1.e-10_r8))**.666666666666
             ! Check for maximum limit of fwet_rain
             fwet_rain = min(fwet_rain,1.0)
          ENDIF
@@ -1380,5 +1398,37 @@ ENDIF
       fdry = (1.-fwet)*lai/lsai
 
    END SUBROUTINE dewfraction
+
+
+   FUNCTION colm2024_rain_capacity_for_fwet(ipatch,ivt,ipft_index,dewmx,lai,sai,forc_us,forc_vs,htop_in) RESULT(satcap)
+   USE MOD_Precision
+   USE MOD_Vars_TimeInvariants, only: patchclass, ncd, ncw, bcw
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   USE MOD_Vars_TimeInvariants, only: ncd_p, ncw_p, bcw_p
+#endif
+   IMPLICIT NONE
+   integer,  intent(in) :: ipatch, ivt
+   integer,  intent(in), optional :: ipft_index
+   real(r8), intent(in) :: dewmx, lai, sai, forc_us, forc_vs, htop_in
+   real(r8)             :: satcap
+   integer              :: ipft
+
+      satcap = dewmx * max(0._r8, lai+sai)
+      IF (DEF_Interception_scheme /= 8 .or. lai+sai <= 1.e-6_r8) RETURN
+
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+      IF (present(ipft_index)) THEN
+         ipft = ipft_index
+         satcap = canopy_storage_capacity_colm2024(dewmx,lai,sai,forc_us,forc_vs, &
+                                                   htop_in,ncd_p(ipft),ncw_p(ipft),bcw_p(ipft),ivt,.true.)
+         RETURN
+      ENDIF
+#endif
+         satcap = canopy_storage_capacity_colm2024(dewmx,lai,sai,forc_us,forc_vs, &
+                                                   htop_in,ncd(ipatch),ncw(ipatch),bcw(ipatch), &
+                                                   patchclass(ipatch),.false.)
+   END FUNCTION colm2024_rain_capacity_for_fwet
+
+
 
 END MODULE MOD_LeafTemperature

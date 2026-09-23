@@ -35,6 +35,7 @@ PROGRAM river_reservoir_mpi_harness
    ENDIF
 
    IF (p_is_worker) CALL check_worker (failures)
+   IF (p_is_worker .and. numresv > 0) CALL check_operation (failures)
    IF (p_is_master) CALL check_master_addresses (failures)
    CALL mpi_allreduce (failures, failures_global, 1, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 
@@ -53,6 +54,60 @@ PROGRAM river_reservoir_mpi_harness
    CALL spmd_exit ()
 
 CONTAINS
+
+   SUBROUTINE check_operation (nfail)
+      USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+      integer, intent(inout) :: nfail
+      integer :: k
+      real(r8) :: volumes(3), releases(3), below, at, above, high, tol, delta
+
+      volumes = [volresv_normal(1), volresv_adjust(1), volresv_emerg(1)]
+      releases = [qresv_normal(1), qresv_adjust(1), qresv_flood(1)]
+      tol = 1.e-12_r8 * max(1._r8, qresv_flood(1))
+      delta = 1.e-6_r8 * volresv_total(1)
+      DO k = 1, 3
+         CALL reservoir_operation (1, 1, 0._r8, volumes(k)-delta, below)
+         CALL reservoir_operation (1, 1, 0._r8, volumes(k), at)
+         CALL reservoir_operation (1, 1, 0._r8, volumes(k)+delta, above)
+         IF (.not. all(ieee_is_finite([below, at, above]))) THEN
+            nfail = nfail + 1
+            CYCLE
+         ENDIF
+         ! Low-inflow release is continuous at each threshold and monotone;
+         ! above emergency it plateaus at flood discharge.
+         IF (abs(at-releases(k)) > tol .or. below < 0._r8 .or. &
+             below >= at .or. above < at .or. above > qresv_flood(1)+tol) nfail = nfail + 1
+         IF (k < 3) THEN
+            IF (above <= at) nfail = nfail + 1
+         ELSE
+            IF (abs(above-qresv_flood(1)) > tol) nfail = nfail + 1
+         ENDIF
+      ENDDO
+
+      high = 100._r8 * qresv_flood(1)
+      CALL reservoir_operation (1, 1, high, volumes(2), at)
+      IF (abs(at-qresv_adjust(1)) > tol) nfail = nfail + 1
+      CALL reservoir_operation (1, 1, high, (volumes(2)+volumes(3))/2._r8, at)
+      IF (.not. ieee_is_finite(at)) THEN
+         nfail = nfail + 1
+      ELSEIF (at <= qresv_flood(1) .or. at >= high) THEN
+         nfail = nfail + 1
+      ENDIF
+      DO k = -1, 1
+         CALL reservoir_operation (1, 1, high, volumes(3)+k*delta, at)
+         IF (.not. ieee_is_finite(at)) THEN
+            nfail = nfail + 1
+         ELSEIF (k < 0) THEN
+            IF (at <= qresv_flood(1) .or. at >= high) nfail = nfail + 1
+         ELSE
+            IF (abs(at-high) > 100._r8*tol) nfail = nfail + 1
+         ENDIF
+      ENDDO
+      CALL reservoir_operation (1, 1, high, 0._r8, at)
+      IF (at /= 0._r8) nfail = nfail + 1
+      CALL reservoir_operation (1, 1, 0._r8, volumes(1)/4._r8, at)
+      IF (abs(at-qresv_normal(1)/2._r8) > tol) nfail = nfail + 1
+   END SUBROUTINE check_operation
 
    SUBROUTINE configure_roles ()
       integer :: global_rank, worker_rank

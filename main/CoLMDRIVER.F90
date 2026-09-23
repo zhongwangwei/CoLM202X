@@ -39,6 +39,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
    ! get flood variables: inundation depth[mm], inundation fraction [0-1],
    ! inundation evaporation [mm/s], inundation re-infiltration[mm/s]
    USE MOD_CaMa_Vars, only: flddepth_cama,fldfrc_cama,fevpg_fld,finfg_fld
+#elif defined(GridRiverLakeFlow)
+   USE MOD_Grid_RiverLakeFlow, only: flddepth_cama => flood_depth_patch, &
+      fldfrc_cama => flood_fraction_patch, fevpg_fld => flood_evap_patch, &
+      finfg_fld => flood_infil_patch
 #endif
 
    IMPLICIT NONE
@@ -119,7 +123,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
                dksatf(1:,i),    dkdry(1:,i),     BA_alpha(1:,i),  BA_beta(1:,i),   &
                rootfr(1:,m),    lakedepth(i),    dz_lake(1:,i),   elvstd(i),       &
                BVIC(i),                                                            &
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
              ! flood variables [mm, m2/m2, mm/s, mm/s]
                flddepth_cama(i),fldfrc_cama(i),  fevpg_fld(i),    finfg_fld(i),    &
 #endif
@@ -349,7 +353,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
             mss_bcpho(:,i)  ,mss_bcphi(:,i)  ,mss_ocpho(:,i)  ,mss_ocphi(:,i)  ,&
             mss_dst1(:,i)   ,mss_dst2(:,i)   ,mss_dst3(:,i)   ,mss_dst4(:,i)   ,&
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
           ! flood variables [mm, m2/m2, mm/s, mm/s]
             flddepth_cama(i),fldfrc_cama(i)  ,fevpg_fld(i)    ,finfg_fld(i)    ,&
 #endif

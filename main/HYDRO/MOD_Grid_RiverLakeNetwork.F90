@@ -189,12 +189,14 @@ CONTAINS
       ! read in parameters from file.
       IF (p_is_master) THEN
 
-         parafile = DEF_UnitCatchment_file
+         parafile = get_unitcatchment_file ()
 
          CALL ncio_read_serial (parafile, 'seq_x', x_ucat)
          CALL ncio_read_serial (parafile, 'seq_y', y_ucat)
 
          CALL ncio_read_serial (parafile, 'seq_next', ucat_next)
+
+         IF (DEF_UnitCatchment_regional) CALL verify_regional_network (parafile, x_ucat, y_ucat)
 
          CALL ncio_inquire_length (parafile, 'lon', nlon_ucat)
          CALL ncio_inquire_length (parafile, 'lat', nlat_ucat)
@@ -1051,6 +1053,44 @@ CONTAINS
    END SUBROUTINE build_riverlake_network
 
    ! ---------
+   SUBROUTINE verify_regional_network (file_regional, x_regional, y_regional)
+
+   ! The regional network is cut from DEF_UnitCatchment_file by mksrfdata.  Refuse
+   ! one that was cut from a different network (stale landdata after
+   ! DEF_UnitCatchment_file was changed), because its numbering would then not match
+   ! anything else that is keyed by unit-catchment number.
+
+   USE MOD_Namelist,      only: DEF_UnitCatchment_file
+   USE MOD_NetCDFSerial
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: file_regional
+   integer,          intent(in) :: x_regional(:), y_regional(:)
+
+   integer, allocatable :: src_index(:), x_source(:), y_source(:)
+   logical :: consistent
+
+      CALL ncio_read_serial (file_regional, 'seq_src_index', src_index)
+      CALL ncio_read_serial (DEF_UnitCatchment_file, 'seq_x', x_source)
+      CALL ncio_read_serial (DEF_UnitCatchment_file, 'seq_y', y_source)
+
+      consistent = (size(src_index) == size(x_regional))
+      IF (consistent) consistent = all(src_index >= 1) .and. all(src_index <= size(x_source))
+      IF (consistent) consistent = all(x_source(src_index) == x_regional) .and. &
+                                   all(y_source(src_index) == y_regional)
+
+      IF (.not. consistent) THEN
+         write(*,'(A)') 'ERROR: the regional unit-catchment network does not belong to DEF_UnitCatchment_file.'
+         write(*,'(2A)') '   regional file: ', trim(file_regional)
+         write(*,'(A)') '   Run mksrfdata again with the current DEF_UnitCatchment_file.'
+         CALL CoLM_stop ()
+      ENDIF
+
+      deallocate (src_index, x_source, y_source)
+
+   END SUBROUTINE verify_regional_network
+
+   ! ---------
    SUBROUTINE readin_riverlake_parameter (parafile, varname, rdata1d, rdata2d, idata1d)
 
    USE MOD_SPMD_Task
@@ -1150,6 +1190,13 @@ CONTAINS
                CALL mpi_recv (idata1d, numucat, MPI_INTEGER, p_address_master, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
             ENDIF
+         ELSE
+            ! A worker that owns no unit catchment still passes these arrays
+            ! whole to collective routines, so it needs zero-length allocated
+            ! ones rather than unallocated ones.
+            IF (present(rdata1d)) allocate (rdata1d (0))
+            IF (present(rdata2d)) allocate (rdata2d (ndim1,0))
+            IF (present(idata1d)) allocate (idata1d (0))
          ENDIF
 
       ENDIF

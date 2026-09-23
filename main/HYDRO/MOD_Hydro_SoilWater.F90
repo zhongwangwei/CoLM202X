@@ -18,7 +18,9 @@ MODULE MOD_Hydro_SoilWater
    USE MOD_Precision
    USE MOD_Hydro_SoilFunction
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS
+   USE MOD_SPMD_Task, only: CoLM_stop
    USE MOD_UserDefFun, only: findloc_ud
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
    IMPLICIT NONE
 
@@ -57,6 +59,7 @@ MODULE MOD_Hydro_SoilWater
 
    ! private subroutines and functions
    PRIVATE :: Richards_solver
+   PRIVATE :: project_richards_liquid_water
 
    PRIVATE :: water_balance
    PRIVATE :: initialize_sublevel_structure
@@ -166,7 +169,8 @@ CONTAINS
          ss_dp,      zwt,        wa,     ss_vliq,  smp,           hk,       &
          qlayer                                                          &
 #ifdef TRACER
-        ,etroot_out, etroot_actual_out, etroot_aquifer_out              &
+        ,etroot_out, etroot_actual_out, etroot_aquifer_out, etroot_surface_out, &
+        rsub_layer_out, rsub_surface_out, rsub_aquifer_out &
 #endif
         ,tolerance,  wblc)
 
@@ -222,6 +226,8 @@ CONTAINS
    real(r8), intent(out) :: etroot_out(1:nlev)           ! demand by layer (mm/s)
    real(r8), intent(out) :: etroot_actual_out(1:nlev)    ! removed from layers (mm)
    real(r8), intent(out) :: etroot_aquifer_out           ! removed from aquifer (mm)
+   real(r8), intent(out) :: etroot_surface_out           ! removed from ponded water (mm)
+   real(r8), intent(out) :: rsub_layer_out(1:nlev), rsub_surface_out, rsub_aquifer_out ! runoff donors [mm]
 #endif
 
    real(r8), intent(in)  :: tolerance
@@ -245,6 +251,11 @@ CONTAINS
    real(r8) :: lbc_val_sub
 
    real(r8) :: w_sum_before, w_sum_after, vl_before(nlev), wt_before, wa_before, dp_before
+   real(r8) :: exchange_dp_before, pond_exchange
+#ifdef TRACER
+   real(r8) :: exchange_layer_before(nlev), exchange_layer_after, exchange_wa_before
+   real(r8) :: exchange_zwt_before, et_fraction, rsub_fraction, layer_debit
+#endif
 
    real(r8) :: tol_q, tol_z, tol_v, tol_p
 
@@ -304,6 +315,10 @@ CONTAINS
       etroot_out(1:nlev) = etroot(1:nlev)
       etroot_actual_out(1:nlev) = 0._r8
       etroot_aquifer_out        = 0._r8
+      etroot_surface_out        = 0._r8
+      rsub_layer_out            = 0._r8
+      rsub_surface_out          = 0._r8
+      rsub_aquifer_out          = 0._r8
 #endif
 
       deficit = etrdef
@@ -326,13 +341,13 @@ CONTAINS
                ss_vliq(ilev) = 0
             ELSEIF (ss_vliq(ilev) > porsl(ilev)) THEN
 #ifdef TRACER
-               etroot_actual_out(ilev) = max(attempted, 0._r8)
+               etroot_actual_out(ilev) = ss_vliq_pre - porsl(ilev)*sp_dz(ilev)
 #endif
                deficit = -(ss_vliq(ilev) - porsl(ilev)) * sp_dz(ilev)
                ss_vliq(ilev) = porsl(ilev)
             ELSE
 #ifdef TRACER
-               etroot_actual_out(ilev) = max(attempted, 0._r8)
+               etroot_actual_out(ilev) = attempted
 #endif
                deficit = 0.
             ENDIF
@@ -345,16 +360,114 @@ CONTAINS
          deficit = deficit + etroot(ilev)*dt
       ENDDO
 
-#ifdef TRACER
-      ! Remaining ET deficit is absorbed by the aquifer alongside rsubst.
-      etroot_aquifer_out = max(deficit, 0._r8)
-#endif
+      ! With a saturated column there is no resolved root donor.  Opposing
+      ! hydraulic root fluxes can cancel to a tiny negative net etr; do not
+      ! turn that numerical residue into new pond water without a donor.
+      IF (DEF_USE_PLANTHYDRAULICS .and. izwt <= 1 .and. etr <= 0._r8 .and. deficit < 0._r8) THEN
+         IF (-deficit > sqrt(epsilon(1._r8)) * sum(abs(etroot)) * dt) &
+            CALL CoLM_stop('negative plant hydraulic transpiration without resolved root donor')
+         deficit = 0._r8
+      ENDIF
 
       ! Exchange water with aquifer
       wexchange = rsubst * dt + deficit
+      exchange_dp_before = ss_dp
+      pond_exchange = 0._r8
+      IF (DEF_USE_PLANTHYDRAULICS .and. deficit < 0._r8) THEN
+         ! A hydraulic-lift return must enter the connected water pool before
+         ! baseflow removes water from it. Netting the two first loses both
+         ! the returned-water composition and the gross baseflow donor.
+#ifdef TRACER
+         exchange_wa_before = wa
+         exchange_zwt_before = zwt
+         DO ilev = 1, nlev
+            exchange_layer_before(ilev) = ss_vliq(ilev) * sp_dz(ilev)
+            IF (exchange_zwt_before < sp_zi(ilev)) THEN
+               exchange_layer_before(ilev) = ss_vliq(ilev) * &
+                  max(exchange_zwt_before-sp_zi(ilev-1), 0._r8) + &
+                  porsl(ilev) * min(sp_zi(ilev)-exchange_zwt_before, sp_dz(ilev))
+            ENDIF
+         ENDDO
+#endif
+         CALL soilwater_aquifer_exchange ( &
+            nlev, deficit, sp_zi, is_permeable, porsl, vl_r, psi_s, hksat, &
+            nprm, prms, porsl_wa, ss_dp, ss_vliq, zwt, wa, izwt)
+#ifdef TRACER
+         etroot_surface_out = exchange_dp_before - ss_dp
+         etroot_aquifer_out = exchange_wa_before - wa
+         DO ilev = 1, nlev
+            exchange_layer_after = ss_vliq(ilev) * sp_dz(ilev)
+            IF (zwt < sp_zi(ilev)) THEN
+               exchange_layer_after = ss_vliq(ilev) * max(zwt-sp_zi(ilev-1), 0._r8) + &
+                  porsl(ilev) * min(sp_zi(ilev)-zwt, sp_dz(ilev))
+            ENDIF
+            etroot_actual_out(ilev) = etroot_actual_out(ilev) + &
+               exchange_layer_before(ilev) - exchange_layer_after
+            exchange_layer_before(ilev) = exchange_layer_after
+         ENDDO
+         exchange_wa_before = wa
+         exchange_dp_before = ss_dp
+#endif
+         IF (rsubst > 0._r8) THEN
+            CALL soilwater_aquifer_exchange ( &
+               nlev, rsubst*dt, sp_zi, is_permeable, porsl, vl_r, psi_s, hksat, &
+               nprm, prms, porsl_wa, ss_dp, ss_vliq, zwt, wa, izwt)
+#ifdef TRACER
+            rsub_surface_out = max(exchange_dp_before-ss_dp, 0._r8)
+            rsub_aquifer_out = max(exchange_wa_before-wa, 0._r8)
+            DO ilev = 1, nlev
+               exchange_layer_after = ss_vliq(ilev) * sp_dz(ilev)
+               IF (zwt < sp_zi(ilev)) THEN
+                  exchange_layer_after = ss_vliq(ilev) * max(zwt-sp_zi(ilev-1), 0._r8) + &
+                     porsl(ilev) * min(sp_zi(ilev)-zwt, sp_dz(ilev))
+               ENDIF
+               rsub_layer_out(ilev) = max(exchange_layer_before(ilev)-exchange_layer_after, 0._r8)
+            ENDDO
+#endif
+         ENDIF
+         pond_exchange = dp_before-ss_dp
+      ELSE
+#ifdef TRACER
+      ! The exchange takes water from the pond, saturated soil, then the
+      ! aquifer. A remaining ET demand is not necessarily aquifer ET.
+      IF (wexchange > 0._r8) THEN
+         et_fraction = min(max(deficit, 0._r8) / wexchange, 1._r8)
+         rsub_fraction = 1._r8 - et_fraction
+         exchange_wa_before = wa
+         exchange_zwt_before = zwt
+         DO ilev = 1, nlev
+            exchange_layer_before(ilev) = ss_vliq(ilev) * sp_dz(ilev)
+            IF (exchange_zwt_before < sp_zi(ilev)) THEN
+               exchange_layer_before(ilev) = ss_vliq(ilev) * &
+                  max(exchange_zwt_before-sp_zi(ilev-1), 0._r8) + &
+                  porsl(ilev) * min(sp_zi(ilev)-exchange_zwt_before, sp_dz(ilev))
+            ENDIF
+         ENDDO
+      ENDIF
+#endif
       CALL soilwater_aquifer_exchange ( &
          nlev, wexchange, sp_zi, is_permeable, porsl, vl_r, psi_s, hksat, &
          nprm, prms, porsl_wa, ss_dp, ss_vliq, zwt, wa, izwt)
+      IF (wexchange > 0._r8) pond_exchange = max(exchange_dp_before-ss_dp, 0._r8)
+#ifdef TRACER
+      IF (wexchange > 0._r8) THEN
+         etroot_surface_out = pond_exchange * et_fraction
+         rsub_surface_out = pond_exchange * rsub_fraction
+         etroot_aquifer_out = max(exchange_wa_before-wa, 0._r8) * et_fraction
+         rsub_aquifer_out = max(exchange_wa_before-wa, 0._r8) * rsub_fraction
+         DO ilev = 1, nlev
+            exchange_layer_after = ss_vliq(ilev) * sp_dz(ilev)
+            IF (zwt < sp_zi(ilev)) THEN
+               exchange_layer_after = ss_vliq(ilev) * max(zwt-sp_zi(ilev-1), 0._r8) + &
+                  porsl(ilev) * min(sp_zi(ilev)-zwt, sp_dz(ilev))
+            ENDIF
+            layer_debit = max(exchange_layer_before(ilev)-exchange_layer_after, 0._r8)
+            etroot_actual_out(ilev) = etroot_actual_out(ilev) + layer_debit * et_fraction
+            rsub_layer_out(ilev) = layer_debit * rsub_fraction
+         ENDDO
+      ENDIF
+#endif
+      ENDIF
 
       ! water table location
       ss_wt(:) = 0._r8
@@ -451,7 +564,9 @@ CONTAINS
          ENDIF
       ENDDO
 
-      qinfl = qgtop - (ss_dp - dp_m1)/dt
+      ! Ponded water consumed by ET/baseflow is not infiltration. Without
+      ! this correction a saturated pond reports a phantom soil input.
+      qinfl = qgtop - (ss_dp - dp_m1 + pond_exchange)/dt
 
       ! total water mass
       w_sum_after = ss_dp
@@ -500,6 +615,23 @@ CONTAINS
             hk (ilev) = hksat(ilev)
          ENDIF
       ENDDO
+
+#ifdef TRACER
+      ! The aquifer exchange can subtract nearly equal layer storages after
+      ! signed hydraulic redistribution.  Do not expose a roundoff-sized
+      ! negative return without any positive donor to the isotope transport.
+      IF (DEF_USE_PLANTHYDRAULICS .and. &
+          .not. any(etroot_actual_out > 0._r8) .and. &
+          etroot_aquifer_out <= 0._r8 .and. etroot_surface_out <= 0._r8) THEN
+         IF (-sum(min(etroot_actual_out, 0._r8)) - &
+             min(etroot_aquifer_out, 0._r8) - min(etroot_surface_out, 0._r8) <= &
+             sqrt(epsilon(1._r8)) * sum(abs(etroot)) * dt) THEN
+            etroot_actual_out = 0._r8
+            etroot_aquifer_out = 0._r8
+            etroot_surface_out = 0._r8
+         ENDIF
+      ENDIF
+#endif
 
    END SUBROUTINE soil_water_vertical_movement
 
@@ -751,13 +883,19 @@ CONTAINS
 
    logical  :: wet2dry
 
-   real(r8) :: wsum_m1, wsum, werr
+   real(r8) :: wsum_m1, wsum, werr, mass_budget
+   logical :: projection_ok
 
       ss_wf(lb:ub) = 0
 
       DO ilev = lb, ub
          sp_dz(ilev) = sp_zi(ilev) - sp_zi(ilev-1)
       ENDDO
+
+      ! Roundoff allowance for this column's stored water, not the much
+      ! looser Newton iteration tolerance (both are in mm water).
+      mass_budget = 256._r8 * epsilon(1._r8) * &
+         max(1._r8, sum(abs(sp_dz * vl_s)))
 
       dt_explicit = dt / max_iters_richards
 
@@ -843,10 +981,27 @@ CONTAINS
                .or. (.not. is_solvable)          &
                .or. wet2dry) THEN
 
+               ! Newton's loose convergence tolerance can accept a state whose
+               ! storage does not match its already computed interface fluxes.
+               ! Project only a resolvable liquid-water residual; otherwise use
+               ! the existing conservative explicit substep below.  The quick
+               ! total-residual gate keeps the common implicit path unchanged.
+               projection_ok = .true.
+               IF ((f2_norm(iter) < tol_richards * dt_this) .and. &
+                   (dt_this >= dt_explicit) .and. (iter < max_iters_richards) .and. &
+                   is_solvable .and. (.not. wet2dry) .and. &
+                   (abs(sum(blc)) > mass_budget)) THEN
+                  CALL project_richards_liquid_water ( &
+                     lb, ub, sp_dz, dt_this, vl_s, vl_r, q_this, &
+                     ubc_typ, ubc_val, lbc_typ, ss_dp, waquifer, &
+                     ss_wf, ss_vl, ss_wt, dp_m1, waquifer_m1, &
+                     wf_m1, vl_m1, wt_m1, mass_budget, projection_ok)
+               ENDIF
+
                IF ((dt_this < dt_explicit) &
                   .or. (iter >= max_iters_richards) &
                   .or. (.not. is_solvable) &
-                  .or. wet2dry) THEN
+                  .or. wet2dry .or. (.not. projection_ok)) THEN
 
                   dt_this = min(dt_this, dt_explicit)
                   q_this  = q_0
@@ -1102,6 +1257,76 @@ CONTAINS
       ENDDO
 
    END SUBROUTINE Richards_solver
+
+
+   ! Project an accepted implicit state onto the finite-volume continuity
+   ! equations without changing the hydraulic fluxes or front geometry.  This
+   ! is all-or-nothing: a saturated/near-saturated layer with insufficient
+   ! liquid-water capacity must be handled by the existing explicit fallback.
+   SUBROUTINE project_richards_liquid_water ( &
+         lb, ub, dz, dt, vl_s, vl_r, q, ubc_typ, ubc_val, lbc_typ, &
+         dp, waquifer, wf, vl, wt, dp_m1, waquifer_m1, &
+         wf_m1, vl_m1, wt_m1, mass_budget, success)
+
+   integer, intent(in) :: lb, ub, ubc_typ, lbc_typ
+   real(r8), intent(in) :: dz(lb:ub), dt, vl_s(lb:ub), vl_r(lb:ub)
+   real(r8), intent(in) :: q(lb-1:ub), ubc_val, dp, waquifer
+   real(r8), intent(in) :: wf(lb:ub), wt(lb:ub), dp_m1, waquifer_m1
+   real(r8), intent(in) :: wf_m1(lb:ub), vl_m1(lb:ub), wt_m1(lb:ub)
+   real(r8), intent(in) :: mass_budget
+   real(r8), intent(inout) :: vl(lb:ub)
+   logical, intent(out) :: success
+
+   real(r8) :: candidate(lb:ub), unsat, residual
+   real(r8) :: level_budget, total_residual
+   integer :: j
+
+      success = .false.
+      level_budget = mass_budget / real(ub-lb+3, r8)
+      total_residual = 0._r8
+      IF (ubc_typ == BC_RAINFALL) THEN
+         residual = max(dp, 0._r8) - max(dp_m1, 0._r8) - (ubc_val-q(lb-1))*dt
+         IF (.not. ieee_is_finite(residual)) RETURN
+         IF (abs(residual) > level_budget) RETURN
+         total_residual = total_residual + residual
+      ENDIF
+      IF (lbc_typ == BC_DRAINAGE) THEN
+         residual = waquifer - waquifer_m1 - q(ub)*dt
+         IF (.not. ieee_is_finite(residual)) RETURN
+         IF (abs(residual) > level_budget) RETURN
+         total_residual = total_residual + residual
+      ENDIF
+
+      DO j = lb, ub
+         unsat = dz(j) - wf(j) - wt(j)
+         residual = (vl_s(j)-vl_m1(j)) * &
+            ((wf(j)-wf_m1(j)) + (wt(j)-wt_m1(j))) &
+            + unsat*(vl(j)-vl_m1(j)) - (q(j-1)-q(j))*dt
+         IF (.not. ieee_is_finite(residual) .or. &
+             .not. ieee_is_finite(unsat)) RETURN
+         candidate(j) = vl(j)
+         IF (abs(residual) > level_budget) THEN
+            IF (unsat <= 64._r8*epsilon(1._r8)*max(1._r8, dz(j))) RETURN
+            candidate(j) = vl(j) - residual/unsat
+            IF (.not. ieee_is_finite(candidate(j))) RETURN
+            ! Do not clip a physically inadmissible result or raise an existing
+            ! sub-residual soil layer to the nominal residual content.
+            IF (candidate(j) < max(0._r8, min(vl_r(j), vl(j))) .or. &
+                candidate(j) > vl_s(j)) RETURN
+         ENDIF
+         residual = (vl_s(j)-vl_m1(j)) * &
+            ((wf(j)-wf_m1(j)) + (wt(j)-wt_m1(j))) &
+            + unsat*(candidate(j)-vl_m1(j)) - (q(j-1)-q(j))*dt
+         IF (abs(residual) > level_budget) RETURN
+         total_residual = total_residual + residual
+      ENDDO
+
+      IF (abs(total_residual) > mass_budget) RETURN
+
+      vl = candidate
+      success = .true.
+
+   END SUBROUTINE project_richards_liquid_water
 
 
    ! ---- water balance ----

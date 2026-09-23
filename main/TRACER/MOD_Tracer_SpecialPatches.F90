@@ -4,6 +4,7 @@
 MODULE MOD_Tracer_SpecialPatches
 
    USE MOD_Precision
+   USE MOD_SPMD_Task, only: CoLM_stop
    USE MOD_Tracer_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
       trc_delta_sanity_max, tracer_init_water_ratio, &
       tracer_can_use_fixed_signature, tracer_uses_land_water_transport, tracer_is_nonvolatile_solute, &
@@ -25,6 +26,7 @@ MODULE MOD_Tracer_SpecialPatches
       trc_surface_residue, trc_subsurface_residue, trc_runtime_forced, &
       trc_solid_soisno, trc_canopy_solid, trc_surface_solid, &
       trc_subsurface_solid, trc_waterstorage_solid, sync_tracer_patch_ratio
+   USE MOD_Tracer_Vars, only: trc_aquifer_ref_water
 
    IMPLICIT NONE
    PRIVATE
@@ -64,6 +66,9 @@ CONTAINS
       real(r8) :: xerr_tracer
       logical  :: mixed_signature, fixed_signature, frac_active, nonvolatile_solute
 
+      IF (ntracers <= 0) RETURN
+      IF (trc_aquifer_ref_water(ipatch) > 0._r8) &
+         CALL CoLM_stop('glacier transition with isotope aquifer reference needs explicit water transfer')
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          ! Glacier physics exposes a single bulk snow carrier (scv).  Fold any
@@ -307,6 +312,9 @@ CONTAINS
       real(r8) :: xerr_tracer
       logical  :: mixed_signature, fixed_signature, frac_active, nonvolatile_solute
 
+      IF (ntracers <= 0) RETURN
+      IF (trc_aquifer_ref_water(ipatch) > 0._r8) &
+         CALL CoLM_stop('waterbody transition with isotope aquifer reference needs explicit water transfer')
       DO itrc = 1, ntracers
          IF (.not. tracer_uses_land_water_transport(itrc)) CYCLE
          ! Waterbody patches have no canopy, wetland, or irrigation-reservoir

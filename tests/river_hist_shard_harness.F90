@@ -115,6 +115,12 @@ PROGRAM river_hist_shard_harness
       CALL mpi_bcast (itime_rec, 1, MPI_INTEGER, 0, p_comm_group, p_err)
 #endif
 
+      ! NOTE: this guard is the harness's own.  It calls the shard writers
+      ! directly, so it does not exercise the master-skip inside
+      ! route_hist_write_ucat / route_hist_write_resv.  That path is run for real,
+      ! master included, by river_hist_route_master_harness.F90
+      ! (tests/test_river_hist_route_mpi.py) and pinned textually by
+      ! tests/test_review_fix_guards_static.py.
       IF (p_is_io .or. p_is_worker) THEN
          CALL route_shard_write_vector (ucat_layout, ucat_val, trim(fileshard), &
             'f_ucat_shard', 'unitcat_local', itime_rec, 'synthetic unitcat field', 'm')

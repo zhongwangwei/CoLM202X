@@ -80,7 +80,7 @@ def test_surface_and_aquifer_collapse_transfer_without_numerical_sink():
         re.DOTALL,
     )
     assert re.search(
-        r"abs\(wa\) <= trc_water_min_for_ratio.*?tracer_is_nonvolatile_solute\(itrc\).*?"
+        r"abs\(tracer_aquifer_actual_water\(wa, aquifer_ref_water\)\) <= trc_water_min_for_ratio.*?tracer_is_nonvolatile_solute\(itrc\).*?"
         r"trc_subsurface_residue\(itrc, ipatch\).*?trc_wa\(itrc, ipatch\)",
         soil,
         re.DOTALL,

@@ -59,7 +59,7 @@
 
 #define GridRiverLakeFlow
 !    Conflicts :
-#if (defined CATCHMENT || defined SinglePoint)
+#if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
 #undef GridRiverLakeFlow
 #endif
 
@@ -131,10 +131,11 @@
 !     namelist. The methane module is compiled whenever both TRACER and BGC
 !     are defined; its lifecycle registrar attaches the CH4 hooks and index.
 !     A configured CH4 row without that compiled provider fails at startup.
-!     Additional dependency: requires LULC_IGBP_PFT or LULC_IGBP_PC for
-!     pftfrac access (per-PFT NPP and root-respiration aggregation).
+!     Full soil/wetland/rice methane requires LULC_IGBP_PFT or
+!     LULC_IGBP_PC with real BGC carbon, NPP, and root-respiration states.
+!     Plain IGBP and USGS builds intentionally do not fabricate those states.
 #if (defined TRACER) && (defined BGC)
 #if (!defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
-#error "Methane (TRACER+BGC) requires LULC_IGBP_PFT or LULC_IGBP_PC for pftfrac access."
+#error "Full soil/wetland/rice methane requires BGC with LULC_IGBP_PFT or LULC_IGBP_PC and real carbon, NPP, and root-respiration states."
 #endif
 #endif

@@ -30,8 +30,14 @@ MODULE MOD_SingleSrfdata
 #endif
 
    real(r8) :: SITE_htop
+   real(r8) :: SITE_ncd = -1.0e36_r8
+   real(r8) :: SITE_ncw = -1.0e36_r8
+   real(r8) :: SITE_bcw = -1.0e36_r8
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    real(r8), allocatable :: SITE_htop_pfts (:)
+   real(r8), allocatable :: SITE_ncd_pfts  (:)
+   real(r8), allocatable :: SITE_ncw_pfts  (:)
+   real(r8), allocatable :: SITE_bcw_pfts  (:)
 #endif
 
    real(r8), allocatable :: SITE_LAI_monthly (:,:)
@@ -181,6 +187,8 @@ CONTAINS
 
 !-----------------------------------------------------------------------
    SUBROUTINE read_surface_data_single (fsrfdata, mksrfdata)
+
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
    USE MOD_TimeManager
    USE MOD_Grid
@@ -433,7 +441,7 @@ CONTAINS
 #endif
 
 
-      ! (4) forest height
+      ! (4) forest height and optional CoLM2024 canopy structure
       readflag = (.not. mksrfdata) .or. USE_SITE_htop
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (patchtypes(SITE_landtype) == 0) THEN
@@ -493,6 +501,74 @@ CONTAINS
 #endif
       ENDIF
 
+#if (defined LULC_IGBP || defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+      IF (patchtypes(SITE_landtype) == 0) THEN
+         IF (ncio_var_exist(fsrfdata,'ncd_pfts',readflag=.false.) .and. &
+             ncio_var_exist(fsrfdata,'ncw_pfts',readflag=.false.) .and. &
+             ncio_var_exist(fsrfdata,'bcw_pfts',readflag=.false.)) THEN
+            CALL ncio_read_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts)
+            CALL ncio_read_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts)
+            CALL ncio_read_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts)
+         ELSEIF (ncio_var_exist(fsrfdata,'ncd',readflag=.false.) .and. &
+                 ncio_var_exist(fsrfdata,'ncw',readflag=.false.) .and. &
+                 ncio_var_exist(fsrfdata,'bcw',readflag=.false.)) THEN
+            CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
+            CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
+            CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+            IF (numpft > 0) THEN
+               IF (allocated(SITE_ncd_pfts)) deallocate(SITE_ncd_pfts)
+               IF (allocated(SITE_ncw_pfts)) deallocate(SITE_ncw_pfts)
+               IF (allocated(SITE_bcw_pfts)) deallocate(SITE_bcw_pfts)
+               allocate(SITE_ncd_pfts(numpft), SITE_ncw_pfts(numpft), SITE_bcw_pfts(numpft))
+               SITE_ncd_pfts = SITE_ncd
+               SITE_ncw_pfts = SITE_ncw
+               SITE_bcw_pfts = SITE_bcw
+            ENDIF
+         ELSEIF (ncio_var_exist(fsrfdata,'ncd_pfts',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'ncw_pfts',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'bcw_pfts',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'ncd',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'ncw',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'bcw',readflag=.false.)) THEN
+            IF (p_is_master) write(*,'(A)') &
+               'ERROR: SinglePoint CoLM2024 canopy structure is incomplete; ' // &
+               'provide ncd/ncw/bcw or ncd_pfts/ncw_pfts/bcw_pfts.'
+            CALL CoLM_stop()
+         ENDIF
+      ELSE
+#endif
+         IF (ncio_var_exist(fsrfdata,'ncd',readflag=.false.) .and. &
+             ncio_var_exist(fsrfdata,'ncw',readflag=.false.) .and. &
+             ncio_var_exist(fsrfdata,'bcw',readflag=.false.)) THEN
+            CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
+            CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
+            CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+         ELSEIF (ncio_var_exist(fsrfdata,'ncd',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'ncw',readflag=.false.) .or. &
+                 ncio_var_exist(fsrfdata,'bcw',readflag=.false.)) THEN
+            IF (p_is_master) write(*,'(A)') &
+               'ERROR: SinglePoint CoLM2024 canopy structure is incomplete; provide ncd, ncw, and bcw.'
+            CALL CoLM_stop()
+         ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+      ENDIF
+#endif
+#endif
+
+
+      IF (.not. all(ieee_is_finite([SITE_ncd, SITE_ncw, SITE_bcw]))) &
+         CALL CoLM_stop('SinglePoint canopy structure contains non-finite values')
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+      IF (allocated(SITE_ncd_pfts)) THEN
+         IF (size(SITE_ncd_pfts) /= numpft .or. size(SITE_ncw_pfts) /= numpft .or. &
+             size(SITE_bcw_pfts) /= numpft) CALL CoLM_stop('SinglePoint canopy structure must match active PFTs')
+         IF (.not. all(ieee_is_finite(SITE_ncd_pfts)) .or. &
+             .not. all(ieee_is_finite(SITE_ncw_pfts)) .or. &
+             .not. all(ieee_is_finite(SITE_bcw_pfts))) &
+            CALL CoLM_stop('SinglePoint PFT canopy structure contains non-finite values')
+      ENDIF
+#endif
 
       ! (5) LAI
       readflag = ((.not. mksrfdata) .or. USE_SITE_LAI)
@@ -2885,6 +2961,25 @@ ENDIF
       ENDIF
 #endif
 
+      IF (SITE_ncd > 0._r8 .or. SITE_ncw > 0._r8 .or. SITE_bcw > 0._r8) THEN
+         CALL ncio_write_serial (fsrfdata, 'ncd', SITE_ncd)
+         CALL ncio_write_serial (fsrfdata, 'ncw', SITE_ncw)
+         CALL ncio_write_serial (fsrfdata, 'bcw', SITE_bcw)
+         CALL ncio_put_attr     (fsrfdata, 'ncd', 'long_name', 'needleleaf crown depth')
+         CALL ncio_put_attr     (fsrfdata, 'ncw', 'long_name', 'needleleaf crown width')
+         CALL ncio_put_attr     (fsrfdata, 'bcw', 'long_name', 'broadleaf crown width')
+      ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+      IF (allocated(SITE_ncd_pfts)) THEN
+         CALL ncio_write_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts, 'pft')
+         CALL ncio_write_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts, 'pft')
+         CALL ncio_write_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts, 'pft')
+         CALL ncio_put_attr     (fsrfdata, 'ncd_pfts', 'long_name', 'needleleaf crown depth')
+         CALL ncio_put_attr     (fsrfdata, 'ncw_pfts', 'long_name', 'needleleaf crown width')
+         CALL ncio_put_attr     (fsrfdata, 'bcw_pfts', 'long_name', 'broadleaf crown width')
+      ENDIF
+#endif
+
       source = trim(datasource(u_site_lai))
       CALL ncio_write_serial (fsrfdata, 'LAI_year', SITE_LAI_year, 'LAI_year')
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -3445,6 +3540,9 @@ ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (allocated(SITE_htop_pfts)) deallocate(SITE_htop_pfts)
+      IF (allocated(SITE_ncd_pfts  )) deallocate(SITE_ncd_pfts  )
+      IF (allocated(SITE_ncw_pfts  )) deallocate(SITE_ncw_pfts  )
+      IF (allocated(SITE_bcw_pfts  )) deallocate(SITE_bcw_pfts  )
 #endif
 
       IF (allocated(SITE_LAI_monthly)) deallocate(SITE_LAI_monthly)

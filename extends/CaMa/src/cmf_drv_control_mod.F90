@@ -35,16 +35,16 @@ CONTAINS
 ! -- CMF_DRV_END      : Finalize          CaMa-Flood
 !
 !####################################################################
-SUBROUTINE CMF_DRV_INPUT
+SUBROUTINE CMF_DRV_INPUT(ROUTING_FILE, RESTART_FILE)
 ! Read setting from namelist ("input_flood.nam" as default)
 ! -- Called from CMF_DRV_INIT
 USE YOS_CMF_INPUT,           ONLY: LLOGOUT, LOGNAM, CLOGOUT, CSETFILE, LSEALEV
-USE YOS_CMF_INPUT,           ONLY: LDAMOUT, LLEVEE, LOUTPUT, LTRACE,LDAMIRR
+USE YOS_CMF_INPUT,           ONLY: LDAMOUT, LLEVEE, LOUTPUT, LTRACE,LDAMIRR, LRESTART
 USE CMF_CTRL_NMLIST_MOD,     ONLY: CMF_CONFIG_NMLIST, CMF_CONFIG_CHECK
 USE CMF_CTRL_TIME_MOD,       ONLY: CMF_TIME_NMLIST
 USE CMF_CTRL_FORCING_MOD,    ONLY: CMF_FORCING_NMLIST
 USE CMF_CTRL_BOUNDARY_MOD,   ONLY: CMF_BOUNDARY_NMLIST
-USE CMF_CTRL_RESTART_MOD,    ONLY: CMF_RESTART_NMLIST
+USE CMF_CTRL_RESTART_MOD,    ONLY: CMF_RESTART_NMLIST, CRESTSTO, LRESTCDF
 USE CMF_CTRL_DAMOUT_MOD,     ONLY: CMF_DAMOUT_NMLIST_ORG,CMF_DAMOUT_NMLIST_IRR
 USE CMF_CTRL_LEVEE_MOD,      ONLY: CMF_LEVEE_NMLIST
 USE CMF_CTRL_TRACER_MOD,     ONLY: CMF_TRACER_NMLIST
@@ -54,6 +54,8 @@ USE CMF_UTILS_MOD,           ONLY: INQUIRE_FID
 USE YOS_CMF_INPUT,           ONLY: LSEDIMENT
 USE CMF_CTRL_SED_MOD,        ONLY: CMF_SED_NMLIST
 IMPLICIT NONE
+CHARACTER(LEN=*),OPTIONAL,INTENT(IN) :: ROUTING_FILE, RESTART_FILE
+LOGICAL :: RESTART_EXISTS
 !* local
 CHARACTER(LEN=8)              :: CREG                 !! 
 !================================================
@@ -61,6 +63,14 @@ CHARACTER(LEN=8)              :: CREG                 !!
 !*** 0a. Set log file & namelist
 ! Preset in YOS_INPUT:  LLOGOUT=.TRUE.   CLOGOUT='./log_CaMa.txt'
 ! It can be modified in MAIN program before DRV_INPUT
+
+IF( PRESENT(ROUTING_FILE) )THEN
+  ! A supplied CoLM routing NC is authoritative: never open a second namelist.
+  IF( LEN_TRIM(ROUTING_FILE)==0 .OR. ROUTING_FILE=='null' .OR. ROUTING_FILE=='NONE' ) &
+    ERROR STOP 'CaMa: coupled routing file must be specified'
+  CSETFILE='NONE'
+  LLOGOUT=.FALSE.       ! use the same run log as CoLM
+ENDIF
 
 IF (REGIONALL>=2 )then 
   WRITE(CREG,'(I0)') REGIONTHIS                                    !! Distributed Log Output for MPI run
@@ -82,14 +92,18 @@ WRITE(LOGNAM,*) "CMF::DRV_INPUT: log file:            ", TRIM(CLOGOUT), LOGNAM
 !*** 0b. Input namelist filename
 ! Preset in YOS_INPUT:  CSETFILE="input_cmf.nam"
 ! It can be modified in MAIN program before DRV_INPUT
-WRITE(LOGNAM,*) "CMF::DRV_INPUT: input namelist:      ", TRIM(CSETFILE)
+IF( CSETFILE=="NONE" )THEN
+  WRITE(LOGNAM,*) 'CMF::DRV_INPUT: built-in CoLM NC coupling settings; no separate CaMa namelist'
+ELSE
+  WRITE(LOGNAM,*) "CMF::DRV_INPUT: input namelist:      ", TRIM(CSETFILE)
+ENDIF
 
 !*** 1. CaMa-Flood configulation namelist
 CALL CMF_CONFIG_NMLIST
 
 CALL CMF_TIME_NMLIST
 
-CALL CMF_MAPS_NMLIST
+CALL CMF_MAPS_NMLIST(ROUTING_FILE)
 
 !*** 2. read namelist for each module
 CALL CMF_FORCING_NMLIST
@@ -99,6 +113,26 @@ IF( LSEALEV )THEN
 ENDIF
 
 CALL CMF_RESTART_NMLIST
+IF( PRESENT(ROUTING_FILE) )THEN
+  ! New coupled mode writes portable double-precision NC checkpoints.
+  LRESTCDF=.TRUE.
+  IF( PRESENT(RESTART_FILE) )THEN
+    SELECT CASE(TRIM(RESTART_FILE))
+    CASE('', 'null', 'NULL', 'none', 'NONE')
+    CASE DEFAULT
+      IF( LEN_TRIM(RESTART_FILE)>LEN(CRESTSTO) ) ERROR STOP 'CaMa restart path too long'
+      INQUIRE(FILE=TRIM(RESTART_FILE),EXIST=RESTART_EXISTS)
+      IF(.NOT.RESTART_EXISTS)THEN
+        WRITE(LOGNAM,*) 'DEF_CaMa_Restart_file not found: ',TRIM(RESTART_FILE)
+        STOP 10
+      ENDIF
+      CRESTSTO=TRIM(RESTART_FILE)
+      LRESTART=.TRUE.
+    END SELECT
+  ENDIF
+  IF(.NOT.LRESTART) WRITE(LOGNAM,*) &
+    'WARNING: CaMa cold start; set DEF_CaMa_Restart_file to resume a matching land/routing checkpoint.'
+ENDIF
 
 IF( LDAMOUT )THEN
   IF (LDAMIRR) THEN
@@ -224,12 +258,15 @@ CALL CMF_PROG_INIT
 !*** 4b. Initialize (allocate) diagnostic arrays
 CALL CMF_DIAG_INIT
 
-!v4.03 CALC_FLDSTG for zero storage restart
-CALL CMF_PHYSICS_FLDSTG
+!v4.03 CALC_FLDSTG for zero storage cold starts
+IF( .NOT. LRESTART )THEN
+  CALL CMF_PHYSICS_FLDSTG
+ENDIF
 
 !*** 4c. Restart file
 IF( LRESTART )THEN
   CALL CMF_RESTART_INIT
+  CALL CMF_PHYSICS_FLDSTG
 ENDIF
 
 !*** 4d. Optional reservoir initialization
@@ -258,9 +295,7 @@ ENDIF
 
 !*** 5 reconstruct previous t-step flow (if needed)
 IF( LRESTART .AND. LSTOONLY )THEN
-  WRITE(LOGNAM,*) "CMF::DRV_INIT: (5a) set flood stage at initial condition"
-  !** v4.03 CALC_FLDSTG for storagy only restart (v4.03)
-  CALL CMF_PHYSICS_FLDSTG
+  WRITE(LOGNAM,*) "CMF::DRV_INIT: (5a) set previous outflow at initial condition"
   CALL CMF_CALC_OUTPRE  !! bugfix in v4.12
 ENDIF
 
@@ -291,7 +326,7 @@ END SUBROUTINE CMF_DRV_INIT
 !####################################################################
 SUBROUTINE CMF_DRV_END
 ! Finalize CaMa-Flood
-USE YOS_CMF_INPUT,           ONLY: LOUTPUT, LSEALEV, LTRACE
+USE YOS_CMF_INPUT,           ONLY: LOUTPUT, LSEALEV, LTRACE, LLOGOUT
 USE CMF_CTRL_OUTPUT_MOD,     ONLY: CMF_OUTPUT_END
 USE CMF_CTRL_FORCING_MOD,    ONLY: CMF_FORCING_END
 USE CMF_CTRL_BOUNDARY_MOD,   ONLY: CMF_BOUNDARY_END
@@ -318,7 +353,7 @@ WRITE(LOGNAM,*) "CMF::DRV_END: simulation finished in:",ZTT2-ZTT0,' Seconds'
 
 WRITE(LOGNAM,*) "CMF::DRV_END: close logfile"
 WRITE(LOGNAM,*) "CMF::===== CALCULATION END ====="
-CLOSE(LOGNAM)
+IF( LLOGOUT ) CLOSE(LOGNAM)
 
 END SUBROUTINE CMF_DRV_END
 !####################################################################

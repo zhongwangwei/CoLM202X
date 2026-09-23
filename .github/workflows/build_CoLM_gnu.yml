@@ -34,6 +34,8 @@ jobs:
        with:
           compiler: gcc
           version: 12
+     - name: Install NetCDF-Fortran test dependencies
+       run: sudo apt update && sudo apt install -y netcdf-bin libnetcdf-dev libnetcdff-dev
      - name: Install test dependencies
        run: python -m pip install pytest numpy netCDF4
      - name: Run Python tests
