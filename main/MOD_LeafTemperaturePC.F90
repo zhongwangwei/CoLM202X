@@ -22,6 +22,9 @@ MODULE MOD_LeafTemperaturePC
 !
 !-----------------------------------------------------------------------
    USE MOD_Precision
+#ifdef TRACER
+   USE MOD_LeafInterception, only: canopy_storage_capacity_colm2024
+#endif
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_PLANTHYDRAULICS, DEF_USE_OZONESTRESS, &
                            DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
                            DEF_VEG_SNOW
@@ -33,6 +36,9 @@ MODULE MOD_LeafTemperaturePC
 
 ! PRIVATE MEMBER FUNCTIONS:
    PRIVATE :: dewfraction
+#ifdef TRACER
+   PRIVATE :: colm2024_rain_capacity_for_fwet
+#endif
 
 
 !-----------------------------------------------------------------------
@@ -66,7 +72,11 @@ CONTAINS
                hpbl, &
                qintr_rain ,qintr_snow ,t_precip   ,hprl       ,&
                dheatl     ,smp        ,hk         ,hksati     ,&
-               rootflux    )
+               rootflux                                            &
+#ifdef TRACER
+              ,canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_trc_out &
+#endif
+               )
 
 !=======================================================================
 !
@@ -112,6 +122,11 @@ CONTAINS
    USE MOD_Const_Physical, only: vonkar, grav, hvap, hsub, cpair, stefnc, &
                                  cpliq, cpice, hfus, tfrz, denice, denh2o
    USE MOD_Const_PFT
+#ifdef TRACER
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   USE MOD_Vars_TimeInvariants, only: ncd_p, ncw_p, bcw_p
+#endif
+#endif
    USE MOD_FrictionVelocity
    USE MOD_CanopyLayerProfile
    USE MOD_TurbulenceLEddy
@@ -255,6 +270,12 @@ CONTAINS
         tref,          &! 2 m height air temperature (kelvin)
         qref,          &! 2 m height air specific humidity
         rootflux(nl_soil,ps:pe)    ! root water uptake from different layers
+
+#ifdef TRACER
+   real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out
+   real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out
+   real(r8), intent(out), optional :: raw_trc_out
+#endif
 
    real(r8), dimension(ps:pe), intent(out) :: &
         z0mpc,         &! z0m for individual PFT
@@ -518,6 +539,11 @@ CONTAINS
 
 ! only process with vegetated patches
 
+#ifdef TRACER
+      IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(:) = 0._r8
+      IF (present(canopy_frzc_mass_p_out))  canopy_frzc_mass_p_out(:)  = 0._r8
+#endif
+
       lsai(:) = lai(:) + sai(:)
       is_vegetated_patch = .false.
 
@@ -639,7 +665,16 @@ CONTAINS
 
          IF (fcover(i)>0 .and. lsai(i)>1.e-6) THEN
             CALL dewfraction (sigf(i),lai(i),sai(i),dewmx,&
+#ifdef TRACER
+                              ldew(i),ldew_rain(i),ldew_snow(i),fwet(i),fdry(i) &
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+                              ,colm2024_rain_capacity_for_fwet(dewmx,lai(i),sai(i), &
+                              us,vs,htop(i),pftclass(i),.true.,ncd_p(i),ncw_p(i),bcw_p(i)) &
+#endif
+                              )
+#else
                               ldew(i),ldew_rain(i),ldew_snow(i),fwet(i),fdry(i))
+#endif
             CALL qsadv(tl(i),psrf,ei(i),deiDT(i),qsatl(i),qsatlDT(i))
          ENDIF
       ENDDO
@@ -1754,6 +1789,17 @@ ENDIF
 !     END stability iteration
 ! ======================================================================
 
+#ifdef TRACER
+      gssun = 0._r8
+      gssha = 0._r8
+      DO i = ps, pe
+         IF (fcover(i) > 0._r8 .and. lai(i) > 0.001_r8) THEN
+            gssun(i) = (laisun(i) / rssun(i)) * (tprcor / tlbef(i))
+            gssha(i) = (laisha(i) / rssha(i)) * (tprcor / tlbef(i))
+         ENDIF
+      ENDDO
+
+#endif
       IF(DEF_USE_OZONESTRESS)THEN
          DO i = ps, pe
             p = pftclass(i)
@@ -1831,6 +1877,16 @@ ENDIF
             fevpl  (i) = fevpl_noadj(i)
             fevpl  (i) = fevpl(i)   +   fevpl_dtl(i)*dtl(it-1,i)
 
+#ifdef TRACER
+            IF (etr(i) < 0._r8) THEN
+               evplwet(i) = evplwet(i) + etr(i)
+               etr(i) = 0._r8
+               etrsun(i) = 0._r8
+               etrsha(i) = 0._r8
+               IF (DEF_USE_PLANTHYDRAULICS) rootflux(:,i) = 0._r8
+            ENDIF
+
+#endif
             elwmax = ldew(i)/deltim
 
             ! 03/02/2018, yuan: convert fc to whole area
@@ -1852,8 +1908,11 @@ ENDIF
 !-----------------------------------------------------------------------
 ! Update dew accumulation (kg/m2)
 !-----------------------------------------------------------------------
+#ifdef TRACER
+#else
             IF (DEF_Interception_scheme .eq. 1 .or. DEF_Interception_scheme .eq. 8) THEN !colm2014
 
+#endif
                ldew(i) = max(0., ldew(i)-evplwet(i)*deltim)
 
                ! account for vegetation snow and update ldew_rain, ldew_snow, ldew
@@ -1886,6 +1945,17 @@ ENDIF
                   ldew(i) = ldew_rain(i) + ldew_snow(i)
                ENDIF
 
+#ifdef TRACER
+               IF (.not. DEF_VEG_SNOW) THEN
+                  IF (tl(i) > tfrz) THEN
+                     ldew_rain(i) = ldew(i)
+                     ldew_snow(i) = 0._r8
+                  ELSE
+                     ldew_rain(i) = 0._r8
+                     ldew_snow(i) = ldew(i)
+                  ENDIF
+               ENDIF
+#else
             ELSEIF (DEF_Interception_scheme .eq. 2) THEN!CLM4.5
                ldew(i) = max(0., ldew(i)-evplwet(i)*deltim)
             ELSEIF (DEF_Interception_scheme .eq. 3) THEN !CLM5
@@ -1941,6 +2011,7 @@ ENDIF
             ELSE
                CALL abort
             ENDIF
+#endif
 
             IF ( DEF_VEG_SNOW ) THEN
                ! update fwet_snow
@@ -1960,6 +2031,9 @@ ENDIF
                   qmelt(i) = min(ldew_snow(i)/deltim,(tl(i)-tfrz)*cpice*ldew_snow(i)/(deltim*hfus))
                   ldew_snow(i) = max(0.,ldew_snow(i) - qmelt(i)*deltim)
                   ldew_rain(i) = max(0.,ldew_rain(i) + qmelt(i)*deltim)
+#ifdef TRACER
+                  IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(i) = qmelt(i)*deltim
+#endif
                   !NOTE: There may be some problem, energy imbalance
                   !      However, detailed treatment could be somewhat trivial
                   tl(i) = fwet_snow(i)*tfrz + (1.-fwet_snow(i))*tl(i) !Niu et al., 2004
@@ -1969,6 +2043,9 @@ ENDIF
                   qfrz(i)  = min(ldew_rain(i)/deltim,(tfrz-tl(i))*cpliq*ldew_rain(i)/(deltim*hfus))
                   ldew_rain(i) = max(0.,ldew_rain(i) - qfrz(i)*deltim)
                   ldew_snow(i) = max(0.,ldew_snow(i) + qfrz(i)*deltim)
+#ifdef TRACER
+                  IF (present(canopy_frzc_mass_p_out)) canopy_frzc_mass_p_out(i) = qfrz(i)*deltim
+#endif
                   !NOTE: There may be some problem, energy imbalance
                   !      However, detailed treatment could be somewhat trivial
                   tl(i) = fwet_snow(i)*tfrz + (1.-fwet_snow(i))*tl(i) !Niu et al., 2004
@@ -2067,12 +2144,19 @@ ENDIF
 
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+#ifdef TRACER
+      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
+#endif
 
    END SUBROUTINE LeafTemperaturePC
 !----------------------------------------------------------------------
 
 
+#ifdef TRACER
+   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry,satcap_rain_override)
+#else
    SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+#endif
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
 !
@@ -2096,10 +2180,16 @@ ENDIF
    real(r8), intent(in)  :: ldew_snow !depth of snow on foliage [kg/m2/s]
    real(r8), intent(out) :: fwet      !fraction of foliage covered by water&snow [-]
    real(r8), intent(out) :: fdry      !fraction of foliage that is green and dry [-]
+#ifdef TRACER
+   real(r8), intent(in), optional :: satcap_rain_override
+#endif
 
    real(r8) :: lsai                   !lai + sai
    real(r8) :: dewmxi                 !inverse of maximum allowed dew [1/mm]
    real(r8) :: vegt                   !sigf*lsai, NOTE: remove sigf
+#ifdef TRACER
+   real(r8) :: satcap_rain
+#endif
    real(r8) :: fwet_rain              !fraction of foliage covered by water [-]
    real(r8) :: fwet_snow              !fraction of foliage covered by snow [-]
 
@@ -2110,10 +2200,18 @@ ENDIF
       dewmxi = 1.0/dewmx
       ! 06/2018, yuan: remove sigf, to compatible with PFT
       vegt   =  lsai
+#ifdef TRACER
+      satcap_rain = dewmx * vegt
+      IF (present(satcap_rain_override)) satcap_rain = max(0._r8, satcap_rain_override)
+#endif
 
       fwet = 0
       IF (ldew > 0.) THEN
+#ifdef TRACER
+         fwet = (ldew/max(satcap_rain,1.e-10_r8))**.666666666666
+#else
          fwet = ((dewmxi/vegt)*ldew)**.666666666666
+#endif
          ! Check for maximum limit of fwet
          fwet = min(fwet,1.0)
       ENDIF
@@ -2124,7 +2222,11 @@ ENDIF
 
          fwet_rain = 0
          IF(ldew_rain > 0.) THEN
+#ifdef TRACER
+            fwet_rain = (ldew_rain/max(satcap_rain,1.e-10_r8))**.666666666666
+#else
             fwet_rain = ((dewmxi/vegt)*ldew_rain)**.666666666666
+#endif
             ! Check for maximum limit of fwet_rain
             fwet_rain = min(fwet_rain,1.0)
          ENDIF
@@ -2146,4 +2248,25 @@ ENDIF
 
    END SUBROUTINE dewfraction
 
+#ifdef TRACER
+
+   FUNCTION colm2024_rain_capacity_for_fwet(dewmx,lai,sai,forc_us,forc_vs,htop_in, &
+                                            veg_class,is_pft,ncd_eff,ncw_eff,bcw_eff) RESULT(satcap)
+   USE MOD_Precision
+   IMPLICIT NONE
+   real(r8), intent(in) :: dewmx, lai, sai, forc_us, forc_vs, htop_in
+   integer,  intent(in) :: veg_class
+   logical,  intent(in) :: is_pft
+   real(r8), intent(in) :: ncd_eff, ncw_eff, bcw_eff
+   real(r8)             :: satcap
+      satcap = dewmx * max(0._r8, lai+sai)
+      IF (DEF_Interception_scheme == 8 .and. lai+sai > 1.e-6_r8) THEN
+         satcap = canopy_storage_capacity_colm2024(dewmx,lai,sai,forc_us,forc_vs,htop_in, &
+                                                   ncd_eff,ncw_eff,bcw_eff,veg_class,is_pft)
+      ENDIF
+   END FUNCTION colm2024_rain_capacity_for_fwet
+
+
+
+#endif
 END MODULE MOD_LeafTemperaturePC

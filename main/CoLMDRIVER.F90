@@ -1,6 +1,10 @@
 #include <define.h>
 
+#ifdef TRACER
+SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
+#else
 SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
+#endif
 
 
 !=======================================================================
@@ -26,6 +30,12 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
    USE omp_lib
+#ifdef TRACER
+   USE MOD_Tracer_LandPhase, only: tracer_resolve_step, tracer_lake_step, &
+      tracer_wetland_decomp, tracer_soil_step, tracer_report
+   USE MOD_Tracer_Defs, only: ntracers
+   USE MOD_SPMD_Task, only: CoLM_stop
+#endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
 #endif
@@ -33,8 +43,15 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    ! get flood variables: inundation depth[mm], inundation fraction [0-1],
    ! inundation evaporation [mm/s], inundation re-infiltration[mm/s]
    USE MOD_CaMa_Vars, only: flddepth_cama,fldfrc_cama,fevpg_fld,finfg_fld
+#elif defined(GridRiverLakeFlow)
+   USE MOD_Grid_RiverLakeFlow, only: flddepth_cama => flood_depth_patch, &
+      fldfrc_cama => flood_fraction_patch, fevpg_fld => flood_evap_patch, &
+      finfg_fld => flood_infil_patch
 #endif
 
+#if (defined TRACER) && (defined OPENMP)
+#error "TRACER does not support OPENMP in CoLMDRIVER"
+#endif
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3) ! model calendar for next time step (year, julian day, seconds)
@@ -45,12 +62,22 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    logical,  intent(in) :: dosst    ! true if time for update sst/ice/snow
 
    real(r8), intent(inout) :: oro(numpatch)  ! ocean(0)/seaice(2)/ flag
+#ifdef TRACER
+   integer,  intent(in), optional :: istep_in
+#endif
 
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
+#ifdef TRACER
+   integer  :: istep_local
+#endif
 
 ! ======================================================================
+
+#ifdef TRACER
+      CALL tracer_resolve_step (istep_in, istep_local)
+#endif
 
 #ifdef OPENMP
 !$OMP PARALLEL DO NUM_THREADS(OPENMP) &
@@ -73,6 +100,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
          ENDIF
 
          m = patchclass(i)
+
+#if (defined URBAN_MODEL) && (defined TRACER)
+         IF (DEF_URBAN_RUN .and. m.eq.URBAN .and. ntracers > 0) THEN
+            CALL CoLM_stop ('TRACER does not yet support full urban patches: ' // &
+               'CoLMMAIN_Urban has no tracer sub-surface state or runoff tracer update.')
+         ENDIF
+#endif
 
          steps_in_one_deltim = 1
          ! deltim need to be within 1800s for water body with snow in order to avoid large
@@ -104,7 +138,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                dksatf(1:,i),    dkdry(1:,i),     BA_alpha(1:,i),  BA_beta(1:,i),   &
                rootfr(1:,m),    lakedepth(i),    dz_lake(1:,i),   elvstd(i),       &
                BVIC(i),                                                            &
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
              ! flood variables [mm, m2/m2, mm/s, mm/s]
                flddepth_cama(i),fldfrc_cama(i),  fevpg_fld(i),    finfg_fld(i),    &
 #endif
@@ -209,6 +243,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                ustar(i),        qstar(i),        tstar(i),                         &
                fm(i),           fh(i),           fq(i)                             )
 
+#ifdef TRACER
+               CALL tracer_lake_step (istep_local, i, idate, deltim_phy, k, steps_in_one_deltim)
+#endif
+
             ENDDO
          ENDIF
 
@@ -220,6 +258,14 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             !
             CALL bgc_driver (i,idate(1:3),deltim, patchlatr(i)*180/PI,patchlonr(i)*180/PI)
          ENDIF
+
+#ifdef TRACER
+         CALL tracer_wetland_decomp (i, deltim)
+#endif
+
+#ifdef TRACER
+         CALL tracer_soil_step (istep_local, i, idate, deltim)
+#endif
 #endif
 
 
@@ -321,7 +367,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             mss_bcpho(:,i)  ,mss_bcphi(:,i)  ,mss_ocpho(:,i)  ,mss_ocphi(:,i)  ,&
             mss_dst1(:,i)   ,mss_dst2(:,i)   ,mss_dst3(:,i)   ,mss_dst4(:,i)   ,&
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
           ! flood variables [mm, m2/m2, mm/s, mm/s]
             flddepth_cama(i),fldfrc_cama(i)  ,fevpg_fld(i)    ,finfg_fld(i)    ,&
 #endif
@@ -365,6 +411,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
       ENDDO
 #ifdef OPENMP
 !$OMP END PARALLEL DO
+#endif
+
+#ifdef TRACER
+      CALL tracer_report ()
 #endif
 
 END SUBROUTINE CoLMDRIVER

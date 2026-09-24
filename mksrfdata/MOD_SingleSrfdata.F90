@@ -1494,7 +1494,7 @@ CONTAINS
          allocate (elm_patch%subfrc (numpatch)); elm_patch%subfrc = 1./numpatch
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 #ifdef CROP
-         elm_patch%subfrc = SITE_pctcrop
+         IF (SITE_landtype == CROPLAND) elm_patch%subfrc = SITE_pctcrop
 #endif
 #endif
 

@@ -18,6 +18,10 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
+#ifdef TRACER
+   USE MOD_Tracer_Vars, only: flush_Tracer_Acc
+   USE MOD_Tracer_Hist, only: tracer_hist_out
+#endif
 
    USE MOD_HistGridded
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -30,7 +34,13 @@ MODULE MOD_Hist
    USE MOD_Catch_Hist
 #endif
 #ifdef GridRiverLakeFlow
+#ifdef TRACER
+   USE MOD_Grid_RiverLakeHist, only: hist_grid_riverlake_init, hist_grid_riverlake_out, &
+      hist_grid_riverlake_final, flush_acc_fluxes_riverlake
+   USE MOD_Grid_RiverLakeHistState
+#else
    USE MOD_Grid_RiverLakeHist
+#endif
 #endif
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_Hist
@@ -43,6 +53,9 @@ MODULE MOD_Hist
    character(len=10) :: HistForm ! 'Gridded', 'Vector', 'Single'
 
    character(len=256) :: file_last = 'null'
+#ifdef TRACER
+   character(len=256) :: file_last_tracer = 'null'
+#endif
 
 !--------------------------------------------------------------------------
 CONTAINS
@@ -53,9 +66,19 @@ CONTAINS
 
    character(len=*) , intent(in) :: dir_hist
    logical, optional, intent(in) :: lulcc_call
+#ifdef TRACER
+   logical :: flush_reactive
+
+      CALL allocate_acc_fluxes ()
+      flush_reactive = .false.
+      IF (present(lulcc_call)) flush_reactive = lulcc_call
+      CALL FLUSH_acc_fluxes (flush_reactive=flush_reactive)
+      CALL flush_Tracer_Acc ()
+#else
 
       CALL allocate_acc_fluxes ()
       CALL FLUSH_acc_fluxes ()
+#endif
 
       HistForm = 'Gridded'
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -112,7 +135,7 @@ CONTAINS
 
 
    SUBROUTINE hist_out (idate, deltim, itstamp, etstamp, ptstamp, &
-         dir_hist, casename)
+         dir_hist, casename, restart_date, dir_restart, history_saved_raw)
 
 !=======================================================================
 !  Original version: Yongjiu Dai, September 15, 1999, 03/2014
@@ -158,11 +181,23 @@ CONTAINS
 
    character(len=*), intent(in) :: dir_hist
    character(len=*), intent(in) :: casename
+   integer, optional, intent(in) :: restart_date(3)
+   character(len=*), optional, intent(in) :: dir_restart
+   logical, optional, intent(out) :: history_saved_raw
 
    ! Local variables
    logical :: lwrite
+   logical :: natural_boundary
+#ifdef TRACER
+   real(r8) :: history_window_seconds
    character(len=256) :: file_hist
    integer :: itime_in_file
+   character(len=256) :: file_hist_tracer
+   integer :: itime_in_file_tracer
+#else
+   character(len=256) :: file_hist
+   integer :: itime_in_file
+#endif
 #if (defined CaMa_Flood)
    character(len=256) :: file_hist_cama
    integer :: itime_in_file_cama
@@ -210,24 +245,43 @@ CONTAINS
    real(r8), allocatable ::  a_t_brt_fy3d_ens_std (:,:)
 #endif
 
+      IF (present(history_saved_raw)) history_saved_raw = .false.
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
+         CALL flush_Tracer_Acc ()
+#endif
+#ifdef GridRiverLakeFlow
+         CALL flush_acc_fluxes_riverlake ()
+#endif
+         IF (.not. (itstamp < etstamp)) THEN
+            IF (present(restart_date) .and. present(dir_restart)) THEN
+               CALL write_history_acc_restart(restart_date, casename, dir_restart)
+               IF (present(history_saved_raw)) history_saved_raw = .true.
+            ENDIF
+         ENDIF
          RETURN
       ELSE
          CALL accumulate_fluxes ()
       ENDIF
 
+      natural_boundary = .false.
       select CASE (trim(adjustl(DEF_HIST_FREQ)))
       CASE ('TIMESTEP')
+         natural_boundary = .true.
          lwrite = .true.
       CASE ('HOURLY')
-         lwrite = isendofhour (idate, deltim) .or. (.not. (itstamp < etstamp))
+         natural_boundary = isendofhour (idate, deltim)
+         lwrite = natural_boundary .or. (.not. (itstamp < etstamp))
       CASE ('DAILY')
-         lwrite = isendofday  (idate, deltim) .or. (.not. (itstamp < etstamp))
+         natural_boundary = isendofday (idate, deltim)
+         lwrite = natural_boundary .or. (.not. (itstamp < etstamp))
       CASE ('MONTHLY')
-         lwrite = isendofmonth(idate, deltim) .or. (.not. (itstamp < etstamp))
+         natural_boundary = isendofmonth(idate, deltim)
+         lwrite = natural_boundary .or. (.not. (itstamp < etstamp))
       CASE ('YEARLY')
-         lwrite = isendofyear (idate, deltim) .or. (.not. (itstamp < etstamp))
+         natural_boundary = isendofyear (idate, deltim)
+         lwrite = natural_boundary .or. (.not. (itstamp < etstamp))
       CASE default
          lwrite = .false.
          write(*,*) &
@@ -235,6 +289,13 @@ CONTAINS
          write(*,*) &
          '          Set to FALSE by default.                                                     '
       END select
+
+      IF (.not. (itstamp < etstamp) .and. .not.natural_boundary) THEN
+         IF (present(restart_date) .and. present(dir_restart)) THEN
+            CALL write_history_acc_restart(restart_date, casename, dir_restart)
+            IF (present(history_saved_raw)) history_saved_raw = .true.
+         ENDIF
+      ENDIF
 
       IF (lwrite) THEN
 
@@ -278,14 +339,52 @@ CONTAINS
 
          file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
+#ifdef TRACER
+         history_window_seconds=0._r8
+         IF (p_is_worker) history_window_seconds=max(nac,0._r8)*deltim
+#ifdef USEMPI
+         CALL mpi_allreduce(MPI_IN_PLACE, history_window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+#endif
+
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
+         IF (HistForm=='Gridded' .and. p_is_master) THEN
+            CALL ncio_write_serial_time (file_hist, 'history_window_seconds', &
+               itime_in_file, history_window_seconds, 'time')
+            CALL ncio_write_serial_time (file_hist, 'history_window_end_minutes', &
+               itime_in_file, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
+               real(mod(idate(3),60),r8)/60._r8, 'time')
+            IF (itime_in_file==1) THEN
+               CALL ncio_put_attr(file_hist, 'history_window_seconds', 'units', 's')
+               CALL ncio_put_attr(file_hist, 'history_window_seconds', 'long_name', &
+                  'elapsed window ending at history_window_end_minutes; terminal and resumed records can overlap')
+               CALL ncio_put_attr(file_hist, 'history_window_end_minutes', 'units', &
+                  'minutes since 1900-1-1 0:0:0')
+            ENDIF
+         ENDIF
+         file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_tracer_'//trim(cdate)//'.nc'
+         CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
+         IF (HistForm=='Gridded' .and. p_is_master) THEN
+            CALL ncio_write_serial_time (file_hist_tracer, 'history_window_seconds', &
+               itime_in_file_tracer, history_window_seconds, 'time')
+            CALL ncio_write_serial_time (file_hist_tracer, 'history_window_end_minutes', &
+               itime_in_file_tracer, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
+               real(mod(idate(3),60),r8)/60._r8, 'time')
+            IF (itime_in_file_tracer==1) THEN
+               CALL ncio_put_attr(file_hist_tracer, 'history_window_seconds', 'units', 's')
+               CALL ncio_put_attr(file_hist_tracer, 'history_window_seconds', 'long_name', &
+                  'elapsed window ending at history_window_end_minutes; terminal and resumed records can overlap')
+               CALL ncio_put_attr(file_hist_tracer, 'history_window_end_minutes', 'units', &
+                  'minutes since 1900-1-1 0:0:0')
+            ENDIF
+         ENDIF
+#else
+         CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
+#endif
 
          IF (p_is_worker) THEN
-            IF (numpatch > 0) THEN
-               allocate (filter    (numpatch))
-               allocate (filter_dt (numpatch))
-               allocate (vecacc    (numpatch))
-            ENDIF
+            allocate (filter    (numpatch))
+            allocate (filter_dt (numpatch))
+            allocate (vecacc    (numpatch))
 #ifdef URBAN_MODEL
             IF (numurban > 0) THEN
                allocate (filter_urb (numurban))
@@ -4450,7 +4549,7 @@ ENDIF
             'water storage in aquifer','mm')
 
          ! instantaneous water storage in aquifer [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .AND. numpatch > 0) THEN
             vecacc = wa
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -4464,7 +4563,7 @@ ENDIF
             'depth of surface water','mm')
 
          ! instantaneous depth of surface water [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .AND. numpatch > 0) THEN
             vecacc = wdsrf
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -4732,10 +4831,8 @@ ENDIF
             itime_in_file, trim(file_hist)/=trim(file_last))
 
          IF (p_is_worker) THEN
-            IF (numpatch > 0) THEN
-               allocate (nac_one (numpatch))
-               nac_one = 1.
-            ENDIF
+            allocate (nac_one (numpatch))
+            nac_one = 1.
          ENDIF
 
          IF (HistForm == 'Gridded') THEN
@@ -4774,6 +4871,11 @@ ENDIF
          IF (allocated(nac_one   )) deallocate (nac_one   )
 #endif
 
+#ifdef TRACER
+         CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+            sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
+#endif
+
          IF (allocated(filter    )) deallocate (filter    )
          IF (allocated(filter_dt )) deallocate (filter_dt )
 #ifdef URBAN_MODEL
@@ -4781,6 +4883,9 @@ ENDIF
 #endif
 
          CALL FLUSH_acc_fluxes ()
+#ifdef TRACER
+         CALL flush_Tracer_Acc ()
+#endif
 
 #ifdef SinglePoint
          IF (USE_SITE_HistWriteBack .and. memory_to_disk) THEN
@@ -4789,6 +4894,9 @@ ENDIF
 #endif
 
          file_last = file_hist
+#ifdef TRACER
+         file_last_tracer = file_hist_tracer
+#endif
 
       ENDIF
 
@@ -4825,14 +4933,32 @@ ENDIF
          IF (p_is_worker) &
             WHERE (acc_vec /= spval) acc_vec = acc_vec / nac
       ELSE
+#ifdef TRACER
+         IF (p_is_worker) THEN
+            WHERE (acc_vec/=spval .and. acc_num>0)
+               acc_vec = acc_vec / acc_num
+            ELSEWHERE (acc_vec/=spval .and. acc_num<=0)
+               acc_vec = spval
+            END WHERE
+         ENDIF
+#else
          IF (p_is_worker)  &
             WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
+#endif
       ENDIF
 #else
       IF ( .not. present(acc_num) ) THEN
          WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
       ELSE
+#ifdef TRACER
+         WHERE (acc_vec/=spval .and. acc_num>0)
+               acc_vec = acc_vec / acc_num
+            ELSEWHERE (acc_vec/=spval .and. acc_num<=0)
+               acc_vec = spval
+            END WHERE
+#else
          WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
+#endif
       ENDIF
 #endif
 
@@ -4989,8 +5115,16 @@ ENDIF
          IF (p_is_worker) THEN
             DO i1 = lbound(acc_vec,1), ubound(acc_vec,1)
                DO i2 = lbound(acc_vec,2), ubound(acc_vec,2)
+#ifdef TRACER
+                  WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0)
+                        acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
+                  ELSEWHERE (acc_vec(i1,i2,:)/=spval .and. acc_num<=0)
+                        acc_vec(i1,i2,:) = spval
+                  END WHERE
+#else
                   WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0) &
                         acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
+#endif
                ENDDO
             ENDDO
          ENDIF
@@ -5001,8 +5135,16 @@ ENDIF
       ELSE
          DO i1 = lbound(acc_vec,1), ubound(acc_vec,1)
             DO i2 = lbound(acc_vec,2), ubound(acc_vec,2)
+#ifdef TRACER
+               WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0)
+                     acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
+               ELSEWHERE (acc_vec(i1,i2,:)/=spval .and. acc_num<=0)
+                     acc_vec(i1,i2,:) = spval
+               END WHERE
+#else
                WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0) &
                      acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
+#endif
             ENDDO
          ENDDO
       ENDIF

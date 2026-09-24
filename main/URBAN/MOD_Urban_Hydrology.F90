@@ -62,7 +62,7 @@ CONTAINS
         sm_roof        ,sm_gimp        ,sm_gper        ,sm_lake        ,&
         lake_icefrac   ,scv_lake       ,snowdp_lake    ,imelt_lake     ,&
         fioldl         ,w_old                                          ,&
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
         flddepth       ,fldfrc         ,qinfl_fld                      ,&
 #endif
         forc_us        ,forc_vs                                        ,&
@@ -158,7 +158,7 @@ CONTAINS
 
    real(r8), intent(inout) :: rootflux(1:nl_soil)
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    real(r8), intent(inout) :: flddepth  ! inundation water depth [mm]
    real(r8), intent(in)    :: fldfrc    ! inundation water depth [0-1]
    real(r8), intent(out)   :: qinfl_fld ! grid averaged inundation water input from top (mm/s)
@@ -256,6 +256,15 @@ CONTAINS
 
    real(r8) :: a, aa, xs1
 
+#ifdef TRACER
+   real(r8) :: qlayer_urb(0:nl_soil)
+   real(r8) :: etroot_trc_urb(1:nl_soil)
+   real(r8) :: etroot_actual_trc_urb(1:nl_soil)
+   real(r8) :: etroot_aquifer_trc_urb
+   real(r8) :: dew_overflow_urb, frost_displaced_urb, late_runoff_urb
+   real(r8) :: snow_qout_layer_urb(min(lbp, 0):0)
+#endif
+
 !-----------------------------------------------------------------------
 
       fg = 1 - froof
@@ -283,7 +292,12 @@ CONTAINS
              0.          ,& ! fsno, not active
              rsur_gper   ,rnof_gper   ,qinfl       ,pondmx      ,ssi         ,&
              wimp        ,smpmin      ,zwt         ,wdsrf       ,wa          ,qcharge     ,&
-#if (defined CaMa_Flood)
+#ifdef TRACER
+             qlayer_urb  ,etroot_trc_urb ,etroot_actual_trc_urb ,&
+             etroot_aquifer_trc_urb ,dew_overflow_urb,frost_displaced_urb,late_runoff_urb ,&
+             snow_qout_layer_urb                                             ,&
+#endif
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
              flddepth    ,fldfrc      ,qinfl_fld                             ,&
 #endif
 ! SNICAR model variables

@@ -66,7 +66,8 @@ CONTAINS
 
 #ifdef RangeCheck
       IF (p_is_worker) THEN
-         npatch = count(patchtypes(landpatch%settyp) == 0)
+         npatch = 0
+         IF (numpatch > 0) npatch = count(patchtypes(landpatch%settyp) == 0)
          allocate (sumpct (npatch))
 
          npatch = 0

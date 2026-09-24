@@ -76,6 +76,10 @@ PROGRAM MKSRFDATA
    USE MOD_LandCrop
 #endif
    USE MOD_RegionClip
+   USE MOD_UnitCatchmentRegional, only: unitcatchment_regional_build
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Reactive_Methane_Preprocessing, only: methane_preprocessing_requirements
+#endif
 #ifdef SrfdataDiag
    USE MOD_SrfdataDiag, only: gdiag, srfdata_diag_init
 #endif
@@ -105,6 +109,9 @@ PROGRAM MKSRFDATA
    character(len=4) :: cyear
    integer*8 :: start_time, end_time, c_per_sec, time_used
    logical   :: skip_rest
+#if (defined TRACER) && (defined BGC)
+   logical   :: requires_lake_soilc, requires_spatial_ph
+#endif
 
 
 #ifdef USEMPI
@@ -428,6 +435,10 @@ PROGRAM MKSRFDATA
       CALL pixelset_save_to_file  (dir_landdata, 'landurban', landurban, lc_year)
 #endif
 
+      IF (DEF_UnitCatchment_regional) THEN
+         CALL unitcatchment_regional_build ()
+      ENDIF
+
 ! ................................................................
 ! 3. Mapping land characteristic parameters to the model grids
 ! ................................................................
@@ -459,6 +470,14 @@ IF (.not. (skip_rest)) THEN
       CALL Aggregation_LakeDepth       (grid_500m, dir_rawdata, dir_landdata, lc_year)
 
       CALL Aggregation_SoilParameters  (grid_soil, dir_rawdata, dir_landdata, lc_year)
+
+#if (defined TRACER) && (defined BGC)
+      CALL methane_preprocessing_requirements (requires_lake_soilc, requires_spatial_ph)
+      IF (requires_lake_soilc) &
+         CALL Aggregation_LakeSoilC    (grid_soil, dir_rawdata, dir_landdata, lc_year)
+      IF (requires_spatial_ph) &
+         CALL Aggregation_MethanePH    (dir_rawdata, dir_landdata, lc_year)
+#endif
 
       CALL Aggregation_SoilBrightness  (grid_500m, dir_rawdata, dir_landdata, lc_year)
 #ifdef HYPERSPECTRAL

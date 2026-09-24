@@ -15,6 +15,8 @@ MODULE MOD_Grid_Reservoir
    integer :: totalnumresv
    integer :: numresv
    integer,  allocatable :: ucat2resv   (:)
+   integer,  allocatable :: resv_global_id(:)
+   integer,  allocatable :: resv_ucid     (:)
    type(pointer_int32_1d), allocatable :: resv_data_address (:)
 
 
@@ -49,44 +51,77 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_NetCDFSerial
    USE MOD_Utils
-   USE MOD_Namelist,              only: DEF_ReservoirPara_file
+   USE MOD_Namelist,              only: DEF_ReservoirPara_file, DEF_Reservoir_Method, &
+      DEF_UnitCatchment_regional, regional_unitcatchment_file
    USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_ucid, lake_type
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
 
    IMPLICIT NONE
 
    ! Local variables
    character(len=256) :: parafile
 
-   integer,  allocatable :: dam_seq(:), order(:), loc2all(:)
+   integer,  allocatable :: dam_seq(:), order(:), loc2all(:), ordinal_count(:)
+   integer,  allocatable :: catalogue_to_active(:)
    real(r8), allocatable :: rcache (:)
    integer,  allocatable :: icache (:)
 
-   integer :: i, iloc, irsv, nresv, iworker
+   integer :: i, iloc, irsv, nresv, iworker, nresv_catalogue
+   integer,  allocatable :: src_index(:), regional_index(:)
 
 
       parafile = DEF_ReservoirPara_file
 
-      IF (p_is_master) THEN
-         CALL ncio_read_serial (parafile, 'dam_GRAND_ID', dam_GRAND_ID)
-      ENDIF
+      IF (DEF_Reservoir_Method /= 1) &
+         CALL CoLM_stop ('unsupported reservoir operation method')
 
+      CALL ncio_read_bcast_serial (parafile, 'dam_GRAND_ID', dam_GRAND_ID)
       CALL ncio_read_bcast_serial (parafile, 'dam_seq', dam_seq)
 
-      totalnumresv = size(dam_seq)
+      nresv_catalogue = size(dam_seq)
+      IF (size(dam_GRAND_ID) /= nresv_catalogue) &
+         CALL CoLM_stop ('reservoir dam_GRAND_ID and dam_seq lengths differ')
+
+      IF (DEF_UnitCatchment_regional) THEN
+         CALL ncio_read_bcast_serial (regional_unitcatchment_file (), 'seq_src_index', src_index)
+         allocate (regional_index (max(maxval(src_index), 1)))
+         regional_index = 0
+         DO i = 1, size(src_index)
+            regional_index(src_index(i)) = i
+         ENDDO
+         DO i = 1, nresv_catalogue
+            iloc = 0
+            IF (dam_seq(i) >= 1 .and. dam_seq(i) <= size(regional_index)) iloc = regional_index(dam_seq(i))
+            IF (iloc > 0) THEN
+               dam_seq(i) = iloc
+            ELSE
+               dam_seq(i) = -i
+            ENDIF
+         ENDDO
+         deallocate (src_index, regional_index)
+      ENDIF
+
+      numresv = 0
+
+      allocate (order (nresv_catalogue))
+      order = (/(i, i = 1, nresv_catalogue)/)
+
+      CALL quicksort (nresv_catalogue, dam_seq, order)
+
+      IF (nresv_catalogue > 1) THEN
+         IF (any(dam_seq(2:nresv_catalogue) == dam_seq(1:nresv_catalogue-1))) &
+            CALL CoLM_stop ('duplicate dam_seq entries in reservoir parameter file')
+      ENDIF
 
       IF (p_is_worker) THEN
 
-         allocate (order (totalnumresv))
-         order = (/(i, i = 1, totalnumresv)/)
-
-         CALL quicksort (totalnumresv, dam_seq, order)
-
          allocate (ucat2resv (numucat))
          allocate (loc2all   (numucat))
+         ucat2resv = 0
 
          numresv = 0
          DO i = 1, numucat
-            iloc = find_in_sorted_list1 (ucat_ucid(i), totalnumresv, dam_seq)
+            iloc = find_in_sorted_list1 (ucat_ucid(i), nresv_catalogue, dam_seq)
             IF (iloc > 0) THEN
                numresv = numresv + 1
                lake_type(i) = 2
@@ -95,7 +130,55 @@ CONTAINS
             ENDIF
          ENDDO
 
+         allocate (resv_ucid     (numresv))
+         IF (numresv > 0) THEN
+            DO i = 1, numucat
+               IF (ucat2resv(i) > 0) resv_ucid(ucat2resv(i)) = ucat_ucid(i)
+            ENDDO
+         ENDIF
+
       ENDIF
+
+      allocate (ordinal_count(nresv_catalogue))
+      ordinal_count = 0
+      IF (p_is_worker) THEN
+         DO irsv = 1, numresv
+            IF (loc2all(irsv) < 1 .or. loc2all(irsv) > nresv_catalogue) &
+               CALL CoLM_stop ('invalid reservoir parameter-table ordinal')
+            ordinal_count(loc2all(irsv)) = ordinal_count(loc2all(irsv)) + 1
+         ENDDO
+      ENDIF
+#ifdef USEMPI
+      IF (nresv_catalogue > 0) CALL mpi_allreduce (MPI_IN_PLACE, ordinal_count, nresv_catalogue, &
+         MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+#endif
+      IF (nresv_catalogue > 0) THEN
+         IF (any(ordinal_count > 1)) THEN
+            IF (p_is_master) write(*,'(A,I0)') &
+               'ERROR: reservoir rows mapped to multiple active ucatch owners=', count(ordinal_count > 1)
+            CALL CoLM_stop ('active reservoir ucatch IDs must map one-to-one to parameter rows')
+         ENDIF
+         IF (p_is_master .and. any(ordinal_count == 0)) write(*,'(A,I0,A,I0)') &
+            'Reservoir catalogue rows outside active domain: ', count(ordinal_count == 0), &
+            ' of ', nresv_catalogue
+      ENDIF
+
+      allocate (catalogue_to_active(nresv_catalogue))
+      catalogue_to_active = 0
+      totalnumresv = 0
+      DO i = 1, nresv_catalogue
+         IF (ordinal_count(i) > 0) THEN
+            totalnumresv = totalnumresv + 1
+            catalogue_to_active(i) = totalnumresv
+         ENDIF
+      ENDDO
+      dam_GRAND_ID = pack(dam_GRAND_ID, ordinal_count > 0)
+      IF (p_is_worker) THEN
+         allocate (resv_global_id(numresv))
+         IF (numresv > 0) resv_global_id = catalogue_to_active(loc2all(1:numresv))
+      ENDIF
+      deallocate (ordinal_count)
+      deallocate (catalogue_to_active)
 
 #ifdef USEMPI
       IF (p_is_master) THEN
@@ -119,16 +202,20 @@ CONTAINS
          CALL mpi_send (numresv, 1, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
 
          IF (numresv > 0) THEN
-            CALL mpi_send (loc2all(1:numresv), numresv, MPI_INTEGER, p_address_master, &
+            CALL mpi_send (resv_global_id, numresv, MPI_INTEGER, p_address_master, &
                mpi_tag_data, p_comm_glb, p_err)
          ENDIF
 
+      ENDIF
+
+      IF (.not. p_is_master .and. .not. allocated(resv_data_address)) THEN
+         allocate (resv_data_address (0:-1))
       ENDIF
 #else
       IF (numresv > 0) THEN
          allocate (resv_data_address (0:0))
          allocate (resv_data_address(0)%val (numresv))
-         resv_data_address(0)%val = loc2all(1:numresv)
+         resv_data_address(0)%val = resv_global_id
       ENDIF
 #endif
 
@@ -155,26 +242,36 @@ CONTAINS
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_year', icache)
+      IF (size(icache) /= nresv_catalogue) &
+         CALL CoLM_stop ('reservoir dam_year and dam_seq lengths differ')
       IF (p_is_worker .and. (numresv > 0)) THEN
          dam_build_year = icache(loc2all(1:numresv))
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_TotalVol_mcm', rcache)
+      IF (size(rcache) /= nresv_catalogue) &
+         CALL CoLM_stop ('reservoir dam_TotalVol_mcm and dam_seq lengths differ')
       IF (p_is_worker .and. (numresv > 0)) THEN
          volresv_total = rcache(loc2all(1:numresv))*1.e6
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_ConVol_mcm', rcache)
+      IF (size(rcache) /= nresv_catalogue) &
+         CALL CoLM_stop ('reservoir dam_ConVol_mcm and dam_seq lengths differ')
       IF (p_is_worker .and. (numresv > 0)) THEN
          volresv_normal = rcache(loc2all(1:numresv))*1.e6
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_Qn', rcache)
+      IF (size(rcache) /= nresv_catalogue) &
+         CALL CoLM_stop ('reservoir dam_Qn and dam_seq lengths differ')
       IF (p_is_worker .and. (numresv > 0)) THEN
          qresv_normal = rcache(loc2all(1:numresv))
       ENDIF
 
       CALL ncio_read_bcast_serial (parafile, 'dam_Qf', rcache)
+      IF (size(rcache) /= nresv_catalogue) &
+         CALL CoLM_stop ('reservoir dam_Qf and dam_seq lengths differ')
       IF (p_is_worker .and. (numresv > 0)) THEN
          qresv_flood = rcache(loc2all(1:numresv))
       ENDIF
@@ -182,6 +279,11 @@ CONTAINS
 
       IF (p_is_worker) THEN
          DO irsv = 1, numresv
+            IF (.not. ieee_is_finite(volresv_total(irsv)) .or. volresv_total(irsv) <= 0._r8 .or. &
+                .not. ieee_is_finite(volresv_normal(irsv)) .or. volresv_normal(irsv) <= 0._r8 .or. &
+                .not. ieee_is_finite(qresv_normal(irsv)) .or. qresv_normal(irsv) < 0._r8 .or. &
+                .not. ieee_is_finite(qresv_flood(irsv)) .or. qresv_flood(irsv) < 0._r8) &
+               CALL CoLM_stop ('invalid active reservoir volume or outflow parameter')
             volresv_emerg (irsv) = volresv_total(irsv) * 0.94
             volresv_adjust(irsv) = volresv_total(irsv) * 0.77
             volresv_normal(irsv) = min(volresv_total(irsv)*0.7, volresv_normal(irsv))
@@ -200,6 +302,7 @@ CONTAINS
 
    SUBROUTINE reservoir_operation (method, irsv, qin, vol, qout)
 
+   USE MOD_SPMD_Task, only: CoLM_stop
    IMPLICIT NONE
    integer,  intent(in)  :: method
    integer,  intent(in)  :: irsv
@@ -209,7 +312,8 @@ CONTAINS
    ! local variables
    real(r8) :: q1
 
-      IF (method == 1) THEN
+      SELECT CASE (method)
+      CASE (1)
          ! *** Reference ***
          ! [1] Mizuki Funato, Dai Yamazaki, Dung Trung Vu.
          ! Development of an Improved Reservoir Operation Scheme for Global Flood Modeling (CaMa-Flood v4.20).
@@ -232,7 +336,9 @@ CONTAINS
             qout = (vol/volresv_normal(irsv))**0.5 * qresv_normal(irsv)
          ENDIF
 
-      ENDIF
+      CASE DEFAULT
+         CALL CoLM_stop ('unsupported reservoir operation method')
+      END SELECT
 
    END SUBROUTINE reservoir_operation
 
@@ -242,6 +348,8 @@ CONTAINS
    IMPLICIT NONE
 
       IF (allocated(ucat2resv        )) deallocate (ucat2resv        )
+      IF (allocated(resv_global_id   )) deallocate (resv_global_id   )
+      IF (allocated(resv_ucid        )) deallocate (resv_ucid        )
       IF (allocated(resv_data_address)) deallocate (resv_data_address)
 
       IF (allocated(dam_GRAND_ID     )) deallocate (dam_GRAND_ID     )

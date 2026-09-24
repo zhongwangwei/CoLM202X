@@ -433,6 +433,7 @@ CONTAINS
    real(r8) w, csoilcn, z0mg, cintsun(3), cintsha(3)
    real(r8) fevpl_bef, fevpl_noadj, dtl_noadj, htvpl, erre
    real(r8) qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
+   real(r8) tl_pre_phase
    ! True when the active interception scheme owns
    ! the canopy rain<->snow phase change (and exports the fusion heat
    ! via canopy_phase_heat). Schemes 4/5/6/7 currently set this.
@@ -1548,7 +1549,9 @@ ENDIF
             qmelt = min(ldew_snow/deltim,(tl-tfrz)*cpice*ldew_snow/(deltim*hfus))
             ldew_snow = max(0.,ldew_snow - qmelt*deltim)
             ldew_rain = max(0.,ldew_rain + qmelt*deltim)
+            tl_pre_phase = tl
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
+            dheatl = dheatl + clai/deltim * (tl - tl_pre_phase)
             ! Export the actual mass that crossed (post the
             ! ldew_snow >= 0 clamp) so tracer_evapo can charge the right
             ! amount instead of inferring from d_rain/d_snow.
@@ -1559,7 +1562,9 @@ ENDIF
             qfrz  = min(ldew_rain/deltim,(tfrz-tl)*cpliq*ldew_rain/(deltim*hfus))
             ldew_rain = max(0.,ldew_rain - qfrz*deltim)
             ldew_snow = max(0.,ldew_snow + qfrz*deltim)
+            tl_pre_phase = tl
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
+            dheatl = dheatl + clai/deltim * (tl - tl_pre_phase)
             IF (present(canopy_frzc_mass_out)) canopy_frzc_mass_out = qfrz * deltim
          ENDIF
       ELSEIF ( DEF_VEG_SNOW ) THEN

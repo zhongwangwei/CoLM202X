@@ -323,15 +323,26 @@ MODULE MOD_Namelist
 
    ! ----- CaMa-Flood -----
    character(len=256) :: DEF_CaMa_Namelist = 'null'
+   character(len=256) :: DEF_CaMa_Restart_file = 'null'
+   logical :: DEF_CaMa_FloodFeedback = .false.
+   logical :: DEF_CaMa_StrictDomain = .false.
+   logical :: DEF_CaMa_LegacyRunoffBudget = .false.
 
    ! ----- lateral flow related -----
    character(len=256) :: DEF_ElementNeighbour_file = 'null'
    character(len=256) :: DEF_UnitCatchment_file    = 'null'
+   logical :: DEF_UnitCatchment_regional = .false.
+   character(len=*), parameter :: REGIONAL_UNITCATCHMENT_SUFFIX = '/riverlake/unitcatchment_regional.nc'
    character(len=256) :: DEF_ReservoirPara_file    = 'null'
 
    logical  :: DEF_USE_EstimatedRiverDepth  = .true.
    integer  :: DEF_Reservoir_Method         = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
+   logical  :: DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT = .false.
+   logical  :: DEF_GridRiverLake_FloodFeedback = .false.
+   logical  :: DEF_GridRiverLake_FloodplainStorageFix = .false.
+   logical  :: DEF_USE_LEVEE = .false.
+   logical  :: DEF_USE_BIFURCATION = .false.
 
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
@@ -351,6 +362,40 @@ MODULE MOD_Namelist
    real(r8) :: DEF_SED_PYLDC           = 2.0
    real(r8) :: DEF_SED_PYLDPC          = 2.0
    real(r8) :: DEF_SED_DSYLUNIT        = 1.0e-6
+
+   logical :: DEF_TRACER_USE_FRACTIONATION = .false.
+   character(len=16) :: DEF_TRACER_KINETIC_SCHEME = 'MERLIVAT1978'
+   real(r8) :: DEF_TRACER_ICE_SUPERSAT_SLOPE = 0.003_r8
+   real(r8) :: DEF_TRACER_CG_RELHUM_MAX = 0.99_r8
+   character(len=16) :: DEF_TRACER_OPEN_WATER_KINETIC = 'MJ79'
+   real(r8) :: DEF_TRACER_SUBL_SKIN_MM = 5.0_r8
+   character(len=16) :: DEF_TRACER_SOIL_KINETIC = 'RESISTANCE'
+   logical :: DEF_TRACER_SOIL_DIFFUSION = .true.
+   logical :: DEF_TRACER_SOIL_VAPOR_DIFFUSION = .true.
+   real(r8) :: DEF_TRACER_CANOPY_EQUILIBRATION = 0.0_r8
+   real(r8) :: DEF_TRACER_SNOWMELT_EQUILIBRATION = 0.0_r8
+   real(r8) :: DEF_TRACER_NSS_LEAF_WATER_PER_LAI = 0.12_r8
+   real(r8) :: DEF_TRACER_NSS_LEAF_PATH_LENGTH = 0.01_r8
+   real(r8) :: DEF_TRACER_NSS_LEAF_RB = 100._r8
+   real(r8) :: DEF_TRACER_AQUIFER_MIXING_WATER_MM = -1._r8
+   integer :: DEF_TRACER_NUM = 0
+   integer :: DEF_TRACER_BALANCE_ABORT_NBAD = 0
+   integer :: DEF_TRACER_RESID_ABORT_NBAD = 0
+   integer :: DEF_TRACER_LULCC_ABORT_NBAD = 0
+   character(len=256) :: DEF_TRACER_NAMES = ''
+   character(len=256) :: DEF_TRACER_TYPES = ''
+   character(len=256) :: DEF_TRACER_MRAT = ''
+   character(len=256) :: DEF_TRACER_REF_RATIO = ''
+   character(len=256) :: DEF_TRACER_INIT_DELTA = ''
+   character(len=256) :: DEF_TRACER_REACTIVE_DECAY_RATE = ''
+   logical :: DEF_TRACER_USE_SOIL_INIT = .false.
+   character(len=256) :: DEF_TRACER_SOIL_INIT_FILE = 'null'
+   character(len=256) :: DEF_TRACER_SOIL_INIT_VARS = ''
+   character(len=2048) :: DEF_TRACER_PARAM_FILES = 'null'
+#if (defined TRACER) && (defined BGC)
+   character(len=256) :: DEF_file_GIEMS = 'null'
+   integer :: DEF_wetland_finundation_scheme = 1
+#endif
 
    ! ----- others -----
    character(len=5)   :: DEF_precip_phase_discrimination_scheme = 'II'
@@ -1165,6 +1210,11 @@ CONTAINS
       DEF_USE_EstimatedRiverDepth,            &
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
+      DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT, &
+      DEF_GridRiverLake_FloodFeedback,        &
+      DEF_GridRiverLake_FloodplainStorageFix,  &
+      DEF_USE_LEVEE,                          &
+      DEF_USE_BIFURCATION,                    &
 
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
@@ -1183,6 +1233,41 @@ CONTAINS
       DEF_SED_PYLDC,                          &
       DEF_SED_PYLDPC,                         &
       DEF_SED_DSYLUNIT,                       &
+
+#ifdef TRACER
+      DEF_TRACER_USE_FRACTIONATION, &
+      DEF_TRACER_KINETIC_SCHEME, &
+      DEF_TRACER_ICE_SUPERSAT_SLOPE, &
+      DEF_TRACER_CG_RELHUM_MAX, &
+      DEF_TRACER_OPEN_WATER_KINETIC, &
+      DEF_TRACER_SUBL_SKIN_MM, &
+      DEF_TRACER_SOIL_KINETIC, &
+      DEF_TRACER_SOIL_DIFFUSION, &
+      DEF_TRACER_SOIL_VAPOR_DIFFUSION, &
+      DEF_TRACER_CANOPY_EQUILIBRATION, &
+      DEF_TRACER_SNOWMELT_EQUILIBRATION, &
+      DEF_TRACER_NSS_LEAF_WATER_PER_LAI, &
+      DEF_TRACER_NSS_LEAF_PATH_LENGTH, &
+      DEF_TRACER_NSS_LEAF_RB, &
+      DEF_TRACER_AQUIFER_MIXING_WATER_MM, &
+      DEF_TRACER_NUM, &
+      DEF_TRACER_BALANCE_ABORT_NBAD, &
+      DEF_TRACER_RESID_ABORT_NBAD, &
+      DEF_TRACER_LULCC_ABORT_NBAD, &
+      DEF_TRACER_NAMES, &
+      DEF_TRACER_TYPES, &
+      DEF_TRACER_MRAT, &
+      DEF_TRACER_REF_RATIO, &
+      DEF_TRACER_INIT_DELTA, &
+      DEF_TRACER_REACTIVE_DECAY_RATE, &
+      DEF_TRACER_USE_SOIL_INIT, &
+      DEF_TRACER_SOIL_INIT_FILE, &
+      DEF_TRACER_SOIL_INIT_VARS, &
+      DEF_TRACER_PARAM_FILES, &
+#if defined BGC
+      DEF_file_GIEMS, &
+#endif
+#endif
 
       DEF_precip_phase_discrimination_scheme, &
 
@@ -1211,9 +1296,14 @@ CONTAINS
       DEF_file_snowaging ,                    &
 
       DEF_CaMa_Namelist,                      &
+      DEF_CaMa_Restart_file,                  &
+      DEF_CaMa_FloodFeedback,                 &
+      DEF_CaMa_StrictDomain,                  &
+      DEF_CaMa_LegacyRunoffBudget,            &
 
       DEF_ElementNeighbour_file,              &
       DEF_UnitCatchment_file,                 &
+      DEF_UnitCatchment_regional,             &
       DEF_ReservoirPara_file,                 &
 
       DEF_DA_obsdir,                          &
@@ -1268,6 +1358,10 @@ CONTAINS
             CALL CoLM_Stop (' ***** ERROR: Problem reading namelist: '// trim(nlfile))
          ENDIF
          close(10)
+#ifdef TRACER
+         IF (len_trim(DEF_TRACER_PARAM_FILES) == len(DEF_TRACER_PARAM_FILES)) &
+            CALL CoLM_Stop ('DEF_TRACER_PARAM_FILES is too long.')
+#endif
 
          open(10, status='OLD', file=trim(DEF_forcing_namelist), form="FORMATTED")
          read(10, nml=nl_colm_forcing, iostat=ierr, iomsg=iomesg)
@@ -1296,6 +1390,61 @@ CONTAINS
          DEF_HIST_mode = 'one'
 #endif
 
+         IF (DEF_UnitCatchment_regional) THEN
+            IF (trim(DEF_UnitCatchment_file) == 'null') &
+               CALL CoLM_Stop ('Regional unit catchment requires DEF_UnitCatchment_file.')
+            IF (len_trim(DEF_dir_landdata) + len(REGIONAL_UNITCATCHMENT_SUFFIX) > len(DEF_dir_landdata)) &
+               CALL CoLM_Stop ('Regional unit catchment path is too long.')
+#if defined LULCC || !defined GridRiverLakeFlow
+            CALL CoLM_Stop ('Regional unit catchment requires GridRiverLakeFlow without LULCC.')
+#endif
+         ENDIF
+#ifndef GridRiverLakeFlow
+         IF (DEF_GridRiverLake_FloodFeedback .or. DEF_GridRiverLake_FloodplainStorageFix .or. &
+             DEF_USE_LEVEE) &
+            CALL CoLM_Stop ('RiverLake features require GridRiverLakeFlow.')
+#endif
+#ifndef CaMa_Flood
+         IF (DEF_CaMa_FloodFeedback) CALL CoLM_Stop ('CaMa feedback requires CaMa_Flood.')
+         IF (DEF_CaMa_LegacyRunoffBudget) CALL CoLM_Stop ('CaMa runoff budget requires CaMa_Flood.')
+#endif
+#if !defined GridRiverLakeFlow && !defined CaMa_Flood
+         IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires a river routing solver.')
+#endif
+#ifdef TRACER
+         SELECT CASE (trim(adjustl(DEF_TRACER_KINETIC_SCHEME)))
+         CASE ('CAPPA2003', 'Cappa2003', 'cappa2003')
+            DEF_TRACER_KINETIC_SCHEME = 'CAPPA2003'
+         CASE ('MERLIVAT1978', 'Merlivat1978', 'merlivat1978')
+            DEF_TRACER_KINETIC_SCHEME = 'MERLIVAT1978'
+         CASE DEFAULT
+            CALL CoLM_Stop ('Invalid DEF_TRACER_KINETIC_SCHEME.')
+         END SELECT
+         SELECT CASE (trim(adjustl(DEF_TRACER_OPEN_WATER_KINETIC)))
+         CASE ('MJ79', 'mj79', 'MERLIVAT_JOUZEL1979')
+            DEF_TRACER_OPEN_WATER_KINETIC = 'MJ79'
+         CASE ('EXPONENT', 'exponent')
+            DEF_TRACER_OPEN_WATER_KINETIC = 'EXPONENT'
+         CASE DEFAULT
+            CALL CoLM_Stop ('Invalid DEF_TRACER_OPEN_WATER_KINETIC.')
+         END SELECT
+         SELECT CASE (trim(adjustl(DEF_TRACER_SOIL_KINETIC)))
+         CASE ('RESISTANCE', 'resistance')
+            DEF_TRACER_SOIL_KINETIC = 'RESISTANCE'
+         CASE ('EXPONENT', 'exponent')
+            DEF_TRACER_SOIL_KINETIC = 'EXPONENT'
+         CASE DEFAULT
+            CALL CoLM_Stop ('Invalid DEF_TRACER_SOIL_KINETIC.')
+         END SELECT
+         IF (DEF_TRACER_CG_RELHUM_MAX <= 0._r8 .or. DEF_TRACER_CG_RELHUM_MAX >= 1._r8 .or. &
+             DEF_TRACER_CANOPY_EQUILIBRATION < 0._r8 .or. DEF_TRACER_CANOPY_EQUILIBRATION > 1._r8 .or. &
+             DEF_TRACER_SNOWMELT_EQUILIBRATION < 0._r8 .or. DEF_TRACER_SNOWMELT_EQUILIBRATION > 1._r8 .or. &
+             DEF_TRACER_SUBL_SKIN_MM < 0._r8 .or. DEF_TRACER_ICE_SUPERSAT_SLOPE < 0._r8) &
+            CALL CoLM_Stop ('Invalid TRACER fractionation parameter.')
+         IF (DEF_TRACER_BALANCE_ABORT_NBAD < 0 .or. DEF_TRACER_RESID_ABORT_NBAD < 0 .or. &
+             DEF_TRACER_LULCC_ABORT_NBAD < 0) CALL CoLM_Stop ('Invalid TRACER abort threshold.')
+#endif
+
          IF (DEF_simulation_time%timestep > 3600.) THEN
             write(*,*) '                  *****                  '
             write(*,*) 'Warning: timestep should be less than or equal to 3600 seconds.'
@@ -1319,6 +1468,10 @@ CONTAINS
          write(*,*) 'Note: DEF_USE_VariablySaturatedFlow is automaticlly set to .true.  '
          write(*,*) 'when defined CatchLateralFlow. '
          DEF_USE_VariablySaturatedFlow = .true.
+#endif
+#ifdef TRACER
+         IF (.not. DEF_USE_VariablySaturatedFlow) &
+            CALL CoLM_Stop ('TRACER requires variably saturated flow.')
 #endif
 #ifdef SinglePoint
          IF (DEF_Runoff_SCHEME == 0) THEN
@@ -1793,9 +1946,14 @@ CONTAINS
       CALL mpi_bcast (DEF_file_snowaging                     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_CaMa_Namelist                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_Restart_file                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_FloodFeedback                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_StrictDomain                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_LegacyRunoffBudget            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_ElementNeighbour_file              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_UnitCatchment_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_UnitCatchment_regional             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_ReservoirPara_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_DA_obsdir                          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -1818,6 +1976,11 @@ CONTAINS
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GridRiverLake_FloodFeedback        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GridRiverLake_FloodplainStorageFix ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
@@ -1836,6 +1999,42 @@ CONTAINS
       CALL mpi_bcast (DEF_SED_PYLDC                          ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_PYLDPC                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_DSYLUNIT                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+
+#ifdef TRACER
+      CALL mpi_bcast (DEF_TRACER_USE_FRACTIONATION            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_KINETIC_SCHEME               ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_ICE_SUPERSAT_SLOPE           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_CG_RELHUM_MAX                ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_OPEN_WATER_KINETIC           ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SUBL_SKIN_MM                 ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_KINETIC                 ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_DIFFUSION               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_VAPOR_DIFFUSION         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_CANOPY_EQUILIBRATION         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SNOWMELT_EQUILIBRATION       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_WATER_PER_LAI       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_PATH_LENGTH         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NSS_LEAF_RB                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_AQUIFER_MIXING_WATER_MM      ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NUM                          ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_BALANCE_ABORT_NBAD           ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_RESID_ABORT_NBAD             ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_LULCC_ABORT_NBAD             ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_NAMES                        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_TYPES                        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_MRAT                         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REF_RATIO                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_INIT_DELTA                   ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_REACTIVE_DECAY_RATE          ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_USE_SOIL_INIT                ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_INIT_FILE               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_SOIL_INIT_VARS               ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_TRACER_PARAM_FILES                  ,len(DEF_TRACER_PARAM_FILES),mpi_character ,p_address_master ,p_comm_glb ,p_err)
+#if defined BGC
+      CALL mpi_bcast (DEF_file_GIEMS                         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_wetland_finundation_scheme         ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+#endif
+#endif
 
       CALL mpi_bcast (DEF_HISTORY_IN_VECTOR                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
@@ -1977,6 +2176,28 @@ CONTAINS
       CALL sync_hist_vars (set_defaults = .false.)
 
    END SUBROUTINE read_namelist
+
+   FUNCTION regional_unitcatchment_file () RESULT (fname)
+
+   IMPLICIT NONE
+   character(len=256) :: fname
+
+      fname = trim(DEF_dir_landdata) // REGIONAL_UNITCATCHMENT_SUFFIX
+
+   END FUNCTION regional_unitcatchment_file
+
+   FUNCTION get_unitcatchment_file () RESULT (fname)
+
+   IMPLICIT NONE
+   character(len=256) :: fname
+
+      IF (DEF_UnitCatchment_regional) THEN
+         fname = regional_unitcatchment_file ()
+      ELSE
+         fname = DEF_UnitCatchment_file
+      ENDIF
+
+   END FUNCTION get_unitcatchment_file
 
    ! ---------------
    SUBROUTINE sync_hist_vars (set_defaults)

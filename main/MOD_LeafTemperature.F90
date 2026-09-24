@@ -8,6 +8,9 @@ MODULE MOD_LeafTemperature
                            DEF_RSS_SCHEME, DEF_Interception_scheme, DEF_SPLIT_SOILSNOW, &
                            DEF_VEG_SNOW
    USE MOD_SPMD_Task
+#ifdef TRACER
+   USE MOD_LeafInterception, only: canopy_storage_capacity_colm2024
+#endif
 
    IMPLICIT NONE
 
@@ -18,6 +21,9 @@ MODULE MOD_LeafTemperature
 
 ! PRIVATE MEMBER FUNCTIONS:
    PRIVATE :: dewfraction
+#ifdef TRACER
+   PRIVATE :: colm2024_rain_capacity_for_fwet
+#endif
 !-----------------------------------------------------------------------
 
 CONTAINS
@@ -56,7 +62,13 @@ CONTAINS
 !End WUE stomata model parameter
               hpbl       ,&
               qintr_rain ,qintr_snow ,t_precip   ,hprl       ,dheatl     ,smp        ,&
+#ifdef TRACER
+              hk         ,hksati     ,rootflux                                        &
+             ,canopy_smelt_mass_out, canopy_frzc_mass_out, raw_trc_out               &
+             ,ipft_index)
+#else
               hk         ,hksati     ,rootflux                                        )
+#endif
 
 !=======================================================================
 ! !DESCRIPTION:
@@ -121,6 +133,9 @@ CONTAINS
 !-------------------------- Dummy Arguments ----------------------------
 
    integer,  intent(in) :: ipatch,ivt
+#ifdef TRACER
+   integer,  intent(in), optional :: ipft_index
+#endif
    real(r8), intent(in) :: &
         deltim,     &! seconds in a time step [second]
         csoilc,     &! drag coefficient for soil under canopy [-]
@@ -259,11 +274,24 @@ CONTAINS
         cgrnds,     &! deriv of soil latent heat flux wrt soil temp [w/m**2/k]
         tref,       &! 2 m height air temperature (kelvin)
         qref,       &! 2 m height air specific humidity
+#ifdef TRACER
+#else
         rstfacsun,  &! factor of soil water stress to transpiration on sunlit leaf
         rstfacsha,  &! factor of soil water stress to transpiration on shaded leaf
+#endif
         gssun,      &! stomata conductance of sunlit leaf
         gssha,      &! stomata conductance of shaded leaf
         rootflux(1:nl_soil)  ! root water uptake from different layers
+#ifdef TRACER
+
+   real(r8), intent(inout) :: &
+        rstfacsun,  &
+        rstfacsha
+
+   real(r8), intent(out), optional :: canopy_smelt_mass_out
+   real(r8), intent(out), optional :: canopy_frzc_mass_out
+   real(r8), intent(out), optional :: raw_trc_out
+#endif
 
    real(r8), intent(inout) :: &
         assimsun,   &! sunlit leaf assimilation rate [umol co2 /m**2/ s] [+]
@@ -429,6 +457,10 @@ CONTAINS
       it     = 1    !counter for leaf temperature iteration
       del    = 0.0  !change in leaf temperature from previous iteration
       dele   = 0.0  !latent head flux from leaf for previous iteration
+#ifdef TRACER
+      IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = 0._r8
+      IF (present(canopy_frzc_mass_out))  canopy_frzc_mass_out  = 0._r8
+#endif
 
       dtl(0) = 0.
       fevpl_bef = 0.
@@ -479,7 +511,12 @@ CONTAINS
          clai = 0.2*(lai+sai)*cpliq + ldew_rain*cpliq + ldew_snow*cpice
       ENDIF
 
+#ifdef TRACER
+      CALL dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry, &
+                        colm2024_rain_capacity_for_fwet(ipatch,ivt,ipft_index,dewmx,lai,sai,us,vs,htop))
+#else
       CALL dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+#endif
 
       CALL qsadv(tl,psrf,ei,deiDT,qsatl,qsatlDT)
 
@@ -1021,6 +1058,15 @@ ENDIF
 !     END stability iteration
 ! ======================================================================
 
+#ifdef TRACER
+      gssun = 0._r8
+      gssha = 0._r8
+      IF (lai > 0.001_r8) THEN
+         gssun = (laisun / rssun) * (tprcor / tlbef)
+         gssha = (laisha / rssha) * (tprcor / tlbef)
+      ENDIF
+
+#endif
       z0m = z0mv
       zol = zeta
       rib = min(5.,zol*ustar**2/(vonkar**2/fh*um**2))
@@ -1071,6 +1117,16 @@ ENDIF
       evplwet = evplwet + evplwet_dtl*dtl(it-1)
       fevpl   = fevpl_noadj
       fevpl   = fevpl   +   fevpl_dtl*dtl(it-1)
+#ifdef TRACER
+
+      IF (etr < 0._r8) THEN
+         evplwet = evplwet + etr
+         etr = 0._r8
+         etrsun = 0._r8
+         etrsha = 0._r8
+         IF (DEF_USE_PLANTHYDRAULICS) rootflux = 0._r8
+      ENDIF
+#endif
 
       elwmax  = ldew/deltim
       elwdif  = max(0., evplwet-elwmax)
@@ -1152,7 +1208,10 @@ ENDIF
 !-----------------------------------------------------------------------
 ! Update dew accumulation (kg/m2)
 !-----------------------------------------------------------------------
+#ifdef TRACER
+#else
       IF (DEF_Interception_scheme .eq. 1) THEN
+#endif
          ldew = max(0., ldew-evplwet*deltim)
 
          ! account for vegetation snow and update ldew_rain, ldew_snow, ldew
@@ -1185,6 +1244,8 @@ ENDIF
             ldew = ldew_rain + ldew_snow
          ENDIF
 
+#ifdef TRACER
+#else
       ELSEIF (DEF_Interception_scheme .eq. 2) THEN !CLM4.5
          ldew = max(0., ldew-evplwet*deltim)
 
@@ -1418,6 +1479,7 @@ ENDIF
       ELSE
          CALL abort
       ENDIF
+#endif
 
       ! Bug fix: When DEF_VEG_SNOW is false, only ldew is updated above
       ! (via ldew = max(0., ldew - evplwet*deltim)), but ldew_rain/ldew_snow
@@ -1462,6 +1524,9 @@ ENDIF
             qmelt = min(ldew_snow/deltim,(tl-tfrz)*cpice*ldew_snow/(deltim*hfus))
             ldew_snow = max(0.,ldew_snow - qmelt*deltim)
             ldew_rain = max(0.,ldew_rain + qmelt*deltim)
+#ifdef TRACER
+            IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = qmelt*deltim
+#endif
             !NOTE: There may be some problem, energy imbalance
             !      However, detailed treatment could be somewhat trivial
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
@@ -1471,6 +1536,9 @@ ENDIF
             qfrz  = min(ldew_rain/deltim,(tfrz-tl)*cpliq*ldew_rain/(deltim*hfus))
             ldew_rain = max(0.,ldew_rain - qfrz*deltim)
             ldew_snow = max(0.,ldew_snow + qfrz*deltim)
+#ifdef TRACER
+            IF (present(canopy_frzc_mass_out)) canopy_frzc_mass_out = qfrz*deltim
+#endif
             !NOTE: There may be some problem, energy imbalance
             !      However, detailed treatment could be somewhat trivial
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
@@ -1482,11 +1550,18 @@ ENDIF
 !-----------------------------------------------------------------------
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+#ifdef TRACER
+      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
+#endif
 
    END SUBROUTINE LeafTemperature
 !----------------------------------------------------------------------
 
+#ifdef TRACER
+   SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry,satcap_rain_override)
+#else
    SUBROUTINE dewfraction (sigf,lai,sai,dewmx,ldew,ldew_rain,ldew_snow,fwet,fdry)
+#endif
    !DESCRIPTION
    !===========
       ! determine fraction of foliage covered by water and
@@ -1526,6 +1601,9 @@ ENDIF
    real(r8), intent(in)  :: ldew_snow !depth of snow on foliage [kg/m2/s]
    real(r8), intent(out) :: fwet      !fraction of foliage covered by water&snow [-]
    real(r8), intent(out) :: fdry      !fraction of foliage that is green and dry [-]
+#ifdef TRACER
+   real(r8), intent(in), optional :: satcap_rain_override
+#endif
 
    real(r8) :: lsai                   !lai + sai
    real(r8) :: dewmxi                 !inverse of maximum allowed dew [1/mm]
@@ -1542,10 +1620,18 @@ ENDIF
       dewmxi = 1.0/dewmx
       ! 06/2018, yuan: remove sigf, to compatible with PFT
       vegt   =  lsai
+#ifdef TRACER
+      satcap_rain = dewmx * vegt
+      IF (present(satcap_rain_override)) satcap_rain = max(0._r8, satcap_rain_override)
+#endif
 
       fwet = 0
       IF (ldew > 0.) THEN
+#ifdef TRACER
+         fwet = (ldew/max(satcap_rain,1.e-10_r8))**.666666666666
+#else
          fwet = ((dewmxi/vegt)*ldew)**.666666666666
+#endif
          ! Check for maximum limit of fwet
          fwet = min(fwet,1.0)
       ENDIF
@@ -1556,7 +1642,11 @@ ENDIF
 
          fwet_rain = 0
          IF(ldew_rain > 0.) THEN
+#ifdef TRACER
+            fwet_rain = (ldew_rain/max(satcap_rain,1.e-10_r8))**.666666666666
+#else
             fwet_rain = ((dewmxi/vegt)*ldew_rain)**.666666666666
+#endif
             ! Check for maximum limit of fwet_rain
             fwet_rain = min(fwet_rain,1.0)
          ENDIF
@@ -1578,4 +1668,38 @@ ENDIF
 
    END SUBROUTINE dewfraction
 
+#ifdef TRACER
+
+   FUNCTION colm2024_rain_capacity_for_fwet(ipatch,ivt,ipft_index,dewmx,lai,sai,forc_us,forc_vs,htop_in) RESULT(satcap)
+   USE MOD_Precision
+   USE MOD_Vars_TimeInvariants, only: patchclass, ncd, ncw, bcw
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   USE MOD_Vars_TimeInvariants, only: ncd_p, ncw_p, bcw_p
+#endif
+   IMPLICIT NONE
+   integer,  intent(in) :: ipatch, ivt
+   integer,  intent(in), optional :: ipft_index
+   real(r8), intent(in) :: dewmx, lai, sai, forc_us, forc_vs, htop_in
+   real(r8)             :: satcap
+   integer              :: ipft
+
+      satcap = dewmx * max(0._r8, lai+sai)
+      IF (DEF_Interception_scheme /= 8 .or. lai+sai <= 1.e-6_r8) RETURN
+
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+      IF (present(ipft_index)) THEN
+         ipft = ipft_index
+         satcap = canopy_storage_capacity_colm2024(dewmx,lai,sai,forc_us,forc_vs, &
+                                                   htop_in,ncd_p(ipft),ncw_p(ipft),bcw_p(ipft),ivt,.true.)
+         RETURN
+      ENDIF
+#endif
+         satcap = canopy_storage_capacity_colm2024(dewmx,lai,sai,forc_us,forc_vs, &
+                                                   htop_in,ncd(ipatch),ncw(ipatch),bcw(ipatch), &
+                                                   patchclass(ipatch),.false.)
+   END FUNCTION colm2024_rain_capacity_for_fwet
+
+
+
+#endif
 END MODULE MOD_LeafTemperature

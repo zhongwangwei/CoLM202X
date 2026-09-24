@@ -2,10 +2,12 @@
 
 include include/Makeoptions
 HEADER = include/define.h
+TRACER_ENABLED := $(shell printf '\043include "include/define.h"\n\043ifdef TRACER\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
+METHANE_ENABLED := $(shell printf '\043include "include/define.h"\n\043if defined(TRACER) && defined(BGC)\nYES\n\043else\nNO\n\043endif\n' | cpp -P -I. -Iinclude - | awk '/^(YES|NO)$$/{v=$$0} END{print v}')
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/TRACER : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -73,12 +75,51 @@ ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
 
 OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 
+ifeq (${TRACER_ENABLED},YES)
+TRACER_INIT_CONFIG_OBJS = MOD_Tracer_Defs.o
+TRACER_RUNTIME_CONFIG_OBJS = MOD_Tracer_Defs.o
+TRACER_MKSRFDATA_CONFIG_OBJS = MOD_Tracer_Defs.o
+TRACER_MKSRFDATA_SPECIES_OBJS =
+
+ifeq (${METHANE_ENABLED},YES)
+TRACER_RUNTIME_CONFIG_OBJS += \
+				  MOD_Tracer_Reactive_Methane_Const.o \
+				  MOD_Tracer_Reactive_Methane_Registry.o
+
+TRACER_MKSRFDATA_CONFIG_OBJS += \
+				  MOD_Tracer_Reactive_Methane_Const.o \
+				  MOD_Tracer_Reactive_Methane_Registry.o \
+				  MOD_Tracer_Reactive_Methane_Preprocessing.o
+
+TRACER_MKSRFDATA_SPECIES_OBJS = \
+				  MOD_Tracer_Reactive_Methane_PHMapping.o \
+				  Aggregation_LakeSoilC.o \
+				  Aggregation_MethanePH.o
+
+MOD_Tracer_Reactive_Methane_Const.o MOD_Tracer_Reactive_Methane_Registry.o: MOD_Tracer_Defs.o
+MOD_Tracer_Reactive_Methane_Preprocessing.o: MOD_Tracer_Defs.o \
+				  MOD_Tracer_Reactive_Methane_Const.o MOD_Tracer_Reactive_Methane_Registry.o
+MKSRFDATA.o: MOD_Tracer_Reactive_Methane_Preprocessing.o
+Aggregation_MethanePH.o: MOD_Tracer_Reactive_Methane_PHMapping.o
+endif
+
+TRACER_CONFIG_OBJS = $(sort ${TRACER_INIT_CONFIG_OBJS} ${TRACER_RUNTIME_CONFIG_OBJS} ${TRACER_MKSRFDATA_CONFIG_OBJS})
+
+$(TRACER_CONFIG_OBJS) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+endif
+
+TRACER_INIT_CONFIG_OBJS_T = $(addprefix .bld/,${TRACER_INIT_CONFIG_OBJS})
+TRACER_RUNTIME_CONFIG_OBJS_T = $(addprefix .bld/,${TRACER_RUNTIME_CONFIG_OBJS})
+TRACER_MKSRFDATA_CONFIG_OBJS_T = $(addprefix .bld/,${TRACER_MKSRFDATA_CONFIG_OBJS})
+
 OBJS_MKSRFDATA = \
 				  Aggregation_PercentagesPFT.o      \
 				  Aggregation_LAI.o                 \
 				  Aggregation_SoilHyperAlbedo.o     \
 				  Aggregation_SoilBrightness.o      \
 				  Aggregation_LakeDepth.o           \
+				  $(TRACER_MKSRFDATA_SPECIES_OBJS)  \
 				  Aggregation_ForestHeight.o        \
 				  Aggregation_CanopyStructure.o     \
 				  Aggregation_SoilParameters.o      \
@@ -90,7 +131,12 @@ OBJS_MKSRFDATA = \
 				  Aggregation_Urban.o               \
 				  Aggregation_SoilTexture.o         \
 				  MOD_Lulcc_TransferTrace.o         \
+				  MOD_UnitCatchmentSubset.o         \
+				  MOD_UnitCatchmentRegional.o       \
 				  MKSRFDATA.o
+
+MOD_UnitCatchmentRegional.o: MOD_UnitCatchmentSubset.o
+MKSRFDATA.o: MOD_UnitCatchmentRegional.o
 
 $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -98,15 +144,107 @@ $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 OBJS_MKSRFDATA_T = $(addprefix .bld/,${OBJS_MKSRFDATA})
 
 # ------- Target 1: mksrfdata --------
-mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MKSRFDATA}
+mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${TRACER_MKSRFDATA_CONFIG_OBJS} ${OBJS_MKSRFDATA}
 	@echo ''
 	@echo 'making CoLM surface data start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_MKSRFDATA_T} -o run/mksrfdata.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${TRACER_MKSRFDATA_CONFIG_OBJS_T} ${OBJS_MKSRFDATA_T} -o run/mksrfdata.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM surface data completed!'
 	@echo ''
 # ----- End of Target 1 mksrfdata ----
+
+ifeq (${TRACER_ENABLED},YES)
+TRACER_ISOTOPE_SPECIES_OBJS = \
+				 MOD_Tracer_Isotope_O18.o       \
+				 MOD_Tracer_Isotope_HDO.o
+
+TRACER_BASIC_PRE_ROUTING_OBJS = \
+				 MOD_Tracer_Lifecycle.o
+
+TRACER_BASIC_PRE_FORCING_OBJS = \
+				 MOD_Tracer_Isotope_Registry.o  \
+				 $(TRACER_ISOTOPE_SPECIES_OBJS) \
+				 MOD_Tracer_Isotope_Registrations.o \
+				 MOD_Tracer_Frac.o              \
+				 MOD_Tracer_EvapLimit.o         \
+				 MOD_Tracer_Vars.o              \
+				 MOD_Tracer_RiverLake.o         \
+				 MOD_Tracer_Conservation.o      \
+				 MOD_Tracer_SoilInit.o          \
+				 MOD_Tracer_ForcingInput.o
+
+TRACER_BASIC_POST_FORCING_OBJS = \
+				 MOD_Tracer_Forcing.o           \
+				 MOD_Tracer_Precip.o            \
+				 MOD_Tracer_Evapo.o             \
+				 MOD_Tracer_SoilWater.o         \
+				 MOD_Tracer_Snow.o              \
+				 MOD_Tracer_Rest.o
+
+TRACER_BASIC_OBJS = $(TRACER_BASIC_PRE_ROUTING_OBJS) $(TRACER_BASIC_PRE_FORCING_OBJS) $(TRACER_BASIC_POST_FORCING_OBJS)
+
+TRACER_MKINIDATA_OBJS = MOD_Tracer_Lifecycle_Registrations_Stubs.o
+
+TRACER_PROVIDER_OBJS = MOD_Tracer_Particle_Sediment.o
+ifeq (${METHANE_ENABLED},YES)
+TRACER_PROVIDER_OBJS = \
+				MOD_Tracer_Reactive_BgcShim.o              \
+				$(addprefix MOD_Tracer_Reactive_Methane_,$(addsuffix .o,GIEMS pH VegOverride State Microbes BgcLink AccFlux Physics Driver Hist Impl)) \
+				MOD_Tracer_Reactive_Methane.o              \
+				MOD_Tracer_Particle_Sediment.o
+endif
+
+TRACER_MAIN_PRE_HISTORY_OBJS = MOD_Tracer_LandPhase.o
+
+TRACER_MAIN_POST_HISTORY_OBJS = \
+				MOD_Tracer_Hist.o                          \
+				$(TRACER_PROVIDER_OBJS)                    \
+				MOD_Tracer_Lifecycle_Registrations.o       \
+				MOD_Tracer_SpecialPatches.o
+
+MOD_Tracer_Isotope_Registry.o MOD_Tracer_Lifecycle.o MOD_Tracer_ForcingInput.o: MOD_Tracer_Defs.o
+MOD_Tracer_Isotope_O18.o MOD_Tracer_Isotope_HDO.o: MOD_Tracer_Isotope_Registry.o
+MOD_Tracer_Isotope_Registrations.o: include/tracer_isotope_species.inc $(TRACER_ISOTOPE_SPECIES_OBJS)
+MOD_Tracer_Frac.o: MOD_Tracer_Isotope_Registry.o MOD_Tracer_Isotope_Registrations.o
+MOD_Tracer_Vars.o: MOD_Tracer_Defs.o include/tracer_land_history_restart.inc
+MOD_Tracer_RiverLake.o: MOD_Tracer_Defs.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeTimeVars.o \
+				MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o
+MOD_Tracer_Conservation.o: MOD_Tracer_Frac.o MOD_Tracer_Vars.o
+MOD_Tracer_SoilInit.o: MOD_Tracer_Isotope_Registrations.o MOD_Tracer_Vars.o
+MOD_Tracer_Forcing.o: MOD_Tracer_ForcingInput.o MOD_Tracer_Frac.o MOD_Tracer_Vars.o MOD_UserSpecifiedForcing.o
+MOD_Tracer_Precip.o MOD_Tracer_Snow.o: MOD_Tracer_Forcing.o
+MOD_Tracer_Evapo.o MOD_Tracer_SoilWater.o: MOD_Tracer_EvapLimit.o MOD_Tracer_Forcing.o
+MOD_Tracer_Rest.o: MOD_Tracer_Forcing.o MOD_Tracer_Lifecycle.o MOD_Vars_TimeInvariants.o
+MOD_Vars_TimeInvariants.o: MOD_BGC_Vars_TimeInvariants.o MOD_Urban_Vars_TimeInvariants.o
+MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeHist.o MOD_Grid_RiverLakeFlow.o: MOD_Tracer_Lifecycle.o
+MOD_Vars_TimeVariables.o: MOD_Tracer_Rest.o MOD_Tracer_RiverLake.o
+MOD_Lulcc_Driver.o: MOD_Tracer_Forcing.o
+MOD_Lulcc_Initialize.o: MOD_Tracer_Defs.o
+MOD_Tracer_LandPhase.o: $(TRACER_BASIC_OBJS)
+MOD_Vars_1DAccFluxes.o: MOD_Tracer_LandPhase.o MOD_Tracer_RiverLake.o MOD_Tracer_Particle_Sediment.o
+MOD_Tracer_Hist.o: MOD_Tracer_Lifecycle.o MOD_HistGridded.o MOD_HistVector.o MOD_HistSingle.o MOD_Vars_1DAccFluxes.o
+MOD_Tracer_Particle_Sediment.o: MOD_Tracer_Lifecycle.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o MOD_Grid_RiverLakeHistRoute.o
+MOD_Tracer_Lifecycle_Registrations.o: include/tracer_lifecycle_providers.inc $(TRACER_PROVIDER_OBJS)
+MOD_Tracer_SpecialPatches.o MOD_Hist.o: MOD_Tracer_Hist.o
+CoLMDRIVER.o: MOD_Tracer_LandPhase.o
+CoLMMAIN.o: MOD_Tracer_SpecialPatches.o
+ifeq (${METHANE_ENABLED},YES)
+MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemCompetition.o MOD_BGC_Soil_BiogeochemDecomp.o \
+				MOD_BGC_Soil_BiogeochemPotential.o MOD_BGC_Soil_BiogeochemNStateUpdate1.o MOD_BGC_CNCStateUpdate1.o
+MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
+MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_State.o
+MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_pH.o \
+				MOD_Tracer_Reactive_Methane_State.o
+MOD_Tracer_Reactive_Methane_AccFlux.o: MOD_Tracer_Reactive_Methane_BgcLink.o MOD_Tracer_Reactive_Methane_Microbes.o
+MOD_Tracer_Reactive_Methane_Physics.o: MOD_Tracer_Reactive_Methane_BgcLink.o MOD_Tracer_Reactive_Methane_GIEMS.o
+MOD_Tracer_Reactive_Methane_Driver.o: MOD_Tracer_Reactive_Methane_Microbes.o MOD_Tracer_Reactive_Methane_Physics.o
+MOD_Tracer_Reactive_Methane_Hist.o: MOD_Tracer_Hist.o MOD_Tracer_Reactive_Methane_AccFlux.o
+MOD_Tracer_Reactive_Methane_Impl.o: MOD_Tracer_Reactive_BgcShim.o MOD_Tracer_Reactive_Methane_Driver.o \
+				MOD_Tracer_Conservation.o
+MOD_Tracer_Reactive_Methane.o: MOD_Tracer_Reactive_Methane_Hist.o MOD_Tracer_Reactive_Methane_Impl.o
+endif
+endif
 
 OBJS_BASIC =    \
 				 MOD_Vector_ReadWrite.o         \
@@ -118,8 +256,18 @@ OBJS_BASIC =    \
 				 MOD_Catch_Vars_1DFluxes.o      \
 				 MOD_Grid_RiverLakeNetwork.o    \
 				 MOD_Grid_Reservoir.o           \
+				 MOD_Grid_RiverLakeLevee.o      \
+				 MOD_Grid_RiverLakeBifurcation.o \
+				 MOD_Grid_RiverLakeHistState.o  \
+				 MOD_Grid_RiverLakeHistShard.o  \
+				 MOD_Grid_RiverLakeHistRoute.o  \
 				 MOD_Grid_RiverLakeSediment.o   \
+				 $(TRACER_BASIC_PRE_ROUTING_OBJS) \
 				 MOD_Grid_RiverLakeTimeVars.o   \
+				 $(TRACER_BASIC_PRE_FORCING_OBJS) \
+				 MOD_Qsadv.o                    \
+				 MOD_UserSpecifiedForcing.o     \
+				 $(TRACER_BASIC_POST_FORCING_OBJS) \
 				 MOD_BGC_Vars_1DFluxes.o        \
 				 MOD_BGC_Vars_1DPFTFluxes.o     \
 				 MOD_BGC_Vars_PFTimeVariables.o \
@@ -138,7 +286,6 @@ OBJS_BASIC =    \
 				 MOD_Hydro_SoilFunction.o       \
 				 MOD_Hydro_SoilWater.o          \
 				 MOD_Eroot.o                    \
-				 MOD_Qsadv.o                    \
 				 MOD_LAIEmpirical.o             \
 				 MOD_LAIReadin.o                \
 				 MOD_CropReadin.o               \
@@ -184,6 +331,7 @@ $(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
 
 OBJS_MKINIDATA = \
+				  $(TRACER_MKINIDATA_OBJS) \
 				  CoLMINI.o
 
 $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
@@ -192,11 +340,11 @@ $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 OBJS_MKINIDATA_T = $(addprefix .bld/,${OBJS_MKINIDATA})
 
 # -------- Target 2: mkinidata -------
-mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MKINIDATA}
+mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${TRACER_INIT_CONFIG_OBJS} ${OBJS_BASIC} ${OBJS_MKINIDATA}
 	@echo ''
 	@echo 'making CoLM initial data start >>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_MKINIDATA_T} -o run/mkinidata.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${TRACER_INIT_CONFIG_OBJS_T} ${OBJS_BASIC_T} ${OBJS_MKINIDATA_T} -o run/mkinidata.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM initial data completed!'
 	@echo ''
@@ -217,6 +365,7 @@ OBJECTS_CAMA=\
 				  yos_cmf_prog.o          \
 				  yos_cmf_diag.o          \
 				  cmf_utils_mod.o         \
+				  cmf_coupling_budget_mod.o \
 				  cmf_calc_outflw_mod.o   \
 				  cmf_calc_pthout_mod.o   \
 				  cmf_calc_fldstg_mod.o   \
@@ -239,6 +388,8 @@ OBJECTS_CAMA=\
 				  cmf_ctrl_nmlist_mod.o   \
 				  cmf_drv_control_mod.o   \
 				  cmf_drv_advance_mod.o
+
+cmf_coupling_budget_mod.o: parkind1.o
 
 $(OBJECTS_CAMA) : %.o : %.F90 ${HEADER}
 	$(FCMP)  -c ${FFLAGS} $(MODS) ${CFLAGS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -283,7 +434,6 @@ OBJS_MAIN = \
 				MOD_BGC_Veg_CNFireBase.o                  \
 				MOD_BGC_Veg_CNFireLi2016.o                \
 				MOD_Vars_2DForcing.o                      \
-				MOD_UserSpecifiedForcing.o                \
 				MOD_ForcingDownscaling.o                  \
 				MOD_Forcing.o                             \
 				MOD_DA_TWS.o                              \
@@ -322,20 +472,22 @@ OBJS_MAIN = \
 				MOD_RainSnowTemp.o                        \
 				MOD_SoilSurfaceResistance.o               \
 				MOD_NewSnow.o                             \
-				MOD_Thermal.o                             \
-				MOD_Vars_1DAccFluxes.o                    \
 				MOD_CaMa_Vars.o                           \
+				MOD_CaMa_colmCaMa.o                       \
+				MOD_Thermal.o                             \
+				$(TRACER_MAIN_PRE_HISTORY_OBJS)           \
+				MOD_Vars_1DAccFluxes.o                    \
 				MOD_Irrigation.o                          \
 				MOD_BGC_driver.o                          \
 				MOD_HistWriteBack.o                       \
 				MOD_HistGridded.o                         \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
+				$(TRACER_MAIN_POST_HISTORY_OBJS)          \
 				MOD_Grid_RiverLakeHist.o                  \
 				MOD_Hist.o                                \
 				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
-				MOD_CaMa_colmCaMa.o                       \
 				MOD_Catch_LateralFlow.o                   \
 				MOD_Grid_RiverLakeFlow.o                  \
 				MOD_Urban_Longwave.o                      \
@@ -366,8 +518,15 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
+MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
+MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_Reservoir.o MOD_Grid_RiverLakeLevee.o
+MOD_Grid_RiverLakeHistState.o: MOD_Grid_Reservoir.o MOD_Vector_ReadWrite.o
+MOD_Grid_RiverLakeHistRoute.o: MOD_Grid_RiverLakeHistShard.o MOD_Grid_Reservoir.o
 MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o
+MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o
+MOD_Vars_TimeVariables.o: MOD_Grid_RiverLakeTimeVars.o MOD_Grid_RiverLakeHistState.o
+MOD_Vars_1DAccFluxes.o: MOD_Grid_RiverLakeHistState.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
@@ -376,21 +535,21 @@ OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 
 ifneq (${CaMa},YES)# Compile CoLM decoupled without river routing scheme (CaMa-Flood)
 
-colm.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MAIN}
+colm.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${TRACER_RUNTIME_CONFIG_OBJS} ${OBJS_BASIC} ${OBJS_MAIN}
 	@echo ''
 	@echo 'making CoLM start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${TRACER_RUNTIME_CONFIG_OBJS_T} ${OBJS_BASIC_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM completed!'
 	@echo ''
 
 else
-colm.x : mkdir_build  ${HEADER} ${OBJS_SHARED} ${OBJECTS_CAMA} ${OBJS_BASIC} ${OBJS_MAIN}
+colm.x : mkdir_build  ${HEADER} ${OBJS_SHARED} ${TRACER_RUNTIME_CONFIG_OBJS} ${OBJECTS_CAMA} ${OBJS_BASIC} ${OBJS_MAIN}
 	@echo ''
 	@echo 'making CoLM with CaMa start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_CAMA_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${TRACER_RUNTIME_CONFIG_OBJS_T} ${OBJS_BASIC_T} ${OBJS_CAMA_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
 
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM with CaMa completed!'
@@ -403,9 +562,11 @@ endif
 OBJS_POST1 = MOD_Concatenate.o HistConcatenate.o
 OBJS_POST2 = MOD_Vector2Grid.o POST_Vector2Grid.o
 OBJS_POST3 = SrfDataConcatenate.o
+OBJS_POST4 = RiverHistConcatenate.o
 OBJS_POST1_T = $(addprefix .bld/,${OBJS_POST1})
 OBJS_POST2_T = $(addprefix .bld/,${OBJS_POST2})
 OBJS_POST3_T = $(addprefix .bld/,${OBJS_POST3})
+OBJS_POST4_T = $(addprefix .bld/,${OBJS_POST4})
 
 $(OBJS_POST1):%.o:%.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -414,6 +575,9 @@ $(OBJS_POST2):%.o:%.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 $(OBJS_POST3):%.o:%.F90 ${HEADER}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+$(OBJS_POST4):%.o:%.F90 ${HEADER} ${OBJS_SHARED}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST1}
@@ -425,6 +589,9 @@ post_vector2grid.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST2}
 srfdata_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST3}
 	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST3_T} -o run/$@ ${LDFLAGS}
 
+river_hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST4}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST4_T} -o run/$@ ${LDFLAGS}
+
 # ------ Target 4: postprocess --------
 DEF = $(shell grep -i CATCHMENT include/define.h)
 vector2grid = $(word 1, ${DEF})
@@ -435,10 +602,10 @@ endif
 
 .PHONY: postprocess.x
 ifneq (${vector2grid},\#define)
-postprocess.x : mkdir_build hist_concatenate.x srfdata_concatenate.x
+postprocess.x : mkdir_build hist_concatenate.x river_hist_concatenate.x srfdata_concatenate.x
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM postprocessing completed!'
 else
-postprocess.x : mkdir_build hist_concatenate.x srfdata_concatenate.x post_vector2grid.x
+postprocess.x : mkdir_build hist_concatenate.x river_hist_concatenate.x srfdata_concatenate.x post_vector2grid.x
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM postprocessing completed!'
 endif
 # --- End of Target 4 postprocess ------
@@ -449,7 +616,7 @@ lib :
 	@echo ''
 	@echo 'making CoLM static library >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	mkdir -p lib
-	cd lib && find ../.bld -name "*.o" ! -name "CoLM.o" ! -name "MKSRFDATA.o" ! -name "CoLMINI.o" -exec ln -sf {} ./ \;
+	cd lib && find ../.bld -name "*.o" ! -name "CoLM.o" ! -name "MKSRFDATA.o" ! -name "CoLMINI.o" ! -name "MOD_Tracer_Lifecycle_Registrations_Stubs.o" -exec ln -sf {} ./ \;
 	cd lib && ar rc libcolm.a *.o && ranlib libcolm.a
 	ln -sf lib/libcolm.a ./libcolm.a
 # ------End of Target 5: static libs --------
@@ -459,6 +626,5 @@ clean :
 	rm -rf .bld
 	rm -rf lib libcolm.a
 	rm -f run/mksrfdata.x run/mkinidata.x run/colm.x
-	rm -f run/hist_concatenate.x run/srfdata_concatenate.x run/post_vector2grid.x
+	rm -f run/hist_concatenate.x run/river_hist_concatenate.x run/srfdata_concatenate.x run/post_vector2grid.x
 	rm -f CaMa/src/*.o CaMa/src/*.mod CaMa/src/*.a
-

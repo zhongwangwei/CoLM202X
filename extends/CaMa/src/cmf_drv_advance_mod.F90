@@ -29,9 +29,9 @@ CONTAINS
 !
 !
 !####################################################################
-SUBROUTINE CMF_DRV_ADVANCE(KSTEPS)
+SUBROUTINE CMF_DRV_ADVANCE(KSTEPS,stop_at_end)
 USE YOS_CMF_INPUT,           ONLY: LOUTPUT, LSEALEV, LTRACE, IFRQ_OUT, LDAMOUT, LDAMIRR
-USE YOS_CMF_TIME,            ONLY: KSTEP, JYYYYMMDD, JHHMM, JHOUR, JMIN
+USE YOS_CMF_TIME,            ONLY: KSTEP, JYYYYMMDD, JHHMM, JHOUR, JMIN, KMIN, KMINEND
 !
 USE CMF_CTRL_TIME_MOD,       ONLY: CMF_TIME_NEXT, CMF_TIME_UPDATE
 USE CMF_CTRL_PHYSICS_MOD,    ONLY: CMF_PHYSICS_ADVANCE, CMF_PHYSICS_FLDSTG
@@ -44,13 +44,16 @@ USE CMF_CALC_DIAG_MOD,       ONLY: CMF_DIAG_AVEMAX_OUTPUT, CMF_DIAG_GETAVE_OUTPU
 USE CMF_CTRL_BOUNDARY_MOD,   ONLY: CMF_BOUNDARY_UPDATE
 USE CMF_CTRL_TRACER_MOD,     ONLY: CMF_TRACER_DENSITY, CMF_TRACER_FLUX
 USE CMF_CTRL_TRACER_MOD,     ONLY: CMF_TRACER_OUTPUT_WRITE, CMF_TRACER_RESTART_WRITE
-USE YOS_CMF_INPUT,           ONLY: LSEDIMENT
+USE YOS_CMF_INPUT,           ONLY: LSEDIMENT, DT
 USE CMF_CTRL_SED_MOD,        ONLY: CMF_SED_CALC_FLW, CMF_SED_DIAG_AVEMAX_ADPSTP
 !$ USE OMP_LIB
 IMPLICIT NONE 
 SAVE
 ! Input argument 
 INTEGER(KIND=JPIM)              :: KSTEPS             !! Number of timesteps to advance 
+LOGICAL, OPTIONAL, INTENT(IN)  :: stop_at_end
+LOGICAL                       :: bounded_time
+REAL(KIND=JPRB)                :: dt_requested
 !* Local variables 
 INTEGER(KIND=JPIM)              :: ISTEP              !! Time Step
 REAL(KIND=JPRB)                 :: ZTT0, ZTT1, ZTT2   !! Time elapsed related 
@@ -64,7 +67,14 @@ REAL(KIND=JPRB)                 :: ZTT0, ZTT1, ZTT2   !! Time elapsed related
 
 !================================================
 !*** START: time step loop
+bounded_time=.FALSE.
+IF(PRESENT(stop_at_end)) bounded_time=stop_at_end
+dt_requested=DT
 DO ISTEP=1,KSTEPS
+  IF(bounded_time) THEN
+    IF(KMIN>=KMINEND) EXIT
+    DT=MIN(DT,REAL(KMINEND-KMIN,KIND=JPRB)*60._JPRB)
+  ENDIF
   !============================
   !*** 0. get start CPU time
   CALL CPU_TIME(ZTT0)
@@ -141,6 +151,7 @@ DO ISTEP=1,KSTEPS
   !============================ 
   !*** 5. Update current time      !! Update KMIN, IYYYYMMDD, IHHMM (to KMINNEXT, JYYYYMMDD, JHHMM)
   CALL CMF_TIME_UPDATE
+  DT=dt_requested
 
   !============================
   !*** 6. Check CPU time 

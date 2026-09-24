@@ -452,6 +452,7 @@ MODULE MOD_Vars_TimeVariables
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeTimeVars
+   USE MOD_Grid_RiverLakeHistState, only: write_gridriverlake_hist_restart
 #endif
 #ifdef URBAN_MODEL
    USE MOD_Urban_Vars_TimeVariables
@@ -1109,6 +1110,13 @@ CONTAINS
    USE MOD_Vars_Global
    USE MOD_Vars_TimeInvariants, only: dz_lake
    USE MOD_Const_LC, only: patchtypes
+#ifdef TRACER
+   USE MOD_Tracer_Defs, only: ntracers
+   USE MOD_Tracer_Rest, only: write_tracer_restart_all
+#ifdef GridRiverLakeFlow
+   USE MOD_Tracer_RiverLake, only: write_tracer_restart
+#endif
+#endif
    IMPLICIT NONE
 
    integer, intent(in) :: idate(3)
@@ -1121,6 +1129,9 @@ CONTAINS
    character(len=14)  :: cdate
    character(len=256) :: cyear         !character for lc_year
    integer :: compress
+#ifdef TRACER
+   real(r8) :: empty_patch(0), empty_soilsnow(maxsnl+1:nl_soil,0)
+#endif
 
       compress = DEF_REST_CompressLevel
 
@@ -1146,6 +1157,9 @@ CONTAINS
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'soilsnow', nl_soil-maxsnl)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'soil',     nl_soil)
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'lake',     nl_lake)
+#ifdef TRACER
+         CALL ncio_define_dimension_vector (file_restart, landpatch, 'tracer', ntracers)
+#endif
 
 IF(DEF_USE_PLANTHYDRAULICS)THEN
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'vegnodes', nvegwcs)
@@ -1249,6 +1263,38 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fm   ', 'patch', landpatch, fm   , compress) ! integral of profile FUNCTION for momentum
       CALL ncio_write_vector (file_restart, 'fh   ', 'patch', landpatch, fh   , compress) ! integral of profile FUNCTION for heat
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
+#ifdef TRACER
+         IF (allocated(ldew_rain)) THEN
+            IF (.not. p_is_worker) ERROR STOP 'tracer restart patch state on non-worker'
+            IF (numpatch < 0) ERROR STOP 'invalid tracer restart patch count'
+            IF (.not. allocated(ldew_snow) .or. .not. allocated(wliq_soisno) .or. &
+                .not. allocated(wice_soisno) .or. .not. allocated(wa) .or. &
+                .not. allocated(wdsrf) .or. .not. allocated(wetwat) .or. &
+                .not. allocated(scv)) ERROR STOP 'incomplete tracer restart water state'
+            IF (size(ldew_rain) /= numpatch .or. size(ldew_snow) /= numpatch .or. &
+                size(wa) /= numpatch .or. size(wdsrf) /= numpatch .or. &
+                size(wetwat) /= numpatch .or. size(scv) /= numpatch .or. &
+                size(wliq_soisno,1) /= nl_soil-maxsnl .or. size(wliq_soisno,2) /= numpatch .or. &
+                size(wice_soisno,1) /= nl_soil-maxsnl .or. size(wice_soisno,2) /= numpatch) &
+                ERROR STOP 'tracer restart water shape mismatch'
+            IF (allocated(waterstorage)) THEN
+               IF (size(waterstorage) /= numpatch) ERROR STOP 'tracer restart waterstorage shape mismatch'
+               CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, numpatch, &
+                  ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, &
+                  compress, waterstorage)
+            ELSE
+               CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, numpatch, &
+                  ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, compress)
+            ENDIF
+         ELSE
+            IF (p_is_worker) THEN
+               IF (numpatch /= 0) ERROR STOP 'missing tracer restart patch state on worker'
+            ENDIF
+            CALL write_tracer_restart_all(file_restart, maxsnl, nl_soil, 0, &
+               empty_patch, empty_patch, empty_soilsnow, empty_soilsnow, &
+               empty_patch, empty_patch, empty_patch, empty_patch, compress)
+         ENDIF
+#endif
 
 IF (DEF_USE_IRRIGATION) THEN
       CALL ncio_write_vector (file_restart, 'irrig_rate            ' , 'patch',landpatch,irrig_rate            , compress)
@@ -1295,6 +1341,11 @@ ENDIF
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
+      CALL write_gridriverlake_hist_restart (file_restart)
+#ifdef TRACER
+      CALL write_tracer_restart(file_restart)
+#endif
+      CALL commit_GridRiverLakeRestart (file_restart)
 #endif
 
 #if (defined URBAN_MODEL)

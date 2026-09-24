@@ -169,7 +169,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          IF (len_trim(exception) > 0) THEN
-            CALL CoLM_stop ()
+            CALL CoLM_stop (' ***** ERROR: RangeCheck rejected the values printed above (CoLMDEBUG)')
          ENDIF
 #endif
       ENDIF
@@ -293,7 +293,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          IF (len_trim(exception) > 0) THEN
-            CALL CoLM_stop ()
+            CALL CoLM_stop (' ***** ERROR: RangeCheck rejected the values printed above (CoLMDEBUG)')
          ENDIF
 #endif
       ENDIF
@@ -418,7 +418,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          IF (len_trim(exception) > 0) THEN
-            CALL CoLM_stop ()
+            CALL CoLM_stop (' ***** ERROR: RangeCheck rejected the values printed above (CoLMDEBUG)')
          ENDIF
 #endif
       ENDIF
@@ -546,7 +546,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          IF (len_trim(exception) > 0) THEN
-            CALL CoLM_stop ()
+            CALL CoLM_stop (' ***** ERROR: RangeCheck rejected the values printed above (CoLMDEBUG)')
          ENDIF
 #endif
       ENDIF
@@ -676,7 +676,7 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          IF (len_trim(exception) > 0) THEN
-            CALL CoLM_stop ()
+            CALL CoLM_stop (' ***** ERROR: RangeCheck rejected the values printed above (CoLMDEBUG)')
          ENDIF
 #endif
       ENDIF
@@ -784,7 +784,7 @@ CONTAINS
 
 #if(defined CoLMDEBUG)
             IF (len_trim(info) > 0) THEN
-               CALL CoLM_stop ()
+               CALL CoLM_stop (' ***** ERROR: RangeCheck rejected the values printed above (CoLMDEBUG)')
             ENDIF
 #endif
 

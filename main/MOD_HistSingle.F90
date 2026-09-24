@@ -167,7 +167,11 @@ CONTAINS
             minutes = minutes - 262800
          END select
 
-         itime_mem = itime_mem + 1
+         IF (itime_mem == 0) THEN
+            itime_mem = 1
+         ELSEIF (time_memory(itime_mem) /= minutes) THEN
+            itime_mem = itime_mem + 1
+         ENDIF
          time_memory(itime_mem) = minutes
 
          IF (memory_to_disk) THEN

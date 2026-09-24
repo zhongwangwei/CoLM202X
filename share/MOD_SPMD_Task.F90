@@ -334,6 +334,7 @@ CONTAINS
    character(len=*), optional :: mesg
 
       IF (present(mesg)) write(*,*) trim(mesg)
+      flush(6)
 
 #ifdef USEMPI
       CALL mpi_abort (p_comm_glb, 1, p_err)

@@ -59,7 +59,7 @@
 
 #define GridRiverLakeFlow
 !    Conflicts :
-#if (defined CATCHMENT || defined SinglePoint)
+#if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
 #undef GridRiverLakeFlow
 #endif
 
@@ -104,3 +104,13 @@
 
 ! 12. Hyperspectral scheme.
 #undef HYPERSPECTRAL
+
+#undef TRACER
+#if (defined TRACER) && (defined Campbell_SOIL_MODEL)
+#error "TRACER requires vanGenuchten_Mualem_SOIL_MODEL"
+#endif
+#if (defined TRACER) && (defined BGC)
+#if (!defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
+#error "Methane requires BGC with LULC_IGBP_PFT or LULC_IGBP_PC"
+#endif
+#endif

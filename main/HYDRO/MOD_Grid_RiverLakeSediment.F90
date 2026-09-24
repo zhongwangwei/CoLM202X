@@ -97,6 +97,7 @@ MODULE MOD_Grid_RiverLakeSediment
    real(r8), allocatable :: sed_precip_yield(:) ! Accumulated (rate_mm_hr)^pyldpc * dt [numucat]
                                                 ! Pre-computed per forcing step to avoid Jensen bias
    real(r8), save        :: sed_precip_time    ! Accumulated precipitation time [s]
+   logical, save :: sediment_ready = .false.
 
    !-------------------------------------------------------------------------------------
    ! Accumulated Variables for History Output
@@ -174,7 +175,7 @@ CONTAINS
          CALL CoLM_stop()
       ENDIF
 
-      parafile = DEF_UnitCatchment_file
+      parafile = get_unitcatchment_file ()
 
       ! Read dimensions directly from NetCDF dimension names
       IF (p_is_master) THEN
@@ -215,6 +216,7 @@ CONTAINS
       CALL read_sediment_static_data(parafile)
       CALL allocate_sediment_vars()
       CALL initialize_sediment_state()
+      sediment_ready = .true.
 
       IF (p_is_io) THEN
          WRITE(*,*) 'Sediment module initialized successfully.'
@@ -1821,6 +1823,7 @@ CONTAINS
 
       ! All processes must participate (MPI collective calls inside vector_gather_and_write).
       IF (.not. DEF_USE_SEDIMENT) RETURN
+      IF (.not. sediment_ready) RETURN
 
       DO ised = 1, nsed
          WRITE(cised, '(I0)') ised
@@ -1936,6 +1939,7 @@ CONTAINS
    SUBROUTINE grid_sediment_final()
    !-------------------------------------------------------------------------------------
    IMPLICIT NONE
+      sediment_ready = .false.
       IF (allocated(sed_frc      )) deallocate(sed_frc      )
       IF (allocated(sed_slope    )) deallocate(sed_slope    )
       IF (allocated(sDiam        )) deallocate(sDiam        )

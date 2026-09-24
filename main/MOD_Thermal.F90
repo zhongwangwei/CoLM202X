@@ -73,7 +73,15 @@ CONTAINS
                        zol           ,rib           ,ustar         ,qstar         ,&
                        tstar         ,fm            ,fh            ,fq            ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
-                       qintr_snow    ,snofrz        ,sabg_snow_lyr                 )
+                       qintr_snow    ,snofrz        ,sabg_snow_lyr                 &
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+                      ,flddepth      ,fldfrc        ,fevpg_fld                    &
+#endif
+#ifdef TRACER
+                      ,canopy_smelt_mass_th, canopy_frzc_mass_th                  ,&
+                       qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th             &
+#endif
+                       )
 
 !=======================================================================
 !  this is the main subroutine to execute the calculation
@@ -132,6 +140,14 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   USE MOD_CaMa_colmCaMa, only: get_fldevp
+#ifdef CaMa_Flood
+   USE YOS_CMF_INPUT, only: LWEVAP, CSETFILE
+#else
+   USE MOD_Namelist, only: LWEVAP => DEF_GridRiverLake_FloodFeedback
+#endif
+#endif
 
    IMPLICIT NONE
 
@@ -262,6 +278,20 @@ CONTAINS
    real(r8), intent(in) :: &
        sabg_snow_lyr(lb:1)        ! snow layer absorption
 
+#ifdef TRACER
+   real(r8), intent(out), optional :: canopy_smelt_mass_th
+   real(r8), intent(out), optional :: canopy_frzc_mass_th
+   real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil)
+   real(r8), intent(out), optional :: qphs_frzc_lay_th(lb:nl_soil)
+   real(r8), intent(out), optional :: raw_trc_th
+#else
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   real(r8), intent(inout) :: flddepth
+   real(r8), intent(in) :: fldfrc
+   real(r8), intent(out) :: fevpg_fld
+#endif
+#endif
+
        ! state variables (2)
    real(r8), intent(inout) :: &
        vegwp(1:nvegwcs),         &! vegetation water potential
@@ -366,6 +396,14 @@ CONTAINS
        fh,                       &! integral of profile function for heat
        fq                         ! integral of profile function for moisture
 
+#ifdef TRACER
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   real(r8), intent(inout) :: flddepth
+   real(r8), intent(in)    :: fldfrc
+   real(r8), intent(out)   :: fevpg_fld
+#endif
+
+#endif
 !Ozone stress variables
    real(r8),intent(inout) ::     &
         o3coefv_sun,&! Ozone stress factor for photosynthesis on sunlit leaf
@@ -435,6 +473,30 @@ CONTAINS
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
+#ifdef TRACER
+   real(r8) :: fevpg_wat, fevpg_soil_wat, fevpg_snow_wat
+   real(r8) :: lfevpg_ground
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   logical  :: flood_evap_active
+   real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
+   real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
+   real(r8) :: taux_fld, tauy_fld, tref_fld, qref_fld, z0m_fld, zol_fld, rib_fld
+   real(r8) :: ustar_fld, qstar_fld, tstar_fld, fm_fld, fh_fld, fq_fld
+   real(r8) :: fseng_land, fseng_soil_land, fseng_snow_land
+   real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
+#endif
+#else
+   real(r8) :: lfevpg_ground
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+   logical :: flood_evap_active
+   real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
+   real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
+   real(r8) :: taux_fld, tauy_fld, tref_fld, qref_fld, z0m_fld, zol_fld, rib_fld
+   real(r8) :: ustar_fld, qstar_fld, tstar_fld, fm_fld, fh_fld, fq_fld
+   real(r8) :: fseng_land, fseng_soil_land, fseng_snow_land
+   real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
+#endif
+#endif
 
    integer p, ps, pe, pn
 
@@ -474,6 +536,10 @@ CONTAINS
    real(r8), allocatable :: assimsha_p    (:)
    real(r8), allocatable :: etrsha_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
+#ifdef TRACER
+   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local, raw_trc_local, raw_trc_pc
+   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:), raw_trc_p(:)
+#endif
 
 
 !=======================================================================
@@ -490,12 +556,43 @@ CONTAINS
       lfevpa = 0.;  fsenl  = 0.
       fevpl  = 0.;  etr    = 0.
       fseng  = 0.;  fevpg  = 0.
+#ifdef TRACER
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      fevpg_fld = 0._r8
+      flood_evap_active = .FALSE.
+      fldfrc_eff = 0._r8
+      fevpg_fld_local = 0._r8
+      fseng_fld_local = 0._r8
+      fseng_land = 0._r8; fseng_soil_land = 0._r8; fseng_snow_land = 0._r8
+      fevpg_land = 0._r8; fevpg_soil_land = 0._r8; fevpg_snow_land = 0._r8
+      fevpg_wat = 0._r8; fevpg_soil_wat = 0._r8; fevpg_snow_wat = 0._r8
+      cgrnd_land = 0._r8; cgrndl_land = 0._r8; cgrnds_land = 0._r8
+#endif
+      lfevpg_ground = 0._r8
+#else
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      fevpg_fld = 0._r8
+      flood_evap_active = .FALSE.
+#endif
+#endif
 
       cgrnds = 0.;  cgrndl = 0.
       cgrnd  = 0.;  tref   = 0.
       qref   = 0.;  rst    = 2.0e4
       assim  = 0.;  respc  = 0.
       hprl   = 0.;  dheatl = 0.
+
+#ifdef TRACER
+      canopy_smelt_mass_local = 0._r8
+      canopy_frzc_mass_local  = 0._r8
+      raw_trc_local           = 0._r8
+      raw_trc_pc              = 0._r8
+      IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = 0._r8
+      IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = 0._r8
+      IF (present(qphs_thaw_lay_th)) qphs_thaw_lay_th(:) = 0._r8
+      IF (present(qphs_frzc_lay_th)) qphs_frzc_lay_th(:) = 0._r8
+      IF (present(raw_trc_th)) raw_trc_th = 0._r8
+#endif
 
       emis   = 0.;  z0m    = 0.
       zol    = 0.;  rib    = 0.
@@ -707,7 +804,13 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 !End WUE stomata model parameter
                  forc_hpbl   ,&
                  qintr_rain  ,qintr_snow  ,t_precip    ,hprl        ,dheatl      ,&
-                 smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)              )
+                 smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)              &
+#ifdef TRACER
+                ,canopy_smelt_mass_out=canopy_smelt_mass_local, &
+                 canopy_frzc_mass_out =canopy_frzc_mass_local, &
+                 raw_trc_out=raw_trc_local                     &
+#endif
+                 )
       ELSE
          tleaf         = forc_t
          laisun        = 0.
@@ -774,6 +877,14 @@ IF (patchtype == 0) THEN
       allocate ( assimsha_p       (ps:pe) )
       allocate ( etrsha_p         (ps:pe) )
       allocate ( dheatl_p         (ps:pe) )
+#ifdef TRACER
+      allocate ( canopy_smelt_mass_p_local(ps:pe) )
+      allocate ( canopy_frzc_mass_p_local (ps:pe) )
+      allocate ( raw_trc_p(ps:pe) )
+      canopy_smelt_mass_p_local(:) = 0._r8
+      canopy_frzc_mass_p_local (:) = 0._r8
+      raw_trc_p(:) = 0._r8
+#endif
 
       sabv_p(ps:pe) = sabvsun_p(ps:pe) + sabvsha_p(ps:pe)
       sabv = sabvsun + sabvsha
@@ -914,7 +1025,15 @@ IF (patchtype == 0) THEN
 !End WUE stomata model parameter
                  forc_hpbl                                                                         ,&
                  qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,hprl_p(i)       ,dheatl_p(i)   ,&
+#ifdef TRACER
+                 smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                &
+                ,canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
+                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i), &
+                 raw_trc_out=raw_trc_p(i),                           &
+                 ipft_index=i)
+#else
                  smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                )
+#endif
          ELSE
 
             CALL GroundFluxes (zlnd,zsno,forc_hgt_u,forc_hgt_t,forc_hgt_q,forc_hpbl, &
@@ -957,7 +1076,11 @@ ENDIF
          ENDIF
       ENDDO
 
+#ifdef TRACER
+      pn = ps - 1
+#else
       ! Calculate end index of natrue PFTs
+#endif
       DO i = ps, pe
          pn = i
          p = pftclass(i)
@@ -1042,7 +1165,13 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          forc_hpbl            ,&
          qintr_rain_p(ps:pe)  ,qintr_snow_p(ps:pe)  ,t_precip             ,hprl_p(:)            ,&
          dheatl_p(ps:pe)      ,smp                  ,hk(1:)               ,hksati(1:)           ,&
-         rootflux_p(:,:)       )
+         rootflux_p(:,:)                                                                  &
+#ifdef TRACER
+        ,canopy_smelt_mass_p_out=canopy_smelt_mass_p_local(ps:pe),&
+         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe),&
+         raw_trc_out=raw_trc_pc                                  &
+#endif
+         )
 
       dlrad_p      (ps:pe) = dlrad
       ulrad_p      (ps:pe) = ulrad
@@ -1068,6 +1197,9 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       fm_p         (ps:pe) = fm
       fh_p         (ps:pe) = fh
       fq_p         (ps:pe) = fq
+#ifdef TRACER
+      raw_trc_p    (ps:pe) = raw_trc_pc
+#endif
 ENDIF
 
       pe = patch_pft_e(ipatch)
@@ -1123,6 +1255,11 @@ ENDIF
       etrsha_out    = sum( etrsha_p    (ps:pe)*pftfrac(ps:pe) )
       hprl          = sum( hprl_p      (ps:pe)*pftfrac(ps:pe) )
       dheatl        = sum( dheatl_p    (ps:pe)*pftfrac(ps:pe) )
+#ifdef TRACER
+      canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe)*pftfrac(ps:pe) )
+      canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe)*pftfrac(ps:pe) )
+      raw_trc_local           = sum( raw_trc_p(ps:pe)*pftfrac(ps:pe) )
+#endif
 IF (DEF_USE_OZONESTRESS)THEN
       o3uptakesun   = sum(o3uptakesun_p(ps:pe)*pftfrac(ps:pe) )
       o3uptakesha   = sum(o3uptakesha_p(ps:pe)*pftfrac(ps:pe) )
@@ -1181,8 +1318,52 @@ END IF
       deallocate ( assimsha_p  )
       deallocate ( etrsha_p    )
       deallocate ( dheatl_p    )
+#ifdef TRACER
+      deallocate ( canopy_smelt_mass_p_local )
+      deallocate ( canopy_frzc_mass_p_local  )
+      deallocate ( raw_trc_p )
+#endif
 
 ENDIF
+#endif
+
+#ifdef TRACER
+      IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
+      IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = canopy_frzc_mass_local
+      IF (present(raw_trc_th)) raw_trc_th = raw_trc_local
+#endif
+
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CaMa_Flood
+      IF (CSETFILE == 'NONE' .and. LWEVAP .and. patchtype == 0 .and. &
+          flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
+#else
+      IF (LWEVAP .and. patchtype == 0 .and. &
+          flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
+#endif
+         fldfrc_eff = MIN(1._r8, MAX(0._r8, fldfrc))
+         flood_evap_active = fldfrc_eff > 0._r8
+         fseng_land = fseng; fseng_soil_land = fseng_soil; fseng_snow_land = fseng_snow
+         fevpg_land = fevpg; fevpg_soil_land = fevpg_soil; fevpg_snow_land = fevpg_snow
+         cgrnd_land = cgrnd; cgrndl_land = cgrndl; cgrnds_land = cgrnds
+         CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q, &
+            forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,t_grnd, &
+            forc_hpbl, taux_fld,tauy_fld,fseng_fld_local,fevpg_fld_local, &
+            tref_fld,qref_fld,z0m_fld,zol_fld,rib_fld,ustar_fld,qstar_fld, &
+            tstar_fld,fm_fld,fh_fld,fq_fld)
+         fevpg_fld_local = MIN(MAX(fevpg_fld_local,0._r8), flddepth/deltim)
+         fevpg_fld = fevpg_fld_local * fldfrc_eff
+         flddepth = MAX(0._r8, flddepth - deltim*fevpg_fld_local)
+         fseng = fseng_fld_local*fldfrc_eff + fseng_land*(1._r8-fldfrc_eff)
+         fevpg = (hvap/htvp)*fevpg_fld + fevpg_land*(1._r8-fldfrc_eff)
+         fseng_soil = fseng_fld_local*fldfrc_eff + fseng_soil_land*(1._r8-fldfrc_eff)
+         fevpg_soil = (hvap/htvp)*fevpg_fld + fevpg_soil_land*(1._r8-fldfrc_eff)
+         fseng_snow = fseng_fld_local*fldfrc_eff + fseng_snow_land*(1._r8-fldfrc_eff)
+         fevpg_snow = (hvap/htvp)*fevpg_fld + fevpg_snow_land*(1._r8-fldfrc_eff)
+         cgrnd = cgrnd_land*(1._r8-fldfrc_eff)
+         cgrndl = cgrndl_land*(1._r8-fldfrc_eff)
+         cgrnds = cgrnds_land*(1._r8-fldfrc_eff)
+      ENDIF
 #endif
 
 
@@ -1206,7 +1387,12 @@ ENDIF
                       t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                       frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                       fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip)
+                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
+#ifdef TRACER
+                     ,qphs_thaw_lay=qphs_thaw_lay_th, &
+                      qphs_frzc_lay=qphs_frzc_lay_th &
+#endif
+                      )
 
 !=======================================================================
 ! [6] Correct fluxes to present soil temperature
@@ -1226,6 +1412,27 @@ ENDIF
       fevpg      = fevpg      + tinc*cgrndl
       fevpg_soil = fevpg_soil + tinc*cgrndl
       fevpg_snow = fevpg_snow + tinc*cgrndl
+
+#ifdef TRACER
+      fevpg_wat = fevpg
+      fevpg_soil_wat = fevpg_soil
+      fevpg_snow_wat = fevpg_snow
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) THEN
+         fevpg_wat = fevpg - (hvap/htvp)*fevpg_fld
+         fevpg_soil_wat = fevpg_soil - (hvap/htvp)*fevpg_fld
+         fevpg_snow_wat = fevpg_snow - (hvap/htvp)*fevpg_fld
+      ENDIF
+#endif
+#else
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) THEN
+         fevpg = fevpg - (hvap/htvp)*fevpg_fld
+         fevpg_soil = fevpg_soil - (hvap/htvp)*fevpg_fld
+         fevpg_snow = fevpg_snow - (hvap/htvp)*fevpg_fld
+      ENDIF
+#endif
+#endif
 
 ! calculation of evaporative potential; flux in kg m-2 s-1.
 ! egidif holds the excess energy IF all water is evaporated
@@ -1247,6 +1454,21 @@ ENDIF
 
 IF (.not. DEF_SPLIT_SOILSNOW) THEN
       egsmax = (wice_soisno(lb)+wliq_soisno(lb)) / deltim
+#ifdef TRACER
+      egidif = max( 0., fevpg_wat - egsmax )
+      fevpg_wat  = min( fevpg_wat, egsmax )
+      fseng  = fseng + htvp*egidif
+
+      IF (fevpg_wat >= 0.) THEN
+! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
+         qseva = min(wliq_soisno(lb)/deltim, fevpg_wat)
+         qsubl = fevpg_wat - qseva
+      ELSE
+         IF (t_grnd < tfrz) THEN
+            qfros = abs(fevpg_wat)
+         ELSE
+            qsdew = abs(fevpg_wat)
+#else
       egidif = max( 0., fevpg - egsmax )
       fevpg  = min( fevpg, egsmax )
       fseng  = fseng + htvp*egidif
@@ -1260,26 +1482,52 @@ IF (.not. DEF_SPLIT_SOILSNOW) THEN
             qfros = abs(fevpg)
          ELSE
             qsdew = abs(fevpg)
+#endif
          ENDIF
       ENDIF
 
 ELSE
       IF (lb < 1) THEN   ! snow layer exist
          egsmax = (wice_soisno(lb)+wliq_soisno(lb)) / deltim
+#ifdef TRACER
+         egidif = max( 0., fevpg_snow_wat - egsmax )
+         fevpg_snow_wat = min ( fevpg_snow_wat, egsmax )
+         fseng_snow = fseng_snow + htvp*egidif
+      ELSE               ! no snow layer, attribute to soil
+         fevpg_soil_wat = fevpg_soil_wat*(1.-fsno) + fevpg_snow_wat*fsno
+#else
          egidif = max( 0., fevpg_snow - egsmax )
          fevpg_snow = min ( fevpg_snow, egsmax )
          fseng_snow = fseng_snow + htvp*egidif
       ELSE               ! no snow layer, attribute to soil
          fevpg_soil = fevpg_soil*(1.-fsno) + fevpg_snow*fsno
+#endif
       ENDIF
 
       egsmax = (wice_soisno(1)+wliq_soisno(1)) / deltim
+#ifdef TRACER
+      egidif = max( 0., fevpg_soil_wat - egsmax )
+      fevpg_soil_wat = min ( fevpg_soil_wat, egsmax )
+#else
       egidif = max( 0., fevpg_soil - egsmax )
       fevpg_soil = min ( fevpg_soil, egsmax )
+#endif
       fseng_soil = fseng_soil + htvp*egidif
 
       IF (lb < 1) THEN   ! snow layer exist
          fseng = fseng_soil*(1.-fsno) + fseng_snow*fsno
+#ifdef TRACER
+         fevpg_wat = fevpg_soil_wat*(1.-fsno) + fevpg_snow_wat*fsno
+      ELSE               ! no snow layer, attribute to soil
+         fseng = fseng_soil; fseng_snow = 0.
+         fevpg_wat = fevpg_soil_wat; fevpg_snow_wat = 0.
+      ENDIF
+
+      IF(fevpg_snow_wat >= 0.)THEN
+! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
+         qseva_snow = min(wliq_soisno(lb)/deltim, fevpg_snow_wat)
+         qsubl_snow = fevpg_snow_wat - qseva_snow
+#else
          fevpg = fevpg_soil*(1.-fsno) + fevpg_snow*fsno
       ELSE               ! no snow layer, attribute to soil
          fseng = fseng_soil; fseng_snow = 0.
@@ -1290,27 +1538,47 @@ ELSE
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
          qseva_snow = min(wliq_soisno(lb)/deltim, fevpg_snow)
          qsubl_snow = fevpg_snow - qseva_snow
+#endif
          qseva_snow = qseva_snow*fsno
          qsubl_snow = qsubl_snow*fsno
       ELSE
          ! snow temperature < tfrz
          IF(t_soisno(lb) < tfrz)THEN
+#ifdef TRACER
+            qfros_snow = abs(fevpg_snow_wat*fsno)
+         ELSE
+            qsdew_snow = abs(fevpg_snow_wat*fsno)
+#else
             qfros_snow = abs(fevpg_snow*fsno)
          ELSE
             qsdew_snow = abs(fevpg_snow*fsno)
+#endif
          ENDIF
       ENDIF
 
+#ifdef TRACER
+      IF(fevpg_soil_wat >= 0.)THEN
+! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
+         qseva_soil = min(wliq_soisno(1)/deltim, fevpg_soil_wat)
+         qsubl_soil = fevpg_soil_wat - qseva_soil
+#else
       IF(fevpg_soil >= 0.)THEN
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
          qseva_soil = min(wliq_soisno(1)/deltim, fevpg_soil)
          qsubl_soil = fevpg_soil - qseva_soil
+#endif
       ELSE
          ! soil temperature < tfrz
          IF(t_soisno(1) < tfrz)THEN
+#ifdef TRACER
+            qfros_soil = abs(fevpg_soil_wat)
+         ELSE
+            qsdew_soil = abs(fevpg_soil_wat)
+#else
             qfros_soil = abs(fevpg_soil)
          ELSE
             qsdew_soil = abs(fevpg_soil)
+#endif
          ENDIF
       ENDIF
 
@@ -1322,18 +1590,46 @@ ELSE
       ENDIF
 ENDIF
 
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) THEN
+#ifdef TRACER
+         fevpg = fevpg_fld + fevpg_wat
+         fevpg_soil = fevpg_fld + fevpg_soil_wat
+         fevpg_snow = fevpg_fld + fevpg_snow_wat
+         lfevpg_ground = htvp*fevpg_wat + hvap*fevpg_fld
+      ELSE
+         fevpg = fevpg_wat
+         fevpg_soil = fevpg_soil_wat
+         fevpg_snow = fevpg_snow_wat
+#else
+         lfevpg_ground = htvp*fevpg + hvap*fevpg_fld
+         fevpg = fevpg + fevpg_fld
+         fevpg_soil = fevpg_soil + fevpg_fld
+         fevpg_snow = fevpg_snow + fevpg_fld
+      ELSE
+#endif
+         lfevpg_ground = htvp*fevpg
+      ENDIF
+#else
+#ifdef TRACER
+      fevpg = fevpg_wat
+      fevpg_soil = fevpg_soil_wat
+      fevpg_snow = fevpg_snow_wat
+#endif
+      lfevpg_ground = htvp*fevpg
+#endif
 
 ! total fluxes to atmosphere
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
-      lfevpa = hvap*fevpl + htvp*fevpg   ! W/m^2 (accounting for sublimation)
+      lfevpa = hvap*fevpl + lfevpg_ground
 
 ! ground heat flux
 IF (.not.DEF_SPLIT_SOILSNOW) THEN
       fgrnd = sabg + dlrad*emg &
             - emg*stefnc*t_grnd_bef**4 &
             - emg*stefnc*t_grnd_bef**3*(4.*tinc) &
-            - (fseng+fevpg*htvp) &
+            - (fseng+lfevpg_ground) &
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ELSE
@@ -1341,7 +1637,7 @@ ELSE
             - fsno*emg*stefnc*t_snow**4 &
             - (1.-fsno)*emg*stefnc*t_soil**4 &
             - emg*stefnc*t_grnd_bef**3*(4.*tinc) &
-            - (fseng+fevpg*htvp) &
+            - (fseng+lfevpg_ground) &
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ENDIF
@@ -1361,7 +1657,7 @@ ENDIF
       IF (olrg < 0) THEN
          print *, "MOD_Thermal.F90: Error! Negative outgoing longwave radiation flux: "
          write(6,*) ipatch, olrg, tinc, ulrad
-         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,fgrnd
+         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,lfevpg_ground,xmf,fgrnd
       ENDIF
 
       trad = (olrg/stefnc)**0.25
@@ -1399,7 +1695,7 @@ ENDIF
 #if (defined CoLMDEBUG)
       IF (abs(errore) > .5) THEN
       write(6,*) 'MOD_Thermal.F90: energy balance violation'
-      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,hprl
+      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,lfevpg_ground,xmf,hprl
       write(6,*) cpliq*pg_rain*(t_precip-t_grnd), cpice*pg_snow*(t_precip-t_grnd)
       CALL CoLM_stop ()
       ENDIF

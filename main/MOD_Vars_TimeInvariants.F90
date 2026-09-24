@@ -213,6 +213,9 @@ MODULE MOD_Vars_TimeInvariants
 
    real(r8), allocatable :: lakedepth      (:)  !lake depth
    real(r8), allocatable :: dz_lake      (:,:)  !new lake scheme
+#if (defined TRACER) && (defined BGC)
+   real(r8), allocatable :: lake_soilc_srf(:,:)
+#endif
 
    real(r8), allocatable :: soil_s_v_alb   (:)  !albedo of visible of the saturated soil
    real(r8), allocatable :: soil_d_v_alb   (:)  !albedo of visible of the dry soil
@@ -353,6 +356,10 @@ CONTAINS
 
             allocate (lakedepth            (numpatch))
             allocate (dz_lake      (nl_lake,numpatch))
+#if (defined TRACER) && (defined BGC)
+            allocate (lake_soilc_srf(nl_soil,numpatch))
+            lake_soilc_srf(:,:) = 0._r8
+#endif
 
             allocate (soil_s_v_alb         (numpatch))
             allocate (soil_d_v_alb         (numpatch))
@@ -504,6 +511,9 @@ CONTAINS
 
       CALL ncio_read_vector (file_restart, 'lakedepth',    landpatch, lakedepth)           !
       CALL ncio_read_vector (file_restart, 'dz_lake' ,     nl_lake, landpatch, dz_lake)    !
+#if (defined TRACER) && (defined BGC)
+      CALL ncio_read_vector (file_restart, 'lake_soilc_srf', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
+#endif
 
       CALL ncio_read_vector (file_restart, 'soil_s_v_alb', landpatch, soil_s_v_alb)        ! albedo of visible of the saturated soil
       CALL ncio_read_vector (file_restart, 'soil_d_v_alb', landpatch, soil_d_v_alb)        ! albedo of visible of the dry soil
@@ -721,6 +731,9 @@ CONTAINS
 
       CALL ncio_write_vector (file_restart, 'lakedepth' , 'patch', landpatch, lakedepth , compress)                  !
       CALL ncio_write_vector (file_restart, 'dz_lake'   ,  'lake', nl_lake, 'patch', landpatch, dz_lake, compress)   !
+#if (defined TRACER) && (defined BGC)
+      CALL ncio_write_vector (file_restart, 'lake_soilc_srf', 'soil', nl_soil, 'patch', landpatch, lake_soilc_srf, compress)
+#endif
 
       CALL ncio_write_vector (file_restart, 'soil_s_v_alb', 'patch', landpatch, soil_s_v_alb, compress)              ! albedo of visible of the saturated soil
       CALL ncio_write_vector (file_restart, 'soil_d_v_alb', 'patch', landpatch, soil_d_v_alb, compress)              ! albedo of visible of the dry soil
@@ -895,6 +908,9 @@ CONTAINS
 
             deallocate (lakedepth      )
             deallocate (dz_lake        )
+#if (defined TRACER) && (defined BGC)
+            deallocate (lake_soilc_srf )
+#endif
 
             deallocate (soil_s_v_alb   )
             deallocate (soil_d_v_alb   )

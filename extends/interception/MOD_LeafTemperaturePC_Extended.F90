@@ -442,6 +442,7 @@ CONTAINS
    real(r8),dimension(ps:pe)   :: evplwet, evplwet_dtl, etr_dtl
    real(r8),dimension(ps:pe)   :: fevpl_bef, fevpl_noadj, dtl_noadj, htvpl, erre
    real(r8),dimension(ps:pe)   :: qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
+   real(r8) tl_pre_phase
    real(r8) :: flux_deficit                 ! C4b: component-level evap deficit [mm]
    real(r8) :: phase_flux_deficit           ! Bug 3: unmet same-phase latent demand [mm/s]
    real(r8) :: catch_JULES !JULES liquid canopy capacity [mm] (catch0 + dcatch_dlai*LAI)
@@ -2226,7 +2227,9 @@ ENDIF
                   qmelt(i) = min(ldew_snow(i)/deltim,(tl(i)-tfrz)*cpice*ldew_snow(i)/(deltim*hfus))
                   ldew_snow(i) = max(0.,ldew_snow(i) - qmelt(i)*deltim)
                   ldew_rain(i) = max(0.,ldew_rain(i) + qmelt(i)*deltim)
+                  tl_pre_phase = tl(i)
                   tl(i) = fwet_snow(i)*tfrz + (1.-fwet_snow(i))*tl(i) !Niu et al., 2004
+                  dheatl(i) = dheatl(i) + clai(i)/deltim * (tl(i) - tl_pre_phase)
                   ! Export per-PFT melt mass for THERMAL to
                   ! aggregate to patch level via pftfrac.
                   IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(i) = qmelt(i) * deltim
@@ -2236,7 +2239,9 @@ ENDIF
                   qfrz(i)  = min(ldew_rain(i)/deltim,(tfrz-tl(i))*cpliq*ldew_rain(i)/(deltim*hfus))
                   ldew_rain(i) = max(0.,ldew_rain(i) - qfrz(i)*deltim)
                   ldew_snow(i) = max(0.,ldew_snow(i) + qfrz(i)*deltim)
+                  tl_pre_phase = tl(i)
                   tl(i) = fwet_snow(i)*tfrz + (1.-fwet_snow(i))*tl(i) !Niu et al., 2004
+                  dheatl(i) = dheatl(i) + clai(i)/deltim * (tl(i) - tl_pre_phase)
                   IF (present(canopy_frzc_mass_p_out)) canopy_frzc_mass_p_out(i) = qfrz(i) * deltim
                ENDIF
             ELSEIF ( DEF_VEG_SNOW ) THEN
