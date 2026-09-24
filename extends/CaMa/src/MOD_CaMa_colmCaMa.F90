@@ -97,7 +97,7 @@ CONTAINS
    USE YOS_CMF_MAP,           only: I1P_OUT,I1P_OUTN,I1P_INF,I1P_INFN,PTH_UPST,PTH_DOWN
 
    IMPLICIT NONE
-   integer, intent(in), optional :: start_date(3)
+   integer, intent(in) :: start_date(3)
    !** local variables
 
    integer i,j,c,k,nextc,ncut_link,ncut_bif
@@ -111,8 +111,6 @@ CONTAINS
          CASE('', 'null', 'NULL', 'none', 'NONE')
             CSETFILE = DEF_CaMa_Namelist
             CALL CMF_DRV_INPUT
-            IF(DEF_CaMa_LegacyRunoffBudget.AND.(LWEVAP.OR.LWINFILT)) &
-               ERROR STOP 'CaMa legacy runoff budget does not support flood feedback'
          CASE DEFAULT
             IF(DEF_USE_LEVEE.OR.DEF_Reservoir_Method/=0) &
                ERROR STOP 'CaMa NC mode: levee/reservoir require CaMa-specific parameters'
@@ -133,13 +131,9 @@ CONTAINS
          EDAY     = DEF_simulation_time%end_day                                ! end day
          EHOUR    = DEF_simulation_time%end_sec/3600                           ! end hour
          IF(CSETFILE=='NONE')THEN
-            IF(PRESENT(start_date))THEN
-               SYEAR=start_date(1)
-               CALL julian2monthday(start_date(1),start_date(2),SMON,SDAY)
-               CALL CMF_TIME_SET_START_SECONDS(start_date(3))
-            ELSE
-               CALL CMF_TIME_SET_START_SECONDS(DEF_simulation_time%start_sec)
-            ENDIF
+            SYEAR=start_date(1)
+            CALL julian2monthday(start_date(1),start_date(2),SMON,SDAY)
+            CALL CMF_TIME_SET_START_SECONDS(start_date(3))
             CALL CMF_TIME_SET_END_SECONDS(DEF_simulation_time%end_sec)
          ENDIF
          LLEAPYR  = DEF_forcing%leapyear                                       ! leap year flag
@@ -148,9 +142,7 @@ CONTAINS
             IF(LLEGACY_DAILY_HISTORY)THEN
                CALL monthday2julian(DEF_simulation_time%spinup_year, DEF_simulation_time%spinup_month, &
                                     DEF_simulation_time%spinup_day, spinup_julian)
-               IF(.NOT.PRESENT(start_date))THEN
-                  LLEGACY_DAILY_HISTORY=.false.
-               ELSE IF(start_date(1)<DEF_simulation_time%spinup_year.OR. &
+               IF(start_date(1)<DEF_simulation_time%spinup_year.OR. &
                        (start_date(1)==DEF_simulation_time%spinup_year.AND. &
                         (start_date(2)<spinup_julian.OR. &
                          (start_date(2)==spinup_julian.AND.start_date(3)<=DEF_simulation_time%spinup_sec))))THEN
@@ -326,7 +318,7 @@ CONTAINS
       CALL mp2g_cama%build_arealweighted (gcama, landpatch) !build the mapping between cama and mpi
       CALL mg2p_cama%build_arealweighted (gcama, landpatch)
       CALL cama_gather%set (gcama)
-      IF(p_is_master .AND. (CSETFILE=='NONE'.OR.DEF_CaMa_LegacyRunoffBudget))THEN
+      IF(p_is_master .AND. CSETFILE=='NONE')THEN
          allocate(exchange_area(NX,NY))
          DO j=1,NY
             DO i=1,NX
@@ -486,9 +478,8 @@ CONTAINS
    real(r8), optional, intent(in) :: deltim
    logical, optional, intent(in) :: force_flush
    real(r8) :: dt_saved, dtin_saved, remaining
-   logical :: flush_window, newmode, runoff_budget
+   logical :: flush_window, newmode
       newmode=CSETFILE=='NONE'
-      runoff_budget=newmode.OR.DEF_CaMa_LegacyRunoffBudget
       flush_window=.false.
       IF(PRESENT(force_flush)) flush_window=force_flush
       !Accumulate cama-flood related flux variables
@@ -505,7 +496,7 @@ CONTAINS
       IF  (MOD(idate_sec,3600*int(IFRQ_INP))==0 .OR. &
            (newmode.AND.(coupling_elapsed>=3600._r8*IFRQ_INP.OR.flush_window))) THEN
          ! Prepare sending the accumulated runoff flux varilble to cama model (master processor to worker processors)
-         CALL colm2cama_real8 (a_rnof_cama, f_rnof_cama, runoff_2d, integral=runoff_budget)
+         CALL colm2cama_real8 (a_rnof_cama, f_rnof_cama, runoff_2d, integral=newmode)
          IF (LSEDIMENT) THEN
             IF(CSETFILE=='NONE')THEN
                CALL colm2cama_real8(a_prcp_cama,f_prcp_cama,prcp_2d,valid_time=a_prcp_time)
@@ -556,7 +547,7 @@ CONTAINS
                DTIN=coupling_elapsed
             ENDIF
             ! Use vectorized operations for better performance
-            IF(runoff_budget)THEN
+            IF(newmode)THEN
                ZBUFF(:,:,1) = runoff_2d(:,:)
             ELSE
                ZBUFF(:,:,1) = runoff_2d(:,:) * 1.0D-3
@@ -604,14 +595,14 @@ CONTAINS
                release_cama(:,:) = 0.0
                
                !!!!!withdraw water from runoff
-               IF(runoff_budget)THEN
+               IF(newmode)THEN
                   release_cama_rof(:,:) = min(dirrig_cama(:,:), ZBUFF(:,:,1)*DTIN)
                ELSE
                   release_cama_rof(:,:) = min(dirrig_cama(:,:), ZBUFF(:,:,1)*R2GRDARE(:,:)*DTIN)
                ENDIF
                release_cama_rof(:,:) = max(0.0, release_cama_rof(:,:))
                dirrig_cama(:,:) = dirrig_cama(:,:) - release_cama_rof(:,:)
-               IF(runoff_budget)THEN
+               IF(newmode)THEN
                   ZBUFF(:,:,1) = (ZBUFF(:,:,1)*DTIN - release_cama_rof(:,:))/DTIN
                ELSE
                   ZBUFF(:,:,1) = (ZBUFF(:,:,1)*R2GRDARE(:,:)*DTIN - release_cama_rof(:,:))/R2GRDARE(:,:)/DTIN
@@ -633,7 +624,7 @@ CONTAINS
                   CALL CMF_PHYSICS_FLDSTG()
                ENDIF
             ENDIF
-            IF(runoff_budget)THEN
+            IF(newmode)THEN
                CALL budget_runoff(ZBUFF(:,:,1),D2RUNOFF(:,1))
                runoff_unrouted=runoff_unrouted+budget_unrouted()*DTIN
                D2ROFSUB = 0._r8
@@ -650,7 +641,7 @@ CONTAINS
                remaining=DTIN
                DO WHILE(remaining>1.e-8_r8)
                   DT=MIN(dt_saved,remaining)
-                  CALL CMF_DRV_ADVANCE(1,stop_at_end=.false.)
+                  CALL CMF_DRV_ADVANCE(1)
                   remaining=remaining-DT
                ENDDO
                DT=dt_saved
@@ -720,17 +711,15 @@ CONTAINS
 
       ! finalize CaMa-Flood
       CALL deallocate_acc_cama_Fluxes ()
-      IF(CSETFILE=='NONE'.OR.DEF_CaMa_LegacyRunoffBudget)THEN
+      IF(CSETFILE=='NONE')THEN
          IF(p_is_master)THEN
             IF(runoff_unrouted/=0._r8) WRITE(*,'(A,ES12.4,A)') &
                ' CaMa unrouted land runoff: ',runoff_unrouted,' m3'
             IF(ALLOCATED(evap_debit)) DEALLOCATE(evap_debit,infil_debit)
          ENDIF
-         IF(CSETFILE=='NONE')THEN
-            CALL mg2p_cama%deallocate_part(flood_credit_part)
-            CALL mg2p_cama%deallocate_part(flood_sink_part)
-            IF(ALLOCATED(flood_credit)) DEALLOCATE(flood_credit)
-         ENDIF
+         CALL mg2p_cama%deallocate_part(flood_credit_part)
+         CALL mg2p_cama%deallocate_part(flood_sink_part)
+         IF(ALLOCATED(flood_credit)) DEALLOCATE(flood_credit)
       ENDIF
       IF(p_is_master)THEN
          ! finalize CaMa-Flood
@@ -979,11 +968,7 @@ CONTAINS
       zldis = hu-0.                          ! reference height "minus" zero displacement heght
 
       ! Kinematic viscosity of dry air (m2/s)- Andreas (1989) CRREL Rep. 89-11
-#ifdef TRACER
       visa=1.326e-5*(1.+6.542e-3*(tm-tfrz) + 8.301e-6*(tm-tfrz)**2 - 4.84e-9*(tm-tfrz)**3)
-#else
-      visa=1.326e-5*(1.+6.542e-3*tm + 8.301e-6*tm**2 - 4.84e-9*tm**3)
-#endif
 
       ! Loop to obtain initial and good ustar and zo
       ustar=0.06    ! initial value of ustar

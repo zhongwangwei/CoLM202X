@@ -409,6 +409,9 @@ CONTAINS
 
    USE MOD_SPMD_Task
    USE CMF_CALC_DIAG_MOD,  only: CMF_DIAG_GETAVE_OUTPUT, CMF_DIAG_RESET_OUTPUT
+   USE YOS_CMF_TIME,       only: KMIN, KMINEND, JDD, JMM, JHHMM
+   USE MOD_Namelist,       only: DEF_HIST_FREQ
+   USE YOS_CMF_DIAG,       only: NADD_out, RESTART_DIAG_FIELD
    USE YOS_CMF_PROG,       only: P2RIVSTO,     P2FLDSTO,     P2GDWSTO, &
          P2damsto,P2LEVSTO !!! added
    USE YOS_CMF_DIAG,       only: D2RIVDPH,     D2FLDDPH,     D2FLDFRC,     D2FLDARE,     &
@@ -426,7 +429,37 @@ CONTAINS
    integer, intent(in)          :: itime_in_file
    real(r8), allocatable :: pthflw_cell(:,:)
    integer :: ipth
+   real(JPRB), allocatable :: raw_history(:,:,:), raw_pthflw(:,:)
+   real(JPRB), pointer :: history_field(:,:)
+   real(JPRB) :: raw_elapsed
+   character(len=32) :: history_name
+   logical :: preserve_partial_history
+   integer :: ihist
 
+
+      preserve_partial_history=.false.
+      IF (CSETFILE=='NONE' .AND. KMIN>=KMINEND) THEN
+         SELECT CASE (TRIM(ADJUSTL(DEF_HIST_FREQ)))
+         CASE ('HOURLY')
+            preserve_partial_history=MOD(KMIN,60)/=0
+         CASE ('DAILY')
+            preserve_partial_history=MOD(KMIN,1440)/=0
+         CASE ('MONTHLY')
+            preserve_partial_history=JDD/=1 .OR. JHHMM/=0
+         CASE ('YEARLY')
+            preserve_partial_history=JMM/=1 .OR. JDD/=1 .OR. JHHMM/=0
+         END SELECT
+      ENDIF
+      IF (preserve_partial_history) THEN
+         raw_elapsed=NADD_out
+         allocate(raw_history(NSEQMAX,1,14))
+         raw_history=0._JPRB
+         DO ihist=1,14
+            CALL RESTART_DIAG_FIELD(ihist,history_name,history_field)
+            IF (associated(history_field)) raw_history(:,:,ihist)=history_field
+         ENDDO
+         raw_pthflw=D1PTHFLW_oAVG
+      ENDIF
 
       !*** average variable
       CALL CMF_DIAG_GETAVE_OUTPUT
@@ -597,6 +630,15 @@ CONTAINS
 
       !*** reset variable
       CALL CMF_DIAG_RESET_OUTPUT
+
+      IF (preserve_partial_history) THEN
+         NADD_out=raw_elapsed
+         DO ihist=1,14
+            CALL RESTART_DIAG_FIELD(ihist,history_name,history_field)
+            IF (associated(history_field)) history_field=raw_history(:,:,ihist)
+         ENDDO
+         D1PTHFLW_oAVG=raw_pthflw
+      ENDIF
 
    END SUBROUTINE hist_out_cama
 
@@ -894,7 +936,7 @@ CONTAINS
       IF(PRESENT(integral)) volumes = integral
       credits = .false.
       IF(PRESENT(flood_sink)) credits = flood_sink
-      newmode=CSETFILE=='NONE'.OR.(volumes.AND.DEF_CaMa_LegacyRunoffBudget)
+      newmode=CSETFILE=='NONE'
       IF(credits.AND..NOT.newmode) ERROR STOP 'CaMa: flood sink mapping requires NC mode'
       IF(PRESENT(valid_time).AND.(volumes.OR.credits)) ERROR STOP 'CaMa: valid time requires an intensive field'
       IF(p_is_master)THEN

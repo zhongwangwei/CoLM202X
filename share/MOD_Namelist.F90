@@ -326,7 +326,6 @@ MODULE MOD_Namelist
    character(len=256) :: DEF_CaMa_Restart_file = 'null'
    logical :: DEF_CaMa_FloodFeedback = .false.
    logical :: DEF_CaMa_StrictDomain = .false.
-   logical :: DEF_CaMa_LegacyRunoffBudget = .false.
 
    ! ----- lateral flow related -----
    character(len=256) :: DEF_ElementNeighbour_file = 'null'
@@ -1299,7 +1298,6 @@ CONTAINS
       DEF_CaMa_Restart_file,                  &
       DEF_CaMa_FloodFeedback,                 &
       DEF_CaMa_StrictDomain,                  &
-      DEF_CaMa_LegacyRunoffBudget,            &
 
       DEF_ElementNeighbour_file,              &
       DEF_UnitCatchment_file,                 &
@@ -1406,7 +1404,6 @@ CONTAINS
 #endif
 #ifndef CaMa_Flood
          IF (DEF_CaMa_FloodFeedback) CALL CoLM_Stop ('CaMa feedback requires CaMa_Flood.')
-         IF (DEF_CaMa_LegacyRunoffBudget) CALL CoLM_Stop ('CaMa runoff budget requires CaMa_Flood.')
 #endif
 #if !defined GridRiverLakeFlow && !defined CaMa_Flood
          IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires a river routing solver.')
@@ -1949,7 +1946,6 @@ CONTAINS
       CALL mpi_bcast (DEF_CaMa_Restart_file                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_CaMa_FloodFeedback                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_CaMa_StrictDomain                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CaMa_LegacyRunoffBudget            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_ElementNeighbour_file              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_UnitCatchment_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
