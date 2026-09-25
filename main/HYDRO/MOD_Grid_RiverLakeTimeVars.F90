@@ -20,7 +20,6 @@ MODULE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_RiverLakeBifurcation, only: write_bifurcation_restart
    IMPLICIT NONE
 
-   real(r8), parameter :: RIVERLAKE_DRY_DEPTH = 1.e-5_r8
    integer, parameter :: GRIDRIVER_RESTART_SCHEMA_VERSION = 2
    integer, parameter :: GRIDRIVER_UCATCH_IDENTITY_VERSION = 1
    integer, parameter :: GRIDRIVER_RESERVOIR_IDENTITY_VERSION = 1
@@ -602,9 +601,6 @@ CONTAINS
 
       ! Note: sediment restart is read separately in grid_sediment_read_restart,
       ! called from grid_riverlake_flow_init after sediment module is initialized.
-
-
-
 
    END SUBROUTINE READ_GridRiverLakeTimeVars
 

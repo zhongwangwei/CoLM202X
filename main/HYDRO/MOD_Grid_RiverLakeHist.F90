@@ -18,8 +18,6 @@ MODULE MOD_Grid_RiverLakeHist
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_route_write_history, tracer_lifecycle_route_flush_history
-#endif
-#ifdef TRACER
    USE MOD_Tracer_RiverLake, only: write_tracer_history, tracer_flush_acc
 #endif
 
@@ -43,7 +41,6 @@ CONTAINS
    USE MOD_LandPatch,           only: numpatch
    USE MOD_Forcing,             only: forcmask_pch
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
-   USE MOD_Grid_RiverLakeTimeVars, only: gridriver_restart_file
    USE MOD_Namelist
 
    IMPLICIT NONE
@@ -92,9 +89,6 @@ CONTAINS
       allocate (a_qresv_out  (numresv))
 
       CALL flush_acc_fluxes_riverlake ()
-      IF (len_trim(gridriver_restart_file) > 0) THEN
-         CALL read_gridriverlake_hist_restart(gridriver_restart_file)
-      ENDIF
 
       ! ----- get longitude and latitude -----
       allocate (lon_ucat (griducat%nlon))
@@ -586,10 +580,7 @@ CONTAINS
 
 #ifdef TRACER
       CALL tracer_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
-#endif
-
-#ifdef TRACER
-         CALL write_tracer_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
+      CALL write_tracer_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
 #endif
 
       ! ----- reservoir variables -----
@@ -709,9 +700,6 @@ CONTAINS
 
 #ifdef TRACER
             CALL tracer_flush_acc()
-#endif
-
-#ifdef TRACER
             CALL tracer_lifecycle_route_flush_history()
 #endif
 

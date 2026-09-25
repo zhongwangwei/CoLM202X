@@ -475,7 +475,6 @@ CONTAINS
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
 #ifdef TRACER
    real(r8) :: fevpg_wat, fevpg_soil_wat, fevpg_snow_wat
-   real(r8) :: lfevpg_ground
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    logical  :: flood_evap_active
    real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
@@ -486,7 +485,6 @@ CONTAINS
    real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
 #endif
 #else
-   real(r8) :: lfevpg_ground
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    logical :: flood_evap_active
    real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
@@ -568,7 +566,6 @@ CONTAINS
       fevpg_wat = 0._r8; fevpg_soil_wat = 0._r8; fevpg_snow_wat = 0._r8
       cgrnd_land = 0._r8; cgrndl_land = 0._r8; cgrnds_land = 0._r8
 #endif
-      lfevpg_ground = 0._r8
 #else
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       fevpg_fld = 0._r8
@@ -1596,19 +1593,15 @@ ENDIF
          fevpg = fevpg_fld + fevpg_wat
          fevpg_soil = fevpg_fld + fevpg_soil_wat
          fevpg_snow = fevpg_fld + fevpg_snow_wat
-         lfevpg_ground = htvp*fevpg_wat + hvap*fevpg_fld
       ELSE
          fevpg = fevpg_wat
          fevpg_soil = fevpg_soil_wat
          fevpg_snow = fevpg_snow_wat
 #else
-         lfevpg_ground = htvp*fevpg + hvap*fevpg_fld
          fevpg = fevpg + fevpg_fld
          fevpg_soil = fevpg_soil + fevpg_fld
          fevpg_snow = fevpg_snow + fevpg_fld
-      ELSE
 #endif
-         lfevpg_ground = htvp*fevpg
       ENDIF
 #else
 #ifdef TRACER
@@ -1616,20 +1609,22 @@ ENDIF
       fevpg_soil = fevpg_soil_wat
       fevpg_snow = fevpg_snow_wat
 #endif
-      lfevpg_ground = htvp*fevpg
 #endif
 
 ! total fluxes to atmosphere
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
-      lfevpa = hvap*fevpl + lfevpg_ground
+      lfevpa = hvap*fevpl + htvp*fevpg   ! W/m^2 (accounting for sublimation)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) lfevpa = lfevpa + (hvap-htvp)*fevpg_fld
+#endif
 
 ! ground heat flux
 IF (.not.DEF_SPLIT_SOILSNOW) THEN
       fgrnd = sabg + dlrad*emg &
             - emg*stefnc*t_grnd_bef**4 &
             - emg*stefnc*t_grnd_bef**3*(4.*tinc) &
-            - (fseng+lfevpg_ground) &
+            - (fseng+fevpg*htvp) &
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ELSE
@@ -1637,10 +1632,13 @@ ELSE
             - fsno*emg*stefnc*t_snow**4 &
             - (1.-fsno)*emg*stefnc*t_soil**4 &
             - emg*stefnc*t_grnd_bef**3*(4.*tinc) &
-            - (fseng+lfevpg_ground) &
+            - (fseng+fevpg*htvp) &
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ENDIF
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_evap_active) fgrnd = fgrnd - (hvap-htvp)*fevpg_fld
+#endif
 
 ! outgoing long-wave radiation from canopy + ground
       olrg = ulrad &
@@ -1657,7 +1655,7 @@ ENDIF
       IF (olrg < 0) THEN
          print *, "MOD_Thermal.F90: Error! Negative outgoing longwave radiation flux: "
          write(6,*) ipatch, olrg, tinc, ulrad
-         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,lfevpg_ground,xmf,fgrnd
+         write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,fgrnd
       ENDIF
 
       trad = (olrg/stefnc)**0.25
@@ -1695,7 +1693,7 @@ ENDIF
 #if (defined CoLMDEBUG)
       IF (abs(errore) > .5) THEN
       write(6,*) 'MOD_Thermal.F90: energy balance violation'
-      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,lfevpg_ground,xmf,hprl
+      write(6,*) ipatch,errore,sabv,sabg,frl,olrg,fsenl,fseng,hvap*fevpl,htvp*fevpg,xmf,hprl
       write(6,*) cpliq*pg_rain*(t_precip-t_grnd), cpice*pg_snow*(t_precip-t_grnd)
       CALL CoLM_stop ()
       ENDIF

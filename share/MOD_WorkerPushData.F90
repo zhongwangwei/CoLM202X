@@ -402,6 +402,9 @@ CONTAINS
             pushdata%sum_area = sum(pushdata%area_multi, dim = 1)
 
             deallocate (id_found)
+         ELSE
+            allocate (pushdata%area_multi (ndim1,0))
+            allocate (pushdata%sum_area   (0))
          ENDIF
 
          IF (allocated (ids_req_uniq)) deallocate(ids_req_uniq)
@@ -1125,7 +1128,7 @@ CONTAINS
                ENDDO
 
                IF (trim(mode) == 'average') THEN
-                  IF (vec_recv(j) /= fillvalue) THEN
+                  IF (vec_recv(j) /= fillvalue .and. sumarea > 0.) THEN
                      vec_recv(j) = vec_recv(j) / sumarea
                   ENDIF
                ENDIF
@@ -1437,7 +1440,7 @@ CONTAINS
                ENDDO
 
                IF (trim(mode) == 'average') THEN
-                  IF (vec_out(iset) /= fillvalue) THEN
+                  IF (vec_out(iset) /= fillvalue .and. sumarea > 0.) THEN
                      vec_out(iset) = vec_out(iset) / sumarea
                   ENDIF
                ENDIF

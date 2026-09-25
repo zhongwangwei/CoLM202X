@@ -175,7 +175,7 @@ CONTAINS
    integer  :: iworker, iwrkdsp
    integer  :: iloc, i, j, ithis
    real(r8) :: sumwt
-   logical  :: is_new, invalid_rivsys_partition
+   logical  :: is_new
 
 
 #ifdef USEMPI
@@ -827,17 +827,6 @@ CONTAINS
          ENDIF
       ENDIF
 
-      invalid_rivsys_partition = .false.
-      IF (p_is_worker .and. rivsys_by_multiple_procs .and. numucat > 0) THEN
-         invalid_rivsys_partition = minval(rivermouth) /= maxval(rivermouth)
-      ENDIF
-      CALL mpi_allreduce (MPI_IN_PLACE, invalid_rivsys_partition, 1, MPI_LOGICAL, &
-         MPI_LOR, p_comm_glb, p_err)
-      IF (invalid_rivsys_partition) THEN
-         IF (p_is_master) write(*,'(A)') &
-            'ERROR: a multi-rank river communicator contains more than one river system.'
-         CALL CoLM_stop ('invalid river-system MPI partition')
-      ENDIF
 #else
       rivsys_by_multiple_procs = .false.
 #endif
@@ -1427,12 +1416,6 @@ CONTAINS
 
    integer :: iworker, nucat, npth, ip, i, j, iloc
    integer :: max_bif_inc_global
-#ifdef CoLMDEBUG
-   integer,  allocatable :: uf_parent (:)
-   integer,  allocatable :: sys_root  (:)
-   integer,  allocatable :: comp_nsys (:)
-   integer :: ib, ra, rb, k, nsys, ncomp_bif, max_sys_in_comp
-#endif
 
 #ifdef USEMPI
 
@@ -1440,72 +1423,6 @@ CONTAINS
 
          CALL read_bifurcation_global_arrays (parafile, bif_upst_all, bif_down_all, &
             bif_dist_all, bif_elev_all, bif_wdth_all, bif_mann_all)
-
-#ifdef CoLMDEBUG
-         IF (totalnumucat > 0) THEN
-            allocate (uf_parent (totalnumucat))
-            allocate (sys_root  (totalnumucat))
-            allocate (comp_nsys (totalnumucat))
-            DO k = 1, totalnumucat
-               uf_parent(k) = k
-            ENDDO
-            DO k = 1, totalnumucat
-               ib = ucat_next(k)
-               IF (ib < 1 .or. ib > totalnumucat) CYCLE
-               ra = k
-               DO WHILE (uf_parent(ra) /= ra)
-                  uf_parent(ra) = uf_parent(uf_parent(ra));  ra = uf_parent(ra)
-               ENDDO
-               rb = ib
-               DO WHILE (uf_parent(rb) /= rb)
-                  uf_parent(rb) = uf_parent(uf_parent(rb));  rb = uf_parent(rb)
-               ENDDO
-               IF (ra /= rb) uf_parent(max(ra,rb)) = min(ra,rb)
-            ENDDO
-            DO k = 1, totalnumucat
-               ra = k
-               DO WHILE (uf_parent(ra) /= ra)
-                  ra = uf_parent(ra)
-               ENDDO
-               sys_root(k) = ra
-            ENDDO
-            DO ip = 1, totalnpthout
-               IF (bif_down_all(ip) < 1 .or. bif_down_all(ip) > totalnumucat) CYCLE
-               ra = bif_upst_all(ip)
-               DO WHILE (uf_parent(ra) /= ra)
-                  uf_parent(ra) = uf_parent(uf_parent(ra));  ra = uf_parent(ra)
-               ENDDO
-               rb = bif_down_all(ip)
-               DO WHILE (uf_parent(rb) /= rb)
-                  uf_parent(rb) = uf_parent(uf_parent(rb));  rb = uf_parent(rb)
-               ENDDO
-               IF (ra /= rb) uf_parent(max(ra,rb)) = min(ra,rb)
-            ENDDO
-            comp_nsys(:) = 0
-            nsys = 0
-            DO k = 1, totalnumucat
-               IF (sys_root(k) /= k) CYCLE
-               nsys = nsys + 1
-               ra = k
-               DO WHILE (uf_parent(ra) /= ra)
-                  ra = uf_parent(ra)
-               ENDDO
-               comp_nsys(ra) = comp_nsys(ra) + 1
-            ENDDO
-            ncomp_bif       = count(comp_nsys > 0)
-            max_sys_in_comp = maxval(comp_nsys)
-            write(*,'(A)')    '===== Bifurcation connectivity diagnostic (STEP-0 go/no-go) ====='
-            write(*,'(A,I0)') '  river systems                    : ', nsys
-            write(*,'(A,I0)') '  bifurcation paths (totalnpthout) : ', totalnpthout
-            write(*,'(A,I0)') '  bif-connected components         : ', ncomp_bif
-            write(*,'(A,I0,A,F6.2,A)') '  largest component (systems)      : ', max_sys_in_comp, &
-               ' (', 100._r8*real(max_sys_in_comp,r8)/real(max(nsys,1),r8), '% of systems)'
-            write(*,'(A)')    '  GUIDE: largest >~50% of systems => per-component dt gives ~no'
-            write(*,'(A)')    '         speedup (one giant component); small/many => worth it.'
-            write(*,'(A)')    '================================================================'
-            deallocate (uf_parent, sys_root, comp_nsys)
-         ENDIF
-#endif
 
          allocate (iworker_of_ucat (totalnumucat))
          iworker_of_ucat(:) = -1
@@ -1782,13 +1699,11 @@ CONTAINS
          j = pth_down_ucid(ip)
          IF (j > 0 .and. j <= totalnumucat) THEN
             bif_inc_cnt(j) = bif_inc_cnt(j) + 1
-            DO i = 1, numucat
-               IF (ucat_ucid(i) == j) THEN
-                  bif_incoming_pths(bif_inc_cnt(j), i) = ip
-                  bif_incoming_wts (bif_inc_cnt(j), i) = 1.
-                  EXIT
-               ENDIF
-            ENDDO
+            i = find_in_sorted_list1 (j, numucat, ucat_ucid)
+            IF (i > 0) THEN
+               bif_incoming_pths(bif_inc_cnt(j), i) = ip
+               bif_incoming_wts (bif_inc_cnt(j), i) = 1.
+            ENDIF
          ENDIF
       ENDDO
 
@@ -1888,6 +1803,7 @@ CONTAINS
 
    SUBROUTINE localize_bifurcation_path_indices (path_upst, path_down_ucid, path_down_local)
 
+   USE MOD_Utils, only: find_in_sorted_list1
    IMPLICIT NONE
 
    integer, intent(inout) :: path_upst(:)
@@ -1896,22 +1812,14 @@ CONTAINS
    integer :: ip, i
 
       DO ip = 1, size(path_upst)
-         DO i = 1, numucat
-            IF (ucat_ucid(i) == path_upst(ip)) THEN
-               path_upst(ip) = i
-               EXIT
-            ENDIF
-         ENDDO
+         i = find_in_sorted_list1 (path_upst(ip), numucat, ucat_ucid)
+         IF (i > 0) path_upst(ip) = i
       ENDDO
 
       path_down_local = -1
       DO ip = 1, size(path_down_ucid)
-         DO i = 1, numucat
-            IF (ucat_ucid(i) == path_down_ucid(ip)) THEN
-               path_down_local(ip) = i
-               EXIT
-            ENDIF
-         ENDDO
+         i = find_in_sorted_list1 (path_down_ucid(ip), numucat, ucat_ucid)
+         IF (i > 0) path_down_local(ip) = i
       ENDDO
 
    END SUBROUTINE localize_bifurcation_path_indices

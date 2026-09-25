@@ -69,7 +69,7 @@ MODULE MOD_Grid_RiverLakeFlow
 CONTAINS
 
    ! ---------
-   SUBROUTINE grid_riverlake_flow_init (start_year)
+   SUBROUTINE grid_riverlake_flow_init (start_year, spinup)
 
    USE MOD_LandPatch,           only: numpatch
    USE MOD_Forcing,             only: forcmask_pch
@@ -81,6 +81,7 @@ CONTAINS
    IMPLICIT NONE
 
       integer, intent(in) :: start_year
+      logical, intent(in) :: spinup
 
       integer :: i, irsv
       logical :: bif_restart_loaded
@@ -136,28 +137,14 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (p_is_worker) THEN
+      IF (.not. (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) .and. restart_levee_enabled &
+          .and. volwater_ucat_valid .and. p_is_worker) THEN
          DO i = 1, numucat
-            IF (.not. volwater_ucat_valid .or. &
-                (volwater_ucat(i) <= 0._r8 .and. wdsrf_ucat(i) > RIVERMIN)) THEN
-               IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
-                  volwater_ucat(i) = levee_visible_volume_from_stage(i, wdsrf_ucat(i), levsto(i))
-               ELSE
-                  volwater_ucat(i) = floodplain_curve(i)%volume(wdsrf_ucat(i))
-               ENDIF
-            ENDIF
+            wdsrf_ucat(i) = floodplain_curve(i)%depth(volwater_ucat(i))
          ENDDO
       ENDIF
-      volwater_ucat_valid = .true.
 
-      IF (DEF_GridRiverLake_FloodFeedback .and. p_is_worker .and. allocated(volresv)) THEN
-         DO i = 1, numucat
-            IF (lake_type(i) /= 2) CYCLE
-            irsv = ucat2resv(i)
-            IF (start_year >= dam_build_year(irsv) .and. volresv(irsv) == spval) &
-               volresv(irsv) = floodplain_curve(i)%volume(wdsrf_ucat(i))
-         ENDDO
-      ENDIF
+      CALL rebuild_volwater_ucat ()
 
 #ifdef TRACER
       trc_restart_found = .false.
@@ -210,13 +197,8 @@ CONTAINS
 
       gridriver_restart_file = ''
 
+      CALL allocate_flood_patch ()
       IF (p_is_worker) THEN
-         allocate(flood_depth_patch(numpatch), flood_fraction_patch(numpatch), &
-            flood_evap_patch(numpatch), flood_infil_patch(numpatch))
-         flood_depth_patch = 0._r8
-         flood_fraction_patch = 0._r8
-         flood_evap_patch = 0._r8
-         flood_infil_patch = 0._r8
          IF (DEF_GridRiverLake_FloodFeedback) THEN
 #ifdef TRACER
             has_flood_tracer = .false.
@@ -250,9 +232,74 @@ CONTAINS
             deallocate(grid_area_local)
          ENDIF
       ENDIF
-      IF (DEF_GridRiverLake_FloodFeedback) CALL publish_flood_feedback(start_year)
+      IF (DEF_GridRiverLake_FloodFeedback) THEN
+         CALL publish_flood_feedback(start_year)
+         IF (spinup .and. p_is_worker) THEN
+            flood_credit_patch = 0._r8
+            flood_depth_patch = 0._r8
+            flood_fraction_patch = 0._r8
+#ifdef TRACER
+            IF (allocated(flood_tracer_credit_patch)) flood_tracer_credit_patch = 0._r8
+#endif
+         ENDIF
+      ENDIF
 
    END SUBROUTINE grid_riverlake_flow_init
+
+   ! ---------
+   SUBROUTINE allocate_flood_patch ()
+
+   USE MOD_LandPatch, only: numpatch
+   IMPLICIT NONE
+
+      IF (p_is_worker) THEN
+         IF (allocated(flood_depth_patch)) deallocate(flood_depth_patch, flood_fraction_patch, &
+            flood_evap_patch, flood_infil_patch)
+         allocate(flood_depth_patch(numpatch), flood_fraction_patch(numpatch), &
+            flood_evap_patch(numpatch), flood_infil_patch(numpatch))
+         flood_depth_patch = 0._r8
+         flood_fraction_patch = 0._r8
+         flood_evap_patch = 0._r8
+         flood_infil_patch = 0._r8
+      ENDIF
+
+   END SUBROUTINE allocate_flood_patch
+
+   ! ---------
+   SUBROUTINE rebuild_volwater_ucat ()
+
+   IMPLICIT NONE
+   integer :: i
+
+      IF (p_is_worker) THEN
+         DO i = 1, numucat
+            IF (.not. volwater_ucat_valid .or. &
+                (volwater_ucat(i) <= 0._r8 .and. wdsrf_ucat(i) > RIVERMIN)) THEN
+               IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
+                  volwater_ucat(i) = levee_visible_volume_from_stage(i, wdsrf_ucat(i), levsto(i))
+               ELSE
+                  volwater_ucat(i) = floodplain_curve(i)%volume(wdsrf_ucat(i))
+               ENDIF
+            ENDIF
+         ENDDO
+      ENDIF
+      volwater_ucat_valid = .true.
+
+   END SUBROUTINE rebuild_volwater_ucat
+
+   ! ---------
+   SUBROUTINE grid_riverlake_flow_lulcc ()
+
+   IMPLICIT NONE
+
+      CALL allocate_flood_patch ()
+      CALL rebuild_volwater_ucat ()
+      IF (DEF_USE_BIFURCATION) THEN
+         wdsrf_ucat_prev = wdsrf_ucat
+         wdsrf_ucat_prev_valid = .true.
+      ENDIF
+
+   END SUBROUTINE grid_riverlake_flow_lulcc
 
    ! ---------
    SUBROUTINE grid_riverlake_flow (year, deltime)
@@ -333,9 +380,11 @@ CONTAINS
    real(r8), allocatable :: sum_zgrad_riv(:)
    real(r8), allocatable :: normal_outgoing_rate(:), ordinary_scale(:), ordinary_scale_next(:)
    real(r8), allocatable :: volresv_safe(:)
-   integer,  allocatable :: ucat2resv_safe(:)
    real(r8), allocatable :: levee_floodarea(:)
+#ifdef TRACER
+   integer,  allocatable :: ucat2resv_safe(:)
    real(r8), allocatable :: total_floodarea(:), total_flooddepth(:)
+#endif
 
    real(r8) :: veloct_fc, height_fc, momen_fc, zsurf_fc
    real(r8) :: bedelv_fc, height_up, height_dn
@@ -562,10 +611,10 @@ CONTAINS
          allocate (ucatfilter    (numucat))
          allocate (levee_floodarea(numucat))
          levee_floodarea = 0._r8
+#ifdef TRACER
          allocate (total_floodarea(numucat), total_flooddepth(numucat))
          total_floodarea = 0._r8
          total_flooddepth = 0._r8
-#ifdef TRACER
          allocate (particle_floodarea(numucat), particle_protected_area(numucat))
          allocate (particle_water_storage_start(numucat), particle_water_storage(numucat))
          allocate (particle_protected_start(numucat), particle_protected_end(numucat))
@@ -595,14 +644,14 @@ CONTAINS
          ELSE
             allocate (volresv_safe(0))
          ENDIF
+
+#ifdef TRACER
          IF (allocated(ucat2resv)) THEN
             allocate (ucat2resv_safe(size(ucat2resv)))
             ucat2resv_safe = ucat2resv
          ELSE
             allocate (ucat2resv_safe(0))
          ENDIF
-
-#ifdef TRACER
          IF (allocated(trc_reactive_source)) trc_reactive_source = 0._r8
 #ifdef CoLMDEBUG
          IF (numucat > 0) THEN
@@ -1243,12 +1292,14 @@ CONTAINS
                      floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
                   ENDIF
                   a_floodarea (i) = a_floodarea (i) + floodarea * dt_all(irivsys(i))
+#ifdef TRACER
                   total_floodarea(i) = floodarea
                   IF (DEF_USE_LEVEE .and. levee_floodarea(i) > 0._r8) THEN
                      total_flooddepth(i) = max(levdph(i), max(wdsrf_ucat(i) - floodplain_curve(i)%rivhgt, 0._r8))
                   ELSE
                      total_flooddepth(i) = max(wdsrf_ucat(i) - floodplain_curve(i)%rivhgt, 0._r8)
                   ENDIF
+#endif
 
                   IF (is_built_resv(i)) THEN
                      volwater = volresv(ucat2resv(i))
@@ -1520,11 +1571,11 @@ CONTAINS
       IF (allocated(ordinary_scale)) deallocate(ordinary_scale)
       IF (allocated(ordinary_scale_next)) deallocate(ordinary_scale_next)
       IF (allocated(volresv_safe)) deallocate(volresv_safe)
-      IF (allocated(ucat2resv_safe)) deallocate(ucat2resv_safe)
       IF (allocated(levee_floodarea)) deallocate(levee_floodarea)
+#ifdef TRACER
+      IF (allocated(ucat2resv_safe)) deallocate(ucat2resv_safe)
       IF (allocated(total_floodarea)) deallocate(total_floodarea)
       IF (allocated(total_flooddepth)) deallocate(total_flooddepth)
-#ifdef TRACER
       IF (allocated(particle_floodarea)) deallocate(particle_floodarea, particle_protected_area)
       IF (allocated(particle_water_storage)) deallocate(particle_water_storage_start, particle_water_storage)
       IF (allocated(particle_protected_start)) deallocate(particle_protected_start, particle_protected_end)
@@ -1693,6 +1744,7 @@ CONTAINS
    SUBROUTINE publish_flood_feedback(year)
 
    USE MOD_LandPatch, only: numpatch
+   USE MOD_Vars_Global, only: spval
 #ifdef TRACER
    USE MOD_Tracer_Defs, only: ntracers, tracer_uses_land_water_transport
 #endif
@@ -1731,7 +1783,11 @@ CONTAINS
          ENDIF
          visible = max(0._r8, volwater_ucat(i))
          IF (.not. volwater_ucat_valid) visible = max(0._r8, floodplain_curve(i)%volume(wdsrf_ucat(i)))
-         IF (flood_reservoir_uc(i)) visible = max(0._r8, volresv(ucat2resv(i)))
+         IF (flood_reservoir_uc(i)) THEN
+            IF (volresv(ucat2resv(i)) == spval) &
+               volresv(ucat2resv(i)) = floodplain_curve(i)%volume(wdsrf_ucat(i))
+            visible = max(0._r8, volresv(ucat2resv(i)))
+         ENDIF
          protected = 0._r8
          IF (DEF_USE_LEVEE .and. has_levee(i)) protected = max(0._r8, levsto(i))
 #ifdef TRACER

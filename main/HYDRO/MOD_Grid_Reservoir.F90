@@ -83,6 +83,10 @@ CONTAINS
          CALL CoLM_stop ('reservoir dam_GRAND_ID and dam_seq lengths differ')
 
       IF (DEF_UnitCatchment_regional) THEN
+         IF (p_is_master) THEN
+            IF (ncio_var_exist(parafile, 'seq_src_index', readflag = .false.)) &
+               CALL CoLM_stop ('DEF_ReservoirPara_file must use the source unit catchment numbering')
+         ENDIF
          CALL ncio_read_bcast_serial (regional_unitcatchment_file (), 'seq_src_index', src_index)
          allocate (regional_index (max(maxval(src_index), 1)))
          regional_index = 0

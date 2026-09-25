@@ -452,7 +452,6 @@ MODULE MOD_Vars_TimeVariables
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeTimeVars
-   USE MOD_Grid_RiverLakeHistState, only: write_gridriverlake_hist_restart
 #endif
 #ifdef URBAN_MODEL
    USE MOD_Urban_Vars_TimeVariables
@@ -1341,7 +1340,6 @@ ENDIF
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
-      CALL write_gridriverlake_hist_restart (file_restart)
 #ifdef TRACER
       CALL write_tracer_restart(file_restart)
 #endif
