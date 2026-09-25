@@ -111,6 +111,7 @@ CONTAINS
       pe = patch_pft_e(ipatch)
 
       ! Calculate the end index of natrue PFT
+      pn = ps - 1
       DO i = ps, pe
          pn = i
          p = pftclass(i)

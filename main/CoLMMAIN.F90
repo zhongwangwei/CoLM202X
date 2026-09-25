@@ -1524,6 +1524,8 @@ SUBROUTINE CoLMMAIN ( &
 #else
                  qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
          ENDIF
+
+         IF (is_dry_lake) frcsat = spval
 #endif
 
          IF (snl < 0) THEN

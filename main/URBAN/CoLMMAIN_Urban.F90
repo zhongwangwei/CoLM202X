@@ -1049,11 +1049,7 @@
          qfros_roof         ,qfros_gimp         ,qfros_gper         ,qfros_lake         ,&
          imeltr(lbr:)       ,imelti(lbi:)       ,imeltp(lbp:)       ,imeltl(:)          ,&
          sm_roof            ,sm_gimp            ,sm_gper            ,sm_lake            ,&
-#ifdef TRACER
          sabg               ,rss                ,rstfac             ,rootr(:)           ,etr_deficit        ,&
-#else
-         sabg               ,rstfac             ,rootr(:)           ,etr_deficit        ,&
-#endif
          tref               ,qref               ,trad               ,rst                ,&
          assim              ,respc              ,errore             ,emis               ,&
          z0m                ,zol                ,rib                ,ustar              ,&

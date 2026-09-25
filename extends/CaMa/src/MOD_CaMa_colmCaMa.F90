@@ -1,5 +1,8 @@
 #include <define.h>
 MODULE MOD_CaMa_colmCaMa
+#if defined(CaMa_Flood) && (defined(GridRiverLakeFlow) || defined(CatchLateralFlow))
+#error "CaMa_Flood cannot run alongside another routing solver; choose one routing scheme"
+#endif
 #if(defined CaMa_Flood)
 !DESCRIPTION
 !===========
@@ -121,6 +124,7 @@ CONTAINS
          END SELECT
          !get the time information from colm namelist
          IF(CSETFILE/='NONE') DT = IFRQ_INP*3600
+         IF(IFRQ_INP<=0) ERROR STOP 'CaMa: invalid coupling interval'
          DTIN     = IFRQ_INP*3600                                              ! time step of input data [sec]
          SYEAR    = DEF_simulation_time%start_year                             ! start year
          SMON     = DEF_simulation_time%start_month                            ! start month

@@ -1483,6 +1483,20 @@ CONTAINS
             patch_pft_e = numpft
             pft2patch   = 1
 #endif
+         ELSE
+            landpft%nset = 0
+            allocate (landpft%settyp (0))
+
+            landpft%nblkgrp = 1
+            allocate (landpft%xblkgrp(1));       landpft%xblkgrp(1) = 1
+            allocate (landpft%yblkgrp(1));       landpft%yblkgrp(1) = 1
+
+            allocate (landpft%vecgs%vlen(1,1));  landpft%vecgs%vlen(1,1) = 0
+            allocate (landpft%vecgs%vstt(1,1));  landpft%vecgs%vstt(1,1) = 1
+            allocate (landpft%vecgs%vend(1,1));  landpft%vecgs%vend(1,1) = 0
+
+            allocate (patch_pft_s (numpatch)); patch_pft_s = -1
+            allocate (patch_pft_e (numpatch)); patch_pft_e = -1
          ENDIF
 #endif
 
@@ -1808,6 +1822,7 @@ ENDIF
 
          u_site_urblai = readflag .and. ncio_var_exist(fsrfdata,'TREE_LAI',readflag)
          IF ( u_site_urblai) THEN
+            CALL ncio_read_serial (fsrfdata, 'LAI_year', SITE_LAI_year     )
             CALL ncio_read_serial (fsrfdata, 'TREE_LAI', SITE_LAI_monthly  )
             CALL ncio_read_serial (fsrfdata, 'TREE_SAI', SITE_SAI_monthly  )
          ELSE
@@ -2145,7 +2160,7 @@ IF (DEF_USE_CANYON_HWR) THEN
 ENDIF
 
          ! (6) lake depth
-         readflag         = u_site_lakedepth
+         readflag         = ((.not. mksrfdata) .or. USE_SITE_lakedepth)
          u_site_lakedepth = readflag .and. ncio_var_exist(fsrfdata,'lakedepth',readflag)
          IF (u_site_lakedepth) THEN
             CALL ncio_read_serial (fsrfdata, 'lakedepth', SITE_lakedepth)

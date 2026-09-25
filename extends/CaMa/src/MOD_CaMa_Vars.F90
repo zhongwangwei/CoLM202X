@@ -437,6 +437,7 @@ CONTAINS
    integer :: ihist
 
 
+      IF (CSETFILE=='NONE' .AND. NADD_out<=0._r8) RETURN
       preserve_partial_history=.false.
       IF (CSETFILE=='NONE' .AND. KMIN>=KMINEND) THEN
          SELECT CASE (TRIM(ADJUSTL(DEF_HIST_FREQ)))
@@ -725,7 +726,7 @@ CONTAINS
          USE YOS_CMF_MAP,    only: NSEQMAX
          USE PARKIND1,       only: JPRM
          USE CMF_UTILS_MOD,  only: vecP2mapR
-         USE MOD_NetCDFSerial,    only: ncio_write_serial_time, ncio_put_attr
+         USE MOD_NetCDFSerial,    only: ncio_write_serial_time, ncio_put_attr, ncio_var_exist
          USE YOS_CMF_MAP,        only: I2NEXTX, I2NEXTY
          IMPLICIT NONE
          logical, intent(in)          :: is_hist
@@ -740,6 +741,7 @@ CONTAINS
          real(KIND=JPRM)             :: R2OUT(NX,NY)
          integer  :: i,j
          integer  :: compress
+         logical  :: var_is_new
       
             IF (.not. is_hist) RETURN
             CALL vecP2mapR(var_in(1:NSEQMAX,1),R2OUT)
@@ -752,9 +754,10 @@ CONTAINS
             enddo
  
             compress = DEF_HIST_CompressLevel
+            var_is_new = .not. ncio_var_exist (file_hist, varname, readflag = .false.)
             CALL ncio_write_serial_time (file_hist, varname,  &
                itime_in_file, real(R2OUT,kind=8), 'lon_cama', 'lat_cama', 'time',compress)
-            IF (itime_in_file == 1) THEN
+            IF (itime_in_file == 1 .or. var_is_new) THEN
                CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
                CALL ncio_put_attr (file_hist, varname, 'units', units)
                CALL ncio_put_attr (file_hist, varname, 'missing_value',real(real(spval,kind=JPRM),kind=8))
@@ -784,7 +787,7 @@ CONTAINS
    USE YOS_CMF_MAP,    only: NSEQMAX
    USE PARKIND1,       only: JPRM
    USE CMF_UTILS_MOD,  only: vecP2mapR
-   USE MOD_NetCDFSerial,    only: ncio_write_serial_time, ncio_put_attr
+   USE MOD_NetCDFSerial,    only: ncio_write_serial_time, ncio_put_attr, ncio_var_exist
 
    IMPLICIT NONE
    logical, intent(in)          :: is_hist
@@ -799,14 +802,16 @@ CONTAINS
    real(KIND=JPRM)             :: R2OUT(NX,NY)
 
    integer  :: compress
+   logical  :: var_is_new
 
       IF (.not. is_hist) RETURN
 
       CALL vecP2mapR(var_in(1:NSEQMAX,1),R2OUT)
       compress = DEF_HIST_CompressLevel
+      var_is_new = .not. ncio_var_exist (file_hist, varname, readflag = .false.)
       CALL ncio_write_serial_time (file_hist, varname,  &
          itime_in_file, real(R2OUT,kind=8), 'lon_cama', 'lat_cama', 'time',compress)
-      IF (itime_in_file == 1) THEN
+      IF (itime_in_file == 1 .or. var_is_new) THEN
          CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
          CALL ncio_put_attr (file_hist, varname, 'units', units)
          CALL ncio_put_attr (file_hist, varname, 'missing_value',real(real(spval,kind=JPRM),kind=8))
@@ -836,7 +841,7 @@ CONTAINS
    USE YOS_CMF_MAP,    only: NSEQMAX
    USE PARKIND1,       only: JPRM
    USE CMF_UTILS_MOD,  only: vecP2mapR
-   USE MOD_NetCDFSerial,    only: ncio_write_serial_time, ncio_put_attr, ncio_write_serial_real8_1d, ncio_define_dimension
+   USE MOD_NetCDFSerial,    only: ncio_write_serial_time, ncio_put_attr, ncio_var_exist, ncio_write_serial_real8_1d, ncio_define_dimension
 
    IMPLICIT NONE
    logical, intent(in)          :: is_hist
@@ -851,6 +856,7 @@ CONTAINS
    real(KIND=JPRM)             :: R3OUT(NX,NY,nsed)
    integer                     :: compress
    integer                     :: ised
+   logical                     :: var_is_new
 
       IF (.not. is_hist) RETURN
 
@@ -866,10 +872,11 @@ CONTAINS
       IF (LSEDIMENT) THEN
          CALL ncio_define_dimension (file_hist, 'sedD', nsed)
       ENDIF
+      var_is_new = .not. ncio_var_exist (file_hist, varname, readflag = .false.)
       CALL ncio_write_serial_time (file_hist, varname,  &
          itime_in_file, real(R3OUT,kind=8), 'lon_cama', 'lat_cama', 'sedD', 'time', compress)
 
-      IF (itime_in_file == 1) THEN
+      IF (itime_in_file == 1 .or. var_is_new) THEN
          CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
          CALL ncio_put_attr (file_hist, varname, 'units', units)
          CALL ncio_put_attr (file_hist, varname, 'missing_value', real(real(spval,kind=JPRM),kind=8))

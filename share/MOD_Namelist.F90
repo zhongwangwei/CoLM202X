@@ -1449,6 +1449,15 @@ CONTAINS
              DEF_TRACER_LULCC_ABORT_NBAD < 0) CALL CoLM_Stop ('Invalid TRACER abort threshold.')
 #endif
 
+         SELECT CASE (trim(adjustl(DEF_HIST_mode)))
+         CASE ('one', 'block')
+            DEF_HIST_mode = trim(adjustl(DEF_HIST_mode))
+         CASE DEFAULT
+            CALL CoLM_Stop ('DEF_HIST_mode must be one or block.')
+         END SELECT
+
+         IF (.not. (DEF_simulation_time%timestep > 0._r8 .and. DEF_simulation_time%timestep < huge(1._r8))) &
+            CALL CoLM_Stop ('timestep must be finite and greater than zero.')
          IF (DEF_simulation_time%timestep > 3600.) THEN
             write(*,*) '                  *****                  '
             write(*,*) 'Warning: timestep should be less than or equal to 3600 seconds.'
