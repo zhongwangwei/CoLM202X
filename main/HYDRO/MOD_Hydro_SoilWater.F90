@@ -373,12 +373,6 @@ CONTAINS
       ENDDO
 
 #ifdef TRACER
-      IF (DEF_USE_PLANTHYDRAULICS .and. izwt <= 1 .and. etr <= 0._r8 .and. deficit < 0._r8) THEN
-         IF (-deficit > sqrt(epsilon(1._r8)) * sum(abs(etroot)) * dt) &
-            CALL CoLM_stop('negative plant hydraulic transpiration without resolved root donor')
-         deficit = 0._r8
-      ENDIF
-
       ! Exchange water with aquifer
       wexchange = rsubst * dt + deficit
       exchange_dp_before = ss_dp

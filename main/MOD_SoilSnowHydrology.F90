@@ -56,21 +56,6 @@ CONTAINS
               qseva_snow  ,qsdew_snow  ,qsubl_snow  ,qfros_snow  ,fsno        ,&
               rsur        ,rnof        ,qinfl       ,pondmx      ,ssi         ,&
               wimp        ,smpmin      ,zwt         ,wdsrf       ,wa          ,&
-#ifdef TRACER
-              qcharge                                                         &
-             ,qlayer_trc  ,etroot_trc  ,etroot_actual_trc,etroot_aquifer_trc &
-             ,dew_overflow_trc,frost_displaced_trc,late_runoff_trc            &
-             ,snow_qout_layer                                                &
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-             ,flddepth    ,fldfrc      ,qinfl_fld                             &
-#endif
-! SNICAR model variables
-             ,forc_aer                                                        ,&
-              mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
-              mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
-              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy, &
-              defer_surface_ice_overflow)
-#else
               qcharge                                                         ,&
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
               flddepth    ,fldfrc      ,qinfl_fld                             ,&
@@ -79,6 +64,10 @@ CONTAINS
               forc_aer                                                        ,&
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
+#ifdef TRACER
+              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy, &
+              defer_surface_ice_overflow)
+#else
               qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy               )
 #endif
 
@@ -184,16 +173,6 @@ CONTAINS
         rnof                    ,&! total runoff (mm h2o/s)
         qinfl                   ,&! infiltration rate (mm h2o/s)
         qcharge                   ! groundwater recharge (positive to aquifer) [mm/s]
-#ifdef TRACER
-   real(r8), intent(out) :: &
-        qlayer_trc(0:nl_soil)       ,&
-        etroot_trc(1:nl_soil)       ,&
-        etroot_actual_trc(1:nl_soil),&
-        etroot_aquifer_trc,           &
-        dew_overflow_trc, frost_displaced_trc, late_runoff_trc
-   real(r8), intent(out) :: &
-        snow_qout_layer(min(lb,0):0)
-#endif
 
 ! SNICAR model variables
 ! Aerosol Fluxes (Jan. 07, 2023)
@@ -239,26 +218,16 @@ CONTAINS
    real(r8) :: err_solver, w_sum
 #ifdef TRACER
    real(r8) :: dew_input, dew_capacity, dew_retained, dew_excess, frost_excess, ice_before_frost
-   real(r8) :: rsur_before_late
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-   real(r8) ::gfld ,rsur_fld, qinfl_fld_subgrid ! inundation water input from top (mm/s)
-   real(r8) :: rsubst_fld
-   logical :: new_cama_flood
 #endif
-#else
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    real(r8) ::gfld ,rsur_fld, qinfl_fld_subgrid ! inundation water input from top (mm/s)
    real(r8) :: rsubst_fld, fevpg_runoff
    logical :: new_cama_flood
 #endif
-#endif
 
    real(r8) :: gwat_prev
    integer  :: ps, pe, m
 
-#ifdef TRACER
-   real(r8) :: fevpg_runoff
-#endif
    real(r8) :: wliq_soisno_tmp(1:nl_soil)
 
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
@@ -282,16 +251,6 @@ CONTAINS
 ! [1] update the liquid water within snow layer and the water onto soil
 !=======================================================================
 
-#ifdef TRACER
-   qlayer_trc(:) = 0._r8
-   etroot_trc(:) = 0._r8
-   etroot_actual_trc(:) = 0._r8
-   etroot_aquifer_trc = 0._r8
-   dew_overflow_trc = 0._r8
-   frost_displaced_trc = 0._r8
-   late_runoff_trc = 0._r8
-   snow_qout_layer(:) = 0._r8
-#endif
 
 
 IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
@@ -303,9 +262,6 @@ IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat&
-#ifdef TRACER
-                        ,qout_snow_layer=snow_qout_layer(lb:0)&
-#endif
                          )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
@@ -314,9 +270,6 @@ IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
                          mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0)&
-#ifdef TRACER
-                        ,qout_snow_layer=snow_qout_layer(lb:0)&
-#endif
                          )
          ENDIF
       ENDIF
@@ -330,9 +283,6 @@ ELSE
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat&
-#ifdef TRACER
-                        ,qout_snow_layer=snow_qout_layer(lb:0)&
-#endif
                          )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
@@ -341,9 +291,6 @@ ELSE
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
                          mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0)&
-#ifdef TRACER
-                        ,qout_snow_layer=snow_qout_layer(lb:0)&
-#endif
                          )
          ENDIF
          gwat = gwat + pg_rain*(1-fsno) - qseva_soil
@@ -520,9 +467,6 @@ IF(patchtype<=1)THEN   ! soil ground only
                      t_soisno(1:),vol_liq,vol_ice,smp,hk,icefrac,eff_porosity,&
                      porsl,hksati,bsw,psi0,rootr,rootflux,&
                      zwt,dwat,qcharge&
-#ifdef TRACER
-                    ,qlayer_trc,etroot_trc,etroot_actual_trc,etroot_aquifer_trc&
-#endif
                      )
 
       ! update the mass of liquid water
@@ -540,15 +484,11 @@ IF(patchtype<=1)THEN   ! soil ground only
                         wice_soisno(1:),wliq_soisno(1:),&
                         porsl,psi0,bsw,zwt,wa,&
                         qcharge,rsubst)
-#ifdef TRACER
-      qlayer_trc(nl_soil) = qcharge
-#endif
 
       ! total runoff (mm/s)
       rnof = rsubst + rsur
       ! Renew the ice and liquid mass due to condensation
 #ifdef TRACER
-      rsur_before_late = rsur
       dew_input = 0._r8
       ice_before_frost = wice_soisno(1)
 #endif
@@ -581,15 +521,11 @@ ENDIF
       wliq_soisno(1) = wliq_soisno(1) + dew_retained
       dew_excess = dew_input - dew_retained
       wdsrf = wdsrf + frost_excess + dew_excess
-      frost_displaced_trc = frost_excess
-      dew_overflow_trc = dew_excess
       IF (wdsrf > pondmx .and. patchtype <= 1) THEN
          rsur = rsur + (wdsrf-pondmx)/deltim
          rnof = rnof + (wdsrf-pondmx)/deltim
          wdsrf = pondmx
       ENDIF
-      IF (frost_excess+dew_excess > 0._r8) &
-         late_runoff_trc = max(rsur-rsur_before_late,0._r8)*deltim
 #else
          wliq_soisno(1) = max(0., wliq_soisno(1) + qsdew * deltim)
          wice_soisno(1) = max(0., wice_soisno(1) + (qfros-qsubl) * deltim)
@@ -689,39 +625,22 @@ ENDIF
               fsno        ,frcsat      ,rsur        ,rsur_se     ,rsur_ie     ,&
               rsubst      ,rnof        ,qinfl       ,qlayer      ,ssi         ,&
               pondmx      ,wimp        ,zwt         ,wdsrf       ,wa          ,&
-#ifdef TRACER
-              wetwat                                                          &
-             ,etroot                                                          &
-             ,wblc_ice_sink                                                   &
-             ,etroot_actual                                                   &
-             ,etroot_aquifer, etroot_surface, dew_overflow, frost_displaced    &
-             ,late_runoff                                                     &
-             ,rsub_source_layer, rsub_source_surface, rsub_source_aquifer      &
-             ,imperv_evap_wdsrf                                               &
-             ,imperv_evap_soil                                                &
-             ,imperv_subl_soil                                                &
-             ,snow_qout_layer                                                  &
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-             ,flddepth    ,fldfrc      ,qinfl_fld                             &
-#endif
-! SNICAR model variables
-             ,forc_aer                                                        ,&
-#else
               wetwat                                                          ,&
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
               flddepth    ,fldfrc      ,qinfl_fld                             ,&
 #endif
 ! SNICAR model variables
               forc_aer                                                        ,&
-#endif
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
 !  irrigation variable
 #ifdef TRACER
-              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy, &
-              defer_surface_ice_overflow                                      &
-             ,permeable_soil_out                                              &
-              )
+              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy            ,&
+              etroot, wblc_ice_sink, etroot_actual, etroot_aquifer, etroot_surface, &
+              dew_overflow, frost_displaced, late_runoff, &
+              rsub_source_layer, rsub_source_surface, rsub_source_aquifer, &
+              imperv_evap_wdsrf, imperv_evap_soil, imperv_subl_soil, snow_qout_layer, qgtop_out, &
+              defer_surface_ice_overflow, permeable_soil_out)
 #else
               qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy            )
 #endif
@@ -863,6 +782,7 @@ ENDIF
    real(r8), intent(out) :: imperv_evap_soil
    real(r8), intent(out) :: imperv_subl_soil
    real(r8), intent(out) :: snow_qout_layer(lb:0)
+   real(r8), intent(out) :: qgtop_out
    logical, intent(out), optional :: permeable_soil_out(1:nl_soil)
 #endif
 
@@ -981,6 +901,7 @@ ENDIF
       imperv_evap_soil         = 0._r8
       imperv_subl_soil         = 0._r8
       IF (lb <= 0) snow_qout_layer(lb:0) = 0._r8
+      qgtop_out                = 0._r8
 #endif
 
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
@@ -1361,6 +1282,9 @@ IF((patchtype<=1) .or. is_dry_lake &
 
       ENDIF
 
+#ifdef TRACER
+      qgtop_out = qgtop
+#endif
       CALL soil_water_vertical_movement ( &
          nl_soil,                 deltim,                   sp_zc(1:nl_soil),    sp_zi(0:nl_soil), &
          is_permeable(1:nl_soil), eff_porosity(1:nl_soil),  theta_r(1:nl_soil),  psi0(1:nl_soil),  &
@@ -2246,9 +2170,6 @@ ENDIF
                         t_soisno,vol_liq,vol_ice,smp,hk,icefrac,eff_porosity,&
                         porsl,hksati,bsw,psi0,rootr,rootflux,&
                         zwt,dwat,qcharge&
-#ifdef TRACER
-                       ,qlayer_trc,etroot_trc,etroot_actual_trc,etroot_aquifer_trc&
-#endif
                         )
 
 !-----------------------------------------------------------------------
@@ -2354,12 +2275,6 @@ ENDIF
    real(r8), intent(out) :: qcharge           ! aquifer recharge rate (positive to aquifer) (mm/s)
    real(r8), intent(out) :: smp(1:nl_soil)    ! soil matrix potential [mm]
    real(r8), intent(out) :: hk (1:nl_soil)    ! hydraulic conductivity [mm h2o/s]
-#ifdef TRACER
-   real(r8), intent(out) :: qlayer_trc(0:nl_soil)
-   real(r8), intent(out) :: etroot_trc(1:nl_soil)
-   real(r8), intent(out) :: etroot_actual_trc(1:nl_soil)
-   real(r8), intent(out) :: etroot_aquifer_trc
-#endif
 
 !-------------------------- Local Variables ----------------------------
 
@@ -2393,16 +2308,6 @@ ENDIF
    real(r8), parameter :: e_ice=6.0      !soil ice impedance factor
 !-----------------------------------------------------------------------
 
-#ifdef TRACER
-      qlayer_trc(:) = 0._r8
-      etroot_aquifer_trc = 0._r8
-      IF(DEF_USE_PLANTHYDRAULICS .and. (patchtype/=1 .or. (.not.DEF_URBAN_RUN)))THEN
-         etroot_trc(:) = rootflux(:)
-      ELSE
-         etroot_trc(:) = etr * rootr(:)
-      ENDIF
-      etroot_actual_trc(:) = etroot_trc(:) * deltim
-#endif
 
       !compute jwt index
       ! The layer index of the first unsaturated layer,
@@ -2620,13 +2525,6 @@ ENDIF
 
       ! Recharge rate qcharge to groundwater (positive to aquifer)
       qcharge = qout(nl_soil) + dqodw1(nl_soil)*dwat(nl_soil)
-#ifdef TRACER
-      qlayer_trc(0) = qinfl
-      DO j = 1, nl_soil - 1
-         qlayer_trc(j) = qout(j) + dqodw1(j)*dwat(j) + dqodw2(j)*dwat(j+1)
-      ENDDO
-      qlayer_trc(nl_soil) = qcharge
-#endif
 
 
    END SUBROUTINE soilwater

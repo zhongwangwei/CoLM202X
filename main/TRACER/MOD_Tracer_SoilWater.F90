@@ -95,7 +95,7 @@ CONTAINS
       etroot_actual, etroot_aquifer, &
       qflx_irrig_ground, waterstorage_patch, &
       imperv_evap_wdsrf, imperv_evap_soil, imperv_subl_soil, &
-      snow_qout_layer, tleaf_frac, t_soisno_frac, forc_q_frac, forc_psrf_frac, lai_frac, rst_frac, ra_frac, &
+      snow_qout_layer, qgtop_solver, tleaf_frac, t_soisno_frac, forc_q_frac, forc_psrf_frac, lai_frac, rst_frac, ra_frac, &
       rss_frac, dz_soi_frac, porsl_frac, dz_sno_frac, flood_tracer_input, flood_infil_water, &
       etroot_surface, dew_overflow, frost_displaced, late_surface_runoff, &
       rsub_source_layer, rsub_source_surface, rsub_source_aquifer, permeable_soil)
@@ -173,6 +173,7 @@ CONTAINS
       real(r8), intent(in), optional :: imperv_evap_soil
       real(r8), intent(in), optional :: imperv_subl_soil
       real(r8), intent(in), optional :: snow_qout_layer(snl+1:0)
+      real(r8), intent(in), optional :: qgtop_solver
       real(r8), intent(in), optional :: tleaf_frac
       real(r8), intent(in), optional :: t_soisno_frac(snl+1:nl_soil)
       real(r8), intent(in), optional :: forc_q_frac
@@ -272,6 +273,7 @@ CONTAINS
       real(r8) :: transp_water_total, xylem_tracer_total, xylem_ratio
       real(r8) :: root_return_water, root_return_tracer, root_return_tracer_total
       real(r8) :: root_gross_water, root_gross_tracer, return_ratio
+      real(r8) :: root_return_excess, excess_ratio
       real(r8) :: aquifer_ratio
       real(r8) :: aquifer_water_pre_qcharge
       real(r8) :: aquifer_ref_water, aquifer_ref_mass, aquifer_actual_mass
@@ -445,8 +447,7 @@ CONTAINS
                root_gross_water = transp_water_total
                root_return_water = -sum(min(etroot_actual, 0._r8)) &
                   + max(-etroot_aquifer, 0._r8) + surface_root_return
-               IF (root_return_water > root_gross_water + 1.e-9_r8) &
-                  CALL CoLM_stop('plant hydraulic root return exceeds resolved uptake')
+               root_return_excess = max(root_return_water - root_gross_water, 0._r8)
                transp_water_total = max(root_gross_water - root_return_water, 0._r8)
                root_gross_tracer = 0._r8
                   transp_ratio = xylem_ratio
@@ -516,10 +517,21 @@ CONTAINS
          ! Use the tracer mass actually removed from positive root donors;
          ! a finite-pool cap must never make reverse flow mint isotope mass.
          return_ratio = xylem_ratio
+         excess_ratio = 0._r8
          IF (root_return_water > trc_tiny .and. .not. tracer_is_nonvolatile_solute(itrc)) THEN
-            IF (root_gross_water <= trc_tiny) &
-               CALL CoLM_stop('plant hydraulic isotope return without resolved donor water')
-            return_ratio = root_gross_tracer/root_gross_water
+            IF (present(tleaf_frac)) THEN
+               excess_ratio = deposition_ratio_for(tleaf_frac, .false.)
+            ELSE
+               excess_ratio = deposition_ratio_for(layer_temp(1), .false.)
+            ENDIF
+            IF (root_gross_water > trc_tiny .and. root_return_excess <= 0._r8) THEN
+               return_ratio = root_gross_tracer/root_gross_water
+            ELSEIF (root_gross_water > trc_tiny) THEN
+               return_ratio = (root_gross_tracer*(root_return_water-root_return_excess)/root_gross_water &
+                  + root_return_excess*excess_ratio) / root_return_water
+            ELSE
+               return_ratio = excess_ratio
+            ENDIF
             xylem_ratio = return_ratio
             transp_ratio = return_ratio
          ENDIF
@@ -573,7 +585,7 @@ CONTAINS
                root_return_tracer_total = root_return_tracer_total + root_return_tracer
             ENDIF
             IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
-               IF (root_return_tracer_total > root_gross_tracer + &
+               IF (root_return_tracer_total > root_gross_tracer + root_return_excess*excess_ratio + &
                    max(1.e-12_r8, 1.e-9_r8*abs(return_ratio))) &
                   CALL CoLM_stop('plant hydraulic isotope return exceeds actual donor isotope')
                IF (transp_frac_active) THEN
@@ -987,8 +999,12 @@ CONTAINS
             ! the final ponding change; for the evaporation-deficit cases
             ! that dominate active ptype=0 residuals, rsur is zero and this
             ! identifies negative qgtop exactly.
-            qgtop_est = qinfl + (wdsrf - wdsrf_bef) / max(deltim, trc_tiny) &
-               + (late_runoff_water-flood_water-late_surface_water)/max(deltim,trc_tiny)
+            IF (present(qgtop_solver)) THEN
+               qgtop_est = qgtop_solver - flood_water/max(deltim,trc_tiny)
+            ELSE
+               qgtop_est = qinfl + (wdsrf - wdsrf_bef) / max(deltim, trc_tiny) &
+                  + (late_runoff_water-flood_water-late_surface_water)/max(deltim,trc_tiny)
+            ENDIF
 
             IF (eff_qseva > trc_tiny .and. qgtop_est < -trc_tiny) THEN
                top_soil_evap_water = top_boundary_out_water

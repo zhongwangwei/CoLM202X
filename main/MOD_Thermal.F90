@@ -476,18 +476,6 @@ CONTAINS
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
-#ifdef TRACER
-   real(r8) :: fevpg_wat, fevpg_soil_wat, fevpg_snow_wat
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-   logical  :: flood_evap_active
-   real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
-   real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
-   real(r8) :: taux_fld, tauy_fld, tref_fld, qref_fld, z0m_fld, zol_fld, rib_fld
-   real(r8) :: ustar_fld, qstar_fld, tstar_fld, fm_fld, fh_fld, fq_fld
-   real(r8) :: fseng_land, fseng_soil_land, fseng_snow_land
-   real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
-#endif
-#else
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    logical :: flood_evap_active
    real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
@@ -496,7 +484,6 @@ CONTAINS
    real(r8) :: ustar_fld, qstar_fld, tstar_fld, fm_fld, fh_fld, fq_fld
    real(r8) :: fseng_land, fseng_soil_land, fseng_snow_land
    real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
-#endif
 #endif
 
    integer p, ps, pe, pn
@@ -566,7 +553,6 @@ CONTAINS
       fseng_fld_local = 0._r8
       fseng_land = 0._r8; fseng_soil_land = 0._r8; fseng_snow_land = 0._r8
       fevpg_land = 0._r8; fevpg_soil_land = 0._r8; fevpg_snow_land = 0._r8
-      fevpg_wat = 0._r8; fevpg_soil_wat = 0._r8; fevpg_snow_wat = 0._r8
       cgrnd_land = 0._r8; cgrndl_land = 0._r8; cgrnds_land = 0._r8
 #endif
 #else
@@ -1431,25 +1417,12 @@ ENDIF
       fevpg_soil = fevpg_soil + tinc*cgrndl
       fevpg_snow = fevpg_snow + tinc*cgrndl
 
-#ifdef TRACER
-      fevpg_wat = fevpg
-      fevpg_soil_wat = fevpg_soil
-      fevpg_snow_wat = fevpg_snow
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-      IF (flood_evap_active) THEN
-         fevpg_wat = fevpg - (hvap/htvp)*fevpg_fld
-         fevpg_soil_wat = fevpg_soil - (hvap/htvp)*fevpg_fld
-         fevpg_snow_wat = fevpg_snow - (hvap/htvp)*fevpg_fld
-      ENDIF
-#endif
-#else
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       IF (flood_evap_active) THEN
          fevpg = fevpg - (hvap/htvp)*fevpg_fld
          fevpg_soil = fevpg_soil - (hvap/htvp)*fevpg_fld
          fevpg_snow = fevpg_snow - (hvap/htvp)*fevpg_fld
       ENDIF
-#endif
 #endif
 
 ! calculation of evaporative potential; flux in kg m-2 s-1.
@@ -1472,21 +1445,6 @@ ENDIF
 
 IF (.not. DEF_SPLIT_SOILSNOW) THEN
       egsmax = (wice_soisno(lb)+wliq_soisno(lb)) / deltim
-#ifdef TRACER
-      egidif = max( 0., fevpg_wat - egsmax )
-      fevpg_wat  = min( fevpg_wat, egsmax )
-      fseng  = fseng + htvp*egidif
-
-      IF (fevpg_wat >= 0.) THEN
-! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
-         qseva = min(wliq_soisno(lb)/deltim, fevpg_wat)
-         qsubl = fevpg_wat - qseva
-      ELSE
-         IF (t_grnd < tfrz) THEN
-            qfros = abs(fevpg_wat)
-         ELSE
-            qsdew = abs(fevpg_wat)
-#else
       egidif = max( 0., fevpg - egsmax )
       fevpg  = min( fevpg, egsmax )
       fseng  = fseng + htvp*egidif
@@ -1500,52 +1458,26 @@ IF (.not. DEF_SPLIT_SOILSNOW) THEN
             qfros = abs(fevpg)
          ELSE
             qsdew = abs(fevpg)
-#endif
          ENDIF
       ENDIF
 
 ELSE
       IF (lb < 1) THEN   ! snow layer exist
          egsmax = (wice_soisno(lb)+wliq_soisno(lb)) / deltim
-#ifdef TRACER
-         egidif = max( 0., fevpg_snow_wat - egsmax )
-         fevpg_snow_wat = min ( fevpg_snow_wat, egsmax )
-         fseng_snow = fseng_snow + htvp*egidif
-      ELSE               ! no snow layer, attribute to soil
-         fevpg_soil_wat = fevpg_soil_wat*(1.-fsno) + fevpg_snow_wat*fsno
-#else
          egidif = max( 0., fevpg_snow - egsmax )
          fevpg_snow = min ( fevpg_snow, egsmax )
          fseng_snow = fseng_snow + htvp*egidif
       ELSE               ! no snow layer, attribute to soil
          fevpg_soil = fevpg_soil*(1.-fsno) + fevpg_snow*fsno
-#endif
       ENDIF
 
       egsmax = (wice_soisno(1)+wliq_soisno(1)) / deltim
-#ifdef TRACER
-      egidif = max( 0., fevpg_soil_wat - egsmax )
-      fevpg_soil_wat = min ( fevpg_soil_wat, egsmax )
-#else
       egidif = max( 0., fevpg_soil - egsmax )
       fevpg_soil = min ( fevpg_soil, egsmax )
-#endif
       fseng_soil = fseng_soil + htvp*egidif
 
       IF (lb < 1) THEN   ! snow layer exist
          fseng = fseng_soil*(1.-fsno) + fseng_snow*fsno
-#ifdef TRACER
-         fevpg_wat = fevpg_soil_wat*(1.-fsno) + fevpg_snow_wat*fsno
-      ELSE               ! no snow layer, attribute to soil
-         fseng = fseng_soil; fseng_snow = 0.
-         fevpg_wat = fevpg_soil_wat; fevpg_snow_wat = 0.
-      ENDIF
-
-      IF(fevpg_snow_wat >= 0.)THEN
-! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
-         qseva_snow = min(wliq_soisno(lb)/deltim, fevpg_snow_wat)
-         qsubl_snow = fevpg_snow_wat - qseva_snow
-#else
          fevpg = fevpg_soil*(1.-fsno) + fevpg_snow*fsno
       ELSE               ! no snow layer, attribute to soil
          fseng = fseng_soil; fseng_snow = 0.
@@ -1556,47 +1488,27 @@ ELSE
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
          qseva_snow = min(wliq_soisno(lb)/deltim, fevpg_snow)
          qsubl_snow = fevpg_snow - qseva_snow
-#endif
          qseva_snow = qseva_snow*fsno
          qsubl_snow = qsubl_snow*fsno
       ELSE
          ! snow temperature < tfrz
          IF(t_soisno(lb) < tfrz)THEN
-#ifdef TRACER
-            qfros_snow = abs(fevpg_snow_wat*fsno)
-         ELSE
-            qsdew_snow = abs(fevpg_snow_wat*fsno)
-#else
             qfros_snow = abs(fevpg_snow*fsno)
          ELSE
             qsdew_snow = abs(fevpg_snow*fsno)
-#endif
          ENDIF
       ENDIF
 
-#ifdef TRACER
-      IF(fevpg_soil_wat >= 0.)THEN
-! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
-         qseva_soil = min(wliq_soisno(1)/deltim, fevpg_soil_wat)
-         qsubl_soil = fevpg_soil_wat - qseva_soil
-#else
       IF(fevpg_soil >= 0.)THEN
 ! not allow for sublimation in melting (melting ==> evap. ==> sublimation)
          qseva_soil = min(wliq_soisno(1)/deltim, fevpg_soil)
          qsubl_soil = fevpg_soil - qseva_soil
-#endif
       ELSE
          ! soil temperature < tfrz
          IF(t_soisno(1) < tfrz)THEN
-#ifdef TRACER
-            qfros_soil = abs(fevpg_soil_wat)
-         ELSE
-            qsdew_soil = abs(fevpg_soil_wat)
-#else
             qfros_soil = abs(fevpg_soil)
          ELSE
             qsdew_soil = abs(fevpg_soil)
-#endif
          ENDIF
       ENDIF
 
@@ -1610,26 +1522,11 @@ ENDIF
 
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       IF (flood_evap_active) THEN
-#ifdef TRACER
-         fevpg = fevpg_fld + fevpg_wat
-         fevpg_soil = fevpg_fld + fevpg_soil_wat
-         fevpg_snow = fevpg_fld + fevpg_snow_wat
-      ELSE
-         fevpg = fevpg_wat
-         fevpg_soil = fevpg_soil_wat
-         fevpg_snow = fevpg_snow_wat
-#else
          fevpg = fevpg + fevpg_fld
          fevpg_soil = fevpg_soil + fevpg_fld
          fevpg_snow = fevpg_snow + fevpg_fld
-#endif
       ENDIF
 #else
-#ifdef TRACER
-      fevpg = fevpg_wat
-      fevpg_soil = fevpg_soil_wat
-      fevpg_snow = fevpg_snow_wat
-#endif
 #endif
 
 ! total fluxes to atmosphere

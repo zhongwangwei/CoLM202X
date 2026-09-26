@@ -256,15 +256,6 @@ CONTAINS
 
    real(r8) :: a, aa, xs1
 
-#ifdef TRACER
-   real(r8) :: qlayer_urb(0:nl_soil)
-   real(r8) :: etroot_trc_urb(1:nl_soil)
-   real(r8) :: etroot_actual_trc_urb(1:nl_soil)
-   real(r8) :: etroot_aquifer_trc_urb
-   real(r8) :: dew_overflow_urb, frost_displaced_urb, late_runoff_urb
-   real(r8) :: snow_qout_layer_urb(min(lbp, 0):0)
-#endif
-
 !-----------------------------------------------------------------------
 
       fg = 1 - froof
@@ -292,11 +283,6 @@ CONTAINS
              0.          ,& ! fsno, not active
              rsur_gper   ,rnof_gper   ,qinfl       ,pondmx      ,ssi         ,&
              wimp        ,smpmin      ,zwt         ,wdsrf       ,wa          ,qcharge     ,&
-#ifdef TRACER
-             qlayer_urb  ,etroot_trc_urb ,etroot_actual_trc_urb ,&
-             etroot_aquifer_trc_urb ,dew_overflow_urb,frost_displaced_urb,late_runoff_urb ,&
-             snow_qout_layer_urb                                             ,&
-#endif
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
              flddepth    ,fldfrc      ,qinfl_fld                             ,&
 #endif
