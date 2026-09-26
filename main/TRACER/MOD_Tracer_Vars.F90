@@ -161,6 +161,7 @@ MODULE MOD_Tracer_Vars
 	   ! Explicit numerical source/sink used only to reconcile solver residuals
 	   ! that have no physical flux signature. Positive adds tracer to storage.
 	   real(r8), allocatable :: trc_numerical_residual_step(:,:)
+	   real(r8), allocatable :: trc_numerical_water_step(:,:)
 
    real(r8), allocatable :: a_trc_ldew_mass (:,:)
    real(r8), allocatable :: a_water_ldew    (:)
@@ -213,7 +214,7 @@ MODULE MOD_Tracer_Vars
    PUBLIC :: trc_leaf_delta_e, trc_leaf_delta_b, trc_leaf_peclet
    PUBLIC :: trc_leaf_water_moles, trc_leaf_iso_storage
    PUBLIC :: trc_storage_beg, trc_balance_err
-   PUBLIC :: trc_reactive_source_step, trc_numerical_residual_step
+   PUBLIC :: trc_reactive_source_step, trc_numerical_residual_step, trc_numerical_water_step
 
    PUBLIC :: TRC_EVAP_KIND_TRANSP, TRC_EVAP_KIND_SOILEVAP
    PUBLIC :: TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SUBL, TRC_EVAP_KIND_WETLAND
@@ -306,6 +307,7 @@ CONTAINS
 	      allocate(trc_balance_err (ntracers, numpatch));           trc_balance_err = 0._r8
 	      allocate(trc_reactive_source_step(ntracers, numpatch));   trc_reactive_source_step = 0._r8
 	      allocate(trc_numerical_residual_step(ntracers, numpatch)); trc_numerical_residual_step = 0._r8
+	      allocate(trc_numerical_water_step(ntracers, numpatch)); trc_numerical_water_step = 0._r8
 
 	      allocate(a_trc_ldew_mass (ntracers, numpatch));           a_trc_ldew_mass = 0._r8
       allocate(a_water_ldew    (numpatch));                     a_water_ldew    = 0._r8
@@ -388,6 +390,7 @@ CONTAINS
 	      IF (allocated(trc_balance_err)) deallocate(trc_balance_err)
 	      IF (allocated(trc_reactive_source_step)) deallocate(trc_reactive_source_step)
 	      IF (allocated(trc_numerical_residual_step)) deallocate(trc_numerical_residual_step)
+	      IF (allocated(trc_numerical_water_step)) deallocate(trc_numerical_water_step)
 	      IF (allocated(a_trc_ldew_mass)) deallocate(a_trc_ldew_mass)
       IF (allocated(a_water_ldew   )) deallocate(a_water_ldew   )
       IF (allocated(a_trc_soil_mass)) deallocate(a_trc_soil_mass)
@@ -1058,6 +1061,7 @@ CONTAINS
 	      IF (allocated(trc_sm_carry     )) trc_sm_carry      = 0._r8
 	      IF (allocated(trc_reactive_source_step)) trc_reactive_source_step = 0._r8
 	      IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step = 0._r8
+	      IF (allocated(trc_numerical_water_step)) trc_numerical_water_step = 0._r8
 	   END SUBROUTINE flush_Tracer_Acc
 
    SUBROUTINE zero_provider_owned_land_tracer_state ()
@@ -1122,6 +1126,7 @@ CONTAINS
          IF (allocated(trc_balance_err)) trc_balance_err(itrc, :) = 0._r8
          IF (allocated(trc_reactive_source_step)) trc_reactive_source_step(itrc, :) = 0._r8
          IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, :) = 0._r8
+         IF (allocated(trc_numerical_water_step)) trc_numerical_water_step(itrc, :) = 0._r8
          IF (allocated(a_trc_ldew_mass)) a_trc_ldew_mass(itrc, :) = 0._r8
          IF (allocated(a_trc_soil_mass)) a_trc_soil_mass(itrc, :, :) = 0._r8
          IF (allocated(a_trc_snow_mass)) a_trc_snow_mass(itrc, :, :) = 0._r8

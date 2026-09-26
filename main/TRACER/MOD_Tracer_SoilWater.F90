@@ -43,7 +43,7 @@ MODULE MOD_Tracer_SoilWater
             a_trc_qinfl, a_trc_qcharge, a_trc_rsur, a_trc_rsub, a_trc_rnof, &
          trc_pg_rain_ground, trc_rnof_step, trc_sm_carry, &
          trc_leaf_delta_e, trc_leaf_delta_b, trc_leaf_peclet, trc_leaf_water_moles, &
-         trc_leaf_iso_storage, trc_numerical_residual_step
+         trc_leaf_iso_storage, trc_numerical_residual_step, trc_numerical_water_step
 
    IMPLICIT NONE
 
@@ -297,7 +297,7 @@ CONTAINS
       real(r8) :: source_fallback_ratio
       real(r8) :: relhum_leaf, leaf_area_use, rst_use, ra_use, tleaf_use
       real(r8) :: leaf_delta_e_new, leaf_delta_b_new, leaf_peclet_new, leaf_moles_new
-      real(r8) :: soil_resid_trc
+      real(r8) :: soil_resid_trc, soil_resid_water
       logical  :: transp_frac_active
 
       IF (ntracers <= 0) RETURN
@@ -345,6 +345,7 @@ CONTAINS
          R_precip = tracer_forcing_precip_value(itrc, ipatch)
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          soil_resid_trc = 0._r8
+         soil_resid_water = 0._r8
          water_shadow(1:nl_soil) = wliq_soisno_bef(1:nl_soil)
 
          IF (tracer_is_nonvolatile_solute(itrc) .and. &
@@ -1768,6 +1769,7 @@ CONTAINS
                water_resid = wliq_soisno(j) - water_shadow(j)
                IF (abs(water_resid) > trc_tiny) THEN
                   water_shadow_ratio = current_liq_ratio(j)
+                  soil_resid_water = soil_resid_water + water_resid
                   IF (water_resid >= 0._r8) THEN
                      trc_flux = water_resid * water_shadow_ratio
                      trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux
@@ -1788,6 +1790,8 @@ CONTAINS
                      IF (allocated(trc_numerical_residual_step)) THEN
                         trc_numerical_residual_step(itrc, ipatch) = &
                            trc_numerical_residual_step(itrc, ipatch) + soil_resid_trc
+                        trc_numerical_water_step(itrc, ipatch) = &
+                           trc_numerical_water_step(itrc, ipatch) + soil_resid_water
                      ELSE
                         trc_wa(itrc, ipatch) = trc_wa(itrc, ipatch) - soil_resid_trc
                      ENDIF

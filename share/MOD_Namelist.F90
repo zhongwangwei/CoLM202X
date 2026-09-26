@@ -1375,6 +1375,10 @@ CONTAINS
 #ifndef CaMa_Flood
          IF (DEF_CaMa_FloodFeedback) CALL CoLM_Stop ('CaMa feedback requires CaMa_Flood.')
 #endif
+         IF ((DEF_GridRiverLake_FloodFeedback .or. DEF_CaMa_FloodFeedback) .and. DEF_Runoff_SCHEME /= 0) THEN
+            write(*,*) 'Note: DEF_Runoff_SCHEME is set to 0 for two-way river coupling.'
+            DEF_Runoff_SCHEME = 0
+         ENDIF
 #if !defined GridRiverLakeFlow && !defined CaMa_Flood
          IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires a river routing solver.')
 #endif
