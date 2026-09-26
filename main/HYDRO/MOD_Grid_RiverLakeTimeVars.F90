@@ -11,9 +11,6 @@ MODULE MOD_Grid_RiverLakeTimeVars
 !-------------------------------------------------------------------------------------
 
    USE MOD_Precision
-#ifdef GridRiverLakeSediment
-   USE MOD_Grid_RiverLakeSediment, only: write_sediment_restart
-#endif
 #ifdef TRACER
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_route_write_restart
 #endif
@@ -599,16 +596,13 @@ CONTAINS
       ENDIF
       IF (base_var_flags(5) == 1) volwater_ucat_valid = .true.
 
-      ! Note: sediment restart is read separately in grid_sediment_read_restart,
-      ! called from grid_riverlake_flow_init after sediment module is initialized.
-
    END SUBROUTINE READ_GridRiverLakeTimeVars
 
 
    SUBROUTINE WRITE_GridRiverLakeTimeVars (file_restart)
 
    USE MOD_SPMD_Task
-   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_LEVEE, DEF_USE_BIFURCATION, DEF_USE_SEDIMENT
+   USE MOD_Namelist,              only: DEF_Reservoir_Method, DEF_USE_LEVEE, DEF_USE_BIFURCATION
    USE MOD_NetCDFSerial
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
@@ -675,12 +669,6 @@ CONTAINS
       IF (DEF_USE_BIFURCATION) THEN
          CALL write_bifurcation_restart(file_restart)
       ENDIF
-
-#ifdef GridRiverLakeSediment
-      IF (DEF_USE_SEDIMENT) THEN
-         CALL write_sediment_restart(file_restart)
-      ENDIF
-#endif
 
 #ifdef TRACER
       CALL tracer_lifecycle_route_write_restart(file_restart)

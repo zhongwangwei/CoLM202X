@@ -79,6 +79,8 @@ CONTAINS
       hooks%flush_acc_fluxes     => ch4_reactive_flush_acc_fluxes
       hooks%accumulate_fluxes    => ch4_reactive_accumulate_fluxes
       hooks%land_history         => methane_reactive_history
+      hooks%land_history_sidecar_write => ch4_reactive_write_history_sidecar
+      hooks%land_history_sidecar_read  => ch4_reactive_read_history_sidecar
       hooks%land_save_lulcc      => ch4_reactive_save_lulcc_state
       hooks%land_remap_lulcc     => ch4_reactive_remap_lulcc_state
       hooks%land_reload_lulcc    => ch4_reactive_reload_lulcc_inputs
@@ -392,6 +394,36 @@ CONTAINS
       CALL write_methane_restart_marker(file_restart, 'ch4_restart_complete', 1._r8, compress)
 
    END SUBROUTINE ch4_reactive_write_restart
+
+   SUBROUTINE ch4_reactive_write_history_sidecar (file_hist_acc)
+
+      USE MOD_LandPatch, only: landpatch
+      USE MOD_NetCDFVector, only: ncio_define_dimension_vector
+      USE MOD_Vars_Global, only: nl_soil
+      IMPLICIT NONE
+      character(len=*), intent(in) :: file_hist_acc
+
+      IF (.not. ch4_reactive_has()) RETURN
+      CALL ncio_define_dimension_vector (file_hist_acc, landpatch, 'soil', nl_soil)
+      CALL write_methane_accflux_restart (file_hist_acc, 0)
+
+   END SUBROUTINE ch4_reactive_write_history_sidecar
+
+   SUBROUTINE ch4_reactive_read_history_sidecar (file_hist_acc)
+
+      USE MOD_LandPatch, only: landpatch
+      USE MOD_NetCDFVector, only: ncio_vector_var_present
+      IMPLICIT NONE
+      character(len=*), intent(in) :: file_hist_acc
+
+      IF (.not. ch4_reactive_has()) RETURN
+      IF (.not. ncio_vector_var_present(file_hist_acc, 'ch4_a_methane_acc_num', landpatch)) RETURN
+      CALL read_methane_accflux_restart (file_hist_acc, &
+         checkpoint_has_microbe_pools = DEF_METHANE%use_microbial_pools, &
+         checkpoint_has_microbe_accumulators = DEF_METHANE%use_microbial_pools, &
+         restart_schema = METHANE_RESTART_SCHEMA_VERSION)
+
+   END SUBROUTINE ch4_reactive_read_history_sidecar
 
    SUBROUTINE write_methane_restart_marker (file_restart, varname, value, compress)
 

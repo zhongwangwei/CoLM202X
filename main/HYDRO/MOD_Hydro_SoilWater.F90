@@ -336,7 +336,7 @@ CONTAINS
             attempted   = etroot(ilev)*dt + deficit
             ss_vliq_pre = ss_vliq(ilev) * sp_dz(ilev)
 
-            ss_vliq(ilev) = (ss_vliq_pre - attempted) / sp_dz(ilev)
+            ss_vliq(ilev) = (ss_vliq_pre - etroot(ilev)*dt - deficit) / sp_dz(ilev)
 
             IF (ss_vliq(ilev) < 0) THEN
                residual_mm  = -ss_vliq(ilev) * sp_dz(ilev)

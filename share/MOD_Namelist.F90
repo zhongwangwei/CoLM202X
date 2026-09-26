@@ -343,25 +343,6 @@ MODULE MOD_Namelist
    logical  :: DEF_USE_LEVEE = .false.
    logical  :: DEF_USE_BIFURCATION = .false.
 
-   ! ----- sediment module -----
-   logical  :: DEF_USE_SEDIMENT        = .false.
-   real(r8) :: DEF_SED_LAMBDA          = 0.4
-   real(r8) :: DEF_SED_LYRDPH          = 0.00005
-   real(r8) :: DEF_SED_DENSITY         = 2.65
-   real(r8) :: DEF_SED_WATER_DENSITY   = 1.0
-   real(r8) :: DEF_SED_VISKIN          = 1.0e-6
-   real(r8) :: DEF_SED_VONKAR          = 0.4
-   real(r8) :: DEF_SED_PSET            = 1.0
-   integer  :: DEF_SED_TOTLYRNUM       = 5
-   real(r8) :: DEF_SED_CFL_ADV         = 0.5
-   real(r8) :: DEF_SED_IGNORE_DPH      = 0.05
-   real(r8) :: DEF_SED_DT_MAX          = 3600.
-   character(len=256) :: DEF_SED_DIAMETER = "0.0002,0.002,0.02"
-   real(r8) :: DEF_SED_PYLD            = 0.01
-   real(r8) :: DEF_SED_PYLDC           = 2.0
-   real(r8) :: DEF_SED_PYLDPC          = 2.0
-   real(r8) :: DEF_SED_DSYLUNIT        = 1.0e-6
-
    logical :: DEF_TRACER_USE_FRACTIONATION = .false.
    character(len=16) :: DEF_TRACER_KINETIC_SCHEME = 'MERLIVAT1978'
    real(r8) :: DEF_TRACER_ICE_SUPERSAT_SLOPE = 0.003_r8
@@ -1215,24 +1196,6 @@ CONTAINS
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
 
-      DEF_USE_SEDIMENT,                       &
-      DEF_SED_LAMBDA,                         &
-      DEF_SED_LYRDPH,                         &
-      DEF_SED_DENSITY,                        &
-      DEF_SED_WATER_DENSITY,                  &
-      DEF_SED_VISKIN,                         &
-      DEF_SED_VONKAR,                         &
-      DEF_SED_PSET,                           &
-      DEF_SED_TOTLYRNUM,                      &
-      DEF_SED_CFL_ADV,                        &
-      DEF_SED_IGNORE_DPH,                     &
-      DEF_SED_DT_MAX,                         &
-      DEF_SED_DIAMETER,                       &
-      DEF_SED_PYLD,                           &
-      DEF_SED_PYLDC,                          &
-      DEF_SED_PYLDPC,                         &
-      DEF_SED_DSYLUNIT,                       &
-
 #ifdef TRACER
       DEF_TRACER_USE_FRACTIONATION, &
       DEF_TRACER_KINETIC_SCHEME, &
@@ -1993,24 +1956,6 @@ CONTAINS
       CALL mpi_bcast (DEF_GridRiverLake_FloodplainStorageFix ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-
-      CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DENSITY                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_WATER_DENSITY                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_VISKIN                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_VONKAR                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PSET                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_TOTLYRNUM                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_CFL_ADV                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_IGNORE_DPH                     ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DT_MAX                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DIAMETER                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLD                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLDC                          ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLDPC                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DSYLUNIT                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
 
 #ifdef TRACER
       CALL mpi_bcast (DEF_TRACER_USE_FRACTIONATION            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)

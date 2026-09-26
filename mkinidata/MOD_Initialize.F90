@@ -37,6 +37,9 @@ CONTAINS
    USE MOD_Const_Physical
    USE MOD_Vars_TimeInvariants
    USE MOD_Vars_TimeVariables
+#if defined(TRACER) && defined(BGC)
+   USE MOD_BGC_CNSummary, only: CNDriverSummarizeNonvegetatedSoilStates
+#endif
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT
    USE MOD_Vars_PFTimeInvariants
@@ -1446,6 +1449,9 @@ ENDIF
                ,use_soilini, nl_soil_ini, soil_z, soil_t(1:,i), soil_w(1:,i), use_snowini, snow_d(i) &
                ! for SOIL Water INIT by using water table depth
                ,use_wtd, zwtmm, zc_soimm, zi_soimm, vliq_r, nprms, prms)
+#if defined(TRACER) && defined(BGC)
+            IF (patchtype(i) == 2) CALL CNDriverSummarizeNonvegetatedSoilStates(i, nl_soil, dz_soi, ndecomp_pools)
+#endif
 
 #ifdef EXTERNAL_LAKE
             IF(patchtype(i) == 4) THEN

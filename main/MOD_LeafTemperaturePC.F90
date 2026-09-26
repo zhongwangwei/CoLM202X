@@ -1947,7 +1947,10 @@ ENDIF
 
 #ifdef TRACER
                IF (.not. DEF_VEG_SNOW) THEN
-                  IF (tl(i) > tfrz) THEN
+                  IF (ldew_rain(i) + ldew_snow(i) > 1.e-10_r8) THEN
+                     ldew_rain(i) = ldew(i) * (ldew_rain(i) / (ldew_rain(i) + ldew_snow(i)))
+                     ldew_snow(i) = ldew(i) - ldew_rain(i)
+                  ELSEIF (tl(i) > tfrz) THEN
                      ldew_rain(i) = ldew(i)
                      ldew_snow(i) = 0._r8
                   ELSE

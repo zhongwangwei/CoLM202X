@@ -140,6 +140,9 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
+#ifdef TRACER
+   USE MOD_Namelist, only: DEF_VEG_SNOW
+#endif
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    USE MOD_CaMa_colmCaMa, only: get_fldevp
 #ifdef CaMa_Flood
@@ -731,7 +734,12 @@ ENDIF
                          !taux,tauy,fseng,fevpg,tref,qref, &
                          taux,tauy,fseng,fseng_soil,fseng_snow, &
                          fevpg,fevpg_soil,fevpg_snow,tref,qref, &
+#ifdef TRACER
+                         z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g, &
+                         raw_out=raw_trc_local)
+#else
                          z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g)
+#endif
 
       obu_g = forc_hgt_u / zol_g
 
@@ -881,6 +889,15 @@ IF (patchtype == 0) THEN
       canopy_smelt_mass_p_local(:) = 0._r8
       canopy_frzc_mass_p_local (:) = 0._r8
       raw_trc_p(:) = 0._r8
+      IF (.not. DEF_VEG_SNOW) THEN
+         IF (tleaf > tfrz) THEN
+            ldew_rain_p(ps:pe) = ldew_p(ps:pe)
+            ldew_snow_p(ps:pe) = 0._r8
+         ELSE
+            ldew_rain_p(ps:pe) = 0._r8
+            ldew_snow_p(ps:pe) = ldew_p(ps:pe)
+         ENDIF
+      ENDIF
 #endif
 
       sabv_p(ps:pe) = sabvsun_p(ps:pe) + sabvsha_p(ps:pe)
@@ -1041,7 +1058,11 @@ IF (patchtype == 0) THEN
                                taux_p(i),tauy_p(i),fseng_p(i),fseng_soil_p(i),fseng_snow_p(i), &
                                fevpg_p(i),fevpg_soil_p(i),fevpg_snow_p(i),tref_p(i),qref_p(i), &
                                z0m_p(i),z0h_g,zol_p(i),rib_p(i),ustar_p(i),&
+#ifdef TRACER
+                               qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i),raw_out=raw_trc_p(i))
+#else
                                qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i))
+#endif
 
             tleaf_p      (i) = forc_t
             gssun_p      (i) = 0.

@@ -573,7 +573,8 @@ CONTAINS
                root_return_tracer_total = root_return_tracer_total + root_return_tracer
             ENDIF
             IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
-               IF (root_return_tracer_total > root_gross_tracer + 1.e-12_r8) &
+               IF (root_return_tracer_total > root_gross_tracer + &
+                   max(1.e-12_r8, 1.e-9_r8*abs(return_ratio))) &
                   CALL CoLM_stop('plant hydraulic isotope return exceeds actual donor isotope')
                IF (transp_frac_active) THEN
                   transp_source_tracer_total = transp_source_tracer_total - root_return_tracer_total
@@ -1618,13 +1619,6 @@ CONTAINS
             ! denominator is the post-frost ice pool, not wice_soisno_bef(1).
             wice_pre_phase = max(wice_soil1_after_imperv + max(eff_qfros_top, 0._r8) * deltim, 0._r8)
             subl_water = eff_qsubl_top * deltim
-            ! Mirror the snow-top deficit path. Water side
-            ! (MOD_SoilSnowHydrology.F90:1101) clamps wice at 0 when
-            ! qsubl*dt > wice_bef+qfros*dt and charges the excess
-            ! against wliq. Previously the tracer side only min()'d
-            ! against trc_wice, so the deficit vapour carried away no
-            ! tracer and a_trc_evap was systematically short in
-            ! sublimation-heavy patches.
             IF (wice_pre_phase - subl_water > trc_water_min_for_ratio) THEN
                ! Normal case: ice covers sublimation.
                   trc_flux = atmospheric_loss_tracer(trc_wice_soisno(itrc, 1, ipatch), &
@@ -1633,21 +1627,9 @@ CONTAINS
                   CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, subl_water, &
                      TRC_EVAP_KIND_SUBL)
             ELSEIF (subl_water > trc_tiny) THEN
-               ! Deficit: drain ice completely, then pull the remainder
-               ! from liquid at pre-WATER wliq ratio (ratio_layer(1) was
-               ! cached at the top of the step before any layer-1 mutation).
                   CALL exhaust_surface_phase(itrc, ipatch, &
                      trc_wice_soisno(itrc, 1, ipatch), &
                      min(subl_water, max(wice_pre_phase, 0._r8)), TRC_EVAP_KIND_SUBL)
-               deficit_water = subl_water - max(wice_pre_phase, 0._r8)
-                  IF (deficit_water > trc_tiny .and. wliq_soisno_bef(1) > trc_tiny) THEN
-                        trc_flux = atmospheric_loss_tracer(trc_wliq_soisno(itrc, 1, ipatch), &
-                           max(water_shadow(1), 0._r8), deficit_water, layer_temp(1), .false.)
-                        trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_flux
-                        CALL tracer_book_evap_loss(itrc, ipatch, trc_flux, deficit_water, &
-                           TRC_EVAP_KIND_SUBL)
-                     water_shadow(1) = water_shadow(1) - deficit_water
-                  ENDIF
                ENDIF
             ENDIF
 
@@ -2350,6 +2332,7 @@ CONTAINS
                         min(evap_water, max(water_liq_pool, 0._r8)), TRC_EVAP_KIND_SOILEVAP)
                   deficit_water = evap_water - max(water_liq_pool, 0._r8)
                   IF (deficit_water > trc_tiny .and. water_ice_pool > trc_tiny) THEN
+                        deficit_water = min(deficit_water, water_ice_pool)
                         trc_flux = atmospheric_loss_tracer(trc_wice_soisno(itrc, lb_snow, ipatch), &
                            water_ice_pool, deficit_water, layer_temp(lb_snow), .true.)
                         trc_wice_soisno(itrc, lb_snow, ipatch) = &

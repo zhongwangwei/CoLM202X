@@ -63,11 +63,6 @@
 #undef GridRiverLakeFlow
 #endif
 
-#undef GridRiverLakeSediment
-#if (!defined GridRiverLakeFlow)
-#undef GridRiverLakeSediment
-#endif
-
 ! 7. If defined, BGC model is used.
 #undef BGC
 

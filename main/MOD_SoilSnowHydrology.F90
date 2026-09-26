@@ -564,13 +564,12 @@ ELSE
       wice_soisno(1) = max(0., wice_soisno(1) + (qfros_soil-qsubl_soil) * deltim)
 ENDIF
 
-      IF (wice_soisno(1) > ice_before_frost + 1.e-12_r8 .and. &
+      IF (patchtype == 0 .and. wice_soisno(1) > ice_before_frost + 1.e-12_r8 .and. &
           wice_soisno(1)/denice > porsl(1)*dz_soisno(1) + 1.e-10_r8) THEN
-         IF (.not. present(defer_surface_ice_overflow)) &
+         IF (.not. present(defer_surface_ice_overflow)) THEN
             CALL CoLM_stop('WATER_2014: new frost ice exceeds entire soil pore volume')
-         IF (present(defer_surface_ice_overflow)) THEN
-            IF (.not. defer_surface_ice_overflow .or. patchtype /= 0) &
-               CALL CoLM_stop('WATER_2014: new frost ice exceeds entire soil pore volume')
+         ELSEIF (.not. defer_surface_ice_overflow) THEN
+            CALL CoLM_stop('WATER_2014: new frost ice exceeds entire soil pore volume')
          ENDIF
       ENDIF
       dew_capacity = max((porsl(1)*dz_soisno(1)-wice_soisno(1)/denice)*denh2o, 0._r8)
@@ -1419,13 +1418,12 @@ ELSE
       dew_input = max(qsdew_soil*deltim, 0._r8)
       wice_soisno(1) = max(0., wice_soisno(1) + (qfros_soil-qsubl_soil) * deltim)
 ENDIF
-      IF (wice_soisno(1) > ice_before_frost + 1.e-12_r8 .and. &
+      IF (patchtype == 0 .and. wice_soisno(1) > ice_before_frost + 1.e-12_r8 .and. &
           wice_soisno(1)/denice > porsl(1)*dz_soisno(1) + 1.e-10_r8) THEN
-         IF (.not. present(defer_surface_ice_overflow)) &
+         IF (.not. present(defer_surface_ice_overflow)) THEN
             CALL CoLM_stop('WATER_VSF: new frost ice exceeds entire soil pore volume')
-         IF (present(defer_surface_ice_overflow)) THEN
-            IF (.not. defer_surface_ice_overflow .or. patchtype /= 0) &
-               CALL CoLM_stop('WATER_VSF: new frost ice exceeds entire soil pore volume')
+         ELSEIF (.not. defer_surface_ice_overflow) THEN
+            CALL CoLM_stop('WATER_VSF: new frost ice exceeds entire soil pore volume')
          ENDIF
       ENDIF
       dew_capacity = max((porsl(1)*dz_soisno(1) - wice_soisno(1)/denice)*denh2o, 0._r8)

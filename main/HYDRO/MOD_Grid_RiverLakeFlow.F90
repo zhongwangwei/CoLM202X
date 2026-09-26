@@ -22,11 +22,6 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeBifurcation, only: bifurcation_init, read_bifurcation_restart, &
       bifurcation_final, bifurcation_calc, bifurcation_invalidate_static_dn, &
       bif_hflux_sum, bif_hflux_lev, bif_lev_hflux_sum, bif_path_active
-#ifdef GridRiverLakeSediment
-   USE MOD_Grid_RiverLakeSediment, only: grid_sediment_init, grid_sediment_calc, &
-      grid_sediment_final, sediment_diag_accumulate, sediment_forcing_put, &
-      read_sediment_restart
-#endif
 #ifdef TRACER
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_route_has_active, tracer_lifecycle_route_init, &
       tracer_lifecycle_route_calc, tracer_lifecycle_route_final, tracer_lifecycle_route_diag_accumulate, &
@@ -38,8 +33,7 @@ MODULE MOD_Grid_RiverLakeFlow
       tracer_input_from_runoff, tracer_substep, tracer_limiter_stats, read_tracer_restart, &
       river_lake_tracer_final, acc_trc_inp, acc_rnof_ref, trc_mass, trc_inp_buf, trc_flux_out, &
       tracer_diag_accumulate_substep, trc_levsto, trc_solid, trc_levsto_solid, trc_dry_drain, &
-      trc_reactive_source, levee_tracer_repartition, equilibrate_river_tracer_cell, &
-      get_cell_volume_dep => get_cell_volume, trc_conc_dep => trc_conc
+      trc_reactive_source, levee_tracer_repartition, equilibrate_river_tracer_cell
 #endif
    IMPLICIT NONE
 
@@ -188,13 +182,6 @@ CONTAINS
       ENDIF
 #endif
 
-#ifdef GridRiverLakeSediment
-      CALL grid_sediment_init()
-      IF (len_trim(gridriver_restart_file) > 0) THEN
-         CALL read_sediment_restart(gridriver_restart_file)
-      ENDIF
-#endif
-
       gridriver_restart_file = ''
 
       CALL allocate_flood_patch ()
@@ -305,7 +292,7 @@ CONTAINS
    SUBROUTINE grid_riverlake_flow (year, deltime)
 
    USE MOD_Utils
-   USE MOD_Namelist,       only: DEF_Reservoir_Method, DEF_USE_SEDIMENT, &
+   USE MOD_Namelist,       only: DEF_Reservoir_Method, &
       DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT
    USE MOD_Vars_1DFluxes,  only: rnof
    USE MOD_Forcing,        only: forcmask_pch
@@ -315,7 +302,7 @@ CONTAINS
    USE MOD_Const_Physical, only: grav
    USE MOD_Vars_Global,    only: spval
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
-#if (defined GridRiverLakeSediment) || (defined TRACER)
+#ifdef TRACER
    USE MOD_Vars_1DForcing, only: forc_prc, forc_prl
 #endif
 #ifdef TRACER
@@ -337,19 +324,16 @@ CONTAINS
    real(r8), allocatable :: rnof_gd(:)
    real(r8), allocatable :: rnof_uc(:)
 
-#if (defined GridRiverLakeSediment) || (defined TRACER)
+#ifdef TRACER
    real(r8), allocatable :: prcp_gd(:)
    real(r8), allocatable :: prcp_uc(:)
    real(r8), allocatable :: prcp_pch(:)
-#endif
-#ifdef GridRiverLakeSediment
-   real(r8), allocatable :: floodarea_sed(:)
 #endif
 #ifdef TRACER
    integer  :: itrc, itrc_dep
    integer  :: lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft
    integer, save :: lim_diag_printed = 0
-   real(r8) :: frac_remove, trc_removed, vol_post
+   real(r8) :: frac_remove, trc_removed
    real(r8), allocatable :: trc_rnof_gd(:,:), trc_rnof_uc(:,:)
    real(r8), allocatable :: prcp_area_gd(:), prcp_area_uc(:)
    logical,  allocatable :: filter_prcp(:)
@@ -461,56 +445,6 @@ CONTAINS
 #ifdef TRACER
          IF (allocated(trc_rnof_gd)) deallocate(trc_rnof_gd)
          IF (allocated(trc_rnof_uc)) deallocate(trc_rnof_uc)
-#endif
-
-#ifdef GridRiverLakeSediment
-         IF (DEF_USE_SEDIMENT) THEN
-            ! Allocate zero-length arrays on empty workers to avoid passing unallocated
-            ! arrays to assumed-shape dummy arguments in MPI communication routines.
-            IF (numpatch > 0) THEN
-               allocate (prcp_pch (numpatch))
-               prcp_pch = forc_prc + forc_prl
-            ELSE
-               allocate (prcp_pch (0))
-            ENDIF
-            IF (numinpm > 0) THEN
-               allocate (prcp_gd (numinpm))
-            ELSE
-               allocate (prcp_gd (0))
-            ENDIF
-            IF (numucat > 0) THEN
-               allocate (prcp_uc (numucat))
-            ELSE
-               allocate (prcp_uc (0))
-            ENDIF
-
-            CALL worker_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_gd, &
-               fillvalue = 0., filter = filter_rnof)
-
-            IF (numinpm > 0) THEN
-               WHERE (push_ucat2inpm%sum_area > 0)
-                  prcp_gd = prcp_gd / push_ucat2inpm%sum_area
-               END WHERE
-            ENDIF
-
-            CALL worker_push_data (push_inpm2ucat, prcp_gd, prcp_uc, &
-               fillvalue = 0., mode = 'sum')
-
-            ! Convert from area-integrated [mm/s * m²] back to flux density [mm/s].
-            ! push_data(mode='sum') produces area-integrated values (like rnof_uc),
-            ! but the sediment yield formula expects a rate and multiplies by area internally.
-            IF (numucat > 0) THEN
-               WHERE (topo_area > 0._r8)
-                  prcp_uc = prcp_uc / topo_area
-               END WHERE
-            ENDIF
-
-            CALL sediment_forcing_put(prcp_uc, deltime)
-
-            deallocate(prcp_pch)
-            deallocate(prcp_gd)
-            deallocate(prcp_uc)
-         ENDIF
 #endif
 
 #ifdef TRACER
@@ -1186,10 +1120,6 @@ CONTAINS
 #ifdef TRACER
                      IF (volwater > 1.e-6_r8) THEN
                         frac_remove = (volwater - topo_rivstomax(i)) / volwater
-                        IF (allocated(volresv)) volresv_safe = volresv
-                        CALL get_cell_volume_dep(i, floodplain_curve(i)%depth(topo_rivstomax(i)), &
-                           volresv_safe, ucat2resv_safe, vol_post)
-                        vol_post = max(vol_post, 1.e-6_r8)
                         DO itrc_dep = 1, ntracers
                            IF (.not. tracer_uses_land_water_transport(itrc_dep)) CYCLE
                            IF (allocated(trc_solid)) THEN
@@ -1200,7 +1130,6 @@ CONTAINS
                            trc_removed = trc_mass(itrc_dep, i) * frac_remove
                            trc_mass(itrc_dep, i) = trc_mass(itrc_dep, i) - trc_removed
                            trc_flux_out(itrc_dep, i) = trc_removed / dt_all(irivsys(i))
-                           trc_conc_dep(itrc_dep, i) = trc_mass(itrc_dep, i) / vol_post
                         ENDDO
                      ENDIF
 #endif
@@ -1346,26 +1275,6 @@ CONTAINS
             ELSE
                loop_active = any(dt_res > 0._r8)
             ENDIF
-
-#ifdef GridRiverLakeSediment
-            IF (DEF_USE_SEDIMENT) THEN
-               IF (numucat > 0) THEN
-                  allocate(floodarea_sed(numucat))
-                  DO i = 1, numucat
-                     IF (ucatfilter(i)) THEN
-                        floodarea_sed(i) = floodplain_curve(i)%floodarea(wdsrf_ucat(i))
-                     ELSE
-                        floodarea_sed(i) = 0._r8
-                     ENDIF
-                  ENDDO
-               ELSE
-                  allocate(floodarea_sed(0))
-               ENDIF
-               CALL sediment_diag_accumulate(dt_all, irivsys, ucatfilter, &
-                  veloc_riv, wdsrf_ucat, hflux_fc, floodarea_sed)
-               deallocate(floodarea_sed)
-            ENDIF
-#endif
 
 #ifdef TRACER
             IF (tracer_lifecycle_route_has_active()) THEN
@@ -1526,15 +1435,6 @@ CONTAINS
          IF (allocated(acc_trc_inp)) acc_trc_inp = 0._r8
          IF (allocated(acc_rnof_ref)) acc_rnof_ref = 0._r8
          IF (allocated(trc_dry_drain)) trc_dry_drain = 0._r8
-      ENDIF
-#endif
-
-#ifdef GridRiverLakeSediment
-      IF (DEF_USE_SEDIMENT .and. p_is_worker) THEN
-         ! All workers must participate (MPI point-to-point inside push_data).
-         ! fldfrc is now computed inside grid_sediment_calc from per-routing-period
-         ! accumulators (sed_acc_floodarea), not from history-period averages.
-         CALL grid_sediment_calc(acctime_rnof)
       ENDIF
 #endif
 
@@ -2141,9 +2041,6 @@ CONTAINS
       CALL levee_final()
       CALL bifurcation_final()
 
-#ifdef GridRiverLakeSediment
-      CALL grid_sediment_final()
-#endif
 #ifdef TRACER
       CALL river_lake_tracer_final()
 #endif

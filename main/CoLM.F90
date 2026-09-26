@@ -106,6 +106,9 @@ PROGRAM CoLM
    USE MOD_Tracer_LandPhase, only: land_tracer_init, land_tracer_final
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_reset
    USE MOD_Tracer_Defs, only: tracer_defs_final
+#ifdef CaMa_Flood
+   USE MOD_Tracer_Defs, only: ntracers, tracer_uses_land_water_transport
+#endif
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &
@@ -159,6 +162,9 @@ PROGRAM CoLM
    integer :: lc_year, lai_year, restart_lc_year
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
+#if (defined TRACER) && (defined CaMa_Flood)
+   integer :: itrc_cama
+#endif
    logical :: is_spinup
    logical :: history_saved_raw
 #ifdef TRACER
@@ -380,6 +386,12 @@ PROGRAM CoLM
       CALL colm_CaMa_init(jdate)
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+#ifdef TRACER
+      IF (p_is_master .and. ntracers > 0) THEN
+         IF (any([(tracer_uses_land_water_transport(itrc_cama), itrc_cama = 1, ntracers)])) &
+            write(*,'(A)') 'WARNING: CaMa_Flood does not route land runoff tracers; they leave at the land boundary.'
+      ENDIF
 #endif
 #endif
 

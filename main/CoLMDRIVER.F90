@@ -35,6 +35,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
       tracer_wetland_decomp, tracer_soil_step, tracer_report
    USE MOD_Tracer_Defs, only: ntracers
    USE MOD_SPMD_Task, only: CoLM_stop
+   USE MOD_Tracer_SpecialPatches, only: waterbody_hist_sample
 #endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
@@ -118,6 +119,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
          IF (.not.DEF_URBAN_RUN .or. m.ne.URBAN) THEN
 
             DO k = 1, steps_in_one_deltim
+#ifdef TRACER
+               waterbody_hist_sample = k == steps_in_one_deltim
+#endif
                !                ***** Call CoLM main program *****
                !
                CALL CoLMMAIN (  i,idate,         coszen(i),       deltim_phy,      &

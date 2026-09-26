@@ -189,6 +189,9 @@ CONTAINS
    logical :: lwrite
    logical :: natural_boundary
 #ifdef TRACER
+   logical :: forcmask_empty(0)
+#endif
+#ifdef TRACER
    real(r8) :: history_window_seconds
    character(len=256) :: file_hist
    integer :: itime_in_file
@@ -4872,8 +4875,13 @@ ENDIF
 #endif
 
 #ifdef TRACER
-         CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
-            sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
+         IF (allocated(forcmask_pch)) THEN
+            CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
+         ELSE
+            CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_empty)
+         ENDIF
 #endif
 
          IF (allocated(filter    )) deallocate (filter    )

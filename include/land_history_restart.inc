@@ -5508,6 +5508,7 @@
    USE MOD_NetCDFVector
 #ifdef TRACER
    USE MOD_Tracer_Vars, only: tracer_history_required, tracer_history_write
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_land_history_sidecar
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeHistState, only: acctime_ucat, write_gridriverlake_hist_restart
@@ -5577,6 +5578,7 @@
       IF (window_active/=0) CALL history_acc_transfer(file, .true., flags, dims)
 #ifdef TRACER
       IF (window_active/=0 .and. tracer_history_required()) CALL tracer_history_write(file)
+      IF (window_active/=0) CALL tracer_lifecycle_land_history_sidecar(file, .true.)
 #endif
 #ifdef GridRiverLakeFlow
       river_active=0
@@ -5679,6 +5681,7 @@
 #ifdef TRACER
    USE MOD_Tracer_Vars, only: TRC_HISTORY_FIELDS, tracer_history_required, &
       tracer_history_manifest, tracer_history_restore
+   USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_land_history_sidecar
 #endif
    IMPLICIT NONE
    integer, intent(in) :: idate(3), lc_year
@@ -5859,6 +5862,7 @@
          ENDDO
          CALL tracer_history_restore(file)
       ENDIF
+      CALL tracer_lifecycle_land_history_sidecar(file, .false.)
 #endif
       CALL history_acc_transfer(file, .false., flags, dims)
    END SUBROUTINE read_history_acc_restart
