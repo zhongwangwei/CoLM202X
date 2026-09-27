@@ -16,7 +16,7 @@ MODULE MOD_SoilSnowHydrology
 #ifdef CaMa_Flood
    USE YOS_CMF_INPUT,      only: LWINFILT, CSETFILE
 #else
-   USE MOD_Namelist,       only: LWINFILT => DEF_GridRiverLake_FloodFeedback
+   USE MOD_Namelist,       only: LWINFILT => DEF_GridRiverLake_FloodFeedback, DEF_GridRiverLake_FloodInfiltMax
 #endif
 #endif
    USE MOD_LandPatch, only: landpatch
@@ -437,6 +437,13 @@ IF(patchtype<=1)THEN   ! soil ground only
             ! infiltration into surface soil layer
             qinfl_fld_subgrid = gfld - rsur_fld !assume the re-infiltration is occurred in whole patch area.
             IF (new_cama_flood) qinfl_fld_subgrid = MIN(gfld,MAX(0._r8,qinfl_fld_subgrid))
+#ifdef GridRiverLakeFlow
+            IF (DEF_GridRiverLake_FloodInfiltMax >= 0._r8 .and. &
+                qinfl_fld_subgrid > DEF_GridRiverLake_FloodInfiltMax/86400._r8) THEN
+               qinfl_fld_subgrid = DEF_GridRiverLake_FloodInfiltMax/86400._r8
+               rsur_fld = gfld - qinfl_fld_subgrid
+            ENDIF
+#endif
          ELSE
             qinfl_fld_subgrid=0.0d0
             gfld=0.0d0
@@ -1171,6 +1178,13 @@ IF((patchtype<=1) .or. is_dry_lake &
             ! infiltration into surface soil layer
             qinfl_fld_subgrid = gfld - rsur_fld !assume the re-infiltration is occurred in whole patch area.
             IF (new_cama_flood) qinfl_fld_subgrid = MIN(gfld,MAX(0._r8,qinfl_fld_subgrid))
+#ifdef GridRiverLakeFlow
+            IF (DEF_GridRiverLake_FloodInfiltMax >= 0._r8 .and. &
+                qinfl_fld_subgrid > DEF_GridRiverLake_FloodInfiltMax/86400._r8) THEN
+               qinfl_fld_subgrid = DEF_GridRiverLake_FloodInfiltMax/86400._r8
+               rsur_fld = gfld - qinfl_fld_subgrid
+            ENDIF
+#endif
          ELSE
             qinfl_fld_subgrid=0.0d0
             gfld=0.0d0

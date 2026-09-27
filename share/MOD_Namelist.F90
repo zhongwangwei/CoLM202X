@@ -340,6 +340,7 @@ MODULE MOD_Namelist
    logical  :: DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT = .false.
    logical  :: DEF_GridRiverLake_FloodFeedback = .false.
    logical  :: DEF_GridRiverLake_FloodplainStorageFix = .false.
+   real(r8) :: DEF_GridRiverLake_FloodInfiltMax = 5._r8
    logical  :: DEF_USE_LEVEE = .false.
    logical  :: DEF_USE_BIFURCATION = .false.
 
@@ -1193,6 +1194,7 @@ CONTAINS
       DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT, &
       DEF_GridRiverLake_FloodFeedback,        &
       DEF_GridRiverLake_FloodplainStorageFix,  &
+      DEF_GridRiverLake_FloodInfiltMax,        &
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
 
@@ -1958,6 +1960,7 @@ CONTAINS
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodFeedback        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodplainStorageFix ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GridRiverLake_FloodInfiltMax       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
