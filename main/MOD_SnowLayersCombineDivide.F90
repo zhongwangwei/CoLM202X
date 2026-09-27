@@ -265,7 +265,6 @@ CONTAINS
 !  with, and executes the combination of mass and energy in
 !  clm_combo.f90
 !
-!  Optional TRACER arrays follow the same layer topology updates.
 !=======================================================================
 
    USE MOD_Precision
@@ -286,7 +285,6 @@ CONTAINS
    integer, intent(inout) :: snl                  ! Number of snow
 
 #ifdef TRACER
-   ! Optional TRACER mass arrays aligned with wliq/wice/scv.
    real(r8), intent(inout), optional :: trc_wliq(:, lb:)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
    real(r8), intent(inout), optional :: trc_solid(:, lb:)
@@ -308,9 +306,8 @@ CONTAINS
    integer :: neibor         ! adjacent node selected for combination
 
 #ifdef TRACER
-   ! TRACER aggregates for the snowdp<0.01 collapse branch
    real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:), zwtrc_solid(:)
-   integer :: ntr            ! number of tracers (inferred from trc_wliq shape)
+   integer :: ntr
    integer :: itrc
 #endif
 
@@ -513,10 +510,6 @@ CONTAINS
                   snl = snl + 1
 #ifdef TRACER
                   IF (present(trc_wliq) .and. present(trc_wice)) THEN
-                     ! After removing one snow layer, the active snow window is
-                     ! snl+1:0.  Clear only slots below that window; clearing
-                     ! old snl+2 here would erase the repacked bottom survivor
-                     ! for multi-layer combines such as -3 -> -2.
                      IF (snl >= lb) THEN
                         trc_wliq(:, lb:snl) = 0._r8
                         trc_wice(:, lb:snl) = 0._r8
@@ -567,8 +560,6 @@ CONTAINS
 !  Original author: Yongjiu Dai, September 15, 1999
 !
 !  subdivides snow layer when its thickness exceed the prescribed maximum
-!
-!  Optional TRACER arrays follow the same layer split operations.
 !=======================================================================
 
    USE MOD_Precision
@@ -586,7 +577,7 @@ CONTAINS
    real(r8), intent(inout) :: zi_soisno  (lb-1:0) ! Depth of layer interface [m]
 
 #ifdef TRACER
-   real(r8), intent(inout), optional :: trc_wliq(:, lb:)  ! (ntracers, lb:0)
+   real(r8), intent(inout), optional :: trc_wliq(:, lb:)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
    real(r8), intent(inout), optional :: trc_solid(:, lb:)
 #endif
@@ -606,7 +597,6 @@ CONTAINS
    real(r8) zwice,zwliq,propor
 
 #ifdef TRACER
-   ! TRACER locals mirror swice/swliq/zwice/zwliq.
    real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:), strc_solid(:,:)
    real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:), z_strc_solid(:)
    integer :: ntr, itrc
@@ -1069,7 +1059,6 @@ CONTAINS
 ! Aerosol Fluxes (Jan. 07, 2023)
 
 #ifdef TRACER
-   ! Optional TRACER arrays aligned with wliq/wice/scv.
    real(r8), intent(inout), optional :: trc_wliq(:, lb:)
    real(r8), intent(inout), optional :: trc_wice(:, lb:)
    real(r8), intent(inout), optional :: trc_solid(:, lb:)
@@ -1091,7 +1080,6 @@ CONTAINS
    integer :: neibor        ! adjacent node selected for combination
 
 #ifdef TRACER
-   ! TRACER aggregates for the snowdp<0.01 collapse branch
    real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:), zwtrc_solid(:)
    integer :: ntr, itrc
 #endif
@@ -1366,10 +1354,6 @@ CONTAINS
                   snl = snl + 1
 #ifdef TRACER
                   IF (present(trc_wliq) .and. present(trc_wice)) THEN
-                     ! After removing one snow layer, the active snow window is
-                     ! snl+1:0.  Clear only slots below that window; clearing
-                     ! old snl+2 here would erase the repacked bottom survivor
-                     ! for multi-layer combines such as -3 -> -2.
                      IF (snl >= lb) THEN
                         trc_wliq(:, lb:snl) = 0._r8
                         trc_wice(:, lb:snl) = 0._r8

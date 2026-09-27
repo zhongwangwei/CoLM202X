@@ -1478,8 +1478,9 @@ CONTAINS
                exch_d_adv_step(:,i) = exch_d_adv_step(:,i) + settled / dt_morph
                excess = max(sum(sedsto_protected(:,i)) - protected_end(i) * MAX_SED_CONC, 0._r8)
                IF (excess > 0._r8) THEN
-                  transfer = min(sedsto_protected(:,i), &
-                     excess * sedsto_protected(:,i) / sum(sedsto_protected(:,i)))
+                  transfer = merge(sedsto_protected(:,i), min(sedsto_protected(:,i), &
+                     excess * sedsto_protected(:,i) / sum(sedsto_protected(:,i))), &
+                     excess >= sum(sedsto_protected(:,i)))
                   sedsto_protected(:,i) = sedsto_protected(:,i) - transfer
                   sedbed_protected(:,i) = sedbed_protected(:,i) + transfer
                   netflw_adv_step(:,i) = netflw_adv_step(:,i) - transfer / dt_morph
@@ -1494,7 +1495,8 @@ CONTAINS
             IF (visible_water(i) > 0._r8) THEN
                excess = max(sum(sedsto(:,i)) - visible_water(i) * MAX_SED_CONC, 0._r8)
                IF (excess > 0._r8) THEN
-                  transfer = min(sedsto(:,i), excess * sedsto(:,i) / sum(sedsto(:,i)))
+                  transfer = merge(sedsto(:,i), min(sedsto(:,i), excess * sedsto(:,i) / sum(sedsto(:,i))), &
+                     excess >= sum(sedsto(:,i)))
                   sedsto(:,i) = sedsto(:,i) - transfer
                   layer(:,i) = layer(:,i) + transfer / (1._r8 - lambda)
                   netflw_adv_step(:,i) = netflw_adv_step(:,i) - transfer / dt_morph
@@ -1778,7 +1780,8 @@ CONTAINS
          IF (visible_water(i) > 0._r8) THEN
             excess = max(sum(sedsto(:,i)) - visible_water(i) * MAX_SED_CONC, 0._r8)
             IF (excess > 0._r8) THEN
-               deposit = min(sedsto(:,i), excess * sedsto(:,i) / sum(sedsto(:,i)))
+               deposit = merge(sedsto(:,i), min(sedsto(:,i), excess * sedsto(:,i) / sum(sedsto(:,i))), &
+                  excess >= sum(sedsto(:,i)))
                sedsto(:,i) = sedsto(:,i) - deposit
                layer(:,i) = layer(:,i) + deposit / (1._r8 - lambda)
                netflw_adv_step(:,i) = netflw_adv_step(:,i) - deposit / dt_morph

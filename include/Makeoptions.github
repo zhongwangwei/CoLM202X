@@ -29,6 +29,7 @@
   else
      $(error BUILD_PROFILE must be debug or release)
   endif
+# determine the gfortran version
   GFORTRAN_MAJOR := $(shell $(word 1,$(FF)) -dumpversion 2>/dev/null | cut -d. -f1)
   ifneq ($(shell test "$(GFORTRAN_MAJOR)" -ge 10 2>/dev/null && echo yes),)
      FOPTS += -fallow-argument-mismatch

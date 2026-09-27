@@ -442,7 +442,7 @@ CONTAINS
    real(r8),dimension(ps:pe)   :: evplwet, evplwet_dtl, etr_dtl
    real(r8),dimension(ps:pe)   :: fevpl_bef, fevpl_noadj, dtl_noadj, htvpl, erre
    real(r8),dimension(ps:pe)   :: qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
-   real(r8) tl_pre_phase   ! snapshot of tl before Niu (2004) pull (PFT-loop scalar)
+   real(r8) tl_pre_phase
    real(r8) :: flux_deficit                 ! C4b: component-level evap deficit [mm]
    real(r8) :: phase_flux_deficit           ! Bug 3: unmet same-phase latent demand [mm/s]
    real(r8) :: catch_JULES !JULES liquid canopy capacity [mm] (catch0 + dcatch_dlai*LAI)
@@ -2223,9 +2223,6 @@ ENDIF
                qmelt(i) = 0.
                qfrz(i)  = 0.
 
-               ! Capture tl change from Niu (2004)
-               ! pull into dheatl so the canopy energy balance closes
-               ! (see MOD_LeafTemperature.F90 for full rationale).
                IF (ldew_snow(i).gt.1.e-6 .and. tl(i).gt.tfrz) THEN
                   qmelt(i) = min(ldew_snow(i)/deltim,(tl(i)-tfrz)*cpice*ldew_snow(i)/(deltim*hfus))
                   ldew_snow(i) = max(0.,ldew_snow(i) - qmelt(i)*deltim)

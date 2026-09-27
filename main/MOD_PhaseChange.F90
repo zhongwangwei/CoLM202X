@@ -106,7 +106,6 @@ CONTAINS
     integer, intent(out) :: imelt(lb:nl_soil)          !flag for melting or freezing [-]
 
 #ifdef TRACER
-   ! Optional per-layer phase-change mass exports for TRACER [kg/m2].
    real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
    real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
 #endif
@@ -429,7 +428,6 @@ CONTAINS
     integer, intent(out) :: imelt(lb:nl_soil)          !flag for melting or freezing [-]
 
 #ifdef TRACER
-   ! Optional per-layer phase-change mass exports for TRACER [kg/m2].
    real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
    real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
 #endif

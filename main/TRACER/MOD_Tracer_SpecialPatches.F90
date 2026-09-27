@@ -34,6 +34,8 @@ MODULE MOD_Tracer_SpecialPatches
    PUBLIC :: tracer_glacier_patch
    PUBLIC :: tracer_waterbody_patch
 
+   logical, PUBLIC :: waterbody_hist_sample = .true.
+
 CONTAINS
 
    SUBROUTINE tracer_glacier_patch(ipatch, maxsnl, nl_soil, deltim, &
@@ -508,7 +510,7 @@ CONTAINS
          patchtype_in = 4, water_err_in = errorw, water_dS_in = water_dS, &
          water_input_in = precip_mass + dep_mass, water_output_in = evap_mass + rnof_mass, &
          water_evap_in = evap_mass, water_rnof_in = rnof_mass)
-      CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, 0._r8, 0._r8, &
+      IF (waterbody_hist_sample) CALL tracer_hist_accumulate(ipatch, snl, maxsnl, nl_soil, 0._r8, 0._r8, &
          wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), wa, wdsrf, 0._r8, scv)
 
    CONTAINS

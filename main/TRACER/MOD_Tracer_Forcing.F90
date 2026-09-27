@@ -307,7 +307,8 @@ CONTAINS
       integer :: np, op, oq, c, raw, source_count, source_patch
       real(r8) :: weight, total_weight
       real(r8), allocatable :: class_area(:)
-      logical :: same_class
+      logical :: same_class, old_sorted
+      integer :: lo, hi
 
       IF (size(old,1) /= size(mapped,1) .or. size(old,2) /= size(patchclass_old) .or. &
           size(old,2) /= size(eindex_old) .or. size(mapped,2) /= size(patchclass_new) .or. &
@@ -334,11 +335,14 @@ CONTAINS
       ENDIF
       IF (any(.not. ieee_is_finite(old))) &
          CALL CoLM_stop('tracer forcing LULCC old cache contains non-finite values')
+      old_sorted = .true.
+      IF (size(eindex_old) > 1) old_sorted = all(eindex_old(2:) >= eindex_old(:size(eindex_old)-1))
       IF (present(lccpct_patches) .and. present(old_patch_area)) THEN
          allocate(class_area(size(patchclass_old)))
          class_area = 0._r8
          DO op = 1, size(patchclass_old)
-            DO oq = 1, size(patchclass_old)
+            CALL element_range (eindex_old(op), lo, hi)
+            DO oq = lo, hi
                IF (eindex_old(oq) == eindex_old(op) .and. &
                    patchclass_old(oq) == patchclass_old(op)) &
                   class_area(op) = class_area(op) + old_patch_area(oq)
@@ -353,8 +357,9 @@ CONTAINS
          same_class = .false.
          ! SAT has no transfer trace: prefer the unchanged class, then the
          ! same element's area mean for a newly created class.
+         CALL element_range (eindex_new(np), lo, hi)
          IF (.not. present(lccpct_patches)) THEN
-            DO op = 1, size(patchclass_old)
+            DO op = lo, hi
                IF (eindex_old(op) == eindex_new(np) .and. &
                    patchclass_old(op) == patchclass_new(np)) THEN
                   IF (present(old_patch_area)) THEN
@@ -364,7 +369,7 @@ CONTAINS
                ENDIF
             ENDDO
          ENDIF
-         DO op = 1, size(patchclass_old)
+         DO op = lo, hi
             IF (eindex_old(op) /= eindex_new(np)) CYCLE
             IF (present(lccpct_patches)) THEN
                c = patchclass_old(op)
@@ -405,6 +410,42 @@ CONTAINS
             unsupported = unsupported + 1
          ENDIF
       ENDDO
+
+   CONTAINS
+
+      SUBROUTINE element_range (eidx, lo, hi)
+         integer*8, intent(in) :: eidx
+         integer, intent(out) :: lo, hi
+         integer :: a, b, m
+
+         IF (.not. old_sorted) THEN
+            lo = 1
+            hi = size(eindex_old)
+            RETURN
+         ENDIF
+         a = 1
+         b = size(eindex_old) + 1
+         DO WHILE (a < b)
+            m = (a + b) / 2
+            IF (eindex_old(m) < eidx) THEN
+               a = m + 1
+            ELSE
+               b = m
+            ENDIF
+         ENDDO
+         lo = a
+         b = size(eindex_old) + 1
+         DO WHILE (a < b)
+            m = (a + b) / 2
+            IF (eindex_old(m) <= eidx) THEN
+               a = m + 1
+            ELSE
+               b = m
+            ENDIF
+         ENDDO
+         hi = a - 1
+      END SUBROUTINE element_range
+
    END SUBROUTINE tracer_forcing_lulcc_map
 
    SUBROUTINE forcing_identity_put (identity, column, slot, value)

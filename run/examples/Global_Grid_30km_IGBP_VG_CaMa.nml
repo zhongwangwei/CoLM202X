@@ -31,10 +31,6 @@
    DEF_dir_runtime = '/share/home/dq013/zhwei/colm/data/CoLMruntime/'
    DEF_dir_output  = '/share/home/dq013/zhwei/colm/cases/'
 
-   ! ----- routing input (same NC entry as GridRiverLakeFlow) -----
-   DEF_UnitCatchment_file = './CoLMruntime/unitcatchment/grid_routing_data_15min.nc'
-   ! Set DEF_UnitCatchment_file to your runtime data path; no separate CaMa map paths needed.
-
    ! ----- land units and land sets -----
    ! for GRIDBASED
    DEF_GRIDBASED_lon_res = 0.25

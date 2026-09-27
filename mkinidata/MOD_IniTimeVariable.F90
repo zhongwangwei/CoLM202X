@@ -5,8 +5,7 @@ MODULE MOD_IniTimeVariable
 !-----------------------------------------------------------------------
    USE MOD_Precision
 #ifdef BGC
-   USE MOD_BGC_CNSummary, only: CNDriverSummarizeStates, &
-      CNDriverSummarizeNonvegetatedSoilStates, CNDriverSummarizeFluxes
+   USE MOD_BGC_CNSummary, only: CNDriverSummarizeStates, CNDriverSummarizeFluxes
 #endif
    IMPLICIT NONE
    SAVE
@@ -811,12 +810,6 @@ CONTAINS
 
          !----------------------------------------------------
          skip_balance_check              = .false.
-
-#if defined(TRACER) && defined(BGC)
-         IF (patchtype == 2) THEN
-            CALL CNDriverSummarizeNonvegetatedSoilStates(ipatch, nl_soil, dz_soi, ndecomp_pools)
-         ENDIF
-#endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
          IF (patchtype == 0) THEN

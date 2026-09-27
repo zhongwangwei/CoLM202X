@@ -106,8 +106,6 @@ CONTAINS
       ! load landpatch data of next year
       CALL pixelset_load_from_file (dir_landdata, 'landpatch', landpatch, numpatch, year)
 #ifdef TRACER
-      ! The old LULCC state arrays cannot be released using a new worker
-      ! cardinality.  Reject unsupported whole-worker ownership changes first.
       IF (p_is_worker .and. ntracers > 0 .and. DEF_LULCC_SCHEME == 2) THEN
          IF (old_has_patches .neqv. (numpatch > 0)) &
             CALL CoLM_stop('TRACER LULCC worker element footprint changed')

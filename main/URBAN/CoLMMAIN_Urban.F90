@@ -714,10 +714,10 @@
 !-----------------------------------------------------------------------
 
       theta = acos(max(coszen,0.01))
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-      fevpg_fld = 0._r8 ! urban thermal has no inundation evaporation branch
-#endif
       forc_aer(:) = 0.          !aerosol deposition from atmosphere model (grd,aer) [kg m-1 s-1]
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      fevpg_fld = 0._r8
+#endif
 
 !======================================================================
 !  [1] Solar absorbed by vegetation and ground

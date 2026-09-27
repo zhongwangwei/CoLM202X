@@ -433,7 +433,7 @@ CONTAINS
    real(r8) w, csoilcn, z0mg, cintsun(3), cintsha(3)
    real(r8) fevpl_bef, fevpl_noadj, dtl_noadj, htvpl, erre
    real(r8) qevpl, qdewl, qsubl, qfrol, qmelt, qfrz
-   real(r8) tl_pre_phase   ! snapshot of tl before Niu (2004) pull
+   real(r8) tl_pre_phase
    ! True when the active interception scheme owns
    ! the canopy rain<->snow phase change (and exports the fusion heat
    ! via canopy_phase_heat). Schemes 4/5/6/7 currently set this.
@@ -1540,12 +1540,6 @@ ENDIF
          fwet_snow = canopy_snow_wetfrac(sigf, lai, sai, dewmx, tl, ldew_snow)
 
          ! phase change
-         ! Capture tl change from Niu (2004) pull
-         ! into dheatl so the canopy-side energy balance check at
-         ! MOD_Thermal.F90:1366-1383 closes. Previously the post-iteration
-         ! tl update silently leaked clai*(tl_post - tl_pre)/deltim from
-         ! the energy budget (~3.5 W/m² in cold-canopy melt episodes),
-         ! tripping errore > 0.5 W/m² when CoLMDEBUG was on.
 
          qmelt = 0.
          qfrz  = 0.

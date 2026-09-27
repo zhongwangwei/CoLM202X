@@ -25,7 +25,7 @@ INTEGER(KIND=JPIM)              :: NSETFILE                !! input namelist fil
 INTEGER(KIND=JPIM)              :: TMPNAM                  !! temporal I/O   file FIG
 CHARACTER(LEN=256)              :: CLOGOUT                 !! default log    file name
 CHARACTER(LEN=256)              :: CSETFILE                !! input namelist file name
-CHARACTER(LEN=256)              :: CROUTINGNC              !! bundled vector river-network/topography netCDF
+CHARACTER(LEN=256)              :: CROUTINGNC = 'NONE'
 
 DATA LLOGOUT       /.TRUE./
 DATA CLOGOUT       /'./log_CaMa.txt'/
@@ -45,10 +45,10 @@ LOGICAL                         :: LLEVEE                  !! true: activate lev
 !~~ used in ECMWF
 LOGICAL                         :: LROSPLIT                !! true: input if surface (Qs) and sub-surface (Qsb) runoff
 LOGICAL                         :: LWEVAP                  !! true: input water evaporation to extract from floodplain
-LOGICAL                         :: LCOLMFEEDBACK = .TRUE.  !! CoLM NC mode: true = flood evaporation/infiltration exchange with the land (two-way)
-LOGICAL                         :: LWEVAPFIX               !! deprecated compatibility option; no effect
+LOGICAL                         :: LCOLMFEEDBACK = .FALSE.
+LOGICAL                         :: LWEVAPFIX               !! true: water balance closure extracting water from evap when available
 LOGICAL                         :: LWINFILT                !! true: input water infiltration to extract from floodplain
-LOGICAL                         :: LWINFILTFIX             !! deprecated compatibility option; no effect
+LOGICAL                         :: LWINFILTFIX             !! true: water balance closure extracting water from Infiltration when available
 LOGICAL                         :: LWEXTRACTRIV            !! true: also extract water from rivers 
 LOGICAL                         :: LSLOPEMOUTH             !! true: prescribe water level slope == elevation slope on river month
 LOGICAL                         :: LGDWDLY                 !! true: Activate ground water reservoir and delay

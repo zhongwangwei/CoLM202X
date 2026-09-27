@@ -37,7 +37,9 @@ CONTAINS
    integer,   allocatable :: nelm_blk(:,:), IOproc(:,:)
    integer*8, allocatable :: elmindex(:)
    integer,   allocatable :: elmnpxl(:), elmpixels(:,:,:)
+#if (defined TRACER) && (defined BGC)
    logical :: fexists
+#endif
 
    logical, allocatable :: elmmask  (:)
    logical, allocatable :: patchmask(:)

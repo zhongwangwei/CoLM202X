@@ -2128,9 +2128,15 @@ CONTAINS
 	         WHERE (invalid_restart_value(conc_methane_sat_component(:,component,:)))
 	            conc_methane_sat_component(:,component,:) = conc_methane_sat
 	         END WHERE
-	         WHERE (invalid_restart_value(layer_sat_lag_component(:,component,:)))
-	            layer_sat_lag_component(:,component,:) = layer_sat_lag
-	         END WHERE
+	         IF (component_state_present) THEN
+	            WHERE (invalid_restart_fraction_or_sentinel(layer_sat_lag_component(:,component,:)))
+	               layer_sat_lag_component(:,component,:) = layer_sat_lag
+	            END WHERE
+	         ELSE
+	            WHERE (invalid_restart_value(layer_sat_lag_component(:,component,:)))
+	               layer_sat_lag_component(:,component,:) = layer_sat_lag
+	            END WHERE
+	         ENDIF
 	         WHERE (invalid_restart_value(annavg_agnpp_component(component,:)))
 	            annavg_agnpp_component(component,:) = annavg_agnpp
 	         END WHERE
@@ -2158,12 +2164,24 @@ CONTAINS
 	         WHERE (invalid_restart_value(tempavg_finrw_component(component,:)))
 	            tempavg_finrw_component(component,:) = tempavg_finrw
 	         END WHERE
-	         WHERE (invalid_restart_value(fsat_bef_component(component,:)))
-	            fsat_bef_component(component,:) = fsat_bef
-	         END WHERE
-	         WHERE (invalid_restart_value(finundated_lag_component(component,:)))
-	            finundated_lag_component(component,:) = finundated_lag
-	         END WHERE
+	         IF (component_state_present) THEN
+	            WHERE (invalid_restart_fraction_or_sentinel(fsat_bef_component(component,:)))
+	               fsat_bef_component(component,:) = fsat_bef
+	            END WHERE
+	         ELSE
+	            WHERE (invalid_restart_value(fsat_bef_component(component,:)))
+	               fsat_bef_component(component,:) = fsat_bef
+	            END WHERE
+	         ENDIF
+	         IF (component_state_present) THEN
+	            WHERE (invalid_restart_fraction_or_sentinel(finundated_lag_component(component,:)))
+	               finundated_lag_component(component,:) = finundated_lag
+	            END WHERE
+	         ELSE
+	            WHERE (invalid_restart_value(finundated_lag_component(component,:)))
+	               finundated_lag_component(component,:) = finundated_lag
+	            END WHERE
+	         ENDIF
 	      END DO
 	      WHERE (invalid_restart_value(conc_o2_unsat_component)) conc_o2_unsat_component = 1._r8
 	      WHERE (invalid_restart_value(conc_o2_sat_component)) conc_o2_sat_component = 1._r8

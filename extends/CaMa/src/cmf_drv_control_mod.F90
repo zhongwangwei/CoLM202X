@@ -65,11 +65,10 @@ CHARACTER(LEN=8)              :: CREG                 !!
 ! It can be modified in MAIN program before DRV_INPUT
 
 IF( PRESENT(ROUTING_FILE) )THEN
-  ! A supplied CoLM routing NC is authoritative: never open a second namelist.
   IF( LEN_TRIM(ROUTING_FILE)==0 .OR. ROUTING_FILE=='null' .OR. ROUTING_FILE=='NONE' ) &
-    ERROR STOP 'CaMa: coupled routing file must be specified'
+    ERROR STOP 'CaMa coupled routing file required'
   CSETFILE='NONE'
-  LLOGOUT=.FALSE.       ! use the same run log as CoLM
+  LLOGOUT=.FALSE.
 ENDIF
 
 IF (REGIONALL>=2 )then 
@@ -93,7 +92,7 @@ WRITE(LOGNAM,*) "CMF::DRV_INPUT: log file:            ", TRIM(CLOGOUT), LOGNAM
 ! Preset in YOS_INPUT:  CSETFILE="input_cmf.nam"
 ! It can be modified in MAIN program before DRV_INPUT
 IF( CSETFILE=="NONE" )THEN
-  WRITE(LOGNAM,*) 'CMF::DRV_INPUT: built-in CoLM NC coupling settings; no separate CaMa namelist'
+  WRITE(LOGNAM,*) 'CMF::DRV_INPUT: built-in CoLM NC coupling settings'
 ELSE
   WRITE(LOGNAM,*) "CMF::DRV_INPUT: input namelist:      ", TRIM(CSETFILE)
 ENDIF
@@ -114,7 +113,6 @@ ENDIF
 
 CALL CMF_RESTART_NMLIST
 IF( PRESENT(ROUTING_FILE) )THEN
-  ! New coupled mode writes portable double-precision NC checkpoints.
   LRESTCDF=.TRUE.
   IF( PRESENT(RESTART_FILE) )THEN
     SELECT CASE(TRIM(RESTART_FILE))
@@ -122,16 +120,12 @@ IF( PRESENT(ROUTING_FILE) )THEN
     CASE DEFAULT
       IF( LEN_TRIM(RESTART_FILE)>LEN(CRESTSTO) ) ERROR STOP 'CaMa restart path too long'
       INQUIRE(FILE=TRIM(RESTART_FILE),EXIST=RESTART_EXISTS)
-      IF(.NOT.RESTART_EXISTS)THEN
-        WRITE(LOGNAM,*) 'DEF_CaMa_Restart_file not found: ',TRIM(RESTART_FILE)
-        STOP 10
-      ENDIF
+      IF(.NOT.RESTART_EXISTS) ERROR STOP 'CaMa restart file missing'
       CRESTSTO=TRIM(RESTART_FILE)
       LRESTART=.TRUE.
     END SELECT
   ENDIF
-  IF(.NOT.LRESTART) WRITE(LOGNAM,*) &
-    'WARNING: CaMa cold start; set DEF_CaMa_Restart_file to resume a matching land/routing checkpoint.'
+  IF(.NOT.LRESTART) WRITE(LOGNAM,*) 'WARNING: CaMa cold start; provide matching land/routing restart to resume.'
 ENDIF
 
 IF( LDAMOUT )THEN
@@ -178,7 +172,7 @@ END SUBROUTINE CMF_DRV_INPUT
 SUBROUTINE CMF_DRV_INIT(LECMF2LAKEC)
 ! Initialize CaMa-Flood
 ! -- Called from CMF_DRV_INIT
-USE YOS_CMF_INPUT,           ONLY: LRESTART, LSTOONLY, LOUTPUT, LSEALEV, LDAMOUT, LLEVEE, LTRACE, LOUTINI,LDAMIRR
+USE YOS_CMF_INPUT,           ONLY: LRESTART, LSTOONLY, LOUTPUT, LSEALEV, LDAMOUT, LLEVEE, LTRACE, LOUTINI,LDAMIRR,CSETFILE
 ! init routines
 USE CMF_CTRL_TIME_MOD,       ONLY: CMF_TIME_INIT
 USE CMF_CTRL_MAPS_MOD,       ONLY: CMF_RIVMAP_INIT,  CMF_TOPO_INIT
@@ -258,15 +252,17 @@ CALL CMF_PROG_INIT
 !*** 4b. Initialize (allocate) diagnostic arrays
 CALL CMF_DIAG_INIT
 
-!v4.03 CALC_FLDSTG for zero storage cold starts
-IF( .NOT. LRESTART )THEN
+!v4.03 CALC_FLDSTG for zero storage restart
+IF( CSETFILE=="NONE" )THEN
+  IF( .NOT.LRESTART ) CALL CMF_PHYSICS_FLDSTG
+ELSE
   CALL CMF_PHYSICS_FLDSTG
 ENDIF
 
 !*** 4c. Restart file
 IF( LRESTART )THEN
   CALL CMF_RESTART_INIT
-  CALL CMF_PHYSICS_FLDSTG
+  IF( CSETFILE=="NONE" ) CALL CMF_PHYSICS_FLDSTG
 ENDIF
 
 !*** 4d. Optional reservoir initialization
@@ -295,7 +291,9 @@ ENDIF
 
 !*** 5 reconstruct previous t-step flow (if needed)
 IF( LRESTART .AND. LSTOONLY )THEN
-  WRITE(LOGNAM,*) "CMF::DRV_INIT: (5a) set previous outflow at initial condition"
+  WRITE(LOGNAM,*) "CMF::DRV_INIT: (5a) set flood stage at initial condition"
+  !** v4.03 CALC_FLDSTG for storagy only restart (v4.03)
+  IF( CSETFILE/="NONE" ) CALL CMF_PHYSICS_FLDSTG
   CALL CMF_CALC_OUTPRE  !! bugfix in v4.12
 ENDIF
 

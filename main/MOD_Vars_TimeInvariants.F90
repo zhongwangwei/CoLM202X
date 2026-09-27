@@ -23,9 +23,9 @@ MODULE MOD_Vars_PFTimeInvariants
    real(r8), allocatable :: pftfrac     (:) !PFT fractional cover
    real(r8), allocatable :: htop_p      (:) !canopy top height [m]
    real(r8), allocatable :: hbot_p      (:) !canopy bottom height [m]
-   real(r8), allocatable :: ncd_p       (:) !needleleaf crown depth [m]
-   real(r8), allocatable :: ncw_p       (:) !needleleaf crown width [m]
-   real(r8), allocatable :: bcw_p       (:) !broadleaf crown width [m]
+   real(r8), allocatable :: ncd_p       (:)
+   real(r8), allocatable :: ncw_p       (:)
+   real(r8), allocatable :: bcw_p       (:)
 #ifdef CROP
    real(r8), allocatable :: cropfrac    (:) !Crop fractional cover
 #endif
@@ -67,9 +67,9 @@ CONTAINS
             allocate (ncd_p         (numpft))
             allocate (ncw_p         (numpft))
             allocate (bcw_p         (numpft))
-            ncd_p = -1.0e36_r8
-            ncw_p = -1.0e36_r8
-            bcw_p = -1.0e36_r8
+            ncd_p = spval
+            ncw_p = spval
+            bcw_p = spval
          ENDIF
 
 #ifdef CROP
@@ -87,84 +87,18 @@ CONTAINS
    USE MOD_LandPatch
    USE MOD_LandPFT
    USE MOD_Namelist, only: DEF_Interception_scheme
-   USE MOD_SPMD_Task, only: p_is_master, p_is_worker, CoLM_stop
-#ifdef USEMPI
-   USE MOD_SPMD_Task, only: p_comm_glb, p_err, MPI_IN_PLACE, MPI_INTEGER, MPI_SUM
-#endif
-   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
-
-   character(len=8) :: canopy_fields(3)
-   logical :: canopy_present(3)
-   integer :: canopy_required_count, canopy_valid_count
-   integer :: canopy_counts(2), icanopy
-
-      canopy_fields = (/ 'ncd_p   ', 'ncw_p   ', 'bcw_p   ' /)
-      CALL ncio_vector_group_presence(file_restart, canopy_fields, landpft, canopy_present)
-
-      IF (any(canopy_present) .and. .not. all(canopy_present)) THEN
-         IF (p_is_master) write(*,'(A)') &
-            'ERROR: CoLM2024 PFT canopy-structure restart fields are incomplete; need ncd_p, ncw_p, and bcw_p.'
-         CALL CoLM_stop()
-      ENDIF
-
-      IF (.not. any(canopy_present) .and. DEF_Interception_scheme == 8) THEN
-         IF (p_is_master) write(*,'(A)') &
-            'Warning: CoLM2024 requested but restart lacks ncd_p/ncw_p/bcw_p; ' // &
-            'using CoLM2014 interception. Regenerate initial data with canopy structure to enable CoLM2024.'
-         DEF_Interception_scheme = 1
-      ENDIF
 
       CALL ncio_read_vector (file_restart, 'pftclass', landpft, pftclass) !
       CALL ncio_read_vector (file_restart, 'pftfrac ', landpft, pftfrac ) !
       CALL ncio_read_vector (file_restart, 'htop_p  ', landpft, htop_p  ) !
       CALL ncio_read_vector (file_restart, 'hbot_p  ', landpft, hbot_p  ) !
-      IF (all(canopy_present)) THEN
-         CALL ncio_read_vector (file_restart, 'ncd_p   ', landpft, ncd_p) !
-         CALL ncio_read_vector (file_restart, 'ncw_p   ', landpft, ncw_p) !
-         CALL ncio_read_vector (file_restart, 'bcw_p   ', landpft, bcw_p) !
-         IF (DEF_Interception_scheme == 8) THEN
-            canopy_counts = 0
-            IF (p_is_worker .and. allocated(pftclass) .and. allocated(ncd_p) .and. &
-                allocated(ncw_p) .and. allocated(bcw_p) .and. allocated(htop_p)) THEN
-               canopy_counts(1) = count((pftclass >= 1 .and. pftclass <= 3) .or. &
-                                        (pftclass >= 4 .and. pftclass <= 8))
-               DO icanopy = 1, size(pftclass)
-                  SELECT CASE (pftclass(icanopy))
-                  CASE (1:3)
-                     IF (.not. all(ieee_is_finite([ncd_p(icanopy), ncw_p(icanopy)]))) CYCLE
-                     IF (ncd_p(icanopy) <= 0._r8 .or. ncd_p(icanopy) >= 1000._r8 .or. &
-                         ncw_p(icanopy) <= 0._r8 .or. ncw_p(icanopy) >= 1000._r8) CYCLE
-                  CASE (4:8)
-                     IF (.not. all(ieee_is_finite([bcw_p(icanopy), htop_p(icanopy)]))) CYCLE
-                     IF (bcw_p(icanopy) <= 0._r8 .or. bcw_p(icanopy) >= 1000._r8 .or. &
-                         htop_p(icanopy) <= 0._r8 .or. htop_p(icanopy) >= 1000._r8) CYCLE
-                  CASE DEFAULT
-                     CYCLE
-                  END SELECT
-                  canopy_counts(2) = canopy_counts(2) + 1
-               ENDDO
-            ENDIF
-#ifdef USEMPI
-            CALL mpi_allreduce(MPI_IN_PLACE, canopy_counts, 2, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-#endif
-            canopy_required_count = canopy_counts(1)
-            canopy_valid_count = canopy_counts(2)
-            IF (canopy_required_count > 0 .and. canopy_valid_count == 0) THEN
-               IF (p_is_master) write(*,'(A,I0,A)') &
-                  'Warning: CoLM2024 requested but restart has no valid PFT canopy structure for ', &
-                  canopy_required_count, ' required tree PFTs; using CoLM2014 interception.'
-               DEF_Interception_scheme = 1
-            ELSEIF (canopy_valid_count < canopy_required_count) THEN
-               IF (p_is_master) write(*,'(A,I0,A,I0,A)') &
-                  'ERROR: CoLM2024 PFT canopy-structure restart fields are invalid for ', &
-                  canopy_required_count - canopy_valid_count, ' of ', canopy_required_count, &
-                  ' required tree PFTs.'
-               CALL CoLM_stop()
-            ENDIF
-         ENDIF
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_read_vector (file_restart, 'ncd_p', landpft, ncd_p)
+         CALL ncio_read_vector (file_restart, 'ncw_p', landpft, ncw_p)
+         CALL ncio_read_vector (file_restart, 'bcw_p', landpft, bcw_p)
       ENDIF
 #ifdef CROP
       CALL ncio_read_vector (file_restart, 'cropfrac ', landpatch, cropfrac) !
@@ -194,9 +128,11 @@ CONTAINS
       CALL ncio_write_vector (file_restart, 'pftfrac ', 'pft', landpft, pftfrac , compress) !
       CALL ncio_write_vector (file_restart, 'htop_p  ', 'pft', landpft, htop_p  , compress) !
       CALL ncio_write_vector (file_restart, 'hbot_p  ', 'pft', landpft, hbot_p  , compress) !
-      CALL ncio_write_vector (file_restart, 'ncd_p   ', 'pft', landpft, ncd_p   , compress) !
-      CALL ncio_write_vector (file_restart, 'ncw_p   ', 'pft', landpft, ncw_p   , compress) !
-      CALL ncio_write_vector (file_restart, 'bcw_p   ', 'pft', landpft, bcw_p   , compress) !
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_write_vector (file_restart, 'ncd_p', 'pft', landpft, ncd_p, compress)
+         CALL ncio_write_vector (file_restart, 'ncw_p', 'pft', landpft, ncw_p, compress)
+         CALL ncio_write_vector (file_restart, 'bcw_p', 'pft', landpft, bcw_p, compress)
+      ENDIF
 
 #ifdef CROP
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
@@ -218,9 +154,9 @@ CONTAINS
             deallocate (pftfrac )
             deallocate (htop_p  )
             deallocate (hbot_p  )
-            deallocate (ncd_p   )
-            deallocate (ncw_p   )
-            deallocate (bcw_p   )
+            deallocate (ncd_p)
+            deallocate (ncw_p)
+            deallocate (bcw_p)
 #ifdef CROP
             deallocate (cropfrac)
 #endif
@@ -238,9 +174,6 @@ CONTAINS
       CALL check_vector_data ('pftfrac', pftfrac) !
       CALL check_vector_data ('htop_p ', htop_p ) !
       CALL check_vector_data ('hbot_p ', hbot_p ) !
-      CALL check_vector_data ('ncd_p  ', ncd_p  ) !
-      CALL check_vector_data ('ncw_p  ', ncw_p  ) !
-      CALL check_vector_data ('bcw_p  ', bcw_p  ) !
 #ifdef CROP
       CALL check_vector_data ('cropfrac', cropfrac) !
 #endif
@@ -281,7 +214,7 @@ MODULE MOD_Vars_TimeInvariants
    real(r8), allocatable :: lakedepth      (:)  !lake depth
    real(r8), allocatable :: dz_lake      (:,:)  !new lake scheme
 #if (defined TRACER) && (defined BGC)
-   real(r8), allocatable :: lake_soilc_srf(:,:) !lake sediment organic carbon [gC/m3]
+   real(r8), allocatable :: lake_soilc_srf(:,:)
 #endif
 
    real(r8), allocatable :: soil_s_v_alb   (:)  !albedo of visible of the saturated soil
@@ -346,9 +279,9 @@ MODULE MOD_Vars_TimeInvariants
    real(r8), allocatable :: BA_beta      (:,:)  !beta in Balland and Arp(2005) thermal conductivity scheme
    real(r8), allocatable :: htop           (:)  !canopy top height [m]
    real(r8), allocatable :: hbot           (:)  !canopy bottom height [m]
-   real(r8), allocatable :: ncd            (:)  !needleleaf crown depth [m]
-   real(r8), allocatable :: ncw            (:)  !needleleaf crown width [m]
-   real(r8), allocatable :: bcw            (:)  !broadleaf crown width [m]
+   real(r8), allocatable :: ncd            (:)
+   real(r8), allocatable :: ncw            (:)
+   real(r8), allocatable :: bcw            (:)
 
    real(r8), allocatable :: dbedrock       (:)  !depth to bedrock
    integer , allocatable :: ibedrock       (:)  !bedrock level
@@ -492,9 +425,9 @@ CONTAINS
             allocate (ncd                  (numpatch))
             allocate (ncw                  (numpatch))
             allocate (bcw                  (numpatch))
-            ncd = -1.0e36_r8
-            ncw = -1.0e36_r8
-            bcw = -1.0e36_r8
+            ncd = spval
+            ncw = spval
+            bcw = spval
             allocate (dbedrock             (numpatch))
             allocate (ibedrock             (numpatch))
             allocate (elvmean              (numpatch))
@@ -547,7 +480,6 @@ CONTAINS
    !====================================================================
 
    USE MOD_Namelist
-   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    USE MOD_SPMD_Task
    USE MOD_NetCDFVector
    USE MOD_NetCDFSerial
@@ -566,32 +498,9 @@ CONTAINS
 
    ! Local variables
    character(len=256) :: file_restart, cyear, lndname
-   character(len=8) :: canopy_fields(3)
-   logical :: canopy_present(3)
-   integer :: canopy_required_count, canopy_valid_count
-   integer :: canopy_counts(2), icanopy
-   integer :: usgs_counts(4)
 
       write(cyear,'(i4.4)') lc_year
       file_restart = trim(dir_restart) // '/const/' // trim(casename) //'_restart_const' // '_lc' // trim(cyear) // '.nc'
-
-      canopy_fields = (/ 'ncd     ', 'ncw     ', 'bcw     ' /)
-      CALL ncio_vector_group_presence(file_restart, canopy_fields, landpatch, canopy_present)
-
-      IF (any(canopy_present) .and. .not. all(canopy_present)) THEN
-         IF (p_is_master) write(*,'(A)') &
-            'ERROR: CoLM2024 canopy-structure restart fields are incomplete; need ncd, ncw, and bcw.'
-         CALL CoLM_stop()
-      ENDIF
-
-#if (defined LULC_IGBP && !defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
-      IF (.not. any(canopy_present) .and. DEF_Interception_scheme == 8) THEN
-         IF (p_is_master) write(*,'(A)') &
-            'Warning: CoLM2024 requested but restart lacks ncd/ncw/bcw; ' // &
-            'using CoLM2014 interception. Regenerate initial data with canopy structure to enable CoLM2024.'
-         DEF_Interception_scheme = 1
-      ENDIF
-#endif
 
       CALL ncio_read_vector (file_restart, 'patchclass',   landpatch, patchclass)          !
       CALL ncio_read_vector (file_restart, 'patchtype' ,   landpatch, patchtype )          !
@@ -669,126 +578,11 @@ CONTAINS
       CALL ncio_read_vector (file_restart, 'BA_beta' ,     nl_soil, landpatch, BA_beta )   ! beta in Balland and Arp(2005) thermal conductivity scheme
       CALL ncio_read_vector (file_restart, 'htop'    ,     landpatch, htop)                !
       CALL ncio_read_vector (file_restart, 'hbot'    ,     landpatch, hbot)                !
-      IF (all(canopy_present)) THEN
-         CALL ncio_read_vector (file_restart, 'ncd'     ,     landpatch, ncd)                !
-         CALL ncio_read_vector (file_restart, 'ncw'     ,     landpatch, ncw)                !
-         CALL ncio_read_vector (file_restart, 'bcw'     ,     landpatch, bcw)                !
-#if (defined LULC_IGBP && !defined LULC_IGBP_PFT && !defined LULC_IGBP_PC)
-         IF (DEF_Interception_scheme == 8) THEN
-            canopy_counts = 0
-            IF (p_is_worker .and. allocated(patchtype) .and. allocated(patchclass) .and. &
-                allocated(ncd) .and. allocated(ncw) .and. allocated(bcw) .and. allocated(htop)) THEN
-               canopy_counts(1) = count(patchtype == 0 .and. &
-                                         (patchclass == 1 .or. patchclass == 2 .or. &
-                                          patchclass == 3 .or. patchclass == 4 .or. patchclass == 5))
-               DO icanopy = 1, size(patchclass)
-                  IF (patchtype(icanopy) /= 0) CYCLE
-                  SELECT CASE (patchclass(icanopy))
-                  CASE (1,3)
-                     IF (.not. all(ieee_is_finite([ncd(icanopy), ncw(icanopy)]))) CYCLE
-                     IF (ncd(icanopy) <= 0._r8 .or. ncd(icanopy) >= 1000._r8 .or. &
-                         ncw(icanopy) <= 0._r8 .or. ncw(icanopy) >= 1000._r8) CYCLE
-                  CASE (2,4)
-                     IF (.not. all(ieee_is_finite([bcw(icanopy), htop(icanopy)]))) CYCLE
-                     IF (bcw(icanopy) <= 0._r8 .or. bcw(icanopy) >= 1000._r8 .or. &
-                         htop(icanopy) <= 0._r8 .or. htop(icanopy) >= 1000._r8) CYCLE
-                  CASE (5)
-                     IF (.not. all(ieee_is_finite([ncd(icanopy), ncw(icanopy), bcw(icanopy), htop(icanopy)]))) CYCLE
-                     IF (ncd(icanopy) <= 0._r8 .or. ncd(icanopy) >= 1000._r8 .or. &
-                         ncw(icanopy) <= 0._r8 .or. ncw(icanopy) >= 1000._r8 .or. &
-                         bcw(icanopy) <= 0._r8 .or. bcw(icanopy) >= 1000._r8 .or. &
-                         htop(icanopy) <= 0._r8 .or. htop(icanopy) >= 1000._r8) CYCLE
-                  CASE DEFAULT
-                     CYCLE
-                  END SELECT
-                  canopy_counts(2) = canopy_counts(2) + 1
-               ENDDO
-            ENDIF
-#ifdef USEMPI
-            CALL mpi_allreduce(MPI_IN_PLACE, canopy_counts, 2, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-#endif
-            canopy_required_count = canopy_counts(1)
-            canopy_valid_count = canopy_counts(2)
-            IF (canopy_required_count > 0 .and. canopy_valid_count == 0) THEN
-               IF (p_is_master) write(*,'(A,I0,A)') &
-                  'Warning: CoLM2024 requested but restart has no valid patch canopy structure for ', &
-                  canopy_required_count, ' required tree patches; using CoLM2014 interception.'
-               DEF_Interception_scheme = 1
-            ELSEIF (canopy_valid_count < canopy_required_count) THEN
-               IF (p_is_master) write(*,'(A,I0,A,I0,A)') &
-                  'WARNING: CoLM2024 canopy-structure restart fields are invalid for ', &
-                  canopy_required_count - canopy_valid_count, ' of ', canopy_required_count, &
-                  ' required tree patches.'
-               IF (p_is_master) write(*,'(A)') &
-                  'WARNING: Downgrading the whole run to CoLM2014 interception; no canopy structure is synthesized.'
-               DEF_Interception_scheme = 1
-            ENDIF
-         ENDIF
-#endif
-      ENDIF
-
-#ifdef LULC_USGS
       IF (DEF_Interception_scheme == 8) THEN
-         ! The restart must make the same all-rank decision as mkinidata.
-         ! Old restarts with no structure may still use shrub-only capacity.
-         usgs_counts = 0
-         IF (.not. all(canopy_present) .and. p_is_worker) THEN
-            ncd = -1.0e36_r8
-            ncw = -1.0e36_r8
-            bcw = -1.0e36_r8
-         ENDIF
-         IF (p_is_worker) THEN
-            DO icanopy = 1, size(patchclass)
-               IF (patchtype(icanopy) /= 0) CYCLE
-               SELECT CASE (patchclass(icanopy))
-               CASE (11,13)
-                  usgs_counts(1) = usgs_counts(1) + 1
-                  IF (.not. all(ieee_is_finite([bcw(icanopy), htop(icanopy)]))) CYCLE
-                  IF (bcw(icanopy) <= 0._r8 .or. bcw(icanopy) >= 1000._r8 .or. &
-                      htop(icanopy) <= 0._r8 .or. htop(icanopy) >= 1000._r8) CYCLE
-               CASE (12,14)
-                  usgs_counts(1) = usgs_counts(1) + 1
-                  IF (.not. all(ieee_is_finite([ncd(icanopy), ncw(icanopy)]))) CYCLE
-                  IF (ncd(icanopy) <= 0._r8 .or. ncd(icanopy) >= 1000._r8 .or. &
-                      ncw(icanopy) <= 0._r8 .or. ncw(icanopy) >= 1000._r8) CYCLE
-               CASE (15)
-                  usgs_counts(1) = usgs_counts(1) + 1
-                  IF (.not. all(ieee_is_finite([ncd(icanopy), ncw(icanopy), bcw(icanopy), htop(icanopy)]))) CYCLE
-                  IF (ncd(icanopy) <= 0._r8 .or. ncd(icanopy) >= 1000._r8 .or. &
-                      ncw(icanopy) <= 0._r8 .or. ncw(icanopy) >= 1000._r8 .or. &
-                      bcw(icanopy) <= 0._r8 .or. bcw(icanopy) >= 1000._r8 .or. &
-                      htop(icanopy) <= 0._r8 .or. htop(icanopy) >= 1000._r8) CYCLE
-               CASE (8)
-                  usgs_counts(3) = usgs_counts(3) + 1
-                  CYCLE
-               CASE DEFAULT
-                  usgs_counts(4) = usgs_counts(4) + 1
-                  CYCLE
-               END SELECT
-               usgs_counts(2) = usgs_counts(2) + 1
-            ENDDO
-         ENDIF
-#ifdef USEMPI
-         CALL mpi_allreduce(MPI_IN_PLACE, usgs_counts, 4, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-#endif
-         IF (usgs_counts(2) < usgs_counts(1)) THEN
-            IF (p_is_master) write(*,'(A,I0,A,I0,A)') &
-               'WARNING: USGS CoLM2024 restart structure invalid for ', &
-               usgs_counts(1)-usgs_counts(2), ' of ', usgs_counts(1), ' forest patches.'
-            IF (p_is_master) write(*,'(A)') &
-               'WARNING: Downgrading the whole run to CoLM2014 interception; no canopy structure is synthesized.'
-            DEF_Interception_scheme = 1
-         ELSEIF (usgs_counts(1)+usgs_counts(3) == 0) THEN
-            IF (p_is_master) write(*,'(A)') &
-               'WARNING: USGS CoLM2024 has no supported forest or shrub patches; using CoLM2014 interception.'
-            DEF_Interception_scheme = 1
-         ELSE
-            IF (p_is_master) write(*,'(A,I0,A,I0,A,I0,A)') &
-               'USGS CoLM2024 restart capacity: forest=', usgs_counts(1), ', shrub=', usgs_counts(3), &
-               ', other land patches retaining CoLM2014 capacity=', usgs_counts(4), '.'
-         ENDIF
+         CALL ncio_read_vector (file_restart, 'ncd', landpatch, ncd)
+         CALL ncio_read_vector (file_restart, 'ncw', landpatch, ncw)
+         CALL ncio_read_vector (file_restart, 'bcw', landpatch, bcw)
       ENDIF
-#endif
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_read_vector (file_restart, 'debdrock' ,    landpatch, dbedrock)         !
@@ -879,7 +673,7 @@ CONTAINS
    ! Original version: Yongjiu Dai, September 15, 1999, 03/2014
    !====================================================================
 
-   USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_BEDROCK
+   USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_BEDROCK, DEF_Interception_scheme
    USE MOD_SPMD_Task
    USE MOD_NetCDFSerial
    USE MOD_NetCDFVector
@@ -1003,9 +797,11 @@ CONTAINS
 
       CALL ncio_write_vector (file_restart, 'htop' , 'patch', landpatch, htop)                                       !
       CALL ncio_write_vector (file_restart, 'hbot' , 'patch', landpatch, hbot)                                       !
-      CALL ncio_write_vector (file_restart, 'ncd'  , 'patch', landpatch, ncd, compress)                              !
-      CALL ncio_write_vector (file_restart, 'ncw'  , 'patch', landpatch, ncw, compress)                              !
-      CALL ncio_write_vector (file_restart, 'bcw'  , 'patch', landpatch, bcw, compress)                              !
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_write_vector (file_restart, 'ncd', 'patch', landpatch, ncd, compress)
+         CALL ncio_write_vector (file_restart, 'ncw', 'patch', landpatch, ncw, compress)
+         CALL ncio_write_vector (file_restart, 'bcw', 'patch', landpatch, bcw, compress)
+      ENDIF
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_write_vector (file_restart, 'debdrock' , 'patch', landpatch, dbedrock)
@@ -1178,9 +974,9 @@ CONTAINS
 
             deallocate (htop           )
             deallocate (hbot           )
-            deallocate (ncd            )
-            deallocate (ncw            )
-            deallocate (bcw            )
+            deallocate (ncd)
+            deallocate (ncw)
+            deallocate (bcw)
 
             deallocate (dbedrock       )
             deallocate (ibedrock       )

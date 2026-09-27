@@ -75,7 +75,7 @@ CONTAINS
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
                        qintr_snow    ,snofrz        ,sabg_snow_lyr                  &
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
                       ,flddepth      ,fldfrc        ,fevpg_fld                    &
 #endif
                       ,canopy_phase_heat,canopy_phase_heat_p,&
@@ -83,7 +83,7 @@ CONTAINS
                        qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th)
 #else
                        qintr_snow    ,snofrz        ,sabg_snow_lyr                  &
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
                       ,flddepth      ,fldfrc        ,fevpg_fld                    &
 #endif
                       ,canopy_phase_heat,&
@@ -148,7 +148,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
    USE MOD_CaMa_colmCaMa, only: get_fldevp
 #ifdef CaMa_Flood
    USE YOS_CMF_INPUT, only: LWEVAP
@@ -405,7 +405,7 @@ CONTAINS
        fh,                       &! integral of profile function for heat
        fq                         ! integral of profile function for moisture
 
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
    real(r8), intent(inout) :: flddepth  ! conditional inundation depth [mm]
    real(r8), intent(in)    :: fldfrc    ! inundated fraction [0-1]
    real(r8), intent(out)   :: fevpg_fld ! area-mean flood evaporation [mm/s]
@@ -483,7 +483,7 @@ CONTAINS
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
    real(r8) :: fevpg_wat, fevpg_soil_wat, fevpg_snow_wat
    real(r8) :: lfevpg_ground
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
    logical  :: flood_evap_active
    real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
    real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
@@ -559,7 +559,7 @@ CONTAINS
       lfevpl = 0.
       fevpl  = 0.;  etr    = 0.
       fseng  = 0.;  fevpg  = 0.
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
       fevpg_fld = 0._r8
       flood_evap_active = .FALSE.
       fldfrc_eff = 0._r8
@@ -1278,7 +1278,7 @@ END IF
 ENDIF
 #endif
 
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
       IF (LWEVAP .and. patchtype == 0 .and. flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
          fldfrc_eff = MIN(1._r8, MAX(0._r8, fldfrc))
          flood_evap_active = fldfrc_eff > 0._r8
@@ -1356,7 +1356,7 @@ ENDIF
       fevpg_wat = fevpg
       fevpg_soil_wat = fevpg_soil
       fevpg_snow_wat = fevpg_snow
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
       IF (flood_evap_active) THEN
          fevpg_wat = fevpg - (hvap/htvp)*fevpg_fld
          fevpg_soil_wat = fevpg_soil - (hvap/htvp)*fevpg_fld
@@ -1459,7 +1459,7 @@ ELSE
       ENDIF
 ENDIF
 
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+#ifdef CANOPY_FLOOD_FEEDBACK
       IF (flood_evap_active) THEN
          fevpg = fevpg_fld + fevpg_wat
          fevpg_soil = fevpg_fld + fevpg_soil_wat

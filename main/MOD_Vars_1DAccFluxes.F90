@@ -506,7 +506,6 @@ CONTAINS
    IMPLICIT NONE
 
       IF (p_is_worker) THEN
-         IF (numpatch > 0) THEN
 
             allocate (a_us        (numpatch))
             allocate (a_vs        (numpatch))
@@ -978,7 +977,6 @@ CONTAINS
             allocate (nac_dt      (numpatch))
             allocate (filter_dt   (numpatch))
 
-         ENDIF
       ENDIF
 
 #ifdef EXTERNAL_LAKE
@@ -999,7 +997,6 @@ CONTAINS
    IMPLICIT NONE
 
       IF (p_is_worker) THEN
-         IF (numpatch > 0) THEN
 
             deallocate (a_us     )
             deallocate (a_vs     )
@@ -1473,7 +1470,6 @@ CONTAINS
             deallocate (nac_dt      )
             deallocate (filter_dt   )
 
-         ENDIF
       ENDIF
 
 #ifdef EXTERNAL_LAKE
@@ -1483,18 +1479,24 @@ CONTAINS
    END SUBROUTINE deallocate_acc_fluxes
 
    !-----------------------
+#ifdef TRACER
    SUBROUTINE FLUSH_acc_fluxes (flush_reactive)
+#else
+   SUBROUTINE FLUSH_acc_fluxes ()
+#endif
 
       USE MOD_SPMD_Task
       USE MOD_LandPatch, only: numpatch
       USE MOD_LandUrban, only: numurban
       USE MOD_Vars_Global, only: spval
       IMPLICIT NONE
+#ifdef TRACER
       logical, intent(in), optional :: flush_reactive
       logical :: flush_reactive_active
 
       flush_reactive_active = .true.
       IF (present(flush_reactive)) flush_reactive_active = flush_reactive
+#endif
 
       IF (p_is_worker) THEN
 
@@ -2005,8 +2007,12 @@ CONTAINS
    USE MOD_Vars_1DForcing
    USE MOD_Vars_1DFluxes
    USE MOD_FrictionVelocity
+#ifdef TRACER
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_OZONESTRESS, DEF_USE_PLANTHYDRAULICS, &
       DEF_USE_NITRIF, DEF_USE_VariablySaturatedFlow
+#else
+   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT, DEF_USE_OZONESTRESS, DEF_USE_PLANTHYDRAULICS, DEF_USE_NITRIF
+#endif
    USE MOD_TurbulenceLEddy
    USE MOD_Vars_Global
 #ifdef CatchLateralFlow
@@ -2147,7 +2153,11 @@ CONTAINS
             CALL acc1d (etrsun_out    , a_etrsun         )
             CALL acc1d (etrsha_out    , a_etrsha         )
 
+#ifdef TRACER
             IF (.not. DEF_USE_VariablySaturatedFlow) CALL acc1d (qcharge, a_qcharge)
+#else
+            CALL acc1d (qcharge       , a_qcharge        )
+#endif
 
             CALL acc1d (t_grnd        , a_t_grnd         )
             CALL acc1d (tleaf         , a_tleaf          )

@@ -105,8 +105,6 @@ MODULE MOD_Grid
    type :: grid_concat_type
       integer :: ndatablk
       integer :: nxseg, nyseg
-      ! Index in the full grid of the first column / row of the concatenated
-      ! region (segment displacements gdsp are relative to them).
       integer :: ilon0 = 1, ilat0 = 1
       type(segment_type), allocatable :: xsegs(:), ysegs(:)
       type(grid_info_type) :: ginfo

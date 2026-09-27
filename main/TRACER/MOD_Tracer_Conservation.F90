@@ -149,6 +149,7 @@ CONTAINS
             trc_rnof_step(itrc, ipatch) = 0._r8
             IF (allocated(trc_reactive_source_step)) trc_reactive_source_step(itrc, ipatch) = 0._r8
             IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
+            IF (allocated(trc_numerical_water_step)) trc_numerical_water_step(itrc, ipatch) = 0._r8
 
          ! Phase-1 re-sync of the irrigation reservoir tracer to current
          ! waterstorage. Under no-fractionation tests all refills arrive at
@@ -464,7 +465,11 @@ CONTAINS
          ELSE
             water_err = 0._r8
          ENDIF
-         water_err_R = water_err * R_init
+         IF (allocated(trc_numerical_water_step)) THEN
+            water_err_R = (water_err - trc_numerical_water_step(itrc, ipatch)) * R_init
+         ELSE
+            water_err_R = water_err * R_init
+         ENDIF
          err_minus_water = err - water_err_R
          ! The hard tracer check should ignore host water-budget non-closure
          ! for isotope tracers. Fractionation and runtime atmospheric forcing
@@ -523,13 +528,10 @@ CONTAINS
          signature_error = 0._r8
          signature_scale = 0._r8
          IF (fixed_signature_step) THEN
-            IF (present(water_input_in)) THEN
-               signature_error = max(signature_error, abs(in_minus_water_R))
-               signature_scale = max(signature_scale, abs(step_input), abs(water_input * R_init))
-            ENDIF
-            IF (present(water_evap_in)) THEN
-               signature_error = max(signature_error, abs(evap_minus_water_R))
-               signature_scale = max(signature_scale, abs(step_evap), abs(water_evap * R_init))
+            IF (present(water_input_in) .or. present(water_evap_in)) THEN
+               signature_error = max(signature_error, abs(in_minus_water_R - evap_minus_water_R))
+               signature_scale = max(signature_scale, abs(step_input), abs(water_input * R_init), &
+                  abs(step_evap), abs(water_evap * R_init))
             ENDIF
 #ifndef CatchLateralFlow
             IF (present(water_rnof_in)) THEN

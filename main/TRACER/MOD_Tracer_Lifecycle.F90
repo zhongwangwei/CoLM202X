@@ -150,6 +150,8 @@ MODULE MOD_Tracer_Lifecycle
       procedure(lifecycle_noarg_if), pointer, nopass :: flush_acc_fluxes => null()
       procedure(lifecycle_noarg_if), pointer, nopass :: accumulate_fluxes => null()
       procedure(lifecycle_land_history_if), pointer, nopass :: land_history => null()
+      procedure(lifecycle_read_restart_if), pointer, nopass :: land_history_sidecar_write => null()
+      procedure(lifecycle_read_restart_if), pointer, nopass :: land_history_sidecar_read => null()
       procedure(lifecycle_noarg_if), pointer, nopass :: land_save_lulcc => null()
       procedure(lifecycle_land_remap_lulcc_if), pointer, nopass :: land_remap_lulcc => null()
       procedure(lifecycle_land_reload_lulcc_if), pointer, nopass :: land_reload_lulcc => null()
@@ -180,6 +182,7 @@ MODULE MOD_Tracer_Lifecycle
    PUBLIC :: tracer_lifecycle_lake_step, tracer_lifecycle_wetland_decomp, tracer_lifecycle_soil_step
    PUBLIC :: tracer_lifecycle_land_report, tracer_lifecycle_land_read_restart, tracer_lifecycle_land_write_restart
    PUBLIC :: tracer_lifecycle_land_history, tracer_lifecycle_land_flush_acc_fluxes
+   PUBLIC :: tracer_lifecycle_land_history_sidecar
    PUBLIC :: tracer_lifecycle_land_accumulate_fluxes, tracer_lifecycle_land_save_lulcc_state
    PUBLIC :: tracer_lifecycle_land_remap_lulcc_state, tracer_lifecycle_land_reload_lulcc_inputs
    PUBLIC :: tracer_lifecycle_has_levee_flood_publisher, tracer_lifecycle_has_flood_publisher
@@ -439,6 +442,23 @@ CONTAINS
             CALL lifecycle(i)%flush_acc_fluxes()
       ENDDO
    END SUBROUTINE tracer_lifecycle_land_flush_acc_fluxes
+
+   SUBROUTINE tracer_lifecycle_land_history_sidecar (file_hist_acc, writing)
+      character(len=*), intent(in) :: file_hist_acc
+      logical, intent(in) :: writing
+      integer :: i
+      IF (.not. allocated(lifecycle)) RETURN
+      DO i = 1, size(lifecycle)
+         IF (.not. lifecycle_row_registered(i)) CYCLE
+         IF (writing) THEN
+            IF (associated(lifecycle(i)%land_history_sidecar_write)) &
+               CALL lifecycle(i)%land_history_sidecar_write(file_hist_acc)
+         ELSE
+            IF (associated(lifecycle(i)%land_history_sidecar_read)) &
+               CALL lifecycle(i)%land_history_sidecar_read(file_hist_acc)
+         ENDIF
+      ENDDO
+   END SUBROUTINE tracer_lifecycle_land_history_sidecar
 
    SUBROUTINE tracer_lifecycle_land_accumulate_fluxes ()
       integer :: i
@@ -746,6 +766,7 @@ CONTAINS
          associated(hooks%soil_step) .or. associated(hooks%report) .or. &
          associated(hooks%flush_acc_fluxes) .or. associated(hooks%accumulate_fluxes) .or. &
          associated(hooks%land_history) .or. associated(hooks%land_save_lulcc) .or. &
+         associated(hooks%land_history_sidecar_write) .or. associated(hooks%land_history_sidecar_read) .or. &
          associated(hooks%land_remap_lulcc) .or. associated(hooks%land_reload_lulcc) .or. &
          associated(hooks%publish_levee_flood) .or. associated(hooks%publish_flood) .or. &
          associated(hooks%land_final) .or. lifecycle_route_hooks_present(hooks)
@@ -835,6 +856,7 @@ CONTAINS
          associated(hooks%land_write_restart) .or. associated(hooks%report) .or. &
          associated(hooks%flush_acc_fluxes) .or. associated(hooks%accumulate_fluxes) .or. &
          associated(hooks%land_history) .or. associated(hooks%land_save_lulcc) .or. &
+         associated(hooks%land_history_sidecar_write) .or. associated(hooks%land_history_sidecar_read) .or. &
          associated(hooks%land_remap_lulcc) .or. associated(hooks%land_reload_lulcc) .or. &
          associated(hooks%publish_levee_flood) .or. associated(hooks%publish_flood) .or. &
          associated(hooks%land_final)

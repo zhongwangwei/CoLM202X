@@ -10,7 +10,7 @@ SUBROUTINE Aggregation_LakeSoilC ( &
 !
 !  Prefer lake_soilc(soil, lon, lat) [gC/m3] from either raw path below.
 !  Only when both files are absent, estimate from aggregated soil organic
-!  matter volume fraction: 580 [gC/kg OM] * 130 [kg OM/m3] * vf_om [-].
+!  matter density: 580 [gC/kg OM] * OM_density [kg OM/m3].
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
@@ -38,13 +38,12 @@ SUBROUTINE Aggregation_LakeSoilC ( &
    integer :: ipatch, L, j, src_layer, n_source_layers
    integer :: lake_local, lake_global, invalid_local, invalid_global
    logical :: raw_exists
-   real(r8) :: valid_area, vf_om_value
-   real(r8), parameter :: organic_max_default = 130._r8 ! kg OM/m3, BGC reference
+   real(r8) :: valid_area, om_value
    real(r8), parameter :: carbon_per_kg_om = 580._r8    ! gC/kg OM
 
    type(block_data_real8_3d) :: lake_soilc_grid
    real(r8), allocatable :: lake_soilc_patches(:,:), lake_soilc_one(:,:), area_one(:)
-   real(r8), allocatable :: vf_om_s_patches(:)
+   real(r8), allocatable :: om_density_patches(:)
 #ifdef SrfdataDiag
    ! No gridded diagnostic is written here because srfdata_map_and_write is
    ! scalar-patch oriented; history/restart expose the 3-D soil-by-patch field.
@@ -132,8 +131,8 @@ SUBROUTINE Aggregation_LakeSoilC ( &
          ELSE
             IF (p_is_master) THEN
                write(*,'(A)') '  raw lake_soilc.nc absent; using organic-matter proxy, not measured lake carbon.'
-               write(*,'(A)') '  proxy = 580 [gC/kg OM] * 130 [kg OM/m3] * vf_om; '// &
-                  'lake vf_om may include existing soil-aggregation waterbody fill.'
+               write(*,'(A)') '  proxy = 580 [gC/kg OM] * OM_density [kg OM/m3]; '// &
+                  'lake OM_density may include existing soil-aggregation waterbody fill.'
             ENDIF
             ! SoilParametersReadin maps raw layer 1 to model layers 1-2,
             ! layers 2-8 to 3-9, and repeats raw layer 8 below layer 9.
@@ -141,24 +140,23 @@ SUBROUTINE Aggregation_LakeSoilC ( &
             n_source_layers = min(8, max(1, nl_soil-1))
             DO src_layer = 1, n_source_layers
                write(c,'(i0)') src_layer
-               lndname = trim(landdir)//'/vf_om_s_l'//trim(c)//'_patches.nc'
-               CALL ncio_read_vector_complete (lndname, 'vf_om_s_l'//trim(c)//'_patches', &
-                  landpatch, vf_om_s_patches)
+               lndname = trim(landdir)//'/OM_density_s_l'//trim(c)//'_patches.nc'
+               CALL ncio_read_vector_complete (lndname, 'OM_density_s_l'//trim(c)//'_patches', &
+                  landpatch, om_density_patches)
 
                invalid_local = 0
                IF (p_is_worker) THEN
                   DO ipatch = 1, numpatch
                      IF (landpatch%settyp(ipatch) /= WATERBODY) CYCLE
-                     vf_om_value = vf_om_s_patches(ipatch)
-                     IF (.not. ieee_is_finite(vf_om_value)) THEN
+                     om_value = om_density_patches(ipatch)
+                     IF (.not. ieee_is_finite(om_value)) THEN
                         invalid_local = invalid_local + 1
-                     ELSEIF (vf_om_value < 0._r8 .or. vf_om_value > 1._r8) THEN
+                     ELSEIF (om_value < 0._r8 .or. om_value >= 0.5_r8*abs(spval)) THEN
                         invalid_local = invalid_local + 1
                      ELSE
                         DO j = 1, nl_soil
                            IF (min(8, max(1, j-1)) == src_layer) &
-                              lake_soilc_patches(j,ipatch) = &
-                                 carbon_per_kg_om * organic_max_default * vf_om_value
+                              lake_soilc_patches(j,ipatch) = carbon_per_kg_om * om_value
                         ENDDO
                      ENDIF
                   ENDDO
@@ -169,12 +167,12 @@ SUBROUTINE Aggregation_LakeSoilC ( &
 #endif
                IF (invalid_global > 0) THEN
                   IF (p_is_master) write(*,'(A,I0,A,I0)') &
-                     ' ***** ERROR: invalid lake vf_om_s layer ', src_layer, &
+                     ' ***** ERROR: invalid lake OM_density_s layer ', src_layer, &
                      ' patch values: ', invalid_global
-                  CALL CoLM_stop ('lake CH4 organic-matter proxy requires finite vf_om in [0,1] for every lake patch')
+                  CALL CoLM_stop ('lake CH4 organic-matter proxy requires finite non-negative OM_density for every lake patch')
                ENDIF
             ENDDO
-            IF (allocated(vf_om_s_patches)) deallocate(vf_om_s_patches)
+            IF (allocated(om_density_patches)) deallocate(om_density_patches)
          ENDIF
       ELSEIF (p_is_master) THEN
          write(*,'(A)') '  no lake patches in domain; writing zero lake sediment carbon.'

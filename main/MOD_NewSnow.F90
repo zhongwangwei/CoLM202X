@@ -1,3 +1,5 @@
+#include <define.h>
+
 MODULE MOD_NewSnow
 
 !-----------------------------------------------------------------------
@@ -7,7 +9,9 @@ MODULE MOD_NewSnow
 
 ! PUBLIC MEMBER FUNCTIONS:
    PUBLIC :: newsnow
+#ifdef TRACER
    PUBLIC :: relocate_soil_frost_ice
+#endif
 
 
 !-----------------------------------------------------------------------
@@ -73,14 +77,11 @@ CONTAINS
       snowdp = snowdp + dz_snowf*deltim
       scv = scv + pg_snow*deltim              ! snow water equivalent (mm)
 
-      ! Fresh snow on a warm wetland melts straight into the wetland store.
-      ! Guard on snl==0: this only clears the scalar scv/snowdp, so it is valid
-      ! only when there is no explicit snow layer. With a pre-existing layer
-      ! (snl<0) the layer ice would remain, scv would be recomputed from it, and
-      ! the water double counted (wetwat balance violation). A pre-existing layer
-      ! is instead left to the normal snow/thermal path, which melts it on a
-      ! warm ground while conserving water.
-      IF(patchtype==2 .and. t_grnd>tfrz .and. snl==0)THEN  ! fresh snow on warm wetland
+#ifdef TRACER
+      IF(patchtype==2 .and. t_grnd>tfrz .and. snl==0)THEN
+#else
+      IF(patchtype==2 .and. t_grnd>tfrz)THEN  ! snowfall on warmer wetland
+#endif
          IF (present(wetwat) .and. DEF_USE_VariablySaturatedFlow) THEN
             wetwat = wetwat + scv
          ENDIF
@@ -129,9 +130,7 @@ CONTAINS
 
    END SUBROUTINE newsnow
 
-   ! Soil frost is deposited during WATER, after the snow-water solve.  If
-   ! there is no pore space left, move only the excess *ice* to the surface;
-   ! liquid displaced by frost has already been routed by WATER.
+#ifdef TRACER
    SUBROUTINE relocate_soil_frost_ice(maxsnl, porsl1, snl, zi, z, dz, t, wliq, wice, &
                                      fiold, imelt, snofrz, snw_rds, scv, snowdp, &
                                      mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi, &
@@ -183,14 +182,14 @@ CONTAINS
             dz(0) = snowdp
             z(0) = -0.5_r8*dz(0)
             zi(-1) = -dz(0)
-            t(0) = t(1)  ! thin snow shares the soil surface temperature
+            t(0) = t(1)
             wice(0) = scv
             wliq(0) = 0._r8
             fiold(0) = 1._r8
             imelt(0) = 0
             snofrz(0) = 0._r8
             IF (DEF_USE_SNICAR) THEN
-               snw_rds(0) = 54.526_r8  ! existing SNICAR fresh-ice lower radius
+               snw_rds(0) = 54.526_r8
                mss_bcpho(0) = 0._r8; mss_bcphi(0) = 0._r8
                mss_ocpho(0) = 0._r8; mss_ocphi(0) = 0._r8
                mss_dst1(0) = 0._r8; mss_dst2(0) = 0._r8
@@ -216,6 +215,7 @@ CONTAINS
       ENDIF
       wice(1) = wice(1) - excess
    END SUBROUTINE relocate_soil_frost_ice
+#endif
 
 END MODULE MOD_NewSnow
 ! ---------- EOP ------------

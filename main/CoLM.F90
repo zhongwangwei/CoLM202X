@@ -55,7 +55,8 @@ PROGRAM CoLM
    USE MOD_HRUVector
 #endif
 #if (defined CaMa_Flood)
-   USE MOD_CaMa_colmCaMa
+   USE MOD_CaMa_colmCaMa, only: colm_CaMa_init, colm_CaMa_drv, colm_cama_write_restart, colm_cama_exit
+   USE YOS_CMF_INPUT, only: CSETFILE
 #endif
 #ifdef SinglePoint
    USE MOD_SingleSrfdata
@@ -105,6 +106,9 @@ PROGRAM CoLM
    USE MOD_Tracer_LandPhase, only: land_tracer_init, land_tracer_final
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_reset
    USE MOD_Tracer_Defs, only: tracer_defs_final
+#ifdef CaMa_Flood
+   USE MOD_Tracer_Defs, only: ntracers, tracer_uses_land_water_transport
+#endif
 #endif
 #ifdef TRACER
    USE MOD_Tracer_Forcing, only: tracer_forcing_init, read_tracer_forcing, &
@@ -137,6 +141,7 @@ PROGRAM CoLM
    character(len=256) :: dir_hist
    character(len=256) :: dir_restart
    character(len=256) :: fsrfdata
+
    real(r8) :: deltim       ! time step (seconds)
    integer  :: sdate(3)     ! calendar (year, julian day, seconds)
    integer  :: idate(3)     ! calendar (year, julian day, seconds)
@@ -157,6 +162,9 @@ PROGRAM CoLM
    integer :: lc_year, lai_year, restart_lc_year
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
+#if (defined TRACER) && (defined CaMa_Flood)
+   integer :: itrc_cama
+#endif
    logical :: is_spinup
    logical :: history_saved_raw
 #ifdef TRACER
@@ -328,8 +336,6 @@ PROGRAM CoLM
       CALL allocate_TimeVariables  ()
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
-      ! land_tracer_init is the single TRACER lifecycle entry. It also
-      ! initializes CH4 when CH4 is registered as a reactive tracer.
 #ifdef TRACER
       CALL land_tracer_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
          casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
@@ -377,9 +383,15 @@ PROGRAM CoLM
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      CALL colm_CaMa_init(jdate) !initialize CaMa-Flood
+      CALL colm_CaMa_init(jdate)
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+#ifdef TRACER
+      IF (p_is_master .and. ntracers > 0) THEN
+         IF (any([(tracer_uses_land_water_transport(itrc_cama), itrc_cama = 1, ntracers)])) &
+            write(*,'(A)') 'WARNING: CaMa_Flood does not route land runoff tracers; they leave at the land boundary.'
+      ENDIF
 #endif
 #endif
 
@@ -397,12 +409,17 @@ PROGRAM CoLM
          CALL init_nitrif_data (ststamp)
       ENDIF
 
-      ! Calendar-year inputs must not use sdate: adj2end represents Jan 1
-      ! midnight as Dec 31 of the preceding year with seconds = 86400.
+#ifdef TRACER
       IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
          CALL init_ndep_data_annually (s_year)
       ELSEIF(DEF_NDEP_FREQUENCY==2)THEN ! Initial monthly ndep data readin
          CALL init_ndep_data_monthly (s_year,s_month)
+#else
+      IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
+         CALL init_ndep_data_annually (sdate(1))
+      ELSEIF(DEF_NDEP_FREQUENCY==2)THEN ! Initial monthly ndep data readin
+         CALL init_ndep_data_monthly (sdate(1),s_month)
+#endif
       ELSE
          write(6,*) 'ERROR: DEF_NDEP_FREQUENCY should be only 1-2, Current is:', &
                      DEF_NDEP_FREQUENCY
@@ -410,7 +427,11 @@ PROGRAM CoLM
       ENDIF
 
       IF (DEF_USE_FIRE) THEN
+#ifdef TRACER
          CALL init_fire_data (s_year)
+#else
+         CALL init_fire_data (sdate(1))
+#endif
          CALL init_lightning_data (sdate)
       ENDIF
 #endif
@@ -423,7 +444,7 @@ PROGRAM CoLM
       CALL lateral_flow_init (lc_year)
 #endif
 #ifdef GridRiverLakeFlow
-      CALL grid_riverlake_flow_init (s_year)
+      CALL grid_riverlake_flow_init (s_year, is_spinup)
       CALL restore_river_history_acc_restart (jdate, casename, dir_restart)
 #endif
 
@@ -524,7 +545,11 @@ PROGRAM CoLM
          ! Call CoLM driver
          ! ----------------------------------------------------------------------
          IF (p_is_worker) THEN
+#ifdef TRACER
             CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag,istep)
+#else
+            CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
+#endif
          ENDIF
 
 #if (defined CatchLateralFlow)
@@ -532,17 +557,19 @@ PROGRAM CoLM
 #endif
 
 #if (defined GridRiverLakeFlow)
-         ! Keep routing state advancing during spinup.  The land methane step
-         ! remains before this call and therefore still consumes the explicitly
-         ! documented previous-step routing publication.
-         CALL grid_riverlake_flow (idate(1), deltim)
+         IF (.not. is_spinup) THEN
+            CALL grid_riverlake_flow (idate(1), deltim)
+         ENDIF
 #endif
 #if (defined CaMa_Flood)
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-         CALL colm_CaMa_drv(idate(3), deltim, &
-            save_to_restart(idate,deltim,itstamp,ptstamp,etstamp) .OR. .NOT.(itstamp<etstamp)) ! run CaMa-Flood
+         IF(CSETFILE=='NONE')THEN
+            CALL colm_CaMa_drv(idate(3),deltim,save_to_restart(idate,deltim,itstamp,ptstamp,etstamp))
+         ELSE
+            CALL colm_CaMa_drv(idate(3))
+         ENDIF
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
@@ -578,7 +605,9 @@ PROGRAM CoLM
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
-
+#ifdef GridRiverLakeFlow
+            CALL grid_riverlake_flow_lulcc ()
+#endif
 
             ! Allocate Forcing and Fluxes variable of next year
             CALL allocate_1D_Forcing
@@ -633,9 +662,6 @@ PROGRAM CoLM
          ! Write out the model state variables for restart run
          ! ----------------------------------------------------------------------
          IF (save_to_restart (idate, deltim, itstamp, ptstamp, etstamp)) THEN
-            ! Prepare an incomplete history sidecar before replacing the
-            ! physical checkpoint. Forced terminal windows were saved raw in
-            ! hist_out; all other windows are still available here.
             IF (.not.history_saved_raw) &
                CALL write_history_acc_restart (jdate, casename, dir_restart)
 #ifdef LULCC

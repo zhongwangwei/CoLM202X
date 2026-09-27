@@ -18,7 +18,7 @@ MODULE MOD_Tracer_Evapo
 	   USE MOD_Tracer_Vars, only: trc_ldew_rain, trc_ldew_snow, &
 	      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_canopy_solid, &
 	      trc_numerical_residual_step, &
-	      a_trc_precip, a_trc_vapor_exchange, tracer_book_evap_loss, &
+	      a_trc_precip, a_water_precip, a_trc_vapor_exchange, tracer_book_evap_loss, &
 	      TRC_EVAP_KIND_CANOPYEVAP, TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL
 
    IMPLICIT NONE
@@ -191,6 +191,7 @@ CONTAINS
             trc_flux = d_rain_external * ratio
             trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_flux
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+            a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + d_rain_external
          ENDIF
          trc_ldew_rain(itrc, ipatch) = max(trc_ldew_rain(itrc, ipatch), 0._r8)
 
@@ -210,6 +211,7 @@ CONTAINS
             trc_flux = d_snow_external * ratio
             trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_flux
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+            a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + d_snow_external
          ENDIF
          trc_ldew_snow(itrc, ipatch) = max(trc_ldew_snow(itrc, ipatch), 0._r8)
 
@@ -381,6 +383,7 @@ CONTAINS
                   ratio = deposition_ratio_for(layer_temp(j), .false.)
                   trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux * ratio
                   a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+                  a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + trc_flux
                ELSE ! DEEP_STORAGE_RESIDUAL liquid gain: preserve local/fallback signature.
                   IF (wliq_post_phase > trc_tiny) THEN
                      ratio = trc_wliq_soisno(itrc, j, ipatch) / wliq_post_phase
@@ -431,6 +434,7 @@ CONTAINS
                   ratio = deposition_ratio_for(layer_temp(j), .true.)
                   trc_wice_soisno(itrc, j, ipatch) = trc_wice_soisno(itrc, j, ipatch) + trc_flux * ratio
                   a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux * ratio
+                  a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + trc_flux
                ELSE ! DEEP_STORAGE_RESIDUAL ice gain: preserve local/fallback signature.
                   IF (wice_post_phase > trc_tiny) THEN
                      ratio = trc_wice_soisno(itrc, j, ipatch) / wice_post_phase

@@ -31,7 +31,11 @@ MODULE MOD_BGC_Soil_BiogeochemCompetition
 
    IMPLICIT NONE
 
+#ifdef TRACER
    PUBLIC SoilBiogeochemCompetition, SoilBiogeochemCompetitionNoPlant
+#else
+   PUBLIC SoilBiogeochemCompetition
+#endif
 
 CONTAINS
 
@@ -465,6 +469,7 @@ CONTAINS
 
    END SUBROUTINE SoilBiogeochemCompetition
 
+#ifdef TRACER
    SUBROUTINE SoilBiogeochemCompetitionNoPlant(i, deltim, nl_soil, dz_soi)
 
       integer,  intent(in) :: i, nl_soil
@@ -515,5 +520,6 @@ CONTAINS
 
    END SUBROUTINE SoilBiogeochemCompetitionNoPlant
 
+#endif
 END MODULE MOD_BGC_Soil_BiogeochemCompetition
 #endif

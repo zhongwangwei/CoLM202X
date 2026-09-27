@@ -34,9 +34,13 @@ MODULE MOD_Hist
    USE MOD_Catch_Hist
 #endif
 #ifdef GridRiverLakeFlow
+#ifdef TRACER
    USE MOD_Grid_RiverLakeHist, only: hist_grid_riverlake_init, hist_grid_riverlake_out, &
       hist_grid_riverlake_final, flush_acc_fluxes_riverlake
    USE MOD_Grid_RiverLakeHistState
+#else
+   USE MOD_Grid_RiverLakeHist
+#endif
 #endif
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_Hist
@@ -62,18 +66,18 @@ CONTAINS
 
    character(len=*) , intent(in) :: dir_hist
    logical, optional, intent(in) :: lulcc_call
+#ifdef TRACER
    logical :: flush_reactive
 
       CALL allocate_acc_fluxes ()
-      ! land_tracer_init runs before the first hist_init and may have restored
-      ! a partial reactive-history window from restart.  Preserve it here;
-      ! cold starts are already zeroed at allocation.  LULCC explicitly
-      ! rebuilds methane accumulators, so that reinitialization may flush.
       flush_reactive = .false.
       IF (present(lulcc_call)) flush_reactive = lulcc_call
       CALL FLUSH_acc_fluxes (flush_reactive=flush_reactive)
-#ifdef TRACER
       CALL flush_Tracer_Acc ()
+#else
+
+      CALL allocate_acc_fluxes ()
+      CALL FLUSH_acc_fluxes ()
 #endif
 
       HistForm = 'Gridded'
@@ -184,12 +188,18 @@ CONTAINS
    ! Local variables
    logical :: lwrite
    logical :: natural_boundary
+#ifdef TRACER
+   logical :: forcmask_empty(0)
+#endif
+#ifdef TRACER
    real(r8) :: history_window_seconds
    character(len=256) :: file_hist
    integer :: itime_in_file
-#ifdef TRACER
    character(len=256) :: file_hist_tracer
    integer :: itime_in_file_tracer
+#else
+   character(len=256) :: file_hist
+   integer :: itime_in_file
 #endif
 #if (defined CaMa_Flood)
    character(len=256) :: file_hist_cama
@@ -245,11 +255,6 @@ CONTAINS
          CALL flush_Tracer_Acc ()
 #endif
 #ifdef GridRiverLakeFlow
-         ! River-lake and river-tracer history accumulators are incremented by
-         ! the routing operators (e.g. MOD_Grid_RiverLakeFlow.F90:1242), not by
-         ! hist_out, so this early return would otherwise carry spinup-period
-         ! accumulation into the first post-spinup record: the only other reset
-         ! point is the tail of hist_grid_riverlake_out, which spinup skips.
          CALL flush_acc_fluxes_riverlake ()
 #endif
          IF (.not. (itstamp < etstamp)) THEN
@@ -288,8 +293,6 @@ CONTAINS
          '          Set to FALSE by default.                                                     '
       END select
 
-      ! The terminal history record is normalized and flushed below.  Save the
-      ! raw window first so a resume can complete the same interval.
       IF (.not. (itstamp < etstamp) .and. .not.natural_boundary) THEN
          IF (present(restart_date) .and. present(dir_restart)) THEN
             CALL write_history_acc_restart(restart_date, casename, dir_restart)
@@ -339,6 +342,7 @@ CONTAINS
 
          file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
+#ifdef TRACER
          history_window_seconds=0._r8
          IF (p_is_worker) history_window_seconds=max(nac,0._r8)*deltim
 #ifdef USEMPI
@@ -360,7 +364,6 @@ CONTAINS
                   'minutes since 1900-1-1 0:0:0')
             ENDIF
          ENDIF
-#ifdef TRACER
          file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_tracer_'//trim(cdate)//'.nc'
          CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
          IF (HistForm=='Gridded' .and. p_is_master) THEN
@@ -377,14 +380,14 @@ CONTAINS
                   'minutes since 1900-1-1 0:0:0')
             ENDIF
          ENDIF
+#else
+         CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
 #endif
 
          IF (p_is_worker) THEN
-            IF (numpatch > 0) THEN
-               allocate (filter    (numpatch))
-               allocate (filter_dt (numpatch))
-               allocate (vecacc    (numpatch))
-            ENDIF
+            allocate (filter    (numpatch))
+            allocate (filter_dt (numpatch))
+            allocate (vecacc    (numpatch))
 #ifdef URBAN_MODEL
             IF (numurban > 0) THEN
                allocate (filter_urb (numurban))
@@ -4270,8 +4273,6 @@ ENDIF
             itime_in_file, 'soilsnow', maxsnl+1, nl_soil-maxsnl, &
             sumarea, filter, 'ice lens in soil layers', 'kg/m2')
 
-         ! TRACER/CH4 history output is written by MOD_Tracer_Hist to
-         ! a separate *_hist_tracer_*.nc file.
 
 #ifdef DataAssimilation
          IF (p_is_worker) THEN
@@ -4551,7 +4552,7 @@ ENDIF
             'water storage in aquifer','mm')
 
          ! instantaneous water storage in aquifer [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .AND. numpatch > 0) THEN
             vecacc = wa
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -4565,7 +4566,7 @@ ENDIF
             'depth of surface water','mm')
 
          ! instantaneous depth of surface water [mm]
-         IF (p_is_worker) THEN
+         IF (p_is_worker .AND. numpatch > 0) THEN
             vecacc = wdsrf
             WHERE(vecacc /= spval) vecacc = vecacc * nac
          ENDIF
@@ -4833,10 +4834,8 @@ ENDIF
             itime_in_file, trim(file_hist)/=trim(file_last))
 
          IF (p_is_worker) THEN
-            IF (numpatch > 0) THEN
-               allocate (nac_one (numpatch))
-               nac_one = 1.
-            ENDIF
+            allocate (nac_one (numpatch))
+            nac_one = 1.
          ENDIF
 
          IF (HistForm == 'Gridded') THEN
@@ -4876,8 +4875,13 @@ ENDIF
 #endif
 
 #ifdef TRACER
-         CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
-            sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
+         IF (allocated(forcmask_pch)) THEN
+            CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
+         ELSE
+            CALL tracer_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_empty)
+         ENDIF
 #endif
 
          IF (allocated(filter    )) deallocate (filter    )
@@ -4937,6 +4941,7 @@ ENDIF
          IF (p_is_worker) &
             WHERE (acc_vec /= spval) acc_vec = acc_vec / nac
       ELSE
+#ifdef TRACER
          IF (p_is_worker) THEN
             WHERE (acc_vec/=spval .and. acc_num>0)
                acc_vec = acc_vec / acc_num
@@ -4944,16 +4949,24 @@ ENDIF
                acc_vec = spval
             END WHERE
          ENDIF
+#else
+         IF (p_is_worker)  &
+            WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
+#endif
       ENDIF
 #else
       IF ( .not. present(acc_num) ) THEN
          WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
       ELSE
+#ifdef TRACER
          WHERE (acc_vec/=spval .and. acc_num>0)
                acc_vec = acc_vec / acc_num
             ELSEWHERE (acc_vec/=spval .and. acc_num<=0)
                acc_vec = spval
             END WHERE
+#else
+         WHERE (acc_vec/=spval .and. acc_num>0) acc_vec = acc_vec / acc_num
+#endif
       ENDIF
 #endif
 
@@ -5110,11 +5123,16 @@ ENDIF
          IF (p_is_worker) THEN
             DO i1 = lbound(acc_vec,1), ubound(acc_vec,1)
                DO i2 = lbound(acc_vec,2), ubound(acc_vec,2)
+#ifdef TRACER
                   WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0)
                         acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
                   ELSEWHERE (acc_vec(i1,i2,:)/=spval .and. acc_num<=0)
                         acc_vec(i1,i2,:) = spval
                   END WHERE
+#else
+                  WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0) &
+                        acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
+#endif
                ENDDO
             ENDDO
          ENDIF
@@ -5125,11 +5143,16 @@ ENDIF
       ELSE
          DO i1 = lbound(acc_vec,1), ubound(acc_vec,1)
             DO i2 = lbound(acc_vec,2), ubound(acc_vec,2)
+#ifdef TRACER
                WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0)
                      acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
                ELSEWHERE (acc_vec(i1,i2,:)/=spval .and. acc_num<=0)
                      acc_vec(i1,i2,:) = spval
                END WHERE
+#else
+               WHERE (acc_vec(i1,i2,:)/=spval .and. acc_num>0) &
+                     acc_vec(i1,i2,:) = acc_vec(i1,i2,:) / acc_num
+#endif
             ENDDO
          ENDDO
       ENDIF

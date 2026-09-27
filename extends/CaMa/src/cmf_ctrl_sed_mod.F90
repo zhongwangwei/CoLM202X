@@ -200,7 +200,7 @@ CONTAINS
 
     ! Set Default Values
     lambda           = 0.4_JPRB
-    lyrdph           = 0.05d0       ! Default active layer depth 5 cm
+    lyrdph           = 0.00005d0    ! Default active layer depth 10cm
     nsed             = 3
     psedD            = 2.65d0       !  
     pset             = 1.d0     ! typical value for natural sand
@@ -517,8 +517,6 @@ CONTAINS
     !endif
   end subroutine CMF_SED_RESTART_WRITE
 
-  ! The sediment-state sidecar remains binary; raw history belongs in the
-  ! timestamped CaMa NC checkpoint and is read only on restart.
   SUBROUTINE CMF_SED_HISTORY_WRITE_CDF
     USE NETCDF
     USE YOS_CMF_INPUT, ONLY: CSUFCDF

@@ -97,8 +97,10 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Lulcc_Vars_TimeVariables
    USE MOD_Lulcc_Initialize
    USE MOD_Vars_TimeVariables
+#ifdef TRACER
    USE MOD_Vars_TimeInvariants, only: patchclass
    USE MOD_LandPatch, only: landpatch, numpatch
+#endif
    USE MOD_Lulcc_TransferTraceReadin
    USE MOD_Lulcc_MassEnergyConserve
    USE MOD_Namelist
@@ -161,8 +163,6 @@ MODULE MOD_Lulcc_Driver
       CALL LulccInitialize (casename, dir_landdata, dir_restart, &
                             jdate, greenwich)
 #ifdef TRACER
-      ! The physical REST routines also need an old element map; reject a
-      ! worker gaining or losing its entire patch set before they can read it.
       IF (inventory_active) THEN
          IF ((size(old_patch_area) > 0) .neqv. (numpatch > 0)) &
             CALL CoLM_stop('TRACER LULCC worker element footprint changed')
@@ -239,7 +239,6 @@ MODULE MOD_Lulcc_Driver
                patchclass_, landpatch_%eindex, inventory_trace, new_patch_area, old_patch_area)
             CALL tracer_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, inventory_trace, new_patch_area, old_patch_area)
-            ! The forcing cache consumes raw classifications and canonicalizes internally.
             CALL tracer_forcing_lulcc_remap (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, lccpct_patches)
          ELSE
@@ -252,10 +251,6 @@ MODULE MOD_Lulcc_Driver
          ENDIF
       ENDIF
       IF (allocated(old_patch_area)) deallocate(old_patch_area, new_patch_area, inventory_trace)
-      ! GIEMS broadcasts and spatial-pH vector I/O use global collectives;
-      ! reload them after the worker-local state remap with every rank present.
-      ! Pass the current LULCC year and landdata root so all spatial inputs are
-      ! rebuilt from the same year-specific patch map.
       CALL tracer_lifecycle_land_reload_lulcc_inputs (jdate(1), dir_landdata)
 #endif
 
@@ -303,7 +298,6 @@ MODULE MOD_Lulcc_Driver
          first = patches%ipxstt(ip)
          last = patches%ipxend(ip)
          IF (first == -1 .and. last == -1) THEN
-            ! A 2 m WMO diagnostic patch has no physical footprint or inventory.
             CYCLE
          ENDIF
          IF (first < 1 .or. last > mesh(ie)%npxl .or. last < first) &

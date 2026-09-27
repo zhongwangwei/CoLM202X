@@ -40,8 +40,8 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2OUTFLW(:,:)           !! total o
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2STORGE(:,:)           !! total storage       [m3]   (rivsto + fldsto)
 
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2OUTINS(:,:)           !! instantaneous discharge [m3/s] (unrouted runoff)
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX(:,:)          !! Evaporation water extracted [m3/s]
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX(:,:)        !! Infiltration water extracted [m3/s]
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX(:,:)          !! Evaporation water extracted
+real(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX(:,:)          !! Infiltration water extracted
 
 !================================================
 
@@ -69,8 +69,8 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2PTHOUT_aAVG(:,:)       !! flood 
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2GDWRTN_aAVG(:,:)       !! average ground water return flow
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2RUNOFF_aAVG(:,:)       !! average input runoff
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2ROFSUB_aAVG(:,:)       !! average input sub-surface runoff
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_aAVG(:,:)      !! average extracted evaporation [m3/s]
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_aAVG(:,:)   !! average extracted infiltration [m3/s]
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_aAVG(:,:)      !! average extracted water evaporation
+real(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_aAVG(:,:)          !! Infiltration water extracted
 
 !*** Average diagnostics (1D) for output
 REAL(KIND=JPRB),ALLOCATABLE                :: D1PTHFLW_aAVG(:,:)       !! bifurcation flow (1D, not 2D variable)
@@ -94,8 +94,8 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2PTHOUT_oAVG(:,:)       !! flood 
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2GDWRTN_oAVG(:,:)       !! average ground water return flow
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2RUNOFF_oAVG(:,:)       !! average input runoff
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2ROFSUB_oAVG(:,:)       !! average input sub-surface runoff
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_oAVG(:,:)      !! average extracted evaporation [m3/s]
-REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_oAVG(:,:)    !! average extracted infiltration [m3/s]
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WEVAPEX_oAVG(:,:)      !! average extracted water evaporation
+REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2WINFILTEX_oAVG(:,:)    !! average extracted water evaporation
 REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2DAMINF_oAVG(:,:)       !! average reservoir inflow [m3/s]  !!!added
 
 !*** Average diagnostics (1D) for output
@@ -133,7 +133,6 @@ REAL(KIND=JPRB),ALLOCATABLE,TARGET         :: D2LEVDPH(:,:) !! flood depth in pr
 
 CONTAINS
 
-! Raw daily integrals/maxima shared by history's partial flush and NC restart.
 SUBROUTINE RESTART_DIAG_FIELD(INDEX,NAME,FIELD)
 INTEGER(KIND=JPIM), INTENT(IN) :: INDEX
 CHARACTER(LEN=*), INTENT(OUT) :: NAME
@@ -177,6 +176,7 @@ CASE(14)
   ENDIF
 END SELECT
 END SUBROUTINE RESTART_DIAG_FIELD
+
 
 
 END MODULE YOS_CMF_DIAG

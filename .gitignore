@@ -11,18 +11,3 @@ lib
 *.a
 *.x
 *.log
-ppt_tracer/node_modules/
-/ppt_tracer
-docs/superpowers/
-*.py
-/run/aas_riverlake
-/mapdata.txt
-# Working documents, not model source. Kept narrow on purpose: an
-# outright /docs would also hide review notes that belong in git.
-docs/*.docx
-/.tmp
-
-# Keep regression source and support files visible despite the generic *.py rule.
-!/tests/
-!/tests/*.py
-/tests/artifacts/

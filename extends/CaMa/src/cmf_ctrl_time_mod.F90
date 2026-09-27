@@ -15,12 +15,12 @@ MODULE CMF_CTRL_TIME_MOD
 !   You may not use this file except in compliance with the License.
 !   You may obtain a copy of the License at: http://www.apache.org/licenses/LICENSE-2.0
 !
-! Unless required by applicable law or agreed to in writing, software distributed under the License is
-!  distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+! Unless required by applicable law or agreed to in writing, software distributed under the License is 
+!  distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. 
 ! See the License for the specific language governing permissions and limitations under the License.
 !==========================================================
 USE PARKIND1,                ONLY: JPIM, JPIB, JPRB, JPRM
-USE YOS_CMF_INPUT,           ONLY: LOGNAM
+USE YOS_CMF_INPUT,           ONLY: LOGNAM, CSETFILE
 USE CMF_UTILS_MOD,           ONLY: MIN2DATE, DATE2MIN, SPLITDATE, SPLITHOUR
 !================================================
 IMPLICIT NONE
@@ -30,16 +30,16 @@ INTEGER(KIND=JPIM)              :: SYEAR             !! START YEAR
 INTEGER(KIND=JPIM)              :: SMON              !! START MONTH
 INTEGER(KIND=JPIM)              :: SDAY              !! START DAY
 INTEGER(KIND=JPIM)              :: SHOUR             !! START HOUR
-INTEGER(KIND=JPIM)              :: SMIN              !! START MINUTE
+INTEGER(KIND=JPIM)              :: SMIN
 INTEGER(KIND=JPIM)              :: EYEAR             !! END   YEAR
 INTEGER(KIND=JPIM)              :: EMON              !! END   MONTH
 INTEGER(KIND=JPIM)              :: EDAY              !! END   DAY
-INTEGER(KIND=JPIM)              :: EHOUR             !! END   HOUR
-INTEGER(KIND=JPIM)              :: EMIN              !! END   MINUTE
+INTEGER(KIND=JPIM)              :: EHOUR             !! END   HOUR 
+INTEGER(KIND=JPIM)              :: EMIN
 
 NAMELIST/NSIMTIME/ SYEAR,SMON,SDAY,SHOUR,SMIN, EYEAR,EMON,EDAY,EHOUR,EMIN
 
-CONTAINS
+CONTAINS 
 !####################################################################
 ! -- CMF_TIME_NMLIST : Read setting from namelist
 ! -- CMF_TIME_INIT   : Initialize    time-related variables
@@ -51,7 +51,7 @@ SUBROUTINE CMF_TIME_NMLIST
 ! reed setting from namelist
 ! -- Called from CMF_DRV_NMLIST
 !================================================
-USE YOS_CMF_INPUT,      ONLY: CSETFILE,NSETFILE
+USE YOS_CMF_INPUT,      ONLY: NSETFILE
 USE YOS_CMF_TIME,       ONLY: YYYY0, MM0, DD0
 USE CMF_UTILS_MOD,      ONLY: INQUIRE_FID
 IMPLICIT NONE
@@ -98,48 +98,24 @@ WRITE(LOGNAM,*) "CMF::TIME_NMLIST: end: "
 END SUBROUTINE CMF_TIME_NMLIST
 !####################################################################
 
-
-
-
-
-
-!####################################################################
 SUBROUTINE CMF_TIME_SET_START_SECONDS(START_SEC)
-! set namelist start hour/minute from seconds since midnight (minute resolution)
 IMPLICIT NONE
 INTEGER(KIND=JPIM),INTENT(IN) :: START_SEC
-!================================================
-IF (START_SEC < 0 .OR. START_SEC >= 86400 .OR. MOD(START_SEC,60_JPIM) /= 0) THEN
-  WRITE(LOGNAM,*) 'CMF::TIME_SET_START_SECONDS: invalid seconds:', START_SEC
-  WRITE(LOGNAM,*) 'CaMa-Flood time control is minute-resolution'
-  WRITE(LOGNAM,*) 'stop'
-  STOP 9
-ENDIF
+IF (START_SEC < 0 .OR. START_SEC >= 86400 .OR. MOD(START_SEC,60_JPIM) /= 0) &
+  ERROR STOP 'CaMa start time must be a minute within the day'
 SHOUR=START_SEC/3600_JPIM
-SMIN =MOD(START_SEC,3600_JPIM)/60_JPIM
+SMIN=MOD(START_SEC,3600_JPIM)/60_JPIM
 END SUBROUTINE CMF_TIME_SET_START_SECONDS
-!####################################################################
 
-
-
-
-
-!####################################################################
 SUBROUTINE CMF_TIME_SET_END_SECONDS(END_SEC)
-! set namelist end hour/minute from seconds since midnight (minute resolution)
 IMPLICIT NONE
 INTEGER(KIND=JPIM),INTENT(IN) :: END_SEC
-!================================================
-IF (END_SEC < 0 .OR. END_SEC > 86400 .OR. MOD(END_SEC,60_JPIM) /= 0) THEN
-  WRITE(LOGNAM,*) 'CMF::TIME_SET_END_SECONDS: invalid seconds:', END_SEC
-  WRITE(LOGNAM,*) 'CaMa-Flood time control is minute-resolution'
-  WRITE(LOGNAM,*) 'stop'
-  STOP 9
-ENDIF
+IF (END_SEC < 0 .OR. END_SEC > 86400 .OR. MOD(END_SEC,60_JPIM) /= 0) &
+  ERROR STOP 'CaMa end time must be minute-aligned within one day'
 EHOUR=END_SEC/3600_JPIM
-EMIN =MOD(END_SEC,3600_JPIM)/60_JPIM
+EMIN=MOD(END_SEC,3600_JPIM)/60_JPIM
 END SUBROUTINE CMF_TIME_SET_END_SECONDS
-!####################################################################
+
 
 
 
@@ -162,12 +138,8 @@ WRITE(LOGNAM,*) ""
 WRITE(LOGNAM,*) "!---------------------!"
 
 WRITE(LOGNAM,*) "CMF::TIME_INIT:  initialize time variables"
-
-IF (SMIN < 0 .OR. SMIN >= 60 .OR. EMIN < 0 .OR. EMIN >= 60) THEN
-  WRITE(LOGNAM,*) 'Invalid start/end minute:', SMIN, EMIN
-  WRITE(LOGNAM,*) 'stop'
-  STOP 9
-ENDIF
+IF (SMIN < 0 .OR. SMIN >= 60 .OR. EMIN < 0 .OR. EMIN >= 60) &
+  ERROR STOP 'CaMa start/end minute is out of range'
 
 !*** 1. Start time & End Time
 ISYYYYMMDD=SYEAR*10000+SMON*100+SDAY
@@ -197,20 +169,17 @@ WRITE(LOGNAM,*) 'Start Date:',ISYYYYMMDD, ISHHMM, KMINSTART
 WRITE(LOGNAM,*) 'End   Date:',IEYYYYMMDD, IEHHMM, KMINEND
 
 !*** 3. Calculate NSTEPS: time steps within simulation time
-KSTEP=0
-IF (KMINEND <= KMINSTART) THEN
-  WRITE(LOGNAM,*) 'Invalid simulation window: KMINSTART,KMINEND=', KMINSTART, KMINEND
-  WRITE(LOGNAM,*) 'stop'
-  STOP 9
+KSTEP=0 
+IF (CSETFILE=="NONE") THEN
+  IF (KMINEND <= KMINSTART .OR. DT <= 0) ERROR STOP 'CaMa invalid simulation window or timestep'
+  ELAPSED_MIN_8=INT(KMINEND,KIND=JPIB)-INT(KMINSTART,KIND=JPIB)
+  ELAPSED_SEC_8=ELAPSED_MIN_8*60_JPIB
+  IF (REAL(ELAPSED_SEC_8,KIND=JPRB)/DT > REAL(HUGE(NSTEPS),KIND=JPRB)) &
+    ERROR STOP 'CaMa timestep count exceeds integer range'
+  NSTEPS=CEILING(REAL(ELAPSED_SEC_8,KIND=JPRB)/DT,KIND=JPIM)
+ELSE
+  NSTEPS=int ( ( (KMINEND-KMINSTART)*60_JPIM ) / DT )
 ENDIF
-ELAPSED_MIN_8=INT(KMINEND,KIND=JPIB)-INT(KMINSTART,KIND=JPIB)
-ELAPSED_SEC_8=ELAPSED_MIN_8*60_JPIB
-IF (ELAPSED_SEC_8 > INT(HUGE(NSTEPS),KIND=JPIB) * INT(DT,KIND=JPIB)) THEN
-  WRITE(LOGNAM,*) 'NSTEPS exceeds integer range:', ELAPSED_SEC_8, DT
-  WRITE(LOGNAM,*) 'stop'
-  STOP 9
-ENDIF
-NSTEPS=CEILING( REAL(ELAPSED_SEC_8,KIND=JPRB) / DT, KIND=JPIM )      !!  (End - Start) / DT
 
 WRITE(LOGNAM,*) 'NSTEPS    :',NSTEPS
 
@@ -229,7 +198,7 @@ CALL SPLITHOUR(JHHMM,JHOUR,JMIN)
 
 WRITE(LOGNAM,*) 'Initial Time Step Date:Hour :', IYYYYMMDD,'_',IHOUR,':',IMIN
 
-!*** end
+!*** end 
 WRITE(LOGNAM,*) "CMF::TIME_INIT: end"
 
 END SUBROUTINE CMF_TIME_INIT

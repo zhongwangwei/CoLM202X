@@ -10,9 +10,9 @@ LLEVEE   = .FALSE.                     ! true: activate levee scheme  (under dev
 
 LROSPLIT     = .FALSE.                          ! true: input if surface (Qs) and sub-surface (Qsb) runoff
 LWEVAP       = .FALSE.                          ! true: input water evaporation to extract from floodplain
-LWEVAPFIX    = .FALSE.                          ! deprecated compatibility option; no effect
+LWEVAPFIX    = .FALSE.                          ! true: water balance closure extracting water from evap when available
 LWINFILT     = .FALSE.                          ! true: input water infiltration to extract from floodplain
-LWINFILTFIX  = .FALSE.                          ! deprecated compatibility option; no effect
+LWINFILTFIX  = .FALSE.                          ! true: water balance closure extracting water from Infiltration when available
 LWEXTRACTRIV = .FALSE.                          ! true: also extract water from rivers 
 LSLOPEMOUTH  = .FALSE.                          ! true: prescribe water level slope == elevation slope on river month
 
@@ -36,8 +36,8 @@ LSTG_ES  = .FALSE.                              ! true: for Vector Processor opt
 /
 &NDIMTIME
 CDIMINFO = "/share/home/dq013/zhwei/colm/20240514/CaMa/map/US_0.1/diminfo_US.txt"               ! text file for dimention information
-DT       = 3600                     ! outer routing step [s]; adaptive substeps may be shorter
-IFRQ_INP = 1                        ! input/coupling interval [hour]
+DT       = 21600                                                                            ! time step length (sec)
+IFRQ_INP = 6                                                                               ! input forcing update frequency (hour)
 /
 &NPARAM
 PMANRIV  = 0.03D0                      ! manning coefficient river

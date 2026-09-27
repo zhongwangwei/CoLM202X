@@ -15,9 +15,6 @@ MODULE MOD_Grid_Reservoir
    integer :: totalnumresv
    integer :: numresv
    integer,  allocatable :: ucat2resv   (:)
-   ! Local reservoir state is ordered by the active parameter rows. Preserve
-   ! both that dense global state ordinal and its owning ucatch so restart files
-   ! can prove that volresv has not been rebound after a dam-table change.
    integer,  allocatable :: resv_global_id(:)
    integer,  allocatable :: resv_ucid     (:)
    type(pointer_int32_1d), allocatable :: resv_data_address (:)
@@ -86,10 +83,10 @@ CONTAINS
          CALL CoLM_stop ('reservoir dam_GRAND_ID and dam_seq lengths differ')
 
       IF (DEF_UnitCatchment_regional) THEN
-         ! dam_seq numbers the unit catchments of the full network, but the
-         ! regional network renumbers them.  Translate through the source index
-         ! stored in the regional file; dams outside the region get distinct
-         ! negative placeholders, which never match an active unit catchment.
+         IF (p_is_master) THEN
+            IF (ncio_var_exist(parafile, 'seq_src_index', readflag = .false.)) &
+               CALL CoLM_stop ('DEF_ReservoirPara_file must use the source unit catchment numbering')
+         ENDIF
          CALL ncio_read_bcast_serial (regional_unitcatchment_file (), 'seq_src_index', src_index)
          allocate (regional_index (max(maxval(src_index), 1)))
          regional_index = 0
@@ -108,7 +105,7 @@ CONTAINS
          deallocate (src_index, regional_index)
       ENDIF
 
-      numresv = 0  ! Safe default for all ranks; workers overwrite below
+      numresv = 0
 
       allocate (order (nresv_catalogue))
       order = (/(i, i = 1, nresv_catalogue)/)
@@ -146,9 +143,6 @@ CONTAINS
 
       ENDIF
 
-      ! The parameter file may be a global catalogue while the active ucatch
-      ! network is regional. Rows outside the active domain are valid; only an
-      ! active row owned more than once is an invalid state mapping.
       allocate (ordinal_count(nresv_catalogue))
       ordinal_count = 0
       IF (p_is_worker) THEN
@@ -173,8 +167,6 @@ CONTAINS
             ' of ', nresv_catalogue
       ENDIF
 
-      ! State/history/restart vectors use a dense active-reservoir axis. The
-      ! original catalogue row remains in loc2all solely for parameter lookup.
       allocate (catalogue_to_active(nresv_catalogue))
       catalogue_to_active = 0
       totalnumresv = 0
@@ -220,10 +212,8 @@ CONTAINS
 
       ENDIF
 
-      ! Every non-master rank enters gather/scatter calls; an allocated
-      ! zero-size address book is a valid unused actual argument there.
       IF (.not. p_is_master .and. .not. allocated(resv_data_address)) THEN
-         allocate (resv_data_address (0:-1))  ! zero-size
+         allocate (resv_data_address (0:-1))
       ENDIF
 #else
       IF (numresv > 0) THEN

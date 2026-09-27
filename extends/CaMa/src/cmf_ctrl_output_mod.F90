@@ -756,7 +756,6 @@ WRITE(LOGNAM,*) ""
 WRITE(LOGNAM,*) "!---------------------!"
 WRITE(LOGNAM,*) "CMF::OUTPUT_END: finalize output module"
 
-! CoLM only initializes diagnostic names, not standalone output file handles.
 IF( REGIONTHIS==1 .AND. ALLOCATED(VAROUT) )THEN
   IF (LOUTCDF) THEN
 #ifdef UseCDF_CMF

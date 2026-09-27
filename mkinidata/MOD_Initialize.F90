@@ -37,6 +37,9 @@ CONTAINS
    USE MOD_Const_Physical
    USE MOD_Vars_TimeInvariants
    USE MOD_Vars_TimeVariables
+#if defined(TRACER) && defined(BGC)
+   USE MOD_BGC_CNSummary, only: CNDriverSummarizeNonvegetatedSoilStates
+#endif
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT
    USE MOD_Vars_PFTimeInvariants
@@ -71,7 +74,7 @@ CONTAINS
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
-   USE MOD_Grid_RiverLakeLevee,   only : levee_init
+   USE MOD_Grid_RiverLakeLevee, only: levee_init
    USE MOD_Grid_Reservoir
 #endif
 #ifdef CROP
@@ -282,10 +285,7 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          CALL reservoir_init ()
       ENDIF
-
-      IF (DEF_USE_LEVEE) THEN
-         CALL levee_init ()
-      ENDIF
+      IF (DEF_USE_LEVEE) CALL levee_init ()
 #endif
 
 ! --------------------------------------------------------------------
@@ -1328,7 +1328,7 @@ ENDIF
       ! PLEASE
       ! PLEASE UPDATE
       ! PLEASE UPDATE when have the observed lake status
-      IF (p_is_worker) THEN
+      IF (p_is_worker .AND. numpatch > 0) THEN
 
          t_lake      (:,:) = 285.
          lake_icefrac(:,:) = 0.
@@ -1449,6 +1449,9 @@ ENDIF
                ,use_soilini, nl_soil_ini, soil_z, soil_t(1:,i), soil_w(1:,i), use_snowini, snow_d(i) &
                ! for SOIL Water INIT by using water table depth
                ,use_wtd, zwtmm, zc_soimm, zi_soimm, vliq_r, nprms, prms)
+#if defined(TRACER) && defined(BGC)
+            IF (patchtype(i) == 2) CALL CNDriverSummarizeNonvegetatedSoilStates(i, nl_soil, dz_soi, ndecomp_pools)
+#endif
 
 #ifdef EXTERNAL_LAKE
             IF(patchtype(i) == 4) THEN

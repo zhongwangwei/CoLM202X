@@ -1,6 +1,10 @@
 #include <define.h>
 
+#ifdef TRACER
 SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
+#else
+SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
+#endif
 
 
 !=======================================================================
@@ -25,12 +29,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
    USE MOD_LandUrban, only: patch2urban
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
-
+   USE omp_lib
 #ifdef TRACER
    USE MOD_Tracer_LandPhase, only: tracer_resolve_step, tracer_lake_step, &
       tracer_wetland_decomp, tracer_soil_step, tracer_report
    USE MOD_Tracer_Defs, only: ntracers
    USE MOD_SPMD_Task, only: CoLM_stop
+   USE MOD_Tracer_SpecialPatches, only: waterbody_hist_sample
 #endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
@@ -45,6 +50,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
       finfg_fld => flood_infil_patch
 #endif
 
+#if (defined TRACER) && (defined OPENMP)
+#error "TRACER does not support OPENMP in CoLMDRIVER"
+#endif
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3) ! model calendar for next time step (year, julian day, seconds)
@@ -55,19 +63,27 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
    logical,  intent(in) :: dosst    ! true if time for update sst/ice/snow
 
    real(r8), intent(inout) :: oro(numpatch)  ! ocean(0)/seaice(2)/ flag
-   integer,  intent(in), optional :: istep_in  ! time-step index from CoLM.F90 (METHANE uses it; DA path may omit)
+#ifdef TRACER
+   integer,  intent(in), optional :: istep_in
+#endif
 
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
 #ifdef TRACER
-   integer  :: istep_local      ! resolved from optional istep_in
+   integer  :: istep_local
 #endif
 
 ! ======================================================================
 
 #ifdef TRACER
       CALL tracer_resolve_step (istep_in, istep_local)
+#endif
+
+#ifdef OPENMP
+!$OMP PARALLEL DO NUM_THREADS(OPENMP) &
+!$OMP PRIVATE(i, m, u, k, steps_in_one_deltim, deltim_phy) &
+!$OMP SCHEDULE(STATIC, 1)
 #endif
 
       DO i = 1, numpatch
@@ -103,6 +119,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
          IF (.not.DEF_URBAN_RUN .or. m.ne.URBAN) THEN
 
             DO k = 1, steps_in_one_deltim
+#ifdef TRACER
+               waterbody_hist_sample = k == steps_in_one_deltim
+#endif
                !                ***** Call CoLM main program *****
                !
                CALL CoLMMAIN (  i,idate,         coszen(i),       deltim_phy,      &
@@ -237,7 +256,6 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
 
 
 #if (defined BGC)
-         ! Vegetated soil patches: full CN driver (vegetation + soil decomp).
          IF(patchtype(i) .eq. 0)THEN
             !
             !               ***** Call CoLM BGC model *****
@@ -391,13 +409,14 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
             ustar(i)        ,qstar(i)        ,tstar(i)        ,fm(i)           ,&
             fh(i)           ,fq(i)           ,forc_hpbl(i)                      )
             rsub(i) = rnof(i) - rsur(i)
-
          ENDIF
 
 #endif
       ENDDO
+#ifdef OPENMP
+!$OMP END PARALLEL DO
+#endif
 
-      ! Surface tracer diagnostics are routed through the TRACER entry point.
 #ifdef TRACER
       CALL tracer_report ()
 #endif

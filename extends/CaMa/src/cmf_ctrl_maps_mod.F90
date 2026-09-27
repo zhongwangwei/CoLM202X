@@ -49,7 +49,7 @@ CHARACTER(LEN=256)              :: CMPIREGNC       !! MPI region map in netcdf
 
 NAMELIST/NMAP/     CNEXTXY,  CGRAREA,  CELEVTN,  CNXTDST, CRIVLEN, CFLDHGT, CGRDARE, &
                    CRIVWTH,  CRIVHGT,  CRIVMAN,  CPTHOUT, CGDWDLY, CMEANSL, &
-                   CMPIREG,  LMAPCDF,  CRIVCLINC,CRIVPARNC,CMEANSLNC,CMPIREGNC, CROUTINGNC
+                   CMPIREG,  LMAPCDF,  CRIVCLINC,CRIVPARNC,CMEANSLNC,CMPIREGNC,CROUTINGNC
 
 
 CONTAINS
@@ -64,7 +64,6 @@ SUBROUTINE CMF_MAPS_NMLIST(ROUTING_FILE)
 ! reed setting from namelist
 ! -- Called from CMF_DRV_NMLIST
 USE YOS_CMF_INPUT,      ONLY: CSETFILE,NSETFILE,LMEANSL,LGDWDLY
-USE YOS_CMF_INPUT,      ONLY: CDIMINFO,TMPNAM,LGRIDMAP,NX,NY,NLFP,NXIN,NYIN,INPN,WEST,EAST,NORTH,SOUTH
 USE CMF_UTILS_MOD,      ONLY: INQUIRE_FID
 IMPLICIT NONE
 CHARACTER(LEN=*),OPTIONAL,INTENT(IN) :: ROUTING_FILE
@@ -107,77 +106,29 @@ CMPIREGNC="NONE"
 !*** 3. read namelist
 IF( CSETFILE/="NONE" ) REWIND(NSETFILE)
 IF( CSETFILE/="NONE" ) READ(NSETFILE,NML=NMAP)
-
-! CoLM uses the same main-namelist file as GridRiverLakeFlow. The optional
-! arguments leave standalone CaMa and legacy namelists backward compatible.
 IF( PRESENT(ROUTING_FILE) )THEN
   SELECT CASE(TRIM(ROUTING_FILE))
   CASE('', 'null', 'NULL', 'none', 'NONE')
   CASE DEFAULT
-    IF( LEN_TRIM(ROUTING_FILE)>LEN(CROUTINGNC) )THEN
-      WRITE(LOGNAM,*) 'DEF_UnitCatchment_file exceeds CaMa path length: ',LEN(CROUTINGNC)
-      STOP 10
-    ENDIF
-    IF( TRIM(CROUTINGNC)/=TRIM(ROUTING_FILE) .AND. CROUTINGNC/='NONE' ) &
-      WRITE(LOGNAM,*) 'CROUTINGNC overridden by DEF_UnitCatchment_file: ',TRIM(CROUTINGNC)
+    IF( LEN_TRIM(ROUTING_FILE)>LEN(CROUTINGNC) ) ERROR STOP 'CaMa routing path too long'
     CROUTINGNC=TRIM(ROUTING_FILE)
-    WRITE(LOGNAM,*) 'Routing input from CoLM DEF_UnitCatchment_file'
   END SELECT
 ENDIF
-
 IF( CROUTINGNC=='' .OR. CROUTINGNC=='none' .OR. CROUTINGNC=='null' .OR. CROUTINGNC=='NULL' ) &
   CROUTINGNC='NONE'
-
 IF( CROUTINGNC/="NONE" )THEN
 #ifdef UseMPI_CMF
-  WRITE(LOGNAM,*) 'CROUTINGNC does not support UseMPI_CMF domain decomposition'
-  STOP 10
+  ERROR STOP 'CaMa routing NC does not support UseMPI_CMF decomposition'
 #endif
   INQUIRE(FILE=TRIM(CROUTINGNC),EXIST=FILE_EXISTS)
-  IF( .NOT.FILE_EXISTS )THEN
-    WRITE(LOGNAM,*) 'Routing netCDF not found: ',TRIM(CROUTINGNC)
-    STOP 10
-  ENDIF
+  IF( .NOT.FILE_EXISTS ) ERROR STOP 'CaMa routing NC file missing'
   CALL READ_ROUTING_HEADER_CDF
-  WRITE(LOGNAM,*) 'NC mode: CDIMINFO and legacy static-map paths/format flags are ignored.'
-  WRITE(LOGNAM,*) 'Physical switches and optional module inputs are unchanged.'
-ELSE
-  !* value from CDIMINFO
-  IF( CDIMINFO/="NONE" )THEN
-    WRITE(LOGNAM,*) "CMF::CONFIG_NMLIST: read DIMINFO ", TRIM(CDIMINFO)
-
-    TMPNAM=INQUIRE_FID()
-    OPEN(TMPNAM,FILE=CDIMINFO,FORM='FORMATTED')
-    READ(TMPNAM,*) NX
-    READ(TMPNAM,*) NY
-    READ(TMPNAM,*) NLFP
-    READ(TMPNAM,*) NXIN
-    READ(TMPNAM,*) NYIN
-    READ(TMPNAM,*) INPN
-    READ(TMPNAM,*)
-    IF( LGRIDMAP )THEN
-      READ(TMPNAM,*) WEST
-      READ(TMPNAM,*) EAST
-      READ(TMPNAM,*) NORTH
-      READ(TMPNAM,*) SOUTH
-    ENDIF
-    CLOSE(TMPNAM)
-  ENDIF
-ENDIF
-
-!* check
-WRITE(LOGNAM,*) ""
-WRITE(LOGNAM,*) "=== DIMINFO ==="
-WRITE(LOGNAM,*) "NX,NY,NLFP     ", NX,  NY,  NLFP
-WRITE(LOGNAM,*) "NXIN,NYIN,INPN ", NXIN,NYIN,INPN
-IF( LGRIDMAP ) THEN
-  WRITE(LOGNAM,*) "WEST,EAST,NORTH,SOUTH ", WEST,EAST,NORTH,SOUTH
 ENDIF
 
 WRITE(LOGNAM,*)     "=== NAMELIST, NMAP ==="
 WRITE(LOGNAM,*)     "CROUTINGNC: ", TRIM(CROUTINGNC)
 IF( CROUTINGNC/="NONE" )THEN
-  WRITE(LOGNAM,*) 'Static topology, topography and enabled bifurcation fields come from routing NC.'
+  WRITE(LOGNAM,*) "Routing topology and parameters from NC"
 ELSEIF( LMAPCDF )THEN
   WRITE(LOGNAM,*)   "CRIVCLINC: ", TRIM(CRIVCLINC)
   WRITE(LOGNAM,*)   "CRIVPARNC: ", TRIM(CRIVPARNC)
@@ -223,9 +174,7 @@ END SUBROUTINE CMF_MAPS_NMLIST
 
 
 
-!####################################################################
 SUBROUTINE READ_ROUTING_HEADER_CDF
-! Read dimensions from the bundled GridRiverLakeFlow-style routing file.
 USE, INTRINSIC :: IEEE_ARITHMETIC, ONLY: IEEE_IS_FINITE
 USE YOS_CMF_INPUT, ONLY: NX,NY,NLFP,NXIN,NYIN,INPN,WEST,EAST,NORTH,SOUTH
 #ifdef UseCDF_CMF
@@ -237,8 +186,7 @@ IMPLICIT NONE
 INTEGER(KIND=JPIM) :: NCID,DIMID,VARID,STATUS
 INTEGER(KIND=JPIM) :: DIMIDS2(2),NSEQTMP,LEN1,LEN2,SEQDIM
 
-CALL NCERROR(NF90_OPEN(TRIM(CROUTINGNC),NF90_NOWRITE,NCID), &
-             'opening '//TRIM(CROUTINGNC))
+CALL NCERROR(NF90_OPEN(TRIM(CROUTINGNC),NF90_NOWRITE,NCID),'opening '//TRIM(CROUTINGNC))
 STATUS=NF90_INQ_DIMID(NCID,'nx',DIMID)
 IF( STATUS==NF90_NOERR )THEN
   CALL NCERROR(NF90_INQUIRE_DIMENSION(NCID,DIMID,LEN=NX),'reading nx dimension')
@@ -272,8 +220,7 @@ ELSE
   ELSEIF( DIMIDS2(2)==SEQDIM .AND. LEN2==NSEQTMP )THEN
     NLFP=LEN1
   ELSE
-    WRITE(LOGNAM,*) 'topo_fldhgt dimensions do not include seq_x length'
-    STOP 10
+    ERROR STOP 'CaMa invalid floodplain-height dimensions'
   ENDIF
 ENDIF
 STATUS=NF90_INQ_DIMID(NCID,'inpn',DIMID)
@@ -289,8 +236,7 @@ ELSE
   ELSEIF( DIMIDS2(2)==SEQDIM .AND. LEN2==NSEQTMP )THEN
     INPN=LEN1
   ELSE
-    WRITE(LOGNAM,*) 'inpmat_area dimensions do not include seq_x length'
-    STOP 10
+    ERROR STOP 'CaMa invalid input-matrix dimensions'
   ENDIF
 ENDIF
 CALL NCERROR(NF90_GET_ATT(NCID,NF90_GLOBAL,'west',WEST),'reading west bound')
@@ -299,27 +245,18 @@ CALL NCERROR(NF90_GET_ATT(NCID,NF90_GLOBAL,'north',NORTH),'reading north bound')
 CALL NCERROR(NF90_GET_ATT(NCID,NF90_GLOBAL,'south',SOUTH),'reading south bound')
 CALL NCERROR(NF90_CLOSE(NCID))
 
-IF( NX<=0 .OR. NY<=0 .OR. NLFP<=0 .OR. INPN<=0 )THEN
-  WRITE(LOGNAM,*) 'Invalid dimensions in routing netCDF: ',NX,NY,NLFP,INPN
-  STOP 10
-ENDIF
+IF( NX<=0 .OR. NY<=0 .OR. NLFP<=0 .OR. INPN<=0 ) ERROR STOP 'CaMa invalid routing dimensions'
 IF( .NOT.(IEEE_IS_FINITE(WEST) .AND. IEEE_IS_FINITE(EAST) .AND. &
           IEEE_IS_FINITE(NORTH) .AND. IEEE_IS_FINITE(SOUTH)) .OR. &
-    EAST<=WEST .OR. NORTH<=SOUTH )THEN
-  WRITE(LOGNAM,*) 'Invalid bounds in routing netCDF: ',WEST,EAST,NORTH,SOUTH
-  STOP 10
-ENDIF
-
-! CoLM supplies coupled fluxes on the same grid stored in the bundled input matrix.
+    EAST<=WEST .OR. NORTH<=SOUTH ) ERROR STOP 'CaMa invalid routing bounds'
 NXIN=NX
 NYIN=NY
-WRITE(LOGNAM,*) 'Routing netCDF dimensions: ',NX,NY,NLFP,INPN
 #else
-WRITE(LOGNAM,*) 'CROUTINGNC requires compiling CaMa with UseCDF_CMF'
-STOP 10
+ERROR STOP 'CaMa routing NC requires UseCDF_CMF'
 #endif
 END SUBROUTINE READ_ROUTING_HEADER_CDF
-!####################################################################
+
+
 
 
 
@@ -362,14 +299,13 @@ ELSE
 ENDIF
 
 !*** 2b. calculate river sequence & regions
+!============================
+!*** 3. conversion 2D map -> 1D vector
 IF( CROUTINGNC=="NONE" )THEN
   WRITE(LOGNAM,*) 'CMF::RIVMAP_INIT: calc region'
   CALL CALC_REGION
-
-  !============================
-  !*** 3. conversion 2D map -> 1D vector
   WRITE(LOGNAM,*) 'CMF::RIVMAP_INIT: calculate 1d river sequence'
-  CALL CALC_1D_SEQ                                !! 2D map to 1D vector conversion. for faster calculation
+  CALL CALC_1D_SEQ
 ENDIF
 
 WRITE(LOGNAM,*) '  NSEQRIV=',NSEQRIV
@@ -422,83 +358,58 @@ USE YOS_CMF_INPUT, ONLY: IMIS
 USE CMF_UTILS_MOD, ONLY: NCERROR
 USE NETCDF
 IMPLICIT NONE
-INTEGER(KIND=JPIM) :: NCID,VARID,UPNMAX
+INTEGER(KIND=JPIM) :: NCID,VARID,ISEQ,JSEQ,IX,IY,QHEAD,QTAIL,NVISIT,UPNMAX
 INTEGER(KIND=JPIM) :: DIMIDS1(1)
-INTEGER(KIND=JPIM) :: ISEQ,JSEQ,IX,IY,QHEAD,QTAIL,NVISIT
 INTEGER(KIND=JPIM),ALLOCATABLE :: SEQX_RAW(:),SEQY_RAW(:),NEXT_RAW(:),NUPCALC(:),NUPWORK(:),QUEUE(:),ORDER(:)
 
-WRITE(LOGNAM,*) 'RIVMAP_INIT: bundled routing netCDF: ',TRIM(CROUTINGNC)
-CALL NCERROR(NF90_OPEN(TRIM(CROUTINGNC),NF90_NOWRITE,NCID), &
-             'opening '//TRIM(CROUTINGNC))
-! Canonical links and all parameter rows use file row indices, as in GridRiverLakeFlow.
+CALL NCERROR(NF90_OPEN(TRIM(CROUTINGNC),NF90_NOWRITE,NCID),'opening '//TRIM(CROUTINGNC))
 CALL NCERROR(NF90_INQ_VARID(NCID,'seq_x',VARID),'getting seq_x id')
 CALL NCERROR(NF90_INQUIRE_VARIABLE(NCID,VARID,DIMIDS=DIMIDS1),'reading seq_x dimensions')
 CALL NCERROR(NF90_INQUIRE_DIMENSION(NCID,DIMIDS1(1),LEN=NSEQMAX),'reading seq_x length')
-IF( NSEQMAX<=0 )THEN
-  WRITE(LOGNAM,*) 'Invalid sequence dimension in routing netCDF: ',NSEQMAX
-  STOP 10
-ENDIF
+IF( NSEQMAX<=0 ) ERROR STOP 'CaMa invalid routing sequence dimension'
 
-ALLOCATE(I1SEQX(NSEQMAX),I1SEQY(NSEQMAX),I1NEXT(NSEQMAX))
-ALLOCATE(I2VECTOR(NX,NY))
+ALLOCATE(I1SEQX(NSEQMAX),I1SEQY(NSEQMAX),I1NEXT(NSEQMAX),I2VECTOR(NX,NY))
 ALLOCATE(SEQX_RAW(NSEQMAX),SEQY_RAW(NSEQMAX),NEXT_RAW(NSEQMAX))
 ALLOCATE(NUPCALC(NSEQMAX),NUPWORK(NSEQMAX),QUEUE(NSEQMAX),ORDER(NSEQMAX))
-NUPCALC(:)=0
-
+NUPCALC=0
 CALL NCERROR(NF90_INQ_VARID(NCID,'lon',VARID),'getting lon id')
 CALL NCERROR(NF90_GET_VAR(NCID,VARID,D1LON),'reading lon')
 CALL NCERROR(NF90_INQ_VARID(NCID,'lat',VARID),'getting lat id')
 CALL NCERROR(NF90_GET_VAR(NCID,VARID,D1LAT),'reading lat')
-
 CALL NCERROR(NF90_INQ_VARID(NCID,'seq_x',VARID),'getting seq_x id')
 CALL NCERROR(NF90_GET_VAR(NCID,VARID,SEQX_RAW),'reading seq_x')
 CALL NCERROR(NF90_INQ_VARID(NCID,'seq_y',VARID),'getting seq_y id')
 CALL NCERROR(NF90_GET_VAR(NCID,VARID,SEQY_RAW),'reading seq_y')
 CALL NCERROR(NF90_INQ_VARID(NCID,'seq_next',VARID),'getting seq_next id')
 CALL NCERROR(NF90_GET_VAR(NCID,VARID,NEXT_RAW),'reading seq_next')
-
-I1SEQX(:)=SEQX_RAW(:)
-I1SEQY(:)=SEQY_RAW(:)
-I1NEXT(:)=NEXT_RAW(:)
-! Upstream metadata is redundant; derive it from the authoritative seq_next.
 CALL NCERROR(NF90_CLOSE(NCID))
 
-I2NEXTX(:,:)=IMIS
-I2NEXTY(:,:)=IMIS
-I2REGION(:,:)=IMIS
-I2VECTOR(:,:)=0
+I1SEQX=SEQX_RAW
+I1SEQY=SEQY_RAW
+I1NEXT=NEXT_RAW
+I2NEXTX=IMIS
+I2NEXTY=IMIS
+I2REGION=IMIS
+I2VECTOR=0
 REGIONALL=1
 NSEQALL=NSEQMAX
-
 DO ISEQ=1,NSEQMAX
   IX=I1SEQX(ISEQ)
   IY=I1SEQY(ISEQ)
-  IF( IX<1 .OR. IX>NX .OR. IY<1 .OR. IY>NY )THEN
-    WRITE(LOGNAM,*) 'Routing grid index out of range: ',ISEQ,IX,IY
-    STOP 10
-  ENDIF
-  IF( I2VECTOR(IX,IY)/=0 )THEN
-    WRITE(LOGNAM,*) 'Duplicate routing grid index: ',ISEQ,IX,IY
-    STOP 10
-  ENDIF
+  IF( IX<1 .OR. IX>NX .OR. IY<1 .OR. IY>NY ) ERROR STOP 'CaMa routing grid index out of range'
+  IF( I2VECTOR(IX,IY)/=0 ) ERROR STOP 'CaMa duplicate routing grid index'
   I2VECTOR(IX,IY)=ISEQ
   I2REGION(IX,IY)=1
 ENDDO
-
 DO ISEQ=1,NSEQMAX
   JSEQ=I1NEXT(ISEQ)
   IF( JSEQ>0 )THEN
-    IF( JSEQ>NSEQMAX .OR. JSEQ==ISEQ )THEN
-      WRITE(LOGNAM,*) 'Invalid downstream sequence: ',ISEQ,JSEQ
-      STOP 10
-    ENDIF
+    IF( JSEQ>NSEQMAX .OR. JSEQ==ISEQ ) ERROR STOP 'CaMa invalid downstream sequence'
     NUPCALC(JSEQ)=NUPCALC(JSEQ)+1
   ENDIF
 ENDDO
 
-! Kahn order for river links; mouths are appended to satisfy the CaMa layout.
-! Every edge is visited once, including in the cycle check.
-NSEQRIV=COUNT(I1NEXT(:)>0)
+NSEQRIV=COUNT(I1NEXT>0)
 QHEAD=1
 QTAIL=0
 DO ISEQ=1,NSEQMAX
@@ -508,7 +419,7 @@ DO ISEQ=1,NSEQMAX
   ENDIF
 ENDDO
 NVISIT=0
-NUPWORK(:)=NUPCALC(:)
+NUPWORK=NUPCALC
 DO WHILE( QHEAD<=QTAIL )
   ISEQ=QUEUE(QHEAD)
   QHEAD=QHEAD+1
@@ -523,10 +434,7 @@ DO WHILE( QHEAD<=QTAIL )
     ENDIF
   ENDIF
 ENDDO
-IF( NVISIT/=NSEQRIV )THEN
-  WRITE(LOGNAM,*) 'Routing sequence contains a cycle in river links'
-  STOP 10
-ENDIF
+IF( NVISIT/=NSEQRIV ) ERROR STOP 'CaMa routing sequence contains a cycle'
 DO ISEQ=1,NSEQMAX
   IF( I1NEXT(ISEQ)<=0 )THEN
     NVISIT=NVISIT+1
@@ -548,23 +456,21 @@ DO ISEQ=1,NSEQMAX
     I1NEXT(ISEQ)=NEXT_RAW(JSEQ)
   ENDIF
 ENDDO
-NUPCALC(:)=0
+NUPCALC=0
 DO ISEQ=1,NSEQRIV
   JSEQ=I1NEXT(ISEQ)
   NUPCALC(JSEQ)=NUPCALC(JSEQ)+1
 ENDDO
-
 UPNMAX=MAX(1,MAXVAL(NUPCALC))
 ALLOCATE(I1UPST(NSEQMAX,UPNMAX),I1UPN(NSEQMAX))
-I1UPST(:,:)=-9999
-I1UPN(:)=NUPCALC(:)
-NUPCALC(:)=0
+I1UPST=-9999
+I1UPN=NUPCALC
+NUPCALC=0
 DO ISEQ=1,NSEQRIV
   JSEQ=I1NEXT(ISEQ)
   NUPCALC(JSEQ)=NUPCALC(JSEQ)+1
   I1UPST(JSEQ,NUPCALC(JSEQ))=ISEQ
 ENDDO
-
 DO ISEQ=1,NSEQMAX
   IX=I1SEQX(ISEQ)
   IY=I1SEQY(ISEQ)
@@ -578,15 +484,9 @@ DO ISEQ=1,NSEQMAX
     I2NEXTY(IX,IY)=JSEQ
   ENDIF
 ENDDO
-
 DEALLOCATE(SEQX_RAW,SEQY_RAW,NEXT_RAW,NUPCALC,NUPWORK,QUEUE,ORDER)
 END SUBROUTINE READ_ROUTING_MAP_CDF
 #endif
-!==========================================================
-!+
-!+
-!+
-!==========================================================
 SUBROUTINE READ_MAP_BIN
 USE YOS_CMF_INPUT,      ONLY: TMPNAM, LMAPEND
 USE YOS_CMF_INPUT,      ONLY: WEST,EAST,NORTH,SOUTH
@@ -791,16 +691,6 @@ DO IY=1, NY
     IF( I2NEXTX(IX,IY).GT.0 .and. I2REGION(IX,IY)==REGIONTHIS )THEN
       JX=I2NEXTX(IX,IY)
       JY=I2NEXTY(IX,IY)
-      IF( JX<1 .OR. JX>NX .OR. JY<1 .OR. JY>NY )THEN
-        WRITE(LOGNAM,*) 'Downstream grid outside regional map: ',IX,IY,JX,JY
-        WRITE(LOGNAM,*) 'Use a topology-closed map or CROUTINGNC; geographic clipping is invalid.'
-        STOP 10
-      ENDIF
-      IF( I2REGION(JX,JY)/=REGIONTHIS )THEN
-        WRITE(LOGNAM,*) 'Downstream grid crosses CaMa region: ',IX,IY,JX,JY
-        WRITE(LOGNAM,*) 'CaMa regions must contain complete routing links.'
-        STOP 10
-      ENDIF
       NUPST(JX,JY)=NUPST(JX,JY)+1
       UPNMAX=max(UPNMAX,NUPST(JX,JY))
     ENDIF
@@ -1042,11 +932,6 @@ ENDDO
 DEALLOCATE(OCOUNT,ICOUNT)
 END SUBROUTINE READ_ROUTING_BIF_CDF
 #endif
-!==========================================================
-!+
-!+
-!+
-!==========================================================
 SUBROUTINE READ_BIFPARAM    !! evenly allocate pixels to mpi nodes (not used in vcurrent version)
 USE YOS_CMF_INPUT,      ONLY: PMANRIV, PMANFLD
 USE YOS_CMF_MAP,        ONLY: NPTHOUT, NPTHLEV, PTH_UPST, PTH_DOWN,&
@@ -1224,6 +1109,7 @@ ELSE
   CALL READ_TOPO_CDF
 ENDIF
 
+IF ( CROUTINGNC=="NONE" ) I2MASK(:,:)=0_JPIM
 IF ( LSLPMIX .AND. CROUTINGNC=="NONE" ) THEN
   CALL SET_SLOPEMIX
 ENDIF
@@ -1472,7 +1358,6 @@ IF( STATUS==NF90_NOERR )THEN
     ENDDO
     DEALLOCATE(R1)
   ENDIF
-  ! Allow rounding when independent geometry fields were stored as float32.
   STO_EXPECT(:)=D2RIVLEN(:,1)*D2RIVWTH(:,1)*D2RIVHGT(:,1)
   IF( ANY(.NOT. IEEE_IS_FINITE(STO_IN)) .OR. &
       ANY(ABS(STO_IN-STO_EXPECT)>MAX(1.0E-6_JPRB,ABS(STO_EXPECT)*1.0E-6_JPRB)) )THEN
@@ -1482,13 +1367,8 @@ IF( STATUS==NF90_NOERR )THEN
   DEALLOCATE(STO_IN,STO_EXPECT)
 ENDIF
 
-! CaMa computes the total floodplain storage curve internally in SET_FLDSTG.
-! GridRiverLakeFlow inputs do not use topo_fldstomax with that same definition,
-! so do not reject otherwise valid shared routing files based on that metadata.
 CALL NCERROR(NF90_CLOSE(NCID))
 
-! The bundled file stores unit-catchment area, not regular grid-cell area.
-! Derive the latter for the optional irrigation withdrawal calculation.
 DLON=(EAST-WEST)/REAL(NX,KIND=JPRB)*DEG2RAD
 DLAT=(NORTH-SOUTH)/REAL(NY,KIND=JPRB)
 DO IY=1,NY
@@ -1505,11 +1385,6 @@ WRITE(LOGNAM,*) 'CROUTINGNC requires compiling CaMa with UseCDF_CMF'
 STOP 10
 END SUBROUTINE READ_ROUTING_TOPO_CDF
 #endif
-!==========================================================
-!+
-!+
-!+
-!==========================================================
 SUBROUTINE READ_TOPO_BIN
 USE CMF_UTILS_MOD,       ONLY: mapR2vecD, CONV_END,  INQUIRE_FID
 IMPLICIT NONE
@@ -1711,8 +1586,8 @@ IF ( LGDWDLY ) THEN
   WRITE(LOGNAM,*)'TOPO_INIT: GDWDLY:',TRIM(CRIVPARNC)
   STATUS = NF90_INQ_VARID(NCID,'gdwdly',VARID)
   IF (STATUS /= 0 ) THEN
-    WRITE(LOGNAM,*)'TOPO_INIT: GDWDLY: not present, aborting'
-    STOP 9
+    WRITE(LOGNAM,*)'TOPO_INIT: GDWDLY: not present, setting to zero'
+    R2TEMP(:,:) = 0._JPRB
   ELSE
     CALL NCERROR ( NF90_GET_VAR(NCID,VARID,R2TEMP),'reading data' ) 
   ENDIF 

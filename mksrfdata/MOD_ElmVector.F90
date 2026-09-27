@@ -63,7 +63,6 @@ CONTAINS
             indexelm = landelm%eindex
          ENDIF
 
-         ! Even ignored MPI receive arguments must be valid Fortran objects.
          allocate (numelm_worker (0:p_np_worker-1))
          CALL mpi_gather (numelm, 1, MPI_INTEGER, &
             numelm_worker, 1, MPI_INTEGER, p_root, p_comm_worker, p_err)
