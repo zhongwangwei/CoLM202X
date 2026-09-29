@@ -1895,9 +1895,12 @@ CONTAINS
                   min(1._r8,positive_loss/tracer_credit)
                infiltrated_fraction = 0._r8
                IF (flood_infil_acc(i) > 0._r8) THEN
-                  IF (water_credit <= flood_evap_acc(i)) &
-                     CALL CoLM_stop('grid flood feedback: infiltration after full evaporation')
-                  infiltrated_fraction = flood_infil_acc(i)/(water_credit-flood_evap_acc(i))
+                  IF (water_credit <= flood_evap_acc(i)) THEN
+                     IF (flood_infil_acc(i) > 1.e-12_r8*max(water_credit, 1._r8)) &
+                        CALL CoLM_stop('grid flood feedback: infiltration after full evaporation')
+                  ELSE
+                     infiltrated_fraction = flood_infil_acc(i)/(water_credit-flood_evap_acc(i))
+                  ENDIF
                ENDIF
                IF (infiltrated_fraction > 1._r8+1.e-10_r8) &
                   CALL CoLM_stop('grid flood feedback: tracer infiltration overdraft')
