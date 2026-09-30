@@ -214,6 +214,15 @@ MODULE MOD_Namelist
    ! pool split, instead of rescaling the CN dataset's profile, which piles the
    ! stock into the top layers (paper V2 C-12). Default off.
    logical :: DEF_WETLAND_PEAT_C_PROFILE = .false.
+   ! Soil water potential of a frozen layer for the decomposition moisture
+   ! scalar from freezing-point depression instead of the liquid-water
+   ! potential of the soil-water solver, which leaves an ice-filled layer at
+   ! saturation all winter (methane paper version). Default off.
+   logical :: DEF_USE_FROZEN_SOIL_PSI = .false.
+   ! Lake patches whose gridded sediment carbon is zero take the soil
+   ! organic-matter proxy that SinglePoint runs use (methane paper version).
+   ! Default off.
+   logical :: DEF_USE_LAKE_SOILC_OM_FALLBACK = .false.
 
    logical :: DEF_USE_WaterTableInit = .false.
    character(len=256) :: DEF_file_WaterTable = 'null'
@@ -1265,6 +1274,8 @@ CONTAINS
       DEF_file_cn_init,                       &
       DEF_USE_WETLAND_PEAT_C,                 &
       DEF_WETLAND_PEAT_C_PROFILE,             &
+      DEF_USE_FROZEN_SOIL_PSI,                &
+      DEF_USE_LAKE_SOILC_OM_FALLBACK,         &
 
       DEF_USE_WaterTableInit,                 &
       DEF_file_WaterTable,                    &
@@ -1934,6 +1945,8 @@ CONTAINS
       CALL mpi_bcast (DEF_file_cn_init                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_WETLAND_PEAT_C                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_WETLAND_PEAT_C_PROFILE             ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_FROZEN_SOIL_PSI                ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_LAKE_SOILC_OM_FALLBACK         ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_WaterTableInit                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_file_WaterTable                    ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)

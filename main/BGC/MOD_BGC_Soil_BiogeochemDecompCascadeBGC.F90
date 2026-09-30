@@ -30,6 +30,7 @@ MODULE MOD_BGC_Soil_BiogeochemDecompCascadeBGC
        smp, t_soisno, t_scalar, w_scalar, o_scalar, depth_scalar, decomp_k
    USE MOD_Vars_Global, only: PI
    USE MOD_Const_Physical, only: tfrz
+   USE MOD_Namelist, only: DEF_USE_FROZEN_SOIL_PSI
 
    IMPLICIT NONE
 
@@ -87,7 +88,7 @@ CONTAINS
          ! sets it.  The soil-water solver reports smp from liquid water over
          ! the ice-reduced porosity, which leaves an ice-filled layer at
          ! saturation and decomposing at the full moisture rate all winter.
-         IF (t_soisno(j,i) <= tfrz) THEN
+         IF (DEF_USE_FROZEN_SOIL_PSI .and. t_soisno(j,i) <= tfrz) THEN
             psi = min(1.e3_r8*0.3336e6_r8/9.80616_r8*(t_soisno(j,i)-tfrz)/t_soisno(j,i), smpmax_hr)
          ELSE
          psi = min(smp(j,i),smpmax_hr)
