@@ -157,6 +157,16 @@ MODULE MOD_Tracer_Reactive_Methane_State
    PUBLIC :: methane_surf_flux_tot_sat
    PUBLIC :: methane_surf_flux_tot_unsat
    PUBLIC :: methane_surf_flux_wetland
+   ! Category-split CH4 budget: wetland process components only.
+   ! soil/rice use the existing methane_{surf_*,*_tot}_{soil,rice}; lake uses base methane_*_lake.
+   PUBLIC :: methane_prod_tot_wetland
+   PUBLIC :: methane_oxid_tot_wetland
+   PUBLIC :: methane_surf_aere_wetland
+   PUBLIC :: methane_surf_ebul_wetland
+   PUBLIC :: methane_surf_diff_wetland
+   PUBLIC :: methane_area_wetland, methane_area_soil, methane_area_rice, methane_area_lake
+   PUBLIC :: methane_area_floodplain
+   PUBLIC :: methane_wetland_type
    PUBLIC :: methane_tran_depth
    PUBLIC :: methane_tran_depth_sat
    PUBLIC :: methane_tran_depth_unsat
@@ -415,6 +425,42 @@ MODULE MOD_Tracer_Reactive_Methane_State
 	   real(r8), allocatable :: methane_surf_flux_soil    (:) ! non-rice soil contribution to CH4 surface flux [mol/m2/s]
 	   real(r8), allocatable :: methane_surf_flux_lake    (:) ! lake contribution to CH4 surface flux [mol/m2/s]
 	   real(r8), allocatable :: methane_surf_flux_rice    (:) ! rice-paddy contribution to CH4 surface flux [mol/m2/s]
+
+   ! Category-split CH4 budget terms.  Disjoint wetland/soil/rice/lake
+   ! categories -- rice IS split out: the driver overrides the Physics default
+   ! (methane_area_soil = 1 - rice, methane_area_rice = rice) so the soil and
+   ! rice category totals do not double-count area.  Resolved into the five process
+   ! components instead of only the net surface flux, so a global budget can be
+   ! closed per category without back-calculating from fluxes.
+   ! Every array below is a per-patch CONTRIBUTION: paired with the all-land
+   ! history denominator, the three categories of a component sum to the patch
+   ! total, and multiplying the gridded field by landarea gives the total.
+   ! wetland process components only (patchtype==2).  soil/rice use the existing
+   ! methane_{surf_aere,surf_ebul,surf_diff,prod_tot,oxid_tot}_{soil,rice};
+   ! lake uses base methane_{surf_ebul,surf_diff,prod_tot,oxid_tot}_lake.
+   real(r8), allocatable :: methane_prod_tot_wetland  (:) ! CH4 production   [mol/m2/s]
+   real(r8), allocatable :: methane_oxid_tot_wetland  (:) ! CH4 oxidation    [mol/m2/s]
+   real(r8), allocatable :: methane_surf_aere_wetland (:) ! aerenchyma flux  [mol/m2/s]
+   real(r8), allocatable :: methane_surf_ebul_wetland (:) ! ebullition flux  [mol/m2/s]
+   real(r8), allocatable :: methane_surf_diff_wetland (:) ! diffusive flux   [mol/m2/s]
+
+   ! Per-patch area indicators for the same categories.  Under the all-land
+   ! history denominator these map to the grid-cell area FRACTION of each
+   ! category.  Accumulated in time like the fluxes, so a patch whose class
+   ! flips mid-period (routing flood on/off, soil carbon crossing a peat
+   ! threshold) reports a time-weighted fraction rather than a snapshot.
+   real(r8), allocatable :: methane_area_wetland    (:) ! [-]
+   real(r8), allocatable :: methane_area_soil       (:) ! [-] non-rice fraction of patchtype==0 (= 1 - rice_fraction)
+   real(r8), allocatable :: methane_area_rice       (:) ! [-] rice paddy fraction of patchtype==0
+   real(r8), allocatable :: methane_area_lake       (:) ! [-]
+   real(r8), allocatable :: methane_area_floodplain (:) ! [-] routing-flooded part of patchtype==0
+
+   ! Biome class code of this patch (BIOME_* in MOD_..._BgcLink), set by the
+   ! Driver from the same decision tree that selects f_methane.  Averaged in
+   ! time by history, so a non-integer value means the class changed within
+   ! the averaging window.
+   real(r8), allocatable :: methane_wetland_type   (:) ! [-] see BIOME_* codes
+
 	   real(r8), allocatable :: methane_surf_aere_soil(:), methane_surf_aere_rice(:)
 	   real(r8), allocatable :: methane_surf_ebul_soil(:), methane_surf_ebul_rice(:)
 	   real(r8), allocatable :: methane_surf_diff_soil(:), methane_surf_diff_rice(:)
@@ -734,6 +780,17 @@ CONTAINS
       allocate (methane_surf_flux_soil          (numpatch)); methane_surf_flux_soil     (:) = 0._r8
       allocate (methane_surf_flux_lake          (numpatch)); methane_surf_flux_lake     (:) = 0._r8
       allocate (methane_surf_flux_rice          (numpatch)); methane_surf_flux_rice     (:) = 0._r8
+      allocate (methane_prod_tot_wetland        (numpatch)); methane_prod_tot_wetland   (:) = 0._r8
+      allocate (methane_oxid_tot_wetland        (numpatch)); methane_oxid_tot_wetland   (:) = 0._r8
+      allocate (methane_surf_aere_wetland       (numpatch)); methane_surf_aere_wetland  (:) = 0._r8
+      allocate (methane_surf_ebul_wetland       (numpatch)); methane_surf_ebul_wetland  (:) = 0._r8
+      allocate (methane_surf_diff_wetland       (numpatch)); methane_surf_diff_wetland  (:) = 0._r8
+      allocate (methane_area_wetland            (numpatch)); methane_area_wetland       (:) = 0._r8
+      allocate (methane_area_soil               (numpatch)); methane_area_soil          (:) = 0._r8
+      allocate (methane_area_rice               (numpatch)); methane_area_rice          (:) = 0._r8
+      allocate (methane_area_lake               (numpatch)); methane_area_lake          (:) = 0._r8
+      allocate (methane_area_floodplain         (numpatch)); methane_area_floodplain    (:) = 0._r8
+      allocate (methane_wetland_type             (numpatch)); methane_wetland_type        (:) = 0._r8
 	  allocate (methane_surf_aere_soil(numpatch)); methane_surf_aere_soil = 0._r8
 	  allocate (methane_surf_aere_rice(numpatch)); methane_surf_aere_rice = 0._r8
 	  allocate (methane_surf_ebul_soil(numpatch)); methane_surf_ebul_soil = 0._r8
@@ -1009,6 +1066,17 @@ CONTAINS
 	      IF (allocated(methane_surf_flux_soil)) deallocate (methane_surf_flux_soil)
 	      IF (allocated(methane_surf_flux_lake)) deallocate (methane_surf_flux_lake)
 	      IF (allocated(methane_surf_flux_rice)) deallocate (methane_surf_flux_rice)
+      IF (allocated(methane_prod_tot_wetland)) deallocate (methane_prod_tot_wetland)
+      IF (allocated(methane_oxid_tot_wetland)) deallocate (methane_oxid_tot_wetland)
+      IF (allocated(methane_surf_aere_wetland)) deallocate (methane_surf_aere_wetland)
+      IF (allocated(methane_surf_ebul_wetland)) deallocate (methane_surf_ebul_wetland)
+      IF (allocated(methane_surf_diff_wetland)) deallocate (methane_surf_diff_wetland)
+      IF (allocated(methane_area_wetland)) deallocate (methane_area_wetland)
+      IF (allocated(methane_area_soil)) deallocate (methane_area_soil)
+      IF (allocated(methane_area_rice)) deallocate (methane_area_rice)
+      IF (allocated(methane_area_lake)) deallocate (methane_area_lake)
+      IF (allocated(methane_area_floodplain)) deallocate (methane_area_floodplain)
+      IF (allocated(methane_wetland_type)) deallocate (methane_wetland_type)
 	      IF (allocated(methane_surf_aere_soil)) deallocate (methane_surf_aere_soil)
 	      IF (allocated(methane_surf_aere_rice)) deallocate (methane_surf_aere_rice)
 	      IF (allocated(methane_surf_ebul_soil)) deallocate (methane_surf_ebul_soil)

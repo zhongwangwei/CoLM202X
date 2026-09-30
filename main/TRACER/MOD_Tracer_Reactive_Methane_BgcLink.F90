@@ -70,6 +70,27 @@ MODULE MOD_Tracer_Reactive_Methane_BgcLink
    real(r8), public, parameter :: PADDY_RICE_FRAC_MIN = 0.01_r8
    real(r8), parameter :: O_SCALAR_CONTRACT_TOL = 1.e-8_r8
 
+   ! CH4 biome class codes, reported by get_biome_f_methane through its
+   ! optional class_id argument.  The codes label the SAME decision tree that
+   ! selects DEF_METHANE%f_methane_*; they add no independent classification.
+   !
+   ! Only codes 1..5 (the patchtype==2 branches) reach history, as
+   ! f_methane_wetland_type under a wetland-only filter -- a class code is a
+   ! label, not a quantity, and must never be area-averaged across patches of
+   ! different classes.  The 6/7 distinction on patchtype==0 is carried instead
+   ! by f_methane_floodplain_frac, which is a fraction and averages correctly.
+   !
+   ! Rice is deliberately absent: it is an area fraction inside a
+   ! BIOME_UPLAND_SOIL / BIOME_FLOODPLAIN patch, not a class of its own.
+   integer, public, parameter :: BIOME_NONE                = 0  ! lake / urban / ice: not classified
+   integer, public, parameter :: BIOME_TROPICAL_PEAT       = 1
+   integer, public, parameter :: BIOME_TROPICAL_FLOODPLAIN = 2
+   integer, public, parameter :: BIOME_TEMPERATE_MARSH     = 3
+   integer, public, parameter :: BIOME_BOREAL_FEN          = 4
+   integer, public, parameter :: BIOME_BOREAL_BOG          = 5
+   integer, public, parameter :: BIOME_FLOODPLAIN          = 6  ! routing-flooded patchtype==0
+   integer, public, parameter :: BIOME_UPLAND_SOIL         = 7
+
 CONTAINS
 
    SUBROUTINE tracer_ch4_bgc_finalize_step(ipatch, patchtype, deltim, net_methane)
@@ -581,8 +602,11 @@ CONTAINS
    ! IGBP class 11 ("permanent wetland") has no PFT attached in CoLM, so
    ! NPP / rootfr arrive as 0 and methane_aere (Wania 2010 aerenchyma
    ! transport) cannot fire fully -- losing the plant-mediated CH4
-   ! pathway that observations show carries 50-90% of total wetland
-   ! CH4 efflux (Bridgham et al. 2013 GCB).
+      ! pathway.  Bridgham et al. (2013, GCB 19:1325, p.1330) give "ca.
+      ! 30-100% of total CH4 flux" for that pathway and stress it "varies
+      ! dramatically between systems"; the 50-90% previously quoted here is
+      ! not in the source.  The range spans nearly the whole domain, so it
+      ! bounds the problem rather than calibrating it.
    !
    ! LAI handling: CoLM mksrfdata does aggregate the Yuan+2011 (MODIS)
    ! LAI dataset onto wetland patches (fveg0_igbp(11)=1), so the input
@@ -1050,7 +1074,7 @@ CONTAINS
 
    !---------------------------------------------------------------------------
    real(r8) FUNCTION get_biome_f_methane (patchtype, dlat, cellorg_top, &
-      is_rice_paddy, rice_fraction, rice_parameter_active, is_floodplain)
+      is_rice_paddy, rice_fraction, rice_parameter_active, is_floodplain, class_id)
    !
    ! Biome-specific f_methane (CH4 yield ratio) lookup.
    ! Mirrors get_wetland_veg_proxy 5-zone classification so each climate
@@ -1097,18 +1121,17 @@ CONTAINS
    real(r8), intent(in) :: rice_fraction
    logical,  intent(in) :: rice_parameter_active
    logical,  intent(in), optional :: is_floodplain
+      ! Diagnostic-only: reports which branch of the tree below was taken, so
+      ! history can bin CH4 fluxes by biome class without a second copy of the
+      ! tree.  Always set, including on the legacy scalar path.
+      integer,  intent(out), optional :: class_id
 
    real(r8), parameter :: peat_om_threshold      = 150._r8
    real(r8), parameter :: tropical_peat_threshold = 80._r8
    logical :: floodplain_active
    real(r8) :: rice_frac
    real(r8) :: nonrice_f_methane
-
-   ! Legacy path: use global scalar if lookup not enabled
-   IF (.not. DEF_METHANE%use_biome_f_methane) THEN
-      get_biome_f_methane = DEF_METHANE%f_methane
-      RETURN
-   ENDIF
+      integer  :: cls
 
    floodplain_active = .false.
    IF (present(is_floodplain)) floodplain_active = is_floodplain
@@ -1119,18 +1142,36 @@ CONTAINS
    ! soil/floodplain value instead of replacing the whole mixed soil patch.
    IF (floodplain_active) THEN
       nonrice_f_methane = DEF_METHANE%f_methane_floodplain
+         cls = BIOME_FLOODPLAIN
    ELSE IF (patchtype /= 2) THEN
       nonrice_f_methane = DEF_METHANE%f_methane_upland_soil
+         cls = BIOME_UPLAND_SOIL
    ELSE IF (abs(dlat) <= 23.5_r8 .and. cellorg_top >= tropical_peat_threshold) THEN
       nonrice_f_methane = DEF_METHANE%f_methane_tropical_peat
+         cls = BIOME_TROPICAL_PEAT
    ELSE IF (abs(dlat) <= 23.5_r8) THEN
       nonrice_f_methane = DEF_METHANE%f_methane_tropical_floodplain
+         cls = BIOME_TROPICAL_FLOODPLAIN
    ELSE IF (abs(dlat) > 50._r8 .and. cellorg_top > peat_om_threshold) THEN
       nonrice_f_methane = DEF_METHANE%f_methane_boreal_bog
+         cls = BIOME_BOREAL_BOG
    ELSE IF (abs(dlat) > 50._r8) THEN
       nonrice_f_methane = DEF_METHANE%f_methane_boreal_fen
+         cls = BIOME_BOREAL_FEN
    ELSE
       nonrice_f_methane = DEF_METHANE%f_methane_temperate_marsh
+         cls = BIOME_TEMPERATE_MARSH
+      ENDIF
+
+      IF (present(class_id)) class_id = cls
+
+      ! Legacy path: use global scalar if lookup not enabled.  Deliberately
+      ! placed after the tree so class_id stays available as a diagnostic even
+      ! when the lookup does not drive f_methane.  The returned value is
+      ! unchanged from the original early-return form.
+      IF (.not. DEF_METHANE%use_biome_f_methane) THEN
+         get_biome_f_methane = DEF_METHANE%f_methane
+         RETURN
    ENDIF
 
    IF (is_rice_paddy .and. rice_parameter_active .and. rice_frac > 0._r8) THEN

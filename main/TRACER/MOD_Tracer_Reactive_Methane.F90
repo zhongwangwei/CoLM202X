@@ -41,6 +41,7 @@ MODULE MOD_Tracer_Reactive_Methane
       deallocate_methane_ph, read_methane_ph_patch
    USE MOD_Tracer_Reactive_Methane_VegOverride, only: allocate_wetland_aere_overrides, &
       deallocate_wetland_aere_overrides
+   USE MOD_Tracer_Reactive_Methane_WetlandVeg, only: read_methane_wetveg
    USE MOD_Tracer_Reactive_Methane_Impl, only: ch4_impl_lake_step, &
       ch4_impl_wetland_decomp, ch4_impl_soil_step
    USE MOD_Tracer_Reactive_Methane_Hist, only: methane_reactive_history
@@ -198,6 +199,20 @@ CONTAINS
       ENDIF
 
       CALL allocate_wetland_aere_overrides (numpatch)
+
+      ! C-13: the wetland tile's vegetation from its GLWD make-up. Collective
+      ! (master reads and broadcasts), so every rank calls it.
+      IF (DEF_METHANE%wetland_veg_glwd) THEN
+         IF (p_is_worker .and. numpatch > 0) THEN
+            CALL read_methane_wetveg (DEF_METHANE%wetland_veg_file, DEF_METHANE%wetland_lai_open_peat, &
+               DEF_METHANE%wetland_lai_marsh, patchlatr, patchlonr, numpatch)
+         ELSE
+            allocate(giems_dummy_patch(0))
+            CALL read_methane_wetveg (DEF_METHANE%wetland_veg_file, DEF_METHANE%wetland_lai_open_peat, &
+               DEF_METHANE%wetland_lai_marsh, giems_dummy_patch, giems_dummy_patch, 0)
+            deallocate(giems_dummy_patch)
+         ENDIF
+      ENDIF
 
    END SUBROUTINE ch4_reactive_init
 

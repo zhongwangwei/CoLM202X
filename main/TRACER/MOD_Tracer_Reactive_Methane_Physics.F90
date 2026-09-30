@@ -31,15 +31,23 @@ module MOD_Tracer_Reactive_Methane_Physics
 	use MOD_Tracer_Reactive_Methane_Const
 	USE MOD_Namelist, only: DEF_wetland_finundation_scheme, DEF_USE_Dynamic_Wetland
 	USE MOD_Tracer_Reactive_Methane_GIEMS, only: giems_finundated, giems_active
+   USE MOD_Tracer_Reactive_Methane_BgcLink, only: is_paddy_rice_live, &
+      rice_days_past_planting, rice_days_since_harvest, &
+      BIOME_TROPICAL_PEAT, BIOME_TROPICAL_FLOODPLAIN, BIOME_TEMPERATE_MARSH, &
+      BIOME_BOREAL_FEN, BIOME_BOREAL_BOG
 	USE MOD_Tracer_Reactive_Methane_VegOverride, only: get_aere_poros, get_aere_tillerC, &
 	                                          get_aere_radius, get_aere_scale
 		USE MOD_Tracer_Reactive_Methane_State, only: f_inund_levee_patch, f_inund_flood_patch, &
-		                                     f_inund_flood_depth_patch, wetland_frac_per_patch, &
+      f_inund_flood_depth_patch, wetland_frac_per_patch, methane_wetland_type, &
 		                                     biome_f_methane_patch, biome_redoxlag_patch, &
 		                                     methane_finundated, methane_soil_finundated, &
 		                                     methane_soil_zwt, methane_surf_flux_wetland, &
 		                                     methane_surf_flux_soil, methane_surf_flux_lake, &
-		                                     methane_surf_flux_rice, methane_surf_aere_soil, &
+      methane_surf_flux_rice, &
+      methane_prod_tot_wetland, methane_oxid_tot_wetland, &
+      methane_surf_aere_wetland, methane_surf_ebul_wetland, methane_surf_diff_wetland, &
+      methane_area_wetland, methane_area_soil, methane_area_rice, methane_area_lake, &
+		                                     methane_surf_aere_soil, &
 		                                     methane_surf_aere_rice, methane_surf_ebul_soil, &
 		                                     methane_surf_ebul_rice, methane_surf_diff_soil, &
 		                                     methane_surf_diff_rice, methane_prod_tot_soil, &
@@ -52,6 +60,8 @@ module MOD_Tracer_Reactive_Methane_Physics
 	public  :: methane
 	public  :: methane_host_water_reset
 	public  :: methane_host_water_report
+   public  :: wetland_max_wtd_of
+   public  :: wetland_peat_outflow
 
 	private :: methane_annualupdate
 	private :: methane_prod
@@ -482,6 +492,14 @@ contains
 		real(r8) :: finundated              ! fractional inundated area
 		logical  :: methane_cold_start      ! true only when no valid previous CH4 inundation state exists
 		real(r8) :: finundated_default      ! host/routing inundation before component diagnostics
+      logical  :: is_rice_paddy           ! this patch carries a flooded paddy tile
+      real(r8) :: rice_pft_frac           ! its area fraction within the patch
+      real(r8) :: finundated_rice         ! inundation the paddy tile alone would see
+      integer  :: idpp_rice               ! days past planting, -1 when unknown
+      integer  :: dsh_rice                ! days since harvest, -1 when unknown
+      logical  :: anoxic_decomp_patch     ! flooded soil tile decomposes at the anoxic rate (C-14)
+      real(r8) :: ms_start, ms_end        ! midseason drying window, days past planting
+      real(r8) :: drain_decay, drain_target
 		logical  :: store_patch_diagnostics ! suppress direct patch writes for component solves
 		real(r8) :: grnd_methane_cond_base  ! current aerodynamic tracer conductance [m/s]
 		real(r8) :: totcolch4_bef
@@ -593,6 +611,7 @@ contains
         integer  :: jwt_unsat          ! index of the soil layer right above the water table (-), unsaturated zone
 		real(r8) :: zwt_sat, wice_soisno_sat(maxsnl+1:nl_soil), wliq_soisno_sat(maxsnl+1:nl_soil), wdsrf_sat
 		real(r8) :: zwt_unsat, wice_soisno_unsat(maxsnl+1:nl_soil), wliq_soisno_unsat(maxsnl+1:nl_soil), wdsrf_unsat
+      real(r8) :: fliq_sat(1:nl_soil), fliq_unsat(1:nl_soil)   ! unfrozen water fraction wliq/(wliq+wice) per layer
 		real(r8) :: routing_depth_mm
 		logical  :: lake_restart_debug_print
 		real(r8) :: lake_dbg_totcol_bef, lake_dbg_ch4_l1_bef, lake_dbg_o2_l1_bef
@@ -887,6 +906,45 @@ contains
 						finundated = methane_distribute_grid_finundation(finundated, &
 							wetland_frac_per_patch(ipatch), patchtype)
 					ENDIF
+      elseif (DEF_wetland_finundation_scheme == 8) then
+         ! CoLM mode.  The mapped wetland tile is permanent wetland and is
+         ! saturated.  Every other tile takes the routing-published flood
+         ! fraction (levee field as the fallback): grid flood is allocated
+         ! to the mapped wetland first so only the residual reaches the
+         ! soil, gated by hybrid_soil_threshold like the hybrid soil path.
+         ! Without routing the published fields stay zero.
+         if (patchtype == 2) then
+            if (DEF_USE_Dynamic_Wetland) then
+               ! Dynamic wetland: the tile's own water table decides; the
+               ! unsaturated column carries the rest of the patch.
+               if (zwt <= 0._r8) then
+                  finundated = 1._r8
+               else
+                  finundated = 0._r8
+               endif
+            else
+               finundated = 1._r8
+            endif
+         else
+            finundated = 0._r8
+            if (allocated(f_inund_flood_patch) .and. &
+               ipatch >= 1 .and. ipatch <= size(f_inund_flood_patch)) then
+               finundated = f_inund_flood_patch(ipatch)
+            elseif (allocated(f_inund_levee_patch) .and. &
+               ipatch >= 1 .and. ipatch <= size(f_inund_levee_patch)) then
+               finundated = f_inund_levee_patch(ipatch)
+            endif
+            if (finundated > DEF_METHANE%hybrid_soil_threshold) then
+               if (allocated(wetland_frac_per_patch) .and. &
+                  ipatch >= 1 .and. ipatch <= size(wetland_frac_per_patch)) then
+                  finundated = methane_distribute_grid_finundation(finundated, &
+                     wetland_frac_per_patch(ipatch), patchtype, &
+                     debit_wetland=.false.)
+               endif
+            else
+               finundated = 0._r8
+            endif
+         endif
 			else
 			write(6,*) 'ERROR: unsupported DEF_wetland_finundation_scheme = ', &
 				DEF_wetland_finundation_scheme
@@ -956,10 +1014,70 @@ contains
 			finundated = 1._r8
 		endif
 
-		! Rice physiology is supplied by the component driver, but methane must
-		! not invent irrigation water.  Both soil and rice components therefore
-		! use exactly the inundation diagnosed by host hydrology or routing.
+      ! Paddy water management (removed by 68a507f8, whose comment here read
+      ! "methane must not invent irrigation water"; restored from 7550e0ed).
+      !
+      ! It does invent it: the floor below raises the inundation the CH4 column
+      ! sees without adding a drop to the host water balance. That is the known
+      ! cost of this rollback and it is deliberate -- see the parameter block in
+      ! MOD_Tracer_Reactive_Methane_Const. Without it a paddy is hydrologically a
+      ! dry field: all seven FLUXNET-CH4 rice towers model exactly 0.0 against an
+      ! observed 66.7 mg CH4 m-2 d-1, and no inundation_mode can repair that
+      ! because rice has no finundated of its own -- it reads the soil one.
+      !
+      ! Blending by area keeps a mixed-CFT patch honest, and max() means an
+      ! already-wet patch is never dried by the paddy floor.
+      IF (present(is_rice_paddy_in)) THEN
+         is_rice_paddy = is_rice_paddy_in
+      ELSE
+         is_rice_paddy = .false.
+      ENDIF
+      ! C-14: floodplains on the soil tile; wetland tiles keep their own BGC
+      ! anoxia limit and paddy patches are left out.
+      anoxic_decomp_patch = DEF_METHANE%floodplain_anoxic_decomp .and. &
+         patchtype /= 2 .and. .not. is_rice_paddy
+      IF (present(rice_pft_frac_in)) THEN
+         rice_pft_frac = rice_pft_frac_in
+      ELSE
+         rice_pft_frac = 0._r8
+      ENDIF
+      rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
+
 		finundated_default = finundated
+      IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
+         IF (is_paddy_rice_live(ipatch)) THEN
+            finundated_rice = max(finundated_default, &
+               DEF_METHANE%rice_paddy_min_finundated)
+
+            ! Midseason drying. croplive_p carries the season across New Year on
+            ! its own, so southern-hemisphere rice needs no special case.
+            idpp_rice = rice_days_past_planting(ipatch, idate(2), idate(1))
+            ms_start  = DEF_METHANE%rice_midseason_start_days
+            ms_end    = ms_start + DEF_METHANE%rice_midseason_drain_days
+            IF (idpp_rice >= 0 .and. real(idpp_rice, r8) >= ms_start &
+                .and. real(idpp_rice, r8) < ms_end) THEN
+               finundated_rice = min(finundated_rice, &
+                  max(DEF_METHANE%rice_midseason_drained_finundated, &
+                      finundated_default))
+            ENDIF
+            finundated = rice_pft_frac * finundated_rice &
+                       + (1._r8 - rice_pft_frac) * finundated_default
+         ELSE
+            ! Harvested: decay the floor to the host value rather than dropping
+            ! to it, so the post-harvest emission tail is not cut off in a step.
+            dsh_rice = rice_days_since_harvest(ipatch, idate(2), idate(1))
+            IF (dsh_rice >= 0 .and. &
+                real(dsh_rice, r8) < DEF_METHANE%rice_drain_window_days) THEN
+               drain_decay  = 1._r8 - real(dsh_rice, r8) &
+                            / DEF_METHANE%rice_drain_window_days
+               drain_target = drain_decay * DEF_METHANE%rice_paddy_min_finundated
+               finundated_rice = max(drain_target, finundated_default)
+               finundated = rice_pft_frac * finundated_rice &
+                          + (1._r8 - rice_pft_frac) * finundated_default
+            ENDIF
+         ENDIF
+         finundated = min(max(finundated, 0._r8), 1._r8)
+      ENDIF
 
 		dfsat = finundated - fsat_bef
 
@@ -1075,9 +1193,13 @@ contains
 
 		! Partition host soil water between conditional columns.  The saturated
 		! column may borrow water only from the area represented by the unsaturated
-		! column; their area-weighted liquid and ice masses remain exactly equal to
-		! the host state.  Inundation unsupported by host water is invalid forcing,
-		! not permission for the methane model to create water.
+		! column; their area-weighted liquid and ice volumes remain exactly equal to
+		! the host state after the same porosity clipping the host applies before use
+		! (MOD_SoilSnowHydrology.F90:312-314 -- the host clips vol_liq/vol_ice at
+		! point of use and never writes the clipped values back, so the raw masses
+		! can exceed pore volume once ice, at 917 kg/m3, fills a saturated layer).
+		! Inundation unsupported by host water is invalid forcing, not permission
+		! for the methane model to create water.
 		wliq_soisno_unsat = wliq_soisno
 		wice_soisno_unsat = wice_soisno
 		wliq_soisno_sat = wliq_soisno
@@ -1086,8 +1208,12 @@ contains
 			do j = 1, nl_soil
 				pore_volume = max(porsl(j), 0._r8) * max(dz_soisno(j), 0._r8)
 				if (pore_volume <= 1.e-12_r8) cycle
-				vliq = max(wliq_soisno(j), 0._r8) / denh2o
-				vice = max(wice_soisno(j), 0._r8) / denice
+				! Same clipping order as split_ch4_o2_phases below: liquid
+				! first, ice into what is left.  vtot cannot exceed pore_volume by
+				! construction, so no renormalisation is needed below.
+				vliq = min(max(wliq_soisno(j), 0._r8) / denh2o, pore_volume)
+				vice = min(max(wice_soisno(j), 0._r8) / denice, &
+					max(pore_volume - vliq, 0._r8))
 				vtot = vliq + vice
 				! vtot comes from the host soil state, finundated from an
 				! independent water-table S-curve, so the two disagree by more
@@ -1262,16 +1388,24 @@ contains
 					conc_ch4_gas_unsat, conc_ch4_aqu_unsat, conc_ch4_porsl_unsat, conc_ch4_gas_porsl_unsat, conc_ch4_aqu_porsl_unsat, &
 					conc_o2_gas_unsat, conc_o2_aqu_unsat, conc_o2_porsl_unsat, conc_o2_gas_porsl_unsat, conc_o2_aqu_porsl_unsat )
 
+            ! Unfrozen water fraction per layer; a layer without water is unconstrained.
+            do j = 1, nl_soil
+               if (wliq_soisno_unsat(j) + wice_soisno_unsat(j) > 1.e-12_r8) then
+                  fliq_unsat(j) = max(wliq_soisno_unsat(j), 0._r8) / (wliq_soisno_unsat(j) + wice_soisno_unsat(j))
+               else
+                  fliq_unsat(j) = 1._r8
+               end if
+            end do
 				! Calculate CH4 production in each soil layer
 				call methane_prod ( ipatch, idate, patchtype, sat, jwt_unsat, finundated, finundated_lag, rr, deltim, &
-					z_soisno, dz_soisno, zi_soisno, t_soisno, &
+               z_soisno, dz_soisno, zi_soisno, t_soisno, fliq_unsat, &
 					lai, conc_o2_unsat, rootfr, annavg_finrw, &
 					crootfr, somhr, lithr, hr_vr, o_scalar, fphr, pot_f_nit_vr, pH, layer_sat_lag, lake_soilc, &
-					microbial_prod_potential_patch, &
+               microbial_prod_potential_patch, anoxic_decomp_patch, &
 					methane_prod_depth_unsat, o2_decomp_depth_unsat, co2_decomp_depth_unsat )
 
 				! Calculate CH4 oxidation in each soil layer
-				call methane_oxid ( idate, patchtype, jwt_unsat, sat, t_soisno, dz_soisno, zi_soisno, smp, vol_aqu_unsat, &
+            call methane_oxid ( idate, patchtype, jwt_unsat, sat, t_soisno, fliq_unsat, dz_soisno, zi_soisno, smp, vol_aqu_unsat, &
 					conc_o2_aqu_porsl_unsat, conc_ch4_aqu_porsl_unsat, &
 					microbial_oxid_potential_patch, &
 					methane_oxid_depth_unsat, o2_oxid_depth_unsat )
@@ -1284,7 +1418,7 @@ contains
 
 				! Calculate CH4 aerenchyma losses in each soil layer
 				call methane_aere ( ipatch, idate, jwt_unsat, sat, patchclass, lai, &
-					z_soisno, dz_soisno, zi_soisno, t_soisno, &
+               z_soisno, dz_soisno, zi_soisno, t_soisno, fliq_unsat, &
 					rootfr, rootr, etr, grnd_methane_cond_base, c_atm, annsum_npp, &
 					annavg_agnpp, annavg_bgnpp, &
 					conc_ch4_aqu_unsat, conc_ch4_aqu_porsl_unsat, conc_ch4_gas_porsl_unsat, conc_o2_aqu_porsl_unsat, conc_o2_gas_porsl_unsat, &
@@ -1304,7 +1438,8 @@ contains
 						o2_oxid_depth_unsat, o2_decomp_depth_unsat, &
 						conc_o2_unsat, conc_methane_unsat, methane_balance_residual_unsat, methane_ch4_clip_credit_unsat, methane_surf_diff_phys_unsat, &
 						o2_cap_loss_unsat, o2_cap_gain_unsat, lake_water_ch4_stock, lake_water_o2_stock, &
-						lake_water_ch4_oxid, lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux )
+						lake_water_ch4_oxid, lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux, &
+						rice_rox_in = is_rice_paddy .and. DEF_METHANE%rice_aereoxid > 0._r8 )
 
 			elseif (sat==1) then ! saturated
 				zwt_sat=0.
@@ -1356,12 +1491,14 @@ contains
 					! also consumed routing-published fldfrc above:
 					!   (a) scheme 7 routing: all patches
 					!   (b) scheme 6 + use_routing_for_soil (hybrid): soil tiles only
+            !   (c) scheme 8 colm: every tile except the saturated wetland
 					! Wetland tiles in hybrid stay on sigmoid(zwt), so they don't
 					! get the routing depth (would create area/depth mismatch).
 					IF (finundated > 0._r8 .and. &
 					    allocated(f_inund_flood_depth_patch) .and. &
 					    ipatch >= 1 .and. ipatch <= size(f_inund_flood_depth_patch) .and. &
 					    (DEF_wetland_finundation_scheme == 7 .or. &
+               (DEF_wetland_finundation_scheme == 8 .and. patchtype /= 2) .or. &
 					     (DEF_wetland_finundation_scheme == 6 .and. &
 					      DEF_METHANE%use_routing_for_soil .and. patchtype /= 2))) THEN
 					   routing_depth_mm = 1000._r8 * max(0._r8, f_inund_flood_depth_patch(ipatch))
@@ -1389,16 +1526,24 @@ contains
 					conc_ch4_gas_sat, conc_ch4_aqu_sat, conc_ch4_porsl_sat, conc_ch4_gas_porsl_sat, conc_ch4_aqu_porsl_sat, &
 					conc_o2_gas_sat, conc_o2_aqu_sat, conc_o2_porsl_sat, conc_o2_gas_porsl_sat, conc_o2_aqu_porsl_sat )
 
+            ! Unfrozen water fraction per layer; a layer without water is unconstrained.
+            do j = 1, nl_soil
+               if (wliq_soisno_sat(j) + wice_soisno_sat(j) > 1.e-12_r8) then
+                  fliq_sat(j) = max(wliq_soisno_sat(j), 0._r8) / (wliq_soisno_sat(j) + wice_soisno_sat(j))
+               else
+                  fliq_sat(j) = 1._r8
+               end if
+            end do
 				! Calculate CH4 production in each soil layer
 				call methane_prod ( ipatch, idate, patchtype, sat, jwt_sat, finundated, finundated_lag, rr, deltim, &
-					z_soisno, dz_soisno, zi_soisno, t_soisno, &
+               z_soisno, dz_soisno, zi_soisno, t_soisno, fliq_sat, &
 					lai, conc_o2_sat, rootfr, annavg_finrw, &
 					crootfr, somhr, lithr, hr_vr, o_scalar, fphr, pot_f_nit_vr, pH, layer_sat_lag, lake_soilc, &
-					microbial_prod_potential_patch, &
+               microbial_prod_potential_patch, anoxic_decomp_patch, &
 					methane_prod_depth_sat, o2_decomp_depth_sat, co2_decomp_depth_sat )
 
 				! Calculate CH4 oxidation in each soil layer
-				call methane_oxid ( idate, patchtype, jwt_sat, sat, t_soisno, dz_soisno, zi_soisno, smp, vol_aqu_sat, &
+            call methane_oxid ( idate, patchtype, jwt_sat, sat, t_soisno, fliq_sat, dz_soisno, zi_soisno, smp, vol_aqu_sat, &
 					conc_o2_aqu_porsl_sat, conc_ch4_aqu_porsl_sat, &
 					microbial_oxid_potential_patch, &
 					methane_oxid_depth_sat, o2_oxid_depth_sat )
@@ -1416,7 +1561,7 @@ contains
 					o2_aere_depth_sat = 0._r8
 				else
 					call methane_aere ( ipatch, idate, jwt_sat, sat, patchclass, lai, &
-						z_soisno, dz_soisno, zi_soisno, t_soisno, &
+                  z_soisno, dz_soisno, zi_soisno, t_soisno, fliq_sat, &
 						rootfr, rootr, etr, grnd_methane_cond_base, c_atm, annsum_npp, &
 						annavg_agnpp, annavg_bgnpp, &
 						conc_ch4_aqu_sat, conc_ch4_aqu_porsl_sat, conc_ch4_gas_porsl_sat, conc_o2_aqu_porsl_sat, conc_o2_gas_porsl_sat, &
@@ -1437,7 +1582,8 @@ contains
 						o2_oxid_depth_sat, o2_decomp_depth_sat, &
 						conc_o2_sat, conc_methane_sat, methane_balance_residual_sat, methane_ch4_clip_credit_sat, methane_surf_diff_phys_sat, &
 						o2_cap_loss_sat, o2_cap_gain_sat, lake_water_ch4_stock, lake_water_o2_stock, &
-						lake_water_ch4_oxid, lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux )
+						lake_water_ch4_oxid, lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux, &
+						rice_rox_in = is_rice_paddy .and. DEF_METHANE%rice_aereoxid > 0._r8 )
 
 			endif
 
@@ -1608,11 +1754,40 @@ contains
 				methane_oxid_tot_soil(ipatch) = 0._r8
 				methane_oxid_tot_rice(ipatch) = 0._r8
 
+         ! wetland process budget components: reset every step (a patch is
+         ! wetland/soil/rice/lake exclusive).  soil/rice/lake process outputs
+         ! come from the existing per-category vars; only the areas span all four categories.
+         methane_prod_tot_wetland(ipatch) = 0._r8
+         methane_oxid_tot_wetland(ipatch) = 0._r8
+         methane_surf_aere_wetland(ipatch) = 0._r8
+         methane_surf_ebul_wetland(ipatch) = 0._r8
+         methane_surf_diff_wetland(ipatch) = 0._r8
+         methane_area_wetland(ipatch) = 0._r8 ; methane_area_soil(ipatch) = 0._r8
+         methane_area_rice   (ipatch) = 0._r8
+         methane_area_lake   (ipatch) = 0._r8
+         ! methane_area_floodplain and methane_wetland_type are published by
+         ! methane_driver before this routine runs -- do NOT reset them here.
+
 				IF (patchtype == 2) THEN
 					methane_surf_flux_wetland(ipatch) = methane_surf_flux_tot
+            ! Wetland is its own patch, so the split is exact.
+            methane_prod_tot_wetland(ipatch) = methane_prod_tot
+            methane_oxid_tot_wetland(ipatch) = methane_oxid_tot
+            methane_surf_aere_wetland(ipatch) = methane_surf_aere
+            methane_surf_ebul_wetland(ipatch) = methane_surf_ebul
+            methane_surf_diff_wetland(ipatch) = methane_surf_diff
+            methane_area_wetland(ipatch) = 1._r8
 						ELSEIF (patchtype == 0) THEN
 							methane_soil_finundated(ipatch) = finundated_default
 							methane_soil_zwt(ipatch) = zwt
+
+            ! soil/rice process outputs come from the existing
+            ! methane_{surf_aere,surf_ebul,surf_diff,prod_tot,oxid_tot}_{soil,rice}
+            ! (non-rice branch below; Driver aggregate_methane_columns for paddy).
+            ! Here we only set the non-rice soil area fraction (=1 by default);
+            ! Driver overrides it with (1-rice) and sets methane_area_rice for paddy.
+            methane_area_soil(ipatch) = 1._r8
+
 							methane_surf_flux_soil(ipatch) = methane_surf_flux_tot
 							methane_surf_aere_soil(ipatch) = methane_surf_aere
 							methane_surf_ebul_soil(ipatch) = methane_surf_ebul
@@ -1621,18 +1796,13 @@ contains
 							methane_oxid_tot_soil(ipatch) = methane_oxid_tot
 				ELSEIF (patchtype == 4 .and. DEF_METHANE%allowlakeprod) THEN
 					methane_surf_flux_lake(ipatch) = methane_surf_flux_tot_lake
+            ! lake process outputs come from base methane_{prod_tot,oxid_tot,
+            ! surf_ebul,surf_diff}_lake (set on the lake path above; lakes have
+            ! no aerenchyma).  Here we only mark the lake area fraction.
+            methane_area_lake(ipatch) = 1._r8
+
 				ENDIF
 			ENDIF
-
-
-
-
-
-
-
-
-
-
 
 		! Column level balance
 		if (.not. methane_cold_start) then
@@ -1677,12 +1847,21 @@ contains
 	end subroutine methane
 
 	pure real(r8) function methane_distribute_grid_finundation(grid_fraction, &
-		wetland_fraction_in, patchtype) result(patch_fraction)
+		wetland_fraction_in, patchtype, debit_wetland) result(patch_fraction)
 		! Grid floodwater occupies mapped wetland first; soil receives only
 		! the residual.  This keeps W*f_wet + (1-W)*f_soil == f_grid.
+		! With debit_wetland = .false. the wetland is not charged for the flood
+		! and the soil tile takes the whole grid fraction, converted to a tile
+		! basis: the CoLM mode holds the mapped wetland saturated from regional
+		! groundwater, a source independent of channel overbank flow.
 		real(r8), intent(in) :: grid_fraction, wetland_fraction_in
 		integer, intent(in) :: patchtype
+		logical, intent(in), optional :: debit_wetland
 		real(r8) :: flood, wetland_fraction
+		logical :: debit
+
+		debit = .true.
+		if (present(debit_wetland)) debit = debit_wetland
 
 		if (ieee_is_nan(grid_fraction) .or. abs(grid_fraction) >= 0.5_r8*abs(spval)) then
 			flood = 0._r8
@@ -1705,8 +1884,12 @@ contains
 			endif
 		case (0)
 			if (wetland_fraction < 1._r8) then
+				if (debit) then
 				patch_fraction = max(flood - wetland_fraction, 0._r8) / &
 					(1._r8 - wetland_fraction)
+			else
+					patch_fraction = min(flood / (1._r8 - wetland_fraction), 1._r8)
+				endif
 			else
 				patch_fraction = 0._r8
 			endif
@@ -1827,10 +2010,10 @@ contains
 
 	!-----------------------------------------------------------------------
 	subroutine methane_prod (ipatch,idate,patchtype,sat,jwt,finundated,finundated_lag,rr,deltim,& !input
-		z_soisno,dz_soisno,zi_soisno,t_soisno,&
+      z_soisno,dz_soisno,zi_soisno,t_soisno,fliq,&
 		lai,conc_o2,rootfr,annavg_finrw,&
 		crootfr,somhr,lithr,hr_vr,o_scalar,fphr,pot_f_nit_vr,pH,layer_sat_lag,lake_soilc,&
-		microbial_prod_potential_layer, &
+      microbial_prod_potential_layer, anoxic_decomp, &
 		methane_prod_depth,o2_decomp_depth,co2_decomp_depth)!output
 		!-----------------------------------------------------------------------
 		! DESCRIPTION:
@@ -1860,6 +2043,7 @@ contains
 			zi_soisno(maxsnl:nl_soil)   , &! interface level below a "z" level (m)
 
 			t_soisno (maxsnl+1:nl_soil) , &! soil temperature (K)
+         fliq     (1:nl_soil)        , &! unfrozen water fraction wliq/(wliq+wice) (-)
 
 			lai                         , &! leaf area index [m2/m2]
 			conc_o2  (1:nl_soil)        , &! O2 conc in each soil layer (mol/m3) (nl_soil)
@@ -1881,6 +2065,8 @@ contains
 			layer_sat_lag   (1:nl_soil) , &! Lagged saturation status of soil layer in the unsaturated zone (1 = sat)
 			lake_soilc      (1:nl_soil) , &! lake sediment organic carbon (gC/m3)
 			microbial_prod_potential_layer(1:nl_soil) ! optional microbial CH4 production potential (mol/m3/s)
+
+      logical, intent(in) :: anoxic_decomp  ! saturated subcolumn decomposes at the anoxic rate (C-14)
 
 		real(r8), intent(out) :: &
 			methane_prod_depth (1:nl_soil)  , &! production of CH4 in each soil layer (nl_soil) (mol/m3/s)
@@ -1999,6 +2185,14 @@ contains
 				end if
 			end if
 
+         ! C-14 (paper V2): the soil tile's BGC carries no anoxia limit (o_scalar
+         ! is 1) and flooding never builds up its carbon stock, yet CH4 is made
+         ! only below a water table, in anoxic soil. In both subcolumns that soil
+         ! decomposes at the anoxic rate, mino2lim times the aerobic one: the
+         ! seasonal inundation factor above with no permanently inundated share
+         ! (Riley et al. 2011, appendix B).
+         if (anoxic_decomp) base_decomp = base_decomp * DEF_METHANE%mino2lim
+
 			! For sensitivity studies
 			base_decomp = base_decomp * DEF_METHANE%cnscalefactor
 
@@ -2039,11 +2233,10 @@ contains
 				f_methane_adj = DEF_METHANE%f_methane * t_fact_methane
 			endif
 
-			! Do not allow soil methanogenesis in frozen layers.  Lake sediment
-			! production already has an explicit temperature gate; apply the same
-			! physical cutoff to the soil branch so winter CH4 is not produced
-			! solely from residual BGC HR in ice-filled pores.
-			if (t_soisno(j) <= tfrz) f_methane_adj = 0._r8
+         ! Scale methanogenesis by the unfrozen water fraction: methanogens keep
+         ! working in the liquid films of a freezing layer and stop only as the
+         ! pore water actually freezes.  Lake sediment keeps its own 1 K ramp.
+         f_methane_adj = f_methane_adj * fliq(j)
 
 
 			! Remove CN nitrogen limitation, as methanogenesis is not N limited.
@@ -2166,7 +2359,7 @@ contains
 	end subroutine methane_prod
 
 	!---------------------------------------------------------------------------
-	subroutine methane_oxid (idate, patchtype, jwt,  sat, t_soisno, dz_soisno, zi_soisno, smp, vol_aqu, &
+   subroutine methane_oxid (idate, patchtype, jwt,  sat, t_soisno, fliq, dz_soisno, zi_soisno, smp, vol_aqu, &
 		conc_o2_aqu_porsl, conc_ch4_aqu_porsl, &
 		microbial_oxid_potential_layer, &
 		methane_oxid_depth, o2_oxid_depth)
@@ -2188,6 +2381,7 @@ contains
 
 		real(r8), intent(in) :: &
 			t_soisno (maxsnl+1:nl_soil)    , &! soil temperature (Kelvin)
+         fliq     (1:nl_soil)           , &! unfrozen water fraction wliq/(wliq+wice) (-)
 			dz_soisno(maxsnl+1:nl_soil)    , &! soil layer thickness (m)
 			zi_soisno(maxsnl:nl_soil)      , &! interface level below a "z" level (m)
 			smp      (1:nl_soil)   , &! soil matrix potential [mm]
@@ -2230,6 +2424,17 @@ contains
 			else
 				k_m_eff = DEF_METHANE%k_m_unsat
 				vmax_eff = DEF_METHANE%vmax_oxid_unsat
+            if (patchtype == 2) then
+               ! The layers above a wetland's water table are its oxic cap, not
+               ! upland soil.  CH4 diffusing up from the saturated zone keeps
+               ! them orders of magnitude above ambient air, so the low-affinity
+               ! kinetics of the saturated zone apply there as well; the
+               ! high-affinity values stay with upland patches, which is the
+               ! case Bender & Conrad (1992) describe.  Same choice the lean
+               ! line makes through its per-WFT table (B-5-2).
+               k_m_eff = DEF_METHANE%k_m
+               vmax_eff = DEF_METHANE%vmax_methane_oxid
+            end if
 			end if
 			k_m_o2_eff = DEF_METHANE%k_m_o2
 			oxid_scale = 1._r8
@@ -2268,8 +2473,8 @@ contains
 				* DEF_METHANE%q10_methane_oxid ** ((t_soisno(j) - t0) / 10._r8) * smp_fact &
 				* lake_oxid_layer_factor
 
-			! For all landunits / levels, prevent oxidation if at or below freezing
-			if (t_soisno(j) <= tfrz) oxid_a = 0._r8
+         ! For all landunits / levels, scale oxidation by the unfrozen water fraction
+         oxid_a = oxid_a * fliq(j)
 
 			if (use_microbe_override .and. &
 			    abs(microbial_oxid_potential_layer(j)) < 0.5_r8 * abs(spval)) then
@@ -2283,7 +2488,7 @@ contains
 
 		!---------------------------------------------------------------------------
 	subroutine methane_aere (ipatch, idate,jwt, sat, patchclass, lai,&
-		z_soisno, dz_soisno, zi_soisno, t_soisno,&
+      z_soisno, dz_soisno, zi_soisno, t_soisno, fliq,&
 		rootfr, rootr, etr, grnd_methane_cond_base, c_atm, annsum_npp,&
 		annavg_agnpp, annavg_bgnpp, &
 		conc_ch4_aqu, conc_ch4_aqu_porsl,conc_ch4_gas_porsl,conc_o2_aqu_porsl,conc_o2_gas_porsl,&
@@ -2313,6 +2518,7 @@ contains
 			zi_soisno(maxsnl:nl_soil)      , &! interface level below a "z" level (m)
 
 			t_soisno (maxsnl+1:nl_soil)    , &! soil temperature (Kelvin)
+         fliq     (1:nl_soil)   , &! unfrozen water fraction wliq/(wliq+wice) (-)
 			rootfr   (1:nl_soil)   , &! fraction of roots in each soil layer
 			rootr    (1:nl_soil)   , &! effective fraction of roots in each soil layer (SMS method only)
 			! rootr here for effective per-layer transpiration, which may not be the same as rootfr
@@ -2325,6 +2531,9 @@ contains
 			annsum_npp             , &! annual sum NPP (gC/m2/yr)
 			annavg_agnpp           , &! annual avg aboveground NPP (gC/m2/s)
 			annavg_bgnpp           , &! annual avg belowground NPP (gC/m2/s)
+
+      ! conc_methane / methane_{prod,oxid,ebul}_depth removed from methane_aere
+      ! args: aerenchyma competition is resolved in methane_tran, not here.
 
 			conc_ch4_aqu       (1:nl_soil) , &! aqueous phase CH4 concentration [mol/m3 water]
 			conc_ch4_aqu_porsl (1:nl_soil) , &! aqueous phase CH4 conc in each porosity [mol/m3]
@@ -2369,7 +2578,7 @@ contains
 			poros_tiller_real = max(poros_tiller_real, DEF_METHANE%porosmin)
 		endif
 
-		call SiteOxAere(ipatch, idate, jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  &
+      call SiteOxAere(ipatch, idate, jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  fliq,  &
 		rootfr, rootr, grnd_methane_cond_base, etr, &
 			annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 			tranloss, aere, oxaere)
@@ -2382,7 +2591,7 @@ contains
 
 
 	!---------------------------------------------------------------------------
-	subroutine SiteOxAere(ipatch, idate,jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  &
+   subroutine SiteOxAere(ipatch, idate,jwt,  sat, poros_tiller_real, lai, z_soisno, dz_soisno,  zi_soisno,  t_soisno,  fliq,  &
 			rootfr, rootr, grnd_methane_cond_base, etr, &
 		annsum_npp, annavg_agnpp, annavg_bgnpp, c_atm, conc_ch4_aqu, conc_ch4_aqu_porsl, conc_ch4_gas_porsl, conc_o2_aqu_porsl,conc_o2_gas_porsl,&
 		tranloss, aere, oxaere)
@@ -2408,6 +2617,7 @@ contains
 			zi_soisno(maxsnl:nl_soil)      , &! interface level below a "z" level (m)
 
 			t_soisno (maxsnl+1:nl_soil)    , &! soil temperature (Kelvin)
+         fliq     (1:nl_soil)   , &! unfrozen water fraction wliq/(wliq+wice) (-)
 			rootfr   (1:nl_soil)   , &! fraction of roots in each soil layer
 			rootr    (1:nl_soil)   , &! root resistance of a layer, all layers sum to 1
 			grnd_methane_cond_base     , &! base tracer conductance before snow/pond resistance [m/s]
@@ -2496,8 +2706,10 @@ contains
 				tranloss(j) = 0._r8
 			end if
 
-			! Calculate aerenchyma diffusion
-			if (j > jwt .and. t_soisno(j) > tfrz .and. lai > 0) then ! Below water table
+         ! Calculate aerenchyma diffusion.  A frozen layer is no longer
+         ! switched off at tfrz; its conductance is scaled by the unfrozen
+         ! water fraction fliq(j) below instead.
+         if (j > jwt .and. lai > 0) then ! Below water table
 				! Estimate area of tillers (see Wania thesis)
 				!m_tiller = anpp * r_leaf_root * lai ! (4.17 Wania)
 				!m_tiller = 600._r8 * 0.5_r8 * 2._r8  ! used to be 300
@@ -2519,6 +2731,10 @@ contains
 				! Add in boundary layer resistance
 				grnd_ch4_resis = 1._r8/(grnd_methane_cond_base+smallnumber)
 				aerecond = 1._r8/(aere_ch4_resis + grnd_ch4_resis)
+            ! Ice in the pore space blocks the root-soil interface: scale the
+            ! conductance by the layer's unfrozen water fraction, the same
+            ! quantity methane_prod uses (exactly 1 in an unfrozen layer).
+            aerecond = aerecond * fliq(j)
 				! aerecond = max(aerecond,1.e-8_r8)
 				aere(j) = aerecond*(conc_ch4_gas_porsl(j) - c_atm(1)) / dz_soisno(j)
 				! [mol/m3/s] = [mol/m3]                      / [m]          / [s/m]
@@ -2533,13 +2749,15 @@ contains
 				oxaere(j) = -(conc_o2_gas_porsl(j) - c_atm(2)) / (dz_soisno(j)*(aere_o2_resis + grnd_o2_resis)) ![mol/m3-total/s]
 				oxaere(j) = max(oxaere(j), 0._r8)
 				! Diffusion in is positive; prevent backwards diffusion
+            ! O2 rides the same aerenchyma, so it sees the same ice throttle.
+            oxaere(j) = oxaere(j) * fliq(j)
 				if ( .not. DEF_METHANE%use_aereoxid_prog ) then ! fixed aere oxid proportion; will be done in methane_tran
 					oxaere(j) = 0._r8
 				end if
 			else
 				aere(j) = 0._r8
 				oxaere(j) = 0._r8
-			end if ! veg type, below water table, & above freezing
+         end if ! veg type & below water table
 		end do
 
 	end subroutine SiteOxAere
@@ -2640,6 +2858,7 @@ contains
 
 	end subroutine methane_ebul
 
+
 		!---------------------------------------------------------------------------
 	subroutine methane_tran (idate,patchtype, &
 		lb, snl, jwt, sat, finundated,&
@@ -2652,7 +2871,7 @@ contains
 			grnd_methane_cond_base, grnd_methane_cond_effective, o2_oxid_depth, o2_decomp_depth, &
 			conc_o2, conc_methane, methane_balance_residual, methane_ch4_clip_credit, methane_surf_diff_phys, &
 		o2_cap_loss, o2_cap_gain, lake_water_ch4_stock, lake_water_o2_stock, &
-		lake_water_ch4_oxid, lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux )
+		lake_water_ch4_oxid, lake_sed_ch4_flux, lake_sed_o2_flux, lake_air_o2_flux, rice_rox_in )
 		!-----------------------------------------------------------------------
 		! DESCRIPTION:
 		! Solves the reaction & diffusion equation for the timestep.
@@ -2811,6 +3030,9 @@ contains
 			real(r8) :: o2demand, methane_demand, methane_supply                        ! mol/m^3/s
 			real(r8) :: o2_before_cap, o2_cap_loss_col, o2_cap_gain_col
 				real(r8) :: aere_oxid_flux
+      logical , intent(in), optional :: rice_rox_in   ! paddy rice column with rhizosphere oxidation (C-25)
+      logical  :: rice_rox
+      real(r8) :: rice_rox_flux
 		logical :: is_lake_water
 		real(r8) :: lake_total_depth, lake_liquid_depth, lake_water_storage_depth
 		real(r8) :: lake_water_temp, lake_temp_weight, lake_temp_weight_sum
@@ -2821,6 +3043,8 @@ contains
 				!-----------------------------------------------------------------------
 				methane_balance_residual = 0._r8
 				methane_ch4_clip_credit = 0._r8
+      rice_rox = .false.
+      IF (present(rice_rox_in)) rice_rox = rice_rox_in
 				o2_cap_loss = 0._r8
 				o2_cap_gain = 0._r8
 		lake_water_ch4_oxid = 0._r8
@@ -2968,6 +3192,19 @@ contains
 				IF (methane_tran_depth(j) > 0._r8) methane_tran_depth(j) = methane_tran_depth(j) * methane_stress(j)
 			methane_ebul_depth(j) = methane_ebul_depth(j) * methane_stress(j)
 			o2_decomp_depth(j) = o2_decomp_depth(j) * o2stress(j)
+
+         ! C-25 (paper V2): rhizosphere oxidation on paddy rice. A fixed share
+         ! of the CH4 entering the aerenchyma is oxidised at the roots by the O2
+         ! the roots release (CLM4Me's aereoxid meaning, C-25b): that O2 comes
+         ! from inside the plant, so it is not drawn from the layer's O2, which
+         ! root respiration and aerobic decomposition have used up by now in a
+         ! flooded paddy (C-25 as first coded took it from there and oxidised
+         ! next to nothing, V-30).
+         IF (rice_rox .and. methane_aere_depth(j) > 0._r8) THEN
+            rice_rox_flux = DEF_METHANE%rice_aereoxid * methane_aere_depth(j)
+            methane_aere_depth(j) = methane_aere_depth(j) - rice_rox_flux
+            methane_oxid_depth(j) = methane_oxid_depth(j) + rice_rox_flux
+         ENDIF
 
 
 		end do !j
@@ -3670,6 +3907,73 @@ contains
 					methane_wetland_water_depth = max(wdsrf, 0._r8)
 				endif
 			end function methane_wetland_water_depth
+
+			!---------------------------------------------------------------------------
+   real(r8) function wetland_max_wtd_of(ipatch)
+      ! Water-table floor [m] of a dynamic wetland tile: one global value, or
+      ! one per wetland class when use_biome_wetland_max_wtd is set. The class
+      ! is published by the driver after the host hydrology of the same step,
+      ! so hydrology reads the previous step's class; it is fixed in time
+      ! (latitude and top-layer organic matter), and the zero it starts from
+      ! falls back to the global value.
+      integer, intent(in) :: ipatch
+
+      wetland_max_wtd_of = DEF_METHANE%wetland_max_wtd
+      if (.not. DEF_METHANE%use_biome_wetland_max_wtd) return
+      if (.not. allocated(methane_wetland_type)) return
+      if (ipatch < 1 .or. ipatch > size(methane_wetland_type)) return
+
+      select case (nint(methane_wetland_type(ipatch)))
+      case (BIOME_TROPICAL_PEAT)
+         wetland_max_wtd_of = DEF_METHANE%wetland_max_wtd_tropical_peat
+      case (BIOME_TROPICAL_FLOODPLAIN)
+         wetland_max_wtd_of = DEF_METHANE%wetland_max_wtd_tropical_floodplain
+      case (BIOME_TEMPERATE_MARSH)
+         wetland_max_wtd_of = DEF_METHANE%wetland_max_wtd_temperate_marsh
+      case (BIOME_BOREAL_FEN)
+         wetland_max_wtd_of = DEF_METHANE%wetland_max_wtd_boreal_fen
+      case (BIOME_BOREAL_BOG)
+         wetland_max_wtd_of = DEF_METHANE%wetland_max_wtd_boreal_bog
+      end select
+   end function wetland_max_wtd_of
+
+   !---------------------------------------------------------------------------
+   real(r8) function wetland_peat_outflow(nl_soil, zi, hksat, om_density, zwt)
+      ! Lateral outflow [mm s-1] of a dynamic wetland through its saturated
+      ! zone (PEAT-CLSM, Bechtold et al. 2019, eqs 6-9): Q = c T, with T the
+      ! transmissivity below the water table. In each layer the peat part
+      ! integrates K0 (1 + 100 z)^(-m) over the saturated depth and the
+      ! mineral part takes the layer's saturated conductivity; the organic
+      ! fraction OM_density / organic_max weighs the two. A ponded tile
+      ! drains at T(0): the macro-scale conductivity includes the flow
+      ! through hollows over the surface.
+      integer,  intent(in) :: nl_soil
+      real(r8), intent(in) :: zi(0:nl_soil)          ! layer interfaces [m]
+      real(r8), intent(in) :: hksat(1:nl_soil)       ! saturated conductivity [mm s-1]
+      real(r8), intent(in) :: om_density(1:nl_soil)  ! organic matter density [kg m-3]
+      real(r8), intent(in) :: zwt                    ! water-table depth [m]
+
+      integer  :: j
+      real(r8) :: ztop, zbot, fom, tpeat, trans, a, e
+
+      wetland_peat_outflow = 0._r8
+      if (.not. DEF_METHANE%wetland_peat_drainage) return
+
+      e = 1._r8 - DEF_METHANE%peat_m
+      a = DEF_METHANE%peat_K0 / (100._r8 * (DEF_METHANE%peat_m - 1._r8))
+      trans = 0._r8
+      do j = 1, nl_soil
+         ztop = max(zi(j-1), max(zwt, 0._r8))
+         zbot = zi(j)
+         if (zbot <= ztop) cycle
+         fom = 0._r8
+         if (om_density(j) > 0._r8 .and. om_density(j) < 1.e29_r8) &
+            fom = min(om_density(j) / DEF_METHANE%organic_max, 1._r8)
+         tpeat = a * ((1._r8 + 100._r8 * ztop)**e - (1._r8 + 100._r8 * zbot)**e)
+         trans = trans + fom * tpeat + (1._r8 - fom) * max(hksat(j), 0._r8) * 1.e-3_r8 * (zbot - ztop)
+      enddo
+      wetland_peat_outflow = DEF_METHANE%peat_c * trans * 1.e3_r8
+   end function wetland_peat_outflow
 
 			!---------------------------------------------------------------------------
 			logical function methane_patch_is_nongrass(patchclass)

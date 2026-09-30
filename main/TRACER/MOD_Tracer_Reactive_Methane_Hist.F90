@@ -86,6 +86,10 @@ CONTAINS
                     a_f_inund_flood_patch, a_f_inund_flood_depth_patch, a_wetland_frac_per_patch, &
                     a_methane_surf_flux_wetland, a_methane_surf_flux_soil, &
                     a_methane_surf_flux_lake, a_methane_surf_flux_rice, &
+         a_methane_prod_tot_wetland, a_methane_oxid_tot_wetland, &
+         a_methane_surf_aere_wetland, a_methane_surf_ebul_wetland, a_methane_surf_diff_wetland, &
+         a_methane_area_wetland, a_methane_area_soil, a_methane_area_rice, a_methane_area_lake, &
+         a_methane_area_floodplain, a_methane_wetland_type, &
                     a_methane_rice_fraction, &
                     a_B_methanogen, a_B_methanotroph, &
                  a_B_methanogen_dormant, a_B_methanotroph_dormant, &
@@ -118,6 +122,12 @@ CONTAINS
 		   real(r8), allocatable :: hist_ch4_rice_flux_mean(:)
 		   real(r8), allocatable :: hist_ch4_rice_area_frac(:)
 		   real(r8), allocatable :: hist_ch4_acc_one(:)
+      ! Category-split budget components, pre-normalized by the CH4 step
+      ! counter so they can be written on the all-land denominator.
+      real(r8), allocatable :: hist_methane_area_wetland(:), hist_methane_area_soil(:)
+      real(r8), allocatable :: hist_methane_area_rice(:)
+      real(r8), allocatable :: hist_methane_area_lake(:)
+      real(r8), allocatable :: hist_methane_area_floodplain(:), hist_methane_wetland_type(:)
 		   logical, allocatable :: filter_active_without_lake(:)
 		   logical, allocatable :: filter_all_land(:)
 		   integer :: ipatch
@@ -127,6 +137,7 @@ CONTAINS
 			   logical :: need_lake_intensive, need_rice_intensive, need_derived_ch4
 			   logical :: need_land_flux_total, need_land_flux_wetland, need_land_flux_soil
 			   logical :: need_land_flux_lake, need_land_flux_rice, need_land_flux_split
+      logical :: need_cat_split
 			   logical :: need_lake_history, need_extra_history, need_soil_history
 			   logical :: need_active_history
 
@@ -151,6 +162,15 @@ CONTAINS
                need_land_flux_split = need_land_flux_total .or. need_land_flux_wetland .or. &
                                       need_land_flux_soil .or. need_land_flux_lake .or. &
                                       need_land_flux_rice
+         ! need_cat_split gates the per-category AREA fractions + floodplain +
+         ! wetland_type (all-land denominator).  The wetland process split is
+         ! written on the active-area block, gated per-variable by mhist_on.
+         need_cat_split = mhist_on('f_methane_area_wetland') .or. &
+            mhist_on('f_methane_area_soil') .or. &
+            mhist_on('f_methane_area_rice') .or. &
+            mhist_on('f_methane_area_lake') .or. &
+            mhist_on('f_methane_floodplain_frac') .or. &
+            mhist_on('f_methane_wetland_type')
 	               ! Keep one selector-function reference per statement: mhist_on
 	               ! records whether the configured selector matched a real write.
 	               need_lake_history = need_lake_intensive
@@ -199,7 +219,7 @@ CONTAINS
                                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
                                   need_global_clip_credit_with_lake .or. &
                                   need_lake_intensive .or. need_rice_intensive .or. &
-                                  need_land_flux_split
+            need_land_flux_split .or. need_cat_split
 	               ! Outer filter (patchtype==0) excludes wetland (patchtype==2) and
 	               ! lake (patchtype==4) — the only patches where the CH4 module
                ! actually runs.  Without overriding, every CH4 grid cell aggregates
@@ -247,6 +267,12 @@ CONTAINS
 		                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
 		                   need_global_clip_credit_with_lake) &
 		                  allocate (hist_ch4_acc_one(numpatch))
+            allocate (hist_methane_area_wetland(numpatch))
+            allocate (hist_methane_area_soil(numpatch))
+            allocate (hist_methane_area_rice(numpatch))
+            allocate (hist_methane_area_lake(numpatch))
+            allocate (hist_methane_area_floodplain(numpatch))
+            allocate (hist_methane_wetland_type(numpatch))
 			               allocate (filter_active_without_lake(numpatch))
 			               allocate (filter_all_land(numpatch))
 		               IF (need_active_without_lake) hist_ch4_active_without_lake(:) = 0._r8
@@ -263,6 +289,12 @@ CONTAINS
 			               IF (need_rice_intensive) THEN
 			                  hist_ch4_rice_flux_mean(:) = 0._r8
 			                  hist_ch4_rice_area_frac(:) = 0._r8
+            hist_methane_area_wetland(:) = 0._r8
+            hist_methane_area_soil(:) = 0._r8
+            hist_methane_area_rice(:) = 0._r8
+            hist_methane_area_lake(:) = 0._r8
+            hist_methane_area_floodplain(:) = 0._r8
+            hist_methane_wetland_type(:) = 0._r8
 			               ENDIF
 		               IF (need_land_flux_split .or. need_global_with_lake .or. &
 		                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
@@ -301,6 +333,16 @@ CONTAINS
 			                           a_methane_surf_flux_soil(ipatch) / a_methane_acc_num(ipatch)
 			                        IF (need_land_flux_rice) hist_ch4_land_flux_rice(ipatch) = &
 			                           a_methane_surf_flux_rice(ipatch) / a_methane_acc_num(ipatch)
+                     hist_methane_area_wetland(ipatch) = &
+                        a_methane_area_wetland(ipatch) / a_methane_acc_num(ipatch)
+                     hist_methane_area_soil(ipatch) = &
+                        a_methane_area_soil(ipatch) / a_methane_acc_num(ipatch)
+                     hist_methane_area_rice(ipatch) = &
+                        a_methane_area_rice(ipatch) / a_methane_acc_num(ipatch)
+                     hist_methane_area_floodplain(ipatch) = &
+                        a_methane_area_floodplain(ipatch) / a_methane_acc_num(ipatch)
+                     hist_methane_wetland_type(ipatch) = &
+                        a_methane_wetland_type(ipatch) / a_methane_acc_num(ipatch)
 						IF (need_rice_intensive) THEN
 						   ! Preserve the raw same-window sums.  The history ratio
 						   ! writer maps numerator and denominator separately before
@@ -324,6 +366,8 @@ CONTAINS
 			                           a_methane_surf_flux_tot_lake(ipatch) / a_methane_acc_num_lake(ipatch)
 			                        IF (need_land_flux_lake) hist_ch4_land_flux_lake(ipatch) = &
 			                           a_methane_surf_flux_lake(ipatch) / a_methane_acc_num_lake(ipatch)
+                     hist_methane_area_lake(ipatch) = &
+                        a_methane_area_lake(ipatch) / a_methane_acc_num_lake(ipatch)
 			                     ENDIF
 			                  ENDDO
 			               ENDIF
@@ -479,6 +523,27 @@ CONTAINS
                CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot_rice'), a_methane_oxid_tot_rice, file_hist, &
                   'f_methane_oxid_tot_rice', itime_in_file, sumarea, filter, &
                   'rice CH4 oxidation contribution per active area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               ! permanent-wetland process split (active-area mean, as for soil/rice).
+               CALL write_history_variable_2d (mhist_on('f_methane_prod_tot_wetland'), a_methane_prod_tot_wetland, file_hist, &
+                  'f_methane_prod_tot_wetland', itime_in_file, sumarea, filter, &
+                  'permanent wetland CH4 production contribution per active area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_oxid_tot_wetland'), a_methane_oxid_tot_wetland, file_hist, &
+                  'f_methane_oxid_tot_wetland', itime_in_file, sumarea, filter, &
+                  'permanent wetland CH4 oxidation contribution per active area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_aere_wetland'), a_methane_surf_aere_wetland, file_hist, &
+                  'f_methane_surf_aere_wetland', itime_in_file, sumarea, filter, &
+                  'permanent wetland CH4 aerenchyma flux contribution per active area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_ebul_wetland'), a_methane_surf_ebul_wetland, file_hist, &
+                  'f_methane_surf_ebul_wetland', itime_in_file, sumarea, filter, &
+                  'permanent wetland CH4 ebullition flux contribution per active area', 'mol/m2/s', &
+                  acc_num=a_methane_acc_num)
+               CALL write_history_variable_2d (mhist_on('f_methane_surf_diff_wetland'), a_methane_surf_diff_wetland, file_hist, &
+                  'f_methane_surf_diff_wetland', itime_in_file, sumarea, filter, &
+                  'permanent wetland CH4 diffusive flux contribution per active area', 'mol/m2/s', &
                   acc_num=a_methane_acc_num)
                CALL write_history_variable_2d (mhist_on('f_co2_decomp_tot'), a_co2_decomp_tot, file_hist, &
                   'f_co2_decomp_tot', itime_in_file, sumarea, filter, &
@@ -803,9 +868,9 @@ CONTAINS
 	               ! active_total_without_lake = wetland + soil + rice, excluding lake.
 	               ! global_total_with_lake    = wetland + soil + rice + lake.
 		               IF ((need_active_without_lake .or. need_global_with_lake .or. &
+            need_land_flux_split .or. need_cat_split .or. &
 		                       need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
-		                       need_global_clip_credit_with_lake .or. &
-		                       need_land_flux_split) .and. &
+            need_global_clip_credit_with_lake) .and. &
                        HistForm == 'Gridded') THEN
 	                  CALL mp2g_hist%get_sumarea (sumarea, filter_all_land)
 	               ENDIF
@@ -889,6 +954,50 @@ CONTAINS
 	                     'CH4 nonnegative-storage correction including lake; land-area mean contribution', 'mol/m2/s', &
 	                     acc_num=hist_ch4_acc_one)
 	               ENDIF
+
+         IF (need_cat_split) THEN
+
+            ! Category AREA fractions (all-land denominator = grid-cell area
+            ! fraction of each category).  Process fluxes are written on the
+            ! active-area block above; the global total of a category =
+            ! intensive flux x this area fraction x landarea.
+            CALL write_history_variable_2d (mhist_on('f_methane_area_wetland'), &
+               hist_methane_area_wetland, file_hist, &
+               'f_methane_area_wetland', itime_in_file, &
+               sumarea, filter_all_land, &
+               'permanent wetland area fraction of the grid cell', &
+               '-', acc_num=hist_ch4_acc_one)
+            CALL write_history_variable_2d (mhist_on('f_methane_area_soil'), &
+               hist_methane_area_soil, file_hist, &
+               'f_methane_area_soil', itime_in_file, &
+               sumarea, filter_all_land, &
+               'non-rice soil area fraction of the grid cell', &
+               '-', acc_num=hist_ch4_acc_one)
+            CALL write_history_variable_2d (mhist_on('f_methane_area_rice'), &
+               hist_methane_area_rice, file_hist, &
+               'f_methane_area_rice', itime_in_file, &
+               sumarea, filter_all_land, &
+               'rice paddy area fraction of the grid cell', &
+               '-', acc_num=hist_ch4_acc_one)
+            CALL write_history_variable_2d (mhist_on('f_methane_area_lake'), &
+               hist_methane_area_lake, file_hist, &
+               'f_methane_area_lake', itime_in_file, &
+               sumarea, filter_all_land, &
+               'lake area fraction of the grid cell', &
+               '-', acc_num=hist_ch4_acc_one)
+            ! Seasonal-wetland signal: the routing-flooded share of the soil
+            ! tiles.  A 0/1 indicator per step, so the all-land denominator
+            ! turns it into a genuine area fraction (unlike a class code).
+            CALL write_history_variable_2d (mhist_on('f_methane_floodplain_frac'), &
+               hist_methane_area_floodplain, file_hist, &
+               'f_methane_floodplain_frac', itime_in_file, &
+               sumarea, filter_all_land, &
+               'routing-flooded soil area fraction of the grid cell (the seasonal-wetland share of patchtype==0)', &
+               '-', acc_num=hist_ch4_acc_one)
+            ! f_methane_wetland_type is NOT written here: a class code must
+            ! not be area-averaged against other classes.  It goes out below
+            ! under a wetland-only filter.
+         ENDIF
 
 
 	               ! lake diagnostics (CTSM lake CH4 path) — swap to lake-only filter
@@ -1107,6 +1216,31 @@ CONTAINS
                      'f_methane_soil_finundated', itime_in_file, sumarea, filter, &
                      'CH4 inundated fraction on methane-active soil/rice patches (soil-only mean, no wetland-zero dilution)', '-', &
                      acc_num=a_methane_acc_num)
+
+         ! Wetland-only filter for the biome class code.
+         !
+         ! A class code is a label, not a quantity: averaging it against
+         ! patches of a different class is meaningless.  IGBP maps exactly
+         ! one class (11) to patchtype 2, so a grid cell holds at most ONE
+         ! wetland patch; under this filter the area-weighted value is that
+         ! patch's own code.  Cells with no wetland get the missing value.
+         ! A non-integer result means the patch changed class inside the
+         ! averaging window (soil carbon crossing a peat threshold).
+         IF (need_cat_split) THEN
+            IF ((p_is_worker) .and. (numpatch > 0)) THEN
+               filter = (patchtype == 2) .and. patchmask
+               IF (forcing_has_missing_value) filter = filter .and. forcmask_pch
+            ENDIF
+            IF (HistForm == 'Gridded') THEN
+               CALL mp2g_hist%get_sumarea (sumarea, filter)
+            ENDIF
+            CALL write_history_variable_2d (mhist_on('f_methane_wetland_type'), &
+               hist_methane_wetland_type, file_hist, &
+               'f_methane_wetland_type', itime_in_file, sumarea, filter, &
+               'wetland biome class (1=tropical_peat 2=tropical_floodplain 3=temperate_marsh '// &
+               '4=boreal_fen 5=boreal_bog); wetland patches only; non-integer = class changed in window', &
+               '-', acc_num=hist_ch4_acc_one)
+         ENDIF
                ENDIF
 
 	            IF (methane_history_match_count == 0) THEN
