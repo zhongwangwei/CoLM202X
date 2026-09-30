@@ -405,7 +405,9 @@ CONTAINS
          ENDDO
          exchange_wa_before = wa
          exchange_dp_before = ss_dp
-         IF (rsubst > 0._r8) THEN
+         ! A negative rsubst is lateral inflow (dynamic-wetland water-table floor)
+         ! and recharges the aquifer like the non-hydraulics branch below.
+         IF (rsubst /= 0._r8) THEN
             CALL soilwater_aquifer_exchange ( &
                nlev, rsubst*dt, sp_zi, is_permeable, porsl, vl_r, psi_s, hksat, &
                nprm, prms, porsl_wa, ss_dp, ss_vliq, zwt, wa, izwt)

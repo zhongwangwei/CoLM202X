@@ -190,7 +190,7 @@ TRACER_PROVIDER_OBJS = MOD_Tracer_Particle_Sediment.o
 ifeq (${METHANE_ENABLED},YES)
 TRACER_PROVIDER_OBJS = \
 				MOD_Tracer_Reactive_BgcShim.o              \
-				$(addprefix MOD_Tracer_Reactive_Methane_,$(addsuffix .o,GIEMS pH VegOverride State Microbes BgcLink AccFlux Physics Driver Hist Impl)) \
+				$(addprefix MOD_Tracer_Reactive_Methane_,$(addsuffix .o,GIEMS pH VegOverride WetlandVeg State Microbes BgcLink AccFlux Physics Driver Hist Impl)) \
 				MOD_Tracer_Reactive_Methane.o              \
 				MOD_Tracer_Particle_Sediment.o
 endif
@@ -231,7 +231,12 @@ CoLMDRIVER.o: MOD_Tracer_LandPhase.o
 CoLMMAIN.o: MOD_Tracer_SpecialPatches.o
 ifeq (${METHANE_ENABLED},YES)
 MOD_Tracer_Reactive_BgcShim.o: MOD_BGC_Soil_BiogeochemCompetition.o MOD_BGC_Soil_BiogeochemDecomp.o \
-				MOD_BGC_Soil_BiogeochemPotential.o MOD_BGC_Soil_BiogeochemNStateUpdate1.o MOD_BGC_CNCStateUpdate1.o
+				MOD_BGC_Soil_BiogeochemPotential.o MOD_BGC_Soil_BiogeochemNStateUpdate1.o MOD_BGC_CNCStateUpdate1.o \
+				MOD_Tracer_Reactive_Methane_WetlandVeg.o
+MOD_Tracer_Reactive_Methane_WetlandVeg.o: MOD_Tracer_Reactive_Methane_Const.o \
+				MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Vars_TimeVariables.o MOD_Vars_TimeInvariants.o
+MOD_SoilSnowHydrology.o: MOD_Tracer_Reactive_Methane_Physics.o
+CoLM.o: MOD_Tracer_Reactive_Methane_WetlandVeg.o
 MOD_Tracer_Reactive_Methane_State.o: MOD_Tracer_Reactive_Methane_Const.o
 MOD_Tracer_Reactive_Methane_Microbes.o: MOD_Tracer_Reactive_Methane_State.o
 MOD_Tracer_Reactive_Methane_BgcLink.o: MOD_Tracer_Reactive_Methane_VegOverride.o MOD_Tracer_Reactive_Methane_pH.o \

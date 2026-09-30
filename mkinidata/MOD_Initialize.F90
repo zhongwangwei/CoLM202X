@@ -118,6 +118,10 @@ CONTAINS
 #if (defined TRACER) && (defined BGC)
    real(r8) :: wetland_tot_c
    real(r8) :: wetland_existing_c
+   real(r8) :: wetland_target_c, wetland_base_c, wetland_scale
+   integer  :: wetland_ipool
+   real(r8), allocatable :: wetland_colc(:), wetland_coln(:)
+   real(r8) :: wetland_layer_c, wetland_colsum
    real(r8), parameter :: wetland_cn_ratio = 15._r8
    real(r8), parameter :: carbon_per_kg_om = 580._r8
 #endif
@@ -381,6 +385,20 @@ ENDIF
       write(cyear,'(i4.4)') lc_year
       lndname = trim(dir_landdata)//'/soil/'//trim(cyear)//'/lake_soilc_patches.nc'
       CALL ncio_read_vector (lndname, 'lake_soilc_patches', nl_soil, landpatch, lake_soilc_srf, defval = 0._r8)
+      ! Lake patches the gridded dataset leaves without sediment carbon (all of
+      ! them when no lake_soilc dataset exists) take the soil organic-matter
+      ! proxy that SinglePoint uses below; a positive stock keeps precedence.
+      IF (DEF_USE_LAKE_SOILC_OM_FALLBACK .and. p_is_worker .and. numpatch > 0) THEN
+         DO ipatch = 1, numpatch
+            IF (patchtype(ipatch) == 4 .and. &
+                sum(max(lake_soilc_srf(1:nl_soil,ipatch), 0._r8)) <= 0._r8) THEN
+               lake_soilc_srf(1:nl_soil,ipatch) = carbon_per_kg_om * &
+                  merge(OM_density(1:nl_soil,ipatch), 0._r8, &
+                        OM_density(1:nl_soil,ipatch) > 0._r8 .and. &
+                        OM_density(1:nl_soil,ipatch) < 1.e30_r8)
+            ENDIF
+         ENDDO
+      ENDIF
 #else
       IF (p_is_worker .and. numpatch > 0) THEN
          lake_soilc_srf(:,:) = 0._r8
@@ -1080,6 +1098,8 @@ ENDIF
                            wetland_existing_c = wetland_existing_c + soil2c_vr(nsl, i)
                         IF (soil3c_vr(nsl, i) > 0._r8 .and. soil3c_vr(nsl, i) < 1.e30_r8) &
                            wetland_existing_c = wetland_existing_c + soil3c_vr(nsl, i)
+                        ! Layers the CN dataset left empty have no shape to
+                        ! preserve, so they get the fixed split below.
                         IF (OM_density(nsl, i) > 0._r8 .and. &
                             OM_density(nsl, i) < 1.e30_r8 .and. &
                             wetland_existing_c <= 1.e-12_r8) THEN
@@ -1100,6 +1120,64 @@ ENDIF
                            decomp_npools_vr(nsl, i_soil3  , i) = 0.50_r8 * wetland_tot_c / wetland_cn_ratio
                         ENDIF
                      ENDDO
+
+                     ! Rescale the column to the OM_density-implied stock while
+                     ! KEEPING the dataset's pool split and vertical profile.
+                     ! Replacing them instead swaps the dataset's ~0.3% litter
+                     ! share for the 20% written above and flattens the profile,
+                     ! which buries most of the carbon in fast pools and in layers
+                     ! that never thaw.  Only the magnitude is wrong for a wetland
+                     ! patch -- the CN steady state is spun up with PFT litterfall
+                     ! this tile never receives -- so only the magnitude is fixed.
+                     IF (DEF_USE_WETLAND_PEAT_C) THEN
+                        wetland_target_c = 0._r8
+                        wetland_base_c   = 0._r8
+                        DO nsl = 1, nl_soil
+                           IF (OM_density(nsl, i) > 0._r8 .and. &
+                               OM_density(nsl, i) < 1.e30_r8) &
+                              wetland_target_c = wetland_target_c &
+                                 + OM_density(nsl, i) * carbon_per_kg_om * dz_soi(nsl)
+                           DO wetland_ipool = 1, size(decomp_cpools_vr, 2)
+                              IF (decomp_cpools_vr(nsl, wetland_ipool, i) > 0._r8 .and. &
+                                  decomp_cpools_vr(nsl, wetland_ipool, i) < 1.e30_r8) &
+                                 wetland_base_c = wetland_base_c &
+                                    + decomp_cpools_vr(nsl, wetland_ipool, i) * dz_soi(nsl)
+                           ENDDO
+                        ENDDO
+                        IF (wetland_base_c > 1.e-12_r8 .and. wetland_target_c > 0._r8) THEN
+                           wetland_scale = wetland_target_c / wetland_base_c
+                           decomp_cpools_vr(1:nl_soil, :, i) = &
+                              decomp_cpools_vr(1:nl_soil, :, i) * wetland_scale
+                           decomp_npools_vr(1:nl_soil, :, i) = &
+                              decomp_npools_vr(1:nl_soil, :, i) * wetland_scale
+                        ENDIF
+                        ! Optionally lay the stock out along the soil data's own
+                        ! profile: layer carbon = OM_density * 580 gC/kg of that
+                        ! layer, split among the pools as the column is. The
+                        ! dataset's profile, kept above, piles the stock into the
+                        ! top layers at 6-29 times the soil data's density.
+                        IF (DEF_WETLAND_PEAT_C_PROFILE .and. wetland_target_c > 0._r8) THEN
+                           allocate (wetland_colc(size(decomp_cpools_vr, 2)))
+                           allocate (wetland_coln(size(decomp_cpools_vr, 2)))
+                           DO wetland_ipool = 1, size(decomp_cpools_vr, 2)
+                              wetland_colc(wetland_ipool) = sum(max(decomp_cpools_vr(1:nl_soil, wetland_ipool, i), 0._r8) &
+                                 * dz_soi(1:nl_soil), mask = decomp_cpools_vr(1:nl_soil, wetland_ipool, i) < 1.e30_r8)
+                              wetland_coln(wetland_ipool) = sum(max(decomp_npools_vr(1:nl_soil, wetland_ipool, i), 0._r8) &
+                                 * dz_soi(1:nl_soil), mask = decomp_npools_vr(1:nl_soil, wetland_ipool, i) < 1.e30_r8)
+                           ENDDO
+                           wetland_colsum = sum(wetland_colc)
+                           IF (wetland_colsum > 1.e-12_r8) THEN
+                              DO nsl = 1, nl_soil
+                                 wetland_layer_c = 0._r8
+                                 IF (OM_density(nsl, i) > 0._r8 .and. OM_density(nsl, i) < 1.e30_r8) &
+                                    wetland_layer_c = OM_density(nsl, i) * carbon_per_kg_om
+                                 decomp_cpools_vr(nsl, :, i) = wetland_layer_c * wetland_colc(:) / wetland_colsum
+                                 decomp_npools_vr(nsl, :, i) = wetland_layer_c * wetland_coln(:) / wetland_colsum
+                              ENDDO
+                           ENDIF
+                           deallocate (wetland_colc, wetland_coln)
+                        ENDIF
+                     ENDIF
                   ENDIF
 #endif
                   IF (patchtype(i) == 0)THEN

@@ -677,6 +677,10 @@ ENDIF
    USE MOD_Vars_TimeInvariants, only: vic_b_infilt, vic_Dsmax, vic_Ds, vic_Ws, vic_c
    USE MOD_Vars_1DFluxes,       only: fevpg
    USE MOD_Opt_Baseflow,        only: scale_baseflow
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Reactive_Methane_Physics, only: wetland_max_wtd_of, wetland_peat_outflow
+   USE MOD_Vars_TimeInvariants, only: OM_density
+#endif
 #ifdef DataAssimilation
    USE MOD_DA_TWS, only: fslp_k
 #endif
@@ -845,6 +849,7 @@ ENDIF
 #endif
 
    real(r8) :: zwtmm
+   real(r8) :: zwt_floor, wsupply, ztop, zbot   ! wetland water-table floor (mm)
    real(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
    logical  :: is_permeable(1:nl_soil)
    real(r8) :: dzsum, dz
@@ -1299,6 +1304,35 @@ IF((patchtype<=1) .or. is_dry_lake &
 #ifdef TRACER
       qgtop_out = qgtop
 #endif
+#if defined(TRACER) && defined(BGC) && !defined(CatchLateralFlow)
+      ! Water-table floor of a dynamic wetland: when the table sits deeper
+      ! than the class depth, feed the aquifer from the side with the water
+      ! that refills it and the pore space up to that depth. It enters as
+      ! negative subsurface runoff, which the aquifer exchange of the solver
+      ! takes in from below and rnof books. Layers the solver treats as
+      ! impermeable (ice-filled) take none; it passes over them as the
+      ! exchange does, so the water perches above frozen ground.
+      IF (DEF_USE_Dynamic_Wetland .and. (patchtype == 2)) THEN
+         zwt_floor = wetland_max_wtd_of(ipatch) * 1000.
+         IF ((zwt_floor >= 0.) .and. (zwtmm > zwt_floor)) THEN
+            wsupply = max(-wa, 0.)
+            DO j = 1, nl_soil
+               ztop = max(sp_zi(j-1), zwt_floor)
+               zbot = min(sp_zi(j), zwtmm)
+               IF ((zbot > ztop) .and. is_permeable(j)) THEN
+                  wsupply = wsupply + max(eff_porosity(j) - vol_liq(j), 0.) * (zbot - ztop)
+               ENDIF
+            ENDDO
+            rsubst = - wsupply / deltim
+         ELSE
+            ! Above the floor the tile drains laterally through its
+            ! saturated zone (peat transmissivity, off unless configured).
+            rsubst = wetland_peat_outflow(nl_soil, zi_soisno(0:nl_soil), hksati(1:nl_soil), &
+               OM_density(1:nl_soil,ipatch), zwtmm / 1000.)
+         ENDIF
+      ENDIF
+#endif
+
       CALL soil_water_vertical_movement ( &
          nl_soil,                 deltim,                   sp_zc(1:nl_soil),    sp_zi(0:nl_soil), &
          is_permeable(1:nl_soil), eff_porosity(1:nl_soil),  theta_r(1:nl_soil),  psi0(1:nl_soil),  &
@@ -1451,8 +1485,9 @@ ENDIF
             ENDIF
 
             rsur = rsur_se
-            ! total runoff (mm/s)
-            rnof = rsur
+            ! total runoff (mm/s); a negative rsubst is the lateral inflow
+            ! that holds the water-table floor
+            rnof = rsur + rsubst
          ELSE ! for dry lake
             rnof = 0.
          ENDIF
