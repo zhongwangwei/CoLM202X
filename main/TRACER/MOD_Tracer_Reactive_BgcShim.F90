@@ -90,22 +90,10 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: ipatch
       real(r8), intent(in) :: deltim
-      integer :: j
 
       IF (.not. ieee_is_finite(deltim) .or. deltim <= 0._r8) THEN
          CALL CoLM_stop(' ***** ERROR: wetland CH4/BGC coupling requires a finite positive timestep')
       ENDIF
-
-      ! Anoxia is imposed in both configurations: nothing else tells the
-      ! decomposition that the tile is waterlogged.
-      CALL reactive_bgc_set_wetland_anoxia (ipatch)
-
-#ifdef WETLAND_PFT
-      ! bgc_driver has decomposed this patch already. Everything below would
-      ! zero the source/sink it just deposited and redo the work without the
-      ! litter input, which is the whole point of giving wetland a WFT.
-      RETURN
-#endif
 
       ! Start from the same clean per-patch flux state as the full BGC driver.
       IF (allocated(decomp_cpools_sourcesink))   decomp_cpools_sourcesink  (1:nl_soil,:,ipatch) = 0._r8
@@ -122,9 +110,7 @@ CONTAINS
       IF (allocated(potential_immob_vr))        potential_immob_vr       (1:nl_soil,ipatch)   = 0._r8
       IF (allocated(phr_vr))                    phr_vr                   (1:nl_soil,ipatch)   = 0._r8
       IF (allocated(pot_f_nit_vr))              pot_f_nit_vr             (1:nl_soil,ipatch)   = 0._r8
-      ! o_scalar is deliberately NOT reset here: reactive_bgc_set_wetland_anoxia
-      ! above owns it, and a 1.0 in this list would silently undo the anoxia a
-      ! few lines before decomp_rate_constants_bgc folds it into decomp_k.
+      IF (allocated(o_scalar))                  o_scalar                 (1:nl_soil,ipatch)   = 1._r8
       IF (allocated(fpi_vr))                    fpi_vr                   (1:nl_soil,ipatch)   = 1._r8
       IF (allocated(net_nmin))                  net_nmin                 (ipatch)             = 0._r8
       IF (allocated(gross_nmin))                gross_nmin               (ipatch)             = 0._r8
@@ -142,6 +128,10 @@ CONTAINS
       ! Plant carbon input of the tile (paper V2 C-12), on the source/sink
       ! that CDecompStateUpdate adds to the pools once they are not fixed.
       IF (DEF_METHANE%wetland_plant_input) CALL wetland_plant_litter_input (ipatch, deltim)
+
+      ! Anoxia limit on the waterlogged tile, only when BGC owns it under the
+      ! CH4/BGC contract (bgc_anoxia_limits_decomp); otherwise o_scalar stays 1.
+      IF (DEF_METHANE%bgc_anoxia_limits_decomp) CALL reactive_bgc_set_wetland_anoxia (ipatch)
 
       CALL decomp_rate_constants_bgc (ipatch, nl_soil, z_soi)
       CALL SoilBiogeochemPotential   (ipatch, nl_soil, ndecomp_pools, ndecomp_transitions)

@@ -1044,7 +1044,8 @@ contains
       rice_pft_frac = min(max(rice_pft_frac, 0._r8), 1._r8)
 
 		finundated_default = finundated
-      IF (is_rice_paddy .and. rice_pft_frac > 0._r8) THEN
+      IF (is_rice_paddy .and. rice_pft_frac > 0._r8 .and. &
+          DEF_METHANE%rice_paddy_min_finundated > 0._r8) THEN
          IF (is_paddy_rice_live(ipatch)) THEN
             finundated_rice = max(finundated_default, &
                DEF_METHANE%rice_paddy_min_finundated)
@@ -1208,12 +1209,8 @@ contains
 			do j = 1, nl_soil
 				pore_volume = max(porsl(j), 0._r8) * max(dz_soisno(j), 0._r8)
 				if (pore_volume <= 1.e-12_r8) cycle
-				! Same clipping order as split_ch4_o2_phases below: liquid
-				! first, ice into what is left.  vtot cannot exceed pore_volume by
-				! construction, so no renormalisation is needed below.
-				vliq = min(max(wliq_soisno(j), 0._r8) / denh2o, pore_volume)
-				vice = min(max(wice_soisno(j), 0._r8) / denice, &
-					max(pore_volume - vliq, 0._r8))
+				vliq = max(wliq_soisno(j), 0._r8) / denh2o
+				vice = max(wice_soisno(j), 0._r8) / denice
 				vtot = vliq + vice
 				! vtot comes from the host soil state, finundated from an
 				! independent water-table S-curve, so the two disagree by more
@@ -2233,10 +2230,18 @@ contains
 				f_methane_adj = DEF_METHANE%f_methane * t_fact_methane
 			endif
 
-         ! Scale methanogenesis by the unfrozen water fraction: methanogens keep
-         ! working in the liquid films of a freezing layer and stop only as the
-         ! pore water actually freezes.  Lake sediment keeps its own 1 K ramp.
-         f_methane_adj = f_methane_adj * fliq(j)
+			! Do not allow soil methanogenesis in frozen layers.  Lake sediment
+			! production already has an explicit temperature gate; apply the same
+			! physical cutoff to the soil branch so winter CH4 is not produced
+			! solely from residual BGC HR in ice-filled pores.
+         ! With liquid_fraction_scaling the cutoff becomes the unfrozen water
+         ! fraction: methanogens keep working in the liquid films of a freezing
+         ! layer and stop only as the pore water actually freezes.
+         if (DEF_METHANE%liquid_fraction_scaling) then
+            f_methane_adj = f_methane_adj * fliq(j)
+         else
+			if (t_soisno(j) <= tfrz) f_methane_adj = 0._r8
+         end if
 
 
 			! Remove CN nitrogen limitation, as methanogenesis is not N limited.
@@ -2424,7 +2429,7 @@ contains
 			else
 				k_m_eff = DEF_METHANE%k_m_unsat
 				vmax_eff = DEF_METHANE%vmax_oxid_unsat
-            if (patchtype == 2) then
+            if (patchtype == 2 .and. DEF_METHANE%wetland_oxic_cap_kinetics) then
                ! The layers above a wetland's water table are its oxic cap, not
                ! upland soil.  CH4 diffusing up from the saturated zone keeps
                ! them orders of magnitude above ambient air, so the low-affinity
@@ -2473,8 +2478,13 @@ contains
 				* DEF_METHANE%q10_methane_oxid ** ((t_soisno(j) - t0) / 10._r8) * smp_fact &
 				* lake_oxid_layer_factor
 
-         ! For all landunits / levels, scale oxidation by the unfrozen water fraction
-         oxid_a = oxid_a * fliq(j)
+			! For all landunits / levels, prevent oxidation if at or below freezing
+         ! (with liquid_fraction_scaling, scale it by the unfrozen water fraction)
+         if (DEF_METHANE%liquid_fraction_scaling) then
+            oxid_a = oxid_a * fliq(j)
+         else
+			if (t_soisno(j) <= tfrz) oxid_a = 0._r8
+         end if
 
 			if (use_microbe_override .and. &
 			    abs(microbial_oxid_potential_layer(j)) < 0.5_r8 * abs(spval)) then
@@ -2706,10 +2716,11 @@ contains
 				tranloss(j) = 0._r8
 			end if
 
-         ! Calculate aerenchyma diffusion.  A frozen layer is no longer
-         ! switched off at tfrz; its conductance is scaled by the unfrozen
-         ! water fraction fliq(j) below instead.
-         if (j > jwt .and. lai > 0) then ! Below water table
+			! Calculate aerenchyma diffusion.  With liquid_fraction_scaling a frozen
+         ! layer is not switched off at tfrz; its conductance is scaled by the
+         ! unfrozen water fraction fliq(j) below instead.
+         if (j > jwt .and. (t_soisno(j) > tfrz .or. DEF_METHANE%liquid_fraction_scaling) &
+             .and. lai > 0) then ! Below water table
 				! Estimate area of tillers (see Wania thesis)
 				!m_tiller = anpp * r_leaf_root * lai ! (4.17 Wania)
 				!m_tiller = 600._r8 * 0.5_r8 * 2._r8  ! used to be 300
@@ -2734,7 +2745,7 @@ contains
             ! Ice in the pore space blocks the root-soil interface: scale the
             ! conductance by the layer's unfrozen water fraction, the same
             ! quantity methane_prod uses (exactly 1 in an unfrozen layer).
-            aerecond = aerecond * fliq(j)
+            if (DEF_METHANE%liquid_fraction_scaling) aerecond = aerecond * fliq(j)
 				! aerecond = max(aerecond,1.e-8_r8)
 				aere(j) = aerecond*(conc_ch4_gas_porsl(j) - c_atm(1)) / dz_soisno(j)
 				! [mol/m3/s] = [mol/m3]                      / [m]          / [s/m]
@@ -2750,14 +2761,14 @@ contains
 				oxaere(j) = max(oxaere(j), 0._r8)
 				! Diffusion in is positive; prevent backwards diffusion
             ! O2 rides the same aerenchyma, so it sees the same ice throttle.
-            oxaere(j) = oxaere(j) * fliq(j)
+            if (DEF_METHANE%liquid_fraction_scaling) oxaere(j) = oxaere(j) * fliq(j)
 				if ( .not. DEF_METHANE%use_aereoxid_prog ) then ! fixed aere oxid proportion; will be done in methane_tran
 					oxaere(j) = 0._r8
 				end if
 			else
 				aere(j) = 0._r8
 				oxaere(j) = 0._r8
-         end if ! veg type & below water table
+			end if ! veg type, below water table, & above freezing
 		end do
 
 	end subroutine SiteOxAere

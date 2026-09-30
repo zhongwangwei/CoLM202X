@@ -265,7 +265,7 @@ CONTAINS
 			               ENDIF
 		               IF (need_land_flux_split .or. need_global_with_lake .or. &
 		                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
-		                   need_global_clip_credit_with_lake) &
+		                   need_global_clip_credit_with_lake .or. need_cat_split) &
 		                  allocate (hist_ch4_acc_one(numpatch))
             allocate (hist_methane_area_wetland(numpatch))
             allocate (hist_methane_area_soil(numpatch))
@@ -289,16 +289,16 @@ CONTAINS
 			               IF (need_rice_intensive) THEN
 			                  hist_ch4_rice_flux_mean(:) = 0._r8
 			                  hist_ch4_rice_area_frac(:) = 0._r8
+			               ENDIF
             hist_methane_area_wetland(:) = 0._r8
             hist_methane_area_soil(:) = 0._r8
             hist_methane_area_rice(:) = 0._r8
             hist_methane_area_lake(:) = 0._r8
             hist_methane_area_floodplain(:) = 0._r8
             hist_methane_wetland_type(:) = 0._r8
-			               ENDIF
 		               IF (need_land_flux_split .or. need_global_with_lake .or. &
 		                   need_global_phys_with_lake .or. need_global_balance_with_lake .or. &
-		                   need_global_clip_credit_with_lake) &
+		                   need_global_clip_credit_with_lake .or. need_cat_split) &
 		                  hist_ch4_acc_one(:) = 1._r8
 	               filter_active_without_lake(:) = .false.
 	               filter_all_land(:) = .false.

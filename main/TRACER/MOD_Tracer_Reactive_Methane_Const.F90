@@ -426,6 +426,14 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       !   w_scalar is still near 1, decomposed five times faster than a
       !   thawed one. Off by default.
       logical :: frozen_anoxic_decomp = .false.
+      ! liquid_fraction_scaling (paper version): CH4 production, oxidation and
+      !   aerenchyma transport in a soil layer scale with its unfrozen water
+      !   fraction wliq/(wliq+wice) instead of stopping at tfrz. Off by default.
+      logical :: liquid_fraction_scaling = .false.
+      ! wetland_oxic_cap_kinetics (paper version): the layers above a wetland's
+      !   water table oxidise CH4 with the saturated-zone kinetics (k_m,
+      !   vmax_methane_oxid) instead of the upland values. Off by default.
+      logical :: wetland_oxic_cap_kinetics = .false.
 
       ! Global-run diagnostics / guard rails.
       ! write_ch4_history=false suppresses all CH4 history variables.
@@ -499,8 +507,9 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! rice_paddy_min_finundated: floor on finundated while CN reports the crop
       !   alive. Blended with the scheme value by max(), so an already-wet patch
       !   -- a wetland tile carrying a rice CFT, or scheme 6 with the water table
-      !   at the surface -- is never dried by it.
-      real(r8) :: rice_paddy_min_finundated     = 0.85_r8
+      !   at the surface -- is never dried by it. 0 (default) leaves the paddy
+      !   on the scheme value; the methane paper version uses 0.85.
+      real(r8) :: rice_paddy_min_finundated     = 0._r8
       ! Midseason drying: the standard Asian practice of draining for 7-10 days
       ! around 30-40 days after planting. Timing and depth are tunable; the
       ! defaults are the mid-range of that practice, not a fitted value.
@@ -728,6 +737,9 @@ CONTAINS
          DEF_wetland_finundation_scheme = 8
          DEF_METHANE%enable_wetwat_finundated_override = .false.
          DEF_METHANE%wetland_dry_unsat_branch = .false.
+         ! Soil tiles flooded by routing are floodplains (biome parameters
+         ! and the floodplain area diagnostic), as in the hybrid mode.
+         DEF_METHANE%use_routing_for_soil = .true.
          ! With DEF_USE_Dynamic_Wetland the wetland tile keeps its own water
          ! table and the scheme 8 branch follows it (Physics).
 

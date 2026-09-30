@@ -95,21 +95,42 @@ CONTAINS
 
       IF (p_is_master) THEN
          allocate (a(nlon,nlat), aopen(nlat,nlon), amarsh(nlat,nlon))
-         ierr = nf90_inq_varid(ncid, 'lat', vid); ierr = nf90_get_var(ncid, vid, lat_g)
-         ierr = nf90_inq_varid(ncid, 'lon', vid); ierr = nf90_get_var(ncid, vid, lon_g)
-         ierr = nf90_inq_varid(ncid, 'forested_share', vid); ierr = nf90_get_var(ncid, vid, a)
-         forest_g = transpose(a)
+         ! Every variable must be read; a failed read would otherwise leave the
+         ! previous class's values in a and change LAI and CH4 transport silently.
+         vname = 'lat'
+         ierr = nf90_inq_varid(ncid, trim(vname), vid)
+         IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lat_g)
+         IF (ierr == NF90_NOERR) THEN
+            vname = 'lon'
+            ierr = nf90_inq_varid(ncid, trim(vname), vid)
+            IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, lon_g)
+         ENDIF
+         IF (ierr == NF90_NOERR) THEN
+            vname = 'forested_share'
+            ierr = nf90_inq_varid(ncid, trim(vname), vid)
+            IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, a)
+            IF (ierr == NF90_NOERR) forest_g = transpose(a)
+         ENDIF
          aopen = 0._r8; amarsh = 0._r8
          DO k = 1, nopen
+            IF (ierr /= NF90_NOERR) EXIT
             write(vname,'(A,I2.2)') 'area_class_', open_classes(k)
-            ierr = nf90_inq_varid(ncid, trim(vname), vid); ierr = nf90_get_var(ncid, vid, a)
-            aopen = aopen + max(transpose(a), 0._r8)
+            ierr = nf90_inq_varid(ncid, trim(vname), vid)
+            IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, a)
+            IF (ierr == NF90_NOERR) aopen = aopen + max(transpose(a), 0._r8)
          ENDDO
          DO k = 1, nmarsh
+            IF (ierr /= NF90_NOERR) EXIT
             write(vname,'(A,I2.2)') 'area_class_', marsh_classes(k)
-            ierr = nf90_inq_varid(ncid, trim(vname), vid); ierr = nf90_get_var(ncid, vid, a)
-            amarsh = amarsh + max(transpose(a), 0._r8)
+            ierr = nf90_inq_varid(ncid, trim(vname), vid)
+            IF (ierr == NF90_NOERR) ierr = nf90_get_var(ncid, vid, a)
+            IF (ierr == NF90_NOERR) amarsh = amarsh + max(transpose(a), 0._r8)
          ENDDO
+         IF (ierr /= NF90_NOERR) THEN
+            write(*,'(A,A,A,A,A,A)') ' ERROR: wetland vegetation file ', trim(file_veg), &
+               ', variable ', trim(vname), ': ', trim(nf90_strerror(ierr))
+            bad = 1
+         ENDIF
          ierr = nf90_close(ncid)
          ! netCDF fill for cells without tile classes: no forest, no cap
          WHERE (.not. ieee_is_finite(forest_g) .or. forest_g < 0._r8 .or. forest_g > 1._r8) forest_g = 0._r8
@@ -120,6 +141,10 @@ CONTAINS
          END WHERE
          deallocate (a, aopen, amarsh)
       ENDIF
+#ifdef USEMPI
+      CALL mpi_bcast (bad,      1,         MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (bad /= 0) CALL CoLM_stop (' ***** ERROR: cannot read DEF_METHANE%wetland_veg_file.')
 #ifdef USEMPI
       CALL mpi_bcast (lat_g,    nlat,      MPI_REAL8, p_address_master, p_comm_glb, p_err)
       CALL mpi_bcast (lon_g,    nlon,      MPI_REAL8, p_address_master, p_comm_glb, p_err)

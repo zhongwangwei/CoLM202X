@@ -1830,6 +1830,10 @@ CONTAINS
 	                              'patch', landpatch, f_inund_flood_patch,       compress)
 	      CALL ncio_write_vector (file_restart, 'ch4_f_inund_flood_depth_patch', &
 	                              'patch', landpatch, f_inund_flood_depth_patch, compress)
+      ! Wetland class of the last step: the water-table floor of a dynamic
+      ! wetland reads it before the driver republishes it (wetland_max_wtd_of).
+      CALL ncio_write_vector (file_restart, 'ch4_methane_wetland_type', &
+                              'patch', landpatch, methane_wetland_type, compress)
 	   END SUBROUTINE write_methane_restart
 
 
@@ -2033,6 +2037,9 @@ CONTAINS
 	  ENDIF
 	      CALL ncio_read_vector (file_restart, 'ch4_fsat_bef',         landpatch, fsat_bef,         defval = spval)
 	      CALL ncio_read_vector (file_restart, 'ch4_finundated_lag',   landpatch, finundated_lag,   defval = spval)
+      ! Absent in older restarts: 0 falls back to the global water-table floor.
+      CALL ncio_read_vector (file_restart, 'ch4_methane_wetland_type', landpatch, &
+                             methane_wetland_type, defval = 0._r8)
 	      IF (component_state_present) THEN
 	         CALL read_component_1d('ch4_fsat_bef_soil', fsat_bef_component(METHANE_COMP_SOIL,:))
 	         CALL read_component_1d('ch4_fsat_bef_rice', fsat_bef_component(METHANE_COMP_RICE,:))
