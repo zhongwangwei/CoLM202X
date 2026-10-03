@@ -2443,7 +2443,9 @@ CONTAINS
             CALL acc1d (grainc_to_seed     ,   a_grainc_to_seed     )
             CALL acc1d (fert_to_sminn      ,   a_fert_to_sminn      )
 
+            ! running totals: keep the latest value (the history writer undoes the /nac)
             a_sum_irrig = sum_irrig
+            a_sum_deficit_irrig = sum_deficit_irrig
             a_sum_irrig_count = sum_irrig_count
             a_waterstorage = waterstorage
             CALL acc1d (groundwater_demand   ,   a_groundwater_demand )

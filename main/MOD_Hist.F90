@@ -397,6 +397,8 @@ CONTAINS
             IF (numpatch > 0) THEN
                allocate (filter_crop (numpatch))
                allocate (filter_irrig (numpatch))
+               ! only DEF_USE_IRRIGATION sets it; without irrigation no patch is irrigated
+               filter_irrig(:) = .false.
             ENDIF
 #endif
          ENDIF
@@ -1535,7 +1537,9 @@ ENDIF
             !  total irrigation amounts at growing season
             IF (p_is_worker) THEN
                IF (numpatch > 0) THEN
+                  ! running total, not a mean: write the latest value (as the *_inst variables)
                   vecacc (:) = a_sum_irrig (:)
+                  WHERE (vecacc /= spval) vecacc = vecacc * nac
                ENDIF
             ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%sum_irrig, &
@@ -1545,7 +1549,9 @@ ENDIF
             !  total irrigation amounts demand at growing season
             IF (p_is_worker) THEN
                IF (numpatch > 0) THEN
+                  ! running total, not a mean: write the latest value (as the *_inst variables)
                   vecacc (:) = a_sum_deficit_irrig (:)
+                  WHERE (vecacc /= spval) vecacc = vecacc * nac
                ENDIF
             ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%sum_deficit_irrig, &
@@ -1553,14 +1559,23 @@ ENDIF
                'total irrigation amounts demand at growing season','kg/m2')
 
             ! total irrigation times at growing season
+            IF (p_is_worker) THEN
+               IF (numpatch > 0) THEN
+                  ! running total, not a mean: write the latest value (as the *_inst variables)
+                  vecacc (:) = a_sum_irrig_count (:)
+                  WHERE (vecacc /= spval) vecacc = vecacc * nac
+               ENDIF
+            ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%sum_irrig_count, &
-               a_sum_irrig_count, file_hist, 'f_sum_irrig_count', itime_in_file, sumarea_irrig, filter_irrig, &
+               vecacc, file_hist, 'f_sum_irrig_count', itime_in_file, sumarea_irrig, filter_irrig, &
                'total irrigation times at growing season','-')
 
             ! irrigation waterstorage [kg/m2]
             IF (p_is_worker) THEN
                IF (numpatch > 0) THEN
+                  ! running total, not a mean: write the latest value (as the *_inst variables)
                   vecacc (:) = a_waterstorage (:)
+                  WHERE (vecacc /= spval) vecacc = vecacc * nac
                ENDIF
             ENDIF
             CALL write_history_variable_2d ( DEF_hist_vars%waterstorage, &
@@ -2889,7 +2904,8 @@ ENDIF
                IF (numpatch > 0) THEN
                   DO i=1,numpatch
                      IF(patchclass(i) == 12)THEN
-                        IF(pftclass(patch_pft_s(i)) .eq. 17)THEN
+                        ! 17 rainfed / 18 irrigated temperate corn, like the other crops' pairs
+                        IF(pftclass(patch_pft_s(i)).eq.17 .or. pftclass(patch_pft_s(i)).eq.18)THEN
                            filter(i) = .true.
                         ELSE
                            filter(i) = .false.
