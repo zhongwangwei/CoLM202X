@@ -125,7 +125,8 @@ CONTAINS
    real(r8),parameter :: topmod_vdcf = 2.0_r8
    integer m
 
-      tsoi17 = forc_t(i)  ! Temporarily use air temperature for tsoi17, need to revised later.
+      tsoi17(i) = forc_t(i)  ! Temporarily use air temperature for tsoi17, need to revised later.
+                             ! (was a whole-array assignment: every patch got this patch's forc_t)
       wf2    = 0.5        ! Temporarily set up, need to revise later.
 
       CALL julian2monthday(idate(1),idate(2),kmo,kda)

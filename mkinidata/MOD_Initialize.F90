@@ -717,8 +717,8 @@ ENDIF
       soilpsi_off     = -0.8
 
       ! constant for fire module
-      occur_hi_gdp_tree        = 0.33
-      borealat                 = 60._r8
+      occur_hi_gdp_tree        = 0.33_r8
+      borealat                 = 60._r8   ! degrees north
       non_boreal_peatfire_c    = 0.71e-4_r8
       nonborpeat_fire_precip_denom = 6.5_r8
       boreal_peatfire_c        = 0.28e-4_r8
@@ -726,14 +726,14 @@ ENDIF
       prh30                    = 0.6_r8
       max_rh30_affecting_fuel  = 95._r8
       ignition_efficiency      = 0.22_r8
-      occur_hi_gdp_tree        = 0.39_r8
+      ! (the pre-PR#504 lines 'occur_hi_gdp_tree = 0.39' and 'borealat = 40/(4*atan(1))' used to
+      !  follow here and silently override the values set above)
       lfuel                    = 75._r8
       ufuel                    = 825._r8
       cropfire_a1              = 0.3_r8
-      borealat                 = 40._r8/(4.*atan(1.))
-      troplat                  = 23.5_r8/(4.*atan(1.))
-      non_boreal_peatfire_c    = 0.000071_r8
-      boreal_peatfire_c        = 0.28e-4_r8
+      ! tropics in degrees, like borealat: '23.5/(4*atan(1))' (= 7.5) was a botched conversion
+      ! from the CLM heritage, compared with dlat in degrees
+      troplat                  = 23.5_r8
       rh_low                   = 30.0_r8
       rh_hgh                   = 85.0_r8
       bt_min                   = 0.85_r8
