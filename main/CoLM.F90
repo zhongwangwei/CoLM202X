@@ -166,6 +166,9 @@ PROGRAM CoLM
    integer :: itrc_cama
 #endif
    logical :: is_spinup
+#ifdef LULCC
+   logical :: lulcc_in_spinup = .false. ! LulccDriver ran during the current spinup cycle
+#endif
    logical :: history_saved_raw
 #ifdef TRACER
    logical :: tracer_loaded_restart
@@ -586,6 +589,12 @@ PROGRAM CoLM
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, &
             dir_hist, casename, jdate, dir_restart, history_saved_raw)
 
+         ! Close the parameter optimization year before LULCC: LULCC reallocates the
+         ! fluxes (spval) and changes the patch layout, so calling it afterwards dropped the
+         ! year's last step and closed the year on the new layout. Nothing between here and
+         ! the old call site (LAI readin, restart output) touches its inputs.
+         CALL ParameterOptimization (idate, deltim, is_spinup)
+
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
 #ifdef LULCC
@@ -605,6 +614,7 @@ PROGRAM CoLM
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
+            IF (is_spinup) lulcc_in_spinup = .true.
 #ifdef GridRiverLakeFlow
             CALL grid_riverlake_flow_lulcc ()
 #endif
@@ -706,8 +716,6 @@ PROGRAM CoLM
          ENDIF
 #endif
 
-         CALL ParameterOptimization (idate, deltim, is_spinup)
-
          IF (p_is_master) THEN
             CALL system_clock (end_time, count_rate = c_per_sec)
             time_used = (end_time - start_time) / c_per_sec
@@ -723,6 +731,15 @@ PROGRAM CoLM
          IF (is_spinup) THEN
             IF (ptstamp <= itstamp) THEN
                IF (i_spinupcycle < n_spinupcycle) THEN
+#ifdef LULCC
+                  ! The rewind resets clock and forcing only: land cover, patch layout and
+                  ! states stay in the new year, so the next cycle would read the old year's
+                  ! LAI into the new layout and convert it again at the old year end.
+                  IF (lulcc_in_spinup) THEN
+                     CALL CoLM_stop ('spinup_repeat > 1 with a LULCC year end inside the spinup &
+                        &period is not supported: the rewind does not restore the land cover')
+                  ENDIF
+#endif
                   i_spinupcycle = i_spinupcycle + 1
                   idate   = sdate
                   jdate   = sdate

@@ -965,6 +965,9 @@ ENDIF
                         ! ground related variables.
                         u = patch2urban (np)
                         nurb = count( patchclass_(grid_patch_s_(j):grid_patch_e_(j)) == URBAN )
+                        ! reset per patch: they used to keep the previous urban patch's values
+                        selfu_ = -1
+                        u_     = -1
 
                         ! Get the index of urban patches in last year's grid, and index of urban
                         ! patch with the same urbclass
@@ -1004,6 +1007,9 @@ ENDIF
                               iu = iu + 1
                            ENDDO
                         ENDIF
+
+                        ! no urban patch in last year's element: keep the cold-start values
+                        IF (nurb > 0) THEN
 
                         IF (u.le.0 .or. u_.le.0) THEN
                            print *, "Error in LuLccMassEnergyConserve URBAN_MODEL!"
@@ -1086,9 +1092,12 @@ ENDIF
                         tafu           (u) = tafu_           (u_)
                         urb_green      (u) = urb_green_      (u_)
 
+                        ENDIF ! nurb > 0
+
                         ! used soil patch value for variable on pervious ground
+                        ! (frnp_ is only filled when the patch's share changed)
                         FROM_SOIL = .false.
-                        IF (selfu_ < 0) THEN
+                        IF (selfu_ < 0 .and. (sum_lccpct_np - lccpct_np(patchclass(np))) .gt. 0) THEN
                            DO k = 1, num
                               IF (patchtype_(frnp_(k)) == 0) THEN
                                  FROM_SOIL = .true.
