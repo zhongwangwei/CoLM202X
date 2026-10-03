@@ -21,9 +21,9 @@
   RELEASE_PROFILE_SUPPORTED := yes
   BUILD_PROFILE ?= debug
   ifeq ($(BUILD_PROFILE),release)
-     FOPTS = -fdefault-real-8 -ffree-form -O2 -cpp -ffree-line-length-0
+     FOPTS = -fdefault-real-8 -fdefault-double-8 -ffree-form -O2 -cpp -ffree-line-length-0
   else ifeq ($(BUILD_PROFILE),debug)
-     FOPTS = -fdefault-real-8 -ffree-form -g -fcheck=all \
+     FOPTS = -fdefault-real-8 -fdefault-double-8 -ffree-form -g -fcheck=all \
              -ffpe-trap=invalid,zero,overflow -fbacktrace -cpp \
              -ffree-line-length-0
   else
