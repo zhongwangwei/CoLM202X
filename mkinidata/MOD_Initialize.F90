@@ -512,17 +512,27 @@ ENDIF
       ! (see Niu et al., 2005)
       IF (DEF_Runoff_SCHEME == 0) THEN
 
-         IF (DEF_TOPMOD_method == 0) THEN
-
-            IF (p_is_worker) THEN
-               IF (numpatch > 0) THEN
-                  ! equal to 'wtfact = 0.38' and 'fff = 0.5'
-                  fsatmax(:) = 0.38
-                  fsatdcf(:) = 0.125
-               ENDIF
+         ! method 0 reads none and method 1 only part of these; give the rest a defined value
+         ! (they are written into the constant restart)
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               topoweti(:) = 0.
+               alp_twi (:) = 0.
+               chi_twi (:) = 0.
+               mu_twi  (:) = 0.
             ENDIF
+         ENDIF
 
-         ELSEIF (DEF_TOPMOD_method == 1) THEN
+         ! method 0 values ('wtfact = 0.38' and 'fff = 0.5') for every method: method 1 reads
+         ! its own below, method 2 used to leave them undefined (written into the restart)
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               fsatmax(:) = 0.38
+               fsatdcf(:) = 0.125
+            ENDIF
+         ENDIF
+
+         IF (DEF_TOPMOD_method == 1) THEN
 
             ftopo = trim(dir_landdata)//'/topography/'//trim(cyear)//'/fsatmax_patches.nc'
             CALL ncio_read_vector (ftopo, 'fsatmax_patches', landpatch, fsatmax)

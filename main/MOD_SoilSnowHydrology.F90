@@ -66,9 +66,10 @@ CONTAINS
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
 #ifdef TRACER
               qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy, &
-              defer_surface_ice_overflow)
+              defer_surface_ice_overflow, topoweti, alp_twi, chi_twi, mu_twi)
 #else
-              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy               )
+              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy, &
+              topoweti, alp_twi, chi_twi, mu_twi)
 #endif
 
 !=======================================================================
@@ -198,10 +199,15 @@ CONTAINS
 #ifdef TRACER
    logical, intent(in), optional :: defer_surface_ice_overflow
 #endif
+   ! TOPMODEL (DEF_Runoff_SCHEME == 0) topographic wetness index statistics: method 2 needs all
+   ! four, method 1 the mean (topoweti). They used to be missing in WATER_2014, so method 2
+   ! dereferenced absent optional arguments and method 1 silently ran as method 0.
+   real(r8), intent(in), optional :: topoweti, alp_twi, chi_twi, mu_twi
 
 !-------------------------- Local Variables ----------------------------
 
    integer j                      ! loop counter
+   real(r8) :: eta_topmod         ! critical topographic index from the surface runoff (method 2)
 
    real(r8) :: &
        eff_porosity(1:nl_soil)  ,&! effective porosity = porosity - vol_ice
@@ -229,6 +235,7 @@ CONTAINS
    integer  :: ps, pe, m
 
    real(r8) :: wliq_soisno_tmp(1:nl_soil)
+   real(r8) :: frcsat_vic   ! VIC saturated fraction where the caller keeps no frcsat
 
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
 #ifdef CaMa_Flood
@@ -340,16 +347,17 @@ IF(patchtype<=1)THEN   ! soil ground only
       rsur   = 0.
       rsubst = 0.
 
+      eta_topmod = 0.
       IF (DEF_Runoff_SCHEME  == 0) THEN
          ! 0: runoff scheme from TOPMODEL
 
-         IF (gwat > 0.) THEN
-            CALL SurfaceRunoff_TOPMOD (nl_soil,wimp,porsl,psi0,hksati,fsatmax,fsatdcf,&
-               z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
-               eff_porosity,icefrac,zwt,gwat,rsur)
-         ELSE
-            rsur = 0.
-         ENDIF
+         ! Always called: method 2 needs eta for the baseflow below even when gwat <= 0
+         ! (it used to stay 0, giving baseflow ~ exp(0)); rsur is still 0 then.
+         CALL SurfaceRunoff_TOPMOD (nl_soil,wimp,porsl,psi0,hksati,fsatmax,fsatdcf,&
+            z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
+            eff_porosity,icefrac,zwt,gwat,rsur,&
+            topoweti=topoweti,alp_twi=alp_twi,chi_twi=chi_twi,mu_twi=mu_twi,eta_out=eta_topmod)
+         IF (.not. (gwat > 0.)) rsur = 0.
 
       ELSEIF (DEF_Runoff_SCHEME  == 1) THEN
          ! 1: runoff scheme from VIC model
@@ -362,7 +370,7 @@ IF(patchtype<=1)THEN   ! soil ground only
                          wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gwat, &
 #endif
                          vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-                         rsur, rsubst, wliq_soisno_tmp(1:nl_soil))
+                         rsur, rsubst, wliq_soisno_tmp(1:nl_soil), frcsat_vic)
 
       ELSEIF (DEF_Runoff_SCHEME  == 2) THEN
          ! 2: runoff scheme from XinAnJiang model
@@ -416,14 +424,15 @@ IF(patchtype<=1)THEN   ! soil ground only
 
                CALL SurfaceRunoff_TOPMOD (nl_soil,wimp,porsl,psi0,hksati,1.0,fsatdcf,&
                         z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
-                        eff_porosity,icefrac,zwt,gfld,rsur_fld)
+                        eff_porosity,icefrac,zwt,gfld,rsur_fld,&
+                        topoweti=topoweti,alp_twi=alp_twi,chi_twi=chi_twi,mu_twi=mu_twi)
 
             ELSEIF (DEF_Runoff_SCHEME  == 1) THEN
                wliq_soisno_tmp(:) = 0
                CALL Runoff_VIC(deltim, porsl, theta_r, hksati, bsw, &
                                wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg_runoff, rootflux, gfld, &
                                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-                               rsur_fld, rsubst_fld, wliq_soisno_tmp(1:nl_soil))
+                               rsur_fld, rsubst_fld, wliq_soisno_tmp(1:nl_soil), frcsat_vic)
             ELSEIF (DEF_Runoff_SCHEME  == 2) THEN
                CALL Runoff_XinAnJiang (&
                   nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
@@ -490,7 +499,7 @@ IF(patchtype<=1)THEN   ! soil ground only
                         eff_porosity,icefrac,dz_soisno(1:),zi_soisno(0:),&
                         wice_soisno(1:),wliq_soisno(1:),&
                         porsl,psi0,bsw,zwt,wa,&
-                        qcharge,rsubst)
+                        qcharge,rsubst,hksati,topoweti,eta_topmod)
 
       ! total runoff (mm/s)
       rnof = rsubst + rsur
@@ -874,6 +883,7 @@ ENDIF
    real(r8) :: fevpg_runoff
 #endif
    real(r8) :: wliq_soisno_tmp(1:nl_soil)
+   real(r8) :: frcsat_vic   ! VIC saturated fraction where the caller keeps no frcsat
 
    real(r8), parameter :: e_ice=6.0      !soil ice impedance factor
 
@@ -1063,7 +1073,7 @@ IF((patchtype<=1) .or. is_dry_lake &
                wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gwat, &
 #endif
                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-               rsur, rsubst, wliq_soisno_tmp)
+               rsur, rsubst, wliq_soisno_tmp, frcsat)
 
             rsur_se = rsur
             rsur_ie = 0.
@@ -1157,14 +1167,15 @@ IF((patchtype<=1) .or. is_dry_lake &
 
                CALL SurfaceRunoff_TOPMOD (nl_soil,wimp,porsl,psi0,hksati,1.0,fsatdcf,&
                         z_soisno(1:),dz_soisno(1:),zi_soisno(0:),&
-                        eff_porosity,icefrac,zwt,gfld,rsur_fld)
+                        eff_porosity,icefrac,zwt,gfld,rsur_fld,&
+                        topoweti=topoweti,alp_twi=alp_twi,chi_twi=chi_twi,mu_twi=mu_twi)
 
             ELSEIF (DEF_Runoff_SCHEME  == 1) THEN
                wliq_soisno_tmp(:) = 0
                CALL Runoff_VIC(deltim, porsl, theta_r, hksati, bsw, &
                                wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg_runoff, rootflux, gfld, &
                                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-                               rsur_fld, rsubst_fld, wliq_soisno_tmp(1:nl_soil))
+                               rsur_fld, rsubst_fld, wliq_soisno_tmp(1:nl_soil), frcsat_vic)
             ELSEIF (DEF_Runoff_SCHEME  == 2) THEN
                CALL Runoff_XinAnJiang (&
                   nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
@@ -1445,6 +1456,8 @@ ENDIF
             ! total runoff (mm/s)
             rnof = rsubst + rsur
          ELSEIF (patchtype == 2) THEN ! for wetland
+            ! wetland is saturated, as in the non-dynamic wetland branch
+            frcsat = 1.
             IF (wdsrf > wetwatmax) THEN
                rsur_se = (wdsrf - wetwatmax) / deltim
                wdsrf = wetwatmax
@@ -2548,7 +2561,7 @@ ENDIF
                            eff_porosity,icefrac,&
                            dz_soisno,zi_soisno,wice_soisno,wliq_soisno,&
                            porsl,psi0,bsw,zwt,wa,&
-                           qcharge,rsubst)
+                           qcharge,rsubst,hksati,topoweti,eta)
 
 ! -------------------------------------------------------------------------
 
@@ -2578,6 +2591,10 @@ ENDIF
    real(r8), intent(inout) :: wa        ! water in the unconfined aquifer (mm)
    real(r8), intent(in)    :: qcharge   ! aquifer recharge rate (positive to aquifer) (mm/s)
    real(r8), intent(inout) :: rsubst    ! subsurface runoff (positive = out of soil column) (mm H2O /s)
+   ! TOPMODEL methods 1/2 (absent when the caller has no topographic index statistics)
+   real(r8), intent(in), optional :: hksati(1:nl_soil)
+   real(r8), intent(in), optional :: topoweti
+   real(r8), intent(in), optional :: eta
 
 !-------------------------- Local Variables ----------------------------
    integer  :: j                ! indices
@@ -2686,7 +2703,8 @@ ENDIF
 
 !-- Topographic runoff  ----------------------------------------------------------
       IF (DEF_Runoff_SCHEME == 0) THEN
-         CALL SubsurfaceRunoff_TOPMOD (nl_soil, icefrac, dz_soisno, zi_soisno, zwt, rsubst)
+         CALL SubsurfaceRunoff_TOPMOD (nl_soil, icefrac, dz_soisno, zi_soisno, zwt, rsubst, &
+            hksati, topoweti, eta)
       ENDIF
 
       drainage = rsubst

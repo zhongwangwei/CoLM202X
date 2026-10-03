@@ -1273,11 +1273,13 @@ SUBROUTINE CoLMMAIN ( &
 !  irrigation variables
 #ifdef TRACER
 	                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy, &
-                    defer_surface_ice_overflow=(patchtype==0))
+                    defer_surface_ice_overflow=(patchtype==0), &
+                    topoweti=topoweti, alp_twi=alp_twi, chi_twi=chi_twi, mu_twi=mu_twi)
 	                 rsub = rnof - rsur
 	         ELSE
 #else
-                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
+                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy, &
+                 topoweti=topoweti, alp_twi=alp_twi, chi_twi=chi_twi, mu_twi=mu_twi)
                  rsub = rnof - rsur
          ELSE
 #endif

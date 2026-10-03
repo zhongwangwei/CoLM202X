@@ -568,18 +568,18 @@ CONTAINS
       dtl(:,:) = 0.
       fevpl_bef(:) = 0.
 
-! ==== FIX 2026-08-16 #4 BEGIN: when ozone stress is OFF, the ozone coefficients
-! were left as spval (never read from restart, and the ELSE branch below that sets
-! them to 1.0 runs only AFTER the stability iteration). They are USED inside the
-! iteration (gs0sun at line ~1200), so initialize them to 1.0 BEFORE the loop. ====
-      IF (.not. DEF_USE_OZONESTRESS) THEN
-         DO i = ps, pe
-            o3coefv_sun(i) = 1.0_r8
-            o3coefg_sun(i) = 1.0_r8
-            o3coefv_sha(i) = 1.0_r8
-            o3coefg_sha(i) = 1.0_r8
-         ENDDO
-      ENDIF
+! ==== FIX 2026-08-16 #4 BEGIN: the ozone coefficients are only set AFTER the
+! stability iteration (CalcOzoneStress, or the ELSE branch below), but they are
+! USED inside the iteration (gs0sun at line ~1200). The first call in a run read
+! undefined values with ozone stress OFF and ON alike, so initialize them to 1.0
+! BEFORE the loop unconditionally; with ozone stress on, CalcOzoneStress after
+! the loop still overwrites them. ====
+      DO i = ps, pe
+         o3coefv_sun(i) = 1.0_r8
+         o3coefg_sun(i) = 1.0_r8
+         o3coefv_sha(i) = 1.0_r8
+         o3coefg_sha(i) = 1.0_r8
+      ENDDO
 ! ==== FIX 2026-08-16 #4 END ====
 
       d_opt  = 2

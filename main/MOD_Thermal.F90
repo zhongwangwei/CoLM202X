@@ -696,7 +696,7 @@ ENDIF
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
                             theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
-                            dz_soisno,t_soisno,wliq_soisno,wice_soisno,fsno,qg,rss)
+                            dz_soisno(1:),t_soisno(1:),wliq_soisno(1:),wice_soisno(1:),fsno,qg,rss)
       ELSE
          IF (DEF_RSS_SCHEME == 4) THEN
             rss = 1.        !LP92
@@ -748,7 +748,7 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
             theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
-            psi0,rootfr,dz_soisno,t_soisno,wliq_soisno,rootr,etrc,rstfac)
+            psi0,rootfr,dz_soisno(1:),t_soisno(1:),wliq_soisno(1:),rootr,etrc,rstfac)
 
          ! fraction of sunlit and shaded leaves of canopy
          fsun = ( 1. - exp(-min(extkb*lai,40.))) / max( min(extkb*lai,40.), 1.e-6 )
@@ -902,7 +902,7 @@ IF (patchtype == 0) THEN
                theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
                psi0,rootfr_p(:,p),&
-               dz_soisno,t_soisno,wliq_soisno,rootr_p(:,i),etrc_p(i),rstfac_p(i))
+               dz_soisno(1:),t_soisno(1:),wliq_soisno(1:),rootr_p(:,i),etrc_p(i),rstfac_p(i))
 
             ! fraction of sunlit and shaded leaves of canopy
             fsun_p(i) = ( 1. - exp(-min(extkb_p(i)*lai_p(i),40.))) &
@@ -1080,11 +1080,10 @@ ENDIF
          ENDIF
       ENDDO
 
-#ifdef TRACER
+      ! Calculate end index of natrue PFTs. Some patches can have an empty
+      ! PFT slice (ps > pe); keep pn below ps so the PC branch is skipped
+      ! instead of reading an undefined pn.
       pn = ps - 1
-#else
-      ! Calculate end index of natrue PFTs
-#endif
       DO i = ps, pe
          pn = i
          p = pftclass(i)

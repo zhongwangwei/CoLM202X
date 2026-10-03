@@ -1363,7 +1363,9 @@ CONTAINS
             zi = 0.
             DO i = 0, snl+1, -1
                z_soisno(i) = zi - dz_soisno(i)/2.
-               zi = -zi-dz_soisno(i)
+               ! top-down interface depth: `zi = -zi-dz` flipped sign from the third
+               ! layer on and left non-monotonic node depths
+               zi = zi-dz_soisno(i)
             ENDDO
          ENDIF
 
