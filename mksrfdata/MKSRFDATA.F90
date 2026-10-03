@@ -147,7 +147,9 @@ PROGRAM MKSRFDATA
 
       CALL single_srfdata_final ()
       write(*,*)  'Successful in surface data making.'
-      CALL CoLM_stop()
+      ! Normal end of the single-point run. CoLM_stop now ends with STOP 1 (error exit),
+      ! so calling it here made every successful single-point mksrfdata exit with 1.
+      STOP
 #endif
 
       IF (USE_srfdata_from_larger_region) THEN

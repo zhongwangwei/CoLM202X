@@ -1451,6 +1451,9 @@ SUBROUTINE CoLMMAIN ( &
 
             IF (DEF_USE_SNICAR) THEN
 #ifdef TRACER
+                  ! The trc_* arrays are allocated only when tracers are registered: with
+                  ! DEF_TRACER_NUM = 0 the slices below would reference unallocated arrays.
+                  IF (ntracers > 0) THEN
                   CALL snowlayerscombine_snicar (lb,snl,&
                                z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
                                wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp,&
@@ -1460,6 +1463,13 @@ SUBROUTINE CoLMMAIN ( &
                                trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
                                trc_solid = trc_solid_soisno(:, lb:1, ipatch), &
                                trc_scv  = trc_scv(:, ipatch))
+                  ELSE
+                  CALL snowlayerscombine_snicar (lb,snl,&
+                               z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
+                               wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp,&
+                               mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                               mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                  ENDIF
 #else
                   CALL snowlayerscombine_snicar (lb,snl,&
                                z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
@@ -1469,6 +1479,7 @@ SUBROUTINE CoLMMAIN ( &
 #endif
             ELSE
 #ifdef TRACER
+                  IF (ntracers > 0) THEN
                   CALL snowlayerscombine (lb,snl,&
                                z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
                                wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp, &
@@ -1476,6 +1487,11 @@ SUBROUTINE CoLMMAIN ( &
                                trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
                                trc_solid = trc_solid_soisno(:, lb:1, ipatch), &
                                trc_scv  = trc_scv(:, ipatch))
+                  ELSE
+                  CALL snowlayerscombine (lb,snl,&
+                               z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
+                               wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp)
+                  ENDIF
 #else
                   CALL snowlayerscombine (lb,snl,&
                                z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
@@ -1487,6 +1503,7 @@ SUBROUTINE CoLMMAIN ( &
             IF(snl<0) THEN
                IF (DEF_USE_SNICAR) THEN
 #ifdef TRACER
+                  IF (ntracers > 0) THEN
                      CALL snowlayersdivide_snicar (lb,snl,&
                                z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
                                wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0),&
@@ -1495,13 +1512,26 @@ SUBROUTINE CoLMMAIN ( &
                                trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
                                trc_wice = trc_wice_soisno(:, lb:0, ipatch), &
                                trc_solid = trc_solid_soisno(:, lb:0, ipatch))
+                  ELSE
+                     CALL snowlayersdivide_snicar (lb,snl,&
+                               z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
+                               wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0),&
+                               mss_bcpho(lb:0),mss_bcphi(lb:0),mss_ocpho(lb:0),mss_ocphi(lb:0),&
+                               mss_dst1(lb:0),mss_dst2(lb:0),mss_dst3(lb:0),mss_dst4(lb:0) )
+                  ENDIF
                ELSE
+                  IF (ntracers > 0) THEN
                      CALL snowlayersdivide (lb,snl,&
                                z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
                                wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0), &
                                trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
                                trc_wice = trc_wice_soisno(:, lb:0, ipatch), &
                                trc_solid = trc_solid_soisno(:, lb:0, ipatch))
+                  ELSE
+                     CALL snowlayersdivide (lb,snl,&
+                               z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
+                               wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0))
+                  ENDIF
                ENDIF
             ENDIF
          ENDIF
