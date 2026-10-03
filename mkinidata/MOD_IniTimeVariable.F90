@@ -880,14 +880,8 @@ CONTAINS
                !            totcoln = totcoln + (leafn_p(m) + leafn_storage_p(m) + deadstemn_p(m))* pftfrac(m)
                !            totvegn = totvegn + (leafn_p(m) + leafn_storage_p(m) + deadstemn_p(m))* pftfrac(m)
             ENDDO
-            IF(DEF_USE_OZONESTRESS)THEN
-               o3uptakesun_p         (ps:pe) = 0._r8
-               o3uptakesha_p         (ps:pe) = 0._r8
-               o3coefv_sun_p         (ps:pe) = 1._r8
-               o3coefv_sha_p         (ps:pe) = 1._r8
-               o3coefg_sun_p         (ps:pe) = 1._r8
-               o3coefg_sha_p         (ps:pe) = 1._r8
-            ENDIF
+            ! (the PFT ozone state is initialized for every configuration in
+            !  MOD_Initialize after the IniTimeVar loop, not only in this BGC section)
             leafc_xfer_p             (ps:pe) = 0.0
             frootc_xfer_p            (ps:pe) = 0.0
             livestemc_storage_p      (ps:pe) = 0.0

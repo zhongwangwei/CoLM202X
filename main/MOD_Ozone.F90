@@ -36,6 +36,9 @@ Module MOD_Ozone
 
    type(spatial_mapping_type) :: mg2p_ozone
 
+   ! the 3-hourly record currently held in forc_ozone
+   integer :: itime_ozone = -1
+
    SAVE
 
    PUBLIC :: CalcOzoneStress
@@ -78,6 +81,12 @@ CONTAINS
 
    real(r8), parameter :: ko3 = 1.51_r8  !F. Li
 
+
+      ! o3coefv/o3coefg are intent(out); when o3uptake /= 0 and ivt falls outside the
+      ! classes handled below (e.g. bare ground, ivt = 0) neither was assigned.
+      ! Default both to "no stress".
+      o3coefv = 1._r8
+      o3coefg = 1._r8
 
       IF(.not. DEF_USE_OZONEDATA)THEN
          forc_ozone = 100._r8  ! ozone partial pressure [ppbv]
@@ -223,7 +232,10 @@ CONTAINS
 
       CALL mg2p_ozone%build_arealweighted (grid_ozone, landpatch)
 
-      itime = (idate(3) - 1800) / 10800 + (min(idate(2),365) - 1) * 8 + 1
+      ! read the 3-hour window that contains the start time
+      ! (was (idate(3)-1800)/10800+..., i.e. the window before it for a 00:00 start).
+      itime = ozone_record (idate(1), idate(2), idate(3))
+      itime_ozone = itime
 
       CALL ncio_read_block_time (file_ozone, 'OZONE', grid_ozone, itime, f_ozone)
 #ifdef RangeCheck
@@ -263,8 +275,13 @@ CONTAINS
 
       file_ozone = trim(DEF_dir_runtime) // '/Ozone/Global/OZONE-setgrid.nc'
 !      file_ozone = '/share/home/dq010/CoLM/data/rawdata/CROP-NITRIF/CoLMruntime/Ozone/Global/OZONE-setgrid.nc'
-      IF(time%sec/10800 .ne. (time%sec+int(deltim))/10800)then
-         itime = (time%sec - int(deltim)) / 10800 + (min(time%day,365) - 1) * 8 + 1
+      ! Use the 3-hour window that contains the current step (its start time), and read
+      ! it whenever it differs from the one in memory. The old test/index read
+      ! (time%sec-int(deltim))/10800, one window late, and gave itime = 0 for a 10800 s
+      ! step at the start of a year.
+      itime = ozone_record (time%year, time%day, time%sec)
+      IF (itime /= itime_ozone) THEN
+         itime_ozone = itime
          CALL ncio_read_block_time (file_ozone, 'OZONE', grid_ozone, itime, f_ozone)
 #ifdef RangeCheck
          CALL check_block_data ('Ozone', f_ozone)
@@ -277,6 +294,31 @@ CONTAINS
       ENDIF
 
    END SUBROUTINE update_ozone_data
+
+   integer FUNCTION ozone_record (year, day, sec)
+!-----------------------------------------------------------------------
+! !DESCRIPTION:
+!  1-based 3-hourly record (8 per day, 365-day climatology) of the window that
+!  contains a time stamp given in CoLM's end form (sec in (0, 86400]): the end of
+!  a day is the start of the next one. Day 366 of a leap year reuses day 365.
+!-----------------------------------------------------------------------
+   USE MOD_TimeManager, only: isleapyear
+   IMPLICIT NONE
+   integer, intent(in) :: year, day, sec
+   integer :: d, s, maxday
+
+      d = day
+      s = sec
+      IF (s >= 86400) THEN
+         s = s - 86400
+         d = d + 1
+         maxday = 365
+         IF (isleapyear(year)) maxday = 366
+         IF (d > maxday) d = 1
+      ENDIF
+      ozone_record = s / 10800 + (min(d,365) - 1) * 8 + 1
+
+   END FUNCTION ozone_record
 
 END MODULE MOD_Ozone
 ! ---------- EOP ------------

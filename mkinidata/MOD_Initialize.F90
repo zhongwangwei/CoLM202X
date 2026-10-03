@@ -1586,6 +1586,27 @@ ENDIF
 #endif
          ENDDO
 
+         ! Ozone uptake/stress state was left at spval on cold start: IniTimeVar never
+         ! assigned the patch-level o3uptakesun/sha, and the PFT-level o3uptake*_p /
+         ! o3coef*_p were assigned only in its BGC section, so non-BGC PFT/PC runs wrote
+         ! spval into the restart (a bare PFT keeps it forever and the patch aggregate
+         ! sum(o3uptakesun_p*pftfrac) becomes ~ -1e35 in the history). Initialize them
+         ! for every configuration.
+         IF (DEF_USE_OZONESTRESS) THEN
+            o3uptakesun(:) = 0._r8
+            o3uptakesha(:) = 0._r8
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+            IF (allocated(o3uptakesun_p)) THEN
+               o3uptakesun_p(:) = 0._r8
+               o3uptakesha_p(:) = 0._r8
+               o3coefv_sun_p(:) = 1._r8
+               o3coefv_sha_p(:) = 1._r8
+               o3coefg_sun_p(:) = 1._r8
+               o3coefg_sha_p(:) = 1._r8
+            ENDIF
+#endif
+         ENDIF
+
          DO i = 1, numpatch
             z_sno (maxsnl+1:0,i) = z_soisno (maxsnl+1:0,i)
             dz_sno(maxsnl+1:0,i) = dz_soisno(maxsnl+1:0,i)

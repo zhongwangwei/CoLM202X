@@ -2387,7 +2387,7 @@ ENDIF
          ! ozone concentration
             CALL write_history_variable_2d ( DEF_hist_vars%xy_ozone, &
                a_ozone, file_hist, 'f_xy_ozone', itime_in_file, sumarea, filter, &
-               'Ozone concentration','mol/mol')
+               'Ozone concentration','ppbv')
          ENDIF
 
          ! litter 1 carbon density in soil layers
