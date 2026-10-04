@@ -731,20 +731,45 @@ PROGRAM CoLM
          IF (is_spinup) THEN
             IF (ptstamp <= itstamp) THEN
                IF (i_spinupcycle < n_spinupcycle) THEN
-#ifdef LULCC
-                  ! The rewind resets clock and forcing only: land cover, patch layout and
-                  ! states stay in the new year, so the next cycle would read the old year's
-                  ! LAI into the new layout and convert it again at the old year end.
-                  IF (lulcc_in_spinup) THEN
-                     CALL CoLM_stop ('spinup_repeat > 1 with a LULCC year end inside the spinup &
-                        &period is not supported: the rewind does not restore the land cover')
-                  ENDIF
-#endif
                   i_spinupcycle = i_spinupcycle + 1
                   idate   = sdate
                   jdate   = sdate
                   itstamp = ststamp
                   CALL adj2begin(jdate)
+#ifdef LULCC
+                  ! The rewind used to reset clock and forcing only, so after a LULCC year end
+                  ! the next cycle ran the start year on the new year's land cover and patch
+                  ! layout. Change the land cover back to the start year the way the year-end
+                  ! LULCC does; there is no transfer trace from a later year back to the start
+                  ! year, so this change always uses SAT.
+                  IF (lulcc_in_spinup) THEN
+                     CALL deallocate_1D_Forcing
+                     CALL deallocate_1D_Fluxes
+#ifdef TRACER
+                     CALL tracer_forcing_lulcc_save ()
+                     CALL tracer_forcing_final ()
+#endif
+                     CALL forcing_final ()
+                     CALL hist_final    ()
+
+                     CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich, &
+                        rewind = .true.)
+#ifdef GridRiverLakeFlow
+                     CALL grid_riverlake_flow_lulcc ()
+#endif
+
+                     CALL allocate_1D_Forcing
+                     CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
+#ifdef TRACER
+                     CALL tracer_forcing_init (gforc, numpatch)
+                     CALL tracer_forcing_lulcc_restore ()
+#endif
+
+                     CALL hist_init (dir_hist, lulcc_call=.true.)
+                     CALL allocate_1D_Fluxes
+                     lulcc_in_spinup = .false.
+                  ENDIF
+#endif
                   CALL forcing_reset ()
 #ifdef TRACER
                   CALL tracer_forcing_reset ()
