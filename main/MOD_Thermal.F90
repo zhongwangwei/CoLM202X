@@ -124,9 +124,10 @@ CONTAINS
    USE MOD_GroundTemperature
    USE MOD_Qsadv
    USE MOD_SoilSurfaceResistance
+   USE MOD_Vars_TimeInvariants, only: patchclass
+   USE MOD_Ozone, only: ozone_pft_of_lct
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT, only: patch_pft_s, patch_pft_e
-   USE MOD_Vars_TimeInvariants, only: patchclass
    USE MOD_Vars_TimeVariables, only: &
        lai_enftemp, lai_enfboreal, lai_dnfboreal, lai_ebftrop, lai_ebftemp, lai_dbftrop, lai_dbftemp, &
        lai_dbfboreal, lai_ebstemp, lai_dbstemp, lai_dbsboreal, lai_c3arcgrass, lai_c3grass, lai_c4grass
@@ -760,7 +761,7 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
          rstfacsun_out = rstfac
          rstfacsha_out = rstfac
 
-         CALL LeafTemperature(ipatch,1,deltim,csoilc   ,dewmx       ,htvp        ,&
+         CALL LeafTemperature(ipatch,ozone_pft_of_lct(patchclass(ipatch)),deltim,csoilc,dewmx,htvp,&
                  lai         ,sai         ,htop        ,hbot        ,sqrtdi      ,&
                  effcon      ,vmax25      ,c3c4        ,slti        ,hlti        ,shti        ,&
                  hhti        ,trda        ,trdm        ,trop        ,g1          ,&
