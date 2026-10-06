@@ -594,6 +594,13 @@ CONTAINS
 	         ENDIF
 
 	      CASE ('routing')
+#ifndef GridRiverLakeFlow
+	         ! The flood fraction comes only from MOD_Grid_RiverLakeFlow; without
+	         ! it the soil column silently sees zero flooding.
+	         IF (p_is_master) write(6,*) &
+	            '***** ERROR: routing methane inundation mode requires a GridRiverLakeFlow-enabled kernel.'
+	         CALL CoLM_Stop (' ***** ERROR: methane routing mode is unavailable in this kernel')
+#endif
 	         DEF_wetland_finundation_scheme = 7
 	         DEF_METHANE%enable_wetwat_finundated_override = .false.
 	         DEF_METHANE%wetland_dry_unsat_branch = .true.
@@ -617,6 +624,13 @@ CONTAINS
 	         ENDIF
 
 	      CASE ('hybrid','dh_all_thr05','dyn_routing_hybrid')
+#ifndef GridRiverLakeFlow
+	         ! hybrid feeds the routing flood fraction to the soil column
+	         ! (use_routing_for_soil); same requirement as 'routing'.
+	         IF (p_is_master) write(6,*) &
+	            '***** ERROR: hybrid methane inundation mode requires a GridRiverLakeFlow-enabled kernel.'
+	         CALL CoLM_Stop (' ***** ERROR: methane hybrid mode is unavailable in this kernel')
+#endif
 		         ! Site-calibrated hybrid mode; not a globally validated default.
 	         ! Combines routing and dynamic-WTD hydrology.  Biome yield,
 	         ! redox lag and vertical source attenuation are independent
