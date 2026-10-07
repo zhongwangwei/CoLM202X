@@ -166,6 +166,9 @@ PROGRAM CoLM
    integer :: itrc_cama
 #endif
    logical :: is_spinup
+#ifdef LULCC
+   logical :: lulcc_in_spinup = .false. ! LulccDriver ran during the current spinup cycle
+#endif
    logical :: history_saved_raw
 #ifdef TRACER
    logical :: tracer_loaded_restart
@@ -586,6 +589,12 @@ PROGRAM CoLM
          CALL hist_out (idate, deltim, itstamp, etstamp, ptstamp, &
             dir_hist, casename, jdate, dir_restart, history_saved_raw)
 
+         ! Close the parameter optimization year before LULCC: LULCC reallocates the
+         ! fluxes (spval) and changes the patch layout, so calling it afterwards dropped the
+         ! year's last step and closed the year on the new layout. Nothing between here and
+         ! the old call site (LAI readin, restart output) touches its inputs.
+         CALL ParameterOptimization (idate, deltim, is_spinup)
+
          ! DO land use and land cover change simulation
          ! ----------------------------------------------------------------------
 #ifdef LULCC
@@ -605,6 +614,7 @@ PROGRAM CoLM
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
+            IF (is_spinup) lulcc_in_spinup = .true.
 #ifdef GridRiverLakeFlow
             CALL grid_riverlake_flow_lulcc ()
 #endif
@@ -706,8 +716,6 @@ PROGRAM CoLM
          ENDIF
 #endif
 
-         CALL ParameterOptimization (idate, deltim, is_spinup)
-
          IF (p_is_master) THEN
             CALL system_clock (end_time, count_rate = c_per_sec)
             time_used = (end_time - start_time) / c_per_sec
@@ -728,6 +736,40 @@ PROGRAM CoLM
                   jdate   = sdate
                   itstamp = ststamp
                   CALL adj2begin(jdate)
+#ifdef LULCC
+                  ! The rewind used to reset clock and forcing only, so after a LULCC year end
+                  ! the next cycle ran the start year on the new year's land cover and patch
+                  ! layout. Change the land cover back to the start year the way the year-end
+                  ! LULCC does; there is no transfer trace from a later year back to the start
+                  ! year, so this change always uses SAT.
+                  IF (lulcc_in_spinup) THEN
+                     CALL deallocate_1D_Forcing
+                     CALL deallocate_1D_Fluxes
+#ifdef TRACER
+                     CALL tracer_forcing_lulcc_save ()
+                     CALL tracer_forcing_final ()
+#endif
+                     CALL forcing_final ()
+                     CALL hist_final    ()
+
+                     CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich, &
+                        rewind = .true.)
+#ifdef GridRiverLakeFlow
+                     CALL grid_riverlake_flow_lulcc ()
+#endif
+
+                     CALL allocate_1D_Forcing
+                     CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
+#ifdef TRACER
+                     CALL tracer_forcing_init (gforc, numpatch)
+                     CALL tracer_forcing_lulcc_restore ()
+#endif
+
+                     CALL hist_init (dir_hist, lulcc_call=.true.)
+                     CALL allocate_1D_Fluxes
+                     lulcc_in_spinup = .false.
+                  ENDIF
+#endif
                   CALL forcing_reset ()
 #ifdef TRACER
                   CALL tracer_forcing_reset ()

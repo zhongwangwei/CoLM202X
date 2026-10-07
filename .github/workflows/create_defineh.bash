@@ -182,10 +182,10 @@ $URBAN
 $CAMPBELL
 $VENGENU
 ! 5.2 If defined, lateral flow is modeled.
-#define  LATERAL_FLOW
+#define  CatchLateralFlow
 !    Conflicts :
 #ifndef CATCHMENT
-#undef LATERAL_FLOW
+#undef CatchLateralFlow
 #endif
 
 ! 6. If defined, CaMa-Flood model will be used.

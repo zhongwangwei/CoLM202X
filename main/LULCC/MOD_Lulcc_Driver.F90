@@ -24,7 +24,7 @@ MODULE MOD_Lulcc_Driver
 
 
    SUBROUTINE LulccDriver (casename, dir_landdata, dir_restart, &
-                           jdate, greenwich)
+                           jdate, greenwich, rewind)
 
 !-----------------------------------------------------------------------
 !
@@ -104,6 +104,8 @@ MODULE MOD_Lulcc_Driver
    USE MOD_Lulcc_TransferTraceReadin
    USE MOD_Lulcc_MassEnergyConserve
    USE MOD_Namelist
+   USE MOD_Opt_Baseflow, only: zwt_init
+   USE MOD_Vars_Global, only: spval
 #ifdef TRACER
    USE MOD_Tracer_Defs, only: ntracers
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_land_save_lulcc_state, &
@@ -122,11 +124,20 @@ MODULE MOD_Lulcc_Driver
 
    logical, intent(in)    :: greenwich   !true: greenwich time, false: local time
    integer, intent(inout) :: jdate(3)    !year, julian day, seconds of the starting time
+   ! a spinup rewind back to the start year. mksrfdata writes the transfer trace
+   ! only from the previous year, so the rewind always uses SAT.
+   logical, intent(in), optional :: rewind
 #ifdef TRACER
    real(r8), allocatable :: old_patch_area(:), new_patch_area(:), inventory_trace(:,:)
    logical :: inventory_active
 #endif
+   integer :: scheme
 !-----------------------------------------------------------------------
+
+      scheme = DEF_LULCC_SCHEME
+      IF (present(rewind)) THEN
+         IF (rewind) scheme = 1
+      ENDIF
 
       ! allocate Lulcc memory
       CALL allocate_LulccTimeInvariants
@@ -138,7 +149,7 @@ MODULE MOD_Lulcc_Driver
 #ifdef TRACER
       CALL save_land_tracer_lulcc_state ()
       CALL tracer_lifecycle_land_save_lulcc_state ()
-      inventory_active = p_is_worker .and. ntracers > 0 .and. DEF_LULCC_SCHEME == 2
+      inventory_active = p_is_worker .and. ntracers > 0 .and. scheme == 2
       IF (inventory_active) THEN
          IF (numpatch > 0) THEN
             IF (.not. allocated(landpatch%eindex)) &
@@ -178,7 +189,7 @@ MODULE MOD_Lulcc_Driver
       ! 1. Same Type Assignment (SAT) scheme for variable recovery
       ! =============================================================
 
-      IF (DEF_LULCC_SCHEME == 1) THEN
+      IF (scheme == 1) THEN
          IF (p_is_master) THEN
             print *, ">>> LULCC: Same Type Assignment (SAT) scheme for variable recovery..."
          ENDIF
@@ -190,7 +201,7 @@ MODULE MOD_Lulcc_Driver
       ! 2. Mass and Energy conservation (MEC) scheme for variable recovery
       ! =============================================================
 
-      IF (DEF_LULCC_SCHEME == 2) THEN
+      IF (scheme == 2) THEN
          IF (p_is_master) THEN
             print *, ">>> LULCC: Mass&Energy conserve (MEC) for variable recovery..."
          ENDIF
@@ -226,6 +237,11 @@ MODULE MOD_Lulcc_Driver
          CALL LulccMassEnergyConserve()
       ENDIF
 
+      ! new patches of the baseflow optimization start from the new year's water table
+      IF (p_is_worker .and. allocated(zwt_init)) THEN
+         WHERE (zwt_init == spval) zwt_init = zwt
+      ENDIF
+
 #ifdef TRACER
       IF (p_is_worker .and. allocated(patchclass)) THEN
          IF (size(patchclass) > 0 .and. .not. allocated(patchclass_)) &
@@ -258,7 +274,7 @@ MODULE MOD_Lulcc_Driver
       ! deallocate Lulcc memory
       CALL deallocate_LulccTimeInvariants()
       CALL deallocate_LulccTimeVariables()
-      IF (DEF_LULCC_SCHEME == 2) THEN
+      IF (scheme == 2) THEN
          CALL deallocate_LulccTransferTrace()
       ENDIF
 

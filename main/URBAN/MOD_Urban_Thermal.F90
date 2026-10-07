@@ -615,7 +615,7 @@ CONTAINS
 
       IF (dfwsun > 0) THEN
          t_wallsun = (fwsun*t_wallsun + dfwsun*t_wallsha) / (fwsun+dfwsun)
-         twsun_inner = (fwsun*twsun_inner + dfwsun*twsun_inner) / (fwsun+dfwsun)
+         twsun_inner = (fwsun*twsun_inner + dfwsun*twsha_inner) / (fwsun+dfwsun)
          lwsun = (fwsun*lwsun + dfwsun*lwsha ) / (fwsun+dfwsun)
       ENDIF
 
@@ -625,8 +625,9 @@ CONTAINS
          lwsha = (fwsha*lwsha - dfwsun*lwsun ) / (fwsha-dfwsun)
       ENDIF
 
-      ! update fwsun
+      ! update fwsun (and fwsha, which weights twall below)
       fwsun = fwsun + dfwsun
+      fwsha = 1. - fwsun
 
       ! temperature and water mass from previous time step
       twsun = t_wallsun( 1 )
@@ -855,7 +856,7 @@ CONTAINS
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
             theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
-            psi0,rootfr,dz_gpersno,t_gpersno,wliq_gpersno,rootr,etrc,rstfac)
+            psi0,rootfr,dz_gpersno(1:),t_gpersno(1:),wliq_gpersno(1:),rootr,etrc,rstfac)
 
          nurb = 3
 

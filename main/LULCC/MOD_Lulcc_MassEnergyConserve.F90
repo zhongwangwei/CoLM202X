@@ -108,6 +108,7 @@ CONTAINS
 
    ! update for zwt, wa, ldew
    real(r8) :: tolerance, tol_z, tol_v, zi_soisno(0:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil)
+   real(r8) :: zwt_mm   ! get_zwt_from_wa works in mm
 #ifdef Campbell_SOIL_MODEL
    integer, parameter :: nprms = 1
 #endif
@@ -810,8 +811,10 @@ ENDIF
                               sp_zi(0:nl_soil) = zi_soisno(0:nl_soil) * 1000.0   ! from meter to mm
                               sp_dz(1:nl_soil) = sp_zi(1:nl_soil) - sp_zi(0:nl_soil-1)
                               tol_v = tol_z / maxval(sp_dz)
+                              ! get_zwt_from_wa works in mm (zmin = sp_zi is mm), zwt is in m
                               CALL get_zwt_from_wa(porsl(nl_soil,np), theta_r(nl_soil,np), psi0(nl_soil,np), hksati(nl_soil,np), &
-                                                   nprms, prms(:,nl_soil), tol_v, tol_z, wa(np), sp_zi(nl_soil), zwt(np)         )
+                                                   nprms, prms(:,nl_soil), tol_v, tol_z, wa(np), sp_zi(nl_soil), zwt_mm          )
+                              zwt(np) = zwt_mm / 1000.0
                            ENDIF
                         ENDIF
 
@@ -962,6 +965,9 @@ ENDIF
                         ! ground related variables.
                         u = patch2urban (np)
                         nurb = count( patchclass_(grid_patch_s_(j):grid_patch_e_(j)) == URBAN )
+                        ! reset per patch: they used to keep the previous urban patch's values
+                        selfu_ = -1
+                        u_     = -1
 
                         ! Get the index of urban patches in last year's grid, and index of urban
                         ! patch with the same urbclass
@@ -1001,6 +1007,9 @@ ENDIF
                               iu = iu + 1
                            ENDDO
                         ENDIF
+
+                        ! no urban patch in last year's element: keep the cold-start values
+                        IF (nurb > 0) THEN
 
                         IF (u.le.0 .or. u_.le.0) THEN
                            print *, "Error in LuLccMassEnergyConserve URBAN_MODEL!"
@@ -1083,9 +1092,12 @@ ENDIF
                         tafu           (u) = tafu_           (u_)
                         urb_green      (u) = urb_green_      (u_)
 
+                        ENDIF ! nurb > 0
+
                         ! used soil patch value for variable on pervious ground
+                        ! (frnp_ is only filled when the patch's share changed)
                         FROM_SOIL = .false.
-                        IF (selfu_ < 0) THEN
+                        IF (selfu_ < 0 .and. (sum_lccpct_np - lccpct_np(patchclass(np))) .gt. 0) THEN
                            DO k = 1, num
                               IF (patchtype_(frnp_(k)) == 0) THEN
                                  FROM_SOIL = .true.

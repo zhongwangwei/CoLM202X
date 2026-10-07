@@ -74,7 +74,7 @@ CONTAINS
 #endif
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
-   USE MOD_Grid_RiverLakeLevee, only: levee_init
+   USE MOD_Grid_RiverLakeLevee, only: levee_init, levsto, levdph
    USE MOD_Grid_Reservoir
 #endif
 #ifdef CROP
@@ -272,6 +272,10 @@ CONTAINS
    !BVIC          =   1.0  0.050,    0.080,    0.090,    0.250,    0.150,    0.180,    0.200,    0.220,    0.230,    0.250,    0.280,    0.300
    !re-arranged BVIC for USDA soil texture class:
    real(r8), parameter :: BVIC_USDA(0:12) = (/ 1., 0.300,  0.280, 0.250, 0.230,  0.220, 0.200,  0.180, 0.100,  0.090, 0.150, 0.080,  0.050/)
+#ifdef GridRiverLakeFlow
+   ! Levee-protected storage held across the LULCC re-initialization (see below).
+   real(r8), allocatable :: levsto_lulcc(:), levdph_lulcc(:)
+#endif
 
 
 
@@ -280,12 +284,33 @@ CONTAINS
 #endif
 
 #ifdef GridRiverLakeFlow
+      ! LULCC re-runs the initialization with the network already built: release it first.
+      ! The unit catchments do not change, but the patch-to-grid runoff mapping does.
+      IF (present(lulcc_call)) CALL riverlake_network_final ()
       CALL build_riverlake_network ()
 
       IF (DEF_Reservoir_Method > 0) THEN
+         ! LULCC: the reservoir tables of the previous year are still allocated.
+         IF (present(lulcc_call)) CALL reservoir_final ()
          CALL reservoir_init ()
       ENDIF
-      IF (DEF_USE_LEVEE) CALL levee_init ()
+      IF (DEF_USE_LEVEE) THEN
+         ! LULCC: levee_init rebuilds the (unchanged) levee geometry and zeroes the
+         ! protected-side state; levsto/levdph are river state like those kept by
+         ! hold/restore_GridRiverLakeTimeVars_lulcc, so carry them across.
+         IF (present(lulcc_call) .and. allocated(levsto)) THEN
+            levsto_lulcc = levsto
+            levdph_lulcc = levdph
+         ENDIF
+         CALL levee_init ()
+         IF (allocated(levsto_lulcc)) THEN
+            IF (size(levsto_lulcc) == size(levsto)) THEN
+               levsto = levsto_lulcc
+               levdph = levdph_lulcc
+            ENDIF
+            deallocate (levsto_lulcc, levdph_lulcc)
+         ENDIF
+      ENDIF
 #endif
 
 ! --------------------------------------------------------------------
@@ -512,17 +537,27 @@ ENDIF
       ! (see Niu et al., 2005)
       IF (DEF_Runoff_SCHEME == 0) THEN
 
-         IF (DEF_TOPMOD_method == 0) THEN
-
-            IF (p_is_worker) THEN
-               IF (numpatch > 0) THEN
-                  ! equal to 'wtfact = 0.38' and 'fff = 0.5'
-                  fsatmax(:) = 0.38
-                  fsatdcf(:) = 0.125
-               ENDIF
+         ! method 0 reads none and method 1 only part of these; give the rest a defined value
+         ! (they are written into the constant restart)
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               topoweti(:) = 0.
+               alp_twi (:) = 0.
+               chi_twi (:) = 0.
+               mu_twi  (:) = 0.
             ENDIF
+         ENDIF
 
-         ELSEIF (DEF_TOPMOD_method == 1) THEN
+         ! method 0 values ('wtfact = 0.38' and 'fff = 0.5') for every method: method 1 reads
+         ! its own below, method 2 used to leave them undefined (written into the restart)
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               fsatmax(:) = 0.38
+               fsatdcf(:) = 0.125
+            ENDIF
+         ENDIF
+
+         IF (DEF_TOPMOD_method == 1) THEN
 
             ftopo = trim(dir_landdata)//'/topography/'//trim(cyear)//'/fsatmax_patches.nc'
             CALL ncio_read_vector (ftopo, 'fsatmax_patches', landpatch, fsatmax)
@@ -707,19 +742,28 @@ ENDIF
       soilpsi_off     = -0.8
 
       ! constant for fire module
-      occur_hi_gdp_tree        = 0.39_r8
+      occur_hi_gdp_tree        = 0.33_r8
+      borealat                 = 60._r8   ! degrees north
+      non_boreal_peatfire_c    = 0.71e-4_r8
+      nonborpeat_fire_precip_denom = 6.5_r8
+      boreal_peatfire_c        = 0.28e-4_r8
+      borpeat_fire_soilmoist_denom = 0.35_r8
+      prh30                    = 0.6_r8
+      max_rh30_affecting_fuel  = 95._r8
+      ignition_efficiency      = 0.22_r8
+      ! (the pre-PR#504 lines 'occur_hi_gdp_tree = 0.39' and 'borealat = 40/(4*atan(1))' used to
+      !  follow here and silently override the values set above)
       lfuel                    = 75._r8
-      ufuel                    = 650._r8
+      ufuel                    = 825._r8
       cropfire_a1              = 0.3_r8
-      borealat                 = 40._r8/(4.*atan(1.))
-      troplat                  = 23.5_r8/(4.*atan(1.))
-      non_boreal_peatfire_c    = 0.001_r8
-      boreal_peatfire_c        = 4.2e-5_r8
+      ! tropics in degrees, like borealat: '23.5/(4*atan(1))' (= 7.5) was a botched conversion
+      ! from the CLM heritage, compared with dlat in degrees
+      troplat                  = 23.5_r8
       rh_low                   = 30.0_r8
-      rh_hgh                   = 80.0_r8
-      bt_min                   = 0.3_r8
-      bt_max                   = 0.7_r8
-      pot_hmn_ign_counts_alpha = 0.0035_r8
+      rh_hgh                   = 85.0_r8
+      bt_min                   = 0.85_r8
+      bt_max                   = 0.98_r8
+      pot_hmn_ign_counts_alpha = 0.01_r8
       g0_fire                  = 0.05_r8
 
       sf     = 0.1_r8
@@ -1108,12 +1152,18 @@ ENDIF
                         IF(isevg(ivt))THEN
                            leafc_p            (m) = amin1(leafcin_p(m),300._r8)
                            frootc_p           (m) = frootcin_p(m)
-                        ELSE
-                           leafc_p            (m) = amin1(leafcin_p(m),300._r8)
-                           leafc_storage_p    (m) = amin1(leafc_storagein_p(m),600._r8)
-                           frootc_p           (m) = frootcin_p(m)
-                           frootc_storage_p   (m) = frootc_storagein_p(m)
-                        ENDIF
+                         ELSE
+                            leafc_p            (m) = amin1(leafcin_p(m),300._r8)
+                            leafc_storage_p    (m) = amin1(leafc_storagein_p(m),600._r8)
+                            frootc_p           (m) = frootcin_p(m)
+                            frootc_storage_p   (m) = frootc_storagein_p(m)
+                            IF(leafc_storage_p(m) <= 0._r8)THEN
+                               leafc_storage_p(m) = fstor2tran * max(leafc_p(m), 1._r8)
+                            ENDIF
+                            IF(frootc_storage_p(m) <= 0._r8)THEN
+                               frootc_storage_p(m) = fstor2tran * max(frootc_p(m), 1._r8)
+                            ENDIF
+                         ENDIF
                         IF(woody(ivt).eq. 1)THEN
                            deadstemc_p        (m) = deadstemcin_p(m)
                            livestemc_p        (m) = livestemcin_p(m)
@@ -1284,6 +1334,14 @@ ENDIF
       CALL check_vector_data ('SAI ', tsai)
 #endif
 
+      ! Under DEF_USE_LAIFEEDBACK the PFT/PC branch of LAI_readin reads SAI only.
+      ! Soil patches get their LAI from BGC below, but patches without BGC leaf
+      ! carbon (wetland, urban, water) would keep the allocation value spval and
+      ! carry LAI = -1e36 through the whole run. Start them bare instead.
+      IF (p_is_worker .and. allocated(tlai)) THEN
+         WHERE (tlai == spval) tlai = 0._r8
+      ENDIF
+
 #ifdef CROP
          CALL CROP_readin ()
          IF (p_is_worker) THEN
@@ -1426,7 +1484,7 @@ ENDIF
                ,col_sminnendnb(i), col_sminnbegnb(i) &
                ,altmax(i) , altmax_lastyear(i), altmax_lastyear_indx(i), lag_npp(i) &
                ,sminn_vr(:,i), sminn(i), smin_no3_vr  (:,i), smin_nh4_vr       (:,i)&
-               ,prec10(i), prec60(i), prec365 (i), prec_today(i), prec_daily(:,i), tsoi17(i), rh30(i), accumnstep(i) , skip_balance_check(i) &
+               ,prec10(i), prec30(i), prec60(i), prec365 (i), prec_today(i), rh30_today(i), prec_daily(:,i), tsoi17(i), rh30(i), accumnstep(i) , skip_balance_check(i) &
 !------------------------SASU variables----------------------- ,decomp0_cpools_vr        (:,:,i), decomp0_npools_vr        (:,:,i) &
                ,decomp0_cpools_vr        (:,:,i), decomp0_npools_vr        (:,:,i)    &
                ,I_met_c_vr_acc             (:,i), I_cel_c_vr_acc             (:,i), I_lig_c_vr_acc             (:,i), I_cwd_c_vr_acc             (:,i) &
@@ -1527,6 +1585,27 @@ ENDIF
             ENDIF
 #endif
          ENDDO
+
+         ! Ozone uptake/stress state was left at spval on cold start: IniTimeVar never
+         ! assigned the patch-level o3uptakesun/sha, and the PFT-level o3uptake*_p /
+         ! o3coef*_p were assigned only in its BGC section, so non-BGC PFT/PC runs wrote
+         ! spval into the restart (a bare PFT keeps it forever and the patch aggregate
+         ! sum(o3uptakesun_p*pftfrac) becomes ~ -1e35 in the history). Initialize them
+         ! for every configuration.
+         IF (DEF_USE_OZONESTRESS) THEN
+            o3uptakesun(:) = 0._r8
+            o3uptakesha(:) = 0._r8
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+            IF (allocated(o3uptakesun_p)) THEN
+               o3uptakesun_p(:) = 0._r8
+               o3uptakesha_p(:) = 0._r8
+               o3coefv_sun_p(:) = 1._r8
+               o3coefv_sha_p(:) = 1._r8
+               o3coefg_sun_p(:) = 1._r8
+               o3coefg_sha_p(:) = 1._r8
+            ENDIF
+#endif
+         ENDIF
 
          DO i = 1, numpatch
             z_sno (maxsnl+1:0,i) = z_soisno (maxsnl+1:0,i)

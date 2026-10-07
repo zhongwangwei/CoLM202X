@@ -46,6 +46,10 @@ CONTAINS
    USE MOD_Vars_TimeInvariants
    USE MOD_Vars_TimeVariables
    USE MOD_Initialize
+#ifdef GridRiverLakeFlow
+   USE MOD_Grid_RiverLakeTimeVars, only: hold_GridRiverLakeTimeVars_lulcc, &
+      restore_GridRiverLakeTimeVars_lulcc
+#endif
 #ifdef TRACER
    USE MOD_Tracer_Defs, only: ntracers
    USE MOD_Namelist, only: DEF_LULCC_SCHEME
@@ -142,11 +146,18 @@ CONTAINS
       ! Deallocates memory for CoLM 1d [numpatch] variables
       ! --------------------------------------------------------------------
       CALL deallocate_TimeInvariants
+#ifdef GridRiverLakeFlow
+      ! The river state lives on unit catchments, not patches: keep it across the re-initialization.
+      CALL hold_GridRiverLakeTimeVars_lulcc ()
+#endif
       CALL deallocate_TimeVariables
 
       ! initialize all state variables of next year
       CALL initialize (casename, dir_landdata, dir_restart,&
                        jdate, year, greenwich, lulcc_call=.true.)
+#ifdef GridRiverLakeFlow
+      CALL restore_GridRiverLakeTimeVars_lulcc ()
+#endif
 
    END SUBROUTINE LulccInitialize
 

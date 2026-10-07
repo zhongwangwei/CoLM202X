@@ -54,6 +54,8 @@ CONTAINS
             secs_group = 31*24*3600
          ELSEIF ( trim(DEF_HIST_groupby) == 'DAY' ) THEN
             secs_group = 24*3600
+         ELSE
+            secs_group = 366*24*3600
          ENDIF
 
          select CASE (trim(adjustl(DEF_HIST_FREQ)))
@@ -67,6 +69,10 @@ CONTAINS
             secs_write = 31*24*3600
          CASE ('YEARLY')
             secs_write = 366*24*3600
+         CASE DEFAULT
+            ! 'none' (or anything else) writes no history; keep the buffer minimal.
+            ! Without this branch secs_write was read uninitialized below (SIGILL at -O2).
+            secs_write = secs_group
          END select
 
          ntime_mem = ceiling(secs_group / secs_write) + 2
