@@ -22,12 +22,15 @@ MODULE MOD_BGC_Soil_BiogeochemDecompCascadeBGC
 ! Xingjie Lu, 2021, revised the CLM5 code to be compatible with CoLM code structure.
 
    USE MOD_Precision
+   USE MOD_Vars_TimeInvariants, only: patchtype
    USE MOD_Vars_TimeInvariants, only: &
        Q10, smpmax_hr, smpmin_hr, tau_l1, tau_l2_l3, tau_s1, tau_s2, tau_s3, tau_cwd, froz_q10, &
        i_met_lit,i_cel_lit,i_lig_lit ,i_cwd,i_soil1,i_soil2,i_soil3
    USE MOD_Vars_TimeVariables, only: &
        smp, t_soisno, t_scalar, w_scalar, o_scalar, depth_scalar, decomp_k
    USE MOD_Vars_Global, only: PI
+   USE MOD_Const_Physical, only: tfrz
+   USE MOD_Namelist, only: DEF_USE_FROZEN_SOIL_PSI
 
    IMPLICIT NONE
 
@@ -80,7 +83,16 @@ CONTAINS
       ! and soil moisture. Soil Biol. Biochem., 15(4):447-453.
 
       DO j = 1,nl_soil
+         ! A frozen layer's potential follows temperature (freezing-point
+         ! depression), as the saturated-wetland branch of WATER_VSF already
+         ! sets it.  The soil-water solver reports smp from liquid water over
+         ! the ice-reduced porosity, which leaves an ice-filled layer at
+         ! saturation and decomposing at the full moisture rate all winter.
+         IF (DEF_USE_FROZEN_SOIL_PSI .and. t_soisno(j,i) <= tfrz) THEN
+            psi = min(1.e3_r8*0.3336e6_r8/9.80616_r8*(t_soisno(j,i)-tfrz)/t_soisno(j,i), smpmax_hr)
+         ELSE
          psi = min(smp(j,i),smpmax_hr)
+         ENDIF
          ! decomp only IF soilpsi is higher than minpsi
          IF (psi > smpmin_hr) THEN
             w_scalar(j,i) = (log(smpmin_hr/psi)/log(smpmin_hr/smpmax_hr))
@@ -90,7 +102,12 @@ CONTAINS
          ENDIF
       ENDDO
 
-      o_scalar(1:nl_soil,i) = 1._r8
+      ! o_scalar is a stub (=1) here: CoLM202X carries no anoxia limiter on
+      ! decomposition.  A permanently saturated wetland needs one, or nothing
+      ! limits its decomposition at all -- w_scalar is 1 by construction once
+      ! the tile is held at saturation.  The wetland caller supplies a real
+      ! value before this routine runs, so do not clobber it there.
+      IF (patchtype(i) /= 2) o_scalar(1:nl_soil,i) = 1._r8
 
       ! scale all decomposition rates by a constant to compensate for offset between original CENTURY temp func and Q10
       normalization_factor = (catanf(15._r8)/catanf_30) / (Q10**((15._r8-25._r8)/10._r8))

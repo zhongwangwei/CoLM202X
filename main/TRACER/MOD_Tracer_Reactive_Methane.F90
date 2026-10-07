@@ -13,9 +13,11 @@ MODULE MOD_Tracer_Reactive_Methane
    USE MOD_SPMD_Task, only: p_comm_glb, p_err
 #endif
    USE MOD_Tracer_Defs, only: tracer_param_file_for_index, tracer_lower, &
-      FAMILY_GAS, STATE_OWNER_PROVIDER, REACTION_PROVIDER
+      FAMILY_GAS, STATE_OWNER_PROVIDER, REACTION_PROVIDER, &
+      ntracers, tracers, tracer_uses_land_water_transport
    USE MOD_Tracer_Lifecycle, only: tracer_lifecycle_hooks_type, register_tracer_provider
-   USE MOD_Namelist, only: DEF_file_GIEMS, DEF_wetland_finundation_scheme
+   USE MOD_Namelist, only: DEF_file_GIEMS, DEF_wetland_finundation_scheme, &
+      DEF_USE_Dynamic_Wetland
    USE MOD_Vars_TimeInvariants, only: patchtype, lake_soilc_srf, patchlatr, patchlonr
    USE MOD_Tracer_Reactive_Methane_Registry, only: igas_ch4
    USE MOD_Tracer_Reactive_Methane_Physics,  only: methane_host_water_reset, &
@@ -41,6 +43,7 @@ MODULE MOD_Tracer_Reactive_Methane
       deallocate_methane_ph, read_methane_ph_patch
    USE MOD_Tracer_Reactive_Methane_VegOverride, only: allocate_wetland_aere_overrides, &
       deallocate_wetland_aere_overrides
+   USE MOD_Tracer_Reactive_Methane_WetlandVeg, only: read_methane_wetveg
    USE MOD_Tracer_Reactive_Methane_Impl, only: ch4_impl_lake_step, &
       ch4_impl_wetland_decomp, ch4_impl_soil_step
    USE MOD_Tracer_Reactive_Methane_Hist, only: methane_reactive_history
@@ -121,6 +124,7 @@ CONTAINS
       character(len=32), parameter :: lake_restart_fields(2) = &
          [character(len=32) :: 'ch4_conc_methane', 'ch4_lake_soilc']
       real(r8), allocatable :: giems_dummy_patch(:)
+      integer :: itrc
 
       IF (.not. ch4_reactive_has()) RETURN
 
@@ -129,6 +133,26 @@ CONTAINS
          CALL read_methane_namelist (file_param)
       END IF
       CALL configure_methane_inundation_mode ()
+
+      ! The dynamic-wetland water-table floor feeds the aquifer as negative
+      ! subsurface runoff, water that carries no tracer composition, so the
+      ! land-water tracers would lose their balance there.
+      IF (DEF_USE_Dynamic_Wetland .and. (DEF_METHANE%wetland_max_wtd >= 0._r8 .or. &
+          (DEF_METHANE%use_biome_wetland_max_wtd .and. max( &
+             DEF_METHANE%wetland_max_wtd_tropical_peat, &
+             DEF_METHANE%wetland_max_wtd_tropical_floodplain, &
+             DEF_METHANE%wetland_max_wtd_temperate_marsh, &
+             DEF_METHANE%wetland_max_wtd_boreal_fen, &
+             DEF_METHANE%wetland_max_wtd_boreal_bog) >= 0._r8))) THEN
+         DO itrc = 1, ntracers
+            IF (tracer_uses_land_water_transport(itrc)) THEN
+               IF (p_is_master) write(6,*) '***** ERROR: the dynamic-wetland water-table floor ', &
+                  '(wetland_max_wtd) adds water without tracer composition; it cannot run ', &
+                  'with the land-water tracer ', trim(tracers(itrc)%name)
+               CALL CoLM_stop (' ***** ERROR: wetland water-table floor with land-water tracers')
+            ENDIF
+         ENDDO
+      ENDIF
 
 #ifndef CROP
       IF (DEF_METHANE%enable_rice_paddy) THEN
@@ -198,6 +222,20 @@ CONTAINS
       ENDIF
 
       CALL allocate_wetland_aere_overrides (numpatch)
+
+      ! C-13: the wetland tile's vegetation from its GLWD make-up. Collective
+      ! (master reads and broadcasts), so every rank calls it.
+      IF (DEF_METHANE%wetland_veg_glwd) THEN
+         IF (p_is_worker .and. numpatch > 0) THEN
+            CALL read_methane_wetveg (DEF_METHANE%wetland_veg_file, DEF_METHANE%wetland_lai_open_peat, &
+               DEF_METHANE%wetland_lai_marsh, patchlatr, patchlonr, numpatch)
+         ELSE
+            allocate(giems_dummy_patch(0))
+            CALL read_methane_wetveg (DEF_METHANE%wetland_veg_file, DEF_METHANE%wetland_lai_open_peat, &
+               DEF_METHANE%wetland_lai_marsh, giems_dummy_patch, giems_dummy_patch, 0)
+            deallocate(giems_dummy_patch)
+         ENDIF
+      ENDIF
 
    END SUBROUTINE ch4_reactive_init
 

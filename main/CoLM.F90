@@ -115,6 +115,9 @@ PROGRAM CoLM
                                  tracer_forcing_reset, tracer_forcing_final, tracer_forcing_read_restart, &
                                  tracer_forcing_lulcc_save, tracer_forcing_lulcc_restore
 #endif
+#if (defined TRACER) && (defined BGC)
+   USE MOD_Tracer_Reactive_Methane_WetlandVeg, only: wetveg_cap_lai
+#endif
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -656,6 +659,9 @@ PROGRAM CoLM
          IF (DEF_LAI_MONTHLY) THEN
             IF (month /= month_p) THEN
                CALL LAI_readin (lai_year, month, dir_landdata)
+#if (defined TRACER) && (defined BGC)
+               CALL wetveg_cap_lai ()   ! C-13: no-op unless DEF_METHANE%wetland_veg_glwd
+#endif
 #ifdef URBAN_MODEL
                CALL UrbanLAI_readin(lai_year, month, dir_landdata)
 #endif
@@ -665,6 +671,9 @@ PROGRAM CoLM
             Julian_8day = int(calendarday(jdate)-1)/8*8 + 1
             IF (Julian_8day /= Julian_8day_p) THEN
                CALL LAI_readin (jdate(1), Julian_8day, dir_landdata)
+#if (defined TRACER) && (defined BGC)
+               CALL wetveg_cap_lai ()   ! C-13: no-op unless DEF_METHANE%wetland_veg_glwd
+#endif
             ENDIF
          ENDIF
 #endif
