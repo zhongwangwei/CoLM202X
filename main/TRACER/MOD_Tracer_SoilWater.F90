@@ -31,6 +31,9 @@ MODULE MOD_Tracer_SoilWater
       DEF_TRACER_SOIL_DIFFUSION, DEF_TRACER_SOIL_VAPOR_DIFFUSION, &
       DEF_TRACER_SNOWMELT_EQUILIBRATION
    USE MOD_Tracer_EvapLimit, only: tracer_atmospheric_tracer_loss
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+   USE MOD_Tracer_Defs, only: tracer_is_reactive
+#endif
       USE MOD_Tracer_Vars, only: trc_wliq_soisno, trc_wice_soisno, &
          trc_wa, trc_aquifer_ref_water, trc_aquifer_ref_mass, &
          trc_wdsrf, trc_wetwat, trc_surface_residue, trc_subsurface_residue, &
@@ -305,8 +308,29 @@ CONTAINS
       real(r8) :: leaf_delta_e_new, leaf_delta_b_new, leaf_peclet_new, leaf_moles_new
       real(r8) :: soil_resid_trc, soil_resid_water
       logical  :: transp_frac_active
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+      logical :: signed_debt_step
+      real(r8) :: soil_debt_limit
+#endif
 
       IF (ntracers <= 0) RETURN
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+      ! shortcut: direct closed-advection experiment only; full-model debt needs lifecycle support.
+      soil_debt_limit = 1.e-3_r8/(2._r8*real(nl_soil,r8))
+      IF (.not. all(ieee_is_finite(trc_wliq_soisno(:,1:nl_soil,ipatch)))) &
+         CALL CoLM_stop('signed soil debt: rejected nonfinite inventory')
+      IF (.not. all(ieee_is_finite(wliq_soisno)) .or. &
+          .not. all(ieee_is_finite(wliq_soisno_bef))) &
+         CALL CoLM_stop('signed soil debt: rejected nonfinite carrier')
+      signed_debt_step = any(wliq_soisno_bef(1:nl_soil) < 0._r8) .or. &
+         any(wliq_soisno(1:nl_soil) < 0._r8) .or. &
+         any(trc_wliq_soisno(:,1:nl_soil,ipatch) < 0._r8)
+      IF (signed_debt_step) THEN
+         CALL check_signed_soil_experiment()
+         CALL signed_soil_advection()
+         RETURN
+      ENDIF
+#endif
       lb = snl + 1
       kinetic_on_soil_surface = .false.
       qcharge_eff = qcharge
@@ -1992,6 +2016,144 @@ CONTAINS
          ENDDO
 
    CONTAINS
+
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+      SUBROUTINE check_signed_soil_experiment()
+         integer :: species
+         real(r8) :: closed_inputs(28)
+
+         IF (snl /= 0 .or. DEF_TRACER_SOIL_DIFFUSION .or. DEF_TRACER_SOIL_VAPOR_DIFFUSION) &
+            CALL CoLM_stop('signed soil debt: rejected snow or diffusion')
+         DO species = 1, ntracers
+            IF (.not. tracer_uses_land_water_transport(species) .or. &
+                (.not. tracer_is_isotope(species) .and. .not. tracer_is_nonvolatile_solute(species)) .or. &
+                tracer_is_reactive(species) .or. tracers(species)%reactive_decay_rate /= 0._r8 .or. &
+                tracer_has_dissolved_limit(species)) &
+               CALL CoLM_stop('signed soil debt: rejected non-passive species')
+            IF (tracer_fractionation_active(species)) &
+               CALL CoLM_stop('signed soil debt: rejected fractionation')
+         ENDDO
+         closed_inputs = [qinfl,qcharge,rsur,rsub,qseva_in,qsdew_in,qsubl_in,qfros_in, &
+            qseva_soil,qsdew_soil,qsubl_soil,qfros_soil,qseva_snow,qsdew_snow, &
+            qsubl_snow,qfros_snow,sm,fsno,wa,wa_bef,wdsrf,wdsrf_bef,wetwat,wetwat_bef, &
+            pg_rain,pg_snow,etroot_aquifer,qflx_irrig_ground]
+         IF (.not. all(ieee_is_finite(closed_inputs)) .or. &
+             .not. all(ieee_is_finite(wice_soisno)) .or. &
+             .not. all(ieee_is_finite(wice_soisno_bef)) .or. &
+             .not. all(ieee_is_finite(wblc_ice_sink)) .or. &
+             .not. all(ieee_is_finite(etroot_actual))) &
+            CALL CoLM_stop('signed soil debt: rejected nonfinite coupling')
+         IF (.not. all(ieee_is_finite(qlayer)) .or. .not. ieee_is_finite(deltim)) &
+            CALL CoLM_stop('signed soil debt: rejected nonfinite flux')
+         IF (deltim <= 0._r8 .or. any(abs(qlayer([0,nl_soil])) > trc_tiny) .or. &
+             any(abs(closed_inputs) > trc_tiny) .or. &
+             any(abs(wice_soisno) > trc_tiny) .or. any(abs(wice_soisno_bef) > trc_tiny) .or. &
+             any(abs(wblc_ice_sink) > trc_tiny) .or. any(abs(etroot_actual) > trc_tiny)) &
+            CALL CoLM_stop('signed soil debt: rejected nonclosed or nonliquid step')
+         IF (deltim > 1._r8) THEN
+            IF (any(abs(qlayer) > huge(1._r8)/deltim)) &
+               CALL CoLM_stop('signed soil debt: rejected flux overflow')
+         ENDIF
+         IF (present(qgtop_solver)) THEN
+            IF (.not. ieee_is_finite(qgtop_solver)) &
+               CALL CoLM_stop('signed soil debt: rejected nonfinite coupling')
+            IF (abs(qgtop_solver) > trc_tiny) CALL CoLM_stop('signed soil debt: rejected boundary flux')
+         ENDIF
+         IF (present(flood_tracer_input) .or. present(flood_infil_water) .or. &
+             present(waterstorage_patch) .or. present(etroot_surface) .or. present(dew_overflow) .or. &
+             present(frost_displaced) .or. present(late_surface_runoff) .or. &
+             present(rsub_source_layer) .or. present(rsub_source_surface) .or. present(rsub_source_aquifer) .or. &
+             present(imperv_evap_wdsrf) .or. present(imperv_evap_soil) .or. present(imperv_subl_soil)) &
+            CALL CoLM_stop('signed soil debt: rejected production coupling arguments')
+         IF (any(wliq_soisno < -soil_debt_limit) .or. &
+             any(wliq_soisno_bef < -soil_debt_limit)) &
+            CALL CoLM_stop('signed soil debt: rejected oversized carrier debt')
+      END SUBROUTINE check_signed_soil_experiment
+
+      SUBROUTINE signed_soil_advection()
+         integer :: species, level
+         real(r8) :: water(nl_soil), amount(nl_soil), signature(nl_soil)
+         real(r8) :: lower_ratio, upper_ratio, fallback, volume, moved, checked
+
+         DO species = 1, ntracers
+            water = wliq_soisno_bef(1:nl_soil)
+            amount = trc_wliq_soisno(species,1:nl_soil,ipatch)
+            fallback = tracer_init_water_ratio(species)
+            DO level = nl_soil, 1, -1
+               IF (abs(water(level)) <= trc_water_min_for_ratio) CYCLE
+               fallback = signed_soil_ratio(water(level), amount(level), fallback)
+               EXIT
+            ENDDO
+            DO level = 1, nl_soil
+               signature(level) = signed_soil_ratio(water(level), amount(level), fallback)
+            ENDDO
+            lower_ratio = minval(signature)
+            upper_ratio = maxval(signature)
+            ! Include the same-step supplier before a thin layer passes water onward.
+            DO level = nl_soil-1, 2, -1
+               IF (qlayer(level) >= -trc_tiny .or. qlayer(level-1) >= -trc_tiny) CYCLE
+               IF (abs(qlayer(level-1))*deltim <= water(level)) CYCLE
+               volume = abs(qlayer(level))*deltim
+               signature(level) = signed_soil_ratio(water(level)+volume, &
+                  amount(level)+volume*signature(level+1), signature(level))
+            ENDDO
+            DO level = 2, nl_soil-1
+               IF (qlayer(level-1) <= trc_tiny .or. qlayer(level) <= trc_tiny) CYCLE
+               IF (qlayer(level)*deltim <= water(level)) CYCLE
+               volume = qlayer(level-1)*deltim
+               signature(level) = signed_soil_ratio(water(level)+volume, &
+                  amount(level)+volume*signature(level-1), signature(level))
+            ENDDO
+            DO level = 1, nl_soil-1
+               volume = qlayer(level)*deltim
+               IF (volume >= 0._r8) THEN
+                  moved = volume*signature(level)
+               ELSE
+                  moved = volume*signature(level+1)
+               ENDIF
+               amount(level) = amount(level)-moved
+               amount(level+1) = amount(level+1)+moved
+               water(level) = water(level)-volume
+               water(level+1) = water(level+1)+volume
+            ENDDO
+            DO level = 1, nl_soil
+               checked = signed_soil_ratio(water(level), amount(level), signature(level))
+               IF (abs(water(level)-wliq_soisno(level)) > &
+                   64._r8*epsilon(1._r8)*max(1._r8,abs(wliq_soisno(level)))) &
+                  CALL CoLM_stop('signed soil debt: rejected unreported water transfer')
+               IF (checked < lower_ratio-64._r8*epsilon(1._r8)*max(1._r8,upper_ratio) .or. &
+                   checked > upper_ratio+64._r8*epsilon(1._r8)*max(1._r8,upper_ratio)) &
+                  CALL CoLM_stop('signed soil debt: rejected concentration overshoot')
+            ENDDO
+            trc_wliq_soisno(species,1:nl_soil,ipatch) = amount
+         ENDDO
+      END SUBROUTINE signed_soil_advection
+
+      real(r8) FUNCTION signed_soil_ratio(water, amount, fallback)
+         real(r8), intent(in) :: water, amount, fallback
+
+         IF (.not. ieee_is_finite(water) .or. .not. ieee_is_finite(amount)) &
+            CALL CoLM_stop('signed soil debt: rejected nonfinite inventory')
+         IF (water < -soil_debt_limit .or. (water < 0._r8 .and. amount > 0._r8) .or. &
+             (water >= 0._r8 .and. amount < 0._r8)) &
+            CALL CoLM_stop('signed soil debt: rejected incompatible inventory signs')
+         IF (abs(water) <= trc_water_min_for_ratio) THEN
+            IF (abs(amount) > trc_tiny) CALL CoLM_stop('signed soil debt: rejected unresolved carrier')
+            IF (.not. ieee_is_finite(fallback)) CALL CoLM_stop('signed soil debt: rejected invalid fallback')
+            IF (fallback < 0._r8) CALL CoLM_stop('signed soil debt: rejected invalid fallback')
+            signed_soil_ratio = fallback
+            RETURN
+         ENDIF
+         IF (abs(water) < 1._r8) THEN
+            IF (abs(amount) > huge(1._r8)*abs(water)) &
+               CALL CoLM_stop('signed soil debt: rejected ratio overflow')
+         ENDIF
+         signed_soil_ratio = amount/water
+         IF (.not. ieee_is_finite(signed_soil_ratio)) &
+            CALL CoLM_stop('signed soil debt: rejected invalid concentration')
+         IF (signed_soil_ratio < 0._r8) CALL CoLM_stop('signed soil debt: rejected invalid concentration')
+      END FUNCTION signed_soil_ratio
+#endif
 
       SUBROUTINE reconcile_internal_soil_flow()
          ! For each closed permeable block, the unreported face volume is fixed

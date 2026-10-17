@@ -697,6 +697,12 @@ CONTAINS
          ENDDO
       ENDIF
       IF (p_is_worker) THEN
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+         IF (allocated(trc_wliq_soisno)) THEN
+            IF (any(trc_wliq_soisno < 0._r8)) &
+               CALL CoLM_stop('signed soil debt: rejected checkpoint; direct-kernel experiment only')
+         ENDIF
+#endif
          IF (landpatch%nset > 0) THEN
             IF (.not. (allocated(trc_ldew_rain) .and. allocated(trc_ldew_snow) .and. &
                        allocated(trc_wliq_soisno) .and. allocated(trc_wice_soisno) .and. &

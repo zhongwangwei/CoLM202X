@@ -10,6 +10,9 @@ MODULE MOD_Tracer_Conservation
       tracer_has_dissolved_limit, tracer_uses_land_water_transport
    USE MOD_Tracer_Frac, only: tracer_fractionation_active
    USE MOD_Tracer_Vars
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+   USE MOD_SPMD_Task, only: CoLM_stop
+#endif
 
    IMPLICIT NONE
 
@@ -127,6 +130,10 @@ CONTAINS
       logical  :: fixed_signature_storage
 
          IF (ntracers <= 0) RETURN
+#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+         IF (any(trc_wliq_soisno(:,1:nl_soil,ipatch) < 0._r8)) &
+            CALL CoLM_stop('signed soil debt: rejected full timestep; direct-kernel experiment only')
+#endif
          lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
 
       ! Allocate snapshots on first call
