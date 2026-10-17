@@ -15,7 +15,9 @@ ${FC:-mpif90} -cpp -fdefault-real-8 -fdefault-double-8 -ffree-line-length-none -
   "${includes[@]}" "$SRC/tracer_signed_soil_debt.f90" "${objects[@]}" "$BUILD/lib/libcolm.a" \
   ${NETCDF_LIBS:-$(nf-config --flibs)} ${EXTRA_LIBS:--llapack -lblas} -o "$OUT/tracer_signed_soil_debt"
 failed=0
-for mode in uniform nondebt atlimit partial reverse throughdown throughup gradientdown gradientup different overlimit enriched nan nan-coupling overflow phase diffusion reaction provider solubility lifecycle; do
+for mode in uniform nondebt atlimit partial reverse throughdown throughup gradientdown gradientup \
+    repayexact repaynear drainlarge enriched different partialsettle debtthrough convergent emptybackflow randomwalk \
+    overlimit nan nan-coupling overflow hugeratio phase diffusion reaction provider solubility solute lifecycle; do
   if "$OUT/tracer_signed_soil_debt" "$mode" >"$OUT/$mode.log" 2>&1; then
     status=0
   else
@@ -23,16 +25,15 @@ for mode in uniform nondebt atlimit partial reverse throughdown throughup gradie
   fi
   marker=''
   case "$mode" in
-    different) marker='incompatible inventory signs' ;;
     overlimit) marker='oversized carrier debt' ;;
-    enriched) marker='concentration overshoot' ;;
     nan) marker='nonfinite inventory' ;;
     nan-coupling) marker='nonfinite coupling' ;;
     lifecycle) marker='full timestep; direct-kernel experiment only' ;;
-    overflow) marker='ratio overflow' ;;
+    overflow|hugeratio) marker='ratio overflow' ;;
     phase) marker='nonclosed or nonliquid step' ;;
     diffusion) marker='snow or diffusion' ;;
-    reaction|provider|solubility) marker='non-passive species' ;;
+    reaction|provider) marker='non-passive species' ;;
+    solubility|solute) marker='non-isotope species' ;;
   esac
   if [[ -z $marker ]]; then
     if [[ $status == 0 ]] && grep -q "PASS $mode" "$OUT/$mode.log"; then

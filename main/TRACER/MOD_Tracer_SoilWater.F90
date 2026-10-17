@@ -2025,11 +2025,12 @@ CONTAINS
          IF (snl /= 0 .or. DEF_TRACER_SOIL_DIFFUSION .or. DEF_TRACER_SOIL_VAPOR_DIFFUSION) &
             CALL CoLM_stop('signed soil debt: rejected snow or diffusion')
          DO species = 1, ntracers
-            IF (.not. tracer_uses_land_water_transport(species) .or. &
-                (.not. tracer_is_isotope(species) .and. .not. tracer_is_nonvolatile_solute(species)) .or. &
-                tracer_is_reactive(species) .or. tracers(species)%reactive_decay_rate /= 0._r8 .or. &
-                tracer_has_dissolved_limit(species)) &
+            IF (.not. tracer_uses_land_water_transport(species) .or. tracer_is_reactive(species) .or. &
+                tracers(species)%reactive_decay_rate /= 0._r8) &
                CALL CoLM_stop('signed soil debt: rejected non-passive species')
+            ! Production keeps solutes on the clamped, unmixed sweep; signed transport would change that.
+            IF (.not. tracer_is_isotope(species)) &
+               CALL CoLM_stop('signed soil debt: rejected non-isotope species')
             IF (tracer_fractionation_active(species)) &
                CALL CoLM_stop('signed soil debt: rejected fractionation')
          ENDDO
@@ -2071,13 +2072,19 @@ CONTAINS
       END SUBROUTINE check_signed_soil_experiment
 
       SUBROUTINE signed_soil_advection()
-         integer :: species, level
+         integer :: species, level, donor, receiver
          real(r8) :: water(nl_soil), amount(nl_soil), signature(nl_soil)
-         real(r8) :: lower_ratio, upper_ratio, fallback, volume, moved, checked
+         real(r8) :: water_bef(nl_soil), amount_bef(nl_soil)
+         real(r8) :: inflow(nl_soil), inflow_mass(nl_soil), passed(nl_soil), passed_water(nl_soil)
+         logical  :: unresolved(nl_soil), borrows(nl_soil)
+         real(r8) :: lower_ratio, upper_ratio, fallback, volume, moved, mismatch
+         real(r8) :: tolerance, low_mass, high_mass, settled_amount
 
          DO species = 1, ntracers
-            water = wliq_soisno_bef(1:nl_soil)
-            amount = trc_wliq_soisno(species,1:nl_soil,ipatch)
+            water_bef = wliq_soisno_bef(1:nl_soil)
+            amount_bef = trc_wliq_soisno(species,1:nl_soil,ipatch)
+            water = water_bef
+            amount = amount_bef
             fallback = tracer_init_water_ratio(species)
             DO level = nl_soil, 1, -1
                IF (abs(water(level)) <= trc_water_min_for_ratio) CYCLE
@@ -2089,45 +2096,106 @@ CONTAINS
             ENDDO
             lower_ratio = minval(signature)
             upper_ratio = maxval(signature)
+            ! Reject ratios whose product with any water or face volume below could overflow.
+            IF (upper_ratio > (huge(1._r8)/32._r8)/max(1._r8, maxval(abs(water_bef)), &
+                maxval(abs(qlayer(1:nl_soil-1))*deltim))) &
+               CALL CoLM_stop('signed soil debt: rejected ratio overflow')
+            ! An unresolved layer has no composition; what it passes on takes the receiver's.
+            unresolved = abs(water_bef) <= trc_water_min_for_ratio
+            borrows = unresolved
             ! Include the same-step supplier before a thin layer passes water onward.
             DO level = nl_soil-1, 2, -1
                IF (qlayer(level) >= -trc_tiny .or. qlayer(level-1) >= -trc_tiny) CYCLE
                IF (abs(qlayer(level-1))*deltim <= water(level)) CYCLE
-               volume = abs(qlayer(level))*deltim
-               signature(level) = signed_soil_ratio(water(level)+volume, &
-                  amount(level)+volume*signature(level+1), signature(level))
+               signature(level) = signed_through_ratio(water(level), amount(level), signature(level), &
+                  abs(qlayer(level))*deltim, &
+                  merge(signature(level), signature(level+1), borrows(level+1) .and. .not. borrows(level)))
+               borrows(level) = .false.
             ENDDO
             DO level = 2, nl_soil-1
                IF (qlayer(level-1) <= trc_tiny .or. qlayer(level) <= trc_tiny) CYCLE
                IF (qlayer(level)*deltim <= water(level)) CYCLE
-               volume = qlayer(level-1)*deltim
-               signature(level) = signed_soil_ratio(water(level)+volume, &
-                  amount(level)+volume*signature(level-1), signature(level))
+               signature(level) = signed_through_ratio(water(level), amount(level), signature(level), &
+                  qlayer(level-1)*deltim, &
+                  merge(signature(level), signature(level-1), borrows(level-1) .and. .not. borrows(level)))
+               borrows(level) = .false.
             ENDDO
+            inflow = 0._r8
+            inflow_mass = 0._r8
+            passed = abs(amount_bef)
+            passed_water = abs(water_bef)
             DO level = 1, nl_soil-1
-               volume = qlayer(level)*deltim
-               IF (volume >= 0._r8) THEN
-                  moved = volume*signature(level)
+               volume = abs(qlayer(level))*deltim
+               IF (qlayer(level) >= 0._r8) THEN
+                  donor = level
+                  receiver = level+1
                ELSE
-                  moved = volume*signature(level+1)
+                  donor = level+1
+                  receiver = level
                ENDIF
-               amount(level) = amount(level)-moved
-               amount(level+1) = amount(level+1)+moved
-               water(level) = water(level)-volume
-               water(level+1) = water(level+1)+volume
+               moved = volume*merge(signature(receiver), signature(donor), &
+                  borrows(donor) .and. .not. borrows(receiver))
+               amount(donor) = amount(donor)-moved
+               amount(receiver) = amount(receiver)+moved
+               water(donor) = water(donor)-volume
+               water(receiver) = water(receiver)+volume
+               inflow(receiver) = inflow(receiver)+volume
+               inflow_mass(receiver) = inflow_mass(receiver)+moved
+               passed(level:level+1) = passed(level:level+1)+moved
+               passed_water(level:level+1) = passed_water(level:level+1)+volume
+            ENDDO
+            ! Inflow repays a debt first, at the debt's own composition. Booking the
+            ! mismatch keeps the rest a nonnegative mixture instead of an extrapolation.
+            DO level = 1, nl_soil
+               IF (water_bef(level) >= 0._r8 .or. inflow(level) <= 0._r8) CYCLE
+               IF (inflow(level) >= -water_bef(level)) THEN
+                  mismatch = inflow_mass(level)*(-water_bef(level)/inflow(level)) + amount_bef(level)
+               ELSE
+                  mismatch = inflow_mass(level) + amount_bef(level)* &
+                     (1._r8-(water_bef(level)+inflow(level))/water_bef(level))
+               ENDIF
+               amount(level) = amount(level)-mismatch
+               passed(level) = passed(level)+abs(mismatch)
+               IF (allocated(trc_numerical_residual_step)) &
+                  trc_numerical_residual_step(species,ipatch) = trc_numerical_residual_step(species,ipatch)-mismatch
             ENDDO
             DO level = 1, nl_soil
-               checked = signed_soil_ratio(water(level), amount(level), signature(level))
                IF (abs(water(level)-wliq_soisno(level)) > &
-                   64._r8*epsilon(1._r8)*max(1._r8,abs(wliq_soisno(level)))) &
+                   64._r8*epsilon(1._r8)*max(1._r8,passed_water(level))) &
                   CALL CoLM_stop('signed soil debt: rejected unreported water transfer')
-               IF (checked < lower_ratio-64._r8*epsilon(1._r8)*max(1._r8,upper_ratio) .or. &
-                   checked > upper_ratio+64._r8*epsilon(1._r8)*max(1._r8,upper_ratio)) &
+               IF (.not. ieee_is_finite(amount(level))) &
+                  CALL CoLM_stop('signed soil debt: rejected nonfinite inventory')
+               ! Bound the mass, not mass/water, so rounding over a tiny carrier cannot reject.
+               low_mass = min(lower_ratio*water(level), upper_ratio*water(level))
+               high_mass = max(lower_ratio*water(level), upper_ratio*water(level))
+               tolerance = 64._r8*epsilon(1._r8)*(passed(level)+abs(water(level))*upper_ratio)
+               IF (unresolved(level)) tolerance = tolerance+abs(water_bef(level))*upper_ratio
+               IF (amount(level) < low_mass-tolerance .or. amount(level) > high_mass+tolerance) &
                   CALL CoLM_stop('signed soil debt: rejected concentration overshoot')
+               ! Book that rounding so the next snapshot is sign-compatible and in range.
+               settled_amount = merge(0._r8, min(max(amount(level),low_mass),high_mass), &
+                  abs(water(level)) <= trc_water_min_for_ratio)
+               IF (allocated(trc_numerical_residual_step)) &
+                  trc_numerical_residual_step(species,ipatch) = trc_numerical_residual_step(species,ipatch) &
+                     + (settled_amount-amount(level))
+               amount(level) = settled_amount
             ENDDO
             trc_wliq_soisno(species,1:nl_soil,ipatch) = amount
          ENDDO
       END SUBROUTINE signed_soil_advection
+
+      real(r8) FUNCTION signed_through_ratio(water, amount, own_ratio, volume, inflow_ratio)
+         ! Inflow repays debt first, so only nonnegative stock mixes with what is left.
+         real(r8), intent(in) :: water, amount, own_ratio, volume, inflow_ratio
+
+         IF (abs(water) <= trc_water_min_for_ratio .or. (water < 0._r8 .and. volume >= -water)) THEN
+            signed_through_ratio = inflow_ratio
+         ELSEIF (water < 0._r8) THEN
+            signed_through_ratio = own_ratio
+         ELSE
+            signed_through_ratio = signed_soil_ratio(water+volume, amount+volume*inflow_ratio, own_ratio)
+         ENDIF
+      END FUNCTION signed_through_ratio
 
       real(r8) FUNCTION signed_soil_ratio(water, amount, fallback)
          real(r8), intent(in) :: water, amount, fallback
