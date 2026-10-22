@@ -485,17 +485,16 @@ ENDIF
       ! (see Niu et al., 2005)
       IF (DEF_Runoff_SCHEME == 0) THEN
 
-         IF (DEF_TOPMOD_method == 0) THEN
-
-            IF (p_is_worker) THEN
-               IF (numpatch > 0) THEN
-                  ! equal to 'wtfact = 0.38' and 'fff = 0.5'
-                  fsatmax(:) = 0.38
-                  fsatdcf(:) = 0.125
-               ENDIF
+         ! (DEF_TOPMOD_method == 0) or as default
+         IF (p_is_worker) THEN
+            IF (numpatch > 0) THEN
+               ! equal to 'wtfact = 0.38' and 'fff = 0.5'
+               fsatmax(:) = 0.38
+               fsatdcf(:) = 0.125
             ENDIF
+         ENDIF
 
-         ELSEIF (DEF_TOPMOD_method == 1) THEN
+         IF (DEF_TOPMOD_method == 1) THEN
 
             ftopo = trim(dir_landdata)//'/topography/'//trim(cyear)//'/fsatmax_patches.nc'
             CALL ncio_read_vector (ftopo, 'fsatmax_patches', landpatch, fsatmax)

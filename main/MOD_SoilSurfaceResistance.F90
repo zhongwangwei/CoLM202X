@@ -225,8 +225,8 @@ CONTAINS
       ! dw = -hk*(m-1)/(k*m*(theta_s-theta_r))*S**(-1/m)*(1-S**(1/m))**(-m)
       ! where k=alpha_vgm, S=(1+(-k*smp_node)**(n))**(-m), m=m_vgm=1-1/n_vgm
       m_vgm = 1. - 1./n_vgm(1)
-      S     = (1. + (- alpha_vgm(1)*smp_node)**(n_vgm(1)))**(-m_vgm)
-      dw    = -hk*(m_vgm-1.)/(alpha_vgm(1)*m_vgm*(porsl(1)-theta_r(1))) &
+      S     = (1. + (- (alpha_vgm(1)*1000._r8)*smp_node)**(n_vgm(1)))**(-m_vgm)
+      dw    = -hk*(m_vgm-1.)/((alpha_vgm(1)*1000._r8)*m_vgm*(porsl(1)-theta_r(1))) &
             * S**(-1./m_vgm)*(1.-S**(1./m_vgm))**(-m_vgm)
 #endif
 
@@ -276,7 +276,7 @@ CONTAINS
          !wfc = porsl(1)*(-3399._r8/psi0(1))**(-1./bsw(1))
 #endif
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
-         wfc = theta_r(1)+(porsl(1)-theta_r(1))*(1+(alpha_vgm(1)*339.9)**n_vgm(1))**(1.0/n_vgm(1)-1)
+         wfc = theta_r(1)+(porsl(1)-theta_r(1))*(1+(alpha_vgm(1)*3399.)**n_vgm(1))**(1.0/n_vgm(1)-1)
 #endif
 
          ! Lee and Pielke 1992 beta
