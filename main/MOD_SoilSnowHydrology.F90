@@ -10,7 +10,7 @@ MODULE MOD_SoilSnowHydrology
                            DEF_DA_TWS_GRACE,        DEF_Optimize_Baseflow, &
                            DEF_USE_Dynamic_Wetland
 #if (defined CaMa_Flood)
-   USE YOS_CMF_INPUT,      only: LWINFILT
+   USE YOS_CMF_INPUT,      only: LWINFILT, CSETFILE
 #endif
    USE MOD_LandPatch, only: landpatch
    USE MOD_Runoff
@@ -203,12 +203,27 @@ CONTAINS
    real(r8) :: err_solver, w_sum
 #if (defined CaMa_Flood)
    real(r8) ::gfld ,rsur_fld, qinfl_fld_subgrid ! inundation water input from top (mm/s)
+   real(r8) :: rsubst_fld, fevpg_runoff
+   logical :: new_cama_flood
 #endif
 
    real(r8) :: gwat_prev
    integer  :: ps, pe, m
 
    real(r8) :: wliq_soisno_tmp(1:nl_soil)
+
+#if (defined CaMa_Flood)
+      new_cama_flood = CSETFILE == 'NONE'
+      fevpg_runoff = fevpg(ipatch)
+      IF (new_cama_flood .and. patchtype == 0) THEN
+         IF (DEF_SPLIT_SOILSNOW) THEN
+            fevpg_runoff = qseva_soil + qseva_snow + qsubl_soil + qsubl_snow - qsdew_soil - qsdew_snow - qfros_soil - qfros_snow
+         ELSE
+            fevpg_runoff = qseva + qsubl - qsdew - qfros
+         ENDIF
+      ENDIF
+      IF (new_cama_flood) qinfl_fld = 0._r8
+#endif
 
 !=======================================================================
 ! [1] update the liquid water within snow layer and the water onto soil
@@ -304,7 +319,11 @@ IF(patchtype<=1)THEN   ! soil ground only
 
          wliq_soisno_tmp(:) = 0
          CALL Runoff_VIC(deltim, porsl, theta_r, hksati, bsw, &
+#if (defined CaMa_Flood)
+                         wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg_runoff, rootflux, gwat, &
+#else
                          wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gwat, &
+#endif
                          vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
                          rsur, rsubst, wliq_soisno_tmp(1:nl_soil))
 
@@ -348,8 +367,11 @@ IF(patchtype<=1)THEN   ! soil ground only
          !  re-infiltration [mm/s] calculation.
          ! IF surface runoff is occurred (rsur != 0.), flood depth <1.e-6  and flood fraction <0.05,
          ! the re-infiltration will not be calculated.
-         IF ((flddepth .gt. 1.e-6).and.(fldfrc .gt. 0.05) .and. (patchtype == 0) ) THEN
+         IF (patchtype == 0 .and. ((new_cama_flood .and. flddepth > 0._r8 .and. &
+             fldfrc > EPSILON(1._r8)) .or. (.not. new_cama_flood .and. &
+             flddepth .gt. 1.e-6 .and. fldfrc .gt. 0.05))) THEN
             gfld=flddepth/deltim ! [mm/s]
+            rsubst_fld = rsubst
             ! surface runoff from inundation, this should not be added to the surface runoff from soil
             ! otherwise, the surface runoff will be double counted.
             ! only the re-infiltration is added to water balance calculation.
@@ -362,20 +384,22 @@ IF(patchtype<=1)THEN   ! soil ground only
             ELSEIF (DEF_Runoff_SCHEME  == 1) THEN
                wliq_soisno_tmp(:) = 0
                CALL Runoff_VIC(deltim, porsl, theta_r, hksati, bsw, &
-                               wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gfld, &
+                               wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg_runoff, rootflux, gfld, &
                                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-                               rsur_fld, rsubst, wliq_soisno_tmp(1:nl_soil))
+                               rsur_fld, rsubst_fld, wliq_soisno_tmp(1:nl_soil))
             ELSEIF (DEF_Runoff_SCHEME  == 2) THEN
                CALL Runoff_XinAnJiang (&
                   nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
-                  elvstd, gfld, deltim, rsur_fld, rsubst)
+                  elvstd, gfld, deltim, rsur_fld, rsubst_fld)
             ELSEIF (DEF_Runoff_SCHEME  == 3) THEN
                CALL Runoff_SimpleVIC (&
                   nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
-                  BVIC, gfld, deltim, rsur_fld, rsubst)
+                  BVIC, gfld, deltim, rsur_fld, rsubst_fld)
             ENDIF
+            IF (.not. new_cama_flood .and. DEF_Runoff_SCHEME /= 0) rsubst = rsubst_fld
             ! infiltration into surface soil layer
             qinfl_fld_subgrid = gfld - rsur_fld !assume the re-infiltration is occurred in whole patch area.
+            IF (new_cama_flood) qinfl_fld_subgrid = MIN(gfld,MAX(0._r8,qinfl_fld_subgrid))
          ELSE
             qinfl_fld_subgrid=0.0d0
             gfld=0.0d0
@@ -384,7 +408,11 @@ IF(patchtype<=1)THEN   ! soil ground only
          ENDIF
          qinfl_fld=qinfl_fld_subgrid*fldfrc ! [mm/s] re-infiltration in grid.
          qinfl=qinfl_fld+qinfl ! [mm/s] total infiltration in grid.
+         IF (new_cama_flood) THEN
+            flddepth=MAX(0._r8,flddepth-deltim*qinfl_fld_subgrid)
+         ELSE
          flddepth=flddepth-deltim*qinfl_fld_subgrid ! renew flood depth [mm], the flood depth is reduced by re-infiltration but only in inundation area.
+      ENDIF
       ENDIF
 #endif
 
@@ -704,6 +732,8 @@ ENDIF
    real(r8) :: prms(nprms, 1:nl_soil)
 #if (defined CaMa_Flood)
    real(r8) :: gfld,qinfl_all,rsur_fld, qinfl_fld_subgrid! inundation water input from top (mm/s)
+   real(r8) :: rsubst_fld, fevpg_runoff
+   logical :: new_cama_flood
 #endif
 
    type(soil_con_struct ) :: soil_con
@@ -724,6 +754,19 @@ ENDIF
       prms(3,1:nl_soil) = L_vgm    (1:nl_soil)
       prms(4,1:nl_soil) = sc_vgm   (1:nl_soil)
       prms(5,1:nl_soil) = fc_vgm   (1:nl_soil)
+#endif
+
+#if (defined CaMa_Flood)
+      new_cama_flood = CSETFILE == 'NONE'
+      fevpg_runoff = fevpg(ipatch)
+      IF (new_cama_flood .and. patchtype == 0) THEN
+         IF (DEF_SPLIT_SOILSNOW) THEN
+            fevpg_runoff = qseva_soil + qseva_snow + qsubl_soil + qsubl_snow - qsdew_soil - qsdew_snow - qfros_soil - qfros_snow
+         ELSE
+            fevpg_runoff = qseva + qsubl - qsdew - qfros
+         ENDIF
+      ENDIF
+      IF (new_cama_flood) qinfl_fld = 0._r8
 #endif
 
 !=======================================================================
@@ -836,7 +879,11 @@ IF((patchtype<=1) .or. is_dry_lake &
             ! 1: runoff scheme from VIC model
 
             CALL Runoff_VIC(deltim, porsl, theta_r, hksati, bsw, &
+#if (defined CaMa_Flood)
+               wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg_runoff, rootflux, gwat, &
+#else
                wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gwat, &
+#endif
                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
                rsur, rsubst, wliq_soisno_tmp)
 
@@ -905,8 +952,11 @@ IF((patchtype<=1) .or. is_dry_lake &
          !  re-infiltration [mm/s] calculation.
          ! IF surface runoff is occurred (rsur != 0.), flood depth <1.e-6  and flood fraction <0.05,
          ! the re-infiltration will not be calculated.
-         IF ((flddepth .gt. 1.e-6).and.(fldfrc .gt. 0.05) .and. (patchtype == 0) ) THEN
+         IF (patchtype == 0 .and. ((new_cama_flood .and. flddepth > 0._r8 .and. &
+             fldfrc > EPSILON(1._r8)) .or. (.not. new_cama_flood .and. &
+             flddepth .gt. 1.e-6 .and. fldfrc .gt. 0.05))) THEN
             gfld=flddepth/deltim ! [mm/s]
+            rsubst_fld = rsubst
             ! surface runoff from inundation, this should not be added to the surface runoff from soil
             ! otherwise, the surface runoff will be double counted.
             ! only the re-infiltration is added to water balance calculation.
@@ -919,20 +969,22 @@ IF((patchtype<=1) .or. is_dry_lake &
             ELSEIF (DEF_Runoff_SCHEME  == 1) THEN
                wliq_soisno_tmp(:) = 0
                CALL Runoff_VIC(deltim, porsl, theta_r, hksati, bsw, &
-                               wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gfld, &
+                               wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg_runoff, rootflux, gfld, &
                                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-                               rsur_fld, rsubst, wliq_soisno_tmp(1:nl_soil))
+                               rsur_fld, rsubst_fld, wliq_soisno_tmp(1:nl_soil))
             ELSEIF (DEF_Runoff_SCHEME  == 2) THEN
                CALL Runoff_XinAnJiang (&
                   nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
-                  elvstd, gfld, deltim, rsur_fld, rsubst)
+                  elvstd, gfld, deltim, rsur_fld, rsubst_fld)
             ELSEIF (DEF_Runoff_SCHEME  == 3) THEN
                CALL Runoff_SimpleVIC (&
                   nl_soil, dz_soisno(1:nl_soil), eff_porosity(1:nl_soil), vol_liq(1:nl_soil), &
-                  BVIC, gfld, deltim, rsur_fld, rsubst)
+                  BVIC, gfld, deltim, rsur_fld, rsubst_fld)
             ENDIF
+            IF (.not. new_cama_flood .and. DEF_Runoff_SCHEME /= 0) rsubst = rsubst_fld
             ! infiltration into surface soil layer
             qinfl_fld_subgrid = gfld - rsur_fld !assume the re-infiltration is occurred in whole patch area.
+            IF (new_cama_flood) qinfl_fld_subgrid = MIN(gfld,MAX(0._r8,qinfl_fld_subgrid))
          ELSE
             qinfl_fld_subgrid=0.0d0
             gfld=0.0d0
@@ -942,7 +994,11 @@ IF((patchtype<=1) .or. is_dry_lake &
          qinfl_fld=qinfl_fld_subgrid*fldfrc ! [mm/s] re-infiltration in grid.
          !qinfl=qinfl_fld+qinfl ! [mm/s] total infiltration in grid.
          qgtop=qinfl_fld+qgtop ! [mm/s] total infiltration in grid.
+         IF (new_cama_flood) THEN
+            flddepth=MAX(0._r8,flddepth-deltim*qinfl_fld_subgrid)
+         ELSE
          flddepth=flddepth-deltim*qinfl_fld_subgrid ! renew flood depth [mm], the flood depth is reduced by re-infiltration but only in inundation area.
+      ENDIF
       ENDIF
 #endif
 !=======================================================================

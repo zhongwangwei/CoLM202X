@@ -1022,6 +1022,9 @@ CONTAINS
    SUBROUTINE metreadLBUB (idate, dir_forcing, is_spinup)
 
    USE MOD_UserSpecifiedForcing
+#ifdef CaMa_Flood
+   USE YOS_CMF_INPUT, only: CSETFILE
+#endif
    USE MOD_Namelist
    USE MOD_Block
    USE MOD_DataType
@@ -1131,7 +1134,15 @@ CONTAINS
 
             ! calculate time average coszen, for shortwave radiation
             IF (ivar == 7) THEN
+#ifdef CaMa_Flood
+               IF(CSETFILE=='NONE')THEN
+                  CALL calavgcos((/tstamp_LB(7)%year,tstamp_LB(7)%day,tstamp_LB(7)%sec/))
+               ELSE
+                  CALL calavgcos(idate)
+               ENDIF
+#else
                CALL calavgcos(idate)
+#endif
             ENDIF
          ENDIF
 

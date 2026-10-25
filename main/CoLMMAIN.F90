@@ -199,7 +199,7 @@ SUBROUTINE CoLMMAIN ( &
 #if (defined CaMa_Flood)
    ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
    USE MOD_CaMa_colmCaMa, only: get_fldevp
-   USE YOS_CMF_INPUT, only: LWINFILT,LWEVAP
+   USE YOS_CMF_INPUT, only: LWINFILT,LWEVAP,CSETFILE
 #endif
 #ifdef CROP
    USE MOD_Irrigation, only: CalIrrigationApplicationFluxes
@@ -671,6 +671,11 @@ SUBROUTINE CoLMMAIN ( &
 
 !-----------------------------------------------------------------------
 
+#if (defined CaMa_Flood)
+      fevpg_fld = 0._r8
+      qinfl_fld = 0._r8
+#endif
+
       z_soisno (maxsnl+1:0) = z_sno (maxsnl+1:0)
       z_soisno (1:nl_soil ) = z_soi (1:nl_soil )
       dz_soisno(maxsnl+1:0) = dz_sno(maxsnl+1:0)
@@ -887,7 +892,11 @@ SUBROUTINE CoLMMAIN ( &
               zol               ,rib               ,ustar             ,qstar             ,&
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
-              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   )
+              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   &
+#if (defined CaMa_Flood)
+             ,flddepth          ,fldfrc            ,fevpg_fld                            &
+#endif
+              )
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
 
@@ -1057,6 +1066,9 @@ SUBROUTINE CoLMMAIN ( &
 #else
          ! for lateral flow, "rsur" is considered in HYDRO/MOD_Hydro_SurfaceFlow.F90
          errorw=(endwb-totwb)-(forc_prc+forc_prl-fevpa)*deltim
+#endif
+#ifdef CaMa_Flood
+         IF (CSETFILE == 'NONE' .and. patchtype == 0) errorw=errorw-fevpg_fld*deltim
 #endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
@@ -1505,6 +1517,7 @@ SUBROUTINE CoLMMAIN ( &
       ENDIF
 
 #if (defined CaMa_Flood)
+      IF (CSETFILE /= 'NONE') THEN
       IF (LWEVAP) THEN
          IF ((flddepth .gt. 1.e-6).and.(fldfrc .gt. 0.05).and.patchtype == 0)THEN
             CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q,&
@@ -1530,6 +1543,7 @@ SUBROUTINE CoLMMAIN ( &
 
       ELSE
          fevpg_fld=0.0d0
+      ENDIF
       ENDIF
 #endif
 
