@@ -18,6 +18,14 @@ diff --color -ru a/Makefile b/Makefile
  				MOD_LeafInterception.o                    \
  				MOD_NetSolar.o                            \
  				MOD_NetSolar_Hyper.o                      \
+@@ -367,6 +368,7 @@
+ 
+ MOD_Urban_Thermal.o: MOD_Urban_Flux.o
+ MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
++MOD_LeafInterception.o: MOD_LeafInterception_Extended.o
+ MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+ MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o
+ MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
 diff --color -ru a/main/MOD_LeafInterception.F90 b/main/MOD_LeafInterception.F90
 --- a/main/MOD_LeafInterception.F90
 +++ b/main/MOD_LeafInterception.F90
@@ -156,7 +164,7 @@ diff --color -ru a/main/MOD_LeafInterception.F90 b/main/MOD_LeafInterception.F90
 diff --color -ru a/main/MOD_LeafTemperature.F90 b/main/MOD_LeafTemperature.F90
 --- a/main/MOD_LeafTemperature.F90
 +++ b/main/MOD_LeafTemperature.F90
-@@ -1383,7 +1383,7 @@
+@@ -1391,7 +1391,7 @@
              ldew = ldew_rain + ldew_snow
           ENDIF
  
@@ -168,7 +176,7 @@ diff --color -ru a/main/MOD_LeafTemperature.F90 b/main/MOD_LeafTemperature.F90
 diff --color -ru a/main/MOD_LeafTemperaturePC.F90 b/main/MOD_LeafTemperaturePC.F90
 --- a/main/MOD_LeafTemperaturePC.F90
 +++ b/main/MOD_LeafTemperaturePC.F90
-@@ -1930,7 +1930,7 @@
+@@ -1938,7 +1938,7 @@
                    ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
                    ldew (i)     = ldew_snow(i)
                 ENDIF

@@ -366,6 +366,7 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
+MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
 MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
