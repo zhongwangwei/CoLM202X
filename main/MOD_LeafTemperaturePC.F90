@@ -1854,7 +1854,7 @@ ENDIF
 !-----------------------------------------------------------------------
 ! Update dew accumulation (kg/m2)
 !-----------------------------------------------------------------------
-            IF (DEF_Interception_scheme .eq. 1) THEN !colm2014
+            IF (DEF_Interception_scheme .eq. 1 .or. DEF_Interception_scheme .eq. 8) THEN !colm2014
 
                ldew(i) = max(0., ldew(i)-evplwet(i)*deltim)
 
@@ -1931,16 +1931,6 @@ ENDIF
                   ldew (i)     = ldew_snow(i)
                ENDIF
             ELSEIF (DEF_Interception_scheme .eq. 7) THEN !JULES
-               IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
-                  ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
-                  ldew_snow(i) = ldew_snow(i)
-                  ldew(i)=ldew_rain(i)+ldew_snow(i)
-               ELSE
-                  ldew_rain(i) = 0.0
-                  ldew_snow(i) = max(0., ldew(i)-evplwet(i)*deltim)
-                  ldew (i)     = ldew_snow(i)
-               ENDIF
-            ELSEIF (DEF_Interception_scheme .eq. 8) THEN !CoLM202x
                IF (ldew_rain(i) .gt. evplwet(i)*deltim) THEN
                   ldew_rain(i) = ldew_rain(i)-evplwet(i)*deltim
                   ldew_snow(i) = ldew_snow(i)
