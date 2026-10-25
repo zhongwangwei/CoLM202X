@@ -463,6 +463,20 @@ CONTAINS
                                           bifall,veg_class,is_pft,ncd,ncw,bcw,htop,&
                                           ldew,ldew_rain,ldew_snow,z0m,hu,pg_rain,pg_snow,&
                                           qintr,qintr_rain,qintr_snow)
+!DESCRIPTION
+!===========
+   !CoLM2014 interception with the rain storage capacity set by canopy morphology and wind
+
+!Original Author:
+!-------------------
+   !---Zhongwang Wei @ SYSU
+
+!References:
+!-------------------
+   !---Li, Q., Jin, X., Wei, Z. et al., 2026. Three-dimensional canopy morphology and wind
+   !   dynamics govern global rainfall interception. Commun. Earth Environ., 7, 699.
+   !   doi:10.1038/s43247-026-03694-7
+
    IMPLICIT NONE
    real(r8), intent(in) :: deltim, dewmx, forc_us, forc_vs, chil, sigf, lai, sai, tair
    real(r8), intent(inout) :: tleaf
