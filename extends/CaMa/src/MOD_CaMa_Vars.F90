@@ -1055,12 +1055,8 @@ CONTAINS
             allocate (rbuf(xcnt,ycnt))
             CALL mpi_recv (rbuf, xcnt * ycnt, MPI_DOUBLE, &
                isrc, 10011, p_comm_glb, p_stat, p_err)
-            IF(newmode)THEN
-               MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
-                  ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1) = rbuf
-            ELSE
-            MasterVar (xdsp+1:xdsp+xcnt,ydsp+1:ydsp+ycnt) = rbuf
-            ENDIF
+            MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
+               ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1) = rbuf
 
             deallocate (rbuf)
          ENDDO
@@ -1205,12 +1201,8 @@ CONTAINS
             allocate (rbuf(xcnt,ycnt))
             CALL mpi_recv (rbuf, xcnt * ycnt, MPI_DOUBLE, &
                isrc, 10011, p_comm_glb, p_stat, p_err)
-            IF(CSETFILE=='NONE')THEN
-               MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
-                  ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1) = rbuf
-            ELSE
-            MasterVar (xdsp+1:xdsp+xcnt,ydsp+1:ydsp+ycnt) = rbuf
-            ENDIF
+            MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
+               ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1) = rbuf
             deallocate (rbuf)
          ENDDO
 
@@ -1298,12 +1290,8 @@ CONTAINS
                   ycnt = cama_gather%ysegs(iyseg)%cnt
 
                   allocate (sbuf (xcnt,ycnt))
-                  IF(CSETFILE=='NONE')THEN
-                     sbuf = MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
-                        ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1)
-                  ELSE
-                  sbuf = MasterVar (xdsp+1:xdsp+xcnt, ydsp+1:ydsp+ycnt)
-                  ENDIF
+                  sbuf = MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
+                     ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1)
                   smesg = (/ixseg, iyseg/)
                   CALL mpi_send (smesg, 2, MPI_INTEGER, &
                      gblock%pio(iblk,jblk), 10000, p_comm_glb, p_err)
@@ -1398,12 +1386,8 @@ CONTAINS
                   ycnt = cama_gather%ysegs(iyseg)%cnt
 
                   allocate (sbuf (xcnt,ycnt))
-                  IF(CSETFILE=='NONE')THEN
-                     sbuf = MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
-                        ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1)
-                  ELSE
-                  sbuf = MasterVar (xdsp+1:xdsp+xcnt, ydsp+1:ydsp+ycnt)
-                  ENDIF
+                  sbuf = MasterVar(cama_master_cols(xdsp,xcnt,size(MasterVar,1)), &
+                     ydsp+cama_gather%ilat0:ydsp+cama_gather%ilat0+ycnt-1)
                   smesg = (/ixseg, iyseg/)
                   CALL mpi_send (smesg, 2, MPI_INTEGER, &
                      gblock%pio(iblk,jblk), 10000, p_comm_glb, p_err)

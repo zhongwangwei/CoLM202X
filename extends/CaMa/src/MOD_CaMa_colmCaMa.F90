@@ -657,10 +657,9 @@ CONTAINS
                CALL publish_flood_credit()
             ELSE
                CALL cama2colm_real8 (flddepth_tmp, f_flddepth_cama, flddepth_cama)! unit [m]
-               CALL cama2colm_real8 (fldfrc_tmp,   f_fldfrc_cama,   fldfrc_cama  ) ! unit [%]
+               CALL cama2colm_real8 (fldfrc_tmp,   f_fldfrc_cama,   fldfrc_cama  ) ! unit [0-1]
 
                IF (p_is_worker) flddepth_cama=flddepth_cama*1000.D0 !m --> mm
-               IF (p_is_worker) fldfrc_cama=fldfrc_cama/100.D0     !% --> [0-1]
             ENDIF
          ENDIF
 
@@ -814,7 +813,7 @@ CONTAINS
       ! Use vectorized operations with WHERE construct for better performance
       WHERE (flddepth_tmp(:,:) < 0.0) flddepth_tmp(:,:) = 0.0
       WHERE (fldfrc_tmp(:,:) < 0.0)   fldfrc_tmp(:,:)   = 0.0
-         WHERE (fldfrc_tmp(:,:) > 100.0) fldfrc_tmp(:,:)   = 100.0    !!If fraction is larger than 100%, it is set to 100%.
+         WHERE (fldfrc_tmp(:,:) > 1.0)   fldfrc_tmp(:,:)   = 1.0      !!If fraction is larger than 100%, it is set to 100%.
       ENDIF
    END SUBROUTINE get_fldinfo
 
