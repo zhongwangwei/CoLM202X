@@ -3,6 +3,7 @@ on:
   pull_request:
     branches: 
       - master
+      - colm30
     paths-ignore:
       - 'preprocess/**'
       - 'README.md'
@@ -10,6 +11,7 @@ on:
   push:
     branches:
       - master
+      - colm30
     paths-ignore:
       - 'preprocess/**'
       - 'README.md'

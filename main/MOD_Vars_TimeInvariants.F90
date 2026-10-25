@@ -26,6 +26,9 @@ MODULE MOD_Vars_PFTimeInvariants
    real(r8), allocatable :: ncd_p       (:)
    real(r8), allocatable :: ncw_p       (:)
    real(r8), allocatable :: bcw_p       (:)
+#ifdef LULC_IGBP_PC
+   real(r8), allocatable :: cratio_p    (:) !canopy depth to canopy width
+#endif
 #ifdef CROP
    real(r8), allocatable :: cropfrac    (:) !Crop fractional cover
 #endif
@@ -70,6 +73,9 @@ CONTAINS
             ncd_p = spval
             ncw_p = spval
             bcw_p = spval
+#ifdef LULC_IGBP_PC
+            allocate (cratio_p      (numpft))
+#endif
          ENDIF
 
 #ifdef CROP
@@ -100,6 +106,9 @@ CONTAINS
          CALL ncio_read_vector (file_restart, 'ncw_p', landpft, ncw_p)
          CALL ncio_read_vector (file_restart, 'bcw_p', landpft, bcw_p)
       ENDIF
+#ifdef LULC_IGBP_PC
+      CALL ncio_read_vector (file_restart, 'cratio_p', landpft, cratio_p) !
+#endif
 #ifdef CROP
       CALL ncio_read_vector (file_restart, 'cropfrac ', landpatch, cropfrac) !
 #endif
@@ -133,6 +142,9 @@ CONTAINS
          CALL ncio_write_vector (file_restart, 'ncw_p', 'pft', landpft, ncw_p, compress)
          CALL ncio_write_vector (file_restart, 'bcw_p', 'pft', landpft, bcw_p, compress)
       ENDIF
+#ifdef LULC_IGBP_PC
+      CALL ncio_write_vector (file_restart, 'cratio_p', 'pft', landpft, cratio_p, compress) !
+#endif
 
 #ifdef CROP
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
@@ -157,6 +169,9 @@ CONTAINS
             deallocate (ncd_p)
             deallocate (ncw_p)
             deallocate (bcw_p)
+#ifdef LULC_IGBP_PC
+            deallocate (cratio_p)
+#endif
 #ifdef CROP
             deallocate (cropfrac)
 #endif
@@ -174,6 +189,9 @@ CONTAINS
       CALL check_vector_data ('pftfrac', pftfrac) !
       CALL check_vector_data ('htop_p ', htop_p ) !
       CALL check_vector_data ('hbot_p ', hbot_p ) !
+#ifdef LULC_IGBP_PC
+      CALL check_vector_data ('cratio_p', cratio_p) !
+#endif
 #ifdef CROP
       CALL check_vector_data ('cropfrac', cropfrac) !
 #endif
@@ -282,6 +300,9 @@ MODULE MOD_Vars_TimeInvariants
    real(r8), allocatable :: ncd            (:)
    real(r8), allocatable :: ncw            (:)
    real(r8), allocatable :: bcw            (:)
+#ifdef LULC_IGBP_PC
+   real(r8), allocatable :: cratio         (:)  !ratio of canopy depth to width
+#endif
 
    real(r8), allocatable :: dbedrock       (:)  !depth to bedrock
    integer , allocatable :: ibedrock       (:)  !bedrock level
@@ -434,6 +455,9 @@ CONTAINS
             ncd = spval
             ncw = spval
             bcw = spval
+#ifdef LULC_IGBP_PC
+            allocate (cratio               (numpatch))
+#endif
             allocate (dbedrock             (numpatch))
             allocate (ibedrock             (numpatch))
             allocate (elvmean              (numpatch))
@@ -589,6 +613,9 @@ CONTAINS
          CALL ncio_read_vector (file_restart, 'ncw', landpatch, ncw)
          CALL ncio_read_vector (file_restart, 'bcw', landpatch, bcw)
       ENDIF
+#ifdef LULC_IGBP_PC
+      CALL ncio_read_vector (file_restart, 'cratio'  ,     landpatch, cratio)              !
+#endif
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_read_vector (file_restart, 'debdrock' ,    landpatch, dbedrock)         !
@@ -808,6 +835,9 @@ CONTAINS
          CALL ncio_write_vector (file_restart, 'ncw', 'patch', landpatch, ncw, compress)
          CALL ncio_write_vector (file_restart, 'bcw', 'patch', landpatch, bcw, compress)
       ENDIF
+#ifdef LULC_IGBP_PC
+      CALL ncio_write_vector (file_restart, 'cratio', 'patch', landpatch, cratio)                                    !
+#endif
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_write_vector (file_restart, 'debdrock' , 'patch', landpatch, dbedrock)
@@ -835,7 +865,7 @@ CONTAINS
          CALL ncio_write_vector (file_restart, 'cur_patches', 'patch', landpatch, cur_patches)
          CALL ncio_write_vector (file_restart, 'slp_type_patches',  'type_a', num_aspect_type, 'patch', landpatch, slp_type_patches)
          CALL ncio_write_vector (file_restart, 'asp_type_patches',  'type_a', num_aspect_type, 'patch', landpatch, asp_type_patches)
-      ENDIF   
+      ENDIF
 
 
 #ifdef USEMPI
@@ -983,6 +1013,9 @@ CONTAINS
             deallocate (ncd)
             deallocate (ncw)
             deallocate (bcw)
+#ifdef LULC_IGBP_PC
+            deallocate (cratio         )
+#endif
 
             deallocate (dbedrock       )
             deallocate (ibedrock       )
@@ -1106,6 +1139,9 @@ CONTAINS
 
       CALL check_vector_data ('htop         [m]     ', htop        )
       CALL check_vector_data ('hbot         [m]     ', hbot        )
+#ifdef LULC_IGBP_PC
+      CALL check_vector_data ('cratio       [-]     ', cratio      )
+#endif
 
       IF(DEF_USE_BEDROCK)THEN
          CALL check_vector_data ('dbedrock     [m]     ', dbedrock ) !

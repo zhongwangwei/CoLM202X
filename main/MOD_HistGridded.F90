@@ -182,7 +182,6 @@ CONTAINS
          longname, units)
 
    USE MOD_Block
-   USE MOD_Vars_1DAccFluxes,  only: nac
    USE MOD_Vars_Global, only: spval
    IMPLICIT NONE
 
@@ -201,7 +200,6 @@ CONTAINS
    integer :: iblkme, xblk, yblk, xloc, yloc
    integer :: compress
 
-      IF (p_is_worker)  WHERE (acc_vec /= spval)  acc_vec = acc_vec / nac
       IF (p_is_io)      CALL allocate_block_data (ghist, flux_xy_2d)
 
       CALL mp2g_hist_urb%pset2grid (acc_vec, flux_xy_2d, spv = spval, msk = filter)

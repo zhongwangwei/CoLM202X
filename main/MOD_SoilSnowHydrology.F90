@@ -192,10 +192,10 @@ CONTAINS
 ! END SNICAR model variables
 
 !  irrigation variable
-   real(r8), intent(in) :: &
-        qflx_irrig_drip  , &! irrigation flux from drip irrigation [mm/s]
-        qflx_irrig_flood , &! irrigation flux from flood irrigation [mm/s]
-        qflx_irrig_paddy    ! irrigation flux from paddy irrigation [mm/s]
+   real(r8), intent(in), optional :: &
+        qflx_irrig_drip         ,&! irrigation flux from drip irrigation [mm/s]
+        qflx_irrig_flood        ,&! irrigation flux from flood irrigation [mm/s]
+        qflx_irrig_paddy          ! irrigation flux from paddy irrigation [mm/s]
 #ifdef TRACER
    logical, intent(in), optional :: defer_surface_ice_overflow
 #endif
@@ -313,7 +313,9 @@ ENDIF
 #endif
 #ifdef CROP
       IF(DEF_USE_IRRIGATION)THEN
-         gwat = gwat + qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy
+         ! the urban pervious-ground call does not pass the (always zero) irrigation fluxes
+         IF (present(qflx_irrig_drip)) &
+            gwat = gwat + qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy
 #ifdef TRACER
 #else
          gwat = gwat + wdsrf/deltim

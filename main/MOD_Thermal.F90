@@ -37,7 +37,8 @@ CONTAINS
                        rss           ,gssun_out     ,gssha_out     ,assimsun_out  ,&
                        etrsun_out    ,assimsha_out  ,etrsha_out    ,&
 !photosynthesis and plant hydraulic variables
-                       effcon        ,vmax25        ,c3c4          ,hksati        ,smp     ,hk   ,&
+                       effcon        ,vmax25        ,c3c4          ,hksati        ,&
+                       smp           ,hk            ,&
                        kmax_sun      ,kmax_sha      ,kmax_xyl      ,kmax_root     ,&
                        psi50_sun     ,psi50_sha     ,psi50_xyl     ,psi50_root    ,&
                        ck            ,vegwp         ,gs0sun        ,gs0sha        ,&
@@ -277,7 +278,7 @@ CONTAINS
        zi_soisno(lb-1:nl_soil)    ! interface depth [m]
 
    integer , intent(in) :: &
-       c3c4 ! C3/C4 plant type
+       c3c4                       ! C3/C4 plant type
 
    real(r8), intent(in) :: &
        sabg_snow_lyr(lb:1)        ! snow layer absorption
@@ -690,7 +691,7 @@ ENDIF
 
          !NOTE: If the beta scheme is used, the rss is not soil resistance,
          !but soil beta factor (soil wetness relative to field capacity [0-1]).
-         CALL SoilSurfaceResistance (nl_soil,forc_rhoair,hksati,porsl,psi0, &
+         CALL SoilSurfaceResistance (nl_soil,forc_rhoair,hksati,porsl,psi0,vf_sand, &
 #ifdef Campbell_SOIL_MODEL
                             bsw, &
 #endif
@@ -833,7 +834,7 @@ IF (patchtype == 0) THEN
       ps = patch_pft_s(ipatch)
       pe = patch_pft_e(ipatch)
 
-      allocate ( rootr_p (nl_soil, ps:pe) )
+      allocate ( rootr_p   (nl_soil,ps:pe))
       allocate ( rootflux_p(nl_soil,ps:pe))
       allocate ( etrc_p           (ps:pe) )
       allocate ( rstfac_p         (ps:pe) )
@@ -983,7 +984,7 @@ IF (patchtype == 0) THEN
          p = pftclass(i)
 
          ! Dealing with PFTs for PC:
-         ! If defined DEF_PC_CROP_SPLIT, for crop PFTs, use 1D twostream model;
+         ! If defined DEF_PC_CROP_SPLIT, for crop PFTs, use 1D turbulence model;
          ! Otherwise, skip to run PC 3D model.
          IF ( DEF_USE_PC .and. (.not.DEF_PC_CROP_SPLIT .or. p.lt.15) ) THEN
             CYCLE
@@ -993,7 +994,7 @@ IF (patchtype == 0) THEN
 
             CALL LeafTemperature(ipatch,p,deltim  ,csoilc          ,dewmx           ,htvp           ,&
                  lai_p(i)        ,sai_p(i)        ,htop_p(i)       ,hbot_p(i)       ,sqrtdi_p(p)    ,&
-                 effcon_p(p)     ,vmax25_p(p)     ,c3c4_p(p)       ,slti_p(p)       ,hlti_p(p)       ,shti_p(p)      ,&
+                 effcon_p(p)     ,vmax25_p(p)     ,c3c4_p(p)       ,slti_p(p)       ,hlti_p(p)      ,shti_p(p)      ,&
                  hhti_p(p)       ,trda_p(p)       ,trdm_p(p)       ,trop_p(p)       ,g1_p(p)        ,&
                  g0_p(p)         ,gradm_p(p)      ,binter_p(p)     ,extkn_p(p)      ,extkb_p(i)     ,&
                  extkd_p(i)      ,forc_hgt_u      ,forc_hgt_t      ,forc_hgt_q      ,forc_us        ,&
