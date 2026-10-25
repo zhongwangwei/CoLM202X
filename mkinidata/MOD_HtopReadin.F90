@@ -24,8 +24,9 @@ CONTAINS
    USE MOD_Vars_Global
    USE MOD_Const_LC
    USE MOD_Const_PFT
+   USE MOD_Namelist, only: DEF_RS_CROWN_STRUCTURE
    USE MOD_Vars_TimeInvariants
-   USE MOD_Namelist, only: DEF_Interception_scheme, DEF_RS_CROWN_STRUCTURE
+   USE MOD_Namelist, only: DEF_Interception_scheme
    USE MOD_LandPatch
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_LandPFT
@@ -45,7 +46,8 @@ CONTAINS
 
    ! Local Variables
    character(len=256) :: c
-   character(len=256) :: landdir, cstructdir, lndname, cyear, fsrfdata
+   character(len=256) :: landdir, lndname, cyear, fsrfdata
+   character(len=256) :: cstructdir
    integer :: i,j,t,p,ps,pe,m,n,npatch
 
    real(r8), allocatable :: htoplc  (:)
@@ -125,14 +127,9 @@ CONTAINS
 #ifdef SinglePoint
       IF (numpft > 0) THEN
          allocate(htoppft(numpft))
-         htoppft = pack(SITE_htop_pfts, SITE_pctpfts > 0.)
-         IF (DEF_Interception_scheme == 8) THEN
-            ncd_p = pack(SITE_ncd_pfts, SITE_pctpfts > 0.)
-            ncw_p = pack(SITE_ncw_pfts, SITE_pctpfts > 0.)
-            bcw_p = pack(SITE_bcw_pfts, SITE_pctpfts > 0.)
-         ENDIF
+         fsrfdata = trim(DEF_dir_landdata) // '/srfdata.nc'
+         CAll ncio_read_serial (fsrfdata, 'canopy_height_pfts', htoppft)
          IF (DEF_RS_CROWN_STRUCTURE) THEN
-            fsrfdata = trim(DEF_dir_landdata) // '/srfdata.nc'
             allocate(hbotpft(numpft))
             CAll ncio_read_serial (fsrfdata, 'canopy_bottom_height_pfts', hbotpft)
 #ifdef LULC_IGBP_PC
@@ -140,18 +137,15 @@ CONTAINS
             CAll ncio_read_serial (fsrfdata, 'crown_aspect_ratio_pfts', cratio_pft)
 #endif
          ENDIF
+         IF (DEF_Interception_scheme == 8) THEN
+            ncd_p = pack(SITE_ncd_pfts, SITE_pctpfts > 0.)
+            ncw_p = pack(SITE_ncw_pfts, SITE_pctpfts > 0.)
+            bcw_p = pack(SITE_bcw_pfts, SITE_pctpfts > 0.)
+         ENDIF
       ENDIF
 #else
       lndname = trim(landdir)//'/htop_pfts.nc'
       CALL ncio_read_vector (lndname, 'htop_pfts', landpft,   htoppft)
-      IF (DEF_Interception_scheme == 8) THEN
-         lndname = trim(cstructdir)//'/ncd_pfts.nc'
-         CALL ncio_read_vector (lndname, 'ncd_pfts', landpft, ncd_p)
-         lndname = trim(cstructdir)//'/ncw_pfts.nc'
-         CALL ncio_read_vector (lndname, 'ncw_pfts', landpft, ncw_p)
-         lndname = trim(cstructdir)//'/bcw_pfts.nc'
-         CALL ncio_read_vector (lndname, 'bcw_pfts', landpft, bcw_p)
-      ENDIF
       IF (DEF_RS_CROWN_STRUCTURE) THEN
          lndname = trim(landdir)//'/hbot_pfts.nc'
          CALL ncio_read_vector (lndname, 'hbot_pfts', landpft, hbotpft)
@@ -159,6 +153,14 @@ CONTAINS
          lndname = trim(landdir)//'/cratio_pfts.nc'
          CALL ncio_read_vector (lndname, 'cratio_pfts', landpft, cratio_pft)
 #endif
+      ENDIF
+      IF (DEF_Interception_scheme == 8) THEN
+         lndname = trim(cstructdir)//'/ncd_pfts.nc'
+         CALL ncio_read_vector (lndname, 'ncd_pfts', landpft, ncd_p)
+         lndname = trim(cstructdir)//'/ncw_pfts.nc'
+         CALL ncio_read_vector (lndname, 'ncw_pfts', landpft, ncw_p)
+         lndname = trim(cstructdir)//'/bcw_pfts.nc'
+         CALL ncio_read_vector (lndname, 'bcw_pfts', landpft, bcw_p)
       ENDIF
 #endif
 

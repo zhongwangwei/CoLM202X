@@ -870,7 +870,7 @@
 
       ! with vegetation canopy
       CALL LEAF_interception_CoLM2014 (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,tref,tleaf,&
-                              prc_rain,prc_snow,prl_rain,prl_snow,0._r8,bifall,&
+                              prc_rain,prc_snow,prl_rain,prl_snow,bifall,0.,&
                               ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pgper_rain,pgper_snow,&
                               qintr,qintr_rain,qintr_snow)
 

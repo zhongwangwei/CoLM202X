@@ -828,16 +828,16 @@ CONTAINS
       CALL ncio_write_vector (file_restart, 'BA_alpha ' , 'soil', nl_soil, 'patch', landpatch, BA_alpha  , compress) ! alpha in Balland and Arp(2005) thermal conductivity scheme
       CALL ncio_write_vector (file_restart, 'BA_beta  ' , 'soil', nl_soil, 'patch', landpatch, BA_beta   , compress) ! beta in Balland and Arp(2005) thermal conductivity scheme
 
-      CALL ncio_write_vector (file_restart, 'htop' , 'patch', landpatch, htop)                                       !
-      CALL ncio_write_vector (file_restart, 'hbot' , 'patch', landpatch, hbot)                                       !
+      CALL ncio_write_vector (file_restart, 'htop'  , 'patch', landpatch, htop  )                                    !
+      CALL ncio_write_vector (file_restart, 'hbot'  , 'patch', landpatch, hbot  )                                    !
+#ifdef LULC_IGBP_PC
+      CALL ncio_write_vector (file_restart, 'cratio', 'patch', landpatch, cratio)                                    !
+#endif
       IF (DEF_Interception_scheme == 8) THEN
          CALL ncio_write_vector (file_restart, 'ncd', 'patch', landpatch, ncd, compress)
          CALL ncio_write_vector (file_restart, 'ncw', 'patch', landpatch, ncw, compress)
          CALL ncio_write_vector (file_restart, 'bcw', 'patch', landpatch, bcw, compress)
       ENDIF
-#ifdef LULC_IGBP_PC
-      CALL ncio_write_vector (file_restart, 'cratio', 'patch', landpatch, cratio)                                    !
-#endif
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_write_vector (file_restart, 'debdrock' , 'patch', landpatch, dbedrock)

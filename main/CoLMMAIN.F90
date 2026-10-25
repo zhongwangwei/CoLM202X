@@ -951,51 +951,52 @@ SUBROUTINE CoLMMAIN ( &
          IF (patchtype == 0) THEN
 
 #if (defined LULC_USGS || defined LULC_IGBP)
-            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,&
-                      lai,sai,forc_t,&
-                      tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
+            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
+                      tleaf,prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
                       patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
 #ifdef TRACER
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
                       xsc_rain_out,xsc_snow_out,&
                       ldew_smelt_trc,ldew_frzc_trc,&
-                      canopy_phase_heat)
+                      canopy_phase_heat,&
+                      qflx_irrig_sprinkler=qflx_irrig_sprinkler)
 #else
-                      pg_snow,qintr,qintr_rain,qintr_snow &
-                      )
+                      pg_snow,qintr,qintr_rain,qintr_snow,&
+                      qflx_irrig_sprinkler=qflx_irrig_sprinkler)
 #endif
 #endif
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
             CALL LEAF_interception_pftwrap (ipatch,deltim,dewmx,forc_us,forc_vs,forc_t,&
-                      prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
+                      prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
 #ifdef TRACER
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
                       xsc_rain_out,xsc_snow_out,&
                       ldew_smelt_trc,ldew_frzc_trc,&
-                      canopy_phase_heat,canopy_phase_heat_p)
+                      canopy_phase_heat,canopy_phase_heat_p,&
+                      qflx_irrig_sprinkler=qflx_irrig_sprinkler)
 #else
-                      pg_snow,qintr,qintr_rain,qintr_snow &
-                      )
+                      pg_snow,qintr,qintr_rain,qintr_snow,&
+                      qflx_irrig_sprinkler=qflx_irrig_sprinkler)
 #endif
 #endif
 
          ELSE
-            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,&
-                      lai,sai,forc_t,&
-                      tleaf,prc_rain,prc_snow,prl_rain,prl_snow,qflx_irrig_sprinkler,bifall,&
+            CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
+                      tleaf,prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
                       patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
 #ifdef TRACER
                       pg_snow,qintr,qintr_rain,qintr_snow,gross_intr_rain,gross_intr_snow,&
                       xsc_rain_out,xsc_snow_out,&
                       ldew_smelt_trc,ldew_frzc_trc,&
-                      canopy_phase_heat)
+                      canopy_phase_heat,&
+                      qflx_irrig_sprinkler=qflx_irrig_sprinkler)
 #else
-                      pg_snow,qintr,qintr_rain,qintr_snow &
-                      )
+                      pg_snow,qintr,qintr_rain,qintr_snow,&
+                      qflx_irrig_sprinkler=qflx_irrig_sprinkler)
 #endif
          ENDIF
 
@@ -1272,13 +1273,15 @@ SUBROUTINE CoLMMAIN ( &
                  mss_dst1(lbsn:0)  ,mss_dst2(lbsn:0)  ,mss_dst3(lbsn:0)  ,mss_dst4(lbsn:0)  ,&
 !  irrigation variables
 #ifdef TRACER
-	                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy, &
+                 qflx_irrig_drip=qflx_irrig_drip      ,qflx_irrig_flood=qflx_irrig_flood    ,&
+                 qflx_irrig_paddy=qflx_irrig_paddy                                           ,&
                     defer_surface_ice_overflow=(patchtype==0), &
                     topoweti=topoweti, alp_twi=alp_twi, chi_twi=chi_twi, mu_twi=mu_twi)
 	                 rsub = rnof - rsur
 	         ELSE
 #else
-                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy, &
+                 qflx_irrig_drip=qflx_irrig_drip      ,qflx_irrig_flood=qflx_irrig_flood    ,&
+                 qflx_irrig_paddy=qflx_irrig_paddy                                           ,&
                  topoweti=topoweti, alp_twi=alp_twi, chi_twi=chi_twi, mu_twi=mu_twi)
                  rsub = rnof - rsur
          ELSE
@@ -1433,7 +1436,8 @@ SUBROUTINE CoLMMAIN ( &
             ENDIF
 
 #else
-                 qflx_irrig_drip   ,qflx_irrig_flood  ,qflx_irrig_paddy)
+                 qflx_irrig_drip   =qflx_irrig_drip   ,qflx_irrig_flood  =qflx_irrig_flood  ,&
+                 qflx_irrig_paddy  =qflx_irrig_paddy                                         )
          ENDIF
 
          IF (is_dry_lake) frcsat = spval

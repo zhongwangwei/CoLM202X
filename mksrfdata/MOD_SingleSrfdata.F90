@@ -223,7 +223,7 @@ CONTAINS
    integer  :: iyear, idate(3), simulation_lai_year_start, simulation_lai_year_end
    integer  :: start_year, end_year, ntime, itime
 
-   character(len=256) :: filename, dir, dir_5x5, fmt_str, fname
+   character(len=256) :: filename, dir, fmt_str, fname
    character(len=4)   :: cyear, c
 
    type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridcanopy, gridlai, gridlake,  &
@@ -585,11 +585,11 @@ CONTAINS
          IF (.not. all(scalar_structure)) THEN
 #endif
             CALL gridcanopy%define_by_name ('colm_500m')
-            dir_5x5 = trim(DEF_dir_rawdata)//'/canopy_data'
-            CALL get_5x5_filename (gridcanopy, dir_5x5, 'CanopyStructure_500m_CH90_aggregated', &
+            dir = trim(DEF_dir_rawdata)//'/canopy_data'
+            CALL get_5x5_filename (gridcanopy, dir, 'CanopyStructure_500m_CH90_aggregated', &
                SITE_lon_location, SITE_lat_location, filename, start2)
             inquire(file=trim(filename), exist=raw_structure)
-            IF (raw_structure) CALL read_single_canopy_structure (gridcanopy, dir_5x5, &
+            IF (raw_structure) CALL read_single_canopy_structure (gridcanopy, dir, &
                SITE_lon_location, SITE_lat_location, raw_canopy)
          ENDIF
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)

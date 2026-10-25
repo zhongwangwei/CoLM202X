@@ -125,8 +125,7 @@ CONTAINS
    real(r8),parameter :: topmod_vdcf = 2.0_r8
    integer m
 
-      tsoi17(i) = forc_t(i)  ! Temporarily use air temperature for tsoi17, need to revised later.
-                             ! (was a whole-array assignment: every patch got this patch's forc_t)
+      tsoi17 = forc_t(i)  ! Temporarily use air temperature for tsoi17, need to revised later.
       wf2    = 0.5        ! Temporarily set up, need to revise later.
 
       CALL julian2monthday(idate(1),idate(2),kmo,kda)
@@ -207,8 +206,15 @@ CONTAINS
             do j = 1, nl_soil
                s_node = max(wliq_soisno(j,i)/(1000.*dz_soi(j)*porsl(j,i)),0.001)
                s_node = min(1., s_node)
-               ! (#504 also computed the soil matric potential smp_node here, but its only use
-               !  below is commented out in favour of s_node; the dead computation is dropped)
+#ifdef Campbell_SOIL_MODEL
+               smp_node = max(smpswc, psi0(j,i)*s_node**(-bsw(j,i)))
+#endif
+#ifdef vanGenuchten_Mualem_SOIL_MODEL
+               smp_node = soil_psi_from_vliq ( s_node*(porsl(j,i)-theta_r(j,i)) + theta_r(j,i), &
+                  porsl(j,i), theta_r(j,i), psi0(j,i), &
+                  5, (/alpha_vgm(j,i), n_vgm(j,i), L_vgm(j,i), sc_vgm(j,i), fc_vgm(j,i)/))
+               smp_node = max(smpswc, smp_node)
+#endif
             
 !               btran2_p(m) = btran2_p(m) + rootfr_p(j,ivt) * max(0._r8, min((smp_node - smpswc) / &
 !                    (smpsfc - smpswc),1._r8))
@@ -365,21 +371,13 @@ CONTAINS
                   IF (zwt(i) <= 0._r8) THEN
                      satfrac_fire = 1._r8
                   ELSE
-                     ! start above mu_twi, as in SurfaceRunoff_TOPMOD
-                     IF (topoweti(i) > mu_twi(i)) THEN
-                        eta_fire = topoweti(i)
-                     ELSE
-                        eta_fire = mu_twi(i) + alp_twi(i)*chi_twi(i)
-                     ENDIF
+                     eta_fire = topoweti(i)
                      gfun_fire = 0._r8
-                     ! GRATIO only defines P/Q for x >= 0 (it returns ANS = 2 and leaves QANS
-                     ! untouched for x < 0, i.e. topoweti < mu_twi): below the distribution's
-                     ! lower bound everything is saturated, which x = 0 gives (Q = 1).
                      DO niter_fire = 1, 20
                         CALL GRATIO(alp_twi(i)+1._r8, &
-                             MAX(0._r8, (eta_fire-mu_twi(i))/chi_twi(i)), pgr1_fire, qgr_fire, 0)
+                             (eta_fire-mu_twi(i))/chi_twi(i), pgr1_fire, qgr_fire, 0)
                         CALL GRATIO(alp_twi(i), &
-                             MAX(0._r8, (eta_fire-mu_twi(i))/chi_twi(i)), pgr0_fire, qgr_fire, 0)
+                             (eta_fire-mu_twi(i))/chi_twi(i), pgr0_fire, qgr_fire, 0)
                         gfun_fire = ((eta_fire-mu_twi(i))*pgr0_fire &
                              - chi_twi(i)*alp_twi(i)*pgr1_fire) / topmod_vdcf - zwt(i)
                         IF (ABS(gfun_fire) <= 1.e-6_r8 .OR. pgr0_fire <= 0._r8) EXIT
@@ -387,7 +385,7 @@ CONTAINS
                              (chi_twi(i)*alp_twi(i)*pgr1_fire + topmod_vdcf*zwt(i)) / pgr0_fire
                      ENDDO
                      CALL GRATIO(alp_twi(i), &
-                          MAX(0._r8, (eta_fire-mu_twi(i))/chi_twi(i)), pgr0_fire, qgr_fire, 0)
+                          (eta_fire-mu_twi(i))/chi_twi(i), pgr0_fire, qgr_fire, 0)
                      satfrac_fire = qgr_fire
                   ENDIF
                ENDIF
