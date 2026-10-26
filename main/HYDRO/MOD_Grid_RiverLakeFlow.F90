@@ -78,7 +78,6 @@ CONTAINS
 
       integer :: i, irsv
       logical :: bif_restart_loaded
-      real(r8), allocatable :: grid_area_local(:)
 
       acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
 
@@ -137,28 +136,10 @@ CONTAINS
       gridriver_restart_file = ''
 
       CALL allocate_flood_patch ()
-      IF (p_is_worker) THEN
-         IF (DEF_GridRiverLake_FloodFeedback) THEN
-            allocate(flood_visible_uc(numucat), flood_protected_uc(numucat), &
-               flood_credit_patch(numpatch), flood_evap_acc(numpatch), flood_infil_acc(numpatch), &
-               flood_reservoir_uc(numucat), flood_grid_area(numinpm))
-            flood_evap_acc = 0._r8
-            flood_infil_acc = 0._r8
-            flood_evap_period = 0._r8
-            flood_infil_period = 0._r8
-
-            allocate(grid_area_local(numinpm))
-            grid_area_local = 0._r8
-            flood_credit_patch = 1._r8
-            IF (numpatch > 0) CALL worker_remap_data_pset2grid(remap_patch2inpm, &
-               flood_credit_patch, grid_area_local, fillvalue=0._r8, filter=flood_credit_patch>0._r8)
-            CALL worker_push_data(allreduce_inpm, grid_area_local, flood_grid_area, fillvalue=0._r8)
-            ! sum_area is allocated only on workers with requests (numinpm > 0)
-            IF (numinpm > 0) flood_grid_area = max(flood_grid_area, push_ucat2inpm%sum_area)
-            deallocate(grid_area_local)
-         ENDIF
-      ENDIF
       IF (DEF_GridRiverLake_FloodFeedback) THEN
+         CALL init_flood_feedback ()
+         flood_evap_period = 0._r8
+         flood_infil_period = 0._r8
          CALL publish_flood_feedback(start_year)
          IF (spinup .and. p_is_worker) THEN
             flood_credit_patch = 0._r8
@@ -211,15 +192,75 @@ CONTAINS
    END SUBROUTINE rebuild_volwater_ucat
 
    ! ---------
-   SUBROUTINE grid_riverlake_flow_lulcc ()
+   SUBROUTINE init_flood_feedback ()
 
+   ! Patch and grid arrays of grid flood feedback, built on the current land
+   ! patches and patch-to-grid mapping: at start-up and again after LULCC, which
+   ! rebuilds both (see MOD_Initialize).
+
+   USE MOD_LandPatch, only: numpatch
    IMPLICIT NONE
+
+   real(r8), allocatable :: grid_area_local(:)
+
+      IF (.not. p_is_worker) RETURN
+
+      IF (allocated(flood_visible_uc)) deallocate(flood_visible_uc, flood_protected_uc, &
+         flood_credit_patch, flood_evap_acc, flood_infil_acc, flood_reservoir_uc, flood_grid_area)
+
+      allocate(flood_visible_uc(numucat), flood_protected_uc(numucat), &
+         flood_credit_patch(numpatch), flood_evap_acc(numpatch), flood_infil_acc(numpatch), &
+         flood_reservoir_uc(numucat), flood_grid_area(numinpm))
+      flood_evap_acc = 0._r8
+      flood_infil_acc = 0._r8
+
+      ! land area of each runoff-input grid cell
+      allocate(grid_area_local(numinpm))
+      grid_area_local = 0._r8
+      flood_credit_patch = 1._r8
+      IF (numpatch > 0) CALL worker_remap_data_pset2grid(remap_patch2inpm, &
+         flood_credit_patch, grid_area_local, fillvalue=0._r8, filter=flood_credit_patch>0._r8)
+      CALL worker_push_data(allreduce_inpm, grid_area_local, flood_grid_area, fillvalue=0._r8)
+      ! sum_area is allocated only on workers with requests (numinpm > 0)
+      IF (numinpm > 0) flood_grid_area = max(flood_grid_area, push_ucat2inpm%sum_area)
+      deallocate(grid_area_local)
+
+   END SUBROUTINE init_flood_feedback
+
+   ! ---------
+   SUBROUTINE grid_riverlake_flow_lulcc (year)
+
+   ! After LULCC.  MOD_Initialize has rebuilt the network on the new land patches
+   ! (patch-to-grid mapping, pushes) and the river state has been carried over
+   ! (hold/restore_GridRiverLakeTimeVars_lulcc); rebuild what this module keeps on
+   ! the land patches.
+
+   USE MOD_LandPatch, only: numpatch
+   IMPLICIT NONE
+
+   integer, intent(in) :: year   ! the new year
+
+      IF (p_is_worker) THEN
+         ! the runoff filter is reset every routing call; size it for the new patches
+         IF (allocated(filter_rnof)) deallocate(filter_rnof)
+         allocate (filter_rnof (numpatch))
+         filter_rnof = .false.
+      ENDIF
 
       CALL allocate_flood_patch ()
       CALL rebuild_volwater_ucat ()
       IF (DEF_USE_BIFURCATION) THEN
          wdsrf_ucat_prev = wdsrf_ucat
          wdsrf_ucat_prev_valid = .true.
+      ENDIF
+
+      IF (DEF_GridRiverLake_FloodFeedback) THEN
+         ! The land sinks of the old patches were debited at the last routing call
+         ! of the year (flood_evap_acc/flood_infil_acc are settled every call), so
+         ! nothing is pending: rebuild the arrays on the new patches and publish the
+         ! flood state for them.
+         CALL init_flood_feedback ()
+         CALL publish_flood_feedback (year)
       ENDIF
 
    END SUBROUTINE grid_riverlake_flow_lulcc

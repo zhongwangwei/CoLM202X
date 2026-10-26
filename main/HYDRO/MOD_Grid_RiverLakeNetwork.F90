@@ -512,6 +512,9 @@ CONTAINS
 
       CALL build_worker_remapdata (landpatch, griducat, remap_patch2inpm)
 
+      IF (DEF_UnitCatchment_regional) &
+         CALL check_regional_coverage (nlon_ucat, nlat_ucat, idmap_x, idmap_y, remap_patch2inpm)
+
       IF (p_is_worker) THEN
          numinpm = remap_patch2inpm%num_grid
          IF (numinpm > 0) THEN
@@ -1108,6 +1111,108 @@ CONTAINS
       IF (allocated (ucat_area_all)) deallocate (ucat_area_all)
 
    END SUBROUTINE build_riverlake_network
+
+   SUBROUTINE check_regional_coverage (nlon, nlat, idmap_x, idmap_y, remap)
+
+   ! The regional network must take the runoff of every runoff-input cell that the
+   ! land patches overlap and that the full network (DEF_UnitCatchment_file) routes;
+   ! otherwise that runoff would be dropped without notice.  mksrfdata cuts the
+   ! network so, but with LULCC the patches of a later year may overlap cells that
+   ! the network was not cut for.  Called at start-up and after each LULCC.
+   ! Collective over all processes.  idmap_x/idmap_y (the regional input matrix) are
+   ! used on the master only.
+
+   USE MOD_SPMD_Task
+   USE MOD_Namelist,      only: DEF_UnitCatchment_file
+   USE MOD_NetCDFSerial
+   IMPLICIT NONE
+
+   integer, intent(in) :: nlon, nlat
+   integer, allocatable, intent(in) :: idmap_x(:,:), idmap_y(:,:)
+   type(worker_remapdata_type), intent(in) :: remap
+
+   logical, allocatable :: touched(:,:), routed_full(:,:), routed_regional(:,:)
+   integer, allocatable :: src_x(:,:), src_y(:,:), ids(:)
+   integer :: ng, ix, iy, nmiss
+#ifdef USEMPI
+   integer :: iworker
+#endif
+
+      IF (p_is_master) THEN
+         allocate (touched (nlon,nlat));  touched = .false.
+      ENDIF
+
+#ifdef USEMPI
+      IF (p_is_worker) THEN
+         ng = remap%num_grid
+         CALL mpi_send (ng, 1, MPI_INTEGER, p_address_master, mpi_tag_mesg, p_comm_glb, p_err)
+         IF (ng > 0) CALL mpi_send (remap%ids_me, ng, MPI_INTEGER, p_address_master, mpi_tag_data, &
+            p_comm_glb, p_err)
+      ELSEIF (p_is_master) THEN
+         DO iworker = 0, p_np_worker-1
+            CALL mpi_recv (ng, 1, MPI_INTEGER, p_address_worker(iworker), mpi_tag_mesg, p_comm_glb, &
+               p_stat, p_err)
+            IF (ng > 0) THEN
+               allocate (ids (ng))
+               CALL mpi_recv (ids, ng, MPI_INTEGER, p_address_worker(iworker), mpi_tag_data, &
+                  p_comm_glb, p_stat, p_err)
+               CALL mark (ids)
+               deallocate (ids)
+            ENDIF
+         ENDDO
+      ENDIF
+#else
+      IF (remap%num_grid > 0) CALL mark (remap%ids_me)
+#endif
+
+      nmiss = 0
+      IF (p_is_master) THEN
+         CALL ncio_read_serial (DEF_UnitCatchment_file, 'inpmat_x', src_x)
+         CALL ncio_read_serial (DEF_UnitCatchment_file, 'inpmat_y', src_y)
+         allocate (routed_full     (nlon,nlat));  CALL routed (src_x, src_y, routed_full)
+         allocate (routed_regional (nlon,nlat));  CALL routed (idmap_x, idmap_y, routed_regional)
+
+         nmiss = count(touched .and. routed_full .and. .not. routed_regional)
+         IF (nmiss > 0) THEN
+            write(*,'(A,I0,A)') 'ERROR: ', nmiss, ' runoff-input cells under the land patches are routed by'
+            write(*,'(A)') '   DEF_UnitCatchment_file but not by the regional unit-catchment network.'
+            write(*,'(A)') '   With LULCC run mksrfdata for every land-cover year before mkinidata;'
+            write(*,'(A)') '   otherwise run mksrfdata again for this domain.'
+         ENDIF
+         deallocate (touched, routed_full, routed_regional, src_x, src_y)
+      ENDIF
+
+#ifdef USEMPI
+      CALL mpi_bcast (nmiss, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+#endif
+      IF (nmiss > 0) CALL CoLM_stop ('regional unit-catchment network does not cover the land patches')
+
+   CONTAINS
+
+      SUBROUTINE mark (cell_ids)
+      integer, intent(in) :: cell_ids(:)
+      integer :: k
+         DO k = 1, size(cell_ids)
+            ix = mod(cell_ids(k)-1, nlon) + 1
+            iy = (cell_ids(k)-1) / nlon + 1
+            touched(ix,iy) = .true.
+         ENDDO
+      END SUBROUTINE mark
+
+      SUBROUTINE routed (mx, my, cell)
+      integer, intent(in)  :: mx(:,:), my(:,:)
+      logical, intent(out) :: cell(:,:)
+      integer :: j, k
+         cell = .false.
+         DO k = 1, size(mx,2)
+            DO j = 1, size(mx,1)
+               IF (mx(j,k) >= 1 .and. mx(j,k) <= nlon .and. my(j,k) >= 1 .and. my(j,k) <= nlat) &
+                  cell(mx(j,k), my(j,k)) = .true.
+            ENDDO
+         ENDDO
+      END SUBROUTINE routed
+
+   END SUBROUTINE check_regional_coverage
 
    SUBROUTINE verify_regional_network (file_regional, x_regional, y_regional)
 

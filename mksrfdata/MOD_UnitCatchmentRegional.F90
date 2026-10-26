@@ -18,6 +18,13 @@ MODULE MOD_UnitCatchmentRegional
 !    that file instead of DEF_UnitCatchment_file (see get_unitcatchment_file).
 !
 !    Called by mksrfdata once the land patches are built.
+!
+!    With LULCC mksrfdata runs once per land-cover year, all into the same landdata
+!    directory, and the model keeps one network for all years (its state is carried
+!    across the yearly re-initialisation).  The file therefore keeps the river systems
+!    of every year built so far: run mksrfdata for all years before mkinidata.  The
+!    model checks at start-up and after each LULCC that the network covers the land
+!    patches of the year (check_regional_coverage in MOD_Grid_RiverLakeNetwork).
 !-------------------------------------------------------------------------------------
 
    IMPLICIT NONE
@@ -42,7 +49,8 @@ CONTAINS
    type(worker_remapdata_type) :: remap
    logical, allocatable :: touched(:,:)
    integer, allocatable :: ids(:)
-   integer :: nlon, nlat, ng, iworker, i, ix, iy, nkeep, nsystem
+   integer :: nlon, nlat, ng, iworker, i, ix, iy, nkeep, nsystem, nmerged
+   logical :: merge_years
    character(len=256) :: file_regional
 
       file_regional = regional_unitcatchment_file ()
@@ -98,10 +106,17 @@ CONTAINS
 
       IF (p_is_master) THEN
          CALL execute_command_line ('mkdir -p ' // trim(DEF_dir_landdata) // '/riverlake')
+#ifdef LULCC
+         merge_years = .true.
+#else
+         merge_years = .false.
+#endif
          CALL unitcatchment_subset_write (trim(DEF_UnitCatchment_file), trim(file_regional), nlon, nlat, &
-            touched, .true., nkeep, nsystem)
+            touched, .true., nkeep, nsystem, merge_existing = merge_years, nsystem_merged = nmerged)
          write(*,'(/,A,I0,A,I0,A)') ' Regional unit-catchment network: ', nkeep, ' unit catchments in ', &
             nsystem, ' river systems'
+         IF (merge_years) write(*,'(A,I0,A)') '   (LULCC: ', nmerged, &
+            ' river systems kept from the land-cover years built before)'
          write(*,'(2A)') '   written to ', trim(file_regional)
       ENDIF
 

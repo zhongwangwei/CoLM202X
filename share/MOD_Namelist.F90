@@ -1561,8 +1561,8 @@ CONTAINS
                CALL CoLM_Stop ('Regional unit catchment requires DEF_UnitCatchment_file.')
             IF (len_trim(DEF_dir_landdata) + len(REGIONAL_UNITCATCHMENT_SUFFIX) > len(DEF_dir_landdata)) &
                CALL CoLM_Stop ('Regional unit catchment path is too long.')
-#if defined LULCC || !defined GridRiverLakeFlow
-            CALL CoLM_Stop ('Regional unit catchment requires GridRiverLakeFlow without LULCC.')
+#ifndef GridRiverLakeFlow
+            CALL CoLM_Stop ('Regional unit catchment requires GridRiverLakeFlow.')
 #endif
          ENDIF
 #ifndef GridRiverLakeFlow
@@ -1576,9 +1576,6 @@ CONTAINS
             write(*,*) 'Note: DEF_GridRiverLake_FloodplainStorageFix is set to .true. for grid flood feedback.'
             DEF_GridRiverLake_FloodplainStorageFix = .true.
          ENDIF
-#ifdef LULCC
-         IF (DEF_GridRiverLake_FloodFeedback) CALL CoLM_Stop ('Grid flood feedback does not support LULCC.')
-#endif
          IF (.not. (DEF_GRIDBASED_ROUTING_MAX_DT > 0._r8 .and. DEF_GRIDBASED_ROUTING_MAX_DT < huge(1._r8))) &
             CALL CoLM_Stop ('DEF_GRIDBASED_ROUTING_MAX_DT must be finite and positive.')
 #ifndef CaMa_Flood

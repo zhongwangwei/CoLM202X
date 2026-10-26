@@ -727,7 +727,15 @@ CONTAINS
 
    SUBROUTINE restore_GridRiverLakeTimeVars_lulcc ()
 
+   USE MOD_SPMD_Task, only: CoLM_stop
    IMPLICIT NONE
+
+      ! The held state is indexed by local unit catchment and reservoir.  That holds
+      ! because the rebuilt network distributes them as before (the distribution
+      ! depends on the river network only, not on the land patches); stop if the
+      ! rebuilt arrays nevertheless differ in size.
+      CALL check_same_size (wdsrf_ucat, held_wdsrf_ucat, 'unit catchments')
+      CALL check_same_size (volresv,    held_volresv,    'reservoirs')
 
       IF (allocated (wdsrf_ucat     )) deallocate (wdsrf_ucat     )
       IF (allocated (wdsrf_ucat_prev)) deallocate (wdsrf_ucat_prev)
@@ -752,6 +760,18 @@ CONTAINS
       restart_levee_enabled            = held_flags(6)
       volwater_ucat_valid              = held_flags(7)
       gridriver_restart_file           = held_restart_file
+
+
+   CONTAINS
+
+      SUBROUTINE check_same_size (rebuilt, held, what)
+      real(r8), allocatable, intent(in) :: rebuilt(:), held(:)
+      character(len=*), intent(in) :: what
+         IF (allocated(rebuilt) .and. allocated(held)) THEN
+            IF (size(rebuilt) /= size(held)) &
+               CALL CoLM_stop ('LULCC: the rebuilt river network has a different number of ' // what)
+         ENDIF
+      END SUBROUTINE check_same_size
 
    END SUBROUTINE restore_GridRiverLakeTimeVars_lulcc
 
