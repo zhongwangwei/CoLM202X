@@ -80,6 +80,7 @@ OBJS_MKSRFDATA = \
 				  Aggregation_SoilBrightness.o           \
 				  Aggregation_LakeDepth.o                \
 				  Aggregation_ForestHeight.o             \
+				  Aggregation_CanopyStructure.o          \
 				  Aggregation_SoilParameters.o           \
 				  Aggregation_DBedrock.o                 \
 				  Aggregation_Topography.o               \
@@ -377,6 +378,7 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
+MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
 MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_Reservoir.o MOD_Grid_RiverLakeLevee.o
 MOD_Grid_RiverLakeHistRoute.o: MOD_Grid_RiverLakeHistShard.o MOD_Grid_Reservoir.o
