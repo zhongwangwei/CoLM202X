@@ -63,6 +63,28 @@ MODULE MOD_Grid_RiverLakeNetwork
    integer :: p_comm_rivsys = MPI_COMM_NULL
 #endif
 
+   ! Adaptive time step groups under bifurcation.
+   ! Reason: with DEF_USE_BIFURCATION the routing sub-step used to be one global
+   ! minimum dt over all river systems of all workers, so the whole globe
+   ! advanced with the dt of its single most restrictive cell (about 1.5 times
+   ! the unit-catchment sub-steps of the per-river-system dt, and about twice the
+   ! wall time of a run without bifurcation).  A global dt is only needed where
+   ! bifurcation pathways couple two river systems: the flux over a pathway must
+   ! use the same dt on both sides to conserve water.  Here, in bifurcation mode,
+   ! "river system" (irivsys) means a group of river systems that are connected
+   ! by bifurcation pathways (or a single unconnected river system); groups
+   ! advance with their own dt like river systems without bifurcation.
+   ! Effect on results: this changes the time discretisation (each group takes
+   ! its own adaptive sub-steps instead of the global minimum), so results differ
+   ! at the level of the time-stepping error, as they would between two valid
+   ! adaptive time steps.  Without bifurcation nothing changes.
+   ! irivsys_shared(k) > 0 marks a group k that lies on more than one worker; its
+   ! value indexes the vector that is reduced (MPI_MIN) over all workers so that
+   ! every part of that group uses the same dt.  numrivsys_shared is the number of
+   ! such groups, identical on all processes.
+   integer :: numrivsys_shared = 0
+   integer, allocatable :: irivsys_shared (:)
+
 
    ! ----- Parameters for River and Lake -----
 
@@ -148,6 +170,7 @@ CONTAINS
 
    integer :: numrivmth
    integer,  allocatable :: rivermouth(:)
+   integer,  allocatable :: shared_ucat(:)
 
    integer,  allocatable :: nups_nst  (:), iups_nst  (:), nups_all(:)
    integer,  allocatable :: uc_up2down(:), order_ucat(:)
@@ -827,6 +850,40 @@ CONTAINS
          ENDIF
       ENDIF
 
+      ! With bifurcation the time step groups are the clusters of river systems
+      ! connected by bifurcation pathways (see irivsys_shared above).  The
+      ! river-mouth labels sent above have already set up p_comm_rivsys, which is
+      ! not used in bifurcation mode; here the master relabels every river system
+      ! with its cluster, and sends the labels and the index of clusters that are
+      ! shared between workers.  The grouping below then works per cluster.
+      IF (DEF_USE_BIFURCATION) THEN
+         IF (p_is_master) THEN
+            CALL bifurcation_dt_groups (parafile, numrivmth, rivermouth, shared_ucat)
+            DO iworker = 0, p_np_worker-1
+               nucat = numucat_wrk(iworker)
+               IF (nucat > 0) THEN
+                  allocate (idata1d (nucat))
+                  idata1d = rivermouth(ucat_data_address(iworker)%val)
+                  CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_worker(iworker), &
+                     mpi_tag_data, p_comm_glb, p_err)
+                  idata1d = shared_ucat(ucat_data_address(iworker)%val)
+                  CALL mpi_send (idata1d, nucat, MPI_INTEGER, p_address_worker(iworker), &
+                     mpi_tag_data, p_comm_glb, p_err)
+                  deallocate (idata1d)
+               ENDIF
+            ENDDO
+         ELSEIF (p_is_worker) THEN
+            IF (numucat > 0) THEN
+               allocate (shared_ucat (numucat))
+               CALL mpi_recv (rivermouth, numucat, MPI_INTEGER, p_address_master, &
+                  mpi_tag_data, p_comm_glb, p_stat, p_err)
+               CALL mpi_recv (shared_ucat, numucat, MPI_INTEGER, p_address_master, &
+                  mpi_tag_data, p_comm_glb, p_stat, p_err)
+            ENDIF
+         ENDIF
+         CALL mpi_bcast (numrivsys_shared, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
+      ENDIF
+
 #else
       rivsys_by_multiple_procs = .false.
 #endif
@@ -835,8 +892,13 @@ CONTAINS
 
          numrivsys = 0
          allocate (irivsys (numucat))
+         allocate (irivsys_shared (numucat))
+         irivsys_shared(:) = 0
 
-         IF (.not. rivsys_by_multiple_procs) THEN
+         ! In bifurcation mode the groups are always formed per cluster, also on
+         ! workers that hold a part of a large river system; groups shared with
+         ! other workers are synchronised through irivsys_shared instead.
+         IF ((.not. rivsys_by_multiple_procs) .or. DEF_USE_BIFURCATION) THEN
             IF (numucat > 0) THEN
 
                allocate (order_ucat (numucat))
@@ -853,6 +915,12 @@ CONTAINS
                   irivsys(order_ucat(i)) = numrivsys
                ENDDO
 
+               IF (allocated(shared_ucat)) THEN
+                  DO i = 1, numucat
+                     irivsys_shared(irivsys(i)) = shared_ucat(i)
+                  ENDDO
+               ENDIF
+
             ENDIF
          ELSE
             numrivsys  = 1
@@ -861,8 +929,9 @@ CONTAINS
 
       ENDIF
 
-      IF (allocated(rivermouth)) deallocate(rivermouth)
-      IF (allocated(order_ucat)) deallocate(order_ucat)
+      IF (allocated(rivermouth )) deallocate(rivermouth )
+      IF (allocated(shared_ucat)) deallocate(shared_ucat)
+      IF (allocated(order_ucat )) deallocate(order_ucat )
 
       ! ----- Parameters for River and Lake -----
 
@@ -1342,6 +1411,7 @@ CONTAINS
       IF (allocated(ucat_ups         )) deallocate(ucat_ups         )
       IF (allocated(wts_ups          )) deallocate(wts_ups          )
       IF (allocated(irivsys          )) deallocate(irivsys          )
+      IF (allocated(irivsys_shared   )) deallocate(irivsys_shared   )
       IF (allocated(lake_type        )) deallocate(lake_type        )
 
       IF (allocated(topo_rivelv      )) deallocate(topo_rivelv      )
@@ -1381,6 +1451,94 @@ CONTAINS
 #endif
 
    END SUBROUTINE riverlake_network_final
+
+   ! Time step groups for bifurcation (master only), see irivsys_shared.
+   ! rivermouth(totalnumucat) holds the river system of each unit catchment on
+   ! input and the cluster of river systems connected by bifurcation pathways on
+   ! output; a cluster is labelled by one of its river systems.  shared_ucat gives,
+   ! for each unit catchment, the index (1..numrivsys_shared) of its cluster when
+   ! that cluster has unit catchments on more than one worker, and 0 otherwise.
+   SUBROUTINE bifurcation_dt_groups (parafile, numrivmth, rivermouth, shared_ucat)
+
+   USE MOD_SPMD_Task
+   USE MOD_NetCDFSerial
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: parafile
+   integer, intent(in)    :: numrivmth
+   integer, intent(inout) :: rivermouth (:)
+   integer, allocatable, intent(out) :: shared_ucat (:)
+
+   integer, allocatable :: bif_upst (:), bif_down (:)
+   integer, allocatable :: parent (:), owner (:), ishared (:)
+   integer :: npth, ip, i, a, b, iworker, ic
+
+      CALL ncio_inquire_length (parafile, 'bifurcation_upst', npth)
+      IF (npth > 0) THEN
+         CALL ncio_read_serial (parafile, 'bifurcation_upst', bif_upst)
+         CALL ncio_read_serial (parafile, 'bifurcation_down', bif_down)
+      ENDIF
+
+      ! union-find over river systems; a pathway into the ocean (down <= 0) or
+      ! out of range joins nothing (read_bifurcation_global_arrays checks ranges)
+      allocate (parent (numrivmth))
+      parent = (/(i, i = 1, numrivmth)/)
+      DO ip = 1, npth
+         IF (bif_upst(ip) < 1 .or. bif_upst(ip) > size(rivermouth)) CYCLE
+         IF (bif_down(ip) < 1 .or. bif_down(ip) > size(rivermouth)) CYCLE
+         a = find_root (rivermouth(bif_upst(ip)))
+         b = find_root (rivermouth(bif_down(ip)))
+         IF (a /= b) parent(max(a,b)) = min(a,b)
+      ENDDO
+
+      DO i = 1, size(rivermouth)
+         rivermouth(i) = find_root (rivermouth(i))
+      ENDDO
+
+      ! clusters with unit catchments on more than one worker
+      allocate (owner (numrivmth));  owner(:) = -1
+      allocate (ishared (numrivmth)); ishared(:) = 0
+      DO iworker = 0, p_np_worker-1
+         DO i = 1, numucat_wrk(iworker)
+            ic = rivermouth(ucat_data_address(iworker)%val(i))
+            IF (owner(ic) == -1) THEN
+               owner(ic) = iworker
+            ELSEIF (owner(ic) /= iworker) THEN
+               ishared(ic) = 1
+            ENDIF
+         ENDDO
+      ENDDO
+
+      numrivsys_shared = 0
+      DO ic = 1, numrivmth
+         IF (ishared(ic) > 0) THEN
+            numrivsys_shared = numrivsys_shared + 1
+            ishared(ic) = numrivsys_shared
+         ENDIF
+      ENDDO
+
+      allocate (shared_ucat (size(rivermouth)))
+      shared_ucat = ishared(rivermouth)
+
+      write(*,'(A,I0,A,I0,A,I0,A)') 'Bifurcation time step groups: ', &
+         count(parent == (/(i, i = 1, numrivmth)/)), ' groups from ', numrivmth, &
+         ' river systems, ', numrivsys_shared, ' shared by several workers.'
+
+      deallocate (parent, owner, ishared)
+      IF (allocated(bif_upst)) deallocate (bif_upst)
+      IF (allocated(bif_down)) deallocate (bif_down)
+
+   CONTAINS
+
+      integer FUNCTION find_root (k)
+      integer, intent(in) :: k
+         find_root = k
+         DO WHILE (parent(find_root) /= find_root)
+            find_root = parent(find_root)
+         ENDDO
+      END FUNCTION find_root
+
+   END SUBROUTINE bifurcation_dt_groups
 
    SUBROUTINE read_and_distribute_bifurcation (parafile)
 

@@ -602,9 +602,11 @@ CONTAINS
          ELSE
             IF (ucatfilter_dn_pth(ipth) < 0.5_r8) CYCLE
             IF (is_resv_dn_pth(ipth) > 0.5_r8) CYCLE
-            ! Flow synchronizes one global BIF dt after all local stability
-            ! constraints.  The remote active mask is therefore sufficient;
-            ! sending the identical destination dt was a redundant MPI phase.
+            ! Flow synchronizes the dt of each group of river systems connected
+            ! by bifurcation pathways after all local stability constraints, and
+            ! both ends of a pathway are in the same group.  The remote active
+            ! mask is therefore sufficient; sending the identical destination dt
+            ! was a redundant MPI phase.
             dt_dn = dt
          ENDIF
 

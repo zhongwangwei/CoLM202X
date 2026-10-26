@@ -500,10 +500,12 @@ CONTAINS
             ! a mean dt below ROUTING_SUBSTEP_WARN_DT / ROUTING_SUBSTEP_ABORT_DT
             ! (otherwise the process sits in an effectively unbounded loop
             ! with no output).  The binding cell and its state are those of the
-            ! previous, completed substep.  Under bifurcation the dt is global,
-            ! so all workers reach the limits together and the owner(s) of the
-            ! binding cell report it; otherwise each worker counts its own
-            ! river systems and reports its own binding cell.
+            ! previous, completed substep.  Under bifurcation all workers run
+            ! the substeps in lockstep (the dt is per group of connected river
+            ! systems, dt_global below is the smallest one), so all workers
+            ! reach the limits together and the owner(s) of the binding cell
+            ! report it; otherwise each worker counts its own river systems and
+            ! reports its own binding cell.
             IF (DEF_USE_BIFURCATION) THEN
                dt_report = routing_last_global_dt
             ELSE
@@ -1215,6 +1217,20 @@ CONTAINS
    END SUBROUTINE push_ups2ucat_sum
 
 
+   ! Synchronise the adaptive dt under bifurcation.
+   ! dt_all(k) holds the dt that the local stability constraints allow for time
+   ! step group k (irivsys).  In bifurcation mode a group is a cluster of river
+   ! systems connected by bifurcation pathways (see irivsys_shared in
+   ! MOD_Grid_RiverLakeNetwork).  Each group keeps its own dt; a group that lies
+   ! on several workers takes the minimum over them, so both ends of every
+   ! pathway always use the same dt and the pathway flux stays conservative.
+   ! Formerly this routine replaced every dt by the global minimum over all
+   ! groups of all workers, which made the whole domain advance with the dt of
+   ! its single most restrictive cell.  Changing that changes the time
+   ! discretisation only (results differ at the level of the time-stepping
+   ! error).  All workers still run the sub-step loop in lockstep, until no
+   ! group anywhere has time left: the bifurcation and push routines inside the
+   ! loop are collective, so a worker must not leave the loop on its own.
    SUBROUTINE sync_global_routing_dt(dt_res, dt_all, next_loop_active)
 
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
@@ -1223,9 +1239,11 @@ CONTAINS
    real(r8), intent(in) :: dt_res(:)
    real(r8), intent(inout) :: dt_all(:)
    logical, intent(out) :: next_loop_active
-   real(r8) :: dt_reduce(2), dt_global, max_residual
+   ! dt_reduce(1): smallest dt of the active groups (-huge flags a non-finite
+   ! residual); dt_reduce(1+k): dt of shared group k
+   real(r8) :: dt_reduce(1+numrivsys_shared)
    logical :: pathological_mask(size(dt_res))
-   integer :: i
+   integer :: i, k
 
       pathological_mask = .false.
       DO i = 1, size(dt_res)
@@ -1249,16 +1267,22 @@ CONTAINS
          ENDIF
       ENDIF
 
-      dt_reduce = [huge(1._r8), 0._r8]
+      dt_reduce(:) = huge(1._r8)
       IF (any(.not. ieee_is_finite(dt_res))) THEN
          dt_reduce(1) = -huge(1._r8)
-      ELSEIF (any(dt_res > 0._r8)) THEN
-         dt_reduce(1) = minval(dt_all, mask=dt_res > 0._r8)
-         dt_reduce(2) = -maxval(dt_res, mask=dt_res > 0._r8)
+      ELSE
+         DO i = 1, size(dt_res)
+            IF (dt_res(i) > 0._r8) THEN
+               dt_reduce(1) = min(dt_reduce(1), dt_all(i))
+               k = irivsys_shared(i)
+               IF (k > 0) dt_reduce(1+k) = min(dt_reduce(1+k), dt_all(i))
+            ENDIF
+         ENDDO
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_allreduce (MPI_IN_PLACE, dt_reduce, 2, MPI_REAL8, MPI_MIN, p_comm_worker, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, dt_reduce, size(dt_reduce), MPI_REAL8, MPI_MIN, &
+         p_comm_worker, p_err)
 #endif
 
       IF (.not. ieee_is_finite(dt_reduce(1))) &
@@ -1266,27 +1290,27 @@ CONTAINS
       IF (dt_reduce(1) <= -0.5_r8 * huge(1._r8)) &
          CALL CoLM_stop('grid_riverlake_flow: non-finite routing residual')
 
-      dt_global = dt_reduce(1)
-      routing_last_global_dt = dt_global
-      max_residual = -dt_reduce(2)
+      routing_last_global_dt = dt_reduce(1)
       next_loop_active = .false.
 
-      IF (dt_global < 0.5_r8 * huge(1._r8)) THEN
-         IF (.not. ieee_is_finite(max_residual)) &
-            CALL CoLM_stop('grid_riverlake_flow: invalid synchronized routing dt')
-         IF (dt_global <= 0._r8) &
-            CALL CoLM_stop('grid_riverlake_flow: non-positive synchronized routing dt')
-         IF (max_residual > 0._r8 .and. max_residual - dt_global >= max_residual) &
-            CALL CoLM_stop('grid_riverlake_flow: routing dt makes no numerical progress')
-         next_loop_active = max_residual - dt_global > 0._r8
-         WHERE (dt_res > 0._r8)
-            dt_all = dt_global
-         ELSEWHERE
-            dt_all = 0._r8
-         END WHERE
-      ELSE
-         dt_all = 0._r8
-      ENDIF
+      DO i = 1, size(dt_res)
+         IF (dt_res(i) > 0._r8) THEN
+            k = irivsys_shared(i)
+            IF (k > 0) dt_all(i) = dt_reduce(1+k)
+            IF (dt_all(i) <= 0._r8) &
+               CALL CoLM_stop('grid_riverlake_flow: non-positive synchronized routing dt')
+            IF (dt_res(i) - dt_all(i) >= dt_res(i)) &
+               CALL CoLM_stop('grid_riverlake_flow: routing dt makes no numerical progress')
+            IF (dt_res(i) - dt_all(i) > 0._r8) next_loop_active = .true.
+         ELSE
+            dt_all(i) = 0._r8
+         ENDIF
+      ENDDO
+
+#ifdef USEMPI
+      CALL mpi_allreduce (MPI_IN_PLACE, next_loop_active, 1, MPI_LOGICAL, MPI_LOR, &
+         p_comm_worker, p_err)
+#endif
 
    END SUBROUTINE sync_global_routing_dt
 
