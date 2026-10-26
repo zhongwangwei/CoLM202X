@@ -30,11 +30,25 @@ MODULE MOD_WorkerPushData
 
       integer,  allocatable :: addr_single (:)
 
-      ! request j reads entries multi_ptr(j) : multi_ptr(j+1)-1 of multi_addr/multi_area,
-      ! only those whose source exists (any number per request, original order kept)
+      ! Multi mapping in compressed rows (CSR).  Request j reads the entries
+      !    multi_ptr(j) : multi_ptr(j+1)-1   of multi_addr / multi_area.
+      ! Reason: this used to be a dense (ndim1, num_req) table padded to the largest
+      ! number of sources of any request.  For river routing (push_ups2ucat) that is
+      ! the largest upstream count in the network, 10 on the 15min CaMa network,
+      ! while a unit catchment has 1.5 upstreams on average, so the summing loop,
+      ! run several times per routing substep, spent most of its time on padding
+      ! (~20% of routing CPU in a profile of the global network).
+      ! A row may hold any number of entries, so there is no cap on sources.
+      ! Results are unchanged: see build_worker_pushdata_multi.
       integer,  allocatable :: multi_ptr   (:)
       integer,  allocatable :: multi_addr  (:)
       real(r8), allocatable :: multi_area  (:)
+      ! True when a batched push (worker_push_data_multi_real8_batch) gives
+      ! exactly the result of pushing each field on its own: the batch skips
+      ! entries of non-positive area, which the single-field push includes, and
+      ! always resets the receive vector, which the single-field push only does
+      ! when it has requests.  Callers may batch fields only when this is true.
+      logical :: multi_batch_exact = .false.
       real(r8), allocatable :: sum_area    (:)
 
       ! data is on the same processor
@@ -406,8 +420,15 @@ CONTAINS
 
             pushdata%sum_area = sum(area_multi, dim = 1)
 
-            ! Compressed rows: a source that does not exist always arrives as the fill
-            ! value and is skipped when summing, so dropping it leaves every sum unchanged.
+            ! Compressed rows.  Only entries whose source exists (id_found) are kept,
+            ! in their original order inside each request.  This does not change any
+            ! result, bit for bit:
+            !  - a dropped entry has no sender, so worker_push_data_uniq_real8 leaves its
+            !    slot at the fill value and the summing loops always skipped it
+            !    (val == fillvalue); its area was also already set to 0 above;
+            !  - kept entries are summed in the same order as before, so every
+            !    floating-point sum is formed identically;
+            !  - sum_area is still computed from the dense table, as before.
             k = 0
             DO j = 1, num_req
                DO i = 1, ndim1
@@ -429,6 +450,7 @@ CONTAINS
                ENDDO
             ENDDO
             pushdata%multi_ptr(num_req+1) = k + 1
+            pushdata%multi_batch_exact = all(pushdata%multi_area > 0.) .and. (n_req_uniq > 0)
 
             deallocate (id_found, addr_multi, area_multi)
          ELSE
@@ -436,6 +458,7 @@ CONTAINS
             allocate (pushdata%multi_addr (0))
             allocate (pushdata%multi_area (0))
             pushdata%multi_ptr(1) = 1
+            pushdata%multi_batch_exact = .true.
             allocate (pushdata%sum_area   (0))
          ENDIF
 
@@ -1143,6 +1166,8 @@ CONTAINS
          IF (pushdata%num_req_uniq > 0) THEN
 
             vec_recv(:) = fillvalue
+            ! mode is compared once here instead of once per request inside the
+            ! loop (a string compare per unit catchment and substep); same logic.
             do_average = (trim(mode) == 'average')
 
             DO j = 1, size(pushdata%multi_ptr)-1

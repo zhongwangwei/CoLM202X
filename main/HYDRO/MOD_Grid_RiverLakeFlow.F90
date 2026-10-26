@@ -271,8 +271,18 @@ CONTAINS
    real(r8), allocatable :: normal_outgoing_rate(:), ordinary_scale(:), ordinary_scale_next(:)
    real(r8), allocatable :: volresv_safe(:)
    real(r8), allocatable :: levee_floodarea(:)
-   ! floodplain_curve(i)%volume(wdsrf_ucat(i)), refreshed whenever wdsrf_ucat changes;
-   ! only used without bifurcation and levee, which carry volwater_ucat instead
+   ! volwater_curve(i) = floodplain_curve(i)%volume(wdsrf_ucat(i)), stored right after
+   ! every assignment of wdsrf_ucat(i) in this routine.
+   ! Reason: without bifurcation and levee the water volume is not carried but
+   ! recomputed from the depth, and that was done 2-3 times per unit catchment and
+   ! substep (CFL/negative-water constraint, storage update, accumulation) for the
+   ! same depth.  The table lookup was the largest single cost of routing on the
+   ! global network (~30% of routing CPU), so it is now done once per depth change.
+   ! Results are unchanged, bit for bit: wdsrf_ucat(i) of a river catchment is only
+   ! assigned at the two places that refresh volwater_curve(i) (before the substep
+   ! loop and in the storage update), so every read gets the value the same
+   ! function would return for the same depth.
+   ! With bifurcation or levee, volwater_ucat is used as before and this is unused.
    real(r8), allocatable :: volwater_curve(:)
 
    real(r8) :: veloct_fc, height_fc, momen_fc, zsurf_fc
@@ -432,6 +442,8 @@ CONTAINS
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+                  ! wdsrf_ucat(i) changed: refresh the stored volume read below
+                  ! (see volwater_curve; identical to computing it at each read)
                   IF (.not. (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE)) &
                      volwater_curve(i) = floodplain_curve(i)%volume (wdsrf_ucat(i))
                ENDIF
@@ -670,9 +682,8 @@ CONTAINS
 
             ENDDO
 
-            CALL worker_push_data (push_ups2ucat, hflux_fc, hflux_sumups, fillvalue = 0., mode = 'sum')
-            CALL worker_push_data (push_ups2ucat, mflux_fc, mflux_sumups, fillvalue = 0., mode = 'sum')
-            CALL worker_push_data (push_ups2ucat, zgrad_dn, zgrad_sumups, fillvalue = 0., mode = 'sum')
+            ! the three upstream sums in one exchange (see push_ups2ucat_sum)
+            CALL push_ups2ucat_sum (hflux_fc, hflux_sumups, mflux_fc, mflux_sumups, zgrad_dn, zgrad_sumups)
 
             IF (numucat > 0) THEN
                WHERE (ucatfilter)
@@ -724,8 +735,7 @@ CONTAINS
 
                ENDDO
 
-               CALL worker_push_data (push_ups2ucat, hflux_resv, hflux_sumups, fillvalue = 0., mode = 'sum')
-               CALL worker_push_data (push_ups2ucat, mflux_resv, mflux_sumups, fillvalue = 0., mode = 'sum')
+               CALL push_ups2ucat_sum (hflux_resv, hflux_sumups, mflux_resv, mflux_sumups)
 
                IF (numucat > 0) THEN
                   WHERE (ucatfilter)
@@ -759,6 +769,7 @@ CONTAINS
                      IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                         volwater = volwater_ucat(i)
                      ELSE
+                        ! was floodplain_curve(i)%volume(wdsrf_ucat(i)), same value
                         volwater = volwater_curve(i)
                      ENDIF
                   ELSE
@@ -845,8 +856,7 @@ CONTAINS
                   mflux_fc(i) = mflux_fc(i) * dt_this
                   IF (is_built_resv(i)) qresv_out(ucat2resv(i)) = hflux_fc(i)
                ENDDO
-               CALL worker_push_data(push_ups2ucat, hflux_fc, hflux_sumups, fillvalue=0._r8, mode='sum')
-               CALL worker_push_data(push_ups2ucat, mflux_fc, mflux_sumups, fillvalue=0._r8, mode='sum')
+               CALL push_ups2ucat_sum (hflux_fc, hflux_sumups, mflux_fc, mflux_sumups)
                WHERE (ucatfilter)
                   sum_hflux_riv = hflux_fc - hflux_sumups
                   sum_mflux_riv = mflux_fc - mflux_sumups
@@ -914,6 +924,7 @@ CONTAINS
                   IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                      volwater = volwater_ucat(i)
                   ELSE
+                     ! was floodplain_curve(i)%volume(wdsrf_ucat(i)), same value
                      volwater = volwater_curve(i)
                   ENDIF
                ELSE
@@ -951,6 +962,8 @@ CONTAINS
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+                  ! wdsrf_ucat(i) changed: refresh the stored volume read below
+                  ! (see volwater_curve; identical to computing it at each read)
                   IF (.not. (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE)) &
                      volwater_curve(i) = floodplain_curve(i)%volume (wdsrf_ucat(i))
                ENDIF
@@ -1016,6 +1029,7 @@ CONTAINS
                      IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                         volwater = volwater_ucat(i)
                      ELSE
+                        ! was floodplain_curve(i)%volume(wdsrf_ucat(i)), same value
                         volwater = volwater_curve(i)
                      ENDIF
                   ENDIF
@@ -1158,6 +1172,47 @@ CONTAINS
       IF (allocated(dt_all       )) deallocate(dt_all       )
 
    END SUBROUTINE grid_riverlake_flow
+
+   ! ---------
+   SUBROUTINE push_ups2ucat_sum (send1, recv1, send2, recv2, send3, recv3)
+
+   ! Sum over the upstream unit catchments of two or three fields.
+   ! Reason: these sums were pushed one field at a time, which costs one
+   ! exchange (one message per neighbouring worker) and one pass over the
+   ! mapping per field, two to three times per routing substep.  They are now
+   ! pushed together in one batched exchange.
+   ! Results are unchanged, bit for bit: the batch is used only when
+   ! push_ups2ucat%multi_batch_exact says it reproduces the single-field push
+   ! (all upstream weights are 1 in the routing network); each field is then
+   ! summed with the same entries in the same order.  Otherwise the fields are
+   ! pushed one by one exactly as before.
+
+   USE MOD_WorkerPushData, only: worker_push_real8_field_type
+   IMPLICIT NONE
+
+   real(r8), target :: send1(:), recv1(:), send2(:), recv2(:)
+   real(r8), target, optional :: send3(:), recv3(:)
+
+   type(worker_push_real8_field_type) :: fields(3)
+   integer :: nfield
+
+      IF (push_ups2ucat%multi_batch_exact) THEN
+         fields(1)%send => send1;  fields(1)%recv => recv1;  fields(1)%fillvalue = 0._r8
+         fields(2)%send => send2;  fields(2)%recv => recv2;  fields(2)%fillvalue = 0._r8
+         nfield = 2
+         IF (present(send3)) THEN
+            fields(3)%send => send3;  fields(3)%recv => recv3;  fields(3)%fillvalue = 0._r8
+            nfield = 3
+         ENDIF
+         CALL worker_push_data (push_ups2ucat, fields(1:nfield), mode = 'sum')
+      ELSE
+         CALL worker_push_data (push_ups2ucat, send1, recv1, fillvalue = 0., mode = 'sum')
+         CALL worker_push_data (push_ups2ucat, send2, recv2, fillvalue = 0., mode = 'sum')
+         IF (present(send3)) &
+            CALL worker_push_data (push_ups2ucat, send3, recv3, fillvalue = 0., mode = 'sum')
+      ENDIF
+
+   END SUBROUTINE push_ups2ucat_sum
 
 
    SUBROUTINE sync_global_routing_dt(dt_res, dt_all, next_loop_active)
