@@ -56,7 +56,6 @@ PROGRAM CoLM
 #endif
 #if (defined CaMa_Flood)
    USE MOD_CaMa_colmCaMa, only: colm_CaMa_init, colm_CaMa_drv, colm_cama_write_restart, colm_cama_exit
-   USE YOS_CMF_INPUT, only: CSETFILE
 #endif
 #ifdef SinglePoint
    USE MOD_SingleSrfdata
@@ -507,11 +506,7 @@ PROGRAM CoLM
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-         IF(CSETFILE=='NONE')THEN
-            CALL colm_CaMa_drv(idate(3),deltim,save_to_restart(idate,deltim,itstamp,ptstamp,etstamp))
-         ELSE
-         CALL colm_CaMa_drv(idate(3)) ! run CaMa-Flood
-         ENDIF
+         CALL colm_CaMa_drv(idate(3),deltim,save_to_restart(idate,deltim,itstamp,ptstamp,etstamp)) ! run CaMa-Flood
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif

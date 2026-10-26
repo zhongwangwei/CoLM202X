@@ -139,7 +139,7 @@ CONTAINS
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
 #if (defined CaMa_Flood)
    USE MOD_CaMa_colmCaMa, only: get_fldevp
-   USE YOS_CMF_INPUT, only: LWEVAP, CSETFILE
+   USE YOS_CMF_INPUT, only: LWEVAP
 #endif
 
    IMPLICIT NONE
@@ -1214,8 +1214,8 @@ ENDIF
 #endif
 
 #if (defined CaMa_Flood)
-      ! NC-mode CaMa: inundation evaporation is part of the ground energy balance
-      IF (CSETFILE == 'NONE' .and. LWEVAP .and. patchtype == 0 .and. &
+      ! CaMa: inundation evaporation is part of the ground energy balance
+      IF (LWEVAP .and. patchtype == 0 .and. &
           flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
          fldfrc_eff = MIN(1._r8, MAX(0._r8, fldfrc))
          flood_evap_active = fldfrc_eff > 0._r8

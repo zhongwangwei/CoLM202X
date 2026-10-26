@@ -9,7 +9,7 @@ LLEVEE   = .FALSE.                     ! true: activate levee scheme  (under dev
 
 
 LROSPLIT     = .FALSE.                          ! true: input if surface (Qs) and sub-surface (Qsb) runoff
-LWEVAP       = .TRUE.                          ! true: input water evaporation to extract from floodplain
+LWEVAP       = .FALSE.                          ! true: input water evaporation to extract from floodplain
 LWEVAPFIX    = .TRUE.                          ! true: water balance closure extracting water from evap when available
 LWINFILT     = .FALSE.                          ! true: input water infiltration to extract from floodplain
 LWINFILTFIX  = .FALSE.                          ! true: water balance closure extracting water from Infiltration when available
@@ -36,8 +36,8 @@ LSTG_ES  = .FALSE.                              ! true: for Vector Processor opt
 /
 &NDIMTIME
 CDIMINFO = "../CaMa/map/CaMaMap4CoLM_glb_0.25in_0.25out/glb_0.25in_0.25out-diminfo.txt"               ! text file for dimention information
-DT       = 21600                                                                            ! time step length (sec)
-IFRQ_INP = 6                                                                               ! input forcing update frequency (hour)
+DT       = 3600                                                                             ! time step length (sec)
+IFRQ_INP = 1                                                                               ! input forcing update frequency (hour)
 /
 &NPARAM
 PMANRIV  = 0.03D0                      ! manning coefficient river
