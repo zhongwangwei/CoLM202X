@@ -585,7 +585,7 @@ ENDIF
 
          ! allocate and read grided LAI raw data
          dir = trim(dir_rawdata) // trim(DEF_rawdata%urban_lsai%dir)
-         fname = trim(DEF_rawdata%urban_lsai%fname)//'.'//trim(cyear)
+         fname = get_rawdata_fname (DEF_rawdata%urban_lsai%fname, cyear, '_')
 
          ! loop for month
          DO imonth = 1, 12
@@ -677,7 +677,7 @@ ENDIF
 
          ! allocate and read grided SAI raw data
          dir = trim(dir_rawdata) // trim(DEF_rawdata%urban_lsai%dir)
-         fname = trim(DEF_rawdata%urban_lsai%fname)//'.'//trim(cyear)
+         fname = get_rawdata_fname (DEF_rawdata%urban_lsai%fname, cyear, '_')
 
          ! loop for month
          DO imonth = 1, 12
