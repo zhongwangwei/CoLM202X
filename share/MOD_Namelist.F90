@@ -3063,11 +3063,22 @@ ENDIF
       ENDIF
    END FUNCTION get_basename
 
+   ! Rawdata namelists that use the CoLM2024 unified file naming
+   ! (URBSRFYYYY, LCZ_DOM, HTOP read from pft files, etc.).
+   LOGICAL FUNCTION is_colm2024_rawdata () RESULT(is_c2024)
+
+      IMPLICIT NONE
+
+      is_c2024 = ( index(DEF_rawdata_namelist, '2024') > 0 )
+
+   END FUNCTION is_colm2024_rawdata
+
    ! Build rawdata file name with a year suffix.
    ! For colm2024.nml the legacy rawdata layout is used:
    !   PFT/LAI:       MOD2005.nc
    !   urban LAI/SAI: URBLAI_2005.nc
-   ! Other namelists keep the original "fname.year" convention.
+   ! Other namelists keep the original "fname.year" convention,
+   ! including colm2024_land.nml which uses the c2022 layout.
    FUNCTION get_rawdata_fname (fname, cyear, old_sep) RESULT(name)
 
       IMPLICIT NONE
