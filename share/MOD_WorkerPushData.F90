@@ -30,8 +30,11 @@ MODULE MOD_WorkerPushData
 
       integer,  allocatable :: addr_single (:)
 
-      integer,  allocatable :: addr_multi  (:,:)
-      real(r8), allocatable :: area_multi  (:,:)
+      ! request j reads entries multi_ptr(j) : multi_ptr(j+1)-1 of multi_addr/multi_area,
+      ! only those whose source exists (any number per request, original order kept)
+      integer,  allocatable :: multi_ptr   (:)
+      integer,  allocatable :: multi_addr  (:)
+      real(r8), allocatable :: multi_area  (:)
       real(r8), allocatable :: sum_area    (:)
 
       ! data is on the same processor
@@ -336,9 +339,11 @@ CONTAINS
    type(worker_pushdata_type), intent(inout) :: pushdata
 
    ! Local Variables
-   integer :: ndim1, n_req_uniq, iloc, i, j, iworker
+   integer :: ndim1, n_req_uniq, iloc, i, j, iworker, k
    integer, allocatable :: ids_req_uniq (:)
    logical, allocatable :: id_found     (:)
+   integer,  allocatable :: addr_multi (:,:)
+   real(r8), allocatable :: area_multi (:,:)
 
       IF (p_is_worker) THEN
 
@@ -353,11 +358,11 @@ CONTAINS
                ENDDO
             ENDDO
 
-            allocate (pushdata%addr_multi (ndim1,num_req))
+            allocate (addr_multi (ndim1,num_req))
 
             DO j = 1, num_req
                DO i = 1, ndim1
-                  pushdata%addr_multi(i,j) = &
+                  addr_multi(i,j) = &
                      find_in_sorted_list1 (ids_req(i,j), n_req_uniq, ids_req_uniq(1:n_req_uniq))
                ENDDO
             ENDDO
@@ -370,13 +375,13 @@ CONTAINS
          pushdata%mapping_kind = WORKER_PUSH_MAPPING_MULTI
 
          IF (num_req > 0) THEN
-            allocate (pushdata%area_multi (ndim1,num_req))
+            allocate (area_multi (ndim1,num_req))
             allocate (pushdata%sum_area   (num_req))
 
-            pushdata%area_multi = area_req
+            area_multi = area_req
 
             WHERE ((area_req <= 0.) .or. (ids_req <= 0))
-               pushdata%area_multi = 0.
+               area_multi = 0.
             END WHERE
 
             allocate (id_found (n_req_uniq))
@@ -393,17 +398,44 @@ CONTAINS
 
             DO j = 1, num_req
                DO i = 1, ndim1
-                  IF (.not. id_found(pushdata%addr_multi(i,j))) then
-                     pushdata%area_multi(i,j) = 0.
+                  IF (.not. id_found(addr_multi(i,j))) then
+                     area_multi(i,j) = 0.
                   ENDIF
                ENDDO
             ENDDO
 
-            pushdata%sum_area = sum(pushdata%area_multi, dim = 1)
+            pushdata%sum_area = sum(area_multi, dim = 1)
 
-            deallocate (id_found)
+            ! Compressed rows: a source that does not exist always arrives as the fill
+            ! value and is skipped when summing, so dropping it leaves every sum unchanged.
+            k = 0
+            DO j = 1, num_req
+               DO i = 1, ndim1
+                  IF (id_found(addr_multi(i,j))) k = k + 1
+               ENDDO
+            ENDDO
+            allocate (pushdata%multi_ptr  (num_req+1))
+            allocate (pushdata%multi_addr (k))
+            allocate (pushdata%multi_area (k))
+            k = 0
+            DO j = 1, num_req
+               pushdata%multi_ptr(j) = k + 1
+               DO i = 1, ndim1
+                  IF (id_found(addr_multi(i,j))) THEN
+                     k = k + 1
+                     pushdata%multi_addr(k) = addr_multi(i,j)
+                     pushdata%multi_area(k) = area_multi(i,j)
+                  ENDIF
+               ENDDO
+            ENDDO
+            pushdata%multi_ptr(num_req+1) = k + 1
+
+            deallocate (id_found, addr_multi, area_multi)
          ELSE
-            allocate (pushdata%area_multi (ndim1,0))
+            allocate (pushdata%multi_ptr  (1))
+            allocate (pushdata%multi_addr (0))
+            allocate (pushdata%multi_area (0))
+            pushdata%multi_ptr(1) = 1
             allocate (pushdata%sum_area   (0))
          ENDIF
 
@@ -1093,8 +1125,9 @@ CONTAINS
 
    ! Local Variables
    real(r8), allocatable :: vec_recv_uniq (:)
-   integer  :: i, j
+   integer  :: k, j
    real(r8) :: val, sumarea
+   logical  :: do_average
 
       IF (p_is_worker) THEN
 
@@ -1110,24 +1143,25 @@ CONTAINS
          IF (pushdata%num_req_uniq > 0) THEN
 
             vec_recv(:) = fillvalue
+            do_average = (trim(mode) == 'average')
 
-            DO j = 1, size(pushdata%addr_multi,2)
+            DO j = 1, size(pushdata%multi_ptr)-1
 
                sumarea = 0.
 
-               DO i = 1, size(pushdata%addr_multi,1)
-                  val = vec_recv_uniq(pushdata%addr_multi(i,j))
+               DO k = pushdata%multi_ptr(j), pushdata%multi_ptr(j+1)-1
+                  val = vec_recv_uniq(pushdata%multi_addr(k))
                   IF (val /= fillvalue) THEN
                      IF (vec_recv(j) == fillvalue) THEN
-                        vec_recv(j) = val * pushdata%area_multi(i,j)
+                        vec_recv(j) = val * pushdata%multi_area(k)
                      ELSE
-                        vec_recv(j) = vec_recv(j) + val * pushdata%area_multi(i,j)
+                        vec_recv(j) = vec_recv(j) + val * pushdata%multi_area(k)
                      ENDIF
-                     sumarea = sumarea + pushdata%area_multi(i,j)
+                     sumarea = sumarea + pushdata%multi_area(k)
                   ENDIF
                ENDDO
 
-               IF (trim(mode) == 'average') THEN
+               IF (do_average) THEN
                   IF (vec_recv(j) /= fillvalue .and. sumarea > 0.) THEN
                      vec_recv(j) = vec_recv(j) / sumarea
                   ENDIF
@@ -1165,10 +1199,10 @@ CONTAINS
          IF (.not. present(mode)) &
             CALL CoLM_stop('worker_push_data: mode is required for a batched multi mapping')
          IF (pushdata%num_req_uniq > 0 .and. &
-             (.not. allocated(pushdata%addr_multi) .or. .not. allocated(pushdata%area_multi))) &
+             (.not. allocated(pushdata%multi_ptr) .or. .not. allocated(pushdata%multi_area))) &
             CALL CoLM_stop('worker_push_data: incomplete batched multi mapping')
          expected_recv_size = 0
-         IF (allocated(pushdata%addr_multi)) expected_recv_size = size(pushdata%addr_multi, 2)
+         IF (allocated(pushdata%multi_ptr)) expected_recv_size = size(pushdata%multi_ptr) - 1
 
       CASE DEFAULT
          CALL CoLM_stop('worker_push_data: batch used with an untyped push mapping')
@@ -1194,7 +1228,7 @@ CONTAINS
    type(worker_push_real8_field_type), intent(in) :: fields(:)
    character(len=*), intent(in), optional :: mode
 
-   integer :: ifield, i, j, i_to
+   integer :: ifield, i, j, k, i_to
    real(r8) :: val, sumarea
    character(len=16) :: batch_mode
    logical :: do_average
@@ -1286,19 +1320,19 @@ CONTAINS
                   fields(ifield)%recv = pushdata%recv_uniq_real8(pushdata%addr_single)
 
                CASE (WORKER_PUSH_MAPPING_MULTI)
-                  DO j = 1, size(pushdata%addr_multi,2)
+                  DO j = 1, size(pushdata%multi_ptr)-1
                      sumarea = 0._r8
-                     DO i = 1, size(pushdata%addr_multi,1)
-                        IF (pushdata%area_multi(i,j) <= 0._r8) CYCLE
-                        val = pushdata%recv_uniq_real8(pushdata%addr_multi(i,j))
+                     DO k = pushdata%multi_ptr(j), pushdata%multi_ptr(j+1)-1
+                        IF (pushdata%multi_area(k) <= 0._r8) CYCLE
+                        val = pushdata%recv_uniq_real8(pushdata%multi_addr(k))
                         IF (val /= fields(ifield)%fillvalue) THEN
                            IF (fields(ifield)%recv(j) == fields(ifield)%fillvalue) THEN
-                              fields(ifield)%recv(j) = val * pushdata%area_multi(i,j)
+                              fields(ifield)%recv(j) = val * pushdata%multi_area(k)
                            ELSE
                               fields(ifield)%recv(j) = fields(ifield)%recv(j) + &
-                                 val * pushdata%area_multi(i,j)
+                                 val * pushdata%multi_area(k)
                            ENDIF
-                           sumarea = sumarea + pushdata%area_multi(i,j)
+                           sumarea = sumarea + pushdata%multi_area(k)
                         ENDIF
                      ENDDO
 
@@ -1458,8 +1492,9 @@ CONTAINS
    type(worker_pushdata_type) :: this
 
       IF (allocated(this%addr_single )) deallocate(this%addr_single )
-      IF (allocated(this%addr_multi  )) deallocate(this%addr_multi  )
-      IF (allocated(this%area_multi  )) deallocate(this%area_multi  )
+      IF (allocated(this%multi_ptr   )) deallocate(this%multi_ptr   )
+      IF (allocated(this%multi_addr  )) deallocate(this%multi_addr  )
+      IF (allocated(this%multi_area  )) deallocate(this%multi_area  )
       IF (allocated(this%sum_area    )) deallocate(this%sum_area    )
       IF (allocated(this%self_from   )) deallocate(this%self_from   )
       IF (allocated(this%self_to     )) deallocate(this%self_to     )

@@ -271,6 +271,9 @@ CONTAINS
    real(r8), allocatable :: normal_outgoing_rate(:), ordinary_scale(:), ordinary_scale_next(:)
    real(r8), allocatable :: volresv_safe(:)
    real(r8), allocatable :: levee_floodarea(:)
+   ! floodplain_curve(i)%volume(wdsrf_ucat(i)), refreshed whenever wdsrf_ucat changes;
+   ! only used without bifurcation and levee, which carry volwater_ucat instead
+   real(r8), allocatable :: volwater_curve(:)
 
    real(r8) :: veloct_fc, height_fc, momen_fc, zsurf_fc
    real(r8) :: bedelv_fc, height_up, height_dn
@@ -357,6 +360,7 @@ CONTAINS
          allocate (sum_zgrad_riv (numucat))
          allocate (ucatfilter    (numucat))
          allocate (levee_floodarea(numucat))
+         allocate (volwater_curve (numucat))
          levee_floodarea = 0._r8
 
          allocate (hflux_sumups  (numucat))
@@ -428,6 +432,8 @@ CONTAINS
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+                  IF (.not. (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE)) &
+                     volwater_curve(i) = floodplain_curve(i)%volume (wdsrf_ucat(i))
                ENDIF
                volwater_ucat(i) = volwater
                IF (wdsrf_ucat(i) > RIVERMIN) THEN
@@ -753,7 +759,7 @@ CONTAINS
                      IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                         volwater = volwater_ucat(i)
                      ELSE
-                        volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                        volwater = volwater_curve(i)
                      ENDIF
                   ELSE
                      ! for reservoir
@@ -908,7 +914,7 @@ CONTAINS
                   IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                      volwater = volwater_ucat(i)
                   ELSE
-                     volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+                     volwater = volwater_curve(i)
                   ENDIF
                ELSE
                   volwater = volresv(ucat2resv(i))
@@ -945,6 +951,8 @@ CONTAINS
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
+                  IF (.not. (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE)) &
+                     volwater_curve(i) = floodplain_curve(i)%volume (wdsrf_ucat(i))
                ENDIF
 
                IF (is_built_resv(i)) THEN
@@ -1008,7 +1016,7 @@ CONTAINS
                      IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                         volwater = volwater_ucat(i)
                      ELSE
-                        volwater = floodplain_curve(i)%volume(wdsrf_ucat(i))
+                        volwater = volwater_curve(i)
                      ENDIF
                   ENDIF
                   rivsto_hist = min(volwater, floodplain_curve(i)%rivstomax)
@@ -1058,7 +1066,7 @@ CONTAINS
                IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                   totalvol_aft = totalvol_aft + volwater_ucat(i)
                ELSE
-                  totalvol_aft = totalvol_aft + floodplain_curve(i)%volume (wdsrf_ucat(i))
+                  totalvol_aft = totalvol_aft + volwater_curve(i)
                ENDIF
                IF (DEF_USE_LEVEE .and. has_levee(i)) totalvol_aft = totalvol_aft + levsto(i)
             ELSE
@@ -1144,6 +1152,7 @@ CONTAINS
       IF (allocated(ordinary_scale_next)) deallocate(ordinary_scale_next)
       IF (allocated(volresv_safe)) deallocate(volresv_safe)
       IF (allocated(levee_floodarea)) deallocate(levee_floodarea)
+      IF (allocated(volwater_curve )) deallocate(volwater_curve )
       IF (allocated(ucatfilter   )) deallocate(ucatfilter   )
       IF (allocated(dt_res       )) deallocate(dt_res       )
       IF (allocated(dt_all       )) deallocate(dt_all       )
