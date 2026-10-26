@@ -208,11 +208,11 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
                      IF (iy < 2000) THEN
                         ! every 5 years one file
                         write(cyear_bk,'(i4.4)') (iy / 5) * 5
-                        fname = trim(DEF_rawdata%lai_sai%fname)//'.'//trim(cyear_bk)
+                        fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear_bk, '')
                         CALL read_5x5_data_time (dir, fname, gridlai, &
                                    'MONTHLY_LC_LAI_'//trim(cyear), itime, LAI)
                      ELSE
-                        fname = trim(DEF_rawdata%lai_sai%fname)//'.'//trim(cyear)
+                        fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear, '')
                         CALL read_5x5_data_time (dir, fname, gridlai, &
                                                  'MONTHLY_LC_LAI', itime, LAI)
                      ENDIF
@@ -302,9 +302,9 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
 
             IF (iy < 2000) THEN
                write(cyear_bk,'(i4.4)') (iy / 5) * 5
-               fname = trim(DEF_rawdata%lai_sai%fname)//'.'//trim(cyear_bk)
+               fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear_bk, '')
             ELSE
-               fname = trim(DEF_rawdata%lai_sai%fname)//'.'//trim(cyear)
+               fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear, '')
             ENDIF
 
             DO itime = 1, 12
@@ -433,9 +433,9 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
 
          IF (iy < 2000) THEN
             write(cyear_bk,'(i4.4)') (iy / 5) * 5
-            fname = trim(DEF_rawdata%pft%fname)//'.'//trim(cyear_bk)
+            fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear_bk, '')
          ELSE
-            fname = trim(DEF_rawdata%pft%fname)//'.'//trim(cyear)
+            fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
          ENDIF
 
          IF (p_is_io) THEN
@@ -446,9 +446,9 @@ SUBROUTINE Aggregation_LAI (gridlai, dir_rawdata, dir_model_landdata, lc_year)
             dir = trim(dir_rawdata) // trim(DEF_rawdata%lai_sai%dir)
             IF (iy < 2000) THEN
                write(cyear_bk,'(i4.4)') (iy / 5) * 5
-               fname = trim(DEF_rawdata%lai_sai%fname)//'.'//trim(cyear_bk)
+               fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear_bk, '')
             ELSE
-               fname = trim(DEF_rawdata%lai_sai%fname)//'.'//trim(cyear)
+               fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear, '')
             ENDIF
 
             DO month = 1, 12

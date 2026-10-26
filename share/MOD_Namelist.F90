@@ -3063,4 +3063,25 @@ ENDIF
       ENDIF
    END FUNCTION get_basename
 
+   ! Build rawdata file name with a year suffix.
+   ! For colm2024.nml the legacy rawdata layout is used:
+   !   PFT/LAI:       MOD2005.nc
+   !   urban LAI/SAI: URBLAI_2005.nc
+   ! Other namelists keep the original "fname.year" convention.
+   FUNCTION get_rawdata_fname (fname, cyear, old_sep) RESULT(name)
+
+      IMPLICIT NONE
+      character(len=*), intent(in) :: fname
+      character(len=*), intent(in) :: cyear
+      character(len=*), intent(in) :: old_sep
+      character(len=256) :: name
+
+      IF (trim(DEF_rawdata_namelist) == "colm2024.nml") THEN
+         name = trim(fname) // trim(old_sep) // trim(cyear)
+      ELSE
+         name = trim(fname) // '.' // trim(cyear)
+      ENDIF
+
+   END FUNCTION get_rawdata_fname
+
 END MODULE MOD_Namelist
