@@ -402,7 +402,7 @@ CONTAINS
 
             write(cyear,'(i4.4)') DEF_LC_YEAR
             dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-            fname = trim(DEF_rawdata%pft%fname) //'.'// trim(cyear)
+            fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
             CALL read_point_5x5_var_3d_real8 (gridpft, dir, fname, 'PCT_PFT', &
                SITE_lon_location, SITE_lat_location, N_PFT_modis, pctpfts)
          ENDIF
@@ -659,7 +659,7 @@ CONTAINS
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 
                dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-               fname = trim(DEF_rawdata%pft%fname) //'.'// trim(cyear)
+               fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
                CALL read_point_5x5_var_3d_time_real8 (gridlai, dir, fname, 'MONTHLY_PFT_LAI', &
                   SITE_lon_location, SITE_lat_location, N_PFT_modis, itime, pftLAI)
                CALL read_point_5x5_var_3d_time_real8 (gridlai, dir, fname, 'MONTHLY_PFT_SAI', &
@@ -695,7 +695,7 @@ CONTAINS
 #else
                IF (DEF_LAI_MONTHLY) THEN
                   dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-                  fname = trim(DEF_rawdata%pft%fname) //'.'// trim(cyear)
+                  fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
                   CALL read_point_5x5_var_2d_time_real8 (gridlai, dir, fname, &
                      'MONTHLY_LC_LAI', SITE_lon_location, SITE_lat_location, itime, &
                      SITE_LAI_monthly(itime,iyear))
@@ -1806,7 +1806,7 @@ ENDIF
             DO iyear = start_year, end_year
                write(cyear,'(i4.4)') iyear
                DO itime = 1, ntime
-                  fname = trim(DEF_rawdata%urban_lsai%fname)//'.'//trim(cyear)
+                  fname = get_rawdata_fname (DEF_rawdata%urban_lsai%fname, cyear, '_')
                   CALL read_point_5x5_var_2d_time_real8 (grid_ulsai, dir, fname, &
                         'URBAN_TREE_LAI', SITE_lon_location, SITE_lat_location, itime, &
                         SITE_LAI_monthly(itime,iyear))
