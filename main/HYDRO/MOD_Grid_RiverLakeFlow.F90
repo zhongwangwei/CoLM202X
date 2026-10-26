@@ -82,6 +82,12 @@ CONTAINS
 
       acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
 
+      IF (p_is_master .and. (.not. DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT) &
+          .and. (.not. DEF_USE_BIFURCATION)) THEN
+         write(*,'(A)') 'Warning: DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT = .false. needs ' // &
+            'DEF_USE_BIFURCATION (its outgoing-flux limiter); the storage dt bound stays on.'
+      ENDIF
+
       ! excluding (patchtype >= 99), virtual patches and those forcing missed
       IF (p_is_worker) THEN
          allocate (filter_rnof (numpatch))
@@ -222,7 +228,7 @@ CONTAINS
 
    USE MOD_Utils
    USE MOD_Namelist,       only: DEF_Reservoir_Method, &
-      DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT
+      DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT, DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT
    USE MOD_Vars_1DFluxes,  only: rnof
    USE MOD_Forcing,        only: forcmask_pch
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
@@ -787,7 +793,12 @@ CONTAINS
                   ! terminate.  This restores the guard the fork had before
                   ! the SYSU integration merge.  That limiter only runs with
                   ! bifurcation, so otherwise the bound always applies.
-                  IF (volwater > ROUTING_STORAGE_DT_EPS .or. .not. DEF_USE_BIFURCATION) &
+                  ! With DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT = .false. the limiter
+                  ! protects every cell and the bound is skipped: within a CFL step
+                  ! the outflow Q*dt = v*A*dt stays below the channel volume A*L, so
+                  ! the limiter rarely has to cut a flux.
+                  IF ((.not. DEF_USE_BIFURCATION) .or. &
+                      (DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT .and. volwater > ROUTING_STORAGE_DT_EPS)) &
                      dt_this = min(dt_this, volwater / sum_hflux_riv(i))
 
                ENDIF

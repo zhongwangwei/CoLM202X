@@ -438,6 +438,11 @@ MODULE MOD_Namelist
    integer  :: DEF_Reservoir_Method         = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
    logical  :: DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT = .false.
+   ! .false.: with bifurcation, the storage bound (volume / net outflow) no longer
+   ! limits the routing sub-step; the outgoing-flux limiter keeps storage
+   ! non-negative instead, so dt is limited by CFL (and the momentum bound, if on)
+   ! only.  Without bifurcation there is no such limiter and the bound always applies.
+   logical  :: DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT = .true.
    logical  :: DEF_GridRiverLake_FloodFeedback = .false.
    logical  :: DEF_GridRiverLake_FloodplainStorageFix = .false.
    real(r8) :: DEF_GridRiverLake_FloodInfiltMax = 5._r8
@@ -1385,6 +1390,7 @@ CONTAINS
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
       DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT, &
+      DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT,  &
       DEF_GridRiverLake_FloodFeedback,        &
       DEF_GridRiverLake_FloodplainStorageFix,  &
       DEF_GridRiverLake_FloodInfiltMax,        &
@@ -2245,6 +2251,7 @@ ENDIF
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodFeedback        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodplainStorageFix ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodInfiltMax       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
