@@ -787,14 +787,19 @@ CONTAINS
                         limiter_outgoing(i_up) = limiter_outgoing(i_up) + layer_transfer
                      ENDIF
                   ELSE
-                     ! downstream -> upstream: destination cell is donor
+                     ! downstream -> upstream: destination cell is donor.
+                     ! Its outgoing total is gathered through push_bif_influx
+                     ! also when it is local (neg_pth / protected_neg_pth), so
+                     ! it is summed in global pathway order whatever the
+                     ! decomposition (adding local terms here directly made
+                     ! the results depend on the number of processes).
                      IF (i_dn > 0 .and. i_dn <= numucat) THEN
                         IF (ilev > 1 .and. downstream_has_levee) THEN
                            donor_storage = protected_storage_ucat(i_dn)
-                           protected_outgoing(i_dn) = protected_outgoing(i_dn) + layer_transfer
+                           protected_neg_pth(ipth) = protected_neg_pth(ipth) + layer_transfer
                         ELSE
                            donor_storage = visible_storage_ucat(i_dn)
-                           limiter_outgoing(i_dn) = limiter_outgoing(i_dn) + layer_transfer
+                           neg_pth(ipth) = neg_pth(ipth) + layer_transfer
                         ENDIF
                      ELSE
                         IF (ilev > 1 .and. downstream_has_levee) THEN
@@ -993,18 +998,14 @@ CONTAINS
             bif_lev_hflux_sum(i_up) = bif_lev_hflux_sum(i_up) + pth_lev_hflux_total(ipth)
          ENDIF
 
-         ! Also accumulate directly to downstream ucat if local
-         ! (i_dn was set above)
-         IF (i_dn > 0 .and. i_dn <= numucat) THEN
-            bif_hflux_sum(i_dn) = bif_hflux_sum(i_dn) - pth_hflux_total(ipth)
-            IF (npthlev_bif >= 2) THEN
-               bif_lev_hflux_sum(i_dn) = bif_lev_hflux_sum(i_dn) - pth_lev_hflux_total(ipth)
-            ENDIF
-         ENDIF
-
       ENDDO  ! ipth
 
-      ! ----- Step 6: Scatter flux to remote downstream ucats -----
+      ! ----- Step 6: Scatter flux to the downstream ucats -----
+      ! Every downstream ucat, local or remote, receives its inflow through this
+      ! push, summed in global pathway order.  Local downstream ucats used to be
+      ! updated directly in step 5 and their pathways subtracted again from the
+      ! push result ((a+b)-a /= b in floating point), which made the results
+      ! depend on the number of processes.
       IF (numucat > 0) THEN
          bif_influx(:) = 0._r8
          bif_lev_influx(:) = 0._r8
@@ -1020,19 +1021,7 @@ CONTAINS
       CALL riverlake_push_batch (push_bif_influx, cache_bif_influx, &
          final_influx_fields(1:n_final_influx_fields), mode = 'sum')
 
-      ! ----- Step 7: Subtract remote inflow, avoiding double-counting -----
-      ! Remove contributions from local pathways (already counted in step 5)
-      DO ipth = 1, npthout_local
-         i_dn = pth_down_local(ipth)
-         IF (i_dn > 0 .and. i_dn <= numucat) THEN
-            bif_influx(i_dn) = bif_influx(i_dn) - pth_hflux_total(ipth)
-            IF (npthlev_bif >= 2) THEN
-               bif_lev_influx(i_dn) = bif_lev_influx(i_dn) - pth_lev_hflux_total(ipth)
-            ENDIF
-         ENDIF
-      ENDDO
-
-      ! Apply remote inflow to bif_hflux_sum (it is 0 outside bif_ucat)
+      ! ----- Step 7: Apply the inflow to bif_hflux_sum (it is 0 outside bif_ucat)
       DO iu = 1, size(bif_ucat)
          i_ucat = bif_ucat(iu)
          bif_hflux_sum(i_ucat) = bif_hflux_sum(i_ucat) - bif_influx(i_ucat)
