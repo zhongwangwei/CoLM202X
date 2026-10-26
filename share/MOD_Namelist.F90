@@ -3114,7 +3114,7 @@ ENDIF
 
    END SUBROUTINE sync_hist_vars_one
 
-   ! get file name only from full file path
+   ! path of the regional unit catchment file written by mksrfdata
    FUNCTION regional_unitcatchment_file () RESULT (fname)
 
    IMPLICIT NONE
@@ -3137,6 +3137,7 @@ ENDIF
 
    END FUNCTION get_unitcatchment_file
 
+   ! get file name only from full file path
    FUNCTION get_basename(path) result(fn)
 
       IMPLICIT NONE

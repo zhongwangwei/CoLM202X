@@ -153,7 +153,8 @@ CONTAINS
             IF (numpatch > 0) CALL worker_remap_data_pset2grid(remap_patch2inpm, &
                flood_credit_patch, grid_area_local, fillvalue=0._r8, filter=flood_credit_patch>0._r8)
             CALL worker_push_data(allreduce_inpm, grid_area_local, flood_grid_area, fillvalue=0._r8)
-            flood_grid_area = max(flood_grid_area, push_ucat2inpm%sum_area)
+            ! sum_area is allocated only on workers with requests (numinpm > 0)
+            IF (numinpm > 0) flood_grid_area = max(flood_grid_area, push_ucat2inpm%sum_area)
             deallocate(grid_area_local)
          ENDIF
       ENDIF
@@ -833,8 +834,7 @@ CONTAINS
                      hflux_sumups(i) = -hflux_fc(i)
                   ENDIF
                ENDDO
-               CALL worker_push_data(push_ups2ucat, hflux_sumups, mflux_sumups, &
-                  fillvalue=0._r8, mode='sum')
+               CALL push_ups2ucat_sum (hflux_sumups, mflux_sumups)
                WHERE (ucatfilter)
                   normal_outgoing_rate = normal_outgoing_rate + mflux_sumups
                END WHERE
@@ -1189,38 +1189,43 @@ CONTAINS
    ! ---------
    SUBROUTINE push_ups2ucat_sum (send1, recv1, send2, recv2, send3, recv3)
 
-   ! Sum over the upstream unit catchments of two or three fields.
-   ! Reason: these sums were pushed one field at a time, which costs one
-   ! exchange (one message per neighbouring worker) and one pass over the
-   ! mapping per field, two to three times per routing substep.  They are now
-   ! pushed together in one batched exchange.
+   ! Sum over the upstream unit catchments of one to three fields.
+   ! Reason: these sums were pushed one field at a time with worker_push_data,
+   ! which costs one exchange (one message per neighbouring worker) and one
+   ! pass over a dense (largest upstream count) x (unit catchments) table per
+   ! field, several times per routing substep.  They are now pushed together in
+   ! one batched exchange over compressed rows (MOD_Grid_RiverLakePush).
    ! Results are unchanged, bit for bit: the batch is used only when
-   ! push_ups2ucat%multi_batch_exact says it reproduces the single-field push
-   ! (all upstream weights are 1 in the routing network); each field is then
-   ! summed with the same entries in the same order.  Otherwise the fields are
-   ! pushed one by one exactly as before.
+   ! cache_ups2ucat%batch_exact says it reproduces worker_push_data (all
+   ! upstream weights are 1 in the routing network); each field is then summed
+   ! with the same entries in the same order.  Otherwise the fields are pushed
+   ! one by one exactly as before.
 
-   USE MOD_WorkerPushData, only: worker_push_real8_field_type
+   USE MOD_Grid_RiverLakePush, only: riverlake_push_field_type, riverlake_push_batch
    IMPLICIT NONE
 
-   real(r8), target :: send1(:), recv1(:), send2(:), recv2(:)
-   real(r8), target, optional :: send3(:), recv3(:)
+   real(r8), target :: send1(:), recv1(:)
+   real(r8), target, optional :: send2(:), recv2(:), send3(:), recv3(:)
 
-   type(worker_push_real8_field_type) :: fields(3)
+   type(riverlake_push_field_type) :: fields(3)
    integer :: nfield
 
-      IF (push_ups2ucat%multi_batch_exact) THEN
+      IF (cache_ups2ucat%batch_exact) THEN
          fields(1)%send => send1;  fields(1)%recv => recv1;  fields(1)%fillvalue = 0._r8
-         fields(2)%send => send2;  fields(2)%recv => recv2;  fields(2)%fillvalue = 0._r8
-         nfield = 2
+         nfield = 1
+         IF (present(send2)) THEN
+            fields(2)%send => send2;  fields(2)%recv => recv2;  fields(2)%fillvalue = 0._r8
+            nfield = 2
+         ENDIF
          IF (present(send3)) THEN
             fields(3)%send => send3;  fields(3)%recv => recv3;  fields(3)%fillvalue = 0._r8
             nfield = 3
          ENDIF
-         CALL worker_push_data (push_ups2ucat, fields(1:nfield), mode = 'sum')
+         CALL riverlake_push_batch (push_ups2ucat, cache_ups2ucat, fields(1:nfield), mode = 'sum')
       ELSE
          CALL worker_push_data (push_ups2ucat, send1, recv1, fillvalue = 0., mode = 'sum')
-         CALL worker_push_data (push_ups2ucat, send2, recv2, fillvalue = 0., mode = 'sum')
+         IF (present(send2)) &
+            CALL worker_push_data (push_ups2ucat, send2, recv2, fillvalue = 0., mode = 'sum')
          IF (present(send3)) &
             CALL worker_push_data (push_ups2ucat, send3, recv3, fillvalue = 0., mode = 'sum')
       ENDIF
@@ -1370,13 +1375,18 @@ CONTAINS
          frac_uc(i) = min(1._r8, fraction)
       ENDDO
 
+      ! sum_area is allocated only on workers with requests (numucat > 0)
       density = 0._r8
-      WHERE (push_inpm2ucat%sum_area > 0._r8) &
-         density = flood_visible_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
+      IF (numucat > 0) THEN
+         WHERE (push_inpm2ucat%sum_area > 0._r8) &
+            density = flood_visible_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
+      ENDIF
       CALL worker_push_data(push_ucat2inpm, density, grid_visible, fillvalue=0._r8, mode='sum')
       density = 0._r8
-      WHERE (push_inpm2ucat%sum_area > 0._r8) &
-         density = flood_protected_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
+      IF (numucat > 0) THEN
+         WHERE (push_inpm2ucat%sum_area > 0._r8) &
+            density = flood_protected_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
+      ENDIF
       CALL worker_push_data(push_ucat2inpm, density, grid_protected, fillvalue=0._r8, mode='sum')
       CALL worker_push_data(push_ucat2inpm, frac_uc, frac_grid, fillvalue=0._r8, mode='average')
       WHERE (flood_grid_area > 0._r8)

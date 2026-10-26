@@ -130,7 +130,7 @@ CONTAINS
    ! =========================================================================
 
    USE MOD_Grid_RiverLakeNetwork, only: numucat, npthout_local, npthlev_bif, &
-      pth_upst_local, pth_down_local, push_bif_dn2pth, push_bif_influx
+      pth_upst_local, pth_down_local, push_bif_dn2pth, push_bif_influx, cache_bif_influx
 
    IMPLICIT NONE
 
@@ -174,9 +174,9 @@ CONTAINS
          ENDDO
       ENDIF
 #endif
-      IF (allocated(push_bif_influx%multi_ptr)) THEN
-         DO j = 1, min(numucat, size(push_bif_influx%multi_ptr)-1)
-            IF (push_bif_influx%multi_ptr(j+1) > push_bif_influx%multi_ptr(j)) is_bif_ucat(j) = .true.
+      IF (allocated(cache_bif_influx%ptr)) THEN
+         DO j = 1, min(numucat, size(cache_bif_influx%ptr)-1)
+            IF (cache_bif_influx%ptr(j+1) > cache_bif_influx%ptr(j)) is_bif_ucat(j) = .true.
          ENDDO
       ENDIF
       bif_ucat = pack((/(i, i = 1, numucat)/), is_bif_ucat)
@@ -294,11 +294,12 @@ CONTAINS
 
    USE MOD_Const_Physical, only: grav
    USE MOD_WorkerPushData
+   USE MOD_Grid_RiverLakePush, only: riverlake_push_field_type, riverlake_push_batch
    USE MOD_Grid_RiverLakeNetwork, only: &
       numucat, npthout_local, npthlev_bif, &
       pth_upst_local, pth_down_local, &
       pth_dst, pth_elv, pth_wth, pth_man, &
-      push_bif_dn2pth, push_bif_influx, &
+      push_bif_dn2pth, push_bif_influx, cache_bif_dn2pth, cache_bif_influx, &
       topo_rivelv
 
    IMPLICIT NONE
@@ -363,10 +364,10 @@ CONTAINS
       real(r8) :: normal_outflow, bif_outflow, remaining_capacity
       logical  :: upstream_has_levee, downstream_has_levee
       logical  :: use_protected_fields
-      type(worker_push_real8_field_type) :: dynamic_state_fields(7)
-      type(worker_push_real8_field_type) :: donor_reverse_fields(2)
-      type(worker_push_real8_field_type) :: donor_rate_fields(2)
-      type(worker_push_real8_field_type) :: final_influx_fields(2)
+      type(riverlake_push_field_type) :: dynamic_state_fields(7)
+      type(riverlake_push_field_type) :: donor_reverse_fields(2)
+      type(riverlake_push_field_type) :: donor_rate_fields(2)
+      type(riverlake_push_field_type) :: final_influx_fields(2)
       integer :: n_dynamic_state_fields, n_coupled_fields, n_final_influx_fields
    integer  :: ipth, ilev, i_up, i_dn, i_ucat, iu
    integer  :: n_dt_mismatch_skip, n_dt_mismatch_skip_glb
@@ -538,7 +539,7 @@ CONTAINS
          n_dynamic_state_fields = 7
       ENDIF
 
-      CALL worker_push_data (push_bif_dn2pth, &
+      CALL riverlake_push_batch (push_bif_dn2pth, cache_bif_dn2pth, &
          dynamic_state_fields(1:n_dynamic_state_fields))
 
       IF (.not. DEF_USE_LEVEE) THEN
@@ -824,7 +825,7 @@ CONTAINS
          donor_reverse_fields(2)%recv => protected_out_recv
          donor_reverse_fields(2)%fillvalue = 0._r8
       ENDIF
-      CALL worker_push_data (push_bif_influx, &
+      CALL riverlake_push_batch (push_bif_influx, cache_bif_influx, &
          donor_reverse_fields(1:n_coupled_fields), mode = 'sum')
 
       ! Per-cell loops below run over bif_ucat only: elsewhere the received donor
@@ -894,7 +895,7 @@ CONTAINS
          donor_rate_fields(2)%recv => protected_out_rate_pth
          donor_rate_fields(2)%fillvalue = 1._r8
       ENDIF
-      CALL worker_push_data (push_bif_dn2pth, &
+      CALL riverlake_push_batch (push_bif_dn2pth, cache_bif_dn2pth, &
          donor_rate_fields(1:n_coupled_fields))
 
       DO ipth = 1, npthout_local
@@ -1016,7 +1017,7 @@ CONTAINS
          final_influx_fields(2)%recv => bif_lev_influx
          final_influx_fields(2)%fillvalue = 0._r8
       ENDIF
-      CALL worker_push_data (push_bif_influx, &
+      CALL riverlake_push_batch (push_bif_influx, cache_bif_influx, &
          final_influx_fields(1:n_final_influx_fields), mode = 'sum')
 
       ! ----- Step 7: Subtract remote inflow, avoiding double-counting -----
@@ -1314,7 +1315,7 @@ CONTAINS
    ! =========================================================================
 
    USE MOD_NetCDFSerial, only: ncio_var_exist
-   USE MOD_Vector_ReadWrite, only: vector_read_matrix_and_scatter
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_read_matrix_and_scatter
    USE MOD_Grid_RiverLakeNetwork, only: npthlev_bif, npthout_local, totalnpthout, pth_global_id
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
@@ -1594,7 +1595,7 @@ CONTAINS
 
    USE MOD_Namelist, only: DEF_REST_CompressLevel
    USE MOD_NetCDFSerial, only: ncio_define_dimension, ncio_write_serial
-   USE MOD_Vector_ReadWrite, only: vector_gather_matrix_to_master
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_gather_matrix_to_master
    USE MOD_Grid_RiverLakeNetwork, only: npthlev_bif, npthout_local, totalnpthout, pth_global_id
    IMPLICIT NONE
 

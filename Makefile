@@ -121,6 +121,8 @@ OBJS_BASIC =    \
 				 MOD_Catch_BasinNetwork.o        \
 				 MOD_Catch_Vars_TimeVariables.o  \
 				 MOD_Catch_Vars_1DFluxes.o       \
+				 MOD_Grid_RiverLakePush.o        \
+				 MOD_Grid_RiverLakeVectorIO.o    \
 				 MOD_Grid_RiverLakeNetwork.o     \
 				 MOD_Grid_Reservoir.o            \
 				 MOD_Grid_RiverLakeLevee.o       \
@@ -379,6 +381,8 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
 MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
+MOD_Grid_RiverLakeNetwork.o: MOD_Grid_RiverLakePush.o
+MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeVectorIO.o
 MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_Reservoir.o MOD_Grid_RiverLakeLevee.o
 MOD_Grid_RiverLakeHistRoute.o: MOD_Grid_RiverLakeHistShard.o MOD_Grid_Reservoir.o

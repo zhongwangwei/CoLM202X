@@ -408,8 +408,13 @@ ENDIF
       ENDIF
 #endif
 
-      ! Only some runoff schemes read these, but all are written into the constant
-      ! restart: give them a defined value first (soil texture 0 = no class).
+      ! [GridRiverLakeFlow] Only some runoff schemes read these, but all are written
+      ! into the constant restart, so with any other scheme (e.g. DEF_Runoff_SCHEME = 0,
+      ! which grid flood feedback and CaMa flood feedback require) uninitialised memory
+      ! was written there and runs differed between process counts.  Give them a
+      ! defined value first (soil texture 0 = no class).
+      ! Results are unchanged: a scheme that uses them sets them right below
+      ! (soiltext_readin, BVIC) or reads them later, and no other scheme reads them.
       IF (p_is_worker) THEN
          IF (numpatch > 0) THEN
             soiltext(:) = 0

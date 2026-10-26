@@ -142,6 +142,11 @@ CONTAINS
 #ifdef CaMa_Flood
    USE YOS_CMF_INPUT, only: LWEVAP
 #else
+   ! [GridRiverLakeFlow] Grid flood feedback reuses the CaMa flood-feedback code paths
+   ! (all "CaMa_Flood || GridRiverLakeFlow" blocks in this file), with its namelist
+   ! switch in place of CaMa's LWEVAP.  CaMa_Flood builds are unchanged, and with
+   ! DEF_GridRiverLake_FloodFeedback = .false. (default) the blocks do nothing, as
+   ! without them (checked: land restart bit-identical to upstream).
    USE MOD_Namelist, only: LWEVAP => DEF_GridRiverLake_FloodFeedback
 #endif
 #endif

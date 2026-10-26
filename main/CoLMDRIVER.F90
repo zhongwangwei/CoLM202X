@@ -34,6 +34,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    ! inundation evaporation [mm/s], inundation re-infiltration[mm/s]
    USE MOD_CaMa_Vars, only: flddepth_cama,fldfrc_cama,fevpg_fld,finfg_fld
 #elif defined(GridRiverLakeFlow)
+   ! [GridRiverLakeFlow] Grid flood feedback passes its patch flood state through the
+   ! same arguments as CaMa flood feedback (the CaMa names are kept as aliases).
+   ! CaMa_Flood builds are unchanged; with the feedback off the arrays stay zero.
    USE MOD_Grid_RiverLakeFlow, only: flddepth_cama => flood_depth_patch, &
       fldfrc_cama => flood_fraction_patch, fevpg_fld => flood_evap_patch, &
       finfg_fld => flood_infil_patch

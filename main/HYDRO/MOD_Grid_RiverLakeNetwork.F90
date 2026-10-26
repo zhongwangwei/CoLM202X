@@ -8,6 +8,7 @@ MODULE MOD_Grid_RiverLakeNetwork
 
    USE MOD_Grid
    USE MOD_WorkerPushData
+   USE MOD_Grid_RiverLakePush
    USE, INTRINSIC :: ieee_arithmetic, ONLY: ieee_is_finite
 #ifdef USEMPI
    USE MOD_SPMD_Task, ONLY: MPI_COMM_NULL
@@ -54,6 +55,7 @@ MODULE MOD_Grid_RiverLakeNetwork
 
    type(worker_pushdata_type) :: push_next2ucat
    type(worker_pushdata_type) :: push_ups2ucat
+   type(riverlake_pushcache_type) :: cache_ups2ucat   ! batched pushes (MOD_Grid_RiverLakePush)
 
    ! ----- Part 3: river systems -----
    integer :: numrivsys
@@ -123,6 +125,8 @@ MODULE MOD_Grid_RiverLakeNetwork
 
    type(worker_pushdata_type) :: push_bif_dn2pth
    type(worker_pushdata_type) :: push_bif_influx
+   type(riverlake_pushcache_type) :: cache_bif_dn2pth ! batched pushes (MOD_Grid_RiverLakePush)
+   type(riverlake_pushcache_type) :: cache_bif_influx
 
    real(r8), allocatable :: bedelv_next    (:)   ! downstream river bed elevation [m]
    real(r8), allocatable :: outletwth      (:)   ! river outlet width [m]
@@ -803,6 +807,7 @@ CONTAINS
 
       CALL build_worker_pushdata (numucat, ucat_ucid, numucat, ucat_next, push_next2ucat)
       CALL build_worker_pushdata (numucat, ucat_ucid, numucat, ucat_ups,  wts_ups, push_ups2ucat )
+      CALL riverlake_pushcache_build (push_ups2ucat, cache_ups2ucat)
 
 #ifdef CoLMDEBUG
       ! IF (p_is_worker) THEN
@@ -1390,6 +1395,9 @@ CONTAINS
       CALL worker_pushdata_free_mem (push_ups2ucat)
       CALL worker_pushdata_free_mem (push_bif_dn2pth)
       CALL worker_pushdata_free_mem (push_bif_influx)
+      CALL riverlake_pushcache_free_mem (cache_ups2ucat)
+      CALL riverlake_pushcache_free_mem (cache_bif_dn2pth)
+      CALL riverlake_pushcache_free_mem (cache_bif_influx)
       CALL worker_remapdata_free_mem (remap_patch2inpm)
       CALL grid_free_mem (griducat)
 
@@ -1874,6 +1882,9 @@ CONTAINS
 
       CALL build_worker_pushdata (npthout_local, pth_global_id, numucat, &
          bif_incoming_pths, bif_incoming_wts, push_bif_influx)
+
+      CALL riverlake_pushcache_build (push_bif_dn2pth, cache_bif_dn2pth)
+      CALL riverlake_pushcache_build (push_bif_influx, cache_bif_influx)
 
    END SUBROUTINE read_and_distribute_bifurcation
 

@@ -37,6 +37,7 @@ MODULE MOD_Grid_RiverLakeHistRoute
    ! Sharded (block-mode) writers live in their own module; the generic
    ! master-gather writers stay in MOD_Vector_ReadWrite.
    USE MOD_Vector_ReadWrite
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_gather_matrix_to_master
    USE MOD_Grid_RiverLakeHistShard
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
       ucat_ucid, x_ucat, y_ucat, griducat

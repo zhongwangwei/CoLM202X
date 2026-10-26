@@ -12,6 +12,11 @@ MODULE MOD_SoilSnowHydrology
 #if (defined CaMa_Flood)
    USE YOS_CMF_INPUT,      only: LWINFILT
 #elif (defined GridRiverLakeFlow)
+   ! [GridRiverLakeFlow] Grid flood feedback reuses the CaMa flood-feedback code paths
+   ! (all "CaMa_Flood || GridRiverLakeFlow" blocks in this file), with its namelist
+   ! switch in place of CaMa's LWINFILT.  CaMa_Flood builds are unchanged, and with
+   ! DEF_GridRiverLake_FloodFeedback = .false. (default) the blocks do nothing, as
+   ! without them (checked: land restart bit-identical to upstream).
    USE MOD_Namelist,       only: LWINFILT => DEF_GridRiverLake_FloodFeedback, DEF_GridRiverLake_FloodInfiltMax
 #endif
    USE MOD_LandPatch, only: landpatch

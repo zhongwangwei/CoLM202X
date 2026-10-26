@@ -75,7 +75,11 @@ MODULE MOD_CaMa_colmCaMa
    END INTERFACE
 #endif
 #ifdef GridRiverLakeFlow
-   ! the grid-based river-lake routing uses get_fldevp only
+   ! [GridRiverLakeFlow] Grid flood feedback evaporates floodwater exactly like
+   ! CaMa flood feedback, so MOD_Thermal calls the same get_fldevp below instead
+   ! of a copy of it.  Without CaMa_Flood only get_fldevp is compiled here.
+   ! CaMa_Flood builds are unchanged: the two models cannot be defined together
+   ! (see the check above), so for them only the preprocessor lines differ.
    USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT
    USE MOD_Precision, only: r8
    USE MOD_Qsadv

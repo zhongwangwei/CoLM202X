@@ -85,7 +85,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_REST_CompressLevel
    USE MOD_NetCDFSerial, only: ncio_define_dimension, ncio_write_serial
-   USE MOD_Vector_ReadWrite, only: vector_gather_matrix_to_master
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_gather_matrix_to_master
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_ucid
    IMPLICIT NONE
 
@@ -139,7 +139,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_REST_CompressLevel
    USE MOD_NetCDFSerial, only: ncio_define_dimension, ncio_write_serial
-   USE MOD_Vector_ReadWrite, only: vector_gather_matrix_to_master
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_gather_matrix_to_master
    USE MOD_Grid_Reservoir, only: numresv, totalnumresv, resv_global_id
    IMPLICIT NONE
 
@@ -251,7 +251,7 @@ CONTAINS
    SUBROUTINE validate_gridriver_ucatch_identity (file_restart, legacy_restart)
 
    USE MOD_SPMD_Task
-   USE MOD_Vector_ReadWrite, only: vector_read_matrix_and_scatter
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_read_matrix_and_scatter
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_ucid
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
@@ -309,7 +309,7 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_Reservoir_Method
    USE MOD_NetCDFSerial, only: ncio_var_exist
-   USE MOD_Vector_ReadWrite, only: vector_read_matrix_and_scatter
+   USE MOD_Grid_RiverLakeVectorIO, only: vector_read_matrix_and_scatter
    USE MOD_Grid_Reservoir, only: numresv, totalnumresv, resv_global_id
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    IMPLICIT NONE
