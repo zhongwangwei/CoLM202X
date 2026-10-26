@@ -1570,8 +1570,12 @@ CONTAINS
              DEF_USE_LEVEE) &
             CALL CoLM_Stop ('RiverLake features require GridRiverLakeFlow.')
 #endif
-         IF (DEF_GridRiverLake_FloodFeedback .and. .not. DEF_GridRiverLake_FloodplainStorageFix) &
-            CALL CoLM_Stop ('Grid flood feedback requires DEF_GridRiverLake_FloodplainStorageFix.')
+         ! The flooded area sent to the land surface is only consistent with the
+         ! floodplain storage when the storage curve uses the cumulative flooded area.
+         IF (DEF_GridRiverLake_FloodFeedback .and. .not. DEF_GridRiverLake_FloodplainStorageFix) THEN
+            write(*,*) 'Note: DEF_GridRiverLake_FloodplainStorageFix is set to .true. for grid flood feedback.'
+            DEF_GridRiverLake_FloodplainStorageFix = .true.
+         ENDIF
 #ifdef LULCC
          IF (DEF_GridRiverLake_FloodFeedback) CALL CoLM_Stop ('Grid flood feedback does not support LULCC.')
 #endif
