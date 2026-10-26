@@ -1,6 +1,10 @@
 #include <define.h>
 
 #ifdef GridRiverLakeFlow
+#ifndef USEMPI
+! The serial path never builds the river-system labels (rivermouth) used below.
+#error "GridRiverLakeFlow requires USEMPI (see include/define.h)"
+#endif
 MODULE MOD_Grid_RiverLakeNetwork
 !--------------------------------------------------------------------------------
 ! DESCRIPTION:
@@ -995,17 +999,22 @@ CONTAINS
                      floodplain_curve(i)%flpaccare(j-1) + floodplain_curve(i)%flparea(j)
                ENDDO
 
+               ! [GridRiverLakeFlow] Bug fix: upstream integrates the storage of layer j
+               ! with the per-layer area increments, 0.5*(flparea(j)+flparea(j-1)).  The
+               ! flooded area at height h is the cumulative area flpaccare, so the storage
+               ! between two heights is the trapezoid of the cumulative areas, as used by
+               ! volume(), depth() and floodarea() of this type.  With the increments the
+               ! layer thresholds disagree with those functions: the volume jumps down at
+               ! each layer top (non-monotonic) and depth(volume(d)) /= d.  For example,
+               ! with three 1 m layers over 3000 m2, volume(4 m) = 2200 m3 but
+               ! volume(4.000001 m) = 1700 m3, and depth(2200 m3) = 4.236 m.
+               ! This changes results of all runs whose water rises onto the floodplain
+               ! (above the first layer).  The flood feedback always used this formula.
                floodplain_curve(i)%flpstomax(0) = 0.
                DO j = 1, floodplain_curve(i)%nlfp
-                  IF (DEF_GridRiverLake_FloodplainStorageFix) THEN
-                     floodplain_curve(i)%flpstomax(j) = floodplain_curve(i)%flpstomax(j-1)        &
-                        + 0.5 * (floodplain_curve(i)%flpaccare(j) + floodplain_curve(i)%flpaccare(j-1)) &
-                              * (floodplain_curve(i)%flphgt(j)  - floodplain_curve(i)%flphgt(j-1))
-                  ELSE
-                     floodplain_curve(i)%flpstomax(j) = floodplain_curve(i)%flpstomax(j-1)        &
-                        + 0.5 * (floodplain_curve(i)%flparea(j) + floodplain_curve(i)%flparea(j-1)) &
-                              * (floodplain_curve(i)%flphgt(j)  - floodplain_curve(i)%flphgt(j-1))
-                  ENDIF
+                  floodplain_curve(i)%flpstomax(j) = floodplain_curve(i)%flpstomax(j-1)        &
+                     + 0.5 * (floodplain_curve(i)%flpaccare(j) + floodplain_curve(i)%flpaccare(j-1)) &
+                           * (floodplain_curve(i)%flphgt(j)  - floodplain_curve(i)%flphgt(j-1))
                ENDDO
             ENDDO
 

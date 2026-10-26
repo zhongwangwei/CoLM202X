@@ -444,7 +444,6 @@ MODULE MOD_Namelist
    ! only.  Without bifurcation there is no such limiter and the bound always applies.
    logical  :: DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT = .true.
    logical  :: DEF_GridRiverLake_FloodFeedback = .false.
-   logical  :: DEF_GridRiverLake_FloodplainStorageFix = .false.
    real(r8) :: DEF_GridRiverLake_FloodInfiltMax = 5._r8
    logical  :: DEF_USE_LEVEE = .false.
    logical  :: DEF_USE_BIFURCATION = .false.
@@ -1392,7 +1391,6 @@ CONTAINS
       DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT, &
       DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT,  &
       DEF_GridRiverLake_FloodFeedback,        &
-      DEF_GridRiverLake_FloodplainStorageFix,  &
       DEF_GridRiverLake_FloodInfiltMax,        &
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
@@ -1566,16 +1564,10 @@ CONTAINS
 #endif
          ENDIF
 #ifndef GridRiverLakeFlow
-         IF (DEF_GridRiverLake_FloodFeedback .or. DEF_GridRiverLake_FloodplainStorageFix .or. &
+         IF (DEF_GridRiverLake_FloodFeedback .or. &
              DEF_USE_LEVEE) &
             CALL CoLM_Stop ('RiverLake features require GridRiverLakeFlow.')
 #endif
-         ! The flooded area sent to the land surface is only consistent with the
-         ! floodplain storage when the storage curve uses the cumulative flooded area.
-         IF (DEF_GridRiverLake_FloodFeedback .and. .not. DEF_GridRiverLake_FloodplainStorageFix) THEN
-            write(*,*) 'Note: DEF_GridRiverLake_FloodplainStorageFix is set to .true. for grid flood feedback.'
-            DEF_GridRiverLake_FloodplainStorageFix = .true.
-         ENDIF
          IF (.not. (DEF_GRIDBASED_ROUTING_MAX_DT > 0._r8 .and. DEF_GRIDBASED_ROUTING_MAX_DT < huge(1._r8))) &
             CALL CoLM_Stop ('DEF_GRIDBASED_ROUTING_MAX_DT must be finite and positive.')
 #ifndef CaMa_Flood
@@ -2254,7 +2246,6 @@ ENDIF
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_STORAGE_DT_LIMIT ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodFeedback        ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_GridRiverLake_FloodplainStorageFix ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GridRiverLake_FloodInfiltMax       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_LEVEE                          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)

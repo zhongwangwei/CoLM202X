@@ -182,6 +182,10 @@ $CaMa
 
 #define GridRiverLakeFlow
 !    Conflicts :
+!    The river network is built per worker, so it needs MPI (as CaMa_Flood).
+#ifndef USEMPI
+#undef GridRiverLakeFlow
+#endif
 #if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
 #undef GridRiverLakeFlow
 #endif

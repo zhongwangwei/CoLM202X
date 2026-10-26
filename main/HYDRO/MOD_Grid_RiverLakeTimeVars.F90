@@ -30,6 +30,10 @@ MODULE MOD_Grid_RiverLakeTimeVars
    real(r8), allocatable, target :: veloc_riv  (:)
    real(r8), allocatable :: momen_riv  (:) ! unit river momentum       [m^2/s]
    real(r8), allocatable :: volresv    (:) ! reservoir water volume    [m^3]
+   ! release of the reservoirs directly upstream that reached each reservoir in
+   ! the previous routing sub-step [m^3/s]; part of the inflow seen by the
+   ! reservoir operation (see grid_riverlake_flow)
+   real(r8), allocatable :: qresv_ups_prev (:)
    real(r8), allocatable :: volwater_ucat (:)
    logical               :: volwater_ucat_valid = .false.
 
@@ -42,7 +46,7 @@ MODULE MOD_Grid_RiverLakeTimeVars
    ! -- running state set aside while LULCC re-initializes (see hold_GridRiverLakeTimeVars_lulcc) --
    real(r8), allocatable :: held_wdsrf_ucat (:), held_wdsrf_ucat_prev (:), held_veloc_riv (:)
    real(r8), allocatable :: held_momen_riv (:), held_volresv (:), held_volwater_ucat (:)
-   real(r8), allocatable :: held_acc_rnof_uc (:)
+   real(r8), allocatable :: held_acc_rnof_uc (:), held_qresv_ups_prev (:)
    real(r8)              :: held_acctime_rnof
    logical               :: held_flags (7)
    character(len=512)    :: held_restart_file
@@ -412,6 +416,8 @@ CONTAINS
       allocate (veloc_riv  (ncell_state))
       allocate (momen_riv  (ncell_state))
       allocate (volresv (nresv_state))
+      allocate (qresv_ups_prev (nresv_state))
+      qresv_ups_prev = 0._r8
       allocate (acc_rnof_uc (ncell_state))
       acc_rnof_uc = 0._r8
       wdsrf_ucat_prev = 0._r8
@@ -539,6 +545,18 @@ CONTAINS
       IF (DEF_Reservoir_Method > 0) THEN
          IF (totalnumresv > 0) THEN
             CALL vector_read_and_scatter (file_restart, volresv, numresv, 'volresv', resv_data_address)
+            ! absent in restarts written before it existed: start from no upstream release
+            has_var = .false.
+            IF (p_is_master) has_var = ncio_var_exist(file_restart, 'qresv_ups_prev', readflag = .false.)
+#ifdef USEMPI
+            CALL mpi_bcast (has_var, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+#endif
+            IF (has_var) THEN
+               CALL vector_read_and_scatter (file_restart, qresv_ups_prev, numresv, &
+                  'qresv_ups_prev', resv_data_address)
+            ELSEIF (allocated(qresv_ups_prev)) THEN
+               qresv_ups_prev = 0._r8
+            ENDIF
          ENDIF
       ENDIF
 
@@ -662,6 +680,9 @@ CONTAINS
 
             CALL vector_gather_and_write (&
                volresv, numresv, totalnumresv, resv_data_address, file_restart, 'volresv', 'reservoir')
+            CALL vector_gather_and_write (&
+               qresv_ups_prev, numresv, totalnumresv, resv_data_address, file_restart, &
+               'qresv_ups_prev', 'reservoir')
          ENDIF
       ENDIF
 
@@ -689,6 +710,7 @@ CONTAINS
       IF (allocated (veloc_riv  )) deallocate (veloc_riv  )
       IF (allocated (momen_riv  )) deallocate (momen_riv  )
       IF (allocated (volresv    )) deallocate (volresv    )
+      IF (allocated (qresv_ups_prev)) deallocate (qresv_ups_prev)
       IF (allocated (volwater_ucat)) deallocate (volwater_ucat)
       IF (allocated (acc_rnof_uc)) deallocate (acc_rnof_uc)
       acctime_rnof = 0._r8
@@ -717,6 +739,7 @@ CONTAINS
       CALL move_alloc (volresv        , held_volresv        )
       CALL move_alloc (volwater_ucat  , held_volwater_ucat  )
       CALL move_alloc (acc_rnof_uc    , held_acc_rnof_uc    )
+      CALL move_alloc (qresv_ups_prev , held_qresv_ups_prev )
       held_acctime_rnof = acctime_rnof
       held_flags = (/ wdsrf_ucat_prev_valid, wdsrf_ucat_prev_restart_found, &
          restart_transaction_validated, restart_feature_manifest_present, &
@@ -744,6 +767,7 @@ CONTAINS
       IF (allocated (volresv        )) deallocate (volresv        )
       IF (allocated (volwater_ucat  )) deallocate (volwater_ucat  )
       IF (allocated (acc_rnof_uc    )) deallocate (acc_rnof_uc    )
+      IF (allocated (qresv_ups_prev )) deallocate (qresv_ups_prev )
       CALL move_alloc (held_wdsrf_ucat     , wdsrf_ucat     )
       CALL move_alloc (held_wdsrf_ucat_prev, wdsrf_ucat_prev)
       CALL move_alloc (held_veloc_riv      , veloc_riv      )
@@ -751,6 +775,7 @@ CONTAINS
       CALL move_alloc (held_volresv        , volresv        )
       CALL move_alloc (held_volwater_ucat  , volwater_ucat  )
       CALL move_alloc (held_acc_rnof_uc    , acc_rnof_uc    )
+      CALL move_alloc (held_qresv_ups_prev , qresv_ups_prev )
       acctime_rnof                     = held_acctime_rnof
       wdsrf_ucat_prev_valid            = held_flags(1)
       wdsrf_ucat_prev_restart_found    = held_flags(2)

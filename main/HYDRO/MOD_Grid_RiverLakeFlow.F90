@@ -141,11 +141,7 @@ CONTAINS
          flood_evap_period = 0._r8
          flood_infil_period = 0._r8
          CALL publish_flood_feedback(start_year)
-         IF (spinup .and. p_is_worker) THEN
-            flood_credit_patch = 0._r8
-            flood_depth_patch = 0._r8
-            flood_fraction_patch = 0._r8
-         ENDIF
+         IF (spinup) CALL withhold_flood_feedback ()
       ENDIF
 
    END SUBROUTINE grid_riverlake_flow_init
@@ -228,7 +224,7 @@ CONTAINS
    END SUBROUTINE init_flood_feedback
 
    ! ---------
-   SUBROUTINE grid_riverlake_flow_lulcc (year)
+   SUBROUTINE grid_riverlake_flow_lulcc (year, spinup)
 
    ! After LULCC.  MOD_Initialize has rebuilt the network on the new land patches
    ! (patch-to-grid mapping, pushes) and the river state has been carried over
@@ -239,6 +235,7 @@ CONTAINS
    IMPLICIT NONE
 
    integer, intent(in) :: year   ! the new year
+   logical, intent(in) :: spinup ! the routing is not called during spin-up
 
       IF (p_is_worker) THEN
          ! the runoff filter is reset every routing call; size it for the new patches
@@ -261,9 +258,26 @@ CONTAINS
          ! flood state for them.
          CALL init_flood_feedback ()
          CALL publish_flood_feedback (year)
+         ! As at initialisation: during spin-up grid_riverlake_flow is not called,
+         ! so what the land took from a published flood would never be debited
+         ! from the river storage.
+         IF (spinup) CALL withhold_flood_feedback ()
       ENDIF
 
    END SUBROUTINE grid_riverlake_flow_lulcc
+
+   ! ---------
+   SUBROUTINE withhold_flood_feedback ()
+
+   ! Publish no flood to the land (used while the routing is not running).
+
+      IF (p_is_worker) THEN
+         flood_credit_patch = 0._r8
+         flood_depth_patch = 0._r8
+         flood_fraction_patch = 0._r8
+      ENDIF
+
+   END SUBROUTINE withhold_flood_feedback
 
    ! ---------
    SUBROUTINE grid_riverlake_flow (year, deltime)
@@ -744,6 +758,18 @@ CONTAINS
             ENDIF
 
             ! reservoir operation.
+            ! [GridRiverLakeFlow] Bug fix for cascades: the release of a reservoir is
+            ! pushed downstream only after all reservoirs are operated, and the outlet
+            ! flux of every reservoir was zeroed before the upstream sum, so a
+            ! reservoir directly below another never saw that release in the inflow
+            ! given to reservoir_operation (the water still arrived; only the
+            ! operation was wrong, e.g. a flood release of the upper dam stored by the
+            ! lower one).  The release that reached the reservoir in the previous
+            ! sub-step (qresv_ups_prev, kept in the restart) is added to that inflow.
+            ! A same-step value would need one push per cascade level; sub-steps are
+            ! at most 60 s, so the lag is small.  With bifurcation the value is the
+            ! release before the outgoing-flux limiter.  Results change only where a
+            ! built reservoir is directly downstream of another.
             IF (DEF_Reservoir_Method > 0) THEN
 
                hflux_resv = 0.
@@ -755,7 +781,7 @@ CONTAINS
 
                   IF (ucat_next(i) == -10) THEN
                      IF (is_built_resv(i)) THEN
-                        qresv_in (ucat2resv(i)) = - sum_hflux_riv(i)
+                        qresv_in (ucat2resv(i)) = - sum_hflux_riv(i) + qresv_ups_prev(ucat2resv(i))
                         qresv_out(ucat2resv(i)) = 0.
                      ENDIF
                      CYCLE
@@ -764,7 +790,7 @@ CONTAINS
                   IF (is_built_resv(i)) THEN
 
                      irsv = ucat2resv(i)
-                     qresv_in(irsv) = - sum_hflux_riv(i)
+                     qresv_in(irsv) = - sum_hflux_riv(i) + qresv_ups_prev(irsv)
 
                      IF (volresv(irsv) > 1.e-4 * volresv_total(irsv)) THEN
                         CALL reservoir_operation (DEF_Reservoir_Method, &
@@ -793,6 +819,12 @@ CONTAINS
                      sum_mflux_riv = sum_mflux_riv - mflux_sumups
                   END WHERE
                ENDIF
+
+               ! hflux_sumups now holds the release of the reservoirs directly upstream
+               DO i = 1, numucat
+                  IF (ucatfilter(i) .and. is_built_resv(i)) &
+                     qresv_ups_prev(ucat2resv(i)) = hflux_sumups(i)
+               ENDDO
 
             ENDIF
 
@@ -1429,7 +1461,14 @@ CONTAINS
             density = flood_protected_uc / max(push_inpm2ucat%sum_area, tiny(1._r8))
       ENDIF
       CALL worker_push_data(push_ucat2inpm, density, grid_protected, fillvalue=0._r8, mode='sum')
-      CALL worker_push_data(push_ucat2inpm, frac_uc, frac_grid, fillvalue=0._r8, mode='average')
+      ! A zero fraction is a valid dry state and must keep its area in the
+      ! average: worker_push_data skips values equal to fillvalue together with
+      ! their area, so a missing-value marker distinct from 0 is used here
+      ! (with fillvalue = 0, cells half covered by dry unit catchments got the
+      ! fraction of the wet part only, i.e. too large a fraction, too small a depth).
+      CALL worker_push_data(push_ucat2inpm, frac_uc, frac_grid, &
+         fillvalue=RIVERLAKE_FLOOD_MISSING_VALUE, mode='average')
+      WHERE (frac_grid == RIVERLAKE_FLOOD_MISSING_VALUE) frac_grid = 0._r8
       WHERE (flood_grid_area > 0._r8)
          frac_grid = min(1._r8, max(0._r8, frac_grid))
          grid_visible = grid_visible / max(flood_grid_area, tiny(1._r8))

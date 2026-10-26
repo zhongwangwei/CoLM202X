@@ -527,11 +527,6 @@ CONTAINS
          deallocate (bifout_local)
 
          IF (npthlev_bif > 0 .and. totalnpthout > 0) THEN
-            IF (p_is_master) THEN
-               CALL ncio_define_dimension (file_hist_ucat, 'bifurcation_level', npthlev_bif)
-               CALL ncio_define_dimension (file_hist_ucat, 'bifurcation_pathway', totalnpthout)
-            ENDIF
-
             IF (p_is_worker) THEN
                ncol_local_bif = npthout_local
                IF (allocated(a_bifflw_lev) .and. allocated(a_bifflw_acctime)) THEN

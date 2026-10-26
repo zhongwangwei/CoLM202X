@@ -538,7 +538,7 @@ PROGRAM CoLM
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
 #ifdef GridRiverLakeFlow
-            CALL grid_riverlake_flow_lulcc (jdate(1))
+            CALL grid_riverlake_flow_lulcc (jdate(1), is_spinup)
 #endif
 
             ! Allocate Forcing and Fluxes variable of next year

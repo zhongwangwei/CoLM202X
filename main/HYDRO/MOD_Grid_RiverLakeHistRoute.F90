@@ -434,6 +434,12 @@ CONTAINS
          CALL vector_gather_matrix_to_master (matrix, nrow, ncol_local, ncol_global, &
             global_id, wdata)
          IF (p_is_master) THEN
+            ! The single-file dimensions are defined here, not by the caller: in
+            ! block mode rh_file_one is never created (each I/O group writes its
+            ! own shard with define_bif_shard_dims), so defining them there
+            ! stopped the run with "No such file or directory".
+            CALL ncio_define_dimension (trim(rh_file_one), 'bifurcation_level', nrow)
+            CALL ncio_define_dimension (trim(rh_file_one), 'bifurcation_pathway', ncol_global)
             CALL ncio_write_serial_time (trim(rh_file_one), varname, rh_itime, wdata, &
                'bifurcation_level', 'bifurcation_pathway', 'time', DEF_HIST_CompressLevel)
             IF (rh_itime <= 1) THEN
