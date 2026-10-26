@@ -196,10 +196,16 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! decays with z0_BGC ~ 0.5 m, but boreal peatland observations
       ! (see Walter & Heimann 2001 JGR 106:34189) indicate CH4 production
       ! concentrates in the top 30 cm.  When z0_methane_prod > 0, partition_z
-      ! is multiplied by exp(-z/z0_methane_prod) and the column re-normalized
-      ! so total CH4 production is preserved (only redistributes vertically:
-      ! top layers up, deep layers down).  Default 0 = disabled, falls back
-      ! to CTSM BGC profile alone.
+      ! is multiplied by exp(-z/z0_methane_prod) and the column re-normalized.
+      ! NOTE: the normalisation fixes the sum of the BASE weights only.  Each
+      ! layer is then multiplied by its own temperature, pH and redox factor,
+      ! so the column total is NOT preserved -- see the explicit statement in
+      ! methane_prod (Physics.F90, "does not claim to preserve final CH4
+      ! production after layer-specific ... modifiers").  This comment claimed
+      ! conservation until 2026-07-30; it was wrong, and the practical
+      ! consequence is that z0_methane_prod moves column totals, not just the
+      ! shape of the profile.  Default 0 = disabled, falls back to CTSM BGC
+      ! profile alone.
       !
       ! Recommended 0.30 m: chosen by author within the 0.2-0.5 m range
       ! discussed in Walter & Heimann 2001 (specific value 0.30 not directly
@@ -404,7 +410,30 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! SIF is enabled only when coupled BGC does not already apply anoxia limits.
       logical :: bgc_anoxia_limits_decomp = .false.  ! true: BGC o_scalar already limits decomposition
       logical :: use_ch4_sif              = .true.   ! true: apply CH4 seasonal inundation factor
+      ! floodplain_anoxic_decomp (C-14, paper V2): on non-wetland, non-paddy
+      !   patches CH4 is produced (below the water table, in both the flooded
+      !   and the non-flooded subcolumn) from decomposition at the anoxic
+      !   rate, mino2lim times the aerobic rate their BGC carries (o_scalar is
+      !   1 there, and flooding never builds up their carbon stock). This is
+      !   the CLM4Me seasonal inundation factor with no permanently inundated
+      !   share (Riley et al. 2011, appendix B). Off by default.
+      logical :: floodplain_anoxic_decomp = .false.
       ! If BGC later applies real o_scalar limits, set (true, false).
+      ! frozen_anoxic_decomp (C-16, paper V2): a frozen wetland layer keeps
+      !   the anoxic limit mino2lim on decomposition instead of 1. Ice brings
+      !   no oxygen, and CLM applies o_scalar in every layer whatever its
+      !   temperature. With 1, a layer held at the freezing point, where
+      !   w_scalar is still near 1, decomposed five times faster than a
+      !   thawed one. Off by default.
+      logical :: frozen_anoxic_decomp = .false.
+      ! liquid_fraction_scaling (paper version): CH4 production, oxidation and
+      !   aerenchyma transport in a soil layer scale with its unfrozen water
+      !   fraction wliq/(wliq+wice) instead of stopping at tfrz. Off by default.
+      logical :: liquid_fraction_scaling = .false.
+      ! wetland_oxic_cap_kinetics (paper version): the layers above a wetland's
+      !   water table oxidise CH4 with the saturated-zone kinetics (k_m,
+      !   vmax_methane_oxid) instead of the upland values. Off by default.
+      logical :: wetland_oxic_cap_kinetics = .false.
 
       ! Global-run diagnostics / guard rails.
       ! write_ch4_history=false suppresses all CH4 history variables.
@@ -464,9 +493,115 @@ MODULE MOD_Tracer_Reactive_Methane_Const
       ! finundated is supplied by a seasonal area signal.
       logical :: wetland_dry_unsat_branch = .false.
 
-      ! Rice physiology/aerenchyma can remain active briefly after harvest,
-      ! but inundation and water depth always come from host hydrology/routing.
+      ! Paddy water management (removed by 68a507f8, restored from 7550e0ed).
+      !
+      ! These are methane-only: they set the inundation the CH4 column sees and
+      ! do NOT irrigate the host. That is a known inconsistency -- the water is
+      ! invented here and the host water balance never sees it -- accepted
+      ! deliberately, because without it a paddy is hydrologically a dry field
+      ! and the seven FLUXNET-CH4 rice towers all model exactly 0.0 against
+      ! observed 66.7 mg CH4 m-2 d-1. Record it in the calibration archive: any
+      ! parameter tuned on rice under this scheme carries the inconsistency,
+      ! and a later coupled path through MOD_Irrigation must re-tune.
+      !
+      ! rice_paddy_min_finundated: floor on finundated while CN reports the crop
+      !   alive. Blended with the scheme value by max(), so an already-wet patch
+      !   -- a wetland tile carrying a rice CFT, or scheme 6 with the water table
+      !   at the surface -- is never dried by it. 0 (default) leaves the paddy
+      !   on the scheme value; the methane paper version uses 0.85.
+      real(r8) :: rice_paddy_min_finundated     = 0._r8
+      ! Midseason drying: the standard Asian practice of draining for 7-10 days
+      ! around 30-40 days after planting. Timing and depth are tunable; the
+      ! defaults are the mid-range of that practice, not a fitted value.
+      real(r8) :: rice_midseason_start_days     = 35._r8
+      real(r8) :: rice_midseason_drain_days     = 10._r8
+      real(r8) :: rice_midseason_drained_finundated = 0.30_r8
+
+      ! Rice physiology/aerenchyma can remain active briefly after harvest.
+      ! Also the window over which the paddy drains back to the host value.
       real(r8) :: rice_drain_window_days        = 30._r8
+
+      ! wetland_max_wtd: deepest water table [m below surface] a wetland tile
+      !   may reach under DEF_USE_Dynamic_Wetland. When the table falls
+      !   deeper, WATER_VSF feeds the aquifer from the side (negative
+      !   subsurface runoff, booked in rnof) until the table is back at this
+      !   depth, standing in for the lateral inflow the closed wetland bucket
+      !   never receives. A negative value switches it off. With
+      !   use_biome_wetland_max_wtd the value is taken per wetland class
+      !   (BIOME_* in BgcLink) instead of the single global value.
+      real(r8) :: wetland_max_wtd                     = -1._r8
+      logical  :: use_biome_wetland_max_wtd           = .false.
+      real(r8) :: wetland_max_wtd_tropical_peat       = -1._r8
+      real(r8) :: wetland_max_wtd_tropical_floodplain = -1._r8
+      real(r8) :: wetland_max_wtd_temperate_marsh     = -1._r8
+      real(r8) :: wetland_max_wtd_boreal_fen          = -1._r8
+      real(r8) :: wetland_max_wtd_boreal_bog          = -1._r8
+
+      ! wetland_peat_drainage: lateral outflow of a dynamic wetland through
+      !   its saturated zone, Q = peat_c * T(zwt) (PEAT-CLSM, Bechtold et al.
+      !   2019, JAMES 11, eqs 6-9). T integrates below the water table a
+      !   macro-scale conductivity that falls with depth as
+      !   peat_K0 / (1 + 100 z)^peat_m in peat and equals the layer's
+      !   saturated conductivity in mineral soil; each layer mixes the two by
+      !   its organic fraction OM_density / organic_max (Lawrence and Slater
+      !   2008; organic_max 130 kg m-3 as in the CLM parameter file). peat_c
+      !   is hydraulic gradient over flow length. The water leaves as positive
+      !   subsurface runoff. Off by default.
+      logical  :: wetland_peat_drainage = .false.
+      real(r8) :: peat_K0               = 10._r8      ! [m s-1]
+      real(r8) :: peat_m                = 3._r8       ! [-]
+      real(r8) :: peat_c                = 1.5e-5_r8   ! [m-1]
+      real(r8) :: organic_max           = 130._r8     ! [kg OM m-3]
+      ! wetland_plant_input: plant carbon input of the permanent-wetland tile
+      !   (paper V2 C-12). The tile's own canopy assimilation times
+      !   wetland_npp_frac (NPP/GPP) enters the litter pools every step along
+      !   the tile's root profile, split labile/cellulose/lignin as CoLM's
+      !   grass litter (0.25/0.5/0.25), with nitrogen at wetland_litter_cn.
+      !   At steady state heterotrophic respiration then follows productivity
+      !   instead of the initial stock.
+      logical  :: wetland_plant_input = .false.
+      real(r8) :: wetland_npp_frac    = 0.5_r8     ! [-]
+      real(r8) :: wetland_litter_cn   = 46._r8     ! [g C / g N]
+      ! wetland_bg_frac (C-15, paper V2): share of that input that follows the
+      !   root profile; the rest is aboveground litter laid on the surface
+      !   along CoLM's leaf-litter profile. 1 keeps everything on the roots.
+      real(r8) :: wetland_bg_frac     = 1._r8      ! [-]
+      ! wetland_veg_glwd (C-13, paper V2): replace the five-zone wetland
+      !   vegetation proxy by the tile's GLWD make-up read from wetland_veg_file
+      !   (forested share and class areas per grid cell). The forested share
+      !   takes wetland_bg_frac_forest as its belowground input share (tropical
+      !   peat swamp forest 0.07-0.23) and nongrassporosratio of the grass
+      !   aerenchyma porosity; the non-forested share keeps its remote-sensing
+      !   LAI only up to the measured peak, wetland_lai_open_peat for open
+      !   peatland (GLWD 23, 25) and wetland_lai_marsh for marsh (17, 19, 27).
+      logical  :: wetland_veg_glwd       = .false.
+      character(len=256) :: wetland_veg_file = 'null'
+      real(r8) :: wetland_bg_frac_forest = 0.15_r8   ! [-]
+      real(r8) :: wetland_lai_open_peat  = 0.6_r8    ! [m2 m-2]
+      real(r8) :: wetland_lai_marsh      = 3.0_r8    ! [m2 m-2]
+      ! Single-point overrides of the gridded make-up (a tower sits in one
+      ! wetland, the grid cell holds a mix); < 0 keeps the file value.
+      real(r8) :: wetland_forest_share_site = -1._r8  ! [-]
+      real(r8) :: wetland_lai_cap_site      = -1._r8  ! [m2 m-2]
+      ! rice_aere_override (C-24, paper V2): .true. gives live paddy rice the
+      !   tiller geometry of get_rice_veg_proxy (porosity 0.40, radius 0.75 mm,
+      !   1.0 gC per tiller), whose aerenchyma cross-section per unit tiller
+      !   carbon is 1/51 of the CLM4Me default; ebullition then carries most
+      !   of the paddy CH4. .false. keeps the CLM4Me crop geometry (porosity
+      !   0.3, radius 2.9 mm, 0.22 gC per tiller; Riley et al. 2011, Wania et
+      !   al. 2010), and the plants become the main pathway, as observed in
+      !   paddies (Cicerone and Shetter 1981). .true. by default.
+      logical  :: rice_aere_override        = .true.
+      ! rice_aereoxid (C-25, paper V2): share of the CH4 entering the
+      !   aerenchyma of paddy rice that is oxidised in the rhizosphere by the
+      !   O2 the roots release from inside the plant (not drawn from the soil
+      !   layer's O2, as CLM4Me's aereoxid). The CLM4Me legacy switch (aereoxid with
+      !   use_aereoxid_prog = .false.) acts on every column and shuts the plant
+      !   O2 off, so it cannot serve here. Paddies oxidise 40% rising to 90% of
+      !   the CH4 produced over the season (Cao et al. 1995, after Schutz et al.
+      !   1989), 0.65 as the season mean emitted fraction 0.35 (Huang et al.
+      !   1998). 0 (off) by default.
+      real(r8) :: rice_aereoxid             = 0._r8   ! [-]
 
       ! R2 short-term SOC fix (methane-only): paddy soils accumulate SOC
       ! ~2-3x faster than upland soils under long flooding (Pan 2010 GCB,
@@ -555,7 +690,7 @@ CONTAINS
 	      ! internal scheme integer plus paired methane switches.  The old
 	      ! integer scheme remains only as the physics dispatch key; users
 	      ! should set DEF_METHANE%inundation_mode to one of:
-	      !   wetwat, satellite/giems, routing, dynamic_wtd, hybrid.
+      !   wetwat, satellite/giems, routing, dynamic_wtd, hybrid, colm.
 	      USE MOD_Namelist, only: DEF_wetland_finundation_scheme, &
 	                              DEF_USE_Dynamic_Wetland
 	      IMPLICIT NONE
@@ -592,6 +727,21 @@ CONTAINS
 	               '***** ERROR: satellite methane inundation mode requires DEF_USE_Dynamic_Wetland = .false.'
 	            CALL CoLM_Stop (' ***** ERROR: invalid methane inundation mode / dynamic wetland combination')
 	         ENDIF
+
+       CASE ('colm')
+         ! CoLM mode (B-3, B-10).  The mapped wetland tile is permanent
+         ! wetland (finundated 1, host wetland bucket); every other tile
+         ! takes the routing flood fraction and depth, wetland first, gated
+         ! by hybrid_soil_threshold.  The unsaturated branch is live (no
+         ! forced dry column) and no sigmoid is applied.
+         DEF_wetland_finundation_scheme = 8
+         DEF_METHANE%enable_wetwat_finundated_override = .false.
+         DEF_METHANE%wetland_dry_unsat_branch = .false.
+         ! Soil tiles flooded by routing are floodplains (biome parameters
+         ! and the floodplain area diagnostic), as in the hybrid mode.
+         DEF_METHANE%use_routing_for_soil = .true.
+         ! With DEF_USE_Dynamic_Wetland the wetland tile keeps its own water
+         ! table and the scheme 8 branch follows it (Physics).
 
 	      CASE ('routing')
 #ifndef GridRiverLakeFlow
@@ -657,7 +807,7 @@ CONTAINS
 	      CASE DEFAULT
 	         IF (p_is_master) write(6,*) &
 	            '***** ERROR: unsupported DEF_METHANE%inundation_mode = ', trim(DEF_METHANE%inundation_mode), &
-	            '; expected wetwat, satellite, routing, dynamic_wtd, or hybrid.'
+            '; expected wetwat, satellite, routing, dynamic_wtd, hybrid, or colm.'
 	         CALL CoLM_Stop (' ***** ERROR: unsupported methane inundation mode')
 	      END SELECT
 
@@ -724,8 +874,20 @@ CONTAINS
          DEF_METHANE%wtd_inflection, DEF_METHANE%wtd_steepness, &
          DEF_METHANE%wtd_inflection_soil, DEF_METHANE%wtd_steepness_soil, &
          DEF_METHANE%hybrid_soil_threshold, DEF_METHANE%rice_drain_window_days, &
+         DEF_METHANE%rice_paddy_min_finundated, DEF_METHANE%rice_midseason_start_days, &
+         DEF_METHANE%wetland_max_wtd, DEF_METHANE%wetland_max_wtd_tropical_peat, &
+         DEF_METHANE%wetland_max_wtd_tropical_floodplain, &
+         DEF_METHANE%wetland_max_wtd_temperate_marsh, &
+         DEF_METHANE%wetland_max_wtd_boreal_fen, DEF_METHANE%wetland_max_wtd_boreal_bog, &
+         DEF_METHANE%rice_midseason_drain_days, DEF_METHANE%rice_midseason_drained_finundated, &
          DEF_METHANE%rice_substrate_boost, DEF_METHANE%numerical_correction_fatal_threshold, &
          DEF_METHANE%host_water_tolerance, &
+         DEF_METHANE%peat_K0, DEF_METHANE%peat_m, DEF_METHANE%peat_c, DEF_METHANE%organic_max, &
+         DEF_METHANE%wetland_npp_frac, DEF_METHANE%wetland_litter_cn, &
+         DEF_METHANE%wetland_bg_frac, DEF_METHANE%wetland_bg_frac_forest, &
+         DEF_METHANE%wetland_lai_open_peat, DEF_METHANE%wetland_lai_marsh, &
+         DEF_METHANE%wetland_forest_share_site, DEF_METHANE%wetland_lai_cap_site, &
+         DEF_METHANE%rice_aereoxid, &
          DEF_METHANE_hydrology%vdcf, &
          DEF_METHANE_hydrology%slopebeta, DEF_METHANE_hydrology%slopemax, &
          DEF_METHANE_hydrology%pc]))) THEN
@@ -1002,6 +1164,29 @@ CONTAINS
             DEF_METHANE%rice_drain_window_days
          bad = .true.
       ENDIF
+      IF (DEF_METHANE%rice_paddy_min_finundated < 0._r8 .or. &
+          DEF_METHANE%rice_paddy_min_finundated > 1._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: rice_paddy_min_finundated must be in [0,1]: ', &
+            DEF_METHANE%rice_paddy_min_finundated
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%rice_midseason_drained_finundated < 0._r8 .or. &
+          DEF_METHANE%rice_midseason_drained_finundated > 1._r8) THEN
+         IF (p_is_master) write(6,*) &
+            '***** ERROR: rice_midseason_drained_finundated must be in [0,1]: ', &
+            DEF_METHANE%rice_midseason_drained_finundated
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%rice_midseason_start_days < 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: rice_midseason_start_days must be >= 0: ', &
+            DEF_METHANE%rice_midseason_start_days
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%rice_midseason_drain_days < 0._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: rice_midseason_drain_days must be >= 0: ', &
+            DEF_METHANE%rice_midseason_drain_days
+         bad = .true.
+      ENDIF
       IF (abs(DEF_METHANE%rice_substrate_boost - 1._r8) > 10._r8 * epsilon(1._r8)) THEN
          IF (p_is_master) write(6,*) &
             '***** ERROR: rice_substrate_boost must remain 1 until methane production debits BGC carbon: ', &
@@ -1019,6 +1204,34 @@ CONTAINS
       ENDIF
       IF (DEF_METHANE%om_frac_sf < 0._r8) THEN
          IF (p_is_master) write(6,*) '***** ERROR: om_frac_sf must be >= 0: ', DEF_METHANE%om_frac_sf
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%wetland_veg_glwd .and. (trim(DEF_METHANE%wetland_veg_file) == 'null' .or. &
+         DEF_METHANE%wetland_bg_frac_forest < 0._r8 .or. DEF_METHANE%wetland_bg_frac_forest > 1._r8 .or. &
+         DEF_METHANE%wetland_lai_open_peat <= 0._r8 .or. DEF_METHANE%wetland_lai_marsh <= 0._r8)) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: wetland_veg_glwd needs wetland_veg_file, ', &
+            '0 <= wetland_bg_frac_forest <= 1 and positive wetland_lai_open_peat, wetland_lai_marsh'
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%rice_aereoxid < 0._r8 .or. DEF_METHANE%rice_aereoxid >= 1._r8) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: rice_aereoxid must lie in [0, 1): ', DEF_METHANE%rice_aereoxid
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%wetland_plant_input .and. ( &
+         DEF_METHANE%wetland_npp_frac <= 0._r8 .or. DEF_METHANE%wetland_npp_frac > 1._r8 .or. &
+         DEF_METHANE%wetland_litter_cn <= 0._r8 .or. &
+         DEF_METHANE%wetland_bg_frac < 0._r8 .or. DEF_METHANE%wetland_bg_frac > 1._r8)) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: wetland_plant_input needs ', &
+            '0 < wetland_npp_frac <= 1, wetland_litter_cn > 0 and 0 <= wetland_bg_frac <= 1: ', &
+            DEF_METHANE%wetland_npp_frac, DEF_METHANE%wetland_litter_cn, &
+            DEF_METHANE%wetland_bg_frac
+         bad = .true.
+      ENDIF
+      IF (DEF_METHANE%wetland_peat_drainage .and. &
+         (DEF_METHANE%peat_K0 <= 0._r8 .or. DEF_METHANE%peat_m <= 1._r8 .or. &
+          DEF_METHANE%peat_c <= 0._r8 .or. DEF_METHANE%organic_max <= 0._r8)) THEN
+         IF (p_is_master) write(6,*) '***** ERROR: peat drainage needs peat_K0, peat_c, organic_max > 0 and peat_m > 1: ', &
+            DEF_METHANE%peat_K0, DEF_METHANE%peat_m, DEF_METHANE%peat_c, DEF_METHANE%organic_max
          bad = .true.
       ENDIF
       IF (DEF_METHANE%K_substrate_methanogen_pool <= 0._r8 .or. &
@@ -1301,7 +1514,19 @@ CONTAINS
          'f_methane_surf_flux_lake', &
          'f_methane_surf_flux_lake_intensive', &
          'f_methane_surf_flux_rice', &
-         'f_methane_surf_flux_rice_intensive')
+          'f_methane_surf_flux_rice_intensive', &
+       ! Category-split CH4 budget components (wetland/soil/lake/rice).
+          'f_methane_prod_tot_wetland', &
+          'f_methane_oxid_tot_wetland', &
+          'f_methane_surf_aere_wetland', &
+          'f_methane_surf_ebul_wetland', &
+          'f_methane_surf_diff_wetland', &
+          'f_methane_area_wetland', &
+          'f_methane_area_soil', &
+          'f_methane_area_rice', &
+          'f_methane_area_lake', &
+          'f_methane_floodplain_frac', &
+          'f_methane_wetland_type')
          methane_history_is_diagnostic = .true.
       CASE DEFAULT
          methane_history_is_diagnostic = .false.

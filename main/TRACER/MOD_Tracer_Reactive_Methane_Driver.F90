@@ -68,8 +68,9 @@ CONTAINS
 			     tracer_ch4_bgc_component_veg_inputs, &
 			     get_wetland_veg_proxy, get_rice_veg_proxy, is_paddy_rice_live, &
 			     rice_days_since_harvest, organic_max, get_biome_f_methane, &
-			     get_biome_redoxlag, tracer_ch4_bgc_finalize_step
+		get_biome_redoxlag, BIOME_NONE, tracer_ch4_bgc_finalize_step
 			USE MOD_Tracer_Reactive_Methane_VegOverride, only: wetland_aere_active
+      USE MOD_Tracer_Reactive_Methane_WetlandVeg, only: set_wetland_veg_glwd, wetveg_active
 		USE MOD_Tracer_Reactive_Methane_Microbes, only: methane_microbes_step, &
 		     aggregate_methane_microbes, repartition_methane_microbes, &
 		     reset_methane_inactive_lake_microbe_diagnostics, &
@@ -127,7 +128,8 @@ CONTAINS
 		     tempavg_agnpp, tempavg_bgnpp, annsum_counter, &
 		     tempavg_somhr, tempavg_finrw, &
 		     fsat_bef, finundated_lag, methane_dfsat_tot, &
-		     biome_f_methane_patch, biome_redoxlag_patch, &
+         biome_f_methane_patch, biome_redoxlag_patch, methane_wetland_type, &
+         methane_area_floodplain, methane_area_soil, methane_area_rice, &
 		     f_inund_flood_patch, wetland_frac_per_patch, &
 		     conc_o2_unsat_component, conc_o2_sat_component, &
 		     conc_methane_unsat_component, conc_methane_sat_component, &
@@ -208,6 +210,7 @@ CONTAINS
 		logical  :: is_floodplain_active
 		real(r8) :: rice_pft_frac
 		integer  :: rice_dsh
+      integer  :: biome_class_id
 
 		real(r8):: &
 				crootfr  (1:nl_soil)     , &! fraction of roots for carbon in each soil layer
@@ -320,8 +323,11 @@ CONTAINS
 			! ---- Wetland vegetation proxy (patchtype==2 only) -------------------
 			! IGBP class 11 wetland patches carry no PFT, so NPP / rootfr arrive
 			! as 0 and methane_aere (Wania 2010) cannot fire fully, dropping
-			! the plant-mediated CH4 pathway that observations show carries
-			! 50-90% of total wetland CH4 efflux (Bridgham 2013 GCB).
+      ! the plant-mediated CH4 pathway.  Bridgham et al. (2013, GCB 19:1325,
+      ! p.1330) put its contribution at "ca. 30-100% of total CH4 flux" and
+      ! stress that it "varies dramatically between systems"; an earlier
+      ! revision of this comment narrowed that to 50-90%, which the source
+      ! does not say.
 			!
 			! LAI handling: CoLM mksrfdata aggregates Yuan+2011 LAI onto
 			! patchtype==2 patches (fveg0_igbp(11)=1), so `lai` has real
@@ -343,8 +349,13 @@ CONTAINS
 					wetland_aere_active(i) = .false.
 			ENDIF
 			IF (patchtype == 2) THEN
+         IF (DEF_METHANE%wetland_veg_glwd .and. wetveg_active) THEN
+            ! C-13: vegetation from the tile's GLWD make-up and own NPP
+            CALL set_wetland_veg_glwd (i, lai, lai_eff, annsum_npp_loc, agnpp_loc, bgnpp_loc, rootfr_eff)
+         ELSE
 				CALL get_wetland_veg_proxy (dlat, cellorg(1), lai, i, &
 				     lai_eff, annsum_npp_loc, agnpp_loc, bgnpp_loc, rootfr_eff)
+         ENDIF
 				! BgcLink set crootfr from the original (zero) rootfr; replace it
 				! with the proxy profile so methane_prod distributes root
 				! respiration into the right layers.
@@ -391,9 +402,47 @@ CONTAINS
 			ENDIF
 			IF (allocated(biome_f_methane_patch) .and. &
 			    i >= 1 .and. i <= size(biome_f_methane_patch)) THEN
+         biome_class_id = BIOME_NONE
 				biome_f_methane_patch(i) = get_biome_f_methane (patchtype, dlat, cellorg(1), &
 				                                                is_rice_paddy, rice_pft_frac, &
-				                                                rice_parameter_active, is_floodplain_active)
+            rice_parameter_active, is_floodplain_active, &
+            class_id = biome_class_id)
+
+         ! Diagnostic: publish which branch of the tree this patch took.
+         !
+         ! ONLY on patchtype==2.  A class code is a label, not a quantity, so
+         ! it must never be area-averaged across patches of different classes:
+         ! history maps patch -> grid by area weight, and one wetland patch
+         ! (class 1..5) sharing a cell with ten upland soil patches (class 7)
+         ! would average to a meaningless ~6.x.  IGBP has exactly one wetland
+         ! class (11 -> patchtype 2), so there is at most ONE wetland patch per
+         ! grid cell; written under a wetland-only filter the weighted value is
+         ! that patch's own code.  Soil/lake patches are left at spval and are
+         ! excluded by that filter.  The upland/floodplain distinction on
+         ! patchtype==0 is carried by methane_area_floodplain below, which IS a
+         ! quantity and averages correctly.
+         IF (allocated(methane_wetland_type) .and. &
+            i >= 1 .and. i <= size(methane_wetland_type)) THEN
+            IF (patchtype == 2) THEN
+               methane_wetland_type(i) = real(biome_class_id, r8)
+            ELSE
+               methane_wetland_type(i) = spval
+            ENDIF
+         ENDIF
+
+         ! Routing-flooded share of a soil patch: the seasonal-wetland signal.
+         ! Set here rather than in methane() because is_floodplain_active is
+         ! known only at this level.  0/1 per step; history accumulates it in
+         ! time and area, so the gridded field is the fraction of the output
+         ! window this cell's soil spent flooded.
+         IF (allocated(methane_area_floodplain) .and. &
+            i >= 1 .and. i <= size(methane_area_floodplain)) THEN
+            IF (is_floodplain_active) THEN
+               methane_area_floodplain(i) = 1._r8
+            ELSE
+               methane_area_floodplain(i) = 0._r8
+            ENDIF
+         ENDIF
 			ENDIF
 
 			! Biome-specific redoxlag lookup (Pangala 2017, Whalen 1990).
@@ -585,7 +634,7 @@ CONTAINS
 				column_annsum_npp = component_annsum_npp(component)
 			ENDIF
 			IF (allocated(wetland_aere_active)) wetland_aere_active(i) = .false.
-			IF (rice_column_active .and. is_paddy_rice_live(i)) THEN
+			IF (rice_column_active .and. is_paddy_rice_live(i) .and. DEF_METHANE%rice_aere_override) THEN
 				CALL get_rice_veg_proxy(column_lai, i, 1._r8)
 			ENDIF
 
@@ -984,6 +1033,11 @@ CONTAINS
 			methane_prod_tot_rice(i) = wr*rice%prod_tot
 			methane_oxid_tot_soil(i) = ws*soil%oxid_tot
 			methane_oxid_tot_rice(i) = wr*rice%oxid_tot
+			! Category area fractions of the patchtype==0 tile (paddy patches):
+			! non-rice soil = 1-rice, rice = rice.  Overrides the Physics default
+			! (soil=1) so soil/rice category totals do not double-count area.
+			methane_area_soil(i) = ws
+			methane_area_rice(i) = wr
 		END SUBROUTINE aggregate_methane_columns
 
 		SUBROUTINE repartition_methane_column_state(ipatch, old_fraction, new_fraction)
