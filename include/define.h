@@ -59,13 +59,16 @@
 
 #define GridRiverLakeFlow
 !    Conflicts :
-#if (defined CATCHMENT || defined SinglePoint)
+#if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
 #undef GridRiverLakeFlow
 #endif
 
 #undef GridRiverLakeSediment
 #if (!defined GridRiverLakeFlow)
 #undef GridRiverLakeSediment
+#endif
+#ifdef GridRiverLakeSediment
+#error "GridRiverLakeSediment is not yet coupled to this version of GridRiverLakeFlow"
 #endif
 
 ! 7. If defined, BGC model is used.

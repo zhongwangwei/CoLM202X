@@ -73,8 +73,19 @@ MODULE MOD_CaMa_colmCaMa
    INTERFACE colm_CaMa_exit
       MODULE PROCEDURE colm_CaMa_exit
    END INTERFACE
+#endif
+#ifdef GridRiverLakeFlow
+   ! the grid-based river-lake routing uses get_fldevp only
+   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT
+   USE MOD_Precision, only: r8
+   USE MOD_Qsadv
+   IMPLICIT NONE
+#endif
+#if defined(CaMa_Flood) || defined(GridRiverLakeFlow)
 CONTAINS
+#endif
 
+#ifdef CaMa_Flood
    SUBROUTINE colm_CaMa_init(start_date)
    USE MOD_LandPatch
    USE MOD_Utils,            only: areaquad
@@ -741,7 +752,9 @@ CONTAINS
          END WHERE
       ENDIF
    END SUBROUTINE publish_flood_credit
+#endif
 
+#if defined(CaMa_Flood) || defined(GridRiverLakeFlow)
    SUBROUTINE get_fldevp (hu,ht,hq,us,vs,tm,qm,rhoair,psrf,tssea,&
 	   hpbl, &
       taux,tauy,fseng,fevpg,tref,qref,z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq)

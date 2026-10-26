@@ -180,6 +180,12 @@ $VENGENU
 ! 6. If defined, CaMa-Flood model will be used.
 $CaMa
 
+#define GridRiverLakeFlow
+!    Conflicts :
+#if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
+#undef GridRiverLakeFlow
+#endif
+
 ! 7. If defined, BGC model is used.
 $BGC
 
