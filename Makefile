@@ -125,6 +125,7 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeVectorIO.o    \
 				 MOD_Grid_RiverLakeNetwork.o     \
 				 MOD_Grid_Reservoir.o            \
+				 MOD_Grid_ReservoirUpstream.o    \
 				 MOD_Grid_RiverLakeLevee.o       \
 				 MOD_Grid_RiverLakeBifurcation.o \
 				 MOD_Grid_RiverLakeHistState.o   \
@@ -417,6 +418,8 @@ MOD_Grid_RiverLakeHistRoute.o: MOD_Grid_RiverLakeHistShard.o MOD_Grid_Reservoir.
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o
 MOD_Vars_TimeVariables.o: MOD_Grid_RiverLakeTimeVars.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
+MOD_Grid_ReservoirUpstream.o: MOD_Grid_RiverLakeNetwork.o
+MOD_Grid_RiverLakeFlow.o: MOD_Grid_ReservoirUpstream.o
 MOD_HistAccRestart.o: MOD_Vars_1DAccFluxes.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeVectorIO.o
 MOD_Hist.o: MOD_HistAccRestart.o MOD_MT_HostFixes.o
 # Material transport (main/MATERIAL); every file is empty unless MaterialTransport is defined.

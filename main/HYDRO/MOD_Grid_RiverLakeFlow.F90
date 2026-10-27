@@ -15,6 +15,10 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_RiverLakeTimeVars
    USE MOD_Grid_Reservoir
+   ! Outflow of the cells directly upstream of a built reservoir (CaMa-Flood's
+   ! kinematic treatment against the reservoir backwater; see that module).
+   USE MOD_Grid_ReservoirUpstream, only: reservoir_upstream_init, reservoir_upstream_mark, &
+      reservoir_upstream_outflow, reservoir_upstream_final
    USE MOD_Grid_RiverLakeHist
    USE MOD_Grid_RiverLakeLevee, only: has_levee, levsto, levdph, levee_init, read_levee_restart, &
       levee_visible_volume_from_stage, levee_repartition_storage, levee_apply_protected_flux, levee_final, &
@@ -109,6 +113,9 @@ CONTAINS
          ENDIF
       ENDIF
 
+
+      ! static slope of the cells upstream of reservoirs (reads topo_distance)
+      IF (DEF_Reservoir_Method > 0) CALL reservoir_upstream_init ()
 
       CALL levee_init()
       IF (len_trim(gridriver_restart_file) > 0) THEN
@@ -263,6 +270,12 @@ CONTAINS
          filter_rnof = .false.
       ENDIF
 
+      ! the network was rebuilt: rebuild the slope of the cells upstream of reservoirs
+      IF (DEF_Reservoir_Method > 0) THEN
+         CALL reservoir_upstream_final ()
+         CALL reservoir_upstream_init ()
+      ENDIF
+
       CALL allocate_flood_patch ()
       CALL rebuild_volwater_ucat ()
       IF (DEF_USE_BIFURCATION) THEN
@@ -331,6 +344,9 @@ CONTAINS
 
 
    logical,  allocatable :: is_built_resv(:)
+   ! downstream cell is a built reservoir: kinematic outflow (MOD_Grid_ReservoirUpstream)
+   logical,  allocatable :: is_resv_upstream(:)
+   real(r8), allocatable :: veloc_kine(:)
 
    real(r8), allocatable :: wdsrf_next(:)
    real(r8), allocatable :: veloc_next(:)
@@ -441,6 +457,10 @@ CONTAINS
       IF (p_is_worker) THEN
 
          allocate (is_built_resv (numucat))
+         allocate (is_resv_upstream (numucat))
+         allocate (veloc_kine    (numucat))
+         is_resv_upstream = .false.
+         veloc_kine = 0._r8
          allocate (wdsrf_next    (numucat))
          allocate (veloc_next    (numucat))
          allocate (hflux_fc      (numucat))
@@ -553,6 +573,9 @@ CONTAINS
          ENDDO
 
 
+         ! cells whose downstream cell is a built reservoir, for this call
+         IF (DEF_Reservoir_Method > 0) CALL reservoir_upstream_mark (is_built_resv, is_resv_upstream)
+
          ntimestep = 0
 #ifdef CoLMDEBUG
          totaldis  = 0.
@@ -656,7 +679,23 @@ CONTAINS
                   CYCLE
                ENDIF
 
-               IF ((ucat_next(i) > 0) .or. (ucat_next(i) == -9)) THEN
+               IF (is_resv_upstream(i)) THEN
+                  ! Outflow into a built reservoir: kinematic wave of this cell, not
+                  ! an HLL face with the reservoir level, which is the level of the
+                  ! whole reservoir volume in one cell and backs water up into the
+                  ! cells upstream (see MOD_Grid_ReservoirUpstream).  The reservoir
+                  ! does not use momentum and this cell's momentum is replaced by
+                  ! the kinematic velocity below, so no pressure term is added.
+                  IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
+                     volwater = volwater_ucat(i)
+                  ELSE
+                     volwater = volwater_curve(i)
+                  ENDIF
+                  CALL reservoir_upstream_outflow (i, wdsrf_ucat(i), volwater, hflux_fc(i), veloc_kine(i))
+                  mflux_fc(i) = hflux_fc(i) * veloc_kine(i)
+                  zgrad_dn(i) = 0.
+
+               ELSEIF ((ucat_next(i) > 0) .or. (ucat_next(i) == -9)) THEN
 
                   IF (ucat_next(i) > 0) THEN
                      ! both rivers are dry.
@@ -909,7 +948,8 @@ CONTAINS
                ENDIF
 
                ! constraint 3: Avoid change of flow direction (only for rivers)
-               IF (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT .and. (.not. is_built_resv(i))) THEN
+               IF (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT .and. (.not. is_built_resv(i)) &
+                   .and. (.not. is_resv_upstream(i))) THEN
                   IF (abs(veloc_riv(i)) > 0.1_r8 .and. &
                       veloc_riv(i) * (sum_mflux_riv(i)-sum_zgrad_riv(i)) > 0._r8) THEN
                      dt_this = min(dt_this, &
@@ -996,7 +1036,7 @@ CONTAINS
                ENDDO
                IF (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT) THEN
                   DO i = 1, numucat
-                     IF (.not. ucatfilter(i) .or. is_built_resv(i)) CYCLE
+                     IF (.not. ucatfilter(i) .or. is_built_resv(i) .or. is_resv_upstream(i)) CYCLE
                      IF (abs(veloc_riv(i)) > 0.1_r8 .and. &
                          veloc_riv(i) * (sum_mflux_riv(i)-sum_zgrad_riv(i)) > 0._r8) THEN
                         dt_this = abs(momen_riv(i) * topo_rivare(i) / &
@@ -1124,6 +1164,13 @@ CONTAINS
                ELSE
                   momen_riv(i) = 0
                   veloc_riv(i) = 0
+               ENDIF
+
+               ! upstream of a built reservoir: the kinematic channel velocity of the
+               ! outflow (D2RIVVEL in CaMa-Flood), as the momentum is not used there
+               IF (is_resv_upstream(i) .and. (wdsrf_ucat(i) >= RIVERMIN)) THEN
+                  veloc_riv(i) = veloc_kine(i)
+                  momen_riv(i) = veloc_riv(i) * wdsrf_ucat(i)
                ENDIF
 
                ! inland depression river
@@ -1304,6 +1351,8 @@ CONTAINS
       IF (DEF_GridRiverLake_FloodFeedback) CALL publish_flood_feedback(year)
 
       IF (allocated(is_built_resv)) deallocate(is_built_resv)
+      IF (allocated(is_resv_upstream)) deallocate(is_resv_upstream)
+      IF (allocated(veloc_kine)) deallocate(veloc_kine)
       IF (allocated(wdsrf_next   )) deallocate(wdsrf_next   )
       IF (allocated(veloc_next   )) deallocate(veloc_next   )
       IF (allocated(hflux_fc     )) deallocate(hflux_fc     )
@@ -1700,6 +1749,7 @@ CONTAINS
 
       IF (DEF_Reservoir_Method > 0) THEN
          CALL reservoir_final ()
+         CALL reservoir_upstream_final ()
       ENDIF
 
 
