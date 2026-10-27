@@ -434,6 +434,7 @@ OBJS_MAIN = \
 				MOD_Lulcc_TransferTraceReadin.o           \
 				MOD_Lulcc_MassEnergyConserve.o            \
 				MOD_Lulcc_Initialize.o                    \
+				MOD_MT_Lulcc.o                            \
 				MOD_Lulcc_Driver.o                        \
 				CoLMDRIVER.o                              \
 				CoLMMAIN.o                                \
@@ -469,6 +470,8 @@ MOD_MT_Isotope_O18.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
 MOD_MT_Isotope_Registry.o: MOD_MT_Defs.o
 MOD_MT_LandPhase.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_Evapo.o MOD_MT_Lifecycle.o MOD_MT_Precip.o MOD_MT_Rest.o MOD_MT_Snow.o MOD_MT_SoilInit.o MOD_MT_SoilWater.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Lifecycle.o: MOD_MT_Defs.o
+MOD_MT_Lulcc.o: MOD_Lulcc_Vars_TimeInvariants.o MOD_Lulcc_TransferTraceReadin.o MOD_MT_Lifecycle.o MOD_MT_Vars.o MOD_MT_Forcing.o MOD_MT_Conservation.o
+MOD_Lulcc_Driver.o: MOD_MT_Lulcc.o
 MOD_MT_Precip.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Providers.o: MOD_MT_Isotope_HDO.o MOD_MT_Isotope_O18.o
 MT_RegisterProviders.o: MOD_MT_Methane.o MOD_MT_Sediment.o
