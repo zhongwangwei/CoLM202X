@@ -5,7 +5,7 @@ HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/MATERIAL : main/MATERIAL/GENERIC_WATER : main/MATERIAL/FAMILY_ISOTOPE : main/MATERIAL/FAMILY_SOLUTE : main/MATERIAL/FAMILY_PARTICLE : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/MATERIAL : main/MATERIAL/GENERIC_WATER : main/MATERIAL/FAMILY_ISOTOPE : main/MATERIAL/FAMILY_SOLUTE : main/MATERIAL/FAMILY_PARTICLE : main/MATERIAL/FAMILY_GAS : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -73,6 +73,26 @@ ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
 
 OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 
+# Material transport settings, also read by mksrfdata (methane surface data);
+# every file is empty unless MaterialTransport is defined.
+OBJS_MT_CONFIG = \
+				  MOD_MT_Namelist.o                \
+				  MOD_MT_Defs.o                    \
+				  MOD_MT_NcIO.o                    \
+				  MOD_MT_Methane_Registry.o        \
+				  MOD_MT_Methane_Const.o           \
+				  MOD_MT_Methane_Preprocessing.o   \
+				  MOD_MT_Methane_PHMapping.o
+
+MOD_MT_Defs.o: MOD_MT_Namelist.o
+MOD_MT_Methane_Const.o: MOD_MT_Defs.o
+MOD_MT_Methane_Preprocessing.o: MOD_MT_Defs.o MOD_MT_Methane_Const.o MOD_MT_Methane_Registry.o
+
+${OBJS_MT_CONFIG} : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+OBJS_MT_CONFIG_T = $(addprefix .bld/,${OBJS_MT_CONFIG})
+
 OBJS_MKSRFDATA = \
 				  Aggregation_PercentagesPFT.o           \
 				  Aggregation_LAI.o                      \
@@ -92,22 +112,24 @@ OBJS_MKSRFDATA = \
 				  MOD_Lulcc_TransferTrace.o              \
 				  MOD_UnitCatchmentSubset.o              \
 				  MOD_UnitCatchmentRegional.o            \
+				  Aggregation_LakeSoilC.o                \
+				  Aggregation_MethanePH.o                \
 				  MKSRFDATA.o
 
 MOD_UnitCatchmentRegional.o: MOD_UnitCatchmentSubset.o
-MKSRFDATA.o: MOD_UnitCatchmentRegional.o
+MKSRFDATA.o: MOD_UnitCatchmentRegional.o MOD_MT_Methane_Preprocessing.o
 
-$(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
+$(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 OBJS_MKSRFDATA_T = $(addprefix .bld/,${OBJS_MKSRFDATA})
 
 # ------- Target 1: mksrfdata --------
-mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MKSRFDATA}
+mksrfdata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJS_MKSRFDATA}
 	@echo ''
 	@echo 'making CoLM surface data start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_MKSRFDATA_T} -o run/mksrfdata.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_MT_CONFIG_T} ${OBJS_MKSRFDATA_T} -o run/mksrfdata.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM surface data completed!'
 	@echo ''
@@ -131,8 +153,6 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeHistState.o   \
 				 MOD_Grid_RiverLakeHistShard.o   \
 				 MOD_Grid_RiverLakeHistRoute.o   \
-				 MOD_MT_Namelist.o               \
-				 MOD_MT_Defs.o                   \
 				 MOD_MT_Solute.o                 \
 				 MOD_MT_Lifecycle.o              \
 				 MOD_Grid_RiverLakeTimeVars.o    \
@@ -213,7 +233,7 @@ OBJS_BASIC =    \
 				 MOD_Initialize.o
 
 
-$(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
+$(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
@@ -221,17 +241,17 @@ OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
 OBJS_MKINIDATA = \
 				  CoLMINI.o
 
-$(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
+$(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 OBJS_MKINIDATA_T = $(addprefix .bld/,${OBJS_MKINIDATA})
 
 # -------- Target 2: mkinidata -------
-mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MKINIDATA}
+mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJS_BASIC} ${OBJS_MKINIDATA}
 	@echo ''
 	@echo 'making CoLM initial data start >>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_MKINIDATA_T} -o run/mkinidata.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_MT_CONFIG_T} ${OBJS_BASIC_T} ${OBJS_MKINIDATA_T} -o run/mkinidata.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM initial data completed!'
 	@echo ''
@@ -371,6 +391,20 @@ OBJS_MAIN = \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
 				MOD_MT_Hist.o                             \
+				MOD_MT_Methane_VegOverride.o              \
+				MOD_MT_Methane_GIEMS.o                    \
+				MOD_MT_Methane_pH.o                       \
+				MOD_MT_Methane_State.o                    \
+				MOD_MT_Methane_Microbes.o                 \
+				MOD_MT_Methane_WetlandBGC.o               \
+				MOD_MT_Methane_BgcLink.o                  \
+				MOD_MT_Methane_AccFlux.o                  \
+				MOD_MT_Methane_Physics.o                  \
+				MOD_MT_Methane_Driver.o                   \
+				MOD_MT_Methane_Hist.o                     \
+				MOD_MT_Methane_Impl.o                     \
+				MOD_MT_Methane.o                          \
+				MT_RegisterProviders.o                    \
 				MOD_MT_HostFixes.o                        \
 				MOD_MT_SpecialPatches.o                   \
 				MOD_Grid_RiverLakeHist.o                  \
@@ -424,20 +458,33 @@ MOD_HistAccRestart.o: MOD_Vars_1DAccFluxes.o MOD_Grid_RiverLakeHistState.o MOD_G
 MOD_Hist.o: MOD_HistAccRestart.o MOD_MT_HostFixes.o
 # Material transport (main/MATERIAL); every file is empty unless MaterialTransport is defined.
 MOD_MT_Conservation.o: MOD_MT_Defs.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
-MOD_MT_Defs.o: MOD_MT_Namelist.o
 MOD_MT_Evapo.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Forcing.o: MOD_MT_Defs.o MOD_MT_ForcingInput.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_Vars.o MOD_UserSpecifiedForcing.o
 MOD_MT_ForcingInput.o: MOD_MT_Defs.o
 MOD_MT_Frac.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o
 MOD_MT_HostFixes.o: MOD_MT_Namelist.o MOD_HistGridded.o
-MOD_MT_Hist.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_Vars.o
+MOD_MT_Hist.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_Vars.o MOD_HistGridded.o
 MOD_MT_Isotope_HDO.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
 MOD_MT_Isotope_O18.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
 MOD_MT_Isotope_Registry.o: MOD_MT_Defs.o
 MOD_MT_LandPhase.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_Evapo.o MOD_MT_Lifecycle.o MOD_MT_Precip.o MOD_MT_Rest.o MOD_MT_Snow.o MOD_MT_SoilInit.o MOD_MT_SoilWater.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Lifecycle.o: MOD_MT_Defs.o
 MOD_MT_Precip.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Solute.o MOD_MT_Vars.o
-MOD_MT_Providers.o: MOD_MT_Isotope_HDO.o MOD_MT_Isotope_O18.o MOD_MT_Sediment.o
+MOD_MT_Providers.o: MOD_MT_Isotope_HDO.o MOD_MT_Isotope_O18.o
+MT_RegisterProviders.o: MOD_MT_Methane.o MOD_MT_Sediment.o
+# methane (main/MATERIAL/FAMILY_GAS; empty unless MaterialTransport and BGC)
+MOD_MT_Methane_pH.o MOD_MT_Methane_State.o: MOD_MT_NcIO.o
+MOD_MT_Methane_Microbes.o: MOD_MT_Methane_State.o MOD_MT_NcIO.o
+MOD_MT_Methane_WetlandBGC.o: MOD_MT_NcIO.o MOD_BGC_Soil_BiogeochemDecomp.o \
+				MOD_BGC_Soil_BiogeochemDecompCascadeBGC.o MOD_BGC_Soil_BiogeochemPotential.o
+MOD_MT_Methane_BgcLink.o: MOD_MT_Methane_pH.o MOD_MT_Methane_VegOverride.o MOD_MT_Methane_WetlandBGC.o
+MOD_MT_Methane_AccFlux.o: MOD_MT_Methane_BgcLink.o MOD_MT_Methane_Microbes.o MOD_MT_Methane_State.o
+MOD_MT_Methane_Physics.o: MOD_MT_Methane_GIEMS.o MOD_MT_Methane_State.o MOD_MT_Methane_VegOverride.o
+MOD_MT_Methane_Driver.o: MOD_MT_Methane_BgcLink.o MOD_MT_Methane_Microbes.o MOD_MT_Methane_Physics.o
+MOD_MT_Methane_Hist.o: MOD_MT_Hist.o MOD_HistGridded.o MOD_MT_Methane_AccFlux.o MOD_MT_Methane_BgcLink.o
+MOD_MT_Methane_Impl.o: MOD_MT_Methane_BgcLink.o MOD_MT_Methane_Driver.o MOD_MT_Methane_WetlandBGC.o
+MOD_MT_Methane.o: MOD_MT_Methane_Hist.o MOD_MT_Methane_Impl.o MOD_MT_Methane_AccFlux.o \
+				MOD_MT_Methane_GIEMS.o MOD_MT_Methane_pH.o MOD_MT_Methane_Microbes.o
 MOD_MT_RiverLake.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
 MOD_MT_Sediment.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_MT_RiverLakeCoupling.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_RiverLake.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_Grid_RiverLakeBifurcation.o
@@ -459,21 +506,21 @@ OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 
 ifneq (${CaMa},YES)# Compile CoLM decoupled without river routing scheme (CaMa-Flood)
 
-colm.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC} ${OBJS_MAIN}
+colm.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJS_BASIC} ${OBJS_MAIN}
 	@echo ''
 	@echo 'making CoLM start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_MT_CONFIG_T} ${OBJS_BASIC_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM completed!'
 	@echo ''
 
 else
-colm.x : mkdir_build  ${HEADER} ${OBJS_SHARED} ${OBJECTS_CAMA} ${OBJS_BASIC} ${OBJS_MAIN}
+colm.x : mkdir_build  ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJECTS_CAMA} ${OBJS_BASIC} ${OBJS_MAIN}
 	@echo ''
 	@echo 'making CoLM with CaMa start >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>'
 	@echo ''
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_BASIC_T} ${OBJS_CAMA_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_MT_CONFIG_T} ${OBJS_BASIC_T} ${OBJS_CAMA_T} ${OBJS_MAIN_T} -o run/colm.x ${LDFLAGS}
 
 	@echo ''
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM with CaMa completed!'

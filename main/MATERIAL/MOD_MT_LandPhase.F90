@@ -26,6 +26,12 @@ MODULE MOD_MT_LandPhase
    IMPLICIT NONE
    PRIVATE
 
+   ! MT_RegisterProviders.F90
+   INTERFACE
+      SUBROUTINE mt_register_providers ()
+      END SUBROUTINE mt_register_providers
+   END INTERFACE
+
    ! Land-side multi-phase TRACER facade. Keeps the implementation split
    ! across physics modules but exposes one import surface per host, so
    ! drivers do not USE every low-level tracer module directly. NOTE: this
@@ -184,7 +190,7 @@ CONTAINS
       CALL tracer_defs_init()
       CALL mt_solute_read_parameters()
       CALL tracer_defs_validate()
-      CALL tracer_lifecycle_init()
+      CALL tracer_lifecycle_init (mt_register_providers)
       IF (present(loaded_restart)) loaded_restart = .false.
       IF (present(lc_year) .and. present(jdate) .and. present(casename) .and. &
           present(dir_restart) .and. present(dir_landdata)) THEN

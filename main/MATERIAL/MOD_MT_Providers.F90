@@ -9,7 +9,7 @@ MODULE MOD_MT_Providers
 !
 !  - isotope fractionation physics (ensure_isotope_physics_registered);
 !  - species that own state or phase callbacks (mt_register_providers,
-!    below the module).
+!    in MT_RegisterProviders.F90, built after the providers it lists).
 !
 !  Parameter-only isotopes and solutes are not listed here. Add a line only
 !  when the species code exists.
@@ -40,21 +40,4 @@ CONTAINS
    END SUBROUTINE register_all_isotope_physics
 
 END MODULE MOD_MT_Providers
-
-
-SUBROUTINE mt_register_providers ()
-!-----------------------------------------------------------------------
-!  Species with lifecycle callbacks. An external subroutine rather than a
-!  module procedure because the providers USE MOD_MT_Lifecycle, which calls
-!  this. A provider attaches only to a configured entry of the descriptor
-!  table, so registering it with the species switched off does nothing.
-!-----------------------------------------------------------------------
-#ifdef GridRiverLakeFlow
-   USE MOD_MT_Sediment, only: register_sediment_tracer_provider
-#endif
-   IMPLICIT NONE
-#ifdef GridRiverLakeFlow
-   CALL register_sediment_tracer_provider ()
-#endif
-END SUBROUTINE mt_register_providers
 #endif

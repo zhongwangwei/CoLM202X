@@ -17,6 +17,8 @@ MODULE MOD_MT_Namelist
 !        DEF_SOLUTE_NAMES       = 'CL'
 !        DEF_SOLUTE_PARAM_FILES = 'CL:run/standard_chloride_parameter.nml'
 !        DEF_SEDIMENT_PARAM_FILE = 'run/standard_sediment_parameter.nml'
+!        DEF_USE_METHANE        = .true.
+!        DEF_METHANE_PARAM_FILE = 'run/standard_methane_parameter.nml'
 !     /
 !
 !  The group may be left out; every setting then keeps its default and no
@@ -28,7 +30,8 @@ MODULE MOD_MT_Namelist
 !  Isotope physics settings live in &nl_colm_isotope_parameter of
 !  DEF_ISOTOPE_PARAM_FILE ('null' = code defaults). Solute parameter files
 !  are read per species by MOD_MT_Defs; per-species forcing by
-!  MOD_MT_ForcingInput.
+!  MOD_MT_ForcingInput.  Methane (needs BGC and PFT/PC) reads its settings from
+!  &nl_colm_methane_parameter of DEF_METHANE_PARAM_FILE (MOD_MT_Methane_Const).
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
@@ -45,6 +48,9 @@ MODULE MOD_MT_Namelist
    ! order of DEF_SOLUTE_NAMES. A solute without a file uses code defaults.
    character(len=2048):: DEF_SOLUTE_PARAM_FILES = 'null'
    character(len=256) :: DEF_SEDIMENT_PARAM_FILE = 'null'
+   ! Soil, wetland and lake methane (FAMILY_GAS); needs BGC and a parameter file.
+   logical            :: DEF_USE_METHANE        = .false.
+   character(len=256) :: DEF_METHANE_PARAM_FILE = 'null'
 
    ! Abort after this many cells fail a check (0 = report only).
    integer            :: DEF_MT_BALANCE_ABORT_NBAD = 0
@@ -103,7 +109,8 @@ CONTAINS
 
       namelist /nl_colm_material/ DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, &
          DEF_ISOTOPE_PARAM_FILE, DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, &
-         DEF_SEDIMENT_PARAM_FILE, DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD, DEF_MT_LULCC_ABORT_NBAD, &
+         DEF_SEDIMENT_PARAM_FILE, DEF_USE_METHANE, DEF_METHANE_PARAM_FILE, &
+         DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD, DEF_MT_LULCC_ABORT_NBAD, &
          DEF_MT_AQUIFER_MIXING_WATER_MM, &
          DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
 
@@ -166,6 +173,8 @@ CONTAINS
       CALL mpi_bcast (DEF_SOLUTE_NAMES              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SOLUTE_PARAM_FILES        ,len(DEF_SOLUTE_PARAM_FILES) ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SEDIMENT_PARAM_FILE       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_METHANE               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_METHANE_PARAM_FILE        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_BALANCE_ABORT_NBAD     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_RESID_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_LULCC_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
@@ -237,6 +246,17 @@ CONTAINS
           DEF_ISO_SUBL_SKIN_MM < 0._r8 .or. DEF_ISO_ICE_SUPERSAT_SLOPE < 0._r8) &
          CALL CoLM_Stop ('Invalid isotope fractionation parameter.')
 
+#ifndef BGC
+      IF (DEF_USE_METHANE) CALL CoLM_Stop ('DEF_USE_METHANE needs a BGC build.')
+#endif
+      ! The fork checked this at compile time in define.h; methane is only
+      ! built and tested on PFT/PC land cover, so keep the same requirement.
+#if (!defined LULC_IGBP_PFT) && (!defined LULC_IGBP_PC)
+      IF (DEF_USE_METHANE) CALL CoLM_Stop ('DEF_USE_METHANE needs LULC_IGBP_PFT or LULC_IGBP_PC.')
+#endif
+      IF (DEF_USE_METHANE .and. .not. mt_file_given (DEF_METHANE_PARAM_FILE)) &
+         CALL CoLM_Stop ('DEF_USE_METHANE needs DEF_METHANE_PARAM_FILE.')
+
       IF (DEF_MT_BALANCE_ABORT_NBAD < 0 .or. DEF_MT_RESID_ABORT_NBAD < 0 .or. &
           DEF_MT_LULCC_ABORT_NBAD < 0) CALL CoLM_Stop ('Invalid DEF_MT_*_ABORT_NBAD.')
 
@@ -247,7 +267,8 @@ CONTAINS
    ! True when at least one material is switched on.
    USE MOD_Namelist, only: DEF_USE_SEDIMENT
    IMPLICIT NONE
-      mt_any_enabled = DEF_USE_ISOTOPE .or. len_trim(DEF_SOLUTE_NAMES) > 0 .or. DEF_USE_SEDIMENT
+      mt_any_enabled = DEF_USE_ISOTOPE .or. len_trim(DEF_SOLUTE_NAMES) > 0 .or. DEF_USE_SEDIMENT &
+         .or. DEF_USE_METHANE
    END FUNCTION mt_any_enabled
 
 

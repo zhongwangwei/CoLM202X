@@ -30,7 +30,9 @@ MODULE MOD_MT_RiverLakeCoupling
       mt_lifecycle_route_read_restart, mt_lifecycle_route_forcing_put, &
       mt_lifecycle_route_diag_accumulate, mt_lifecycle_route_calc, &
       mt_lifecycle_route_sediment_bif_accumulate, mt_lifecycle_route_sediment_levee_repartition, &
-      mt_lifecycle_route_final
+      mt_lifecycle_route_final, tracer_lifecycle_has_levee_flood_publisher, &
+      tracer_lifecycle_has_flood_publisher, mt_lifecycle_publish_levee_flood_patch, &
+      mt_lifecycle_publish_flood_patch
    IMPLICIT NONE
 
    ! ----- grid flood feedback -----
@@ -62,6 +64,14 @@ MODULE MOD_MT_RiverLakeCoupling
    real(r8), allocatable :: prov_protected_end  (:)
    real(r8), allocatable :: prov_floodarea      (:)
    real(r8), allocatable :: prov_protected_area (:)
+
+   ! flood of the last substep of a routing call, for land providers that
+   ! read the river flood (methane inundation scheme 7), numucat:
+   ! flooded area as in the river history, its water depth, and the flooded
+   ! area of leveed cells
+   real(r8), allocatable :: pub_floodarea  (:)
+   real(r8), allocatable :: pub_flooddepth (:)
+   real(r8), allocatable :: pub_leveearea  (:)
 
 #ifdef CoLMDEBUG
    ! material balance of one routing call (cf. the water balance printed there)
@@ -483,7 +493,7 @@ CONTAINS
 
    USE MOD_Grid_RiverLakeNetwork,  only: numucat, topo_area, floodplain_curve, levee_frc_data
    USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_ucat, volresv, volwater_ucat, veloc_riv
-   USE MOD_Grid_RiverLakeLevee,    only: has_levee, levsto
+   USE MOD_Grid_RiverLakeLevee,    only: has_levee, levsto, levdph
    IMPLICIT NONE
 
    real(r8), intent(in) :: dt_all(:)
@@ -502,6 +512,25 @@ CONTAINS
       IF (allocated(volresv)) volresv_mt = volresv
       CALL mt_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
          volresv_mt, ucat2resv_mt, is_built_resv)
+
+      IF (tracer_lifecycle_has_flood_publisher() .or. tracer_lifecycle_has_levee_flood_publisher()) THEN
+         ! CoLM202X total_floodarea / total_flooddepth / levee_floodarea of
+         ! the last substep.  The area is the one of the river history
+         ! (a leveed cell takes the levee result even when it is zero).
+         CALL ensure_publish_arrays (numucat)
+         DO i = 1, numucat
+            IF (.not. ucatfilter(i)) CYCLE
+            leveed = DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))
+            IF (leveed) THEN
+               pub_floodarea (i) = levee_floodarea(i)
+               pub_flooddepth(i) = max(levdph(i), max(wdsrf_ucat(i) - floodplain_curve(i)%rivhgt, 0._r8))
+            ELSE
+               pub_floodarea (i) = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
+               pub_flooddepth(i) = max(wdsrf_ucat(i) - floodplain_curve(i)%rivhgt, 0._r8)
+            ENDIF
+            pub_leveearea(i) = levee_floodarea(i)
+         ENDDO
+      ENDIF
 
       IF (.not. mt_lifecycle_route_has_active()) RETURN
 
@@ -649,9 +678,98 @@ CONTAINS
 
          ! provider materials (sediment) over the whole routing call
          IF (mt_lifecycle_route_has_active()) CALL mt_lifecycle_route_calc (acctime_rnof)
+
+         CALL publish_flood_to_patches ()
       ENDIF
 
    END SUBROUTINE mt_rlc_end_routing
+
+
+   ! ---------
+   SUBROUTINE publish_flood_to_patches ()
+
+   ! Flood fraction (and depth) of the last substep mapped to the patches, as
+   ! CoLM202X publish_levee_fldfrc_to_patches / publish_fldfrc_to_patches did,
+   ! for land providers that read the river flood.  Workers only.
+
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, numinpm, topo_area, push_ucat2inpm, remap_patch2inpm
+   USE MOD_LandPatch, only: numpatch
+   USE MOD_WorkerPushData
+   IMPLICIT NONE
+
+   real(r8), parameter :: missing = -1.e30_r8
+   real(r8), allocatable :: frc_uc(:), wat_uc(:), frc_gd(:), wat_gd(:)
+   real(r8), allocatable :: frc_patch(:), wat_patch(:), dph_patch(:)
+   integer :: i
+   logical :: levee_pub, flood_pub
+
+      levee_pub = tracer_lifecycle_has_levee_flood_publisher()
+      flood_pub = tracer_lifecycle_has_flood_publisher()
+      IF (.not. (levee_pub .or. flood_pub)) RETURN
+      CALL ensure_publish_arrays (numucat)
+
+      allocate (frc_uc(numucat), wat_uc(numucat), frc_gd(numinpm), wat_gd(numinpm))
+      allocate (frc_patch(numpatch), wat_patch(numpatch), dph_patch(numpatch))
+
+      IF (levee_pub) THEN
+         DO i = 1, numucat
+            frc_uc(i) = 0._r8
+            IF (topo_area(i) > 0._r8) frc_uc(i) = min(1._r8, max(0._r8, pub_leveearea(i) / topo_area(i)))
+         ENDDO
+         CALL worker_push_data (push_ucat2inpm, frc_uc, frc_gd, fillvalue = missing, mode = 'average')
+         CALL worker_remap_data_grid2pset (remap_patch2inpm, frc_gd, frc_patch, &
+            fillvalue = missing, mode = 'average')
+         WHERE (frc_patch == missing) frc_patch = 0._r8
+         CALL mt_lifecycle_publish_levee_flood_patch (frc_patch)
+      ENDIF
+
+      IF (flood_pub) THEN
+         DO i = 1, numucat
+            frc_uc(i) = 0._r8
+            wat_uc(i) = 0._r8
+            IF (topo_area(i) > 0._r8) THEN
+               frc_uc(i) = min(1._r8, max(0._r8, pub_floodarea(i) / topo_area(i)))
+               wat_uc(i) = frc_uc(i) * max(0._r8, pub_flooddepth(i))
+            ENDIF
+         ENDDO
+         CALL worker_push_data (push_ucat2inpm, frc_uc, frc_gd, fillvalue = missing, mode = 'average')
+         CALL worker_remap_data_grid2pset (remap_patch2inpm, frc_gd, frc_patch, &
+            fillvalue = missing, mode = 'average')
+         WHERE (frc_patch == missing) frc_patch = 0._r8
+         CALL worker_push_data (push_ucat2inpm, wat_uc, wat_gd, fillvalue = missing, mode = 'average')
+         CALL worker_remap_data_grid2pset (remap_patch2inpm, wat_gd, wat_patch, &
+            fillvalue = missing, mode = 'average')
+         WHERE (wat_patch == missing) wat_patch = 0._r8
+         dph_patch = 0._r8
+         WHERE (frc_patch > 0._r8) dph_patch = max(0._r8, wat_patch) / frc_patch
+         CALL mt_lifecycle_publish_flood_patch (frc_patch, dph_patch)
+      ENDIF
+
+      deallocate (frc_uc, wat_uc, frc_gd, wat_gd, frc_patch, wat_patch, dph_patch)
+
+      ! a new routing call starts from no flood, as CoLM202X allocated these per call
+      pub_floodarea  = 0._r8
+      pub_flooddepth = 0._r8
+      pub_leveearea  = 0._r8
+
+   END SUBROUTINE publish_flood_to_patches
+
+
+   ! ---------
+   SUBROUTINE ensure_publish_arrays (n)
+
+   integer, intent(in) :: n
+
+      IF (allocated(pub_floodarea)) THEN
+         IF (size(pub_floodarea) == n) RETURN
+         deallocate (pub_floodarea, pub_flooddepth, pub_leveearea)
+      ENDIF
+      allocate (pub_floodarea(n), pub_flooddepth(n), pub_leveearea(n))
+      pub_floodarea  = 0._r8
+      pub_flooddepth = 0._r8
+      pub_leveearea  = 0._r8
+
+   END SUBROUTINE ensure_publish_arrays
 
    ! ---------
    SUBROUTINE mt_rlc_flood_init ()
@@ -974,6 +1092,7 @@ CONTAINS
       IF (allocated(ucat2resv_mt)) deallocate (ucat2resv_mt)
       IF (allocated(prov_storage_start)) deallocate (prov_storage_start, prov_protected_start, &
          prov_storage_end, prov_protected_end, prov_floodarea, prov_protected_area)
+      IF (allocated(pub_floodarea)) deallocate (pub_floodarea, pub_flooddepth, pub_leveearea)
 #ifdef CoLMDEBUG
       IF (allocated(trc_mass_bef)) deallocate (trc_mass_bef, trc_mass_inp, trc_mass_dis)
 #endif

@@ -37,6 +37,10 @@ CONTAINS
    integer,   allocatable :: nelm_blk(:,:), IOproc(:,:)
    integer*8, allocatable :: elmindex(:)
    integer,   allocatable :: elmnpxl(:), elmpixels(:,:,:)
+#if (defined MaterialTransport) && (defined BGC)
+   ! methane surface data below (MOD_MT_Methane_Preprocessing)
+   logical :: fexists
+#endif
 
    logical, allocatable :: elmmask  (:)
    logical, allocatable :: patchmask(:)
@@ -337,6 +341,30 @@ CONTAINS
 
                ! soil
                CALL system('mkdir -p ' // trim(dir_landdata_out) // '/soil')
+
+#if (defined MaterialTransport) && (defined BGC)
+               ! Methane surface data (lake-bottom soil carbon, soil pH), made by
+               ! mksrfdata when methane needs them; clipped only when present.
+               write(cyear,'(i4.4)') DEF_LC_YEAR
+
+               file_in  = trim(dir_landdata_in)  // '/soil/' // trim(cyear) // '/lake_soilc_patches.nc'
+               CALL get_filename_block (file_in, iblk, jblk, fileblock)
+               inquire (file=trim(fileblock), exist=fexists)
+               IF (fexists) THEN
+                  CALL system('mkdir -p ' // trim(dir_landdata_out) // '/soil/' // trim(cyear))
+                  file_out = trim(dir_landdata_out) // '/soil/' // trim(cyear) // '/lake_soilc_patches.nc'
+                  CALL clip_vector (file_in, file_out, iblk, jblk, 'lake_soilc_patches', patchmask)
+               ENDIF
+
+               file_in  = trim(dir_landdata_in)  // '/soil/' // trim(cyear) // '/methane_ph_patches.nc'
+               CALL get_filename_block (file_in, iblk, jblk, fileblock)
+               inquire (file=trim(fileblock), exist=fexists)
+               IF (fexists) THEN
+                  CALL system('mkdir -p ' // trim(dir_landdata_out) // '/soil/' // trim(cyear))
+                  file_out = trim(dir_landdata_out) // '/soil/' // trim(cyear) // '/methane_ph_patches.nc'
+                  CALL clip_vector (file_in, file_out, iblk, jblk, 'methane_ph_patches', patchmask)
+               ENDIF
+#endif
 
                file_in  = trim(dir_landdata_in)  // '/soil/soil_s_v_alb_patches.nc'
                file_out = trim(dir_landdata_out) // '/soil/soil_s_v_alb_patches.nc'

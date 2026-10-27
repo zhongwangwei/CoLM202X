@@ -19,11 +19,6 @@ MODULE MOD_MT_Lifecycle
    IMPLICIT NONE
    PRIVATE
 
-   interface
-      SUBROUTINE mt_register_providers ()
-      END SUBROUTINE mt_register_providers
-   end interface
-
    abstract interface
       SUBROUTINE lifecycle_noarg_if ()
       END SUBROUTINE lifecycle_noarg_if
@@ -195,13 +190,17 @@ MODULE MOD_MT_Lifecycle
 
 CONTAINS
 
-   SUBROUTINE tracer_lifecycle_init ()
+   ! register_providers is mt_register_providers (MT_RegisterProviders.F90),
+   ! passed in by the caller so that this module, linked into mkinidata too,
+   ! does not reference the providers built with the main objects.
+   SUBROUTINE tracer_lifecycle_init (register_providers)
+      procedure(lifecycle_noarg_if) :: register_providers
       IF (allocated(lifecycle)) RETURN
       IF (ntracers > 0 .and. .not. allocated(tracers)) &
          CALL lifecycle_error ('descriptor table is not initialized')
       allocate(lifecycle(ntracers), provider_name(ntracers))
       provider_name = ''
-      CALL mt_register_providers ()
+      CALL register_providers ()
       CALL tracer_lifecycle_validate ()
       CALL tracer_lifecycle_report_registry ()
    END SUBROUTINE tracer_lifecycle_init

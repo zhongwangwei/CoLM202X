@@ -8,6 +8,7 @@ MODULE MOD_MT_Defs
    USE MOD_MT_Namelist, only: mt_read_namelist, &
       DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, DEF_ISOTOPE_PARAM_FILE, &
       DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, DEF_SEDIMENT_PARAM_FILE, &
+      DEF_USE_METHANE, DEF_METHANE_PARAM_FILE, &
       DEF_MT_AQUIFER_MIXING_WATER_MM, &
       DEF_ISO_USE_FRACTIONATION, DEF_ISO_REF_RATIO_H2_18O, DEF_ISO_INIT_DELTA_H2_18O, &
       DEF_ISO_REF_RATIO_HDO, DEF_ISO_INIT_DELTA_HDO
@@ -267,13 +268,14 @@ CONTAINS
    !-----------------------------------------------------------------------
    !  Build the descriptor table from the switches in MOD_MT_Namelist:
    !  isotopes first (order of DEF_ISOTOPE_SPECIES), then solutes (order of
-   !  DEF_SOLUTE_NAMES), then the river sediment (DEF_USE_SEDIMENT). The
-   !  family of each entry follows from the switch that put it there.
+   !  DEF_SOLUTE_NAMES), then the river sediment (DEF_USE_SEDIMENT), then
+   !  methane (DEF_USE_METHANE). The family of each entry follows from the
+   !  switch that put it there.
    !-----------------------------------------------------------------------
       USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
       USE MOD_Namelist, only: DEF_USE_SEDIMENT
       IMPLICIT NONE
-      integer :: i, j, niso, nsol, nsed
+      integer :: i, j, niso, nsol, nsed, ngas
       character(len=32), allocatable :: iso_tokens(:), sol_tokens(:)
 
       CALL mt_read_namelist ()
@@ -295,7 +297,16 @@ CONTAINS
 #endif
       ENDIF
 
-      ntracers = niso + nsol + nsed
+      ngas = 0
+      IF (DEF_USE_METHANE) THEN
+#ifdef BGC
+         ngas = 1
+#else
+         CALL CoLM_stop ('DEF_USE_METHANE needs a BGC build.')
+#endif
+      ENDIF
+
+      ntracers = niso + nsol + nsed + ngas
       IF (ntracers == 0) RETURN
       allocate(tracers(ntracers))
 
@@ -347,6 +358,22 @@ CONTAINS
          tracers(i)%category = 'particle'
          CALL set_tracer_category_defaults (i)
          tracers(i)%mol_weight          = 1._r8
+         tracers(i)%ref_ratio           = 1._r8
+         tracers(i)%init_delta          = 0._r8
+         tracers(i)%init_conc           = 0._r8
+         tracers(i)%precip_default_conc = 0._r8
+         tracers(i)%vapor_default_conc  = 0._r8
+         tracers(i)%decay_rate = 0._r8
+      ENDIF
+
+      IF (ngas > 0) THEN
+         ! State, parameters and reactions are owned by MOD_MT_Methane, which
+         ! attaches itself to this entry (mt_register_providers).
+         i = niso + nsol + nsed + 1
+         tracers(i)%name = 'CH4'
+         tracers(i)%category = 'gas'
+         CALL set_tracer_category_defaults (i)
+         tracers(i)%mol_weight          = 16.04_r8
          tracers(i)%ref_ratio           = 1._r8
          tracers(i)%init_delta          = 0._r8
          tracers(i)%init_conc           = 0._r8
@@ -443,7 +470,7 @@ CONTAINS
    !  Parameter file of one material: DEF_ISOTOPE_PARAM_FILE for every
    !  isotope, the DEF_SOLUTE_PARAM_FILES entry for a solute ('NAME:path',
    !  or a plain path at the solute's position), DEF_SEDIMENT_PARAM_FILE for
-   !  the sediment. 'null' means none.
+   !  the sediment, DEF_METHANE_PARAM_FILE for methane. 'null' means none.
    !-----------------------------------------------------------------------
       USE MOD_SPMD_Task, only: CoLM_stop
       IMPLICIT NONE
@@ -468,6 +495,11 @@ CONTAINS
       ENDIF
       IF (tracer_is_particle(itrc)) THEN
          file_param = DEF_SEDIMENT_PARAM_FILE
+         found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
+         RETURN
+      ENDIF
+      IF (tracer_is_gas(itrc)) THEN
+         file_param = DEF_METHANE_PARAM_FILE
          found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
          RETURN
       ENDIF
