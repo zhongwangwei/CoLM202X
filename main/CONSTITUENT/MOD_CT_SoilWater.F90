@@ -66,6 +66,31 @@ CONTAINS
       CALL CoLM_stop('isotope aquifer debt has no physical water carrier')
    END SUBROUTINE check_isotope_aquifer
 
+   ! Tracer leaving the aquifer with `water` mm, `flux` being water times its
+   ! concentration as computed by the caller.  Only the part of the
+   ! withdrawal that the aquifer actually holds (`actual_water`) is capped by
+   ! the actual tracer mass; the rest is the host driving wa below that store
+   ! (an aquifer debt) and carries the same concentration, as when the aquifer
+   ! is empty.  Capping the whole withdrawal by the mass of a dust-level store
+   ! (e.g. wa=0 plus a 1e-14 mm root return on a patch without mixing
+   ! reference water) exported almost no tracer with a full TOPMODEL
+   ! baseflow.  When actual_water >= water this is exactly the previous
+   ! min(flux, mass).
+   pure real(r8) FUNCTION aquifer_export_tracer (water, flux, actual_water, actual_mass)
+      real(r8), intent(in) :: water, flux, actual_water, actual_mass
+      real(r8) :: covered
+
+      IF (actual_water <= trc_tiny) THEN
+         aquifer_export_tracer = flux
+      ELSEIF (actual_water >= water) THEN
+         aquifer_export_tracer = min(flux, max(actual_mass, 0._r8))
+      ELSE
+         covered = actual_water / water
+         aquifer_export_tracer = min(flux * covered, max(actual_mass, 0._r8)) &
+            + flux * (1._r8 - covered)
+      ENDIF
+   END FUNCTION aquifer_export_tracer
+
    !---------------------------------------------------------------
    ! Flux-driven tracer update after WATER.
    !
@@ -240,6 +265,8 @@ CONTAINS
       real(r8) :: flood_water, surface_base_water, surface_base_balance
       real(r8) :: flood_ground_evap_water, flood_ground_evap_tracer
       real(r8) :: late_water, late_tracer, late_ratio, late_runoff_water, early_runoff_water, late_scale
+      real(r8) :: early_runoff_trc       ! early runoff drawn from the ordinary surface pool [mm/step]
+      real(r8) :: flood_overflow_water   ! pond overflow of the late flood pool [mm/step]
       real(r8) :: flood_destination_water
       real(r8) :: top_exfil_water       ! soil-to-surface exfiltration water [mm/step]
       real(r8) :: top_boundary_out_water ! total negative qinfl water [mm/step]
@@ -510,11 +537,9 @@ CONTAINS
          IF (etroot_aquifer > trc_tiny) THEN
             IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
                remove_ratio = aquifer_ratio
-               trc_flux = etroot_aquifer * remove_ratio
-               IF (tracer_aquifer_actual_water(wa_bef, aquifer_ref_water) > trc_tiny) THEN
-                  aquifer_actual_mass = tracer_aquifer_actual_mass(trc_wa(itrc, ipatch), aquifer_ref_mass)
-                  trc_flux = min(trc_flux, max(aquifer_actual_mass, 0._r8))
-               ENDIF
+               aquifer_actual_mass = tracer_aquifer_actual_mass(trc_wa(itrc, ipatch), aquifer_ref_mass)
+               trc_flux = aquifer_export_tracer(etroot_aquifer, etroot_aquifer * remove_ratio, &
+                  tracer_aquifer_actual_water(wa_bef, aquifer_ref_water), aquifer_actual_mass)
                trc_wa(itrc, ipatch) = trc_wa(itrc, ipatch) - trc_flux
                root_gross_tracer = root_gross_tracer + trc_flux
                IF (transp_frac_active) THEN
@@ -666,10 +691,9 @@ CONTAINS
                                                    aquifer_ref_water)) > trc_water_min_for_ratio) &
                   rsub_donor_ratio = tracer_aquifer_isotope_ratio(wa_bef-etroot_aquifer, &
                      trc_wa(itrc,ipatch), aquifer_ref_water, aquifer_ref_mass, aquifer_ratio)
-               trc_flux = rsub_donor_water * rsub_donor_ratio
-               IF (tracer_aquifer_actual_water(wa_bef-etroot_aquifer, aquifer_ref_water) > trc_tiny) &
-                  trc_flux = min(trc_flux, max(tracer_aquifer_actual_mass( &
-                     trc_wa(itrc,ipatch), aquifer_ref_mass), 0._r8))
+               trc_flux = aquifer_export_tracer(rsub_donor_water, rsub_donor_water * rsub_donor_ratio, &
+                  tracer_aquifer_actual_water(wa_bef-etroot_aquifer, aquifer_ref_water), &
+                  tracer_aquifer_actual_mass(trc_wa(itrc,ipatch), aquifer_ref_mass))
                trc_wa(itrc,ipatch) = trc_wa(itrc,ipatch) - trc_flux
                CALL check_isotope_aquifer(itrc, ipatch, &
                   wa_bef-etroot_aquifer-rsub_donor_water, trc_wa(itrc,ipatch), &
@@ -1019,6 +1043,20 @@ CONTAINS
                surface_base_water = max(surface_base_water-late_surface_water, 0._r8)
                surface_base_balance = surface_base_balance-late_surface_water
             ENDIF
+            ! The pond overflow after the Richards solve (wdsrf > pondmx) is
+            ! part of rsur; WATER_VSF reports no late runoff. Without flood
+            ! water the overflow leaves the single mixed pool that also holds
+            ! the exfiltrated water. With flood water, exfiltration and flood
+            ! form the separate late pool below, so runoff beyond the ordinary
+            ! pool can only be overflow of that late pool. Drawing it from the
+            ! ordinary pool emptied the pool and the max(.,0) clamp created
+            ! tracer (NEC: 13 mm exfiltration, 0.8 mm ordinary pool, 4 mm rsur).
+            early_runoff_trc = early_runoff_water
+            flood_overflow_water = 0._r8
+            IF (flood_water > 0._r8 .and. early_runoff_water > surface_base_water) THEN
+               early_runoff_trc = surface_base_water
+               flood_overflow_water = early_runoff_water - surface_base_water
+            ENDIF
 
          top_boundary_out_water = max(-qinfl, 0._r8) * deltim
          IF (top_boundary_out_water > trc_tiny) THEN
@@ -1288,8 +1326,8 @@ CONTAINS
          ENDIF
 
          ! Distribute: wdsrf residual, surface runoff, infiltration
-         IF (early_runoff_water > trc_tiny) THEN
-            trc_flux = early_runoff_water * ratio
+         IF (early_runoff_trc > trc_tiny) THEN
+            trc_flux = early_runoff_trc * ratio
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_flux
             a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + trc_flux
             trc_rnof_step(itrc, ipatch) = trc_rnof_step(itrc, ipatch) + trc_flux
@@ -1310,7 +1348,7 @@ CONTAINS
             ! Directly reconstruct the carrier after ordinary runoff and
             ! before post-solver frost/dew.  The pre-flood ordinary balance
             ! may be negative when flood water first pays soil evaporation.
-            late_water = flood_destination_water
+            late_water = flood_destination_water + flood_overflow_water
             ! A positive flood-water microcarrier can still have a bounded
             ! isotope ratio below the generic dry-pool denominator floor.
             ! Partition it conservatively; keep genuinely dry or excessive
@@ -1344,10 +1382,17 @@ CONTAINS
             trc_pool_total = late_tracer
          ENDIF
          trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * late_ratio
+         IF (flood_overflow_water > trc_tiny) THEN
+            trc_flux = flood_overflow_water * late_ratio
+            a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_flux
+            a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + trc_flux
+            trc_rnof_step(itrc, ipatch) = trc_rnof_step(itrc, ipatch) + trc_flux
+         ENDIF
 
          pending_surface_tracer = 0._r8
          IF (late_surface_water > trc_tiny) THEN
-            pending_surface_tracer = max(trc_pool_total-max(qinfl,0._r8)*late_ratio*deltim, 0._r8)
+            pending_surface_tracer = max(trc_pool_total-max(qinfl,0._r8)*late_ratio*deltim &
+               - flood_overflow_water*late_ratio, 0._r8)
          ENDIF
 
          IF (qinfl > trc_tiny) THEN
@@ -1652,11 +1697,9 @@ CONTAINS
             ELSE
                ratio_src = source_fallback_ratio
             ENDIF
-            trc_flux = abs(qcharge_eff) * ratio_src * deltim
-            IF (tracer_aquifer_actual_water(aquifer_water_pre_qcharge, aquifer_ref_water) > trc_tiny) THEN
-               trc_flux = min(trc_flux, max(tracer_aquifer_actual_mass( &
-                  trc_wa(itrc, ipatch), aquifer_ref_mass), 0._r8))
-            ENDIF
+            trc_flux = aquifer_export_tracer(abs(qcharge_eff) * deltim, abs(qcharge_eff) * ratio_src * deltim, &
+               tracer_aquifer_actual_water(aquifer_water_pre_qcharge, aquifer_ref_water), &
+               tracer_aquifer_actual_mass(trc_wa(itrc, ipatch), aquifer_ref_mass))
             trc_wa(itrc, ipatch) = trc_wa(itrc, ipatch) - trc_flux
                j = nl_soil
                trc_wliq_soisno(itrc, j, ipatch) = trc_wliq_soisno(itrc, j, ipatch) + trc_flux

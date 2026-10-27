@@ -10,9 +10,12 @@
     ! Land transport carries a solute/water ratio; for CL, mass_fraction
     ! is kg Cl per kg water (dilute water: about mg/L divided by 1.0e6).
     !
-    ! Dissolved chloride is limited to 1.0e-2 kg/kg water. Excess mass goes
-    ! to location-preserving solid inventories and redissolves only up to
-    ! the available water capacity; no mass is clipped. Freeze/thaw uses
+    ! Dissolved chloride is limited by halite saturation: NaCl solubility
+    ! at 25 C is about 359 g per kg water, and Cl is 35.453/58.443 of the
+    ! NaCl mass, giving 0.218 kg Cl per kg water. Excess mass goes to
+    ! location-preserving solid inventories and redissolves only up to the
+    ! available water capacity; no mass is clipped. Leaving
+    ! max_dissolved_conc out means no dissolved limit. Freeze/thaw uses
     ! the bulk-water phase bookkeeping; brine rejection, salt precipitation,
     ! ion activity and electroneutrality are not modelled.
     ! Every field is optional; the code defaults are 0, except
@@ -23,7 +26,7 @@
     DEF_SOLUTE%init_conc           = 0.0        ! initial water [kg Cl / kg water]
     DEF_SOLUTE%precip_default_conc = 0.0        ! when no precip field is configured
     DEF_SOLUTE%vapor_default_conc  = 0.0        ! when no vapor field is configured
-    DEF_SOLUTE%max_dissolved_conc  = 1.0e-2     ! kg Cl / kg water
+    DEF_SOLUTE%max_dissolved_conc  = 0.218      ! kg Cl / kg water, halite saturation at 25 C
     DEF_SOLUTE%decay_rate          = 0.0        ! first-order loss [1/s]
     DEF_SOLUTE%charge              = -1
 /
