@@ -225,6 +225,7 @@ CONTAINS
 
    character(len=256) :: filename, dir, fmt_str, fname
    character(len=4)   :: cyear, c
+   character(len=32)  :: vname_htop
 
    type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridcanopy, gridlai, gridlake,  &
                       gridbright, gridsoil, gridrock, gridtopo, grid_topo_factor
@@ -497,7 +498,14 @@ CONTAINS
             CALL read_point_var_2d_real8 (gridhtop, filename, trim(DEF_rawdata%htop%vname), &
                SITE_lon_location, SITE_lat_location, SITE_htop)
          ELSE
-            CALL read_point_5x5_var_2d_real8 (gridhtop, dir, fname, trim(DEF_rawdata%htop%vname), &
+            IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+               fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
+               vname_htop = 'HTOP'
+            ELSE
+               vname_htop = trim(DEF_rawdata%htop%vname)
+            ENDIF
+
+            CALL read_point_5x5_var_2d_real8 (gridhtop, dir, fname, vname_htop, &
                SITE_lon_location, SITE_lat_location, SITE_htop)
          ENDIF
 
@@ -754,8 +762,8 @@ CONTAINS
             DO itime = 1, ntime
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
 
-               dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-               fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
+               dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%lai_sai%dir)
+               fname = get_rawdata_fname (DEF_rawdata%lai_sai%fname, cyear, '')
                CALL read_point_5x5_var_3d_time_real8 (gridlai, dir, fname, 'MONTHLY_PFT_LAI', &
                   SITE_lon_location, SITE_lat_location, N_PFT_modis, itime, pftLAI)
                CALL read_point_5x5_var_3d_time_real8 (gridlai, dir, fname, 'MONTHLY_PFT_SAI', &
@@ -774,7 +782,12 @@ CONTAINS
                   SITE_SAI_pfts_monthly(:,itime,iyear) = pack(pftSAI, pctpfts > 0.)
 #ifdef CROP
                ELSEIF (SITE_landtype == CROPLAND) THEN
-                  CALL read_point_5x5_var_3d_real8 (gridlai, dir, fname, 'PCT_PFT', &
+                  CALL gridpft%define_by_name ('colm_500m')
+
+                  write(cyear,'(i4.4)') DEF_LC_YEAR
+                  dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
+                  fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
+                  CALL read_point_5x5_var_3d_real8 (gridpft, dir, fname, 'PCT_PFT', &
                      SITE_lon_location, SITE_lat_location, N_PFT_modis, pctpfts)
                   SITE_LAI_pfts_monthly(:,itime,iyear) = sum(pftLAI * pctpfts) / sum(pctpfts)
                   SITE_SAI_pfts_monthly(:,itime,iyear) = sum(pftSAI * pctpfts) / sum(pctpfts)
