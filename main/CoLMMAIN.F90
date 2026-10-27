@@ -223,6 +223,15 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_CT_Precip, only: ct_canopy_lump, ct_canopy_split, ct_canopy_parts
    USE MOD_CT_Hist, only: ct_hist_accumulate
    USE MOD_CT_SpecialPatches, only: ct_glacier_patch, ct_waterbody_patch
+#ifdef GridRiverLakeFlow
+   ! constituent of the grid flood credit published by the river
+   ! (MOD_CT_RiverLakeCoupling); flood_credit_patch is only read
+   USE MOD_Grid_RiverLakeFlow, only: flood_credit_patch
+   USE MOD_CT_RiverLakeCoupling, only: flood_tracer_credit_patch, flood_tracer_evap_patch, &
+      flood_tracer_land_patch
+   USE MOD_CT_LandPhase, only: ct_flood_evap_loss
+   USE MOD_CT_Defs, only: tracers, ct_has_dissolved_limit
+#endif
 #endif
 
 #ifdef EXTERNAL_LAKE
@@ -692,6 +701,10 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: waterstorage_trc_beg, waterstorage_trc_ground
    real(r8) :: raw_trc
    real(r8) :: fevpa_trc, flood_input_trc
+#ifdef GridRiverLakeFlow
+   real(r8) :: flood_input_tracer(ntracers)   ! constituent of the flood infiltration
+   real(r8) :: flood_evap_temp_trc            ! temperature of the flood water [K]
+#endif
    integer  :: itrc_loc
    real(r8) :: ratio_loc
 #endif
@@ -945,6 +958,12 @@ SUBROUTINE CoLMMAIN ( &
          ! canopy pools as the leaf temperature code will split ldew
          CALL ct_canopy_split (ipatch, ldew, ldew_rain, ldew_snow, tleaf, &
             ldew_rain_bef_th, ldew_snow_bef_th)
+#ifdef GridRiverLakeFlow
+         ! flood water evaporates at the surface temperature before the energy balance
+         flood_evap_temp_trc = t_soisno(lb)
+         IF (DEF_SPLIT_SOILSNOW) flood_evap_temp_trc = &
+            fsno*t_soisno(lb) + (1._r8-fsno)*t_soisno(1)
+#endif
 #endif
          CALL THERMAL (ipatch,patchtype,is_dry_lake,lb                ,deltim            ,&
               trsmx0            ,zlnd              ,zsno              ,csoilc            ,&
@@ -1015,14 +1034,24 @@ SUBROUTINE CoLMMAIN ( &
               )
 
 #ifdef ConstituentTransport
-#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
-         ! Flood water exchange with constituents is part of the river phase
-         ! (not ported yet); stop instead of booking water without composition.
+#if (defined CaMa_Flood)
+         ! CaMa-Flood exchanges no constituents with the land; stop instead of
+         ! booking flood water without composition.
          IF (LWINFILT .and. patchtype == 0 .and. ntracers > 0) THEN
             DO itrc_loc = 1, ntracers
                IF (.not. ct_uses_land_water_transport(itrc_loc)) CYCLE
-               CALL CoLM_stop('Constituent transport: flood feedback (LWINFILT) is not supported yet.')
+               CALL CoLM_stop('Constituent transport: CaMa flood feedback (LWINFILT) is not supported.')
             ENDDO
+         ENDIF
+#elif (defined GridRiverLakeFlow)
+         ! Vapour exchange of the flood evaporation, debited from the river
+         ! constituent pools at the next routing call (ct_rlc_flood_debit).
+         IF (allocated(flood_tracer_evap_patch)) THEN
+            flood_tracer_evap_patch(:,ipatch) = 0._r8
+            IF (LWINFILT .and. patchtype == 0 .and. fevpg_fld > 0._r8) &
+               CALL ct_flood_evap_loss(ipatch, flood_credit_patch(ipatch)*1000._r8, &
+                  flood_tracer_credit_patch(:,ipatch), fevpg_fld*deltim, flood_evap_temp_trc, &
+                  forc_q, forc_psrf, forc_us, forc_vs, flood_tracer_evap_patch(:,ipatch))
          ENDIF
 #endif
          ! canopy pools after the energy balance, split by the same rule
@@ -1191,6 +1220,29 @@ SUBROUTINE CoLMMAIN ( &
          ! etroot_surface and rsub_source_surface, so leave them out here.
          qinfl_trc = qinfl - (etroot_surface_trc + rsub_source_surface_trc) / deltim
 
+#ifdef GridRiverLakeFlow
+         ! Constituent of the flood infiltration: the published credit less the
+         ! vapour exchange, in the share of the water left after evaporation that
+         ! infiltrated; solutes with a solubility limit carry at most that limit.
+         flood_input_tracer = 0._r8
+         IF (LWINFILT .and. patchtype == 0 .and. qinfl_fld > 0._r8 .and. &
+             allocated(flood_tracer_credit_patch)) THEN
+            IF (flood_credit_patch(ipatch)*1000._r8 <= fevpg_fld*deltim) THEN
+               IF (qinfl_fld*deltim > 1.e-12_r8*max(flood_credit_patch(ipatch)*1000._r8, 1._r8)) &
+                  CALL CoLM_stop('grid flood feedback: infiltration without published tracer credit')
+            ELSE
+               flood_input_tracer = (flood_tracer_credit_patch(:,ipatch) - &
+                  flood_tracer_evap_patch(:,ipatch)) * &
+                  (qinfl_fld*deltim/(flood_credit_patch(ipatch)*1000._r8-fevpg_fld*deltim))
+               DO itrc_loc = 1, ntracers
+                  IF (.not. ct_has_dissolved_limit(itrc_loc)) CYCLE
+                  flood_input_tracer(itrc_loc) = min(max(flood_input_tracer(itrc_loc),0._r8), &
+                     tracers(itrc_loc)%max_dissolved_conc*qinfl_fld*deltim)
+               ENDDO
+            ENDIF
+         ENDIF
+#endif
+
          IF (patchtype == 2 .and. .not. DEF_USE_Dynamic_Wetland) THEN
             CALL ct_wetland(ipatch, deltim, snl, nl_soil, &
                rsur, &
@@ -1250,7 +1302,16 @@ SUBROUTINE CoLMMAIN ( &
                dz_soi_frac = dz_soisno(1:nl_soil), &
                porsl_frac = porsl(1:nl_soil), &
                dz_sno_frac = dz_soisno(lbsn:0), &
-               permeable_soil = permeable_soil_trc)
+               permeable_soil = permeable_soil_trc &
+#ifdef GridRiverLakeFlow
+               , flood_tracer_input = flood_input_tracer, flood_infil_water = qinfl_fld*deltim &
+#endif
+               )
+#ifdef GridRiverLakeFlow
+            ! what entered the soil, for the river-side ledger
+            IF (allocated(flood_tracer_land_patch)) &
+               flood_tracer_land_patch(:,ipatch) = flood_input_tracer
+#endif
          ENDIF
 #endif
 
@@ -1445,7 +1506,12 @@ SUBROUTINE CoLMMAIN ( &
             water_input_in = (forc_prc + forc_prl + flood_input_trc) * deltim, &
             water_output_in = (fevpa_trc + rnof) * deltim, &
             water_evap_in = fevpa_trc * deltim, &
-            water_rnof_in = rnof * deltim)
+            water_rnof_in = rnof * deltim &
+#ifdef GridRiverLakeFlow
+            ! flood water may carry a river signature: no fixed-signature check
+            , flood_heterogeneous_in = LWINFILT .and. patchtype == 0 &
+#endif
+            )
 #else
          CALL ct_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer, &
             patchtype_in = patchtype, water_err_in = errorw, &
@@ -1453,7 +1519,12 @@ SUBROUTINE CoLMMAIN ( &
             water_input_in = (forc_prc + forc_prl + flood_input_trc) * deltim, &
             water_output_in = fevpa_trc * deltim, &
             water_evap_in = fevpa_trc * deltim, &
-            water_rnof_in = 0._r8)
+            water_rnof_in = 0._r8 &
+#ifdef GridRiverLakeFlow
+            ! flood water may carry a river signature: no fixed-signature check
+            , flood_heterogeneous_in = LWINFILT .and. patchtype == 0 &
+#endif
+            )
 #endif
 
          CALL ct_hist_accumulate(ipatch, snl, maxsnl, nl_soil, ldew_rain, ldew_snow, &

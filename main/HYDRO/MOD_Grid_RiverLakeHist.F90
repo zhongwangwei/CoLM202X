@@ -12,6 +12,10 @@ MODULE MOD_Grid_RiverLakeHist
 
    USE MOD_Precision
    USE MOD_Grid_RiverLakeHistState
+#ifdef ConstituentTransport
+   ! river constituent history (f_trc_* variables); writes only constituent fields
+   USE MOD_CT_RiverLake, only: ct_riverlake_write_history, ct_riverlake_flush_acc
+#endif
 
    ! -- PUBLIC SUBROUTINEs --
    PUBLIC :: hist_grid_riverlake_init
@@ -565,6 +569,9 @@ CONTAINS
       IF (allocated (a_floodfrc_inpm)) deallocate (a_floodfrc_inpm)
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
 
+#ifdef ConstituentTransport
+      CALL ct_riverlake_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
+#endif
 
       ! ----- reservoir variables -----
       IF (DEF_Reservoir_Method > 0) THEN
@@ -664,6 +671,9 @@ CONTAINS
             a_qresv_out  (:) = 0.
          ENDIF
 
+#ifdef ConstituentTransport
+         CALL ct_riverlake_flush_acc ()
+#endif
 
       ENDIF
 

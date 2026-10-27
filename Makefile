@@ -134,6 +134,7 @@ OBJS_BASIC =    \
 				 MOD_CT_Defs.o                   \
 				 MOD_CT_Lifecycle.o              \
 				 MOD_Grid_RiverLakeTimeVars.o    \
+				 MOD_CT_RiverLake.o              \
 				 MOD_BGC_Vars_1DFluxes.o         \
 				 MOD_BGC_Vars_1DPFTFluxes.o      \
 				 MOD_BGC_Vars_PFTimeVariables.o  \
@@ -375,6 +376,7 @@ OBJS_MAIN = \
 				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_Catch_LateralFlow.o                   \
+				MOD_CT_RiverLakeCoupling.o                \
 				MOD_Grid_RiverLakeFlow.o                  \
 				MOD_Urban_Longwave.o                      \
 				MOD_Urban_NetSolar.o                      \
@@ -431,13 +433,17 @@ MOD_CT_LandPhase.o: MOD_CT_Conservation.o MOD_CT_Defs.o MOD_CT_Evapo.o MOD_CT_Li
 MOD_CT_Lifecycle.o: MOD_CT_Defs.o
 MOD_CT_Precip.o: MOD_CT_Defs.o MOD_CT_Forcing.o MOD_CT_Vars.o
 MOD_CT_Providers.o: MOD_CT_Isotope_HDO.o MOD_CT_Isotope_O18.o
+MOD_CT_RiverLake.o: MOD_CT_Defs.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
+MOD_CT_RiverLakeCoupling.o: MOD_CT_Defs.o MOD_CT_RiverLake.o MOD_CT_Vars.o MOD_Grid_RiverLakeBifurcation.o
 MOD_CT_Rest.o: MOD_CT_Defs.o MOD_CT_Forcing.o MOD_CT_Lifecycle.o MOD_CT_Namelist.o MOD_CT_Vars.o MOD_Vars_TimeInvariants.o
 MOD_CT_Snow.o: MOD_CT_Defs.o MOD_CT_Vars.o
 MOD_CT_SoilInit.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o MOD_CT_Providers.o MOD_CT_Vars.o
 MOD_CT_SoilWater.o: MOD_CT_Defs.o MOD_CT_EvapLimit.o MOD_CT_Forcing.o MOD_CT_Frac.o MOD_CT_Namelist.o MOD_CT_Vars.o
 MOD_CT_SpecialPatches.o: MOD_CT_Conservation.o MOD_CT_Defs.o MOD_CT_EvapLimit.o MOD_CT_Forcing.o MOD_CT_Frac.o MOD_CT_Hist.o MOD_CT_Namelist.o MOD_CT_Vars.o
 MOD_CT_Vars.o: MOD_CT_Defs.o MOD_CT_Namelist.o
-MOD_Vars_TimeVariables.o: MOD_CT_Rest.o
+MOD_Vars_TimeVariables.o: MOD_CT_Rest.o MOD_CT_RiverLake.o
+MOD_Grid_RiverLakeFlow.o: MOD_CT_RiverLakeCoupling.o
+MOD_Grid_RiverLakeHist.o: MOD_CT_RiverLake.o
 MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
