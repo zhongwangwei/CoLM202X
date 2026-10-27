@@ -133,7 +133,6 @@ OBJS_BASIC =    \
 				 MOD_CT_Namelist.o               \
 				 MOD_CT_Defs.o                   \
 				 MOD_CT_Lifecycle.o              \
-				 MOD_CT_HostFixes.o              \
 				 MOD_Grid_RiverLakeTimeVars.o    \
 				 MOD_BGC_Vars_1DFluxes.o         \
 				 MOD_BGC_Vars_1DPFTFluxes.o      \
@@ -368,6 +367,7 @@ OBJS_MAIN = \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
 				MOD_CT_Hist.o                             \
+				MOD_CT_HostFixes.o                        \
 				MOD_CT_SpecialPatches.o                   \
 				MOD_Grid_RiverLakeHist.o                  \
 				MOD_HistAccRestart.o                      \
@@ -422,7 +422,7 @@ MOD_CT_Evapo.o: MOD_CT_Defs.o MOD_CT_EvapLimit.o MOD_CT_Forcing.o MOD_CT_Frac.o 
 MOD_CT_Forcing.o: MOD_CT_Defs.o MOD_CT_ForcingInput.o MOD_CT_Frac.o MOD_CT_Providers.o MOD_CT_Vars.o MOD_UserSpecifiedForcing.o
 MOD_CT_ForcingInput.o: MOD_CT_Defs.o
 MOD_CT_Frac.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o MOD_CT_Providers.o
-MOD_CT_HostFixes.o: MOD_CT_Namelist.o
+MOD_CT_HostFixes.o: MOD_CT_Namelist.o MOD_HistGridded.o
 MOD_CT_Hist.o: MOD_CT_Defs.o MOD_CT_Lifecycle.o MOD_CT_Vars.o
 MOD_CT_Isotope_HDO.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o
 MOD_CT_Isotope_O18.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o

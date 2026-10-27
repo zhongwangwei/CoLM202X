@@ -32,7 +32,9 @@ MODULE MOD_CT_HostFixes
 !    before the restart. When the run starts inside the group of the file
 !    it is about to write and the file exists, it is marked as the last
 !    file, so the host appends to it (ncio_write_time finds the time
-!    record or appends a new one).
+!    record or appends a new one). For gridded history in 'block' mode,
+!    every per-block file of the IO processes must exist. CaMa history
+!    files need nothing: they are only created when missing.
 !-----------------------------------------------------------------------
 
    USE MOD_CT_Namelist, only: ct_any_enabled
@@ -59,27 +61,33 @@ CONTAINS
    END FUNCTION ct_bgc_data_init_year
 
 
-   SUBROUTINE ct_hist_continue_file (file_hist, idate, file_last)
+   SUBROUTINE ct_hist_continue_file (file_hist, idate, histform, file_last)
    ! file_hist: the history file about to be written
    ! idate:     current model time (end of the time step)
+   ! histform:  'Gridded', 'Vector' or 'Single' (MOD_Hist HistForm)
    ! file_last: the host's last-written file name; set to file_hist when
    !            the existing file has to be continued
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_simulation_time, DEF_HIST_groupby, DEF_HIST_mode
    USE MOD_TimeManager, only: julian2monthday, monthday2julian, minutes_since_1900
+   USE MOD_Block, only: gblock, get_filename_block
+   USE MOD_HistGridded, only: ghist
    IMPLICIT NONE
    character(len=*), intent(in)    :: file_hist
    integer,          intent(in)    :: idate(3)
+   character(len=*), intent(in)    :: histform
    character(len=*), intent(inout) :: file_last
 
    integer :: month, mday, jday_group, jday_start, min_group, min_start
-   logical :: lcontinue
+   integer :: iblkme, iblk, jblk
+   character(len=256) :: fileblock
+   logical :: lcontinue, fexists, per_block
 
       IF (.not. ct_any_enabled()) RETURN
       ! only the first write of this run
       IF (trim(file_last) /= 'null') RETURN
-      ! per-block files ('block' mode) carry other names; not handled
-      IF (trim(DEF_HIST_mode) /= 'one') RETURN
+      ! only gridded history has per-block files
+      per_block = (trim(histform) == 'Gridded') .and. (trim(DEF_HIST_mode) == 'block')
 
       ! beginning of the history group that idate belongs to
       ! (idate is end-of-step, so 86400 s still belongs to that day)
@@ -104,13 +112,33 @@ CONTAINS
       ! A run starting at the beginning of the group writes a new file, as upstream.
       IF (min_start <= min_group) RETURN
 
-      ! The file is opened by the master only; decide there so that all
-      ! processes agree.
-      lcontinue = .false.
-      IF (p_is_master) inquire (file=trim(file_hist), exist=lcontinue)
+      IF (per_block) THEN
+         ! Each IO process writes its own block files (same loop as
+         ! hist_gridded_write_time); continue only if all of them exist.
+         lcontinue = .true.
+         IF (p_is_io) THEN
+            DO iblkme = 1, gblock%nblkme
+               iblk = gblock%xblkme(iblkme)
+               jblk = gblock%yblkme(iblkme)
+               IF (ghist%ycnt(jblk) <= 0) CYCLE
+               IF (ghist%xcnt(iblk) <= 0) CYCLE
+               CALL get_filename_block (file_hist, iblk, jblk, fileblock)
+               inquire (file=trim(fileblock), exist=fexists)
+               lcontinue = lcontinue .and. fexists
+            ENDDO
+         ENDIF
 #ifdef USEMPI
-      CALL mpi_bcast (lcontinue, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+         CALL mpi_allreduce (MPI_IN_PLACE, lcontinue, 1, MPI_LOGICAL, MPI_LAND, p_comm_glb, p_err)
 #endif
+      ELSE
+         ! The single file is opened by the master only; decide there so that
+         ! all processes agree.
+         lcontinue = .false.
+         IF (p_is_master) inquire (file=trim(file_hist), exist=lcontinue)
+#ifdef USEMPI
+         CALL mpi_bcast (lcontinue, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+#endif
+      ENDIF
 
       IF (lcontinue) THEN
          file_last = file_hist
