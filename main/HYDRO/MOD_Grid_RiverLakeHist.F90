@@ -15,6 +15,8 @@ MODULE MOD_Grid_RiverLakeHist
 #ifdef ConstituentTransport
    ! river constituent history (f_trc_* variables); writes only constituent fields
    USE MOD_CT_RiverLake, only: ct_riverlake_write_history, ct_riverlake_flush_acc
+   ! and the history of the constituents with their own river state (sediment)
+   USE MOD_CT_Lifecycle, only: ct_lifecycle_route_write_history, ct_lifecycle_route_flush_history
 #endif
 
    ! -- PUBLIC SUBROUTINEs --
@@ -571,6 +573,7 @@ CONTAINS
 
 #ifdef ConstituentTransport
       CALL ct_riverlake_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
+      CALL ct_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
 #endif
 
       ! ----- reservoir variables -----
@@ -673,6 +676,7 @@ CONTAINS
 
 #ifdef ConstituentTransport
          CALL ct_riverlake_flush_acc ()
+         CALL ct_lifecycle_route_flush_history ()
 #endif
 
       ENDIF

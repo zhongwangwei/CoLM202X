@@ -16,11 +16,14 @@ MODULE MOD_CT_Namelist
 !        DEF_ISOTOPE_PARAM_FILE = 'run/standard_isotope_parameter.nml'
 !        DEF_SOLUTE_NAMES       = 'CL'
 !        DEF_SOLUTE_PARAM_FILES = 'CL:run/standard_chloride_parameter.nml'
+!        DEF_SEDIMENT_PARAM_FILE = 'run/standard_sediment_parameter.nml'
 !     /
 !
 !  The group may be left out; every setting then keeps its default and no
 !  constituent is carried. DEF_USE_SEDIMENT stays in &nl_colm, where
-!  upstream has it.
+!  upstream has it; the river sediment then needs GridRiverLakeFlow, and its
+!  &nl_colm_sediment_parameter (DEF_SEDIMENT_PARAM_FILE, 'null' = code
+!  defaults) is read by MOD_CT_Sediment.
 !
 !  Isotope physics settings live in &nl_colm_isotope_parameter of
 !  DEF_ISOTOPE_PARAM_FILE ('null' = code defaults). Solute parameter files
@@ -41,6 +44,7 @@ MODULE MOD_CT_Namelist
    ! 'NAME:path' entries separated by ',' or ';', or plain paths in the
    ! order of DEF_SOLUTE_NAMES. A solute without a file uses code defaults.
    character(len=2048):: DEF_SOLUTE_PARAM_FILES = 'null'
+   character(len=256) :: DEF_SEDIMENT_PARAM_FILE = 'null'
 
    ! Abort after this many cells fail a check (0 = report only).
    integer            :: DEF_CT_BALANCE_ABORT_NBAD = 0
@@ -99,7 +103,7 @@ CONTAINS
 
       namelist /nl_colm_constituent/ DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, &
          DEF_ISOTOPE_PARAM_FILE, DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, &
-         DEF_CT_BALANCE_ABORT_NBAD, DEF_CT_RESID_ABORT_NBAD, DEF_CT_LULCC_ABORT_NBAD, &
+         DEF_SEDIMENT_PARAM_FILE, DEF_CT_BALANCE_ABORT_NBAD, DEF_CT_RESID_ABORT_NBAD, DEF_CT_LULCC_ABORT_NBAD, &
          DEF_CT_AQUIFER_MIXING_WATER_MM, &
          DEF_CT_USE_SOIL_INIT, DEF_CT_SOIL_INIT_FILE, DEF_CT_SOIL_INIT_VARS
 
@@ -161,6 +165,7 @@ CONTAINS
       CALL mpi_bcast (DEF_ISOTOPE_PARAM_FILE        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SOLUTE_NAMES              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SOLUTE_PARAM_FILES        ,len(DEF_SOLUTE_PARAM_FILES) ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_SEDIMENT_PARAM_FILE       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_CT_BALANCE_ABORT_NBAD     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_CT_RESID_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_CT_LULCC_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
@@ -240,8 +245,9 @@ CONTAINS
 
    logical FUNCTION ct_any_enabled ()
    ! True when at least one constituent is switched on.
+   USE MOD_Namelist, only: DEF_USE_SEDIMENT
    IMPLICIT NONE
-      ct_any_enabled = DEF_USE_ISOTOPE .or. len_trim(DEF_SOLUTE_NAMES) > 0
+      ct_any_enabled = DEF_USE_ISOTOPE .or. len_trim(DEF_SOLUTE_NAMES) > 0 .or. DEF_USE_SEDIMENT
    END FUNCTION ct_any_enabled
 
 

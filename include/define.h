@@ -67,14 +67,6 @@
 #undef GridRiverLakeFlow
 #endif
 
-#undef GridRiverLakeSediment
-#if (!defined GridRiverLakeFlow)
-#undef GridRiverLakeSediment
-#endif
-#ifdef GridRiverLakeSediment
-#error "GridRiverLakeSediment is not yet coupled to this version of GridRiverLakeFlow"
-#endif
-
 ! 7. If defined, BGC model is used.
 #undef BGC
 

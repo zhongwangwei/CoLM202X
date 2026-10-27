@@ -5,7 +5,7 @@ HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/CONSTITUENT : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/CONSTITUENT : main/CONSTITUENT/FAMILY_ISOTOPE : main/CONSTITUENT/FAMILY_PARTICLE : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -135,6 +135,7 @@ OBJS_BASIC =    \
 				 MOD_CT_Lifecycle.o              \
 				 MOD_Grid_RiverLakeTimeVars.o    \
 				 MOD_CT_RiverLake.o              \
+				 MOD_CT_Sediment.o               \
 				 MOD_BGC_Vars_1DFluxes.o         \
 				 MOD_BGC_Vars_1DPFTFluxes.o      \
 				 MOD_BGC_Vars_PFTimeVariables.o  \
@@ -432,9 +433,10 @@ MOD_CT_Isotope_Registry.o: MOD_CT_Defs.o
 MOD_CT_LandPhase.o: MOD_CT_Conservation.o MOD_CT_Defs.o MOD_CT_Evapo.o MOD_CT_Lifecycle.o MOD_CT_Precip.o MOD_CT_Rest.o MOD_CT_Snow.o MOD_CT_SoilInit.o MOD_CT_SoilWater.o MOD_CT_Vars.o
 MOD_CT_Lifecycle.o: MOD_CT_Defs.o
 MOD_CT_Precip.o: MOD_CT_Defs.o MOD_CT_Forcing.o MOD_CT_Vars.o
-MOD_CT_Providers.o: MOD_CT_Isotope_HDO.o MOD_CT_Isotope_O18.o
+MOD_CT_Providers.o: MOD_CT_Isotope_HDO.o MOD_CT_Isotope_O18.o MOD_CT_Sediment.o
 MOD_CT_RiverLake.o: MOD_CT_Defs.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
-MOD_CT_RiverLakeCoupling.o: MOD_CT_Defs.o MOD_CT_RiverLake.o MOD_CT_Vars.o MOD_Grid_RiverLakeBifurcation.o
+MOD_CT_Sediment.o: MOD_CT_Defs.o MOD_CT_Lifecycle.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_CT_RiverLakeCoupling.o: MOD_CT_Defs.o MOD_CT_Lifecycle.o MOD_CT_RiverLake.o MOD_CT_Vars.o MOD_Grid_RiverLakeBifurcation.o
 MOD_CT_Rest.o: MOD_CT_Defs.o MOD_CT_Forcing.o MOD_CT_Lifecycle.o MOD_CT_Namelist.o MOD_CT_Vars.o MOD_Vars_TimeInvariants.o
 MOD_CT_Snow.o: MOD_CT_Defs.o MOD_CT_Vars.o
 MOD_CT_SoilInit.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o MOD_CT_Providers.o MOD_CT_Vars.o

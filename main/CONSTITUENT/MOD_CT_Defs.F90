@@ -7,7 +7,8 @@ MODULE MOD_CT_Defs
    USE MOD_Namelist, only: DEF_USE_VariablySaturatedFlow
    USE MOD_CT_Namelist, only: ct_read_namelist, ct_namelist_group_present, &
       DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, DEF_ISOTOPE_PARAM_FILE, &
-      DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, DEF_CT_AQUIFER_MIXING_WATER_MM, &
+      DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, DEF_SEDIMENT_PARAM_FILE, &
+      DEF_CT_AQUIFER_MIXING_WATER_MM, &
       DEF_ISO_USE_FRACTIONATION, DEF_ISO_REF_RATIO_H2_18O, DEF_ISO_INIT_DELTA_H2_18O, &
       DEF_ISO_REF_RATIO_HDO, DEF_ISO_INIT_DELTA_HDO
    USE, INTRINSIC :: IEEE_ARITHMETIC, only: ieee_is_finite
@@ -15,6 +16,32 @@ MODULE MOD_CT_Defs
    IMPLICIT NONE
    SAVE
 
+   ! Each constituent is classified by three independent values:
+   !
+   !   family_id     : what the constituent physically is
+   !     FAMILY_ISOTOPE  water isotopologue (H2_18O, HDO); moves with the land
+   !                     and river water, fractionates on phase change and
+   !                     leaves with the evaporated water.
+   !     FAMILY_SOLUTE   dissolved, nonvolatile species (e.g. Cl); moves with
+   !                     the water, stays behind on evaporation, may have a
+   !                     dissolved limit (max_dissolved_conc) with the excess
+   !                     kept as solid, and may decay at first order.
+   !     FAMILY_PARTICLE suspended / bed material (sediment); exists only in
+   !                     the river-lake flow, with its own state and transport.
+   !     FAMILY_GAS      gas with dissolved and gaseous phases in the soil
+   !                     column (methane); its own state and processes.
+   !
+   !   state_owner   : which code holds and moves the state
+   !     STATE_OWNER_GENERIC_WATER  the shared water-carried transport
+   !                                (isotopes and solutes)
+   !     STATE_OWNER_PROVIDER       the species module, through the hooks it
+   !                                registers (particle and gas)
+   !
+   !   reaction_mode : how the amount changes besides transport
+   !     REACTION_NONE         none (also "not applicable" for isotopes and
+   !                           particles)
+   !     REACTION_FIRST_ORDER  first-order decay; generic-water solutes only
+   !     REACTION_PROVIDER     computed by the species module (methane)
    integer, parameter :: FAMILY_UNRESOLVED = 0
    integer, parameter :: FAMILY_ISOTOPE    = 1
    integer, parameter :: FAMILY_SOLUTE     = 2
@@ -257,12 +284,13 @@ CONTAINS
    !-----------------------------------------------------------------------
    !  Build the descriptor table from the switches in MOD_CT_Namelist:
    !  isotopes first (order of DEF_ISOTOPE_SPECIES), then solutes (order of
-   !  DEF_SOLUTE_NAMES). The family of each entry follows from the switch
-   !  that put it there.
+   !  DEF_SOLUTE_NAMES), then the river sediment (DEF_USE_SEDIMENT). The
+   !  family of each entry follows from the switch that put it there.
    !-----------------------------------------------------------------------
       USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
+      USE MOD_Namelist, only: DEF_USE_SEDIMENT
       IMPLICIT NONE
-      integer :: i, j, niso, nsol
+      integer :: i, j, niso, nsol, nsed
       character(len=32), allocatable :: iso_tokens(:), sol_tokens(:)
 
       CALL ct_read_namelist ()
@@ -275,8 +303,16 @@ CONTAINS
       CALL split_names (DEF_SOLUTE_NAMES, sol_tokens, nsol)
       IF (DEF_USE_ISOTOPE .and. niso == 0) &
          CALL CoLM_stop ('DEF_USE_ISOTOPE is on but DEF_ISOTOPE_SPECIES is empty.')
+      nsed = 0
+      IF (DEF_USE_SEDIMENT) THEN
+#ifdef GridRiverLakeFlow
+         nsed = 1
+#else
+         CALL CoLM_stop ('DEF_USE_SEDIMENT needs the grid river-lake flow (GridRiverLakeFlow).')
+#endif
+      ENDIF
 
-      ntracers = niso + nsol
+      ntracers = niso + nsol + nsed
       IF (ntracers == 0) RETURN
       allocate(tracers(ntracers))
 
@@ -319,6 +355,22 @@ CONTAINS
          tracers(i)%vapor_default_conc  = 0._r8
          tracers(i)%decay_rate = 0._r8
       ENDDO
+
+      IF (nsed > 0) THEN
+         ! State and parameters are owned by MOD_CT_Sediment, which attaches
+         ! itself to this entry (ct_register_providers).
+         i = niso + nsol + 1
+         tracers(i)%name = 'SEDIMENT'
+         tracers(i)%category = 'particle'
+         CALL set_tracer_category_defaults (i)
+         tracers(i)%mol_weight          = 1._r8
+         tracers(i)%ref_ratio           = 1._r8
+         tracers(i)%init_delta          = 0._r8
+         tracers(i)%init_conc           = 0._r8
+         tracers(i)%precip_default_conc = 0._r8
+         tracers(i)%vapor_default_conc  = 0._r8
+         tracers(i)%decay_rate = 0._r8
+      ENDIF
 
       ! Names become NetCDF variable names in land and river files.
       DO i = 2, ntracers
@@ -462,7 +514,8 @@ CONTAINS
    !-----------------------------------------------------------------------
    !  Parameter file of one constituent: DEF_ISOTOPE_PARAM_FILE for every
    !  isotope, the DEF_SOLUTE_PARAM_FILES entry for a solute ('NAME:path',
-   !  or a plain path at the solute's position). 'null' means none.
+   !  or a plain path at the solute's position), DEF_SEDIMENT_PARAM_FILE for
+   !  the sediment. 'null' means none.
    !-----------------------------------------------------------------------
       USE MOD_SPMD_Task, only: CoLM_stop
       IMPLICIT NONE
@@ -482,6 +535,11 @@ CONTAINS
 
       IF (tracer_is_isotope(itrc)) THEN
          file_param = DEF_ISOTOPE_PARAM_FILE
+         found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
+         RETURN
+      ENDIF
+      IF (tracer_is_particle(itrc)) THEN
+         file_param = DEF_SEDIMENT_PARAM_FILE
          found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
          RETURN
       ENDIF

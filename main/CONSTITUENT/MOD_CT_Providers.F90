@@ -46,8 +46,15 @@ SUBROUTINE ct_register_providers ()
 !-----------------------------------------------------------------------
 !  Species with lifecycle callbacks. An external subroutine rather than a
 !  module procedure because the providers USE MOD_CT_Lifecycle, which calls
-!  this; no species is attached yet.
+!  this. A provider attaches only to a configured entry of the descriptor
+!  table, so registering it with the species switched off does nothing.
 !-----------------------------------------------------------------------
+#ifdef GridRiverLakeFlow
+   USE MOD_CT_Sediment, only: register_sediment_tracer_provider
+#endif
    IMPLICIT NONE
+#ifdef GridRiverLakeFlow
+   CALL register_sediment_tracer_provider ()
+#endif
 END SUBROUTINE ct_register_providers
 #endif

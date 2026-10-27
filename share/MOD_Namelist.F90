@@ -450,22 +450,6 @@ MODULE MOD_Namelist
 
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
-   real(r8) :: DEF_SED_LAMBDA          = 0.4
-   real(r8) :: DEF_SED_LYRDPH          = 0.00005
-   real(r8) :: DEF_SED_DENSITY         = 2.65
-   real(r8) :: DEF_SED_WATER_DENSITY   = 1.0
-   real(r8) :: DEF_SED_VISKIN          = 1.0e-6
-   real(r8) :: DEF_SED_VONKAR          = 0.4
-   real(r8) :: DEF_SED_PSET            = 1.0
-   integer  :: DEF_SED_TOTLYRNUM       = 5
-   real(r8) :: DEF_SED_CFL_ADV         = 0.5
-   real(r8) :: DEF_SED_IGNORE_DPH      = 0.05
-   real(r8) :: DEF_SED_DT_MAX          = 3600.
-   character(len=256) :: DEF_SED_DIAMETER = "0.0002,0.002,0.02"
-   real(r8) :: DEF_SED_PYLD            = 0.01
-   real(r8) :: DEF_SED_PYLDC           = 2.0
-   real(r8) :: DEF_SED_PYLDPC          = 2.0
-   real(r8) :: DEF_SED_DSYLUNIT        = 1.0e-6
 
    ! ----- others -----
    character(len=5)   :: DEF_precip_phase_discrimination_scheme = 'II'
@@ -1396,22 +1380,6 @@ CONTAINS
       DEF_USE_BIFURCATION,                    &
 
       DEF_USE_SEDIMENT,                       &
-      DEF_SED_LAMBDA,                         &
-      DEF_SED_LYRDPH,                         &
-      DEF_SED_DENSITY,                        &
-      DEF_SED_WATER_DENSITY,                  &
-      DEF_SED_VISKIN,                         &
-      DEF_SED_VONKAR,                         &
-      DEF_SED_PSET,                           &
-      DEF_SED_TOTLYRNUM,                      &
-      DEF_SED_CFL_ADV,                        &
-      DEF_SED_IGNORE_DPH,                     &
-      DEF_SED_DT_MAX,                         &
-      DEF_SED_DIAMETER,                       &
-      DEF_SED_PYLD,                           &
-      DEF_SED_PYLDC,                          &
-      DEF_SED_PYLDPC,                         &
-      DEF_SED_DSYLUNIT,                       &
 
       DEF_precip_phase_discrimination_scheme, &
 
@@ -1575,6 +1543,20 @@ CONTAINS
 #endif
 #if !defined GridRiverLakeFlow && !defined CaMa_Flood
          IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires a river routing solver.')
+#endif
+         ! The river sediment is the sediment of the constituent transport
+         ! (main/CONSTITUENT/FAMILY_PARTICLE/MOD_CT_Sediment), which is compiled
+         ! only with ConstituentTransport and GridRiverLakeFlow.  Without them
+         ! DEF_USE_SEDIMENT = .true. would be ignored without notice, so stop
+         ! and say what to change.  Runs with DEF_USE_SEDIMENT = .false. (the
+         ! default) do not reach the stop and are unchanged.
+#if !defined ConstituentTransport || !defined GridRiverLakeFlow
+         IF (DEF_USE_SEDIMENT) THEN
+            write(*,*) 'DEF_USE_SEDIMENT = .true. needs the river sediment of the constituent transport:'
+            write(*,*) '   define ConstituentTransport and GridRiverLakeFlow in include/define.h and rebuild,'
+            write(*,*) '   or set DEF_USE_SEDIMENT = .false.'
+            CALL CoLM_Stop ('River sediment requires ConstituentTransport and GridRiverLakeFlow.')
+         ENDIF
 #endif
          IF ((DEF_GridRiverLake_FloodFeedback .or. DEF_CaMa_FloodFeedback) .and. DEF_Runoff_SCHEME /= 0) THEN
             write(*,*) 'Note: DEF_Runoff_SCHEME is set to 0 for two-way river coupling.'
@@ -2251,22 +2233,6 @@ ENDIF
       CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_LYRDPH                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DENSITY                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_WATER_DENSITY                  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_VISKIN                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_VONKAR                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PSET                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_TOTLYRNUM                      ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_CFL_ADV                        ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_IGNORE_DPH                     ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DT_MAX                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DIAMETER                       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLD                           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLDC                          ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_PYLDPC                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_SED_DSYLUNIT                       ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_HISTORY_IN_VECTOR                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 

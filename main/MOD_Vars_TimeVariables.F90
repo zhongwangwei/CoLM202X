@@ -1114,6 +1114,7 @@ CONTAINS
    USE MOD_CT_Rest, only: write_tracer_restart_all
 #ifdef GridRiverLakeFlow
    USE MOD_CT_RiverLake, only: ct_riverlake_write_restart
+   USE MOD_CT_Lifecycle, only: ct_lifecycle_route_write_restart
 #endif
 #endif
    IMPLICIT NONE
@@ -1338,8 +1339,10 @@ ENDIF
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
 #ifdef ConstituentTransport
-      ! river constituent pools (trc_* variables) into the same file, before the commit
+      ! river constituent pools (trc_* variables) and the state of the constituents
+      ! with their own river state (sediment) into the same file, before the commit
       CALL ct_riverlake_write_restart (file_restart)
+      CALL ct_lifecycle_route_write_restart (file_restart)
 #endif
       CALL commit_GridRiverLakeRestart (file_restart)
 #endif

@@ -15,6 +15,9 @@ MODULE MOD_CT_RiverLakeCoupling
 !
 !   Units: river pools are R*m^3 (ratio times water volume); land-side flood
 !   arrays are R*mm over the patch, as the land constituent pools.
+!
+!   Constituents with their own river state (sediment) are reached through the
+!   route hooks of MOD_CT_Lifecycle, called from the same routines.
 !-------------------------------------------------------------------------------------
 
    USE MOD_Precision
@@ -23,6 +26,11 @@ MODULE MOD_CT_RiverLakeCoupling
    USE MOD_CT_Defs, only: ntracers, ct_uses_land_water_transport, ct_has_dissolved_limit, &
       ct_equilibrate_dissolved, tracer_is_nonvolatile_solute
    USE MOD_CT_RiverLake
+   USE MOD_CT_Lifecycle, only: ct_lifecycle_route_has_active, ct_lifecycle_route_init, &
+      ct_lifecycle_route_read_restart, ct_lifecycle_route_forcing_put, &
+      ct_lifecycle_route_diag_accumulate, ct_lifecycle_route_calc, &
+      ct_lifecycle_route_sediment_bif_accumulate, ct_lifecycle_route_sediment_levee_repartition, &
+      ct_lifecycle_route_final
    IMPLICIT NONE
 
    ! ----- grid flood feedback -----
@@ -44,6 +52,16 @@ MODULE MOD_CT_RiverLakeCoupling
    integer,  allocatable :: ucat2resv_ct(:)
 
    integer, save :: lim_diag_printed = 0
+
+   ! water carrier of the provider constituents in one substep (numucat):
+   ! storage at the start (before the host update) and at the end, the levee
+   ! protected part of both, the flooded and the protected wet area
+   real(r8), allocatable :: prov_storage_start  (:)
+   real(r8), allocatable :: prov_protected_start(:)
+   real(r8), allocatable :: prov_storage_end    (:)
+   real(r8), allocatable :: prov_protected_end  (:)
+   real(r8), allocatable :: prov_floodarea      (:)
+   real(r8), allocatable :: prov_protected_area (:)
 
 #ifdef CoLMDEBUG
    ! constituent balance of one routing call (cf. the water balance printed there)
@@ -77,6 +95,9 @@ CONTAINS
 
       CALL ct_riverlake_init ()
       IF (ntracers <= 0) RETURN
+
+      CALL ct_lifecycle_route_init ()
+      IF (len_trim(restart_file) > 0) CALL ct_lifecycle_route_read_restart (restart_file)
 
       allocate (trc_missing(ntracers))
       trc_missing = .true.
@@ -126,7 +147,8 @@ CONTAINS
 
    ! Constituent of the land runoff of this land step, mapped to the unit
    ! catchments as the runoff water is (patch -> input grid -> unit catchment),
-   ! into the accumulation that is merged at the next routing call.
+   ! into the accumulation that is merged at the next routing call; and the
+   ! precipitation forcing of the provider constituents (sediment yield).
    ! Called on all workers (the pushes are collective).
 
    USE MOD_LandPatch,             only: numpatch
@@ -171,7 +193,88 @@ CONTAINS
 
       deallocate (trc_rnof_gd, trc_rnof_uc)
 
+      IF (ct_lifecycle_route_has_active()) CALL provider_precip_input (filter_rnof, deltime)
+
    END SUBROUTINE ct_rlc_runoff_input
+
+   ! ---------
+   SUBROUTINE provider_precip_input (filter_rnof, deltime)
+
+   ! Precipitation of this land step per unit catchment [mm/s], averaged over
+   ! the patches with valid forcing, and the fraction of the catchment area
+   ! those patches cover; mapped as the runoff (patch -> input grid -> unit
+   ! catchment).  Workers.
+
+   USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
+   USE MOD_Vars_Global,           only: spval
+   USE MOD_LandPatch,             only: numpatch
+   USE MOD_Vars_1DForcing,        only: forc_prc, forc_prl
+   USE MOD_Grid_RiverLakeNetwork, only: numinpm, numucat, topo_area, remap_patch2inpm, &
+      push_inpm2ucat, push_ucat2inpm
+   USE MOD_WorkerPushData
+   IMPLICIT NONE
+
+   logical,  intent(in) :: filter_rnof(:)   ! patches whose runoff enters the rivers
+   real(r8), intent(in) :: deltime          ! land time step [s]
+
+   integer :: i
+   logical,  allocatable :: filter_prcp(:)
+   real(r8), allocatable :: prcp_pch(:), prcp_gd(:), prcp_area_gd(:), prcp_uc(:), prcp_area_uc(:)
+
+      allocate (prcp_pch(numpatch), filter_prcp(numpatch))
+      allocate (prcp_gd(numinpm), prcp_area_gd(numinpm))
+      allocate (prcp_uc(numucat), prcp_area_uc(numucat))
+      prcp_pch     = 0._r8
+      prcp_gd      = 0._r8
+      prcp_area_gd = 0._r8
+
+      IF (numpatch > 0) THEN
+         filter_prcp = filter_rnof
+         DO i = 1, numpatch
+            IF (.not. filter_prcp(i)) CYCLE
+            filter_prcp(i) = ieee_is_finite(forc_prc(i)) .and. ieee_is_finite(forc_prl(i))
+            IF (filter_prcp(i)) filter_prcp(i) = forc_prc(i) /= spval .and. forc_prl(i) /= spval
+            IF (filter_prcp(i)) filter_prcp(i) = forc_prc(i) >= 0._r8 .and. forc_prl(i) >= 0._r8
+         ENDDO
+         WHERE (filter_prcp) prcp_pch = forc_prc + forc_prl
+         CALL worker_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_gd, &
+            fillvalue = 0._r8, filter = filter_prcp)
+         prcp_pch = 1._r8
+         CALL worker_remap_data_pset2grid (remap_patch2inpm, prcp_pch, prcp_area_gd, &
+            fillvalue = 0._r8, filter = filter_prcp)
+      ENDIF
+
+      IF (numinpm > 0) THEN
+         WHERE (push_ucat2inpm%sum_area > 0._r8)
+            prcp_gd      = prcp_gd      / push_ucat2inpm%sum_area
+            prcp_area_gd = prcp_area_gd / push_ucat2inpm%sum_area
+         ELSEWHERE
+            prcp_gd      = 0._r8
+            prcp_area_gd = 0._r8
+         END WHERE
+      ENDIF
+
+      CALL worker_push_data (push_inpm2ucat, prcp_gd, prcp_uc, fillvalue = 0._r8, mode = 'sum')
+      CALL worker_push_data (push_inpm2ucat, prcp_area_gd, prcp_area_uc, fillvalue = 0._r8, mode = 'sum')
+
+      IF (numucat > 0) THEN
+         WHERE (prcp_area_uc > 0._r8)
+            prcp_uc = prcp_uc / prcp_area_uc
+         ELSEWHERE
+            prcp_uc = 0._r8
+         END WHERE
+         WHERE (topo_area > 0._r8)
+            prcp_area_uc = prcp_area_uc / topo_area
+         ELSEWHERE
+            prcp_area_uc = 0._r8
+         END WHERE
+      ENDIF
+
+      CALL ct_lifecycle_route_forcing_put (prcp_uc, deltime, prcp_area_uc)
+
+      deallocate (prcp_pch, filter_prcp, prcp_gd, prcp_area_gd, prcp_uc, prcp_area_uc)
+
+   END SUBROUTINE provider_precip_input
 
    ! ---------
    SUBROUTINE ct_rlc_begin_routing ()
@@ -241,6 +344,7 @@ CONTAINS
    logical,  intent(in), optional :: with_input
 
       IF (ntracers <= 0) RETURN
+      CALL ct_lifecycle_route_sediment_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft)
       IF (present(with_input)) THEN
          IF (with_input) THEN
             CALL ct_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, &
@@ -277,11 +381,13 @@ CONTAINS
    SUBROUTINE ct_rlc_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, ucatfilter, is_built_resv)
 
    ! Constituent transport of one routing substep, with the water fluxes of the
-   ! substep, before the host updates the storages with them.
+   ! substep, before the host updates the storages with them.  For the provider
+   ! constituents: the bifurcation fluxes, and the water storage at the start.
 
-   USE MOD_Grid_RiverLakeNetwork,     only: npthout_local
-   USE MOD_Grid_RiverLakeTimeVars,    only: wdsrf_ucat, volresv
+   USE MOD_Grid_RiverLakeNetwork,     only: numucat, npthout_local, floodplain_curve
+   USE MOD_Grid_RiverLakeTimeVars,    only: wdsrf_ucat, volresv, volwater_ucat
    USE MOD_Grid_RiverLakeBifurcation, only: bif_hflux_lev
+   USE MOD_Grid_RiverLakeLevee,       only: has_levee, levsto
    IMPLICIT NONE
 
    real(r8), intent(in) :: dt_ref
@@ -292,8 +398,36 @@ CONTAINS
    logical,  intent(in) :: ucatfilter(:)
    logical,  intent(in) :: is_built_resv(:)
 
+   integer  :: i
+   real(r8) :: volwater
+
       IF (.not. p_is_worker) RETURN
       IF (ntracers <= 0) RETURN
+
+      IF (DEF_USE_BIFURCATION) &
+         CALL ct_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
+
+      IF (ct_lifecycle_route_has_active()) THEN
+         CALL ensure_provider_arrays (numucat)
+         prov_storage_start   = 0._r8
+         prov_protected_start = 0._r8
+         DO i = 1, numucat
+            IF (.not. ucatfilter(i)) CYCLE
+            ! the water the host starts the substep from (cf. its update loop)
+            IF (is_built_resv(i)) THEN
+               volwater = volresv(ucat2resv_ct(i))
+            ELSEIF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
+               volwater = volwater_ucat(i)
+            ELSE
+               volwater = floodplain_curve(i)%volume (wdsrf_ucat(i))
+            ENDIF
+            prov_storage_start(i) = max(volwater, 0._r8)
+            IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
+               prov_storage_start(i)   = prov_storage_start(i) + max(levsto(i), 0._r8)
+               prov_protected_start(i) = max(levsto(i), 0._r8)
+            ENDIF
+         ENDDO
+      ENDIF
 
       IF (allocated(volresv)) volresv_ct = volresv
       IF (DEF_USE_BIFURCATION) THEN
@@ -341,18 +475,26 @@ CONTAINS
    END SUBROUTINE ct_rlc_inland_depression
 
    ! ---------
-   SUBROUTINE ct_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv)
+   SUBROUTINE ct_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv, &
+         hflux_fc, levee_floodarea)
 
-   ! History accumulation of the substep, after the host storage update.
+   ! History accumulation of the substep, after the host storage update; and
+   ! the substep's water state for the provider constituents.
 
-   USE MOD_Grid_RiverLakeNetwork,  only: numucat
-   USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_ucat, volresv
+   USE MOD_Grid_RiverLakeNetwork,  only: numucat, topo_area, floodplain_curve, levee_frc_data
+   USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_ucat, volresv, volwater_ucat, veloc_riv
+   USE MOD_Grid_RiverLakeLevee,    only: has_levee, levsto
    IMPLICIT NONE
 
    real(r8), intent(in) :: dt_all(:)
    integer,  intent(in) :: irivsys(:)
    logical,  intent(in) :: ucatfilter(:)
    logical,  intent(in) :: is_built_resv(:)
+   real(r8), intent(in) :: hflux_fc(:)          ! downstream face flux [m^3/s]
+   real(r8), intent(in) :: levee_floodarea(:)   ! flooded area of leveed cells [m^2]
+
+   integer  :: i
+   logical  :: leveed
 
       IF (.not. p_is_worker) RETURN
       IF (ntracers <= 0 .or. numucat <= 0) RETURN
@@ -360,6 +502,41 @@ CONTAINS
       IF (allocated(volresv)) volresv_ct = volresv
       CALL ct_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
          volresv_ct, ucat2resv_ct, is_built_resv)
+
+      IF (.not. ct_lifecycle_route_has_active()) RETURN
+
+      CALL ensure_provider_arrays (numucat)
+      DO i = 1, numucat
+         prov_storage_end   (i) = 0._r8
+         prov_protected_end (i) = 0._r8
+         prov_floodarea     (i) = 0._r8
+         prov_protected_area(i) = 0._r8
+         IF (.not. ucatfilter(i)) CYCLE
+
+         leveed = DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))
+         ! flooded area as in the river history (a_floodarea)
+         IF (leveed) THEN
+            prov_floodarea(i) = levee_floodarea(i)
+            prov_protected_area(i) = min(max(levee_floodarea(i) - levee_frc_data(i)*topo_area(i), 0._r8), &
+               (1._r8 - levee_frc_data(i)) * topo_area(i))
+         ELSE
+            prov_floodarea(i) = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
+         ENDIF
+
+         IF (is_built_resv(i)) THEN
+            prov_storage_end(i) = max(volresv(ucat2resv_ct(i)), 0._r8)
+         ELSE
+            prov_storage_end(i) = max(volwater_ucat(i), 0._r8)
+            IF (leveed) THEN
+               prov_storage_end(i)   = prov_storage_end(i) + max(levsto(i), 0._r8)
+               prov_protected_end(i) = max(levsto(i), 0._r8)
+            ENDIF
+         ENDIF
+      ENDDO
+
+      CALL ct_lifecycle_route_diag_accumulate (dt_all, irivsys, ucatfilter, &
+         veloc_riv, wdsrf_ucat, prov_storage_start, prov_storage_end, hflux_fc, prov_floodarea, &
+         prov_protected_start, prov_protected_end, prov_protected_area)
 
    END SUBROUTINE ct_rlc_diag_accumulate
 
@@ -388,9 +565,11 @@ CONTAINS
    SUBROUTINE ct_rlc_end_routing ()
 
    ! End of a routing call, on all processes: CoLMDEBUG constituent balance,
-   ! donor-limiter statistics, and reset of the per-call accumulations.
+   ! donor-limiter statistics, reset of the per-call accumulations, and the
+   ! provider constituents of the call (acctime_rnof is still its length).
 
-   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   USE MOD_Grid_RiverLakeNetwork,  only: numucat
+   USE MOD_Grid_RiverLakeTimeVars, only: acctime_rnof
    IMPLICIT NONE
 
    integer :: lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft
@@ -467,6 +646,9 @@ CONTAINS
             IF (allocated(acc_rnof_ref))  acc_rnof_ref  = 0._r8
             IF (allocated(trc_dry_drain)) trc_dry_drain = 0._r8
          ENDIF
+
+         ! provider constituents (sediment) over the whole routing call
+         IF (ct_lifecycle_route_has_active()) CALL ct_lifecycle_route_calc (acctime_rnof)
       ENDIF
 
    END SUBROUTINE ct_rlc_end_routing
@@ -782,6 +964,7 @@ CONTAINS
    ! ---------
    SUBROUTINE ct_rlc_final ()
 
+      CALL ct_lifecycle_route_final ()
       CALL ct_riverlake_final ()
 
       IF (allocated(flood_tracer_credit_patch)) deallocate (flood_tracer_credit_patch, &
@@ -789,11 +972,34 @@ CONTAINS
          flood_visible_tracer_uc, flood_protected_tracer_uc)
       IF (allocated(volresv_ct))   deallocate (volresv_ct)
       IF (allocated(ucat2resv_ct)) deallocate (ucat2resv_ct)
+      IF (allocated(prov_storage_start)) deallocate (prov_storage_start, prov_protected_start, &
+         prov_storage_end, prov_protected_end, prov_floodarea, prov_protected_area)
 #ifdef CoLMDEBUG
       IF (allocated(trc_mass_bef)) deallocate (trc_mass_bef, trc_mass_inp, trc_mass_dis)
 #endif
 
    END SUBROUTINE ct_rlc_final
+
+   ! ---------
+   SUBROUTINE ensure_provider_arrays (n)
+
+   integer, intent(in) :: n
+
+      IF (allocated(prov_storage_start)) THEN
+         IF (size(prov_storage_start) == n) RETURN
+         deallocate (prov_storage_start, prov_protected_start, prov_storage_end, &
+            prov_protected_end, prov_floodarea, prov_protected_area)
+      ENDIF
+      allocate (prov_storage_start(n), prov_protected_start(n), prov_storage_end(n), &
+         prov_protected_end(n), prov_floodarea(n), prov_protected_area(n))
+      prov_storage_start   = 0._r8
+      prov_protected_start = 0._r8
+      prov_storage_end     = 0._r8
+      prov_protected_end   = 0._r8
+      prov_floodarea       = 0._r8
+      prov_protected_area  = 0._r8
+
+   END SUBROUTINE ensure_provider_arrays
 
 #ifdef CoLMDEBUG
    ! ---------

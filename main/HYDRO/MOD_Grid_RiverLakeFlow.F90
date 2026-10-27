@@ -325,8 +325,6 @@ CONTAINS
    integer  :: i_local_min, nsub_warn, nsub_abort
    real(r8) :: dt_this
    real(r8) :: dt_local_min, sub_span, dt_report
-   integer  :: sed_clock_start, sed_clock_end, sed_clock_rate
-   real(r8) :: sed_elapsed
 
    real(r8), allocatable :: rnof_gd(:)
    real(r8), allocatable :: rnof_uc(:)
@@ -1140,7 +1138,8 @@ CONTAINS
             ENDDO
 
 #ifdef ConstituentTransport
-            CALL ct_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv)
+            CALL ct_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv, &
+               hflux_fc, levee_floodarea)
 #endif
 
             DO i = 1, numucat
