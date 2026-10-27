@@ -11,6 +11,9 @@ MODULE MOD_SingleSrfdata
 !  Created by Shupeng Zhang, May 2023
 !  Revisions:
 !  Jiayi Xiang & Yuan, 12/2025: add crown structure data for tree PFTs.
+!  Missing CoLM2024 site scalars are read independently from their raw
+!  pixels or nearest valid pixels in a +/-5-cell window of the 500-m tile,
+!  unless complete site PFT data exist; regional mode uses area weighting.
 !-----------------------------------------------------------------------
 
    USE MOD_Precision, only: r8
@@ -32,6 +35,7 @@ MODULE MOD_SingleSrfdata
 #endif
 
    real(r8) :: SITE_htop
+   real(r8) :: SITE_ncd, SITE_ncw, SITE_bcw
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    real(r8), allocatable :: SITE_htop_pfts (:)
    real(r8), allocatable :: SITE_hbot_pfts (:)
@@ -39,6 +43,7 @@ MODULE MOD_SingleSrfdata
 #ifdef LULC_IGBP_PC
    real(r8), allocatable :: SITE_cratio_pfts (:)
 #endif
+   real(r8), allocatable :: SITE_ncd_pfts (:), SITE_ncw_pfts (:), SITE_bcw_pfts (:)
 #endif
 
    real(r8), allocatable :: SITE_LAI_monthly (:,:)
@@ -214,14 +219,14 @@ CONTAINS
    ! Local Variables
    real(r8) :: lat_in, lon_in
    real(r8) :: LAI, lakedepth, slp, asp, zenith_angle
-   integer  :: i, isc, nsl, typ, a, z, arraysize
+   integer  :: i, isc, nsl, typ, a, z, arraysize, start2(2)
    integer  :: iyear, idate(3), simulation_lai_year_start, simulation_lai_year_end
    integer  :: start_year, end_year, ntime, itime
 
    character(len=256) :: filename, dir, fmt_str, fname
    character(len=4)   :: cyear, c
 
-   type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridlai, gridlake,  &
+   type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridcanopy, gridlai, gridlake,  &
                       gridbright, gridsoil, gridrock, gridtopo, grid_topo_factor
 
    integer,  allocatable :: croptyp(:), pfttyp (:)
@@ -232,7 +237,13 @@ CONTAINS
 #endif
 
    integer, parameter :: N_PFT_modis = 16
-   logical            :: readflag
+   logical            :: readflag, fexists
+   logical            :: scalar_structure(3)
+   logical            :: raw_structure
+   real(r8)           :: raw_canopy(3)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+   logical            :: pft_structure(3)
+#endif
 
       CALL Init_GlobalVars
       CALL Init_LC_Const
@@ -291,33 +302,38 @@ CONTAINS
 #ifdef LULC_USGS
       u_site_landtype = (.not. mksrfdata) .or. (SITE_landtype >= 0) &
          .or. (USE_SITE_landtype .and. ncio_var_exist(fsrfdata,'USGS_classification'))
-
-      IF (u_site_landtype) THEN
-         IF (SITE_landtype == -1) THEN
-            CALL ncio_read_serial (fsrfdata, 'USGS_classification', SITE_landtype)
-         ENDIF
-      ELSE
-         CALL gridpatch%define_by_name ('colm_1km')
-         filename = trim(DEF_dir_rawdata)//'/landtypes/landtype-usgs-update.nc'
-         CALL read_point_var_2d_int32 (gridpatch, filename, 'landtype', &
-            SITE_lon_location, SITE_lat_location, SITE_landtype)
-      ENDIF
 #else
       u_site_landtype = (.not. mksrfdata) .or. (SITE_landtype >= 0) &
          .or. (USE_SITE_landtype .and. ncio_var_exist(fsrfdata,'IGBP_classification'))
+#endif
 
-      IF (u_site_landtype)  THEN
+      IF (u_site_landtype) THEN
          IF (SITE_landtype == -1) THEN
+#ifdef LULC_USGS
+            CALL ncio_read_serial (fsrfdata, 'USGS_classification', SITE_landtype)
+#else
             CALL ncio_read_serial (fsrfdata, 'IGBP_classification', SITE_landtype)
+#endif
          ENDIF
       ELSE
-         CALL gridpatch%define_by_name ('colm_500m')
+         CALL gridpatch%define_by_name (trim(DEF_rawdata%landcover%gname))
+         dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%landcover%dir)
+         fname = trim(DEF_rawdata%landcover%fname)
          write(cyear,'(i4.4)') DEF_LC_YEAR
-         filename = trim(DEF_dir_rawdata)//'landtypes/landtype-igbp-modis-'//trim(cyear)//'.nc'
-         CALL read_point_var_2d_int32 (gridpatch, filename, 'landtype', &
-            SITE_lon_location, SITE_lat_location, SITE_landtype)
+
+         IF (trim(fname) == 'landtype-igbp-modis') THEN
+            filename = trim(dir)//'/'//trim(fname)//'-'//trim(cyear)//'.nc'
+            CALL read_point_var_2d_int32 (gridpatch, filename, 'landtype', &
+               SITE_lon_location, SITE_lat_location, SITE_landtype)
+         ELSEIF (trim(fname) == 'landtype-usgs-update') THEN
+            filename = trim(dir)//'/'//trim(fname)//'.nc'
+            CALL read_point_var_2d_int32 (gridpatch, filename, 'landtype', &
+               SITE_lon_location, SITE_lat_location, SITE_landtype)
+         ELSE
+            CALL read_point_5x5_var_2d_int32 (gridpatch, dir, trim(fname)//'.'//trim(cyear), 'LC', &
+               SITE_lon_location, SITE_lat_location, SITE_landtype)
+         ENDIF
       ENDIF
-#endif
 
       IF (SITE_landtype < 0) THEN
          write(*,*) 'Error! Please set SITE_landtype in namelist file !'
@@ -468,19 +484,22 @@ CONTAINS
          CALL ncio_read_serial (fsrfdata, 'canopy_height', SITE_htop)
 #endif
       ELSE
-#ifdef LULC_USGS
-         CALL gridhtop%define_by_name ('colm_1km')
-         filename = trim(DEF_dir_rawdata)//'/Forest_Height.nc'
-         CALL read_point_var_2d_real8 (gridhtop, filename, 'forest_height', &
-            SITE_lon_location, SITE_lat_location, SITE_htop)
-#else
-! reading accroding to colm500m.nml
          CALL gridhtop%define_by_name (trim(DEF_rawdata%htop%gname))
          write(cyear,'(i4.4)') DEF_LC_YEAR
          dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%htop%dir)
          fname = trim(DEF_rawdata%htop%fname)
-         CALL read_point_5x5_var_2d_real8 (gridhtop, dir, fname, trim(DEF_rawdata%htop%vname), &
-            SITE_lon_location, SITE_lat_location, SITE_htop)
+
+         ! First to test a global file (e.g. Simard Forest_Height.nc); otherwise
+         ! read the regional 5x5 file. Both are defined by the rawdata nml.
+         filename = trim(dir) // '/' // trim(fname) // '.nc'
+         INQUIRE (FILE=trim(filename), EXIST=fexists)
+         IF (fexists) THEN
+            CALL read_point_var_2d_real8 (gridhtop, filename, trim(DEF_rawdata%htop%vname), &
+               SITE_lon_location, SITE_lat_location, SITE_htop)
+         ELSE
+            CALL read_point_5x5_var_2d_real8 (gridhtop, dir, fname, trim(DEF_rawdata%htop%vname), &
+               SITE_lon_location, SITE_lat_location, SITE_htop)
+         ENDIF
 
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
          IF (numpft > 0) THEN
@@ -524,7 +543,6 @@ CONTAINS
             ENDIF
          ENDIF
 #endif
-#endif
       ENDIF
 
       IF (mksrfdata) THEN
@@ -551,6 +569,84 @@ CONTAINS
 #else
          write(*,'(A,F8.2,3A)') 'Forest height : ', SITE_htop, ' (from ',trim(datasource(u_site_htop)),')'
 #endif
+      ENDIF
+
+      IF (DEF_Interception_scheme == 8) THEN
+         scalar_structure = [ncio_var_exist(fsrfdata, 'ncd', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'ncw', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'bcw', readflag=.false.)]
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         pft_structure = .false.
+         IF (numpft > 0 .and. patchtypes(SITE_landtype) == 0) THEN
+            pft_structure = [ncio_var_exist(fsrfdata, 'ncd_pfts', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'ncw_pfts', readflag=.false.), &
+                             ncio_var_exist(fsrfdata, 'bcw_pfts', readflag=.false.)]
+            IF (any(pft_structure) .and. .not. all(pft_structure)) &
+               CALL CoLM_stop('SinglePoint CoLM2024 PFT canopy structure is incomplete')
+         ENDIF
+#endif
+         raw_structure = .false.
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (.not. all(scalar_structure) .and. .not. all(pft_structure)) THEN
+#else
+         IF (.not. all(scalar_structure)) THEN
+#endif
+            CALL gridcanopy%define_by_name ('colm_500m')
+            dir = trim(DEF_dir_rawdata)//'/canopy_data'
+            CALL get_5x5_filename (gridcanopy, dir, 'CanopyStructure_500m_CH90_aggregated', &
+               SITE_lon_location, SITE_lat_location, filename, start2)
+            inquire(file=trim(filename), exist=raw_structure)
+            IF (raw_structure) CALL read_single_canopy_structure (gridcanopy, dir, &
+               SITE_lon_location, SITE_lat_location, raw_canopy)
+         ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (.not. raw_structure .and. .not. all(scalar_structure) .and. .not. all(pft_structure)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs canopy_data or site canopy structure')
+#else
+         IF (.not. raw_structure .and. .not. all(scalar_structure)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 needs canopy_data or site ncd/ncw/bcw')
+#endif
+         IF (scalar_structure(1)) THEN
+            CALL ncio_read_serial (fsrfdata, 'ncd', SITE_ncd)
+         ELSEIF (raw_structure) THEN
+            SITE_ncd = raw_canopy(1)
+         ENDIF
+         IF (scalar_structure(2)) THEN
+            CALL ncio_read_serial (fsrfdata, 'ncw', SITE_ncw)
+         ELSEIF (raw_structure) THEN
+            SITE_ncw = raw_canopy(2)
+         ENDIF
+         IF (scalar_structure(3)) THEN
+            CALL ncio_read_serial (fsrfdata, 'bcw', SITE_bcw)
+         ELSEIF (raw_structure) THEN
+            SITE_bcw = raw_canopy(3)
+         ENDIF
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (numpft > 0) THEN
+            IF (all(pft_structure)) THEN
+               CALL ncio_read_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts)
+               CALL ncio_read_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts)
+               CALL ncio_read_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts)
+               IF (size(SITE_ncd_pfts) /= numpft .or. size(SITE_ncw_pfts) /= numpft .or. &
+                   size(SITE_bcw_pfts) /= numpft) &
+                  CALL CoLM_stop('SinglePoint CoLM2024 PFT canopy structure size differs from active PFTs')
+               IF (.not. all(scalar_structure)) THEN
+                  SITE_ncd = sum(SITE_ncd_pfts * SITE_pctpfts)
+                  SITE_ncw = sum(SITE_ncw_pfts * SITE_pctpfts)
+                  SITE_bcw = sum(SITE_bcw_pfts * SITE_pctpfts)
+               ENDIF
+            ELSE
+               allocate (SITE_ncd_pfts(numpft), SITE_ncw_pfts(numpft), SITE_bcw_pfts(numpft))
+               SITE_ncd_pfts = SITE_ncd
+               SITE_ncw_pfts = SITE_ncw
+               SITE_bcw_pfts = SITE_bcw
+            ENDIF
+         ENDIF
+#endif
+         IF (.not. (SITE_ncd > 0._r8 .and. SITE_ncd < 1000._r8 .and. &
+                    SITE_ncw > 0._r8 .and. SITE_ncw < 1000._r8 .and. &
+                    SITE_bcw > 0._r8 .and. SITE_bcw < 1000._r8)) &
+            CALL CoLM_stop('SinglePoint CoLM2024 canopy structure has invalid values')
       ENDIF
 
 
@@ -1474,6 +1570,47 @@ CONTAINS
 
    END SUBROUTINE read_surface_data_single
 
+   SUBROUTINE read_single_canopy_structure (grid, directory, lon, lat, canopy)
+   USE netcdf
+   USE MOD_Grid
+   USE MOD_NetCDFPoint, only: get_5x5_filename
+   USE MOD_NetCDFSerial, only: nccheck
+   IMPLICIT NONE
+
+   type(grid_type), intent(in) :: grid
+   character(len=*), intent(in) :: directory
+   real(r8), intent(in) :: lon, lat
+   real(r8), intent(out) :: canopy(3)
+   character(len=256) :: filename
+   character(len=28), parameter :: names(3) = [character(len=28) :: &
+      'NEEDLELEAF_CROWN_DEPTH', 'NEEDLELEAF_CROWN_WIDTH', 'BROADLEAF_CROWN_WIDTH']
+   real(r8) :: values(11,11)
+   integer :: ncid, varid, center(2), first(2), count(2), nearest, distance
+   integer :: i, j, k
+
+      CALL get_5x5_filename (grid, directory, 'CanopyStructure_500m_CH90_aggregated', &
+         lon, lat, filename, center)
+      first = max(1, center-5)
+      count = min(1200, center+5)-first+1
+      CALL nccheck (nf90_open(trim(filename), NF90_NOWRITE, ncid))
+      canopy = -1.e36_r8
+      DO k = 1, 3
+         CALL nccheck (nf90_inq_varid(ncid, trim(names(k)), varid))
+         CALL nccheck (nf90_get_var(ncid, varid, values(1:count(1),1:count(2)), first, count))
+         nearest = huge(nearest)
+         DO j = 1, count(2)
+            DO i = 1, count(1)
+               distance = (first(1)+i-1-center(1))**2 + (first(2)+j-1-center(2))**2
+               IF (values(i,j) > 0._r8 .and. values(i,j) < 1000._r8 .and. distance < nearest) THEN
+                  canopy(k) = values(i,j)
+                  nearest = distance
+               ENDIF
+            ENDDO
+         ENDDO
+      ENDDO
+      CALL nccheck (nf90_close(ncid))
+   END SUBROUTINE read_single_canopy_structure
+
 !-----------------------------------------------------------------------
    SUBROUTINE read_urban_surface_data_single (fsrfdata, mksrfdata, mkrun)
 
@@ -1514,6 +1651,7 @@ CONTAINS
 
    character(len=256) :: filename, dir, fname
    character(len=4)   :: cyear, c, c5year
+   character(len=32)  :: vname_ht, vname_pct, vname_hl
 
    type(grid_type) :: grid_utype, grid_roof, grid_htopu , grid_fveg, grid_flake, grid_ulsai, &
                       grid_pop  , grid_lucy, grid_bright, grid_soil, grid_rock , grid_topo , grid_lake, &
@@ -1629,8 +1767,13 @@ ELSE
             dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_type%dir)
             fname = trim(DEF_rawdata%urban_type%fname)
 
-            CALL read_point_5x5_var_2d_int32 (grid_utype, dir, fname, 'LCZ', &
-               SITE_lon_location, SITE_lat_location, SITE_urbtyp)
+            IF ( is_colm2024_rawdata() ) THEN
+               CALL read_point_5x5_var_2d_int32 (grid_utype, dir, fname, 'LCZ_DOM', &
+                  SITE_lon_location, SITE_lat_location, SITE_urbtyp)
+            ELSE
+               CALL read_point_5x5_var_2d_int32 (grid_utype, dir, fname, 'LCZ', &
+                  SITE_lon_location, SITE_lat_location, SITE_urbtyp)
+            ENDIF
          ENDIF
          write(*,'(A,I0,3A)') 'Urban type : LCZ ', SITE_urbtyp, &
             ' (from ',trim(datasource(u_site_utype)),')'
@@ -1638,23 +1781,32 @@ ENDIF
 
          ! (4) urban geometry
          readflag     = USE_SITE_urban_geometry
+         CALL grid_roof%define_by_name (trim(DEF_rawdata%urban_roof%gname))
+         dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_roof%dir)
+
+         IF ( is_colm2024_rawdata() ) THEN
+            write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
+            fname = trim(DEF_rawdata%urban_roof%fname)//trim(c5year)
+            IF (index(DEF_rawdata%urban_roof%vname, 'GHSL')>0) THEN
+               vname_ht = 'HT_ROOF_GHSL'; vname_pct = 'PCT_ROOF_GHSL'
+            ELSE
+               vname_ht = 'HT_ROOF_Li';   vname_pct = 'PCT_ROOF_Li'
+            ENDIF
+         ELSE
+            IF (index(DEF_rawdata%urban_roof%fname, 'GHSL')>0) THEN
+               write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
+               fname = trim(DEF_rawdata%urban_roof%fname)//'.'//trim(c5year)
+            ELSE
+               fname = trim(DEF_rawdata%urban_roof%fname)
+            ENDIF
+            vname_ht = 'HT_ROOF'; vname_pct = 'PCT_ROOF'
+         ENDIF
+
          u_site_hroof = readflag .and. ncio_var_exist(fsrfdata,'building_mean_height',readflag)
          IF ( u_site_hroof ) THEN
             CALL ncio_read_serial (fsrfdata, 'building_mean_height', SITE_hroof  )
          ELSE
-            CALL grid_roof%define_by_name (trim(DEF_rawdata%urban_roof%gname))
-
-            dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_roof%dir)
-
-IF (index(DEF_rawdata%urban_roof%fname, 'GHSL')>0) THEN
-            write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
-            fname = trim(DEF_rawdata%urban_roof%fname)//'.'//trim(c5year)
-
-ELSE
-            fname = trim(DEF_rawdata%urban_roof%fname)
-ENDIF
-
-            CALL read_point_5x5_var_2d_real8 (grid_roof, dir, fname, 'HT_ROOF', &
+            CALL read_point_5x5_var_2d_real8 (grid_roof, dir, fname, trim(vname_ht), &
                SITE_lon_location, SITE_lat_location, SITE_hroof)
          ENDIF
 
@@ -1662,17 +1814,8 @@ ENDIF
          IF ( u_site_froof ) THEN
             CALL ncio_read_serial (fsrfdata, 'roof_area_fraction', SITE_froof  )
          ELSE
-            dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_roof%dir)
-
-IF (index(DEF_rawdata%urban_roof%fname, 'GHSL')>0) THEN
-            write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
-            fname = trim(DEF_rawdata%urban_roof%fname)//'.'//trim(c5year)
-ELSE
-            fname = trim(DEF_rawdata%urban_roof%fname)
-ENDIF
-            CALL read_point_5x5_var_2d_real8 (grid_roof, dir, fname, 'PCT_ROOF', &
+            CALL read_point_5x5_var_2d_real8 (grid_roof, dir, fname, trim(vname_pct), &
                SITE_lon_location, SITE_lat_location, SITE_froof)
-
          ENDIF
 
          u_site_fgper  = readflag .and. ncio_var_exist(fsrfdata,'impervious_area_fraction',readflag)
@@ -1701,11 +1844,21 @@ ELSE
             CALL ncio_read_serial (fsrfdata, 'wall_to_plan_area_ratio', SITE_lambdaw  )
             SITE_hlr     = SITE_lambdaw/4/SITE_froof
          ELSE
-            dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_hl%dir)
-            fname = trim(DEF_rawdata%urban_hl%fname)
-            CALL grid_roof%define_by_name (trim(DEF_rawdata%urban_roof%gname))
+            IF ( is_colm2024_rawdata() ) THEN
+               dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_roof%dir)
+               fname = trim(DEF_rawdata%urban_roof%fname)//trim(c5year)
+               IF (index(DEF_rawdata%urban_roof%vname, 'GHSL')>0) THEN
+                  vname_hl = 'HL_GHSL'
+               ELSE
+                  vname_hl = 'HL_Li'
+               ENDIF
+            ELSE
+               dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_hl%dir)
+               fname = trim(DEF_rawdata%urban_hl%fname)
+               vname_hl = 'HL_BLD'
+            ENDIF
 
-            CALL read_point_5x5_var_2d_real8 (grid_roof, dir, fname, 'HL_BLD', &
+            CALL read_point_5x5_var_2d_real8 (grid_roof, dir, fname, trim(vname_hl), &
                SITE_lon_location, SITE_lat_location, SITE_hlr)
          ENDIF
 ENDIF
@@ -1717,7 +1870,11 @@ ENDIF
          ELSE
             CALL grid_htopu%define_by_name (trim(DEF_rawdata%urban_htop%gname))
             dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_htop%dir)
-            fname = trim(DEF_rawdata%urban_htop%fname)
+            IF ( is_colm2024_rawdata() ) THEN
+               fname = trim(DEF_rawdata%urban_htop%fname)//trim(c5year)
+            ELSE
+               fname = trim(DEF_rawdata%urban_htop%fname)
+            ENDIF
 
             CALL read_point_5x5_var_2d_real8 (grid_htopu, dir, fname, 'HTOP', &
                SITE_lon_location, SITE_lat_location, SITE_htop_urb)
@@ -1730,8 +1887,12 @@ ENDIF
             CALL grid_flake%define_by_name (trim(DEF_rawdata%urban_flake%gname))
 
             write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
-            dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_flake%dir)
-            fname = trim(DEF_rawdata%urban_flake%fname)//'.'//trim(c5year)
+            dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_flake%dir)
+            IF ( is_colm2024_rawdata() ) THEN
+               fname = trim(DEF_rawdata%urban_flake%fname)//trim(c5year)
+            ELSE
+               fname = trim(DEF_rawdata%urban_flake%fname)//'.'//trim(c5year)
+            ENDIF
 
             CALL read_point_5x5_var_2d_real8 (grid_flake, dir, fname, 'PCT_Water', &
                SITE_lon_location, SITE_lat_location, SITE_flake_urb)
@@ -1750,8 +1911,12 @@ ENDIF
             CALL grid_fveg%define_by_name (trim(DEF_rawdata%urban_fveg%gname))
 
             write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
-            dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_fveg%dir)
-            fname = trim(DEF_rawdata%urban_fveg%fname)//'.'//trim(c5year)
+            dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_fveg%dir)
+            IF ( is_colm2024_rawdata() ) THEN
+               fname = trim(DEF_rawdata%urban_fveg%fname)//trim(c5year)
+            ELSE
+               fname = trim(DEF_rawdata%urban_fveg%fname)//'.'//trim(c5year)
+            ENDIF
 
             CALL read_point_5x5_var_2d_real8 (grid_fveg, dir, fname, 'PCT_Tree', &
                SITE_lon_location, SITE_lat_location, SITE_fveg_urb)
@@ -1914,9 +2079,21 @@ ENDIF
             CALL grid_pop%define_by_name (trim(DEF_rawdata%urban_pop%gname))
             dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_pop%dir)
 
-IF (index(DEF_rawdata%urban_pop%fname, 'GHSL')>0) THEN
-            write(cyear, '(i4.4)') int(DEF_LC_YEAR/5)*5
+IF ( is_colm2024_rawdata() ) THEN
+            write(c5year, '(i4.4)') int(DEF_LC_YEAR/5)*5
+            fname = trim(DEF_rawdata%urban_pop%fname)//trim(c5year)
 
+            IF (mod(DEF_LC_YEAR,5) == 0) THEN
+               pop_i = 1
+            ELSE
+               pop_i = 5 - (ceiling(DEF_LC_YEAR*1./5.)*5 - DEF_LC_YEAR) + 1
+            ENDIF
+
+            CALL read_point_5x5_var_2d_time_real8 (grid_pop, dir, fname, &
+                  'POP_DEN', SITE_lon_location, SITE_lat_location, pop_i, &
+                  SITE_popden)
+ELSEIF (index(DEF_rawdata%urban_pop%fname, 'GHSL')>0) THEN
+            write(cyear, '(i4.4)') int(DEF_LC_YEAR/5)*5
             fname = trim(DEF_rawdata%urban_pop%fname)//'.'//trim(cyear)
 
             IF (mod(DEF_LC_YEAR,5) == 0) THEN
@@ -1928,16 +2105,14 @@ IF (index(DEF_rawdata%urban_pop%fname, 'GHSL')>0) THEN
             CALL read_point_5x5_var_2d_time_real8 (grid_pop, dir, fname, &
                   'POP_density', SITE_lon_location, SITE_lat_location, pop_i, &
                   SITE_popden)
- ELSE
+ELSE
             write(cyear, '(i4.4)') DEF_LC_YEAR
             fname = trim(DEF_rawdata%urban_pop%fname)//'.'//trim(cyear)
 
             CALL read_point_5x5_var_2d_real8 (grid_pop, dir, fname, &
                   'POP_density', SITE_lon_location, SITE_lat_location, &
                   SITE_popden)
-
 ENDIF
-
         ENDIF
 
          u_site_lucy= readflag .and. ncio_var_exist(fsrfdata,'LUCY_ID',readflag)
@@ -1945,7 +2120,7 @@ ENDIF
             CALL ncio_read_serial (fsrfdata, 'LUCY_ID', SITE_lucyid )
          ELSE
             CALL grid_lucy%define_by_name ('colm_5km')
-            filename = trim(DEF_dir_rawdata) // '/urban_human/lucy/LUCY_regionid.nc'
+            filename = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_lucy%dir) // 'LUCY_regionid.nc'
 
             CALL read_point_var_2d_real8 (grid_lucy, filename, 'LUCY_REGION_ID', &
                SITE_lon_location, SITE_lat_location, SITE_lucyid)
@@ -1962,7 +2137,11 @@ ENDIF
          ENDIF
 
 IF (DEF_URBAN_type_scheme == 1) THEN
-         filename = trim(DEF_dir_rawdata)//'urban/NCAR_urban_properties.nc'
+         IF ( is_colm2024_rawdata() ) THEN
+            filename = trim(DEF_dir_rawdata)//'/urban/NCAR_urban_properties.nc'
+         ELSE
+            filename = trim(DEF_dir_rawdata)//'/urban_physical/Urban_Physical_Parameter.NCAR.nc'
+         ENDIF
 
          CALL ncio_read_bcast_serial (filename,  "WTLUNIT_ROOF"  , wtroof_ncar )
          CALL ncio_read_bcast_serial (filename,  "HT_ROOF"       , htroof_ncar )
@@ -2963,6 +3142,18 @@ ENDIF
       CALL ncio_put_attr     (fsrfdata, 'canopy_height', 'source', trim(datasource(u_site_htop)))
       CALL ncio_put_attr     (fsrfdata, 'canopy_height', 'long_name', 'canopy height')
       CALL ncio_put_attr     (fsrfdata, 'canopy_height', 'units', 'm')
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_write_serial (fsrfdata, 'ncd', SITE_ncd)
+         CALL ncio_write_serial (fsrfdata, 'ncw', SITE_ncw)
+         CALL ncio_write_serial (fsrfdata, 'bcw', SITE_bcw)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+         IF (allocated(SITE_ncd_pfts)) THEN
+            CALL ncio_write_serial (fsrfdata, 'ncd_pfts', SITE_ncd_pfts, 'pft')
+            CALL ncio_write_serial (fsrfdata, 'ncw_pfts', SITE_ncw_pfts, 'pft')
+            CALL ncio_write_serial (fsrfdata, 'bcw_pfts', SITE_bcw_pfts, 'pft')
+         ENDIF
+#endif
+      ENDIF
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
       IF (numpft > 0) THEN
          CALL ncio_write_serial (fsrfdata, 'canopy_height_pfts', SITE_htop_pfts, 'pft')
@@ -3560,6 +3751,9 @@ ENDIF
       IF (allocated(SITE_cratio_pfts)) deallocate(SITE_cratio_pfts)
 #endif
       IF (allocated(SITE_cdepth_pfts)) deallocate(SITE_cdepth_pfts)
+      IF (allocated(SITE_ncd_pfts)) deallocate(SITE_ncd_pfts)
+      IF (allocated(SITE_ncw_pfts)) deallocate(SITE_ncw_pfts)
+      IF (allocated(SITE_bcw_pfts)) deallocate(SITE_bcw_pfts)
 #endif
 
       IF (allocated(SITE_LAI_monthly)) deallocate(SITE_LAI_monthly)

@@ -26,6 +26,9 @@ MODULE MOD_Vars_PFTimeInvariants
 #ifdef LULC_IGBP_PC
    real(r8), allocatable :: cratio_p    (:) !canopy depth to canopy width
 #endif
+   real(r8), allocatable :: ncd_p       (:)
+   real(r8), allocatable :: ncw_p       (:)
+   real(r8), allocatable :: bcw_p       (:)
 #ifdef CROP
    real(r8), allocatable :: cropfrac    (:) !Crop fractional cover
 #endif
@@ -67,6 +70,12 @@ CONTAINS
 #ifdef LULC_IGBP_PC
             allocate (cratio_p      (numpft))
 #endif
+            allocate (ncd_p         (numpft))
+            allocate (ncw_p         (numpft))
+            allocate (bcw_p         (numpft))
+            ncd_p = spval
+            ncw_p = spval
+            bcw_p = spval
          ENDIF
 
 #ifdef CROP
@@ -83,6 +92,7 @@ CONTAINS
    USE MOD_NetCDFVector
    USE MOD_LandPatch
    USE MOD_LandPFT
+   USE MOD_Namelist, only: DEF_Interception_scheme
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
@@ -94,6 +104,11 @@ CONTAINS
 #ifdef LULC_IGBP_PC
       CALL ncio_read_vector (file_restart, 'cratio_p', landpft, cratio_p) !
 #endif
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_read_vector (file_restart, 'ncd_p', landpft, ncd_p)
+         CALL ncio_read_vector (file_restart, 'ncw_p', landpft, ncw_p)
+         CALL ncio_read_vector (file_restart, 'bcw_p', landpft, bcw_p)
+      ENDIF
 #ifdef CROP
       CALL ncio_read_vector (file_restart, 'cropfrac ', landpatch, cropfrac) !
 #endif
@@ -125,6 +140,11 @@ CONTAINS
 #ifdef LULC_IGBP_PC
       CALL ncio_write_vector (file_restart, 'cratio_p', 'pft', landpft, cratio_p, compress) !
 #endif
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_write_vector (file_restart, 'ncd_p', 'pft', landpft, ncd_p, compress)
+         CALL ncio_write_vector (file_restart, 'ncw_p', 'pft', landpft, ncw_p, compress)
+         CALL ncio_write_vector (file_restart, 'bcw_p', 'pft', landpft, bcw_p, compress)
+      ENDIF
 
 #ifdef CROP
       CALL ncio_define_dimension_vector (file_restart, landpatch, 'patch')
@@ -149,6 +169,9 @@ CONTAINS
 #ifdef LULC_IGBP_PC
             deallocate (cratio_p)
 #endif
+            deallocate (ncd_p)
+            deallocate (ncw_p)
+            deallocate (bcw_p)
 #ifdef CROP
             deallocate (cropfrac)
 #endif
@@ -274,6 +297,9 @@ MODULE MOD_Vars_TimeInvariants
 #ifdef LULC_IGBP_PC
    real(r8), allocatable :: cratio         (:)  !ratio of canopy depth to width
 #endif
+   real(r8), allocatable :: ncd            (:)
+   real(r8), allocatable :: ncw            (:)
+   real(r8), allocatable :: bcw            (:)
 
    real(r8), allocatable :: dbedrock       (:)  !depth to bedrock
    integer , allocatable :: ibedrock       (:)  !bedrock level
@@ -413,6 +439,12 @@ CONTAINS
 #ifdef LULC_IGBP_PC
             allocate (cratio               (numpatch))
 #endif
+            allocate (ncd                  (numpatch))
+            allocate (ncw                  (numpatch))
+            allocate (bcw                  (numpatch))
+            ncd = spval
+            ncw = spval
+            bcw = spval
             allocate (dbedrock             (numpatch))
             allocate (ibedrock             (numpatch))
             allocate (elvmean              (numpatch))
@@ -563,6 +595,11 @@ CONTAINS
 #ifdef LULC_IGBP_PC
       CALL ncio_read_vector (file_restart, 'cratio'  ,     landpatch, cratio)              !
 #endif
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_read_vector (file_restart, 'ncd', landpatch, ncd)
+         CALL ncio_read_vector (file_restart, 'ncw', landpatch, ncw)
+         CALL ncio_read_vector (file_restart, 'bcw', landpatch, bcw)
+      ENDIF
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_read_vector (file_restart, 'debdrock' ,    landpatch, dbedrock)         !
@@ -653,7 +690,7 @@ CONTAINS
    ! Original version: Yongjiu Dai, September 15, 1999, 03/2014
    !====================================================================
 
-   USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_BEDROCK
+   USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_BEDROCK, DEF_Interception_scheme
    USE MOD_SPMD_Task
    USE MOD_NetCDFSerial
    USE MOD_NetCDFVector
@@ -777,6 +814,11 @@ CONTAINS
 #ifdef LULC_IGBP_PC
       CALL ncio_write_vector (file_restart, 'cratio', 'patch', landpatch, cratio)                                    !
 #endif
+      IF (DEF_Interception_scheme == 8) THEN
+         CALL ncio_write_vector (file_restart, 'ncd', 'patch', landpatch, ncd, compress)
+         CALL ncio_write_vector (file_restart, 'ncw', 'patch', landpatch, ncw, compress)
+         CALL ncio_write_vector (file_restart, 'bcw', 'patch', landpatch, bcw, compress)
+      ENDIF
 
       IF(DEF_USE_BEDROCK)THEN
          CALL ncio_write_vector (file_restart, 'debdrock' , 'patch', landpatch, dbedrock)
@@ -949,6 +991,9 @@ CONTAINS
 #ifdef LULC_IGBP_PC
             deallocate (cratio         )
 #endif
+            deallocate (ncd)
+            deallocate (ncw)
+            deallocate (bcw)
 
             deallocate (dbedrock       )
             deallocate (ibedrock       )

@@ -55,7 +55,7 @@ PROGRAM CoLM
    USE MOD_HRUVector
 #endif
 #if (defined CaMa_Flood)
-   USE MOD_CaMa_colmCaMa
+   USE MOD_CaMa_colmCaMa, only: colm_CaMa_init, colm_CaMa_drv, colm_cama_write_restart, colm_cama_exit
 #endif
 #ifdef SinglePoint
    USE MOD_SingleSrfdata
@@ -349,7 +349,7 @@ PROGRAM CoLM
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-      CALL colm_CaMa_init !initialize CaMa-Flood
+      CALL colm_CaMa_init(jdate) !initialize CaMa-Flood
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
@@ -506,7 +506,7 @@ PROGRAM CoLM
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-         CALL colm_CaMa_drv(idate(3)) ! run CaMa-Flood
+         CALL colm_CaMa_drv(idate(3),deltim,save_to_restart(idate,deltim,itstamp,ptstamp,etstamp)) ! run CaMa-Flood
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)
 #endif

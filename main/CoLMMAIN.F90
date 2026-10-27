@@ -163,6 +163,7 @@ SUBROUTINE CoLMMAIN ( &
 
    USE MOD_Precision
    USE MOD_Vars_Global
+   USE MOD_Vars_TimeInvariants, only: ncd, ncw, bcw
    USE MOD_Const_Physical, only: tfrz, denh2o, denice, cpliq, cpice
    USE MOD_Vars_TimeVariables, only: tlai, tsai, waterstorage
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
@@ -197,9 +198,7 @@ SUBROUTINE CoLMMAIN ( &
                            DEF_USE_PLANTHYDRAULICS, DEF_USE_IRRIGATION
    USE MOD_LeafInterception
 #if (defined CaMa_Flood)
-   ! get flood depth [mm], flood fraction[0-1], flood evaporation [mm/s], flood inflow [mm/s]
-   USE MOD_CaMa_colmCaMa, only: get_fldevp
-   USE YOS_CMF_INPUT, only: LWINFILT,LWEVAP
+   USE YOS_CMF_INPUT, only: LWINFILT
 #endif
 #ifdef CROP
    USE MOD_Irrigation, only: CalIrrigationApplicationFluxes
@@ -648,28 +647,12 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: wextra, t_rain, t_snow
    integer ps, pe, pc
 
-#if (defined CaMa_Flood)
-   !add variables for flood evaporation [mm/s] and re-infiltration [mm/s] calculation.
-   real(r8) :: kk
-   real(r8) :: taux_fld    ! wind stress: E-W [kg/m/s**2]
-   real(r8) :: tauy_fld    ! wind stress: N-S [kg/m/s**2]
-   real(r8) :: fsena_fld   ! sensible heat from agcm reference height to atmosphere [W/m2]
-   real(r8) :: fevpa_fld   ! evaporation from agcm reference height to atmosphere [mm/s]
-   real(r8) :: fseng_fld   ! sensible heat flux from ground [W/m2]
-   real(r8) :: tref_fld    ! 2 m height air temperature [kelvin]
-   real(r8) :: qref_fld    ! 2 m height air humidity
-   real(r8) :: z0m_fld     ! effective roughness [m]
-   real(r8) :: zol_fld     ! dimensionless height (z/L) used in Monin-Obukhov theory
-   real(r8) :: rib_fld     ! bulk Richardson number in surface layer
-   real(r8) :: ustar_fld   ! friction velocity [m/s]
-   real(r8) :: tstar_fld   ! temperature scaling parameter
-   real(r8) :: qstar_fld   ! moisture scaling parameter
-   real(r8) :: fm_fld      ! integral of profile function for momentum
-   real(r8) :: fh_fld      ! integral of profile function for heat
-   real(r8) :: fq_fld      ! integral of profile function for moisture
-#endif
-
 !-----------------------------------------------------------------------
+
+#if (defined CaMa_Flood)
+      fevpg_fld = 0._r8
+      qinfl_fld = 0._r8
+#endif
 
       z_soisno (maxsnl+1:0) = z_sno (maxsnl+1:0)
       z_soisno (1:nl_soil ) = z_soi (1:nl_soil )
@@ -793,6 +776,7 @@ SUBROUTINE CoLMMAIN ( &
 #if (defined LULC_USGS || defined LULC_IGBP)
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
+                      patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,&
                       qflx_irrig_sprinkler=qflx_irrig_sprinkler)
@@ -809,6 +793,7 @@ SUBROUTINE CoLMMAIN ( &
          ELSE
             CALL LEAF_interception_wrap (deltim,dewmx,forc_us,forc_vs,chil,sigf,lai,sai,forc_t,&
                       tleaf,prc_rain,prc_snow,prl_rain,prl_snow,bifall,&
+                      patchclass,ncd(ipatch),ncw(ipatch),bcw(ipatch),htop,&
                       ldew,ldew_rain,ldew_snow,z0m,forc_hgt_u,pg_rain,&
                       pg_snow,qintr,qintr_rain,qintr_snow,&
                       qflx_irrig_sprinkler=qflx_irrig_sprinkler)
@@ -887,7 +872,11 @@ SUBROUTINE CoLMMAIN ( &
               zol               ,rib               ,ustar             ,qstar             ,&
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
-              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   )
+              qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   &
+#if (defined CaMa_Flood)
+             ,flddepth          ,fldfrc            ,fevpg_fld                            &
+#endif
+              )
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
 
@@ -1057,6 +1046,9 @@ SUBROUTINE CoLMMAIN ( &
 #else
          ! for lateral flow, "rsur" is considered in HYDRO/MOD_Hydro_SurfaceFlow.F90
          errorw=(endwb-totwb)-(forc_prc+forc_prl-fevpa)*deltim
+#endif
+#ifdef CaMa_Flood
+         IF (patchtype == 0) errorw=errorw-fevpg_fld*deltim
 #endif
 
          IF (.not. DEF_USE_VariablySaturatedFlow) THEN
@@ -1504,34 +1496,6 @@ SUBROUTINE CoLMMAIN ( &
 !======================================================================
       ENDIF
 
-#if (defined CaMa_Flood)
-      IF (LWEVAP) THEN
-         IF ((flddepth .gt. 1.e-6).and.(fldfrc .gt. 0.05).and.patchtype == 0)THEN
-            CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q,&
-               forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,t_grnd,&
-               forc_hpbl, &
-               taux_fld,tauy_fld,fseng_fld,fevpg_fld,tref_fld,qref_fld,&
-               z0m_fld,zol_fld,rib_fld,ustar_fld,qstar_fld,tstar_fld,fm_fld,fh_fld,fq_fld)
-
-            IF (fevpg_fld<0.0) fevpg_fld=0.0d0
-
-            IF ((flddepth-deltim*fevpg_fld .gt. 0.0) .and. (fevpg_fld.gt.0.0)) THEN
-               flddepth=flddepth-deltim*fevpg_fld
-               fseng= fseng_fld*fldfrc+(1.0-fldfrc)*fseng
-               fevpg= fevpg_fld*fldfrc+(1.0-fldfrc)*fevpg
-               fevpg_fld=fevpg_fld*fldfrc
-            ELSE
-               fevpg_fld=0.0d0
-            ENDIF
-
-         ELSE
-            fevpg_fld=0.0d0
-         ENDIF
-
-      ELSE
-         fevpg_fld=0.0d0
-      ENDIF
-#endif
 
 
 !======================================================================

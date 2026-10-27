@@ -80,6 +80,7 @@ OBJS_MKSRFDATA = \
 				  Aggregation_SoilBrightness.o           \
 				  Aggregation_LakeDepth.o                \
 				  Aggregation_ForestHeight.o             \
+				  Aggregation_CanopyStructure.o          \
 				  Aggregation_SoilParameters.o           \
 				  Aggregation_DBedrock.o                 \
 				  Aggregation_Topography.o               \
@@ -216,6 +217,7 @@ OBJECTS_CAMA=\
 				  yos_cmf_prog.o          \
 				  yos_cmf_diag.o          \
 				  cmf_utils_mod.o         \
+				  cmf_coupling_budget_mod.o \
 				  cmf_calc_outflw_mod.o   \
 				  cmf_calc_pthout_mod.o   \
 				  cmf_calc_fldstg_mod.o   \
@@ -238,6 +240,8 @@ OBJECTS_CAMA=\
 				  cmf_ctrl_nmlist_mod.o   \
 				  cmf_drv_control_mod.o   \
 				  cmf_drv_advance_mod.o
+
+cmf_coupling_budget_mod.o: parkind1.o
 
 $(OBJECTS_CAMA) : %.o : %.F90 ${HEADER}
 	$(FCMP)  -c ${FFLAGS} $(MODS) ${CFLAGS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -321,9 +325,10 @@ OBJS_MAIN = \
 				MOD_RainSnowTemp.o                        \
 				MOD_SoilSurfaceResistance.o               \
 				MOD_NewSnow.o                             \
+				MOD_CaMa_Vars.o                           \
+				MOD_CaMa_colmCaMa.o                       \
 				MOD_Thermal.o                             \
 				MOD_Vars_1DAccFluxes.o                    \
-				MOD_CaMa_Vars.o                           \
 				MOD_Irrigation.o                          \
 				MOD_BGC_driver.o                          \
 				MOD_HistWriteBack.o                       \
@@ -334,7 +339,6 @@ OBJS_MAIN = \
 				MOD_Hist.o                                \
 				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
-				MOD_CaMa_colmCaMa.o                       \
 				MOD_Catch_LateralFlow.o                   \
 				MOD_Grid_RiverLakeFlow.o                  \
 				MOD_Urban_Longwave.o                      \
@@ -365,6 +369,7 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
+MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
 MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
