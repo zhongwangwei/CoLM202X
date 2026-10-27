@@ -494,7 +494,6 @@ CONTAINS
          ! read the regional 5x5 file. Both are defined by the rawdata nml.
          filename = trim(dir) // '/' // trim(fname) // '.nc'
          INQUIRE (FILE=trim(filename), EXIST=fexists)
-         print*, filename
          IF (fexists) THEN
             CALL read_point_var_2d_real8 (gridhtop, filename, trim(DEF_rawdata%htop%vname), &
                SITE_lon_location, SITE_lat_location, SITE_htop)
