@@ -1029,8 +1029,29 @@ CONTAINS
 
       IF (p_is_worker) THEN
          IF (numucat > 0) THEN
+            ! Outlet width is the width of this cell's own channel (it was the
+            ! mean of this and the downstream channel), as in CaMa-Flood
+            ! (cmf_calc_outflw_mod: flow area and outflow use D2RIVWTH of the
+            ! upstream cell).  The momentum of a cell is divided by its own
+            ! channel area topo_rivare = rivwth*rivlen, while the CFL limit
+            ! uses rivlen.  Where a narrow tributary (~5 m) enters a wide river
+            ! or lake (~2000 m) the mean width was hundreds of times the cell's
+            ! own width, the effective length topo_rivare/outletwth only tens
+            ! of metres, and the outflow flipped sign every other substep: a
+            ! 1e-13 velocity perturbation grew to O(1) within a day (0.25 deg
+            ! global network, 3 days: 73-89 cells with discharge >= 10 m3/s off
+            ! by more than 1%, none now).  With the own width the effective
+            ! length is rivlen and the CFL limit holds; the adaptive dt now
+            ! stays at its 60 s cap (27% fewer substeps over 30 days).  The
+            ! routing results change wherever the two widths differ (69% of
+            ! the faces at 0.25 deg, 50% at 0.1 deg; most rivers widen
+            ! downstream, so the outlet becomes narrower): on a cold start the
+            ! discharge of the 10 largest river mouths averaged over 30 days is
+            ! 0-13% lower, the river storage up to 1.6% higher.
+            ! (min(w, w_next) was also tested: same stability and cost, about
+            ! twice the change of the results.)
             WHERE (ucat_next > 0)
-               outletwth = (outletwth + topo_rivwth) * 0.5
+               outletwth = topo_rivwth
             ELSEWHERE
                outletwth = topo_rivwth
             END WHERE
