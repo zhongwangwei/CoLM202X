@@ -799,8 +799,7 @@ CONTAINS
 #else
                IF (DEF_LAI_MONTHLY) THEN
                   dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-                  IF ( is_colm2024_rawdata() ) THEN
-                     fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
+                  fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
                   CALL read_point_5x5_var_2d_time_real8 (gridlai, dir, fname, &
                      'MONTHLY_LC_LAI', SITE_lon_location, SITE_lat_location, itime, &
                      SITE_LAI_monthly(itime,iyear))
