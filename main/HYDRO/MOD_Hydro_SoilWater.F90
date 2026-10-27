@@ -57,9 +57,9 @@ MODULE MOD_Hydro_SoilWater
 
    ! private subroutines and functions
    PRIVATE :: Richards_solver
-#ifdef ConstituentTransport
-   PRIVATE :: ct_exchange_layer_water
-   PRIVATE :: ct_split_aquifer_exchange
+#ifdef MaterialTransport
+   PRIVATE :: mt_exchange_layer_water
+   PRIVATE :: mt_split_aquifer_exchange
 #endif
 
    PRIVATE :: water_balance
@@ -168,7 +168,7 @@ CONTAINS
          vl_r,       psi_s,      hksat,  nprm,     prms,          porsl_wa, &
          qgtop,      etr,        rootr,  rootflux, rsubst,        qinfl,    &
          ss_dp,      zwt,        wa,     ss_vliq,  smp,           hk,       &
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          qlayer,                                                            &
          etroot_out, etroot_actual_out, etroot_aquifer_out, etroot_surface_out, &
          rsub_layer_out, rsub_surface_out, rsub_aquifer_out,                &
@@ -223,11 +223,11 @@ CONTAINS
    real(r8), intent(out) :: hk (1:nlev) ! hydraulic conductivity (mm/s)
 
    real(r8), intent(out) :: qlayer(0:nlev) ! water flux at interface of soil layers (mm/s)
-#ifdef ConstituentTransport
-   ! Diagnostics for constituent transport only (mm per time step). They are
+#ifdef MaterialTransport
+   ! Diagnostics for material transport only (mm per time step). They are
    ! derived from the host water state before and after each host operation
    ! and are never read back by the host, so the soil-water solution is the
-   ! same with or without ConstituentTransport.
+   ! same with or without MaterialTransport.
    ! etroot_*: water taken by roots (negative: water released by roots);
    ! rsub_*  : water leaving as subsurface runoff, by donor store.
    real(r8), intent(out) :: etroot_out(1:nlev)        ! root flux demand per layer (mm/s)
@@ -257,9 +257,9 @@ CONTAINS
    real(r8) :: lbc_val_sub
 
    real(r8) :: w_sum_before, w_sum_after, vl_before(nlev), wt_before, wa_before, dp_before
-#ifdef ConstituentTransport
-   real(r8) :: ct_layer_pre, ct_dp_pre, ct_wa_pre
-   real(r8) :: ct_layer_before(nlev), ct_layer_after(nlev)
+#ifdef MaterialTransport
+   real(r8) :: mt_layer_pre, mt_dp_pre, mt_wa_pre
+   real(r8) :: mt_layer_before(nlev), mt_layer_after(nlev)
 #endif
 
    real(r8) :: tol_q, tol_z, tol_v, tol_p
@@ -314,7 +314,7 @@ CONTAINS
          etrdef = 0.
          etroot(:) = rootflux
       ENDIF
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       etroot_out(1:nlev)        = etroot(1:nlev)
       etroot_actual_out(1:nlev) = 0._r8
       etroot_aquifer_out        = 0._r8
@@ -329,8 +329,8 @@ CONTAINS
       DO ilev = 1, izwt-1
          IF (is_permeable(ilev)) THEN
 
-#ifdef ConstituentTransport
-            ct_layer_pre = ss_vliq(ilev) * sp_dz(ilev)
+#ifdef MaterialTransport
+            mt_layer_pre = ss_vliq(ilev) * sp_dz(ilev)
 #endif
             ss_vliq(ilev) = (ss_vliq(ilev) * sp_dz(ilev) &
                - etroot(ilev)*dt - deficit) / sp_dz(ilev)
@@ -344,10 +344,10 @@ CONTAINS
             ELSE
                deficit = 0.
             ENDIF
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
             ! Water actually taken by roots from this layer, after the
             ! host's clipping to [0, porsl]; the rest moved on in deficit.
-            etroot_actual_out(ilev) = ct_layer_pre - ss_vliq(ilev) * sp_dz(ilev)
+            etroot_actual_out(ilev) = mt_layer_pre - ss_vliq(ilev) * sp_dz(ilev)
 #endif
          ELSE
             deficit = deficit + etroot(ilev)*dt
@@ -360,23 +360,23 @@ CONTAINS
 
       ! Exchange water with aquifer
       wexchange = rsubst * dt + deficit
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       ! The host exchanges the net amount rsubst*dt + deficit in one call.
       ! Record the stores around that call so the change of each store can
       ! be split into its root-water and subsurface-runoff parts.
-      ct_dp_pre = ss_dp
-      ct_wa_pre = wa
-      CALL ct_exchange_layer_water (nlev, sp_zi, is_permeable, porsl, ss_vliq, zwt, &
-         ct_layer_before)
+      mt_dp_pre = ss_dp
+      mt_wa_pre = wa
+      CALL mt_exchange_layer_water (nlev, sp_zi, is_permeable, porsl, ss_vliq, zwt, &
+         mt_layer_before)
 #endif
       CALL soilwater_aquifer_exchange ( &
          nlev, wexchange, sp_zi, is_permeable, porsl, vl_r, psi_s, hksat, &
          nprm, prms, porsl_wa, ss_dp, ss_vliq, zwt, wa, izwt)
-#ifdef ConstituentTransport
-      CALL ct_exchange_layer_water (nlev, sp_zi, is_permeable, porsl, ss_vliq, zwt, &
-         ct_layer_after)
-      CALL ct_split_aquifer_exchange (nlev, rsubst*dt, deficit, &
-         ct_layer_before - ct_layer_after, ct_wa_pre - wa, ct_dp_pre - ss_dp, &
+#ifdef MaterialTransport
+      CALL mt_exchange_layer_water (nlev, sp_zi, is_permeable, porsl, ss_vliq, zwt, &
+         mt_layer_after)
+      CALL mt_split_aquifer_exchange (nlev, rsubst*dt, deficit, &
+         mt_layer_before - mt_layer_after, mt_wa_pre - wa, mt_dp_pre - ss_dp, &
          etroot_actual_out, etroot_aquifer_out, etroot_surface_out, &
          rsub_layer_out, rsub_aquifer_out, rsub_surface_out)
 #endif
@@ -528,11 +528,11 @@ CONTAINS
 
    END SUBROUTINE soil_water_vertical_movement
 
-#ifdef ConstituentTransport
-   ! --- constituent transport: water held by each layer ---
+#ifdef MaterialTransport
+   ! --- material transport: water held by each layer ---
    ! Liquid water of each layer counting the saturated part below the water
    ! table at porosity, i.e. the storage soilwater_aquifer_exchange moves.
-   SUBROUTINE ct_exchange_layer_water (nlev, sp_zi, is_permeable, porsl, ss_vliq, zwt, wlayer)
+   SUBROUTINE mt_exchange_layer_water (nlev, sp_zi, is_permeable, porsl, ss_vliq, zwt, wlayer)
 
    IMPLICIT NONE
 
@@ -554,9 +554,9 @@ CONTAINS
          ENDIF
       ENDDO
 
-   END SUBROUTINE ct_exchange_layer_water
+   END SUBROUTINE mt_exchange_layer_water
 
-   ! --- constituent transport: split the net aquifer exchange ---
+   ! --- material transport: split the net aquifer exchange ---
    ! The host moves the net amount drain + et_left (subsurface runoff plus the
    ! root demand that the unsaturated layers could not meet, negative when
    ! roots release water) in one soilwater_aquifer_exchange call. Given the
@@ -569,7 +569,7 @@ CONTAINS
    !  * net addition (et_left < 0 and larger than drain): the released water
    !    enters the gaining stores, the runoff leaves from them in proportion.
    ! In every case root water minus runoff of a store equals its net loss.
-   SUBROUTINE ct_split_aquifer_exchange (nlev, drain, et_left, &
+   SUBROUTINE mt_split_aquifer_exchange (nlev, drain, et_left, &
          dlayer, dwa, ddp, etroot_layer, etroot_wa, etroot_dp, &
          rsub_layer, rsub_wa, rsub_dp)
 
@@ -634,7 +634,7 @@ CONTAINS
          rsub_dp      = drain * w(nlev+2)
       ENDIF
 
-   END SUBROUTINE ct_split_aquifer_exchange
+   END SUBROUTINE mt_split_aquifer_exchange
 #endif
 
    ! --- water exchange between soil water and aquifer ---

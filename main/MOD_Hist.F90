@@ -18,11 +18,11 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
-#ifdef ConstituentTransport
-   USE MOD_CT_Vars, only: flush_Tracer_Acc
-   USE MOD_CT_Hist, only: ct_hist_out
-   USE MOD_CT_HostFixes, only: ct_hist_continue_file
-   USE MOD_CT_Namelist, only: ct_any_enabled
+#ifdef MaterialTransport
+   USE MOD_MT_Vars, only: flush_Tracer_Acc
+   USE MOD_MT_Hist, only: mt_hist_out
+   USE MOD_MT_HostFixes, only: mt_hist_continue_file
+   USE MOD_MT_Namelist, only: mt_any_enabled
 #endif
 
    USE MOD_HistGridded
@@ -49,7 +49,7 @@ MODULE MOD_Hist
    character(len=10) :: HistForm ! 'Gridded', 'Vector', 'Single'
 
    character(len=256) :: file_last = 'null'
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    character(len=256) :: file_last_tracer = 'null'
 #endif
 
@@ -62,17 +62,17 @@ CONTAINS
 
    character(len=*) , intent(in) :: dir_hist
    logical, optional, intent(in) :: lulcc_call
-#ifdef ConstituentTransport
-   logical :: flush_ct
+#ifdef MaterialTransport
+   logical :: flush_mt
 #endif
 
       CALL allocate_acc_fluxes ()
-#ifdef ConstituentTransport
-      ! The constituent accumulators may hold values read from the constituent
+#ifdef MaterialTransport
+      ! The material accumulators may hold values read from the material
       ! restart at start-up; clear them only when called for a LULCC change.
-      flush_ct = .false.
-      IF (present(lulcc_call)) flush_ct = lulcc_call
-      CALL FLUSH_acc_fluxes (flush_ct=flush_ct)
+      flush_mt = .false.
+      IF (present(lulcc_call)) flush_mt = lulcc_call
+      CALL FLUSH_acc_fluxes (flush_mt=flush_mt)
       CALL flush_Tracer_Acc ()
 #else
       CALL FLUSH_acc_fluxes ()
@@ -183,12 +183,12 @@ CONTAINS
 
    ! Local variables
    logical :: lwrite
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    logical :: forcmask_empty(0)
 #endif
    character(len=256) :: file_hist
    integer :: itime_in_file
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    real(r8) :: history_window_seconds
    character(len=256) :: file_hist_tracer
    integer :: itime_in_file_tracer
@@ -242,7 +242,7 @@ CONTAINS
 
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          CALL flush_Tracer_Acc ()
 #endif
 #ifdef GridRiverLakeFlow
@@ -322,24 +322,24 @@ CONTAINS
 
          file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          ! After a restart inside a history group, append to the existing file
-         ! instead of creating it again (constituents enabled only; see
-         ! MOD_CT_HostFixes). Does nothing otherwise.
-         CALL ct_hist_continue_file (file_hist, idate, HistForm, file_last)
+         ! instead of creating it again (materials enabled only; see
+         ! MOD_MT_HostFixes). Does nothing otherwise.
+         CALL mt_hist_continue_file (file_hist, idate, HistForm, file_last)
 #endif
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
-#ifdef ConstituentTransport
-         ! constituent history goes to its own file, with the averaging window;
-         ! nothing is written when no constituent is enabled
-         IF (ct_any_enabled()) THEN
+#ifdef MaterialTransport
+         ! material history goes to its own file, with the averaging window;
+         ! nothing is written when no material is enabled
+         IF (mt_any_enabled()) THEN
             history_window_seconds=0._r8
             IF (p_is_worker) history_window_seconds=max(nac,0._r8)*deltim
 #ifdef USEMPI
             CALL mpi_allreduce(MPI_IN_PLACE, history_window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
 #endif
-            file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_tracer_'//trim(cdate)//'.nc'
-            CALL ct_hist_continue_file (file_hist_tracer, idate, HistForm, file_last_tracer)
+            file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_material_'//trim(cdate)//'.nc'
+            CALL mt_hist_continue_file (file_hist_tracer, idate, HistForm, file_last_tracer)
             CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
             ! Written by the master into the single file; in 'block' mode that file
             ! does not exist (per-block files), and with write-back it is created
@@ -5376,13 +5376,13 @@ ENDIF
 
          IF (allocated(nac_one   )) deallocate (nac_one   )
 #endif
-#ifdef ConstituentTransport
-         IF (ct_any_enabled()) THEN
+#ifdef MaterialTransport
+         IF (mt_any_enabled()) THEN
             IF (allocated(forcmask_pch)) THEN
-               CALL ct_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               CALL mt_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
                   sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
             ELSE
-               CALL ct_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               CALL mt_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
                   sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_empty)
             ENDIF
          ENDIF
@@ -5395,7 +5395,7 @@ ENDIF
 #endif
 
          CALL FLUSH_acc_fluxes ()
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          CALL flush_Tracer_Acc ()
 #endif
 
@@ -5406,7 +5406,7 @@ ENDIF
 #endif
 
          file_last = file_hist
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          file_last_tracer = file_hist_tracer
 #endif
 

@@ -248,8 +248,8 @@ CONTAINS
 
    USE MOD_LandPatch, only: landpatch
    USE MOD_LandUrban, only: landurban
-#ifdef ConstituentTransport
-   USE MOD_CT_Vars
+#ifdef MaterialTransport
+   USE MOD_MT_Vars
 #endif
    IMPLICIT NONE
 
@@ -803,11 +803,11 @@ CONTAINS
       CALL hacc_field1d (file, mode, 'nac_dt', nac_dt, landpatch, 'patch')
       ! <<< fields from allocate_acc_fluxes
 
-#ifdef ConstituentTransport
-      ! Constituent sums (MOD_CT_Vars, allocate_Tracer_Vars). After a cold
-      ! start of the constituents the saved sums belong to another state (or
+#ifdef MaterialTransport
+      ! Material sums (MOD_MT_Vars, allocate_Tracer_Vars). After a cold
+      ! start of the materials the saved sums belong to another state (or
       ! another species list) and are not read; their window starts again.
-      IF (mode == HACC_WRITE .or. ct_land_restart_loaded) THEN
+      IF (mode == HACC_WRITE .or. mt_land_restart_loaded) THEN
          CALL hacc_field2d (file, mode, 'a_trc_precip', a_trc_precip, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_trc_vapor_exchange', a_trc_vapor_exchange, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_precip', a_water_precip, landpatch, 'patch')
@@ -853,7 +853,7 @@ CONTAINS
          CALL hacc_field2d (file, mode, 'a_trc_scv_mass', a_trc_scv_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_scv', a_water_scv, landpatch, 'patch')
       ELSEIF (p_is_master) THEN
-         write(*,*) 'Note: constituents were cold-started; their history window starts at the model start.'
+         write(*,*) 'Note: materials were cold-started; their history window starts at the model start.'
       ENDIF
 #endif
 

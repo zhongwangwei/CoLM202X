@@ -1,11 +1,11 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_SoilInit
+#ifdef MaterialTransport
+MODULE MOD_MT_SoilInit
 
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_file_SoilInit
-   USE MOD_CT_Namelist, only: DEF_CT_USE_SOIL_INIT, DEF_CT_SOIL_INIT_FILE, DEF_CT_SOIL_INIT_VARS
+   USE MOD_MT_Namelist, only: DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
    USE MOD_SPMD_Task
    USE MOD_Grid
    USE MOD_DataType
@@ -13,11 +13,11 @@ MODULE MOD_CT_SoilInit
    USE MOD_LandPatch
    USE MOD_NetCDFSerial, only: ncio_read_bcast_serial, ncio_var_exist
    USE MOD_NetCDFBlock, only: ncio_read_block_time
-   USE MOD_CT_Defs, only: ntracers, tracers, delta_to_R, tracer_is_isotope, &
-      trc_delta_sanity_max, ct_uses_land_water_transport
-   USE MOD_CT_Vars, only: trc_wliq_soisno, trc_wice_soisno
-   USE MOD_CT_Isotope_Registry, only: isotope_default_soil_init_varname
-   USE MOD_CT_Providers, only: ensure_isotope_physics_registered
+   USE MOD_MT_Defs, only: ntracers, tracers, delta_to_R, tracer_is_isotope, &
+      trc_delta_sanity_max, mt_uses_generic_water
+   USE MOD_MT_Vars, only: trc_wliq_soisno, trc_wice_soisno
+   USE MOD_MT_Isotope_Registry, only: isotope_default_soil_init_varname
+   USE MOD_MT_Providers, only: ensure_isotope_physics_registered
 
    IMPLICIT NONE
 
@@ -44,13 +44,13 @@ CONTAINS
       integer :: itrc, ip, k
       real(r8) :: delta_layer, R_layer
 
-      IF (.not. DEF_CT_USE_SOIL_INIT) RETURN
+      IF (.not. DEF_MT_USE_SOIL_INIT) RETURN
       IF (ntracers <= 0) RETURN
       ! This routine contains MPI collectives inside NetCDF/grid mapping.
       ! IO/master ranks may not own patch tracer arrays, but they must
       ! still participate; only the worker-side storage overwrite is gated.
 
-      soil_file = adjustl(DEF_CT_SOIL_INIT_FILE)
+      soil_file = adjustl(DEF_MT_SOIL_INIT_FILE)
       IF (len_trim(soil_file) == 0 .or. trim(soil_file) == 'null') THEN
          soil_file = adjustl(DEF_file_SoilInit)
       ENDIF
@@ -105,7 +105,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          CALL tracer_soil_init_varname(itrc, varname)
          IF (.not. tracer_is_isotope(itrc)) THEN
             IF (len_trim(varname) > 0 .and. trim(varname) /= 'null' .and. p_is_master) THEN
@@ -159,7 +159,7 @@ CONTAINS
       character(len=256) :: token
 
       varname = 'null'
-      CALL tracer_soil_init_csv_token(DEF_CT_SOIL_INIT_VARS, itrc, token)
+      CALL tracer_soil_init_csv_token(DEF_MT_SOIL_INIT_VARS, itrc, token)
       IF (len_trim(token) > 0 .and. trim(token) /= 'null') THEN
          varname = trim(token)
          RETURN
@@ -203,5 +203,5 @@ CONTAINS
          abs(delta) <= trc_delta_sanity_max .and. abs(delta) < huge(1._r8)
    END FUNCTION tracer_soil_init_valid_delta
 
-END MODULE MOD_CT_SoilInit
+END MODULE MOD_MT_SoilInit
 #endif

@@ -44,7 +44,7 @@
 /
 
 ! The isotope fields of IsoGSM (prate1sfc/prate2sfc, spfh12m/spfh22m) are
-! constituent forcing and are set per species in the &nl_colm_ct_forcing
+! material forcing and are set per species in the &nl_colm_mt_forcing
 ! groups of the isotope parameter file (run/standard_isotope_parameter.nml).
 ! The former DEF_forcing%precipitation_O18_* / precipitation_H2_* /
 ! water_vapor_O18_* / water_vapor_H2_* entries were removed: they are not

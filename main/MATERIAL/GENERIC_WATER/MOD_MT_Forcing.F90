@@ -1,7 +1,7 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Forcing
+#ifdef MaterialTransport
+MODULE MOD_MT_Forcing
 
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    USE netcdf, only: NF90_NOERR, NF90_NOWRITE, NF90_MAX_NAME, NF90_MAX_VAR_DIMS, &
@@ -23,14 +23,14 @@ MODULE MOD_CT_Forcing
    USE MOD_LandPatch
    USE MOD_TimeManager
    USE MOD_UserSpecifiedForcing, only: metfilename
-   USE MOD_CT_Defs, only: ntracers, tracers, tracer_precip_default_ratio, &
+   USE MOD_MT_Defs, only: ntracers, tracers, tracer_precip_default_ratio, &
       tracer_vapor_default_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
-      ct_uses_land_water_transport, tracer_lower
-   USE MOD_CT_Frac, only: tracer_fractionation_active
-   USE MOD_CT_Vars, only: trc_runtime_forced
-   USE MOD_CT_Providers, only: ensure_isotope_physics_registered
-   USE MOD_CT_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
+      mt_uses_generic_water, tracer_lower
+   USE MOD_MT_Frac, only: tracer_fractionation_active
+   USE MOD_MT_Vars, only: trc_runtime_forced
+   USE MOD_MT_Providers, only: ensure_isotope_physics_registered
+   USE MOD_MT_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
       tracer_forcing_input_get, tracer_forcing_input_find, tracer_forcing_input_final
 
    IMPLICIT NONE
@@ -103,10 +103,10 @@ MODULE MOD_CT_Forcing
    logical,  allocatable :: trc_forc_vapor_warned_dry(:)
    logical,  allocatable :: trc_forc_vapor_warned_invalid(:)
 
-   PUBLIC :: ct_forcing_init
-   PUBLIC :: ct_read_forcing
-   PUBLIC :: ct_forcing_reset
-   PUBLIC :: ct_forcing_final
+   PUBLIC :: mt_forcing_init
+   PUBLIC :: mt_read_forcing
+   PUBLIC :: mt_forcing_reset
+   PUBLIC :: mt_forcing_final
    PUBLIC :: tracer_forcing_precip_value
    PUBLIC :: tracer_forcing_vapor_value
    PUBLIC :: tracer_forcing_precip_ratio
@@ -114,18 +114,18 @@ MODULE MOD_CT_Forcing
    PUBLIC :: tracer_forcing_has_precip
    PUBLIC :: tracer_forcing_has_vapor
    PUBLIC :: tracer_forcing_ratio_to_delta
-   PUBLIC :: tracer_forcing_write_restart, ct_forcing_read_restart
-   PUBLIC :: ct_forcing_lulcc_save, ct_forcing_lulcc_remap, ct_forcing_lulcc_restore
+   PUBLIC :: tracer_forcing_write_restart, mt_forcing_read_restart
+   PUBLIC :: mt_forcing_lulcc_save, mt_forcing_lulcc_remap, mt_forcing_lulcc_restore
 
 CONTAINS
 
-   SUBROUTINE ct_forcing_init (gforc, numpatch)
+   SUBROUTINE mt_forcing_init (gforc, numpatch)
       IMPLICIT NONE
       type(grid_type), intent(in) :: gforc
       integer, intent(in) :: numpatch
       integer :: iv
 
-      CALL ct_forcing_final()
+      CALL mt_forcing_final()
       IF (ntracers <= 0) RETURN
 
       CALL tracer_forcing_configure()
@@ -169,9 +169,9 @@ CONTAINS
          WRITE(*,'(A,I0,A)') 'Tracer runtime forcing enabled: ', n_trc_forc_vars, &
             ' variable(s) from main forcing namelist.'
       ENDIF
-   END SUBROUTINE ct_forcing_init
+   END SUBROUTINE mt_forcing_init
 
-   SUBROUTINE ct_read_forcing (idate, dir_forcing)
+   SUBROUTINE mt_read_forcing (idate, dir_forcing)
       IMPLICIT NONE
       integer, intent(in) :: idate(3)
       character(len=*), intent(in) :: dir_forcing
@@ -194,17 +194,17 @@ CONTAINS
 
       CALL tracer_forcing_update_values()
       CALL tracer_forcing_log_ranges(idate)
-   END SUBROUTINE ct_read_forcing
+   END SUBROUTINE mt_read_forcing
 
-   SUBROUTINE ct_forcing_reset ()
+   SUBROUTINE mt_forcing_reset ()
       IMPLICIT NONE
 
       IF (allocated(trc_tstamp_LB)) trc_tstamp_LB(:) = timestamp(-1, -1, -1)
       IF (allocated(trc_tstamp_UB)) trc_tstamp_UB(:) = timestamp(-1, -1, -1)
       trc_forcing_log_count = 0
-   END SUBROUTINE ct_forcing_reset
+   END SUBROUTINE mt_forcing_reset
 
-   SUBROUTINE ct_forcing_final ()
+   SUBROUTINE mt_forcing_final ()
       IMPLICIT NONE
 
       CALL trc_mg2p_forc%forc_free_mem()
@@ -222,9 +222,9 @@ CONTAINS
       n_trc_forc_vars = 0
       idx_total_precip = 0
       idx_total_vapor = 0
-   END SUBROUTINE ct_forcing_final
+   END SUBROUTINE mt_forcing_final
 
-   SUBROUTINE ct_forcing_lulcc_save ()
+   SUBROUTINE mt_forcing_lulcc_save ()
       IF (.not. p_is_worker .or. .not. trc_runtime_forcing_enabled) RETURN
       IF (.not. allocated(trc_forc_precip_value) .or. allocated(lulcc_precip_old)) &
          CALL CoLM_stop('tracer forcing LULCC snapshot is unavailable or already active')
@@ -236,11 +236,11 @@ CONTAINS
       lulcc_old_patch_area = elm_patch%subfrc
       CALL move_alloc(trc_forc_precip_value, lulcc_precip_old)
       CALL move_alloc(trc_forc_vapor_value, lulcc_vapor_old)
-   END SUBROUTINE ct_forcing_lulcc_save
+   END SUBROUTINE mt_forcing_lulcc_save
 
    ! Called while LulccDriver still holds both patch maps and the transfer
    ! trace. Forcing init occurs later, so keep the mapped values until then.
-   SUBROUTINE ct_forcing_lulcc_remap (patchclass_new, eindex_new, patchclass_old, eindex_old, &
+   SUBROUTINE mt_forcing_lulcc_remap (patchclass_new, eindex_new, patchclass_old, eindex_old, &
       lccpct_patches)
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
@@ -274,9 +274,9 @@ CONTAINS
       IF (unsupported > 0) WRITE(*,'(A,I0,A)') 'Tracer forcing LULCC: ', unsupported, &
          ' patch(es) have no eligible transfer source; using configured forcing defaults.'
       deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_old_patch_area)
-   END SUBROUTINE ct_forcing_lulcc_remap
+   END SUBROUTINE mt_forcing_lulcc_remap
 
-   SUBROUTINE ct_forcing_lulcc_restore ()
+   SUBROUTINE mt_forcing_lulcc_restore ()
       IF (.not. p_is_worker) RETURN
       IF (allocated(lulcc_precip_old)) THEN
          IF (.not. allocated(trc_forc_precip_value)) &
@@ -293,7 +293,7 @@ CONTAINS
          CALL CoLM_stop('tracer forcing LULCC patch/species count changed after remap')
       CALL move_alloc(lulcc_precip_new, trc_forc_precip_value)
       CALL move_alloc(lulcc_vapor_new, trc_forc_vapor_value)
-   END SUBROUTINE ct_forcing_lulcc_restore
+   END SUBROUTINE mt_forcing_lulcc_restore
 
    SUBROUTINE tracer_forcing_lulcc_map (old, mapped, patchclass_new, eindex_new, &
       patchclass_old, eindex_old, unsupported, lccpct_patches, old_patch_area, source_class)
@@ -534,8 +534,8 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            CALL ncio_write_serial(fileblock, 'trc_forcing_cache_schema', TRC_FORC_CACHE_SCHEMA)
-            CALL ncio_write_serial(fileblock, 'trc_forcing_cache_count', n_trc_forc_vars)
+            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_schema', TRC_FORC_CACHE_SCHEMA)
+            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_count', n_trc_forc_vars)
          ENDDO
       ENDIF
       IF (n_trc_forc_vars <= 0) RETURN
@@ -545,23 +545,23 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            CALL ncio_define_dimension(fileblock, 'trc_forcing_id_field', TRC_FORC_ID_WIDTH)
-            CALL ncio_define_dimension(fileblock, 'trc_forcing_id_var', n_trc_forc_vars+1)
-            CALL ncio_define_dimension(fileblock, 'trc_forcing_species', ntracers)
-            CALL ncio_write_serial(fileblock, 'trc_forcing_cache_identity', identity, &
-               'trc_forcing_id_field', 'trc_forcing_id_var', DEF_REST_CompressLevel)
+            CALL ncio_define_dimension(fileblock, 'mt_forcing_id_field', TRC_FORC_ID_WIDTH)
+            CALL ncio_define_dimension(fileblock, 'mt_forcing_id_var', n_trc_forc_vars+1)
+            CALL ncio_define_dimension(fileblock, 'mt_forcing_species', ntracers)
+            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_identity', identity, &
+               'mt_forcing_id_field', 'mt_forcing_id_var', DEF_REST_CompressLevel)
          ENDDO
       ENDIF
       deallocate(identity)
-      CALL ncio_write_vector(file_restart, 'trc_forcing_precip_last', 'trc_forcing_species', ntracers, &
+      CALL ncio_write_vector(file_restart, 'mt_forcing_precip_last', 'mt_forcing_species', ntracers, &
          'patch', landpatch, trc_forc_precip_value, DEF_REST_CompressLevel)
-      CALL ncio_write_vector(file_restart, 'trc_forcing_vapor_last', 'trc_forcing_species', ntracers, &
+      CALL ncio_write_vector(file_restart, 'mt_forcing_vapor_last', 'mt_forcing_species', ntracers, &
          'patch', landpatch, trc_forc_vapor_value, DEF_REST_CompressLevel)
    END SUBROUTINE tracer_forcing_write_restart
 
-   ! Restore only after ct_forcing_init has created its patch-local arrays.
+   ! Restore only after mt_forcing_init has created its patch-local arrays.
    ! A hydrology-only cold start has no previous cache and keeps the defaults.
-   SUBROUTINE ct_forcing_read_restart (file_restart, loaded_restart)
+   SUBROUTINE mt_forcing_read_restart (file_restart, loaded_restart)
 #ifdef USEMPI
       USE MOD_SPMD_Task, only: p_comm_glb, p_err, MPI_IN_PLACE, MPI_INTEGER, MPI_SUM
 #endif
@@ -581,8 +581,8 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            have_schema = ncio_var_exist(fileblock, 'trc_forcing_cache_schema', readflag=.false.)
-            have_count = ncio_var_exist(fileblock, 'trc_forcing_cache_count', readflag=.false.)
+            have_schema = ncio_var_exist(fileblock, 'mt_forcing_cache_schema', readflag=.false.)
+            have_count = ncio_var_exist(fileblock, 'mt_forcing_cache_count', readflag=.false.)
             IF (.not. have_schema .and. .not. have_count) THEN
                counts(1) = counts(1) + 1
                CYCLE
@@ -590,13 +590,13 @@ CONTAINS
             counts(4) = counts(4) + 1
             block_ok = have_schema .and. have_count
             IF (block_ok) THEN
-               CALL ncio_inquire_varsize(fileblock, 'trc_forcing_cache_schema', varsize)
+               CALL ncio_inquire_varsize(fileblock, 'mt_forcing_cache_schema', varsize)
                block_ok = allocated(varsize)
                IF (block_ok) THEN
                   block_ok = size(varsize) == 0
                   deallocate(varsize)
                ENDIF
-               CALL ncio_inquire_varsize(fileblock, 'trc_forcing_cache_count', varsize)
+               CALL ncio_inquire_varsize(fileblock, 'mt_forcing_cache_count', varsize)
                block_ok = block_ok .and. allocated(varsize)
                IF (allocated(varsize)) THEN
                   block_ok = block_ok .and. size(varsize) == 0
@@ -607,27 +607,27 @@ CONTAINS
                counts(2) = counts(2) + 1
                CYCLE
             ENDIF
-            CALL ncio_read_serial(fileblock, 'trc_forcing_cache_schema', schema)
-            CALL ncio_read_serial(fileblock, 'trc_forcing_cache_count', nvars)
+            CALL ncio_read_serial(fileblock, 'mt_forcing_cache_schema', schema)
+            CALL ncio_read_serial(fileblock, 'mt_forcing_cache_count', nvars)
             IF (schema /= TRC_FORC_CACHE_SCHEMA .or. nvars /= n_trc_forc_vars) THEN
                counts(3) = counts(3) + 1
                CYCLE
             ENDIF
             IF (nvars <= 0) CYCLE
-            IF (.not. ncio_var_exist(fileblock, 'trc_forcing_cache_identity', readflag=.false.) .or. &
-                .not. ncio_var_exist(fileblock, 'trc_forcing_precip_last', readflag=.false.) .or. &
-                .not. ncio_var_exist(fileblock, 'trc_forcing_vapor_last', readflag=.false.)) THEN
+            IF (.not. ncio_var_exist(fileblock, 'mt_forcing_cache_identity', readflag=.false.) .or. &
+                .not. ncio_var_exist(fileblock, 'mt_forcing_precip_last', readflag=.false.) .or. &
+                .not. ncio_var_exist(fileblock, 'mt_forcing_vapor_last', readflag=.false.)) THEN
                counts(2) = counts(2) + 1
                CYCLE
             ENDIF
-            CALL ncio_inquire_varsize(fileblock, 'trc_forcing_cache_identity', varsize)
+            CALL ncio_inquire_varsize(fileblock, 'mt_forcing_cache_identity', varsize)
             block_ok = allocated(varsize)
             IF (block_ok) THEN
                block_ok = size(varsize) == 2
                IF (block_ok) block_ok = all(varsize == shape(expected))
                deallocate(varsize)
             ENDIF
-            CALL ncio_inquire_varsize(fileblock, 'trc_forcing_precip_last', varsize)
+            CALL ncio_inquire_varsize(fileblock, 'mt_forcing_precip_last', varsize)
             block_ok = block_ok .and. allocated(varsize)
             IF (allocated(varsize)) THEN
                IF (size(varsize) == 2) THEN
@@ -638,7 +638,7 @@ CONTAINS
                ENDIF
                deallocate(varsize)
             ENDIF
-            CALL ncio_inquire_varsize(fileblock, 'trc_forcing_vapor_last', varsize)
+            CALL ncio_inquire_varsize(fileblock, 'mt_forcing_vapor_last', varsize)
             block_ok = block_ok .and. allocated(varsize)
             IF (allocated(varsize)) THEN
                IF (size(varsize) == 2) THEN
@@ -650,16 +650,16 @@ CONTAINS
                deallocate(varsize)
             ENDIF
             IF (block_ok) block_ok = tracer_forcing_dim_names_match(fileblock, &
-               'trc_forcing_cache_identity', 'trc_forcing_id_field', 'trc_forcing_id_var') .and. &
-               tracer_forcing_dim_names_match(fileblock, 'trc_forcing_precip_last', &
-                  'trc_forcing_species', 'patch') .and. &
-               tracer_forcing_dim_names_match(fileblock, 'trc_forcing_vapor_last', &
-                  'trc_forcing_species', 'patch')
+               'mt_forcing_cache_identity', 'mt_forcing_id_field', 'mt_forcing_id_var') .and. &
+               tracer_forcing_dim_names_match(fileblock, 'mt_forcing_precip_last', &
+                  'mt_forcing_species', 'patch') .and. &
+               tracer_forcing_dim_names_match(fileblock, 'mt_forcing_vapor_last', &
+                  'mt_forcing_species', 'patch')
             IF (.not. block_ok) THEN
                counts(2) = counts(2) + 1
                CYCLE
             ENDIF
-            CALL ncio_read_serial(fileblock, 'trc_forcing_cache_identity', ondisk)
+            CALL ncio_read_serial(fileblock, 'mt_forcing_cache_identity', ondisk)
             IF (any(ondisk /= expected)) counts(3) = counts(3) + 1
             deallocate(ondisk)
          ENDDO
@@ -674,9 +674,9 @@ CONTAINS
       IF (counts(2) > 0) CALL CoLM_stop('incomplete or malformed tracer forcing cache restart')
       IF (counts(3) > 0) CALL CoLM_stop('tracer forcing cache configuration differs from restart')
       IF (n_trc_forc_vars <= 0) RETURN
-      CALL ncio_read_vector(file_restart, 'trc_forcing_precip_last', ntracers, landpatch, &
+      CALL ncio_read_vector(file_restart, 'mt_forcing_precip_last', ntracers, landpatch, &
          precip)
-      CALL ncio_read_vector(file_restart, 'trc_forcing_vapor_last', ntracers, landpatch, &
+      CALL ncio_read_vector(file_restart, 'mt_forcing_vapor_last', ntracers, landpatch, &
          vapor)
       counts = 0
       IF (p_is_worker) THEN
@@ -689,7 +689,7 @@ CONTAINS
                IF (any(abs(precip) >= trc_forc_max_abs) .or. &
                    any(abs(vapor) >= trc_forc_max_abs)) counts(2) = counts(2) + 1
                DO itrc = 1, ntracers
-                  IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+                  IF (.not. mt_uses_generic_water(itrc)) CYCLE
                   IF (tracer_is_isotope(itrc)) THEN
                      IF (any(precip(itrc,:) <= trc_tiny) .or. any(vapor(itrc,:) <= trc_tiny)) &
                         counts(2) = counts(2) + 1
@@ -707,7 +707,7 @@ CONTAINS
       IF (counts(2) > 0) CALL CoLM_stop('non-finite or invalid tracer forcing cache restart')
       IF (p_is_worker .and. allocated(precip)) trc_forc_precip_value = precip
       IF (p_is_worker .and. allocated(vapor)) trc_forc_vapor_value = vapor
-   END SUBROUTINE ct_forcing_read_restart
+   END SUBROUTINE mt_forcing_read_restart
 
    SUBROUTINE tracer_forcing_configure ()
       IMPLICIT NONE
@@ -717,7 +717,7 @@ CONTAINS
       type(tracer_forcing_spec_type) :: spec
 
       ! Load each tracer's OWN forcing specs from its parameter file
-      ! (&nl_colm_ct_forcing). This replaces the former global
+      ! (&nl_colm_mt_forcing). This replaces the former global
       ! DEF_forcing%tracer_* / legacy DEF_forcing%precipitation_O18_* path.
       CALL tracer_forcing_input_load()
       CALL tracer_forcing_deallocate_config()
@@ -745,12 +745,12 @@ CONTAINS
       trc_var_timelog(:) = 'instant'
 
       ! Per-species forcing: each tracer declares its own precip/vapor inputs
-      ! in &nl_colm_ct_forcing (loaded above by MOD_CT_ForcingInput).
+      ! in &nl_colm_mt_forcing (loaded above by MOD_MT_ForcingInput).
       ! These two find() calls are the ONLY consumers of a forcing role in the
       ! whole model, and this loop skips provider-owned species. Anything else
       ! is refused by tracer_forcing_role_valid rather than stored and ignored.
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          k = tracer_forcing_input_find(itrc, 'precip')
          IF (k > 0) THEN
             spec = tracer_forcing_input_get(itrc, k)
@@ -776,7 +776,7 @@ CONTAINS
                WRITE(*,'(A,I0,3A)') &
                   'ERROR tracer_forcing_configure: fractionating tracer ', itrc, &
                   ' (', trim(tracers(itrc)%name), &
-                  ') must define vapor forcing with role=''vapor'' in &nl_colm_ct_forcing.'
+                  ') must define vapor forcing with role=''vapor'' in &nl_colm_mt_forcing.'
             ENDIF
             CALL CoLM_stop()
          ENDIF
@@ -1604,7 +1604,7 @@ CONTAINS
 
       IF (p_is_worker) THEN
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             DO ip = 1, size(trc_forc_precip_value, 2)
                IF (trc_forc_has_precip(itrc, ip)) THEN
                   outval = tracer_forcing_diag_value(itrc, trc_forc_precip_value(itrc, ip))
@@ -1652,7 +1652,7 @@ CONTAINS
       IF (p_is_master) THEN
          emit_header = trc_forcing_log_count < 3
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             IF (pdry(itrc) > 0 .and. &
                 (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_dry(itrc))) &
                emit_header = .true.
@@ -1669,7 +1669,7 @@ CONTAINS
          IF (emit_header) WRITE(*,'(/,A,I4.4,A,I3.3,A,I5.5)') &
             'Checking tracer forcing at ', idate(1), '-', idate(2), '-', idate(3)
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             IF (trc_forcing_log_count < 3 .and. pcnt(itrc) > 0) THEN
                WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  precip ', trim(tracers(itrc)%name), &
                   ' n=', pcnt(itrc), ' min=', pmin(itrc), ' max=', pmax(itrc)
@@ -1802,5 +1802,5 @@ CONTAINS
       IF (ierr /= 0) tracer_forcing_csv_int = default_value
    END FUNCTION tracer_forcing_csv_int
 
-END MODULE MOD_CT_Forcing
+END MODULE MOD_MT_Forcing
 #endif

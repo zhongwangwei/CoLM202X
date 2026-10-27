@@ -1109,12 +1109,12 @@ CONTAINS
    USE MOD_Vars_Global
    USE MOD_Vars_TimeInvariants, only: dz_lake
    USE MOD_Const_LC, only: patchtypes
-#ifdef ConstituentTransport
-   USE MOD_CT_Defs, only: ntracers
-   USE MOD_CT_Rest, only: write_tracer_restart_all
+#ifdef MaterialTransport
+   USE MOD_MT_Defs, only: ntracers
+   USE MOD_MT_Rest, only: write_tracer_restart_all
 #ifdef GridRiverLakeFlow
-   USE MOD_CT_RiverLake, only: ct_riverlake_write_restart
-   USE MOD_CT_Lifecycle, only: ct_lifecycle_route_write_restart
+   USE MOD_MT_RiverLake, only: mt_riverlake_write_restart
+   USE MOD_MT_Lifecycle, only: mt_lifecycle_route_write_restart
 #endif
 #endif
    IMPLICIT NONE
@@ -1129,7 +1129,7 @@ CONTAINS
    character(len=14)  :: cdate
    character(len=256) :: cyear         !character for lc_year
    integer :: compress
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    real(r8) :: empty_patch(0), empty_soilsnow(maxsnl+1:nl_soil,0)
 #endif
 
@@ -1260,7 +1260,7 @@ ENDIF
       CALL ncio_write_vector (file_restart, 'fm   ', 'patch', landpatch, fm   , compress) ! integral of profile FUNCTION for momentum
       CALL ncio_write_vector (file_restart, 'fh   ', 'patch', landpatch, fh   , compress) ! integral of profile FUNCTION for heat
       CALL ncio_write_vector (file_restart, 'fq   ', 'patch', landpatch, fq   , compress) ! integral of profile FUNCTION for moisture
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          IF (allocated(ldew_rain)) THEN
             IF (.not. p_is_worker) CALL CoLM_stop ('tracer restart patch state on non-worker')
             IF (numpatch < 0) CALL CoLM_stop ('invalid tracer restart patch count')
@@ -1338,11 +1338,11 @@ ENDIF
 #ifdef GridRiverLakeFlow
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
-#ifdef ConstituentTransport
-      ! river constituent pools (trc_* variables) and the state of the constituents
+#ifdef MaterialTransport
+      ! river material pools (trc_* variables) and the state of the materials
       ! with their own river state (sediment) into the same file, before the commit
-      CALL ct_riverlake_write_restart (file_restart)
-      CALL ct_lifecycle_route_write_restart (file_restart)
+      CALL mt_riverlake_write_restart (file_restart)
+      CALL mt_lifecycle_route_write_restart (file_restart)
 #endif
       CALL commit_GridRiverLakeRestart (file_restart)
 #endif

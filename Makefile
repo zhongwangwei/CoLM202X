@@ -5,7 +5,7 @@ HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/CONSTITUENT : main/CONSTITUENT/FAMILY_ISOTOPE : main/CONSTITUENT/FAMILY_PARTICLE : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/MATERIAL : main/MATERIAL/GENERIC_WATER : main/MATERIAL/FAMILY_ISOTOPE : main/MATERIAL/FAMILY_SOLUTE : main/MATERIAL/FAMILY_PARTICLE : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -130,12 +130,13 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeHistState.o   \
 				 MOD_Grid_RiverLakeHistShard.o   \
 				 MOD_Grid_RiverLakeHistRoute.o   \
-				 MOD_CT_Namelist.o               \
-				 MOD_CT_Defs.o                   \
-				 MOD_CT_Lifecycle.o              \
+				 MOD_MT_Namelist.o               \
+				 MOD_MT_Defs.o                   \
+				 MOD_MT_Solute.o                 \
+				 MOD_MT_Lifecycle.o              \
 				 MOD_Grid_RiverLakeTimeVars.o    \
-				 MOD_CT_RiverLake.o              \
-				 MOD_CT_Sediment.o               \
+				 MOD_MT_RiverLake.o              \
+				 MOD_MT_Sediment.o               \
 				 MOD_BGC_Vars_1DFluxes.o         \
 				 MOD_BGC_Vars_1DPFTFluxes.o      \
 				 MOD_BGC_Vars_PFTimeVariables.o  \
@@ -156,22 +157,22 @@ OBJS_BASIC =    \
 				 MOD_Eroot.o                     \
 				 MOD_Qsadv.o                     \
 				 MOD_UserSpecifiedForcing.o      \
-				 MOD_CT_Isotope_Registry.o       \
-				 MOD_CT_Isotope_O18.o            \
-				 MOD_CT_Isotope_HDO.o            \
-				 MOD_CT_Providers.o              \
-				 MOD_CT_Frac.o                   \
-				 MOD_CT_EvapLimit.o              \
-				 MOD_CT_Vars.o                   \
-				 MOD_CT_Conservation.o           \
-				 MOD_CT_SoilInit.o               \
-				 MOD_CT_ForcingInput.o           \
-				 MOD_CT_Forcing.o                \
-				 MOD_CT_Precip.o                 \
-				 MOD_CT_Evapo.o                  \
-				 MOD_CT_SoilWater.o              \
-				 MOD_CT_Snow.o                   \
-				 MOD_CT_Rest.o                   \
+				 MOD_MT_Isotope_Registry.o       \
+				 MOD_MT_Isotope_O18.o            \
+				 MOD_MT_Isotope_HDO.o            \
+				 MOD_MT_Providers.o              \
+				 MOD_MT_Frac.o                   \
+				 MOD_MT_EvapLimit.o              \
+				 MOD_MT_Vars.o                   \
+				 MOD_MT_Conservation.o           \
+				 MOD_MT_SoilInit.o               \
+				 MOD_MT_ForcingInput.o           \
+				 MOD_MT_Forcing.o                \
+				 MOD_MT_Precip.o                 \
+				 MOD_MT_Evapo.o                  \
+				 MOD_MT_SoilWater.o              \
+				 MOD_MT_Snow.o                   \
+				 MOD_MT_Rest.o                   \
 				 MOD_LAIEmpirical.o              \
 				 MOD_LAIReadin.o                 \
 				 MOD_CropReadin.o                \
@@ -360,7 +361,7 @@ OBJS_MAIN = \
 				MOD_CaMa_Vars.o                           \
 				MOD_CaMa_colmCaMa.o                       \
 				MOD_Thermal.o                             \
-				MOD_CT_LandPhase.o                        \
+				MOD_MT_LandPhase.o                        \
 				MOD_Vars_1DAccFluxes.o                    \
 				MOD_Irrigation.o                          \
 				MOD_BGC_driver.o                          \
@@ -368,16 +369,16 @@ OBJS_MAIN = \
 				MOD_HistGridded.o                         \
 				MOD_HistVector.o                          \
 				MOD_HistSingle.o                          \
-				MOD_CT_Hist.o                             \
-				MOD_CT_HostFixes.o                        \
-				MOD_CT_SpecialPatches.o                   \
+				MOD_MT_Hist.o                             \
+				MOD_MT_HostFixes.o                        \
+				MOD_MT_SpecialPatches.o                   \
 				MOD_Grid_RiverLakeHist.o                  \
 				MOD_HistAccRestart.o                      \
 				MOD_Hist.o                                \
 				MOD_CheckEquilibrium.o                    \
 				MOD_LightningData.o                       \
 				MOD_Catch_LateralFlow.o                   \
-				MOD_CT_RiverLakeCoupling.o                \
+				MOD_MT_RiverLakeCoupling.o                \
 				MOD_Grid_RiverLakeFlow.o                  \
 				MOD_Urban_Longwave.o                      \
 				MOD_Urban_NetSolar.o                      \
@@ -417,35 +418,36 @@ MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLake
 MOD_Vars_TimeVariables.o: MOD_Grid_RiverLakeTimeVars.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
 MOD_HistAccRestart.o: MOD_Vars_1DAccFluxes.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeVectorIO.o
-MOD_Hist.o: MOD_HistAccRestart.o MOD_CT_HostFixes.o
-# Constituent transport (main/CONSTITUENT); every file is empty unless ConstituentTransport is defined.
-MOD_CT_Conservation.o: MOD_CT_Defs.o MOD_CT_Frac.o MOD_CT_Namelist.o MOD_CT_Vars.o
-MOD_CT_Defs.o: MOD_CT_Namelist.o
-MOD_CT_Evapo.o: MOD_CT_Defs.o MOD_CT_EvapLimit.o MOD_CT_Forcing.o MOD_CT_Frac.o MOD_CT_Namelist.o MOD_CT_Vars.o
-MOD_CT_Forcing.o: MOD_CT_Defs.o MOD_CT_ForcingInput.o MOD_CT_Frac.o MOD_CT_Providers.o MOD_CT_Vars.o MOD_UserSpecifiedForcing.o
-MOD_CT_ForcingInput.o: MOD_CT_Defs.o
-MOD_CT_Frac.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o MOD_CT_Providers.o
-MOD_CT_HostFixes.o: MOD_CT_Namelist.o MOD_HistGridded.o
-MOD_CT_Hist.o: MOD_CT_Defs.o MOD_CT_Lifecycle.o MOD_CT_Vars.o
-MOD_CT_Isotope_HDO.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o
-MOD_CT_Isotope_O18.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o
-MOD_CT_Isotope_Registry.o: MOD_CT_Defs.o
-MOD_CT_LandPhase.o: MOD_CT_Conservation.o MOD_CT_Defs.o MOD_CT_Evapo.o MOD_CT_Lifecycle.o MOD_CT_Precip.o MOD_CT_Rest.o MOD_CT_Snow.o MOD_CT_SoilInit.o MOD_CT_SoilWater.o MOD_CT_Vars.o
-MOD_CT_Lifecycle.o: MOD_CT_Defs.o
-MOD_CT_Precip.o: MOD_CT_Defs.o MOD_CT_Forcing.o MOD_CT_Vars.o
-MOD_CT_Providers.o: MOD_CT_Isotope_HDO.o MOD_CT_Isotope_O18.o MOD_CT_Sediment.o
-MOD_CT_RiverLake.o: MOD_CT_Defs.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
-MOD_CT_Sediment.o: MOD_CT_Defs.o MOD_CT_Lifecycle.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_CT_RiverLakeCoupling.o: MOD_CT_Defs.o MOD_CT_Lifecycle.o MOD_CT_RiverLake.o MOD_CT_Vars.o MOD_Grid_RiverLakeBifurcation.o
-MOD_CT_Rest.o: MOD_CT_Defs.o MOD_CT_Forcing.o MOD_CT_Lifecycle.o MOD_CT_Namelist.o MOD_CT_Vars.o MOD_Vars_TimeInvariants.o
-MOD_CT_Snow.o: MOD_CT_Defs.o MOD_CT_Vars.o
-MOD_CT_SoilInit.o: MOD_CT_Defs.o MOD_CT_Isotope_Registry.o MOD_CT_Namelist.o MOD_CT_Providers.o MOD_CT_Vars.o
-MOD_CT_SoilWater.o: MOD_CT_Defs.o MOD_CT_EvapLimit.o MOD_CT_Forcing.o MOD_CT_Frac.o MOD_CT_Namelist.o MOD_CT_Vars.o
-MOD_CT_SpecialPatches.o: MOD_CT_Conservation.o MOD_CT_Defs.o MOD_CT_EvapLimit.o MOD_CT_Forcing.o MOD_CT_Frac.o MOD_CT_Hist.o MOD_CT_Namelist.o MOD_CT_Vars.o
-MOD_CT_Vars.o: MOD_CT_Defs.o MOD_CT_Namelist.o
-MOD_Vars_TimeVariables.o: MOD_CT_Rest.o MOD_CT_RiverLake.o
-MOD_Grid_RiverLakeFlow.o: MOD_CT_RiverLakeCoupling.o
-MOD_Grid_RiverLakeHist.o: MOD_CT_RiverLake.o
+MOD_Hist.o: MOD_HistAccRestart.o MOD_MT_HostFixes.o
+# Material transport (main/MATERIAL); every file is empty unless MaterialTransport is defined.
+MOD_MT_Conservation.o: MOD_MT_Defs.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_Defs.o: MOD_MT_Namelist.o
+MOD_MT_Evapo.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_Forcing.o: MOD_MT_Defs.o MOD_MT_ForcingInput.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_Vars.o MOD_UserSpecifiedForcing.o
+MOD_MT_ForcingInput.o: MOD_MT_Defs.o
+MOD_MT_Frac.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o
+MOD_MT_HostFixes.o: MOD_MT_Namelist.o MOD_HistGridded.o
+MOD_MT_Hist.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_Vars.o
+MOD_MT_Isotope_HDO.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
+MOD_MT_Isotope_O18.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
+MOD_MT_Isotope_Registry.o: MOD_MT_Defs.o
+MOD_MT_LandPhase.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_Evapo.o MOD_MT_Lifecycle.o MOD_MT_Precip.o MOD_MT_Rest.o MOD_MT_Snow.o MOD_MT_SoilInit.o MOD_MT_SoilWater.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_Lifecycle.o: MOD_MT_Defs.o
+MOD_MT_Precip.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_Providers.o: MOD_MT_Isotope_HDO.o MOD_MT_Isotope_O18.o MOD_MT_Sediment.o
+MOD_MT_RiverLake.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
+MOD_MT_Sediment.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_MT_RiverLakeCoupling.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_RiverLake.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_Grid_RiverLakeBifurcation.o
+MOD_MT_Rest.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Lifecycle.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_Vars_TimeInvariants.o
+MOD_MT_Solute.o: MOD_MT_Defs.o MOD_MT_Namelist.o
+MOD_MT_Snow.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_SoilInit.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o MOD_MT_Vars.o
+MOD_MT_SoilWater.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_SpecialPatches.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Hist.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_Vars.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_Solute.o
+MOD_Vars_TimeVariables.o: MOD_MT_Rest.o MOD_MT_RiverLake.o
+MOD_Grid_RiverLakeFlow.o: MOD_MT_RiverLakeCoupling.o
+MOD_Grid_RiverLakeHist.o: MOD_MT_RiverLake.o
 MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})

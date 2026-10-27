@@ -1,7 +1,7 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Hist
+#ifdef MaterialTransport
+MODULE MOD_MT_Hist
 
    USE MOD_Precision
    USE MOD_Vars_Global, only: spval
@@ -13,13 +13,13 @@ MODULE MOD_CT_Hist
 #ifdef SinglePoint
    USE MOD_HistSingle
 #endif
-   USE MOD_CT_Defs, only: ntracers, tracers, mass_to_delta, trc_tiny, &
+   USE MOD_MT_Defs, only: ntracers, tracers, mass_to_delta, trc_tiny, &
       trc_delta_sanity_max, trc_flux_water_min_for_delta, trc_water_min_for_delta, &
       trc_water_min_for_ratio, &
-      tracer_uses_delta_diagnostics, ct_uses_land_water_transport, &
+      tracer_uses_delta_diagnostics, mt_uses_generic_water, &
       tracer_concentration_units, tracer_is_nonvolatile_solute, tracer_is_isotope, &
       tracer_aquifer_actual_water, tracer_aquifer_actual_mass
-   USE MOD_CT_Vars
+   USE MOD_MT_Vars
 
    IMPLICIT NONE
    PRIVATE
@@ -30,14 +30,14 @@ MODULE MOD_CT_Hist
    ! coupling that makes the history path impossible to change safely.
    !
    ! The list is exactly what is used from outside today:
-   !   ct_hist_accumulate  CoLMMAIN, MOD_CT_SpecialPatches
-   !   ct_hist_out         MOD_Hist
-   !   the rest                MOD_CT_Reactive_Methane_Hist, which writes
+   !   mt_hist_accumulate  CoLMMAIN, MOD_MT_SpecialPatches
+   !   mt_hist_out         MOD_Hist
+   !   the rest                MOD_MT_Reactive_Methane_Hist, which writes
    !                           its own variables through the shared writers
    ! A provider needing another writer should be added here deliberately, which
    ! is the point: the compiler now asks the question.
-   PUBLIC :: ct_hist_accumulate
-   PUBLIC :: ct_hist_out
+   PUBLIC :: mt_hist_accumulate
+   PUBLIC :: mt_hist_out
    PUBLIC :: HistForm
    PUBLIC :: write_history_tracer_ratio_2d
    PUBLIC :: write_history_variable_2d
@@ -47,7 +47,7 @@ MODULE MOD_CT_Hist
 
 CONTAINS
 
-   SUBROUTINE ct_hist_accumulate (ipatch, snl, maxsnl, nl_soil, &
+   SUBROUTINE mt_hist_accumulate (ipatch, snl, maxsnl, nl_soil, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
       wa, wdsrf, wetwat, scv)
       IMPLICIT NONE
@@ -57,7 +57,7 @@ CONTAINS
       real(r8), intent(in) :: wice_soisno(snl+1:nl_soil)
       ! Post-step pool states paired with the existing canopy/soil/snow args.
       ! These feed four additional per-pool tracer-ratio diagnostics in
-      ! MOD_Hist (f_trc_conc_wa / wdsrf / wetwat / scv). Without them the
+      ! MOD_Hist (f_mt_conc_wa / wdsrf / wetwat / scv). Without them the
       ! aquifer, surface water, wetland and pre-layer thin-snow δ values are
       ! only observable in the restart file — which rarely matches the
       ! history output cadence.
@@ -71,7 +71,7 @@ CONTAINS
       ! Canopy water
       a_water_ldew(ipatch) = a_water_ldew(ipatch) + (ldew_rain + ldew_snow)
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          a_trc_ldew_mass(itrc, ipatch) = a_trc_ldew_mass(itrc, ipatch) &
             + trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
       ENDDO
@@ -81,7 +81,7 @@ CONTAINS
          layer_water = wliq_soisno(j) + wice_soisno(j)
          a_water_soil(j, ipatch) = a_water_soil(j, ipatch) + layer_water
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             layer_tracer = trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
             IF (tracer_is_nonvolatile_solute(itrc) .and. &
                 layer_water <= trc_water_min_for_ratio) THEN
@@ -102,7 +102,7 @@ CONTAINS
             a_water_snow(jsnow, ipatch) = a_water_snow(jsnow, ipatch) &
                + wliq_soisno(j) + wice_soisno(j)
             DO itrc = 1, ntracers
-               IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+               IF (.not. mt_uses_generic_water(itrc)) CYCLE
                layer_water = wliq_soisno(j) + wice_soisno(j)
                layer_tracer = trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
                IF (tracer_is_nonvolatile_solute(itrc) .and. &
@@ -134,13 +134,13 @@ CONTAINS
          ! CoLM's `scv` is total snow water equivalent even after layered
          ! snow exists, but `trc_scv` only mirrors the pre-layer thin-snow
          ! pool. Once snl<0, tracer mass lives in trc_wliq/trc_wice snow
-         ! layers and is diagnosed via f_trc_conc_soisno_*; do not pair
+         ! layers and is diagnosed via f_mt_conc_soisno_*; do not pair
          ! that total scv water with the thin-snow tracer denominator.
          IF (snl == 0 .and. scv > trc_tiny) THEN
             a_water_scv(ipatch) = a_water_scv(ipatch) + scv
          ENDIF
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             IF (tracer_is_isotope(itrc) .and. trc_aquifer_ref_water(ipatch) > 0._r8 .and. &
                 actual_aquifer_water > trc_water_min_for_ratio) THEN
                actual_aquifer_mass = tracer_aquifer_actual_mass(trc_wa(itrc, ipatch), &
@@ -178,9 +178,9 @@ CONTAINS
             a_trc_scv_mass(itrc, ipatch) = a_trc_scv_mass(itrc, ipatch) + trc_scv(itrc, ipatch)
          ENDIF
       ENDDO
-   END SUBROUTINE ct_hist_accumulate
+   END SUBROUTINE mt_hist_accumulate
 
-   SUBROUTINE ct_hist_out (file_hist, itime_in_file, hist_form_in, &
+   SUBROUTINE mt_hist_out (file_hist, itime_in_file, hist_form_in, &
       sumarea, filter, maxsnl, nl_soil, forcing_has_missing_value, forcmask_pch)
    USE MOD_Block
    USE MOD_DataType
@@ -188,7 +188,7 @@ CONTAINS
    USE MOD_SPMD_Task, only: p_is_worker
    USE MOD_Vars_TimeInvariants, only: patchtype, patchmask
    USE MOD_Namelist, only: DEF_hist_vars
-   USE MOD_CT_Lifecycle, only: tracer_lifecycle_land_history
+   USE MOD_MT_Lifecycle, only: tracer_lifecycle_land_history
 
    IMPLICIT NONE
 
@@ -263,11 +263,11 @@ CONTAINS
                         filter = filter .and. patchmask
                      ENDIF
                   ENDIF
-                  IF (.not. ct_uses_land_water_transport(itrc_loc)) CYCLE
-                  ! The pool diagnostics below are named f_trc_conc_* for every
+                  IF (.not. mt_uses_generic_water(itrc_loc)) CYCLE
+                  ! The pool diagnostics below are named f_mt_conc_* for every
                   ! tracer, but for isotopes they hold a heavy/total ratio, not
                   ! a concentration -- unlike the flux diagnostics, which split
-                  ! into f_trc_delta_* and f_trc_conc_* by category. The names
+                  ! into f_mt_delta_* and f_mt_conc_* by category. The names
                   ! are kept because renaming them would silently drop these
                   ! fields from every existing DEF_hist_vars list and break
                   ! analysis scripts, so long_name has to carry the distinction:
@@ -281,9 +281,9 @@ CONTAINS
                   ENDIF
 
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
-                     write(trc_varname , '(A,A)') 'f_trc_delta_precip_', trim(tracers(itrc_loc)%name)
-                     ! a_water_precip also books dew/frost deposition (MOD_CT_Evapo,
-                     ! MOD_CT_SoilWater), so say so in the name.
+                     write(trc_varname , '(A,A)') 'f_mt_delta_precip_', trim(tracers(itrc_loc)%name)
+                     ! a_water_precip also books dew/frost deposition (MOD_MT_Evapo,
+                     ! MOD_MT_SoilWater), so say so in the name.
                      write(trc_longname, '(A,A,A)') 'precipitation plus dew/frost deposition tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_delta_2d (DEF_hist_vars%xy_prc .or. DEF_hist_vars%xy_prl, &
@@ -292,7 +292,7 @@ CONTAINS
                         itime_in_file, filter, trim(trc_longname), 'permil', &
                         water_min_override = trc_flux_water_min_for_delta)
 
-                     write(trc_varname , '(A,A)') 'f_trc_delta_runoff_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_delta_runoff_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'total runoff tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_delta_2d (DEF_hist_vars%rnof, &
@@ -309,8 +309,8 @@ CONTAINS
                      ! maps mass and water separately to the grid and divides
                      ! once at the end -- preserving the
                      ! mass_to_delta(sum(mass), sum(water)) invariant
-                     ! documented in MOD_CT_Defs.F90.
-                     write(trc_varname , '(A,A)')   'f_trc_delta_evap_', trim(tracers(itrc_loc)%name)
+                     ! documented in MOD_MT_Defs.F90.
+                     write(trc_varname , '(A,A)')   'f_mt_delta_evap_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'evapotranspiration tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
@@ -319,14 +319,14 @@ CONTAINS
                            itime_in_file, filter, trim(trc_longname), 'permil', &
                            water_min_override = trc_flux_water_min_for_delta)
 
-                     write(trc_varname , '(A,A)')   'f_trc_evap_mass_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_evap_mass_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'signed evapotranspiration tracer mass (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
                         a_trc_evap(itrc_loc, :), file_hist, trim(trc_varname), &
                         itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
 
-                     write(trc_varname , '(A,A)')   'f_trc_delta_soilevap_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_soilevap_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
@@ -335,7 +335,7 @@ CONTAINS
                            itime_in_file, filter, trim(trc_longname), 'permil', &
                            water_min_override = trc_flux_water_min_for_delta)
 
-                     write(trc_varname , '(A,A)')   'f_trc_delta_canopyevap_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_canopyevap_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'canopy evaporation tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
@@ -344,7 +344,7 @@ CONTAINS
                            itime_in_file, filter, trim(trc_longname), 'permil', &
                            water_min_override = trc_flux_water_min_for_delta)
 
-                     write(trc_varname , '(A,A)')   'f_trc_delta_subl_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_subl_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'sublimation tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
@@ -353,7 +353,7 @@ CONTAINS
                            itime_in_file, filter, trim(trc_longname), 'permil', &
                            water_min_override = trc_flux_water_min_for_delta)
 
-                     write(trc_varname , '(A,A)')   'f_trc_delta_wetland_evap_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_wetland_evap_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'wetland evaporation/sublimation tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
@@ -365,7 +365,7 @@ CONTAINS
                      ! --- Transpiration-only flux delta ---
                      ! write_history_tracer_delta_2d does sum-then-divide on
                      ! the grid; no per-patch delta needed here.
-                     write(trc_varname , '(A,A)')   'f_trc_delta_transp_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_transp_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'transpiration tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
@@ -375,7 +375,7 @@ CONTAINS
                            water_min_override = trc_flux_water_min_for_delta)
 
                      ! --- Transpiration source/xylem delta before NSS storage exchange ---
-                     write(trc_varname , '(A,A)')   'f_trc_delta_transp_src_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_transp_src_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'transpiration source/xylem tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
@@ -403,7 +403,7 @@ CONTAINS
                         ENDIF
                      ENDDO
                   ENDIF
-                  write(trc_varname , '(A,A)')   'f_trc_leaf_delta_e_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_leaf_delta_e_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(A,A,A)') 'leaf evaporation-site NSS delta, area-weighted state (', &
                      trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_variable_2d (DEF_hist_vars%etr, &
@@ -438,7 +438,7 @@ CONTAINS
                         ENDIF
                      ENDDO
                   ENDIF
-                  write(trc_varname , '(A,A)')   'f_trc_leaf_delta_b_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_leaf_delta_b_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(A,A,A)') 'bulk leaf-water NSS delta, leaf-water-mole weighted (', &
                      trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
@@ -448,11 +448,11 @@ CONTAINS
                   ENDIF
 
                   ! Species-owned tracers (for example CH4) were filtered by
-                  ! ct_uses_land_water_transport above and write history
+                  ! mt_uses_generic_water above and write history
                   ! through callbacks. Solutes, decaying or not, keep these
                   ! water-pool diagnostics.
                   IF (.not. tracer_uses_delta_diagnostics(itrc_loc)) THEN
-                     write(trc_varname , '(A,A)') 'f_trc_conc_precip_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_conc_precip_', trim(tracers(itrc_loc)%name)
                      ! a_water_precip also books dew/frost deposition, which carries no
                      ! nonvolatile solute: dew-only periods read 0, not missing.
                      IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
@@ -469,7 +469,7 @@ CONTAINS
                         file_hist, trim(trc_varname), itime_in_file, filter, &
                         trim(trc_longname), trim(trc_ratio_units))
 
-                     write(trc_varname , '(A,A)') 'f_trc_conc_runoff_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_conc_runoff_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'total runoff tracer concentration (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_ratio_2d (DEF_hist_vars%rnof, &
@@ -485,7 +485,7 @@ CONTAINS
                   ! Signed -- positive means net uptake by the surface.
                   IF (tracer_uses_delta_diagnostics(itrc_loc) .and. &
                       allocated(a_trc_vapor_exchange)) THEN
-                     write(trc_varname , '(A,A)') 'f_trc_vapor_exchange_', &
+                     write(trc_varname , '(A,A)') 'f_mt_vapor_exchange_', &
                         trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') &
                         'zero-water-flux equilibrium vapour exchange, signed (', &
@@ -499,28 +499,28 @@ CONTAINS
                   ! concentration. Tie its output to the existing surface-water
                   ! history switch until history namelist gains a dedicated key.
                   IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
-                     write(trc_varname , '(A,A)') 'f_trc_surface_residue_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_surface_residue_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'immobile surface tracer residue (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wdsrf, &
                         a_trc_surface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
                         itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
 
-                     write(trc_varname , '(A,A)') 'f_trc_subsurface_residue_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_subsurface_residue_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'immobile subsurface tracer residue (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wa, &
                         a_trc_subsurface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
                         itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
 
-                     write(trc_varname , '(A,A)') 'f_trc_layer_dry_inventory_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_layer_dry_inventory_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'dry snow/soil layer tracer inventory (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
                         a_trc_layer_dry_mass(itrc_loc, :), file_hist, trim(trc_varname), &
                         itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
 
-                     write(trc_varname , '(A,A)') 'f_trc_solid_inventory_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)') 'f_mt_solid_inventory_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'precipitated solid tracer inventory (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
@@ -529,7 +529,7 @@ CONTAINS
                   ENDIF
 
                   ! --- Canopy ratio ---
-                  write(trc_varname , '(A,A)')   'f_trc_conc_ldew_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_conc_ldew_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'canopy tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%ldew, &
@@ -564,7 +564,7 @@ CONTAINS
                         ENDDO
                      ENDDO
                   ENDIF
-                  write(trc_varname , '(A,A)')   'f_trc_conc_soisno_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_conc_soisno_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'soil/snow layer tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_3d (DEF_hist_vars%wliq_soisno, &
@@ -577,7 +577,7 @@ CONTAINS
                   ! only the pre-layer thin-snow pool. Build a formal snowpack
                   ! diagnostic from the same pieces that own tracer mass:
                   ! layered snow accumulators plus thin-snow scv accumulators.
-                  ! This keeps f_trc_conc_scv_* as a thin-snow diagnostic and
+                  ! This keeps f_mt_conc_scv_* as a thin-snow diagnostic and
                   ! prevents the old thin-tracer / total-SWE denominator mix.
                   IF (p_is_worker) THEN
                      snowpack_mass_pat(:)  = a_trc_scv_mass(itrc_loc, :)
@@ -592,7 +592,7 @@ CONTAINS
                      ENDDO
                   ENDIF
 
-                  write(trc_varname , '(A,A)')   'f_trc_conc_snowpack_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_conc_snowpack_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'total snowpack tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%scv, &
@@ -601,7 +601,7 @@ CONTAINS
                      filter, trim(trc_longname), trim(trc_ratio_units))
 
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
-                     write(trc_varname , '(A,A)')   'f_trc_delta_snowpack_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_delta_snowpack_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'total snowpack tracer delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_delta_2d (DEF_hist_vars%scv, &
@@ -612,8 +612,8 @@ CONTAINS
 
                   ! --- Aquifer (wa) ratio ---
                   ! wa can be negative during wetland aquifer-debt episodes;
-                  ! the ct_wetland redistribution keeps signed arithmetic.
-                  write(trc_varname , '(A,A)')   'f_trc_conc_wa_', trim(tracers(itrc_loc)%name)
+                  ! the mt_wetland redistribution keeps signed arithmetic.
+                  write(trc_varname , '(A,A)')   'f_mt_conc_wa_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'aquifer tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                      IF (tracer_is_isotope(itrc_loc)) THEN
@@ -628,7 +628,7 @@ CONTAINS
                            filter, trim(trc_longname), trim(trc_ratio_units))
                      ENDIF
 
-                     write(trc_varname , '(A,A)')   'f_trc_conc_wa_debt_', trim(tracers(itrc_loc)%name)
+                     write(trc_varname , '(A,A)')   'f_mt_conc_wa_debt_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(5A)') 'aquifer debt tracer ', trim(trc_ratio_word), &
                         ' (', trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
@@ -637,7 +637,7 @@ CONTAINS
                         filter, trim(trc_longname), trim(trc_ratio_units))
 
                   ! --- Surface water (wdsrf) ratio ---
-                  write(trc_varname , '(A,A)')   'f_trc_conc_wdsrf_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_conc_wdsrf_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'surface water tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%wdsrf, &
@@ -646,7 +646,7 @@ CONTAINS
                      filter, trim(trc_longname), trim(trc_ratio_units))
 
                   ! --- Wetland pool (wetwat) ratio ---
-                  write(trc_varname , '(A,A)')   'f_trc_conc_wetwat_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_conc_wetwat_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'wetland pool tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   IF (p_is_worker) THEN
@@ -678,7 +678,7 @@ CONTAINS
                   ! lives in trc_wliq/trc_wice snow layers; the accumulator
                   ! therefore filters out snl<0 states so this ratio cannot
                   ! divide thin-snow tracer by total layered-snow SWE.
-                  write(trc_varname , '(A,A)')   'f_trc_conc_scv_', trim(tracers(itrc_loc)%name)
+                  write(trc_varname , '(A,A)')   'f_mt_conc_scv_', trim(tracers(itrc_loc)%name)
                   write(trc_longname, '(5A)') 'thin-snow (scv) tracer ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%scv, &
@@ -696,19 +696,19 @@ CONTAINS
       CALL tracer_lifecycle_land_history (file_hist, itime_in_file, sumarea, filter, &
          nl_soil, forcing_has_missing_value, forcmask_pch)
 
-   END SUBROUTINE ct_hist_out
+   END SUBROUTINE mt_hist_out
 
 
 
 
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    SUBROUTINE write_history_tracer_ratio_2d ( is_hist, &
          tracer_mass_acc, water_acc, file_hist, varname, itime_in_file, &
          filter, longname, units)
 
    USE MOD_Block
    USE MOD_SPMD_Task, only: p_is_worker, p_is_io
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
 #endif
    USE MOD_Namelist, only: DEF_HIST_CompressLevel
 
@@ -819,7 +819,7 @@ CONTAINS
    USE MOD_Block
    USE MOD_SPMD_Task, only: p_is_worker, p_is_io
    USE MOD_Vars_1DAccFluxes, only: nac
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
 #endif
    USE MOD_Namelist, only: DEF_HIST_CompressLevel
 
@@ -946,7 +946,7 @@ CONTAINS
 
    USE MOD_Block
    USE MOD_SPMD_Task, only: p_is_worker, p_is_io
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
 #endif
    USE MOD_Namelist, only: DEF_HIST_CompressLevel
 
@@ -1668,5 +1668,5 @@ CONTAINS
 
    END SUBROUTINE write_history_variable_3d
 
-END MODULE MOD_CT_Hist
+END MODULE MOD_MT_Hist
 #endif

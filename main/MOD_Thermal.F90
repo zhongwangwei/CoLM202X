@@ -78,7 +78,7 @@ CONTAINS
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
                       ,flddepth      ,fldfrc        ,fevpg_fld                    &
 #endif
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                       ,canopy_smelt_mass_th, canopy_frzc_mass_th                  ,&
                        qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th             &
 #endif
@@ -289,8 +289,8 @@ CONTAINS
    real(r8), intent(in)    :: fldfrc     ! inundation fraction [0-1]
    real(r8), intent(out)   :: fevpg_fld  ! inundation evaporation [mm/s]
 #endif
-#ifdef ConstituentTransport
-   ! Diagnostics for constituent transport only; not used by the host.
+#ifdef MaterialTransport
+   ! Diagnostics for material transport only; not used by the host.
    real(r8), intent(out), optional :: canopy_smelt_mass_th          ! canopy snow melted [mm]
    real(r8), intent(out), optional :: canopy_frzc_mass_th           ! canopy water frozen [mm]
    real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil)  ! ice melted per layer [mm]
@@ -519,7 +519,7 @@ CONTAINS
    real(r8), allocatable :: assimsha_p    (:)
    real(r8), allocatable :: etrsha_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local, raw_trc_local, raw_trc_pc
    real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:), raw_trc_p(:)
 #endif
@@ -550,7 +550,7 @@ CONTAINS
       assim  = 0.;  respc  = 0.
       hprl   = 0.;  dheatl = 0.
 
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       canopy_smelt_mass_local = 0._r8
       canopy_frzc_mass_local  = 0._r8
       raw_trc_local           = 0._r8
@@ -701,7 +701,7 @@ ENDIF
                          !taux,tauy,fseng,fevpg,tref,qref, &
                          taux,tauy,fseng,fseng_soil,fseng_snow, &
                          fevpg,fevpg_soil,fevpg_snow,tref,qref, &
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                          z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g, &
                          raw_out=raw_trc_local)
 #else
@@ -776,7 +776,7 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 !End WUE stomata model parameter
                  forc_hpbl   ,&
                  qintr_rain  ,qintr_snow  ,t_precip    ,hprl        ,dheatl      ,&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                  smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)               &
                 ,canopy_smelt_mass_out=canopy_smelt_mass_local, &
                  canopy_frzc_mass_out =canopy_frzc_mass_local, &
@@ -850,7 +850,7 @@ IF (patchtype == 0) THEN
       allocate ( assimsha_p        (ps:pe))
       allocate ( etrsha_p          (ps:pe))
       allocate ( dheatl_p          (ps:pe))
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       allocate ( canopy_smelt_mass_p_local(ps:pe) )
       allocate ( canopy_frzc_mass_p_local (ps:pe) )
       allocate ( raw_trc_p(ps:pe) )
@@ -999,7 +999,7 @@ IF (patchtype == 0) THEN
                  forc_hpbl                                                                         ,&
                  qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,hprl_p(i)       ,dheatl_p(i)   ,&
                  smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                ,&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                  ipft_index=i                                        , &
                  canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
                  canopy_frzc_mass_out =canopy_frzc_mass_p_local (i), &
@@ -1017,7 +1017,7 @@ IF (patchtype == 0) THEN
                                taux_p(i),tauy_p(i),fseng_p(i),fseng_soil_p(i),fseng_snow_p(i), &
                                fevpg_p(i),fevpg_soil_p(i),fevpg_snow_p(i),tref_p(i),qref_p(i), &
                                z0m_p(i),z0h_g,zol_p(i),rib_p(i),ustar_p(i),&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                                qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i),raw_out=raw_trc_p(i))
 #else
                                qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i))
@@ -1138,7 +1138,7 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          forc_hpbl            ,&
          qintr_rain_p(ps:pe)  ,qintr_snow_p(ps:pe)  ,t_precip             ,hprl_p(:)            ,&
          dheatl_p(ps:pe)      ,smp                  ,hk(1:)               ,hksati(1:)           ,&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
          rootflux_p(:,:)                                          &
         ,canopy_smelt_mass_p_out=canopy_smelt_mass_p_local(ps:pe),&
          canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe),&
@@ -1171,7 +1171,7 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       fm_p         (ps:pe) = fm
       fh_p         (ps:pe) = fh
       fq_p         (ps:pe) = fq
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       raw_trc_p    (ps:pe) = raw_trc_pc
 #endif
 ENDIF
@@ -1229,7 +1229,7 @@ ENDIF
       etrsha_out    = sum( etrsha_p    (ps:pe)*pftfrac(ps:pe) )
       hprl          = sum( hprl_p      (ps:pe)*pftfrac(ps:pe) )
       dheatl        = sum( dheatl_p    (ps:pe)*pftfrac(ps:pe) )
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe)*pftfrac(ps:pe) )
       canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe)*pftfrac(ps:pe) )
       raw_trc_local           = sum( raw_trc_p(ps:pe)*pftfrac(ps:pe) )
@@ -1292,7 +1292,7 @@ END IF
       deallocate ( assimsha_p   )
       deallocate ( etrsha_p     )
       deallocate ( dheatl_p     )
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       deallocate ( canopy_smelt_mass_p_local )
       deallocate ( canopy_frzc_mass_p_local  )
       deallocate ( raw_trc_p )
@@ -1301,7 +1301,7 @@ END IF
 ENDIF
 #endif
 
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
       IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = canopy_frzc_mass_local
       IF (present(raw_trc_th)) raw_trc_th = raw_trc_local
@@ -1355,7 +1355,7 @@ ENDIF
                       t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                       frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                       fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                       imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
                      ,qphs_thaw_lay=qphs_thaw_lay_th, qphs_frzc_lay=qphs_frzc_lay_th)
 #else

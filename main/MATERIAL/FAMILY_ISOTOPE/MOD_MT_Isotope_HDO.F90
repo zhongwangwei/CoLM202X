@@ -1,17 +1,18 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Isotope_HDO
+#ifdef MaterialTransport
+MODULE MOD_MT_Isotope_HDO
 
    USE MOD_Precision
-   USE MOD_CT_Namelist, only: DEF_ISO_KINETIC_SCHEME
-   USE MOD_CT_Defs, only: Rsmow_D
-   USE MOD_CT_Isotope_Registry, only: register_isotope_physics
+   USE MOD_MT_Namelist, only: DEF_ISO_KINETIC_SCHEME
+   USE MOD_MT_Isotope_Registry, only: register_isotope_physics
 
    IMPLICIT NONE
    SAVE
    PRIVATE
 
+   ! VSMOW reference ratio
+   real(r8), parameter :: Rsmow_D = 1.5576e-4_r8
    real(r8), parameter :: hdo_diffusivity_ratio_cappa = 1.01636_r8
    real(r8), parameter :: hdo_diffusivity_ratio_merlivat = 1.0251_r8
 
@@ -62,5 +63,5 @@ CONTAINS
       hdo_leaf_liquid_diffusivity = 116.e-9_r8 * exp(-626._r8 / max(tk - 139._r8, 1._r8))
    END FUNCTION hdo_leaf_liquid_diffusivity
 
-END MODULE MOD_CT_Isotope_HDO
+END MODULE MOD_MT_Isotope_HDO
 #endif

@@ -1,16 +1,16 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_ForcingInput
+#ifdef MaterialTransport
+MODULE MOD_MT_ForcingInput
 
    ! ------------------------------------------------------------------
    ! Per-species tracer forcing input.
    !
-   ! Each constituent's parameter file (DEF_ISOTOPE_PARAM_FILE for isotopes,
+   ! Each material's parameter file (DEF_ISOTOPE_PARAM_FILE for isotopes,
    ! the DEF_SOLUTE_PARAM_FILES entry for a solute) may carry optional
    ! namelist groups describing that species' OWN forcing inputs:
    !
-   !   &nl_colm_ct_forcing
+   !   &nl_colm_mt_forcing
    !      forcing_species    = 'H2_18O'
    !      forcing_num        = 2
    !      forcing_role       = 'precip', 'vapor'
@@ -27,7 +27,7 @@ MODULE MOD_CT_ForcingInput
    ! forcing_species may be left out.
    !
    ! `role` names a CONSUMER, and only two exist: 'precip' and 'vapor', both
-   ! read by MOD_CT_Forcing. A role is accepted only if something reads it.
+   ! read by MOD_MT_Forcing. A role is accepted only if something reads it.
    !
    ! 'inundation', 'atm' and 'erosion_yield' were once accepted here for gas and
    ! particle species. Nothing ever read them, so those species could be given
@@ -36,7 +36,7 @@ MODULE MOD_CT_ForcingInput
    ! refused with a message naming where that field actually comes from --
    ! DEF_file_GIEMS for inundation, DEF_METHANE%atm_methane (or the transient
    ! table) for atmospheric CH4, and the internal precipitation-driven
-   ! calculation in MOD_CT_Particle_Sediment for erosion yield.
+   ! calculation in MOD_MT_Particle_Sediment for erosion yield.
    !
    ! This module replaces the former global DEF_forcing%tracer_* / legacy
    ! per-species DEF_forcing%precipitation_O18_* namelist path: tracer
@@ -45,8 +45,8 @@ MODULE MOD_CT_ForcingInput
    ! ------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_CT_Defs, only: ntracers, tracers, tracer_param_file_for_index, tracer_lower, &
-                             ct_uses_land_water_transport, tracer_is_isotope
+   USE MOD_MT_Defs, only: ntracers, tracers, tracer_param_file_for_index, tracer_lower, &
+                             mt_uses_generic_water, tracer_is_isotope
 
    IMPLICIT NONE
    SAVE
@@ -96,7 +96,7 @@ CONTAINS
       integer            :: forcing_offset(TRACER_FORCING_MAX)
       character(len=32)  :: forcing_input_mode(TRACER_FORCING_MAX)
       integer            :: nmatch, ipass
-      namelist /nl_colm_ct_forcing/ forcing_species, forcing_num, forcing_role, forcing_fprefix, &
+      namelist /nl_colm_mt_forcing/ forcing_species, forcing_num, forcing_role, forcing_fprefix, &
          forcing_vname, forcing_tintalgo, forcing_dtime, forcing_offset, forcing_input_mode
 
       IF (ntracers <= 0) RETURN
@@ -110,7 +110,7 @@ CONTAINS
          INQUIRE (file=trim(nlfile), exist=fexists)
          IF (.not. fexists) CYCLE
 
-         ! Read every &nl_colm_ct_forcing group of the file in turn. The
+         ! Read every &nl_colm_mt_forcing group of the file in turn. The
          ! first pass counts the groups of this species (more than one is an
          ! error: only one could ever be used); the second keeps it.
          nmatch = 0
@@ -120,11 +120,11 @@ CONTAINS
             DO
                CALL reset_scratch ()
                iomsg = ''
-               read (unit_nml, nml=nl_colm_ct_forcing, iostat=ierr, iomsg=iomsg)
+               read (unit_nml, nml=nl_colm_mt_forcing, iostat=ierr, iomsg=iomsg)
                IF (ierr < 0) EXIT
                IF (ierr > 0) THEN
                   IF (p_is_master) THEN
-                     write(*,'(3A)') 'ERROR tracer_forcing_input_load: invalid &nl_colm_ct_forcing in ', &
+                     write(*,'(3A)') 'ERROR tracer_forcing_input_load: invalid &nl_colm_mt_forcing in ', &
                         trim(nlfile), ': '
                      write(*,'(A)') trim(iomsg)
                   ENDIF
@@ -132,7 +132,7 @@ CONTAINS
                ENDIF
                IF (len_trim(forcing_species) == 0) THEN
                   IF (tracer_is_isotope(itrc)) CALL CoLM_stop ( &
-                     'forcing_species must be set in each &nl_colm_ct_forcing of '//trim(nlfile))
+                     'forcing_species must be set in each &nl_colm_mt_forcing of '//trim(nlfile))
                ELSEIF (trim(tracer_lower(forcing_species)) /= trim(tracer_lower(tracers(itrc)%name))) THEN
                   CYCLE
                ENDIF
@@ -142,7 +142,7 @@ CONTAINS
             close (unit_nml)
          ENDDO
          IF (nmatch == 0) CYCLE
-         IF (nmatch > 1) CALL CoLM_stop ('More than one &nl_colm_ct_forcing group for '// &
+         IF (nmatch > 1) CALL CoLM_stop ('More than one &nl_colm_mt_forcing group for '// &
             trim(tracers(itrc)%name)//' in '//trim(nlfile))
 
          IF (forcing_num < 0 .or. forcing_num > TRACER_FORCING_MAX) THEN
@@ -294,13 +294,13 @@ CONTAINS
 
       ! Validity means "some code reads this", not "this name is spelled
       ! correctly for this category". The only consumers are the two
-      ! tracer_forcing_input_find calls in MOD_CT_Forcing, and that loop
+      ! tracer_forcing_input_find calls in MOD_MT_Forcing, and that loop
       ! skips any tracer without generic land-water transport -- so the same
       ! role is live for one species and dead for another, and the category
       ! alone cannot tell them apart.
       tracer_forcing_role_valid = &
          (trim(role) == 'precip' .or. trim(role) == 'vapor') .and. &
-         ct_uses_land_water_transport (itrc)
+         mt_uses_generic_water (itrc)
 
    END FUNCTION tracer_forcing_role_valid
 
@@ -314,12 +314,12 @@ CONTAINS
       character(len=256) :: hint
 
       ! A supported role on a species the consumer loop skips. The name is
-      ! right and the file would load, but MOD_CT_Forcing never reaches
+      ! right and the file would load, but MOD_MT_Forcing never reaches
       ! this tracer, so the data would go nowhere.
       IF ((trim(role) == 'precip' .or. trim(role) == 'vapor') .and. &
-          .not. ct_uses_land_water_transport (itrc)) THEN
+          .not. mt_uses_generic_water (itrc)) THEN
          hint = 'this species is provider-owned and is skipped by the ' // &
-                'precip/vapor loop in MOD_CT_Forcing'
+                'precip/vapor loop in MOD_MT_Forcing'
          RETURN
       ENDIF
 
@@ -329,7 +329,7 @@ CONTAINS
       CASE ('atm')
          hint = 'atmospheric CH4 comes from DEF_METHANE%atm_methane or its transient table'
       CASE ('erosion_yield')
-         hint = 'hillslope erosion is computed from precipitation in MOD_CT_Particle_Sediment'
+         hint = 'hillslope erosion is computed from precipitation in MOD_MT_Particle_Sediment'
       CASE DEFAULT
          hint = ''
       END SELECT
@@ -342,5 +342,5 @@ CONTAINS
       IF (allocated(tracer_forcing_specs)) deallocate(tracer_forcing_specs)
    END SUBROUTINE tracer_forcing_input_final
 
-END MODULE MOD_CT_ForcingInput
+END MODULE MOD_MT_ForcingInput
 #endif

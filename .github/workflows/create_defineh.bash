@@ -134,14 +134,14 @@ else
    fi
 fi
 
-# Argument 8 (optional): CTON / CTOFF, constituent transport. Default CTOFF.
-if [ "${8:-CTOFF}" = "CTON" ];then
-   CT="#define ConstituentTransport"
+# Argument 8 (optional): MTON / MTOFF, material transport. Default MTOFF.
+if [ "${8:-MTOFF}" = "MTON" ];then
+   MT="#define MaterialTransport"
 else
-   if [ "${8:-CTOFF}" = "CTOFF" ];then
-      CT="#undef ConstituentTransport"
+   if [ "${8:-MTOFF}" = "MTOFF" ];then
+      MT="#undef MaterialTransport"
    else
-      echo "Error in argument 8, try (CTON, CTOFF)"
+      echo "Error in argument 8, try (MTON, MTOFF)"
    fi
 fi
 
@@ -219,9 +219,9 @@ $CROP
 ! 8. If defined, open Land use and land cover change mode.
 #undef LULCC
 
-! 13. If defined, constituent transport is compiled in.
-$CT
-#if (defined ConstituentTransport && defined Campbell_SOIL_MODEL)
-#error "ConstituentTransport requires vanGenuchten_Mualem_SOIL_MODEL"
+! 13. If defined, material transport is compiled in.
+$MT
+#if (defined MaterialTransport && defined Campbell_SOIL_MODEL)
+#error "MaterialTransport requires vanGenuchten_Mualem_SOIL_MODEL"
 #endif
 EOF

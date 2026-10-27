@@ -1,21 +1,21 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Evapo
+#ifdef MaterialTransport
+MODULE MOD_MT_Evapo
 
    USE MOD_Precision
-   USE MOD_CT_Defs, only: ntracers, trc_tiny, ct_uses_land_water_transport, &
-      tracer_init_water_ratio, tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max, &
-      ct_equilibrate_dissolved
-   USE MOD_CT_Forcing, only: tracer_forcing_vapor_value
-   USE MOD_CT_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
+   USE MOD_MT_Defs, only: ntracers, trc_tiny, mt_uses_generic_water, tracer_init_water_ratio, &
+      tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max
+   USE MOD_MT_Solute, only: mt_equilibrate_dissolved
+   USE MOD_MT_Forcing, only: tracer_forcing_vapor_value
+   USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
       tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
       tracer_rayleigh_freezing_loss, tracer_surface_relhum, &
       tracer_equilibration_exchange, tracer_alpha_liq_vap, tracer_alpha_kinetic_open_water
-   USE MOD_CT_Namelist, only: DEF_ISO_SUBL_SKIN_MM, DEF_ISO_CANOPY_EQUILIBRATION
-   USE MOD_CT_EvapLimit, only: tracer_evaporative_tracer_loss, tracer_atmospheric_tracer_loss, &
+   USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM, DEF_ISO_CANOPY_EQUILIBRATION
+   USE MOD_MT_EvapLimit, only: tracer_evaporative_tracer_loss, tracer_atmospheric_tracer_loss, &
       tracer_skin_limited_tracer_loss
-	   USE MOD_CT_Vars, only: trc_ldew_rain, trc_ldew_snow, &
+	   USE MOD_MT_Vars, only: trc_ldew_rain, trc_ldew_snow, &
 	      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_canopy_solid, &
 	      trc_numerical_residual_step, &
 	      a_trc_precip, a_water_precip, a_trc_vapor_exchange, tracer_book_evap_loss, &
@@ -25,7 +25,7 @@ MODULE MOD_CT_Evapo
 
 CONTAINS
 
-   SUBROUTINE ct_flood_evap_loss(ipatch, water_credit, tracer_credit, water_evap, &
+   SUBROUTINE mt_flood_evap_loss(ipatch, water_credit, tracer_credit, water_evap, &
       temp_k, forc_q, forc_psrf, forc_us, forc_vs, tracer_loss)
       ! Flood evaporation belongs to the routing pool, not land a_trc_evap.
       ! A negative Craig-Gordon loss is atmospheric isotope uptake.
@@ -39,7 +39,7 @@ CONTAINS
       tracer_loss = 0._r8
       IF (water_credit <= trc_tiny .or. water_evap <= trc_tiny) RETURN
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          IF (tracer_is_nonvolatile_solute(itrc)) CYCLE
          vapor_ratio = tracer_forcing_vapor_value(itrc, ipatch)
          tracer_loss(itrc) = tracer_atmospheric_tracer_loss( &
@@ -62,7 +62,7 @@ CONTAINS
          evap_ratio = tracer_craig_gordon_evap_ratio(itrc, source_ratio, vapor_ratio, &
             temp, relhum, alpha_k, from_ice)
       END FUNCTION evap_ratio
-   END SUBROUTINE ct_flood_evap_loss
+   END SUBROUTINE mt_flood_evap_loss
 
    !---------------------------------------------------------------
    ! Delta-based ET tracer update after THERMAL.
@@ -71,7 +71,7 @@ CONTAINS
    !   Decrease → evaporation/sublimation/transpiration (output)
    !   Increase → dew/frost (input) or thaw/freeze (internal)
    !---------------------------------------------------------------
-   SUBROUTINE ct_evapo (ipatch, deltim, snl, nl_soil, &
+   SUBROUTINE mt_evapo (ipatch, deltim, snl, nl_soil, &
       ldew_rain, ldew_snow, ldew_rain_bef, ldew_snow_bef, &
       wliq_soisno, wice_soisno, &
       wliq_soisno_bef, wice_soisno_bef, &
@@ -96,7 +96,7 @@ CONTAINS
       ! (qfrz + qsubl) episode no longer collapses one branch into the
       ! other. The heuristic is preserved as a fallback for callers that
       ! do not (yet) plumb these values — important for hot-start /
-      ! third-party drivers that bind ct_evapo directly.
+      ! third-party drivers that bind mt_evapo directly.
       real(r8), intent(in), optional :: canopy_smelt_mass_th
       real(r8), intent(in), optional :: canopy_frzc_mass_th
       real(r8), intent(in), optional :: soil_thaw_mass_th(snl+1:nl_soil)
@@ -128,7 +128,7 @@ CONTAINS
       lb = snl + 1
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          R_vapor = R_atm
 
@@ -239,7 +239,7 @@ CONTAINS
             trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_flux
          ENDIF
 
-         CALL ct_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
+         CALL mt_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
 
          ! --- Wet-leaf two-way equilibrium exchange with ambient vapour ---
@@ -337,11 +337,11 @@ CONTAINS
 
 	            ! THERMAL reports only internal phase changes for snow layers.
 	            ! Atmospheric snow exchange (qsdew/qseva/qfros/qsubl) is applied
-	            ! later by snowwater and mirrored in ct_soil_water. Treating
+	            ! later by snowwater and mirrored in mt_soil_water. Treating
 	            ! any remaining snow-layer residual here as dew/frost/evap/subl
 	            ! would create tracer fluxes with no matching water-side flux.
 	            IF (j < 1) THEN
-               CALL ct_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
                   trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
                CYCLE
             ENDIF
@@ -449,7 +449,7 @@ CONTAINS
                   ENDIF
                ENDIF
             ENDIF
-            CALL ct_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
                trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
          ENDDO
       ENDDO
@@ -527,7 +527,7 @@ CONTAINS
          deposition_ratio_for = tracer_equilibrium_deposition_ratio(itrc, R_vapor, temp_k, from_ice)
       END FUNCTION deposition_ratio_for
 
-   END SUBROUTINE ct_evapo
+   END SUBROUTINE mt_evapo
 
-END MODULE MOD_CT_Evapo
+END MODULE MOD_MT_Evapo
 #endif

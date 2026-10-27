@@ -1544,18 +1544,18 @@ CONTAINS
 #if !defined GridRiverLakeFlow && !defined CaMa_Flood
          IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires a river routing solver.')
 #endif
-         ! The river sediment is the sediment of the constituent transport
-         ! (main/CONSTITUENT/FAMILY_PARTICLE/MOD_CT_Sediment), which is compiled
-         ! only with ConstituentTransport and GridRiverLakeFlow.  Without them
+         ! The river sediment is the sediment of the material transport
+         ! (main/MATERIAL/FAMILY_PARTICLE/MOD_MT_Sediment), which is compiled
+         ! only with MaterialTransport and GridRiverLakeFlow.  Without them
          ! DEF_USE_SEDIMENT = .true. would be ignored without notice, so stop
          ! and say what to change.  Runs with DEF_USE_SEDIMENT = .false. (the
          ! default) do not reach the stop and are unchanged.
-#if !defined ConstituentTransport || !defined GridRiverLakeFlow
+#if !defined MaterialTransport || !defined GridRiverLakeFlow
          IF (DEF_USE_SEDIMENT) THEN
-            write(*,*) 'DEF_USE_SEDIMENT = .true. needs the river sediment of the constituent transport:'
-            write(*,*) '   define ConstituentTransport and GridRiverLakeFlow in include/define.h and rebuild,'
+            write(*,*) 'DEF_USE_SEDIMENT = .true. needs the river sediment of the material transport:'
+            write(*,*) '   define MaterialTransport and GridRiverLakeFlow in include/define.h and rebuild,'
             write(*,*) '   or set DEF_USE_SEDIMENT = .false.'
-            CALL CoLM_Stop ('River sediment requires ConstituentTransport and GridRiverLakeFlow.')
+            CALL CoLM_Stop ('River sediment requires MaterialTransport and GridRiverLakeFlow.')
          ENDIF
 #endif
          IF ((DEF_GridRiverLake_FloodFeedback .or. DEF_CaMa_FloodFeedback) .and. DEF_Runoff_SCHEME /= 0) THEN

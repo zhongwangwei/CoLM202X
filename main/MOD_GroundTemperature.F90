@@ -34,7 +34,7 @@ CONTAINS
                          t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                          frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                          fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                          imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
                         ,qphs_thaw_lay,qphs_frzc_lay)
 #else
@@ -163,7 +163,7 @@ CONTAINS
    integer,  intent(out) :: imelt(lb:nl_soil) !flag for melting or freezing [-]
 
    real(r8), intent(out) :: snofrz(lb:0)      !snow freezing rate (lyr) [kg m-2 s-1]
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
    real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
 #endif
@@ -425,7 +425,7 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                   dz_soisno(1:nl_soil) &
                  ,qphs_thaw_lay = qphs_thaw_lay, qphs_frzc_lay = qphs_frzc_lay)
 #else
@@ -451,7 +451,7 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                   dz_soisno(1:nl_soil) &
                  ,qphs_thaw_lay = qphs_thaw_lay, qphs_frzc_lay = qphs_frzc_lay)
 #else

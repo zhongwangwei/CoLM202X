@@ -12,11 +12,11 @@ MODULE MOD_Grid_RiverLakeHist
 
    USE MOD_Precision
    USE MOD_Grid_RiverLakeHistState
-#ifdef ConstituentTransport
-   ! river constituent history (f_trc_* variables); writes only constituent fields
-   USE MOD_CT_RiverLake, only: ct_riverlake_write_history, ct_riverlake_flush_acc
-   ! and the history of the constituents with their own river state (sediment)
-   USE MOD_CT_Lifecycle, only: ct_lifecycle_route_write_history, ct_lifecycle_route_flush_history
+#ifdef MaterialTransport
+   ! river material history (f_mt_* variables); writes only material fields
+   USE MOD_MT_RiverLake, only: mt_riverlake_write_history, mt_riverlake_flush_acc
+   ! and the history of the materials with their own river state (sediment)
+   USE MOD_MT_Lifecycle, only: mt_lifecycle_route_write_history, mt_lifecycle_route_flush_history
 #endif
 
    ! -- PUBLIC SUBROUTINEs --
@@ -571,9 +571,9 @@ CONTAINS
       IF (allocated (a_floodfrc_inpm)) deallocate (a_floodfrc_inpm)
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
 
-#ifdef ConstituentTransport
-      CALL ct_riverlake_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
-      CALL ct_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
+#ifdef MaterialTransport
+      CALL mt_riverlake_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
+      CALL mt_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
 #endif
 
       ! ----- reservoir variables -----
@@ -674,9 +674,9 @@ CONTAINS
             a_qresv_out  (:) = 0.
          ENDIF
 
-#ifdef ConstituentTransport
-         CALL ct_riverlake_flush_acc ()
-         CALL ct_lifecycle_route_flush_history ()
+#ifdef MaterialTransport
+         CALL mt_riverlake_flush_acc ()
+         CALL mt_lifecycle_route_flush_history ()
 #endif
 
       ENDIF

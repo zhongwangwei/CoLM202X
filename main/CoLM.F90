@@ -102,19 +102,19 @@ PROGRAM CoLM
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
    USE MOD_ParameterOptimization
-#ifdef ConstituentTransport
-   USE MOD_CT_LandPhase, only: ct_land_init, ct_land_final
-   USE MOD_CT_Lifecycle, only: ct_lifecycle_reset
-   USE MOD_CT_Defs, only: ct_defs_final
-   USE MOD_CT_HostFixes, only: ct_bgc_data_init_year
+#ifdef MaterialTransport
+   USE MOD_MT_LandPhase, only: mt_land_init, mt_land_final
+   USE MOD_MT_Lifecycle, only: mt_lifecycle_reset
+   USE MOD_MT_Defs, only: mt_defs_final
+   USE MOD_MT_HostFixes, only: mt_bgc_data_init_year
 #ifdef CaMa_Flood
-   USE MOD_CT_Defs, only: ntracers, ct_uses_land_water_transport
+   USE MOD_MT_Defs, only: ntracers, mt_uses_generic_water
 #endif
 #endif
-#ifdef ConstituentTransport
-   USE MOD_CT_Forcing, only: ct_forcing_init, ct_read_forcing, &
-                                 ct_forcing_reset, ct_forcing_final, ct_forcing_read_restart, &
-                                 ct_forcing_lulcc_save, ct_forcing_lulcc_restore
+#ifdef MaterialTransport
+   USE MOD_MT_Forcing, only: mt_forcing_init, mt_read_forcing, &
+                                 mt_forcing_reset, mt_forcing_final, mt_forcing_read_restart, &
+                                 mt_forcing_lulcc_save, mt_forcing_lulcc_restore
 #endif
 
 #ifdef DataAssimilation
@@ -165,10 +165,10 @@ PROGRAM CoLM
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
    logical :: is_spinup
-#if (defined ConstituentTransport) && (defined CaMa_Flood)
+#if (defined MaterialTransport) && (defined CaMa_Flood)
    integer :: itrc_cama
 #endif
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    logical :: tracer_loaded_restart
    character(len=256) :: tracer_restart_file
 #endif
@@ -337,8 +337,8 @@ PROGRAM CoLM
       CALL allocate_TimeVariables  ()
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
-#ifdef ConstituentTransport
-      CALL ct_land_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
+#ifdef MaterialTransport
+      CALL mt_land_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
          casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
          wice_soisno, wa, wdsrf, wetwat, scv, waterstorage, &
          loaded_restart=tracer_loaded_restart, restart_file=tracer_restart_file)
@@ -366,9 +366,9 @@ PROGRAM CoLM
       ! Initialize meteorological forcing data module
       CALL allocate_1D_Forcing ()
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
-#ifdef ConstituentTransport
-      CALL ct_forcing_init (gforc, numpatch)
-      CALL ct_forcing_read_restart (tracer_restart_file, tracer_loaded_restart)
+#ifdef MaterialTransport
+      CALL mt_forcing_init (gforc, numpatch)
+      CALL mt_forcing_read_restart (tracer_restart_file, tracer_loaded_restart)
 #endif
       CALL allocate_2D_Forcing (gforc)
 
@@ -386,9 +386,9 @@ PROGRAM CoLM
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
 #endif
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       IF (p_is_master .and. ntracers > 0) THEN
-         IF (any([(ct_uses_land_water_transport(itrc_cama), itrc_cama = 1, ntracers)])) &
+         IF (any([(mt_uses_generic_water(itrc_cama), itrc_cama = 1, ntracers)])) &
             write(*,'(A)') 'WARNING: CaMa_Flood does not route land runoff tracers; they leave at the land boundary.'
       ENDIF
 #endif
@@ -409,13 +409,13 @@ PROGRAM CoLM
       ENDIF
 
       ! bgc_data_year replaces the former literal sdate(1) in the three calls
-      ! below and is equal to it unless constituents are enabled. With
-      ! constituents, a start at 00:00 on 1 January would otherwise read the
+      ! below and is equal to it unless materials are enabled. With
+      ! materials, a start at 00:00 on 1 January would otherwise read the
       ! data of the previous year (sdate is adj2end'ed), so that a restarted
-      ! run differs from an unbroken one; see MOD_CT_HostFixes.
+      ! run differs from an unbroken one; see MOD_MT_HostFixes.
       bgc_data_year = sdate(1)
-#ifdef ConstituentTransport
-      bgc_data_year = ct_bgc_data_init_year (sdate(1), s_year)
+#ifdef MaterialTransport
+      bgc_data_year = mt_bgc_data_init_year (sdate(1), s_year)
 #endif
 
       IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
@@ -489,8 +489,8 @@ PROGRAM CoLM
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing, is_spinup)
-#ifdef ConstituentTransport
-         CALL ct_read_forcing (jdate, dir_forcing)
+#ifdef MaterialTransport
+         CALL mt_read_forcing (jdate, dir_forcing)
 #endif
 
          IF(DEF_USE_OZONEDATA)THEN
@@ -550,7 +550,7 @@ PROGRAM CoLM
          ! Call CoLM driver
          ! ----------------------------------------------------------------------
          IF (p_is_worker) THEN
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
             CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag,istep)
 #else
             CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
@@ -596,9 +596,9 @@ PROGRAM CoLM
             CALL deallocate_1D_Forcing
             CALL deallocate_1D_Fluxes
 
-#ifdef ConstituentTransport
-            CALL ct_forcing_lulcc_save ()
-            CALL ct_forcing_final ()
+#ifdef MaterialTransport
+            CALL mt_forcing_lulcc_save ()
+            CALL mt_forcing_final ()
 #endif
             CALL forcing_final ()
             CALL hist_final    ()
@@ -612,9 +612,9 @@ PROGRAM CoLM
             ! Allocate Forcing and Fluxes variable of next year
             CALL allocate_1D_Forcing
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
-#ifdef ConstituentTransport
-            CALL ct_forcing_init (gforc, numpatch)
-            CALL ct_forcing_lulcc_restore ()
+#ifdef MaterialTransport
+            CALL mt_forcing_init (gforc, numpatch)
+            CALL mt_forcing_lulcc_restore ()
 #endif
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
@@ -726,8 +726,8 @@ PROGRAM CoLM
                   itstamp = ststamp
                   CALL adj2begin(jdate)
                   CALL forcing_reset ()
-#ifdef ConstituentTransport
-                  CALL ct_forcing_reset ()
+#ifdef MaterialTransport
+                  CALL mt_forcing_reset ()
 #endif
                ELSE
                   is_spinup = .false.
@@ -744,9 +744,9 @@ PROGRAM CoLM
          istep = istep + 1
 
       ENDDO TIMELOOP
-#ifdef ConstituentTransport
-         CALL ct_forcing_final ()
-         CALL ct_land_final ()
+#ifdef MaterialTransport
+         CALL mt_forcing_final ()
+         CALL mt_land_final ()
 #endif
 
       CALL deallocate_TimeInvariants ()
@@ -766,9 +766,9 @@ PROGRAM CoLM
 #if (defined GridRiverLakeFlow)
       CALL grid_riverlake_flow_final ()
 #endif
-#ifdef ConstituentTransport
-      CALL ct_lifecycle_reset ()
-      CALL ct_defs_final ()
+#ifdef MaterialTransport
+      CALL mt_lifecycle_reset ()
+      CALL mt_defs_final ()
 #endif
 
       CALL forcing_final ()

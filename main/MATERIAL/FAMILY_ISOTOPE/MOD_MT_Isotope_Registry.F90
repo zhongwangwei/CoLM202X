@@ -1,10 +1,10 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Isotope_Registry
+#ifdef MaterialTransport
+MODULE MOD_MT_Isotope_Registry
 
    USE MOD_Precision
-   USE MOD_CT_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny, tracer_lower
+   USE MOD_MT_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny, tracer_lower
    USE MOD_SPMD_Task, only: CoLM_stop
 
    IMPLICIT NONE
@@ -77,10 +77,10 @@ CONTAINS
       integer :: idx
 
       IF (len_trim(name) <= 0) THEN
-         CALL CoLM_stop ('MOD_CT_Isotope_Registry: cannot register isotope physics with empty name')
+         CALL CoLM_stop ('MOD_MT_Isotope_Registry: cannot register isotope physics with empty name')
       ENDIF
       IF (find_registered_isotope_by_name(name) > 0) THEN
-         CALL CoLM_stop ('MOD_CT_Isotope_Registry: duplicate isotope physics registration')
+         CALL CoLM_stop ('MOD_MT_Isotope_Registry: duplicate isotope physics registration')
       ENDIF
 
       CALL ensure_isotope_physics_capacity(n_isotope_physics + 1)
@@ -272,5 +272,5 @@ CONTAINS
    END FUNCTION isotope_name_matches
 
 
-END MODULE MOD_CT_Isotope_Registry
+END MODULE MOD_MT_Isotope_Registry
 #endif

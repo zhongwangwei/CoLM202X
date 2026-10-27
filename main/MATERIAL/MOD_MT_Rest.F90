@@ -1,26 +1,25 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Rest
+#ifdef MaterialTransport
+MODULE MOD_MT_Rest
 
    USE MOD_Precision
-   USE MOD_CT_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, &
-      trc_water_min_for_ratio, tracers, &
-      tracer_uses_delta_diagnostics, ct_uses_land_water_transport, tracer_is_nonvolatile_solute, &
-      tracer_is_isotope, tracer_aquifer_isotope_state_valid, &
-      ct_equilibrate_dissolved, tracer_build_descriptor_identity, &
-      TRACER_DESCRIPTOR_IDENTITY_WIDTH
-   USE MOD_CT_Vars
+   USE MOD_MT_Defs, only: ntracers, tracer_init_water_ratio, trc_tiny, &
+      trc_water_min_for_ratio, tracers, tracer_uses_delta_diagnostics, mt_uses_generic_water, &
+      tracer_is_nonvolatile_solute, tracer_is_isotope, tracer_aquifer_isotope_state_valid, &
+      tracer_build_descriptor_identity, TRACER_DESCRIPTOR_IDENTITY_WIDTH
+   USE MOD_MT_Solute, only: mt_equilibrate_dissolved
+   USE MOD_MT_Vars
    USE MOD_LandPatch, only: landpatch
    USE MOD_Vars_TimeInvariants, only: patchtype
    USE MOD_Block, only: get_filename_block
    USE MOD_Namelist, only: DEF_REST_CompressLevel, DEF_USE_VariablySaturatedFlow
-   USE MOD_CT_Namelist, only: DEF_CT_AQUIFER_MIXING_WATER_MM
+   USE MOD_MT_Namelist, only: DEF_MT_AQUIFER_MIXING_WATER_MM
    USE MOD_NetCDFSerial, only: ncio_var_exist, ncio_inquire_varsize, ncio_read_serial, &
       ncio_write_serial, ncio_define_dimension
    USE MOD_NetCDFVector, only: ncio_read_vector, ncio_write_vector
-   USE MOD_CT_Lifecycle, only: tracer_lifecycle_land_write_restart
-   USE MOD_CT_Forcing, only: tracer_forcing_write_restart
+   USE MOD_MT_Lifecycle, only: tracer_lifecycle_land_write_restart
+   USE MOD_MT_Forcing, only: tracer_forcing_write_restart
    USE MOD_SPMD_Task, only: CoLM_stop
 
    IMPLICIT NONE
@@ -43,7 +42,7 @@ CONTAINS
 
       land_transport_tracer_count = 0
       DO itrc = 1, ntracers
-         IF (ct_uses_land_water_transport(itrc)) &
+         IF (mt_uses_generic_water(itrc)) &
             land_transport_tracer_count = land_transport_tracer_count + 1
       ENDDO
    END FUNCTION land_transport_tracer_count
@@ -58,7 +57,7 @@ CONTAINS
    ! different transport descriptor, the downstream mpi_scatterv still uses
    ! the current compact row count as its element multiplier and will misalign or
    ! read past the buffer. Detect the mismatch up front so the caller
-   ! can fall back to ct_init_from_water instead of crashing.
+   ! can fall back to mt_init_from_water instead of crashing.
    !-------------------------------------------------------------------
    logical FUNCTION tracer_dim_matches (file_restart, varname, expect_soilsnow, patch_only)
 #ifdef USEMPI
@@ -162,7 +161,7 @@ CONTAINS
       require_isotope_reference = .false.
       IF (DEF_USE_VariablySaturatedFlow) THEN
          DO itrc = 1, ntracers
-            IF (ct_uses_land_water_transport(itrc) .and. tracer_is_isotope(itrc)) &
+            IF (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc)) &
                require_isotope_reference = .true.
          ENDDO
       ENDIF
@@ -174,11 +173,11 @@ CONTAINS
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
             counts(1) = counts(1) + 1
-            has_schema = ncio_var_exist(fileblock, 'trc_land_restart_schema', readflag=.false.)
-            has_count = ncio_var_exist(fileblock, 'trc_land_transport_count', readflag=.false.)
-            has_identity = ncio_var_exist(fileblock, 'trc_land_descriptor_identity', readflag=.false.)
-            has_commit = ncio_var_exist(fileblock, 'trc_land_restart_complete', readflag=.false.)
-            has_mixing = ncio_var_exist(fileblock, 'trc_aquifer_mixing_water_mm', readflag=.false.)
+            has_schema = ncio_var_exist(fileblock, 'mt_land_restart_schema', readflag=.false.)
+            has_count = ncio_var_exist(fileblock, 'mt_land_transport_count', readflag=.false.)
+            has_identity = ncio_var_exist(fileblock, 'mt_land_descriptor_identity', readflag=.false.)
+            has_commit = ncio_var_exist(fileblock, 'mt_land_restart_complete', readflag=.false.)
+            has_mixing = ncio_var_exist(fileblock, 'mt_aquifer_mixing_water_mm', readflag=.false.)
 
             ! No marker is an old, non-transactional restart.  It is safe only
             ! when every block is old: the caller cold-starts the entire generic
@@ -186,7 +185,7 @@ CONTAINS
             IF (.not. has_commit) THEN
                ! A pre-transactional file is an old generic tracer restart
                ! only if it actually carries a generic prognostic pool.
-               IF (ncio_var_exist(fileblock, 'trc_wa', readflag=.false.)) &
+               IF (ncio_var_exist(fileblock, 'mt_wa', readflag=.false.)) &
                   counts(6) = counts(6) + 1
                counts(2) = counts(2) + 1
                CYCLE
@@ -201,14 +200,14 @@ CONTAINS
             ! not a legacy format that may be silently defaulted.
             block_ok = .true.
             schema = -1
-            CALL ncio_inquire_varsize(fileblock, 'trc_land_restart_complete', varsize)
+            CALL ncio_inquire_varsize(fileblock, 'mt_land_restart_complete', varsize)
             IF (.not. allocated(varsize)) THEN
                block_ok = .false.
             ELSE
                block_ok = size(varsize) == 0
                deallocate(varsize)
             ENDIF
-            CALL ncio_inquire_varsize(fileblock, 'trc_land_restart_schema', varsize)
+            CALL ncio_inquire_varsize(fileblock, 'mt_land_restart_schema', varsize)
             IF (.not. allocated(varsize)) THEN
                block_ok = .false.
             ELSE
@@ -216,11 +215,11 @@ CONTAINS
                deallocate(varsize)
             ENDIF
             IF (block_ok) THEN
-               CALL ncio_read_serial(fileblock, 'trc_land_restart_complete', complete)
+               CALL ncio_read_serial(fileblock, 'mt_land_restart_complete', complete)
                IF (complete /= 1) block_ok = .false.
             ENDIF
             IF (block_ok) THEN
-               CALL ncio_read_serial(fileblock, 'trc_land_restart_schema', schema)
+               CALL ncio_read_serial(fileblock, 'mt_land_restart_schema', schema)
             ENDIF
             transport_count = -1
             IF (block_ok .and. &
@@ -228,7 +227,7 @@ CONTAINS
                IF (.not. has_count) THEN
                   block_ok = .false.
                ELSE
-                  CALL ncio_inquire_varsize(fileblock, 'trc_land_transport_count', varsize)
+                  CALL ncio_inquire_varsize(fileblock, 'mt_land_transport_count', varsize)
                   IF (.not. allocated(varsize)) THEN
                      block_ok = .false.
                   ELSE
@@ -236,7 +235,7 @@ CONTAINS
                      deallocate(varsize)
                   ENDIF
                   IF (block_ok) THEN
-                     CALL ncio_read_serial(fileblock, 'trc_land_transport_count', transport_count)
+                     CALL ncio_read_serial(fileblock, 'mt_land_transport_count', transport_count)
                      block_ok = transport_count >= 0 .and. transport_count <= 1000
                   ENDIF
                ENDIF
@@ -245,7 +244,7 @@ CONTAINS
                IF (.not. has_mixing) THEN
                   block_ok = .false.
                ELSE
-                  CALL ncio_inquire_varsize(fileblock, 'trc_aquifer_mixing_water_mm', varsize)
+                  CALL ncio_inquire_varsize(fileblock, 'mt_aquifer_mixing_water_mm', varsize)
                   IF (.not. allocated(varsize)) THEN
                      block_ok = .false.
                   ELSE
@@ -253,10 +252,10 @@ CONTAINS
                      deallocate(varsize)
                   ENDIF
                   IF (block_ok) THEN
-                     CALL ncio_read_serial(fileblock, 'trc_aquifer_mixing_water_mm', ondisk_mixing)
+                     CALL ncio_read_serial(fileblock, 'mt_aquifer_mixing_water_mm', ondisk_mixing)
                      ! No silent reinterpretation of the persistent isotope inventory.
                      IF (require_isotope_reference .and. transport_count > 0) THEN
-                        block_ok = ondisk_mixing == DEF_CT_AQUIFER_MIXING_WATER_MM
+                        block_ok = ondisk_mixing == DEF_MT_AQUIFER_MIXING_WATER_MM
                         IF (.not. block_ok) counts(7) = counts(7) + 1
                      ENDIF
                   ENDIF
@@ -273,7 +272,7 @@ CONTAINS
                IF (.not. has_identity) THEN
                   block_ok = .false.
                ELSE
-                  CALL ncio_inquire_varsize(fileblock, 'trc_land_descriptor_identity', varsize)
+                  CALL ncio_inquire_varsize(fileblock, 'mt_land_descriptor_identity', varsize)
                   IF (.not. allocated(varsize)) THEN
                      block_ok = .false.
                   ELSE
@@ -286,7 +285,7 @@ CONTAINS
                      deallocate(varsize)
                   ENDIF
                   IF (block_ok) &
-                     CALL ncio_read_serial(fileblock, 'trc_land_descriptor_identity', ondisk)
+                     CALL ncio_read_serial(fileblock, 'mt_land_descriptor_identity', ondisk)
                ENDIF
             ELSEIF (block_ok .and. schema /= LAND_TRACER_RESTART_SCHEMA_VERSION .and. &
                     schema /= 4) THEN
@@ -296,7 +295,7 @@ CONTAINS
                IF (.not. has_identity) THEN
                   block_ok = .false.
                ELSE
-                  CALL ncio_inquire_varsize(fileblock, 'trc_land_descriptor_identity', varsize)
+                  CALL ncio_inquire_varsize(fileblock, 'mt_land_descriptor_identity', varsize)
                   IF (.not. allocated(varsize)) THEN
                      block_ok = .false.
                   ELSE
@@ -309,7 +308,7 @@ CONTAINS
                      deallocate(varsize)
                   ENDIF
                   IF (block_ok) &
-                     CALL ncio_read_serial(fileblock, 'trc_land_descriptor_identity', ondisk)
+                     CALL ncio_read_serial(fileblock, 'mt_land_descriptor_identity', ondisk)
                ENDIF
             ENDIF
 
@@ -454,7 +453,7 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            CALL ncio_write_serial(fileblock, 'trc_land_restart_complete', complete)
+            CALL ncio_write_serial(fileblock, 'mt_land_restart_complete', complete)
          ENDDO
       ENDIF
    END SUBROUTINE write_land_tracer_transaction_marker
@@ -473,15 +472,15 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            CALL ncio_write_serial(fileblock, 'trc_land_restart_schema', LAND_TRACER_RESTART_SCHEMA_VERSION)
-            CALL ncio_write_serial(fileblock, 'trc_land_transport_count', size(identity, 2))
-            CALL ncio_write_serial(fileblock, 'trc_aquifer_mixing_water_mm', &
-               DEF_CT_AQUIFER_MIXING_WATER_MM)
+            CALL ncio_write_serial(fileblock, 'mt_land_restart_schema', LAND_TRACER_RESTART_SCHEMA_VERSION)
+            CALL ncio_write_serial(fileblock, 'mt_land_transport_count', size(identity, 2))
+            CALL ncio_write_serial(fileblock, 'mt_aquifer_mixing_water_mm', &
+               DEF_MT_AQUIFER_MIXING_WATER_MM)
             IF (size(identity, 2) > 0) THEN
-               CALL ncio_define_dimension(fileblock, 'trc_land_descriptor_field', LAND_TRACER_DESCRIPTOR_FIELDS)
-               CALL ncio_define_dimension(fileblock, 'trc_land_transport', size(identity, 2))
-               CALL ncio_write_serial(fileblock, 'trc_land_descriptor_identity', identity, &
-                  'trc_land_descriptor_field', 'trc_land_transport', DEF_REST_CompressLevel)
+               CALL ncio_define_dimension(fileblock, 'mt_land_descriptor_field', LAND_TRACER_DESCRIPTOR_FIELDS)
+               CALL ncio_define_dimension(fileblock, 'mt_land_transport', size(identity, 2))
+               CALL ncio_write_serial(fileblock, 'mt_land_descriptor_identity', identity, &
+                  'mt_land_descriptor_field', 'mt_land_transport', DEF_REST_CompressLevel)
             ENDIF
          ENDDO
       ENDIF
@@ -497,7 +496,7 @@ CONTAINS
       packed = 0._r8
       k = 0
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          k = k + 1
          packed(k, :) = source(itrc, :)
       ENDDO
@@ -512,7 +511,7 @@ CONTAINS
       packed = 0._r8
       k = 0
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          k = k + 1
          packed(k, :, :) = source(itrc, :, :)
       ENDDO
@@ -535,7 +534,7 @@ CONTAINS
             target = 0._r8
             k = 0
             DO itrc = 1, ntracers
-               IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+               IF (.not. mt_uses_generic_water(itrc)) CYCLE
                k = k + 1
                target(itrc, :) = packed(k, :)
             ENDDO
@@ -562,7 +561,7 @@ CONTAINS
             target = 0._r8
             k = 0
             DO itrc = 1, ntracers
-               IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+               IF (.not. mt_uses_generic_water(itrc)) CYCLE
                k = k + 1
                target(itrc, :, :) = packed(k, :, :)
             ENDDO
@@ -579,7 +578,7 @@ CONTAINS
       integer :: itrc, ip
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          DO ip = 1, size(field, 2)
             IF (.not. ieee_is_finite(field(itrc, ip))) THEN
                invalid_counts(1) = invalid_counts(1) + 1
@@ -598,7 +597,7 @@ CONTAINS
       integer :: itrc, j, ip
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          DO ip = 1, size(field, 3)
             DO j = 1, size(field, 2)
                IF (.not. ieee_is_finite(field(itrc, j, ip))) THEN
@@ -619,7 +618,7 @@ CONTAINS
       integer :: itrc, ip
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          DO ip = 1, size(field, 2)
             IF (.not. ieee_is_finite(field(itrc, ip))) &
                invalid_counts(3) = invalid_counts(3) + 1
@@ -635,7 +634,7 @@ CONTAINS
       integer :: itrc, ip
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          DO ip = 1, size(field, 2)
             IF (.not. ieee_is_finite(field(itrc, ip))) THEN
                invalid_counts(3) = invalid_counts(3) + 1
@@ -652,7 +651,7 @@ CONTAINS
       integer :: itrc
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          WHERE (field(itrc, :) < 0._r8) field(itrc, :) = 0._r8
       ENDDO
    END SUBROUTINE clamp_nonnegative_patch
@@ -663,7 +662,7 @@ CONTAINS
       integer :: itrc
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          WHERE (field(itrc, :, :) < 0._r8) field(itrc, :, :) = 0._r8
       ENDDO
    END SUBROUTINE clamp_nonnegative_soilsnow
@@ -691,7 +690,7 @@ CONTAINS
       require_isotope_reference = .false.
       IF (DEF_USE_VariablySaturatedFlow) THEN
          DO itrc = 1, ntracers
-            IF (ct_uses_land_water_transport(itrc) .and. tracer_is_isotope(itrc)) &
+            IF (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc)) &
                require_isotope_reference = .true.
          ENDDO
       ENDIF
@@ -744,7 +743,7 @@ CONTAINS
          ENDIF
          IF (allocated(trc_aquifer_ref_water) .and. allocated(trc_aquifer_ref_mass)) THEN
             DO itrc = 1, ntracers
-               IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+               IF (.not. mt_uses_generic_water(itrc)) CYCLE
                DO ip = 1, min(size(trc_aquifer_ref_water), size(trc_aquifer_ref_mass, 2))
                   expected_refmass = 0._r8
                   IF (tracer_is_isotope(itrc)) &
@@ -763,7 +762,7 @@ CONTAINS
                 allocated(trc_aquifer_ref_mass)) THEN
                DO itrc = 1, ntracers
                   IF (.not. tracer_is_isotope(itrc)) CYCLE
-                  IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+                  IF (.not. mt_uses_generic_water(itrc)) CYCLE
                   DO ip = 1, min(size(wa), size(trc_wa, 2))
                      IF (.not. tracer_aquifer_isotope_state_valid(wa(ip), trc_wa(itrc, ip), &
                            tracers(itrc)%ref_ratio, trc_aquifer_ref_water(ip), &
@@ -824,7 +823,7 @@ CONTAINS
       ENDIF
    END SUBROUTINE validate_land_tracer_restart_state
 
-   SUBROUTINE ct_init_from_water (numpatch, maxsnl, nl_soil, &
+   SUBROUTINE mt_init_from_water (numpatch, maxsnl, nl_soil, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
       wa, wdsrf, wetwat, scv, waterstorage)
 
@@ -841,7 +840,7 @@ CONTAINS
       ! Optional: per-patch irrigation reservoir from
       ! MOD_Vars_TimeVariables. Present when DEF_USE_IRRIGATION is on
       ! under CROP. When passed, trc_waterstorage is cold-started to
-      ! waterstorage*R_init so the first ct_save_storage sees a
+      ! waterstorage*R_init so the first mt_save_storage sees a
       ! correct starting inventory; without this the pool would be 0
       ! and the first step's balance check would under-count the
       ! reservoir mass that the water side already tracks.
@@ -858,17 +857,17 @@ CONTAINS
       IF (allocated(trc_subsurface_solid)) trc_subsurface_solid = 0._r8
       IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid = 0._r8
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             trc_ldew_rain(itrc, ip) = ldew_rain(ip) * R_init
             trc_ldew_snow(itrc, ip) = ldew_snow(ip) * R_init
-            CALL ct_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
                trc_ldew_rain(itrc, ip), trc_canopy_solid(itrc, ip))
             DO j = maxsnl + 1, nl_soil
                trc_wliq_soisno(itrc, j, ip) = max(wliq_soisno(j, ip), 0._r8) * R_init
                trc_wice_soisno(itrc, j, ip) = max(wice_soisno(j, ip), 0._r8) * R_init
-               CALL ct_equilibrate_dissolved(itrc, max(wliq_soisno(j, ip), 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j, ip), 0._r8), &
                   trc_wliq_soisno(itrc, j, ip), trc_solid_soisno(itrc, j, ip))
             ENDDO
             ! wa uses the SIGNED water value so a hydrology restart with an
@@ -881,11 +880,11 @@ CONTAINS
             ! wdsrf/wetwat stay with max(.,0) since WATER_VSF never leaves
             ! them negative by construction (overflow case L1196-1207).
             IF (tracer_is_isotope(itrc) .and. DEF_USE_VariablySaturatedFlow .and. &
-                DEF_CT_AQUIFER_MIXING_WATER_MM > 0._r8) THEN
+                DEF_MT_AQUIFER_MIXING_WATER_MM > 0._r8) THEN
                IF (.not. allocated(patchtype)) CALL CoLM_stop('missing patchtype for isotope aquifer reference')
                IF (ip > size(patchtype)) CALL CoLM_stop('missing patchtype for isotope aquifer reference')
                IF (patchtype(ip) == 0 .or. patchtype(ip) == 2) THEN
-                  trc_aquifer_ref_water(ip) = DEF_CT_AQUIFER_MIXING_WATER_MM
+                  trc_aquifer_ref_water(ip) = DEF_MT_AQUIFER_MIXING_WATER_MM
                   trc_aquifer_ref_mass(itrc, ip) = trc_aquifer_ref_water(ip) * tracers(itrc)%ref_ratio
                   IF (wa(ip) + trc_aquifer_ref_water(ip) < 0._r8) &
                      CALL CoLM_stop('negative isotope aquifer mixing water at cold start')
@@ -899,11 +898,11 @@ CONTAINS
             ENDIF
             trc_wdsrf (itrc, ip) = max(wdsrf(ip),  0._r8) * R_init
             trc_wetwat(itrc, ip) = max(wetwat(ip), 0._r8) * R_init
-            CALL ct_equilibrate_dissolved(itrc, max(wdsrf(ip), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(wdsrf(ip), 0._r8), &
                trc_wdsrf(itrc, ip), trc_surface_solid(itrc, ip))
-            CALL ct_equilibrate_dissolved(itrc, max(wetwat(ip), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(wetwat(ip), 0._r8), &
                trc_wetwat(itrc, ip), trc_surface_solid(itrc, ip))
-            CALL ct_equilibrate_dissolved(itrc, wa(ip), &
+            CALL mt_equilibrate_dissolved(itrc, wa(ip), &
                trc_wa(itrc, ip), trc_subsurface_solid(itrc, ip))
             ! Reconstruct snl from the snow layer water content (same
             ! recipe as CoLMMAIN L770-774): snl counts non-empty snow
@@ -934,13 +933,13 @@ CONTAINS
             ENDIF
             IF (present(waterstorage) .and. allocated(trc_waterstorage)) THEN
                trc_waterstorage(itrc, ip) = max(waterstorage(ip), 0._r8) * R_init
-               CALL ct_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
                   trc_waterstorage(itrc, ip), trc_waterstorage_solid(itrc, ip))
             ENDIF
          ENDDO
       ENDDO
       CALL zero_provider_owned_land_tracer_state()
-   END SUBROUTINE ct_init_from_water
+   END SUBROUTINE mt_init_from_water
 
    SUBROUTINE read_land_tracer_restart (file_restart, maxsnl, nl_soil, found_restart, &
       scv_missing, waterstorage_missing, wa)
@@ -980,7 +979,7 @@ CONTAINS
          active_isotope = .false.
          IF (DEF_USE_VariablySaturatedFlow) THEN
             DO itrc = 1, ntracers
-               IF (ct_uses_land_water_transport(itrc) .and. tracer_is_isotope(itrc)) &
+               IF (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc)) &
                   active_isotope = .true.
             ENDDO
          ENDIF
@@ -997,94 +996,94 @@ CONTAINS
       ! Finish all collective probes before the first vector read so no worker
       ! can observe a partially scattered checkpoint.
       restart_complete = .true.
-      field_matches = tracer_dim_matches(file_restart, 'trc_ldew_rain')
+      field_matches = tracer_dim_matches(file_restart, 'mt_ldew_rain')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_ldew_snow')
+      field_matches = tracer_dim_matches(file_restart, 'mt_ldew_snow')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_wliq_soisno', &
+      field_matches = tracer_dim_matches(file_restart, 'mt_wliq_soisno', &
                                          expect_soilsnow=nl_soil-maxsnl)
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_wice_soisno', &
+      field_matches = tracer_dim_matches(file_restart, 'mt_wice_soisno', &
                                          expect_soilsnow=nl_soil-maxsnl)
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_solid_soisno', &
+      field_matches = tracer_dim_matches(file_restart, 'mt_solid_soisno', &
                                          expect_soilsnow=nl_soil-maxsnl)
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_wa')
+      field_matches = tracer_dim_matches(file_restart, 'mt_wa')
       restart_complete = restart_complete .and. field_matches
       IF (restart_schema == LAND_TRACER_RESTART_SCHEMA_VERSION) THEN
-         field_matches = tracer_dim_matches(file_restart, 'trc_aquifer_ref_water', patch_only=.true.)
+         field_matches = tracer_dim_matches(file_restart, 'mt_aquifer_ref_water', patch_only=.true.)
          restart_complete = restart_complete .and. field_matches
-         field_matches = tracer_dim_matches(file_restart, 'trc_aquifer_ref_mass')
+         field_matches = tracer_dim_matches(file_restart, 'mt_aquifer_ref_mass')
          restart_complete = restart_complete .and. field_matches
       ENDIF
-      field_matches = tracer_dim_matches(file_restart, 'trc_wdsrf')
+      field_matches = tracer_dim_matches(file_restart, 'mt_wdsrf')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_wetwat')
+      field_matches = tracer_dim_matches(file_restart, 'mt_wetwat')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_surface_residue')
+      field_matches = tracer_dim_matches(file_restart, 'mt_surface_residue')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_subsurface_residue')
+      field_matches = tracer_dim_matches(file_restart, 'mt_subsurface_residue')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_canopy_solid')
+      field_matches = tracer_dim_matches(file_restart, 'mt_canopy_solid')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_surface_solid')
+      field_matches = tracer_dim_matches(file_restart, 'mt_surface_solid')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_subsurface_solid')
+      field_matches = tracer_dim_matches(file_restart, 'mt_subsurface_solid')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_waterstorage_solid')
+      field_matches = tracer_dim_matches(file_restart, 'mt_waterstorage_solid')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_scv')
+      field_matches = tracer_dim_matches(file_restart, 'mt_scv')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_waterstorage')
+      field_matches = tracer_dim_matches(file_restart, 'mt_waterstorage')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_leaf_delta_e')
+      field_matches = tracer_dim_matches(file_restart, 'mt_leaf_delta_e')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_leaf_delta_b')
+      field_matches = tracer_dim_matches(file_restart, 'mt_leaf_delta_b')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_leaf_peclet')
+      field_matches = tracer_dim_matches(file_restart, 'mt_leaf_peclet')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_leaf_water_moles')
+      field_matches = tracer_dim_matches(file_restart, 'mt_leaf_water_moles')
       restart_complete = restart_complete .and. field_matches
-      field_matches = tracer_dim_matches(file_restart, 'trc_leaf_iso_storage')
+      field_matches = tracer_dim_matches(file_restart, 'mt_leaf_iso_storage')
       restart_complete = restart_complete .and. field_matches
       IF (.not. restart_complete) &
          CALL CoLM_stop('incomplete or malformed committed generic land tracer restart')
 
-      CALL read_transport_patch_field(file_restart, 'trc_ldew_rain', trc_ldew_rain)
-      CALL read_transport_patch_field(file_restart, 'trc_ldew_snow', trc_ldew_snow)
-      CALL read_transport_soilsnow_field(file_restart, 'trc_wliq_soisno', &
+      CALL read_transport_patch_field(file_restart, 'mt_ldew_rain', trc_ldew_rain)
+      CALL read_transport_patch_field(file_restart, 'mt_ldew_snow', trc_ldew_snow)
+      CALL read_transport_soilsnow_field(file_restart, 'mt_wliq_soisno', &
          nl_soil-maxsnl, trc_wliq_soisno)
-      CALL read_transport_soilsnow_field(file_restart, 'trc_wice_soisno', &
+      CALL read_transport_soilsnow_field(file_restart, 'mt_wice_soisno', &
          nl_soil-maxsnl, trc_wice_soisno)
-      CALL read_transport_soilsnow_field(file_restart, 'trc_solid_soisno', &
+      CALL read_transport_soilsnow_field(file_restart, 'mt_solid_soisno', &
          nl_soil-maxsnl, trc_solid_soisno)
-      CALL read_transport_patch_field(file_restart, 'trc_wa', trc_wa)
+      CALL read_transport_patch_field(file_restart, 'mt_wa', trc_wa)
       IF (restart_schema == LAND_TRACER_RESTART_SCHEMA_VERSION) THEN
-         CALL ncio_read_vector(file_restart, 'trc_aquifer_ref_water', landpatch, &
+         CALL ncio_read_vector(file_restart, 'mt_aquifer_ref_water', landpatch, &
             trc_aquifer_ref_water)
-         CALL read_transport_patch_field(file_restart, 'trc_aquifer_ref_mass', trc_aquifer_ref_mass)
+         CALL read_transport_patch_field(file_restart, 'mt_aquifer_ref_mass', trc_aquifer_ref_mass)
       ELSE
          ! Schema 4 has no isotope reference; only non-VSF-isotope generic
          ! transport is admitted here, preserving its exact old hot state.
          trc_aquifer_ref_water = 0._r8
          trc_aquifer_ref_mass = 0._r8
       ENDIF
-      CALL read_transport_patch_field(file_restart, 'trc_wdsrf', trc_wdsrf)
-      CALL read_transport_patch_field(file_restart, 'trc_wetwat', trc_wetwat)
-      CALL read_transport_patch_field(file_restart, 'trc_surface_residue', trc_surface_residue)
-      CALL read_transport_patch_field(file_restart, 'trc_subsurface_residue', trc_subsurface_residue)
-      CALL read_transport_patch_field(file_restart, 'trc_canopy_solid', trc_canopy_solid)
-      CALL read_transport_patch_field(file_restart, 'trc_surface_solid', trc_surface_solid)
-      CALL read_transport_patch_field(file_restart, 'trc_subsurface_solid', trc_subsurface_solid)
-      CALL read_transport_patch_field(file_restart, 'trc_waterstorage_solid', trc_waterstorage_solid)
-      CALL read_transport_patch_field(file_restart, 'trc_scv', trc_scv)
-      CALL read_transport_patch_field(file_restart, 'trc_waterstorage', trc_waterstorage)
-      CALL read_transport_patch_field(file_restart, 'trc_leaf_delta_e', trc_leaf_delta_e)
-      CALL read_transport_patch_field(file_restart, 'trc_leaf_delta_b', trc_leaf_delta_b)
-      CALL read_transport_patch_field(file_restart, 'trc_leaf_peclet', trc_leaf_peclet)
-      CALL read_transport_patch_field(file_restart, 'trc_leaf_water_moles', trc_leaf_water_moles)
-      CALL read_transport_patch_field(file_restart, 'trc_leaf_iso_storage', trc_leaf_iso_storage)
+      CALL read_transport_patch_field(file_restart, 'mt_wdsrf', trc_wdsrf)
+      CALL read_transport_patch_field(file_restart, 'mt_wetwat', trc_wetwat)
+      CALL read_transport_patch_field(file_restart, 'mt_surface_residue', trc_surface_residue)
+      CALL read_transport_patch_field(file_restart, 'mt_subsurface_residue', trc_subsurface_residue)
+      CALL read_transport_patch_field(file_restart, 'mt_canopy_solid', trc_canopy_solid)
+      CALL read_transport_patch_field(file_restart, 'mt_surface_solid', trc_surface_solid)
+      CALL read_transport_patch_field(file_restart, 'mt_subsurface_solid', trc_subsurface_solid)
+      CALL read_transport_patch_field(file_restart, 'mt_waterstorage_solid', trc_waterstorage_solid)
+      CALL read_transport_patch_field(file_restart, 'mt_scv', trc_scv)
+      CALL read_transport_patch_field(file_restart, 'mt_waterstorage', trc_waterstorage)
+      CALL read_transport_patch_field(file_restart, 'mt_leaf_delta_e', trc_leaf_delta_e)
+      CALL read_transport_patch_field(file_restart, 'mt_leaf_delta_b', trc_leaf_delta_b)
+      CALL read_transport_patch_field(file_restart, 'mt_leaf_peclet', trc_leaf_peclet)
+      CALL read_transport_patch_field(file_restart, 'mt_leaf_water_moles', trc_leaf_water_moles)
+      CALL read_transport_patch_field(file_restart, 'mt_leaf_iso_storage', trc_leaf_iso_storage)
 
       CALL validate_land_tracer_restart_state(wa)
       CALL zero_provider_owned_land_tracer_state()
@@ -1096,7 +1095,7 @@ CONTAINS
    ! other tracer pool as-is. Used after read_land_tracer_restart when
    ! the restart file was otherwise complete but lacked trc_scv (old
    ! format). Uses the same snl-from-water heuristic as
-   ! ct_init_from_water to decide when trc_scv is meaningful.
+   ! mt_init_from_water to decide when trc_scv is meaningful.
    !-------------------------------------------------------------------
    SUBROUTINE tracer_init_scv_from_water (numpatch, maxsnl, nl_soil, &
       wliq_soisno, wice_soisno, scv)
@@ -1112,7 +1111,7 @@ CONTAINS
       IF (ntracers <= 0) RETURN
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             snl_local = 0
@@ -1154,7 +1153,7 @@ CONTAINS
       IF (.not. allocated(trc_waterstorage)) RETURN
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
             snl_local = 0
@@ -1192,7 +1191,7 @@ CONTAINS
                ratio = R_init
             ENDIF
             trc_waterstorage(itrc, ip) = max(waterstorage(ip), 0._r8) * ratio
-            CALL ct_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
                trc_waterstorage(itrc, ip), trc_waterstorage_solid(itrc, ip))
          ENDDO
       ENDDO
@@ -1210,17 +1209,17 @@ CONTAINS
       real(r8) :: surface_water, surface_tracer
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          DO ip = 1, numpatch
-            CALL ct_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
                trc_ldew_rain(itrc, ip), trc_canopy_solid(itrc, ip))
             DO j = maxsnl + 1, nl_soil
-               CALL ct_equilibrate_dissolved(itrc, max(wliq_soisno(j, ip), 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j, ip), 0._r8), &
                   trc_wliq_soisno(itrc, j, ip), trc_solid_soisno(itrc, j, ip))
             ENDDO
             surface_water = max(wdsrf(ip), 0._r8) + max(wetwat(ip), 0._r8)
             surface_tracer = trc_wdsrf(itrc, ip) + trc_wetwat(itrc, ip)
-            CALL ct_equilibrate_dissolved(itrc, surface_water, surface_tracer, &
+            CALL mt_equilibrate_dissolved(itrc, surface_water, surface_tracer, &
                trc_surface_solid(itrc, ip))
             IF (surface_water > trc_water_min_for_ratio) THEN
                trc_wdsrf(itrc, ip) = surface_tracer * max(wdsrf(ip), 0._r8) / surface_water
@@ -1229,10 +1228,10 @@ CONTAINS
                trc_wdsrf(itrc, ip) = 0._r8
                trc_wetwat(itrc, ip) = 0._r8
             ENDIF
-            CALL ct_equilibrate_dissolved(itrc, wa(ip), trc_wa(itrc, ip), &
+            CALL mt_equilibrate_dissolved(itrc, wa(ip), trc_wa(itrc, ip), &
                trc_subsurface_solid(itrc, ip))
             IF (present(waterstorage) .and. allocated(trc_waterstorage)) THEN
-               CALL ct_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(waterstorage(ip), 0._r8), &
                   trc_waterstorage(itrc, ip), trc_waterstorage_solid(itrc, ip))
             ENDIF
          ENDDO
@@ -1287,133 +1286,133 @@ CONTAINS
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_ldew_rain)) &
          CALL pack_transport_patch(trc_ldew_rain, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_ldew_rain', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_ldew_rain', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_ldew_snow)) &
          CALL pack_transport_patch(trc_ldew_snow, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_ldew_snow', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_ldew_snow', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       allocate(restart_soilsnow(ntransport, nl_soil-maxsnl, numpatch))
       restart_soilsnow = 0._r8
       IF (have_patch_data .and. allocated(trc_wliq_soisno)) &
          CALL pack_transport_soilsnow(trc_wliq_soisno, restart_soilsnow)
-      CALL ncio_write_vector(file_restart, 'trc_wliq_soisno', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_wliq_soisno', 'mt_land_transport', ntransport, &
          'soilsnow', nl_soil-maxsnl, 'patch', landpatch, restart_soilsnow, DEF_REST_CompressLevel)
 
       restart_soilsnow = 0._r8
       IF (have_patch_data .and. allocated(trc_wice_soisno)) &
          CALL pack_transport_soilsnow(trc_wice_soisno, restart_soilsnow)
-      CALL ncio_write_vector(file_restart, 'trc_wice_soisno', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_wice_soisno', 'mt_land_transport', ntransport, &
          'soilsnow', nl_soil-maxsnl, 'patch', landpatch, restart_soilsnow, DEF_REST_CompressLevel)
 
       restart_soilsnow = 0._r8
       IF (have_patch_data .and. allocated(trc_solid_soisno)) &
          CALL pack_transport_soilsnow(trc_solid_soisno, restart_soilsnow)
-      CALL ncio_write_vector(file_restart, 'trc_solid_soisno', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_solid_soisno', 'mt_land_transport', ntransport, &
          'soilsnow', nl_soil-maxsnl, 'patch', landpatch, restart_soilsnow, DEF_REST_CompressLevel)
       deallocate(restart_soilsnow)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_wa)) CALL pack_transport_patch(trc_wa, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_wa', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_wa', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
-      CALL ncio_write_vector(file_restart, 'trc_aquifer_ref_water', 'patch', landpatch, &
+      CALL ncio_write_vector(file_restart, 'mt_aquifer_ref_water', 'patch', landpatch, &
          trc_aquifer_ref_water, DEF_REST_CompressLevel)
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_aquifer_ref_mass)) &
          CALL pack_transport_patch(trc_aquifer_ref_mass, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_aquifer_ref_mass', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_aquifer_ref_mass', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_wdsrf)) CALL pack_transport_patch(trc_wdsrf, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_wdsrf', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_wdsrf', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_wetwat)) CALL pack_transport_patch(trc_wetwat, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_wetwat', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_wetwat', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_surface_residue)) &
          CALL pack_transport_patch(trc_surface_residue, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_surface_residue', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_surface_residue', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_subsurface_residue)) &
          CALL pack_transport_patch(trc_subsurface_residue, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_subsurface_residue', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_subsurface_residue', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_canopy_solid)) &
          CALL pack_transport_patch(trc_canopy_solid, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_canopy_solid', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_canopy_solid', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_surface_solid)) &
          CALL pack_transport_patch(trc_surface_solid, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_surface_solid', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_surface_solid', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_subsurface_solid)) &
          CALL pack_transport_patch(trc_subsurface_solid, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_subsurface_solid', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_subsurface_solid', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_waterstorage_solid)) &
          CALL pack_transport_patch(trc_waterstorage_solid, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_waterstorage_solid', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_waterstorage_solid', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_scv)) CALL pack_transport_patch(trc_scv, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_scv', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_scv', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_waterstorage)) &
          CALL pack_transport_patch(trc_waterstorage, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_waterstorage', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_waterstorage', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_leaf_delta_e)) &
          CALL pack_transport_patch(trc_leaf_delta_e, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_leaf_delta_e', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_leaf_delta_e', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_leaf_delta_b)) &
          CALL pack_transport_patch(trc_leaf_delta_b, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_leaf_delta_b', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_leaf_delta_b', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_leaf_peclet)) &
          CALL pack_transport_patch(trc_leaf_peclet, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_leaf_peclet', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_leaf_peclet', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_leaf_water_moles)) &
          CALL pack_transport_patch(trc_leaf_water_moles, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_leaf_water_moles', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_leaf_water_moles', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       restart_patch = 0._r8
       IF (have_patch_data .and. allocated(trc_leaf_iso_storage)) &
          CALL pack_transport_patch(trc_leaf_iso_storage, restart_patch)
-      CALL ncio_write_vector(file_restart, 'trc_leaf_iso_storage', 'trc_land_transport', ntransport, &
+      CALL ncio_write_vector(file_restart, 'mt_leaf_iso_storage', 'mt_land_transport', ntransport, &
          'patch', landpatch, restart_patch, DEF_REST_CompressLevel)
 
       deallocate(restart_patch)
@@ -1449,5 +1448,5 @@ CONTAINS
 
    END SUBROUTINE write_tracer_restart_all
 
-END MODULE MOD_CT_Rest
+END MODULE MOD_MT_Rest
 #endif

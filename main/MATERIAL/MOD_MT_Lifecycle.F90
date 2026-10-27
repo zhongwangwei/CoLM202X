@@ -1,7 +1,7 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Lifecycle
+#ifdef MaterialTransport
+MODULE MOD_MT_Lifecycle
 !=======================================================================
 ! One lifecycle row per configured tracer. Provider names are resolved
 ! once during initialization; phase dispatch thereafter uses tracer index.
@@ -10,7 +10,7 @@ MODULE MOD_CT_Lifecycle
    USE MOD_Precision
    USE MOD_DataType, only: block_data_real8_2d
    USE MOD_SPMD_Task, only: CoLM_stop, p_is_master
-   USE MOD_CT_Defs, only: ntracers, tracers, tracer_upper, tracer_index_for_name, &
+   USE MOD_MT_Defs, only: ntracers, tracers, tracer_upper, tracer_index_for_name, &
       FAMILY_UNRESOLVED, FAMILY_ISOTOPE, FAMILY_SOLUTE, &
       FAMILY_PARTICLE, FAMILY_GAS, STATE_OWNER_UNKNOWN, &
       STATE_OWNER_GENERIC_WATER, STATE_OWNER_PROVIDER, &
@@ -20,8 +20,8 @@ MODULE MOD_CT_Lifecycle
    PRIVATE
 
    interface
-      SUBROUTINE ct_register_providers ()
-      END SUBROUTINE ct_register_providers
+      SUBROUTINE mt_register_providers ()
+      END SUBROUTINE mt_register_providers
    end interface
 
    abstract interface
@@ -174,7 +174,7 @@ MODULE MOD_CT_Lifecycle
    type(tracer_lifecycle_hooks_type), allocatable, save :: lifecycle(:)
    character(len=32), allocatable, save :: provider_name(:)
 
-   PUBLIC :: tracer_lifecycle_init, tracer_lifecycle_validate, ct_lifecycle_reset
+   PUBLIC :: tracer_lifecycle_init, tracer_lifecycle_validate, mt_lifecycle_reset
    PUBLIC :: tracer_lifecycle_report_registry
    PUBLIC :: register_tracer_provider
    PUBLIC :: tracer_lifecycle_size, tracer_lifecycle_has_provider, tracer_lifecycle_provider
@@ -183,15 +183,15 @@ MODULE MOD_CT_Lifecycle
    PUBLIC :: tracer_lifecycle_land_report, tracer_lifecycle_land_read_restart, tracer_lifecycle_land_write_restart
    PUBLIC :: tracer_lifecycle_land_history, tracer_lifecycle_land_flush_acc_fluxes
    PUBLIC :: tracer_lifecycle_land_history_sidecar
-   PUBLIC :: tracer_lifecycle_land_accumulate_fluxes, ct_lifecycle_land_save_lulcc_state
-   PUBLIC :: ct_lifecycle_land_remap_lulcc_state, ct_lifecycle_land_reload_lulcc_inputs
+   PUBLIC :: tracer_lifecycle_land_accumulate_fluxes, mt_lifecycle_land_save_lulcc_state
+   PUBLIC :: mt_lifecycle_land_remap_lulcc_state, mt_lifecycle_land_reload_lulcc_inputs
    PUBLIC :: tracer_lifecycle_has_levee_flood_publisher, tracer_lifecycle_has_flood_publisher
-   PUBLIC :: ct_lifecycle_publish_levee_flood_patch, ct_lifecycle_publish_flood_patch
-   PUBLIC :: ct_lifecycle_route_has_active, ct_lifecycle_route_init, ct_lifecycle_route_final
-   PUBLIC :: ct_lifecycle_route_read_restart, ct_lifecycle_route_write_restart
-   PUBLIC :: ct_lifecycle_route_forcing_put, ct_lifecycle_route_diag_accumulate, ct_lifecycle_route_calc
-   PUBLIC :: ct_lifecycle_route_sediment_bif_accumulate, ct_lifecycle_route_sediment_levee_repartition
-   PUBLIC :: ct_lifecycle_route_write_history, ct_lifecycle_route_flush_history
+   PUBLIC :: mt_lifecycle_publish_levee_flood_patch, mt_lifecycle_publish_flood_patch
+   PUBLIC :: mt_lifecycle_route_has_active, mt_lifecycle_route_init, mt_lifecycle_route_final
+   PUBLIC :: mt_lifecycle_route_read_restart, mt_lifecycle_route_write_restart
+   PUBLIC :: mt_lifecycle_route_forcing_put, mt_lifecycle_route_diag_accumulate, mt_lifecycle_route_calc
+   PUBLIC :: mt_lifecycle_route_sediment_bif_accumulate, mt_lifecycle_route_sediment_levee_repartition
+   PUBLIC :: mt_lifecycle_route_write_history, mt_lifecycle_route_flush_history
 
 CONTAINS
 
@@ -201,15 +201,15 @@ CONTAINS
          CALL lifecycle_error ('descriptor table is not initialized')
       allocate(lifecycle(ntracers), provider_name(ntracers))
       provider_name = ''
-      CALL ct_register_providers ()
+      CALL mt_register_providers ()
       CALL tracer_lifecycle_validate ()
       CALL tracer_lifecycle_report_registry ()
    END SUBROUTINE tracer_lifecycle_init
 
-   SUBROUTINE ct_lifecycle_reset ()
+   SUBROUTINE mt_lifecycle_reset ()
       IF (allocated(lifecycle)) deallocate(lifecycle)
       IF (allocated(provider_name)) deallocate(provider_name)
-   END SUBROUTINE ct_lifecycle_reset
+   END SUBROUTINE mt_lifecycle_reset
 
    SUBROUTINE register_tracer_provider (name, aliases, provider, declared_family, &
       declared_owner, declared_reaction, hooks, itrc)
@@ -493,7 +493,7 @@ CONTAINS
       ! With one provider there is nobody to be isolated from, so it gets the
       ! caller's arrays directly and the deep copy of sumarea is skipped. The
       ! contract that makes this safe belongs to the caller: filter must be
-      ! dead after this dispatch. Today it is -- ct_hist_out ends here and
+      ! dead after this dispatch. Today it is -- mt_hist_out ends here and
       ! MOD_Hist deallocates filter on the next line. Anything reading filter
       ! after this call would see one provider's leftovers with a single
       ! provider registered and the original mask with two.
@@ -514,16 +514,16 @@ CONTAINS
       deallocate(callback_filter)
    END SUBROUTINE tracer_lifecycle_land_history
 
-   SUBROUTINE ct_lifecycle_land_save_lulcc_state ()
+   SUBROUTINE mt_lifecycle_land_save_lulcc_state ()
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%land_save_lulcc)) &
             CALL lifecycle(i)%land_save_lulcc()
       ENDDO
-   END SUBROUTINE ct_lifecycle_land_save_lulcc_state
+   END SUBROUTINE mt_lifecycle_land_save_lulcc_state
 
-   SUBROUTINE ct_lifecycle_land_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
+   SUBROUTINE mt_lifecycle_land_remap_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
       lccpct_patches, new_patch_area, old_patch_area)
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
@@ -535,9 +535,9 @@ CONTAINS
             CALL lifecycle(i)%land_remap_lulcc(patchclass_new, eindex_new, patchclass_old, eindex_old, &
                lccpct_patches, new_patch_area, old_patch_area)
       ENDDO
-   END SUBROUTINE ct_lifecycle_land_remap_lulcc_state
+   END SUBROUTINE mt_lifecycle_land_remap_lulcc_state
 
-   SUBROUTINE ct_lifecycle_land_reload_lulcc_inputs (lc_year, dir_landdata)
+   SUBROUTINE mt_lifecycle_land_reload_lulcc_inputs (lc_year, dir_landdata)
       integer, intent(in) :: lc_year
       character(len=*), intent(in) :: dir_landdata
       integer :: i
@@ -546,7 +546,7 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%land_reload_lulcc)) &
             CALL lifecycle(i)%land_reload_lulcc(lc_year, dir_landdata)
       ENDDO
-   END SUBROUTINE ct_lifecycle_land_reload_lulcc_inputs
+   END SUBROUTINE mt_lifecycle_land_reload_lulcc_inputs
 
    logical FUNCTION tracer_lifecycle_has_levee_flood_publisher ()
       integer :: i
@@ -572,7 +572,7 @@ CONTAINS
       ENDDO
    END FUNCTION tracer_lifecycle_has_flood_publisher
 
-   SUBROUTINE ct_lifecycle_publish_levee_flood_patch (fldfrc_patch)
+   SUBROUTINE mt_lifecycle_publish_levee_flood_patch (fldfrc_patch)
       real(r8), intent(in) :: fldfrc_patch(:)
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
@@ -580,9 +580,9 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%publish_levee_flood)) &
             CALL lifecycle(i)%publish_levee_flood(fldfrc_patch)
       ENDDO
-   END SUBROUTINE ct_lifecycle_publish_levee_flood_patch
+   END SUBROUTINE mt_lifecycle_publish_levee_flood_patch
 
-   SUBROUTINE ct_lifecycle_publish_flood_patch (fldfrc_patch, flddph_patch)
+   SUBROUTINE mt_lifecycle_publish_flood_patch (fldfrc_patch, flddph_patch)
       real(r8), intent(in) :: fldfrc_patch(:), flddph_patch(:)
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
@@ -590,7 +590,7 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%publish_flood)) &
             CALL lifecycle(i)%publish_flood(fldfrc_patch, flddph_patch)
       ENDDO
-   END SUBROUTINE ct_lifecycle_publish_flood_patch
+   END SUBROUTINE mt_lifecycle_publish_flood_patch
 
    SUBROUTINE tracer_lifecycle_land_final ()
       integer :: i
@@ -601,31 +601,31 @@ CONTAINS
       ENDDO
    END SUBROUTINE tracer_lifecycle_land_final
 
-   logical FUNCTION ct_lifecycle_route_has_active ()
+   logical FUNCTION mt_lifecycle_route_has_active ()
       integer :: i
-      ct_lifecycle_route_has_active = .false.
+      mt_lifecycle_route_has_active = .false.
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. &
              (associated(lifecycle(i)%route_forcing_put) .or. &
               associated(lifecycle(i)%route_diag_accumulate) .or. &
               associated(lifecycle(i)%route_calc))) THEN
-            ct_lifecycle_route_has_active = .true.
+            mt_lifecycle_route_has_active = .true.
             RETURN
          ENDIF
       ENDDO
-   END FUNCTION ct_lifecycle_route_has_active
+   END FUNCTION mt_lifecycle_route_has_active
 
-   SUBROUTINE ct_lifecycle_route_init ()
+   SUBROUTINE mt_lifecycle_route_init ()
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_init)) &
             CALL lifecycle(i)%route_init()
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_init
+   END SUBROUTINE mt_lifecycle_route_init
 
-   SUBROUTINE ct_lifecycle_route_read_restart (file_restart)
+   SUBROUTINE mt_lifecycle_route_read_restart (file_restart)
       character(len=*), intent(in) :: file_restart
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
@@ -633,9 +633,9 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_read_restart)) &
             CALL lifecycle(i)%route_read_restart(file_restart)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_read_restart
+   END SUBROUTINE mt_lifecycle_route_read_restart
 
-   SUBROUTINE ct_lifecycle_route_write_restart (file_restart)
+   SUBROUTINE mt_lifecycle_route_write_restart (file_restart)
       character(len=*), intent(in) :: file_restart
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
@@ -643,9 +643,9 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_write_restart)) &
             CALL lifecycle(i)%route_write_restart(file_restart)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_write_restart
+   END SUBROUTINE mt_lifecycle_route_write_restart
 
-   SUBROUTINE ct_lifecycle_route_forcing_put (precip, dt, valid_fraction)
+   SUBROUTINE mt_lifecycle_route_forcing_put (precip, dt, valid_fraction)
       real(r8), intent(in) :: precip(:), dt
       real(r8), optional, intent(in) :: valid_fraction(:)
       integer :: i
@@ -654,9 +654,9 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_forcing_put)) &
             CALL lifecycle(i)%route_forcing_put(precip, dt, valid_fraction)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_forcing_put
+   END SUBROUTINE mt_lifecycle_route_forcing_put
 
-   SUBROUTINE ct_lifecycle_route_diag_accumulate (dt_all, irivsys, ucatfilter, &
+   SUBROUTINE mt_lifecycle_route_diag_accumulate (dt_all, irivsys, ucatfilter, &
       veloc, wdsrf, rivsto_start, rivsto_input, rivout_fc, floodarea, protected_start, protected_end, protected_area)
       real(r8), intent(in) :: dt_all(:), veloc(:), wdsrf(:)
       real(r8), intent(in) :: rivsto_start(:), rivsto_input(:), rivout_fc(:), floodarea(:)
@@ -671,9 +671,9 @@ CONTAINS
                veloc, wdsrf, rivsto_start, rivsto_input, rivout_fc, floodarea, &
                protected_start, protected_end, protected_area)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_diag_accumulate
+   END SUBROUTINE mt_lifecycle_route_diag_accumulate
 
-   SUBROUTINE ct_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
+   SUBROUTINE mt_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
       real(r8), intent(in) :: dt_all(:), bif_hflux_lev(:,:)
       integer, intent(in) :: irivsys(:)
       logical, intent(in) :: ucatfilter(:)
@@ -683,9 +683,9 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_sediment_bif)) &
             CALL lifecycle(i)%route_sediment_bif(dt_all, irivsys, ucatfilter, bif_hflux_lev)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_sediment_bif_accumulate
+   END SUBROUTINE mt_lifecycle_route_sediment_bif_accumulate
 
-   SUBROUTINE ct_lifecycle_route_sediment_levee_repartition (i, visible_before, protected_before, &
+   SUBROUTINE mt_lifecycle_route_sediment_levee_repartition (i, visible_before, protected_before, &
       visible_after, protected_after)
       integer, intent(in) :: i
       real(r8), intent(in) :: visible_before, protected_before, visible_after, protected_after
@@ -696,9 +696,9 @@ CONTAINS
             CALL lifecycle(itrc)%route_sediment_levee(i, visible_before, protected_before, &
                visible_after, protected_after)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_sediment_levee_repartition
+   END SUBROUTINE mt_lifecycle_route_sediment_levee_repartition
 
-   SUBROUTINE ct_lifecycle_route_calc (deltime)
+   SUBROUTINE mt_lifecycle_route_calc (deltime)
       real(r8), intent(in) :: deltime
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
@@ -706,9 +706,9 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_calc)) &
             CALL lifecycle(i)%route_calc(deltime)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_calc
+   END SUBROUTINE mt_lifecycle_route_calc
 
-   SUBROUTINE ct_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
+   SUBROUTINE mt_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
       character(len=*), intent(in) :: file_hist_ucat
       integer, intent(in) :: itime_in_file_ucat
       integer :: i
@@ -717,25 +717,25 @@ CONTAINS
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_history)) &
             CALL lifecycle(i)%route_history(file_hist_ucat, itime_in_file_ucat)
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_write_history
+   END SUBROUTINE mt_lifecycle_route_write_history
 
-   SUBROUTINE ct_lifecycle_route_flush_history ()
+   SUBROUTINE mt_lifecycle_route_flush_history ()
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_flush_history)) &
             CALL lifecycle(i)%route_flush_history()
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_flush_history
+   END SUBROUTINE mt_lifecycle_route_flush_history
 
-   SUBROUTINE ct_lifecycle_route_final ()
+   SUBROUTINE mt_lifecycle_route_final ()
       integer :: i
       IF (.not. allocated(lifecycle)) RETURN
       DO i = 1, size(lifecycle)
          IF (lifecycle_row_registered(i) .and. associated(lifecycle(i)%route_final)) &
             CALL lifecycle(i)%route_final()
       ENDDO
-   END SUBROUTINE ct_lifecycle_route_final
+   END SUBROUTINE mt_lifecycle_route_final
 
    logical FUNCTION lifecycle_row_registered (itrc)
       integer, intent(in) :: itrc
@@ -933,8 +933,8 @@ CONTAINS
 
    SUBROUTINE lifecycle_error (message)
       character(len=*), intent(in) :: message
-      CALL CoLM_stop ('MOD_CT_Lifecycle: '//trim(message))
+      CALL CoLM_stop ('MOD_MT_Lifecycle: '//trim(message))
    END SUBROUTINE lifecycle_error
 
-END MODULE MOD_CT_Lifecycle
+END MODULE MOD_MT_Lifecycle
 #endif

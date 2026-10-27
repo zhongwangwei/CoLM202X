@@ -68,7 +68,7 @@ CONTAINS
                hpbl, &
                qintr_rain ,qintr_snow ,t_precip   ,hprl       ,&
                dheatl     ,smp        ,hk         ,hksati     ,&
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                rootflux   ,canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_trc_out )
 #else
                rootflux    )
@@ -272,8 +272,8 @@ CONTAINS
         etr,           &! transpiration rate [mm/s]
         hprl,          &! precipitation sensible heat from canopy
         dheatl          ! vegetation heat change [W/m2]
-#ifdef ConstituentTransport
-   ! Diagnostics for constituent transport only; not used by the host.
+#ifdef MaterialTransport
+   ! Diagnostics for material transport only; not used by the host.
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out ! canopy snow melted [mm]
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out  ! canopy water frozen [mm]
    real(r8), intent(out), optional :: raw_trc_out  ! moisture resistance raw [s/m]
@@ -541,7 +541,7 @@ CONTAINS
          ENDIF
       ENDDO
 
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(:) = 0._r8
       IF (present(canopy_frzc_mass_p_out))  canopy_frzc_mass_p_out(:)  = 0._r8
       IF (present(raw_trc_out)) raw_trc_out = 0._r8
@@ -1985,7 +1985,7 @@ ENDIF
                   qmelt(i) = min(ldew_snow(i)/deltim,(tl(i)-tfrz)*cpice*ldew_snow(i)/(deltim*hfus))
                   ldew_snow(i) = max(0.,ldew_snow(i) - qmelt(i)*deltim)
                   ldew_rain(i) = max(0.,ldew_rain(i) + qmelt(i)*deltim)
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                   IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(i) = qmelt(i)*deltim
 #endif
                   !NOTE: There may be some problem, energy imbalance
@@ -1997,7 +1997,7 @@ ENDIF
                   qfrz(i)  = min(ldew_rain(i)/deltim,(tfrz-tl(i))*cpliq*ldew_rain(i)/(deltim*hfus))
                   ldew_rain(i) = max(0.,ldew_rain(i) - qfrz(i)*deltim)
                   ldew_snow(i) = max(0.,ldew_snow(i) + qfrz(i)*deltim)
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
                   IF (present(canopy_frzc_mass_p_out)) canopy_frzc_mass_p_out(i) = qfrz(i)*deltim
 #endif
                   !NOTE: There may be some problem, energy imbalance
@@ -2098,7 +2098,7 @@ ENDIF
 
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
       IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
 #endif
 

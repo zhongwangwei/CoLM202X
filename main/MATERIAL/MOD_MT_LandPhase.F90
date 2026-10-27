@@ -1,21 +1,22 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_LandPhase
+#ifdef MaterialTransport
+MODULE MOD_MT_LandPhase
 
    USE MOD_Precision
-   USE MOD_CT_Defs
-   USE MOD_CT_Vars
-   USE MOD_CT_Precip
-   USE MOD_CT_Evapo
-   USE MOD_CT_SoilWater
-   USE MOD_CT_Snow
-   USE MOD_CT_Conservation
-   USE MOD_CT_Rest
-   USE MOD_CT_SoilInit
+   USE MOD_MT_Defs
+   USE MOD_MT_Solute, only: mt_solute_read_parameters
+   USE MOD_MT_Vars
+   USE MOD_MT_Precip
+   USE MOD_MT_Evapo
+   USE MOD_MT_SoilWater
+   USE MOD_MT_Snow
+   USE MOD_MT_Conservation
+   USE MOD_MT_Rest
+   USE MOD_MT_SoilInit
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_IRRIGATION
-   USE MOD_CT_Lifecycle, only: tracer_lifecycle_init, &
+   USE MOD_MT_Lifecycle, only: tracer_lifecycle_init, &
       tracer_lifecycle_land_init, tracer_lifecycle_land_final, &
       tracer_lifecycle_lake_step, &
       tracer_lifecycle_wetland_decomp, tracer_lifecycle_soil_step, &
@@ -30,33 +31,33 @@ MODULE MOD_CT_LandPhase
    ! drivers do not USE every low-level tracer module directly. NOTE: this
    ! is a facade, not the engine -- per-step driving lives in the called
    ! modules. River/lake ROUTING tracers are driven separately in HYDRO
-   ! (MOD_Grid_RiverLakeFlow -> MOD_CT_Lifecycle) and are NOT re-exported
+   ! (MOD_Grid_RiverLakeFlow -> MOD_MT_Lifecycle) and are NOT re-exported
    ! here. PUBLIC declarations below are grouped by consuming host phase.
 
    ! -- Lifecycle: one-shot init/final, called from CoLM.F90 --------------
-   PUBLIC :: ct_land_init, ct_land_final
+   PUBLIC :: mt_land_init, mt_land_final
 
    ! -- Column phase: per-patch soil-water/precip/evap/snow transport,
    !    called inside the CoLMMAIN patch loop (per ipatch, snl, nl_soil) --
-   PUBLIC :: ntracers, trc_tiny, ct_uses_land_water_transport
-   PUBLIC :: ct_precip, ct_evapo, ct_soil_water, ct_wetland
-   PUBLIC :: ct_flood_evap_loss
-   PUBLIC :: ct_newsnow, ct_save_storage, ct_balance_check
-   PUBLIC :: ct_apply_decay
+   PUBLIC :: ntracers, trc_tiny, mt_uses_generic_water
+   PUBLIC :: mt_precip, mt_evapo, mt_soil_water, mt_wetland
+   PUBLIC :: mt_flood_evap_loss
+   PUBLIC :: mt_newsnow, mt_save_storage, mt_balance_check
+   PUBLIC :: mt_apply_decay
    PUBLIC :: trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv
    PUBLIC :: trc_ldew_rain, trc_ldew_snow, trc_sm_carry
 
    ! -- Element phase: per-step orchestration, called from CoLMDRIVER;
    !    these delegate to the methane family ------------------
-   PUBLIC :: ct_resolve_step, ct_lake_step, ct_wetland_decomp
-   PUBLIC :: ct_soil_step, ct_report
+   PUBLIC :: mt_resolve_step, mt_lake_step, mt_wetland_decomp
+   PUBLIC :: mt_soil_step, mt_report
 
    ! -- Acc-flux: called from MOD_Vars_1DAccFluxes -----------------------
-   PUBLIC :: ct_flush_acc_fluxes, ct_accumulate_fluxes
+   PUBLIC :: mt_flush_acc_fluxes, mt_accumulate_fluxes
 
 CONTAINS
 
-   SUBROUTINE ct_land_init (numpatch, maxsnl, nl_soil, init_month, lc_year, jdate, &
+   SUBROUTINE mt_land_init (numpatch, maxsnl, nl_soil, init_month, lc_year, jdate, &
       casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
       wice_soisno, wa, wdsrf, wetwat, scv, waterstorage, loaded_restart, restart_file)
 
@@ -137,7 +138,7 @@ CONTAINS
          deallocate(tracer_dummy_patch, tracer_dummy_soisno)
       ENDIF
 
-   END SUBROUTINE ct_land_init
+   END SUBROUTINE mt_land_init
 
    SUBROUTINE tracer_init_from_arrays (numpatch, maxsnl, nl_soil, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
@@ -170,17 +171,19 @@ CONTAINS
       logical :: found_restart, scv_missing, waterstorage_missing
       integer :: soil_init_month
 
-      ! Defensive: if a previous ct_land_init left state behind (e.g. a
+      ! Defensive: if a previous mt_land_init left state behind (e.g. a
       ! LULCC transition that rebuilt numpatch without an explicit
-      ! ct_land_final call), release it so the re-allocation below uses
+      ! mt_land_final call), release it so the re-allocation below uses
       ! the new numpatch. Without this the allocate() call would trip
       ! Fortran's "already allocated" runtime check, OR the save-level
-      ! snap_* arrays in MOD_CT_Conservation would keep the old
+      ! snap_* arrays in MOD_MT_Conservation would keep the old
       ! numpatch and then misalign with the new tracer arrays.
       CALL tracer_lifecycle_land_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
       CALL tracer_defs_init()
+      CALL mt_solute_read_parameters()
+      CALL tracer_defs_validate()
       CALL tracer_lifecycle_init()
       IF (present(loaded_restart)) loaded_restart = .false.
       IF (present(lc_year) .and. present(jdate) .and. present(casename) .and. &
@@ -211,16 +214,16 @@ CONTAINS
       waterstorage_missing = waterstorage_missing .and. found_restart
 #endif
       IF (present(loaded_restart)) loaded_restart = found_restart
-      ct_land_restart_loaded = found_restart .and. ntracers > 0
+      mt_land_restart_loaded = found_restart .and. ntracers > 0
       IF (.not. found_restart) THEN
          soil_init_month = 1
          IF (present(init_month)) soil_init_month = init_month
          IF (present(waterstorage)) THEN
-            CALL ct_init_from_water(numpatch, maxsnl, nl_soil, &
+            CALL mt_init_from_water(numpatch, maxsnl, nl_soil, &
                ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
                wa, wdsrf, wetwat, scv, waterstorage)
          ELSE
-            CALL ct_init_from_water(numpatch, maxsnl, nl_soil, &
+            CALL mt_init_from_water(numpatch, maxsnl, nl_soil, &
                ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
                wa, wdsrf, wetwat, scv)
          ENDIF
@@ -257,7 +260,7 @@ CONTAINS
       ENDIF
    END SUBROUTINE tracer_init_from_arrays
 
-   SUBROUTINE ct_resolve_step (istep_in, istep_local)
+   SUBROUTINE mt_resolve_step (istep_in, istep_local)
 
       IMPLICIT NONE
       integer, intent(in),  optional :: istep_in
@@ -266,9 +269,9 @@ CONTAINS
       istep_local = 1
       IF (present(istep_in)) istep_local = istep_in
 
-   END SUBROUTINE ct_resolve_step
+   END SUBROUTINE mt_resolve_step
 
-   SUBROUTINE ct_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
+   SUBROUTINE mt_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
 
       IMPLICIT NONE
       integer,  intent(in) :: istep_local
@@ -280,9 +283,9 @@ CONTAINS
 
       CALL tracer_lifecycle_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
 
-   END SUBROUTINE ct_lake_step
+   END SUBROUTINE mt_lake_step
 
-   SUBROUTINE ct_wetland_decomp (ipatch, deltim)
+   SUBROUTINE mt_wetland_decomp (ipatch, deltim)
 
       IMPLICIT NONE
       integer, intent(in) :: ipatch
@@ -290,9 +293,9 @@ CONTAINS
 
       CALL tracer_lifecycle_wetland_decomp (ipatch, deltim)
 
-   END SUBROUTINE ct_wetland_decomp
+   END SUBROUTINE mt_wetland_decomp
 
-   SUBROUTINE ct_soil_step (istep_local, ipatch, idate, deltim)
+   SUBROUTINE mt_soil_step (istep_local, ipatch, idate, deltim)
 
       IMPLICIT NONE
       integer,  intent(in) :: istep_local
@@ -302,38 +305,38 @@ CONTAINS
 
       CALL tracer_lifecycle_soil_step (istep_local, ipatch, idate, deltim)
 
-   END SUBROUTINE ct_soil_step
+   END SUBROUTINE mt_soil_step
 
-   SUBROUTINE ct_report ()
+   SUBROUTINE mt_report ()
 
       IMPLICIT NONE
 
       CALL tracer_balance_report ()
       CALL tracer_lifecycle_land_report ()
 
-   END SUBROUTINE ct_report
+   END SUBROUTINE mt_report
 
-   SUBROUTINE ct_flush_acc_fluxes ()
+   SUBROUTINE mt_flush_acc_fluxes ()
 
       IMPLICIT NONE
 
       CALL tracer_lifecycle_land_flush_acc_fluxes ()
 
-   END SUBROUTINE ct_flush_acc_fluxes
+   END SUBROUTINE mt_flush_acc_fluxes
 
-   SUBROUTINE ct_accumulate_fluxes ()
+   SUBROUTINE mt_accumulate_fluxes ()
 
       IMPLICIT NONE
 
       CALL tracer_lifecycle_land_accumulate_fluxes ()
 
-   END SUBROUTINE ct_accumulate_fluxes
+   END SUBROUTINE mt_accumulate_fluxes
 
-   SUBROUTINE ct_land_final ()
+   SUBROUTINE mt_land_final ()
       CALL tracer_lifecycle_land_final ()
       CALL deallocate_Tracer_Vars()
       CALL deallocate_tracer_conservation()
-   END SUBROUTINE ct_land_final
+   END SUBROUTINE mt_land_final
 
-END MODULE MOD_CT_LandPhase
+END MODULE MOD_MT_LandPhase
 #endif

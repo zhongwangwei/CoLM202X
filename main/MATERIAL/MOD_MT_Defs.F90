@@ -1,14 +1,14 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Defs
+#ifdef MaterialTransport
+MODULE MOD_MT_Defs
 
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_USE_VariablySaturatedFlow
-   USE MOD_CT_Namelist, only: ct_read_namelist, ct_namelist_group_present, &
+   USE MOD_MT_Namelist, only: mt_read_namelist, &
       DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, DEF_ISOTOPE_PARAM_FILE, &
       DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, DEF_SEDIMENT_PARAM_FILE, &
-      DEF_CT_AQUIFER_MIXING_WATER_MM, &
+      DEF_MT_AQUIFER_MIXING_WATER_MM, &
       DEF_ISO_USE_FRACTIONATION, DEF_ISO_REF_RATIO_H2_18O, DEF_ISO_INIT_DELTA_H2_18O, &
       DEF_ISO_REF_RATIO_HDO, DEF_ISO_INIT_DELTA_HDO
    USE, INTRINSIC :: IEEE_ARITHMETIC, only: ieee_is_finite
@@ -16,9 +16,9 @@ MODULE MOD_CT_Defs
    IMPLICIT NONE
    SAVE
 
-   ! Each constituent is classified by three independent values:
+   ! Each material is classified by three independent values:
    !
-   !   family_id     : what the constituent physically is
+   !   family_id     : what the material physically is
    !     FAMILY_ISOTOPE  water isotopologue (H2_18O, HDO); moves with the land
    !                     and river water, fractionates on phase change and
    !                     leaves with the evaporated water.
@@ -86,24 +86,9 @@ MODULE MOD_CT_Defs
       integer           :: charge = 0
    end type tracer_info_type
 
-   ! Fields of &nl_colm_solute_parameter (DEF_SOLUTE%...). Defaults are
-   ! filled in from the descriptor before the read.
-   type :: solute_parameter_type
-      character(len=32) :: unit_kind = 'tracer_per_water'
-      real(r8) :: mol_weight = 0.0_r8
-      real(r8) :: init_conc = 0.0_r8
-      real(r8) :: precip_default_conc = 0.0_r8
-      real(r8) :: vapor_default_conc = 0.0_r8
-      real(r8) :: max_dissolved_conc = huge(1.0_r8)
-      real(r8) :: decay_rate = 0.0_r8
-      integer  :: charge = 0
-   end type solute_parameter_type
-
    integer :: ntracers = 0
    type(tracer_info_type), allocatable :: tracers(:)
 
-      real(r8), parameter :: Rsmow_18O = 2.0052e-3_r8
-      real(r8), parameter :: Rsmow_D   = 1.5576e-4_r8
       real(r8), parameter :: trc_tiny = 1.0e-30_r8
       ! Numerical zero and physical denominator floors are deliberately
       ! separate.  trc_tiny is only an arithmetic nonzero guard.  Transport
@@ -149,19 +134,17 @@ MODULE MOD_CT_Defs
    ! gives comfortable headroom for strongly fractionated pools.
    real(r8), parameter :: trc_delta_sanity_max = 2.0e3_r8
 
-   PUBLIC :: tracer_defs_init, ct_defs_final
+   PUBLIC :: tracer_defs_init, tracer_defs_validate, mt_defs_final
    PUBLIC :: mass_to_delta, delta_to_R, R_to_mass
    PUBLIC :: tracer_aquifer_isotope_state_valid
    PUBLIC :: tracer_aquifer_actual_water, tracer_aquifer_actual_mass, tracer_aquifer_isotope_ratio
    PUBLIC :: tracer_is_isotope, tracer_has_decay
    PUBLIC :: tracer_is_solute, tracer_is_particle, tracer_is_gas
-   PUBLIC :: tracer_is_nonvolatile_solute, ct_uses_land_water_transport
+   PUBLIC :: tracer_is_nonvolatile_solute, mt_uses_generic_water
    PUBLIC :: tracer_get_family, tracer_get_state_owner, tracer_get_reaction_mode
-   PUBLIC :: ct_has_dissolved_limit, ct_equilibrate_dissolved
    PUBLIC :: tracer_uses_delta_diagnostics, tracer_can_use_fixed_signature
    PUBLIC :: tracer_concentration_units
    PUBLIC :: tracer_init_water_ratio, tracer_precip_default_ratio, tracer_vapor_default_ratio
-   PUBLIC :: tracer_decay_fraction
    PUBLIC :: tracer_param_file_for_index, tracer_index_for_name
    PUBLIC :: tracer_build_descriptor_identity
    PUBLIC :: tracer_lower, tracer_upper
@@ -171,7 +154,7 @@ MODULE MOD_CT_Defs
    PUBLIC :: STATE_OWNER_UNKNOWN, STATE_OWNER_GENERIC_WATER, STATE_OWNER_PROVIDER
    PUBLIC :: REACTION_NONE, REACTION_FIRST_ORDER, REACTION_PROVIDER
    PUBLIC :: TRACER_DESCRIPTOR_IDENTITY_WIDTH
-      PUBLIC :: Rsmow_18O, Rsmow_D, trc_tiny, trc_water_min_for_ratio, &
+      PUBLIC :: trc_tiny, trc_water_min_for_ratio, &
                 trc_water_min_for_delta, trc_flux_water_min_for_delta, &
                 trc_delta_sanity_max
 
@@ -254,7 +237,7 @@ CONTAINS
 
       nidentity = 0
       DO itrc = 1, ntracers
-         IF (only_transport .and. .not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (only_transport .and. .not. mt_uses_generic_water(itrc)) CYCLE
          nidentity = nidentity + 1
       ENDDO
       allocate(identity(TRACER_DESCRIPTOR_IDENTITY_WIDTH, nidentity))
@@ -262,7 +245,7 @@ CONTAINS
 
       iidentity = 0
       DO itrc = 1, ntracers
-         IF (only_transport .and. .not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (only_transport .and. .not. mt_uses_generic_water(itrc)) CYCLE
          iidentity = iidentity + 1
          descriptor = ''
          WRITE(descriptor, '(A,"|",A,"|",A,"|",4(I0,"|"),8(ES24.16E3,"|"))') &
@@ -282,7 +265,7 @@ CONTAINS
 
    SUBROUTINE tracer_defs_init ()
    !-----------------------------------------------------------------------
-   !  Build the descriptor table from the switches in MOD_CT_Namelist:
+   !  Build the descriptor table from the switches in MOD_MT_Namelist:
    !  isotopes first (order of DEF_ISOTOPE_SPECIES), then solutes (order of
    !  DEF_SOLUTE_NAMES), then the river sediment (DEF_USE_SEDIMENT). The
    !  family of each entry follows from the switch that put it there.
@@ -293,7 +276,7 @@ CONTAINS
       integer :: i, j, niso, nsol, nsed
       character(len=32), allocatable :: iso_tokens(:), sol_tokens(:)
 
-      CALL ct_read_namelist ()
+      CALL mt_read_namelist ()
 
       IF (allocated(tracers)) RETURN   ! already initialised (e.g. by earlier all-rank call)
 
@@ -357,8 +340,8 @@ CONTAINS
       ENDDO
 
       IF (nsed > 0) THEN
-         ! State and parameters are owned by MOD_CT_Sediment, which attaches
-         ! itself to this entry (ct_register_providers).
+         ! State and parameters are owned by MOD_MT_Sediment, which attaches
+         ! itself to this entry (mt_register_providers).
          i = niso + nsol + 1
          tracers(i)%name = 'SEDIMENT'
          tracers(i)%category = 'particle'
@@ -376,14 +359,26 @@ CONTAINS
       DO i = 2, ntracers
          DO j = 1, i - 1
             IF (tracer_param_equal(tracers(i)%name, tracers(j)%name)) &
-               CALL CoLM_stop ('Constituent name "'//trim(tracers(i)%name)//'" is used twice.')
+               CALL CoLM_stop ('Material name "'//trim(tracers(i)%name)//'" is used twice.')
          ENDDO
       ENDDO
 
-      CALL apply_tracer_param_files ()
+      IF (allocated(iso_tokens)) deallocate(iso_tokens)
+      IF (allocated(sol_tokens)) deallocate(sol_tokens)
+
+   END SUBROUTINE tracer_defs_init
+
+   SUBROUTINE tracer_defs_validate ()
+   ! Checks of the descriptors, after the species parameter files
+   ! (MOD_MT_Solute: mt_solute_read_parameters) have been applied.
+      USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
+      IMPLICIT NONE
+      integer :: i
+
+      IF (.not. allocated(tracers)) RETURN
 
       IF (DEF_ISO_USE_FRACTIONATION .and. DEF_USE_ISOTOPE .and. p_is_master) THEN
-         WRITE(*,'(A)') 'WARNING tracer_defs_init: isotope fractionation is experimental; enabled paths include ' // &
+         WRITE(*,'(A)') 'WARNING tracer_defs_validate: isotope fractionation is experimental; enabled paths include ' // &
             'precipitation/evaporation, phase change, transpiration, wetland, glacier, and waterbody approximations.'
       ENDIF
 
@@ -396,18 +391,15 @@ CONTAINS
          CALL derive_tracer_taxonomy (i)
          CALL validate_tracer_descriptor (i)
          IF (DEF_USE_VariablySaturatedFlow .and. tracer_is_isotope(i)) THEN
-            IF (.not. ieee_is_finite(DEF_CT_AQUIFER_MIXING_WATER_MM) .or. &
-                DEF_CT_AQUIFER_MIXING_WATER_MM <= 0._r8) THEN
+            IF (.not. ieee_is_finite(DEF_MT_AQUIFER_MIXING_WATER_MM) .or. &
+                DEF_MT_AQUIFER_MIXING_WATER_MM <= 0._r8) THEN
                CALL CoLM_stop ('Isotopes with variably saturated flow need a positive '// &
-                  'DEF_CT_AQUIFER_MIXING_WATER_MM.')
+                  'DEF_MT_AQUIFER_MIXING_WATER_MM.')
             ENDIF
          ENDIF
       ENDDO
 
-      IF (allocated(iso_tokens)) deallocate(iso_tokens)
-      IF (allocated(sol_tokens)) deallocate(sol_tokens)
-
-   END SUBROUTINE tracer_defs_init
+   END SUBROUTINE tracer_defs_validate
 
 
    SUBROUTINE split_names (csvstr, tokens, ntokens)
@@ -438,7 +430,7 @@ CONTAINS
          character(len=*), intent(in) :: raw
          IF (len_trim(adjustl(raw)) == 0) RETURN
          IF (len_trim(adjustl(raw)) > 32) &
-            CALL CoLM_stop ('Constituent name longer than 32 characters: '//trim(adjustl(raw)))
+            CALL CoLM_stop ('Material name longer than 32 characters: '//trim(adjustl(raw)))
          ntokens = ntokens + 1
          tokens(ntokens) = adjustl(raw)
       END SUBROUTINE add_token
@@ -446,73 +438,9 @@ CONTAINS
    END SUBROUTINE split_names
 
 
-   SUBROUTINE apply_tracer_param_files ()
-      IMPLICIT NONE
-      integer :: itrc
-      character(len=512) :: file_param
-      logical :: found
-
-      IF (.not. allocated(tracers)) RETURN
-      DO itrc = 1, ntracers
-         IF (.not. tracer_is_solute(itrc)) CYCLE
-         CALL tracer_param_file_for_index (itrc, '', file_param, found)
-         IF (found) CALL read_solute_parameter_file (itrc, file_param)
-      ENDDO
-   END SUBROUTINE apply_tracer_param_files
-
-   SUBROUTINE read_solute_parameter_file (itrc, nlfile)
-   !-----------------------------------------------------------------------
-   !  &nl_colm_solute_parameter of one solute; fields left out keep the
-   !  code defaults set in tracer_defs_init.
-   !-----------------------------------------------------------------------
-      USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
-      IMPLICIT NONE
-      integer, intent(in) :: itrc
-      character(len=*), intent(in) :: nlfile
-
-      type(solute_parameter_type) :: DEF_SOLUTE
-      integer :: ierr, unit_nml
-      character(len=512) :: iomsg
-      namelist /nl_colm_solute_parameter/ DEF_SOLUTE
-
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (.not. ct_namelist_group_present(nlfile, 'nl_colm_solute_parameter')) RETURN
-
-      DEF_SOLUTE%unit_kind           = tracers(itrc)%unit_kind
-      DEF_SOLUTE%mol_weight          = tracers(itrc)%mol_weight
-      DEF_SOLUTE%init_conc           = tracers(itrc)%init_conc
-      DEF_SOLUTE%precip_default_conc = tracers(itrc)%precip_default_conc
-      DEF_SOLUTE%vapor_default_conc  = tracers(itrc)%vapor_default_conc
-      DEF_SOLUTE%max_dissolved_conc  = tracers(itrc)%max_dissolved_conc
-      DEF_SOLUTE%decay_rate          = tracers(itrc)%decay_rate
-      DEF_SOLUTE%charge              = tracers(itrc)%charge
-
-      open(newunit=unit_nml, status='OLD', file=trim(nlfile), form='FORMATTED')
-      iomsg = ''
-      read(unit_nml, nml=nl_colm_solute_parameter, iostat=ierr, iomsg=iomsg)
-      close(unit_nml)
-      IF (ierr /= 0) THEN
-         IF (p_is_master) THEN
-            write(*,'(3A)') 'ERROR read_solute_parameter_file: invalid &nl_colm_solute_parameter in ', &
-               trim(nlfile), ': '
-            write(*,'(A)') trim(iomsg)
-         ENDIF
-         CALL CoLM_stop()
-      ENDIF
-
-      tracers(itrc)%unit_kind           = tracer_lower(DEF_SOLUTE%unit_kind)
-      tracers(itrc)%mol_weight          = DEF_SOLUTE%mol_weight
-      tracers(itrc)%init_conc           = DEF_SOLUTE%init_conc
-      tracers(itrc)%precip_default_conc = DEF_SOLUTE%precip_default_conc
-      tracers(itrc)%vapor_default_conc  = DEF_SOLUTE%vapor_default_conc
-      tracers(itrc)%max_dissolved_conc  = DEF_SOLUTE%max_dissolved_conc
-      tracers(itrc)%decay_rate = DEF_SOLUTE%decay_rate
-      tracers(itrc)%charge              = DEF_SOLUTE%charge
-   END SUBROUTINE read_solute_parameter_file
-
    SUBROUTINE tracer_param_file_for_index (itrc, aliases, file_param, found)
    !-----------------------------------------------------------------------
-   !  Parameter file of one constituent: DEF_ISOTOPE_PARAM_FILE for every
+   !  Parameter file of one material: DEF_ISOTOPE_PARAM_FILE for every
    !  isotope, the DEF_SOLUTE_PARAM_FILES entry for a solute ('NAME:path',
    !  or a plain path at the solute's position), DEF_SEDIMENT_PARAM_FILE for
    !  the sediment. 'null' means none.
@@ -566,10 +494,10 @@ CONTAINS
                key = adjustl(trim(entry(:colon_pos-1)))
                value = adjustl(trim(entry(colon_pos+1:)))
                IF (len_trim(key) <= 0 .or. len_trim(value) <= 0) THEN
-                  CALL CoLM_stop('MOD_CT_Defs: empty solute parameter file mapping entry: '//trim(entry))
+                  CALL CoLM_stop('MOD_MT_Defs: empty solute parameter file mapping entry: '//trim(entry))
                ENDIF
                IF (len_trim(value) > len(file_param)) THEN
-                  CALL CoLM_stop('MOD_CT_Defs: solute parameter file path exceeds supported length')
+                  CALL CoLM_stop('MOD_MT_Defs: solute parameter file path exceeds supported length')
                ENDIF
                IF (.not. matched .and. tracer_param_key_matches(itrc, key, aliases)) THEN
                   file_param = trim(value)
@@ -578,7 +506,7 @@ CONTAINS
                ENDIF
             ELSE
                IF (len_trim(entry) > len(file_param)) THEN
-                  CALL CoLM_stop('MOD_CT_Defs: solute parameter file path exceeds supported length')
+                  CALL CoLM_stop('MOD_MT_Defs: solute parameter file path exceeds supported length')
                ENDIF
                positional_index = positional_index + 1
                IF (.not. matched .and. positional_index == isol) THEN
@@ -609,7 +537,7 @@ CONTAINS
          ENDIF
       ENDDO
       IF (matches > 1) &
-         CALL CoLM_stop('MOD_CT_Defs: tracer name/aliases match multiple configured tracers')
+         CALL CoLM_stop('MOD_MT_Defs: tracer name/aliases match multiple configured tracers')
    END FUNCTION tracer_index_for_name
 
    logical FUNCTION tracer_name_matches (candidate, name, aliases)
@@ -713,10 +641,10 @@ CONTAINS
       ENDDO
    END FUNCTION tracer_upper
 
-   SUBROUTINE ct_defs_final ()
+   SUBROUTINE mt_defs_final ()
       IF (allocated(tracers)) deallocate(tracers)
       ntracers = 0
-   END SUBROUTINE ct_defs_final
+   END SUBROUTINE mt_defs_final
 
    !-------------------------------------------------------------------
    ! Tracer taxonomy.
@@ -997,37 +925,8 @@ CONTAINS
       IF (.not. allocated(tracers)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
       tracer_is_nonvolatile_solute = tracer_is_solute(itrc) .and. &
-         ct_uses_land_water_transport(itrc)
+         mt_uses_generic_water(itrc)
    END FUNCTION tracer_is_nonvolatile_solute
-
-   logical FUNCTION ct_has_dissolved_limit (itrc)
-      integer, intent(in) :: itrc
-
-      ct_has_dissolved_limit = .false.
-      IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      ct_has_dissolved_limit = tracer_is_nonvolatile_solute(itrc) .and. &
-         tracers(itrc)%max_dissolved_conc < huge(1.0_r8)
-   END FUNCTION ct_has_dissolved_limit
-
-   SUBROUTINE ct_equilibrate_dissolved (itrc, water_mass, dissolved_mass, solid_mass)
-      integer,  intent(in)    :: itrc
-      real(r8), intent(in)    :: water_mass
-      real(r8), intent(inout) :: dissolved_mass, solid_mass
-      real(r8) :: capacity, total_mass
-
-      IF (.not. ct_has_dissolved_limit(itrc)) RETURN
-      ! Signed aquifer debt is accounting state, not a precipitating solution.
-      IF (dissolved_mass < 0._r8 .or. solid_mass < 0._r8) RETURN
-
-      total_mass = dissolved_mass + solid_mass
-      capacity = 0._r8
-      IF (water_mass > trc_water_min_for_ratio) THEN
-         capacity = tracers(itrc)%max_dissolved_conc * water_mass
-      ENDIF
-      dissolved_mass = min(total_mass, capacity)
-      solid_mass = total_mass - dissolved_mass
-   END SUBROUTINE ct_equilibrate_dissolved
 
    logical FUNCTION tracer_is_particle (itrc)
       ! Particle tracers (e.g. suspended sediment) carry concentration per
@@ -1050,17 +949,17 @@ CONTAINS
       tracer_is_gas = tracers(itrc)%family_id == FAMILY_GAS
    END FUNCTION tracer_is_gas
 
-   logical FUNCTION ct_uses_land_water_transport (itrc)
+   logical FUNCTION mt_uses_generic_water (itrc)
       ! Generic land-water tracer modules transport scalar signatures tied to
       ! canopy/soil/snow/aquifer water pools. Provider-owned particle and gas
       ! tracers keep species-specific state and must not be initialized,
       ! transported, diagnosed, or restarted through those generic pools.
       integer, intent(in) :: itrc
-      ct_uses_land_water_transport = .false.
+      mt_uses_generic_water = .false.
       IF (.not. allocated(tracers)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
-      ct_uses_land_water_transport = tracers(itrc)%state_owner == STATE_OWNER_GENERIC_WATER
-   END FUNCTION ct_uses_land_water_transport
+      mt_uses_generic_water = tracers(itrc)%state_owner == STATE_OWNER_GENERIC_WATER
+   END FUNCTION mt_uses_generic_water
 
    logical FUNCTION tracer_uses_delta_diagnostics (itrc)
       integer, intent(in) :: itrc
@@ -1144,22 +1043,6 @@ CONTAINS
       ENDIF
    END FUNCTION tracer_vapor_default_ratio
 
-   real(r8) FUNCTION tracer_decay_fraction (itrc, deltim)
-      integer,  intent(in) :: itrc
-      real(r8), intent(in) :: deltim
-      real(r8) :: kdt
-
-      tracer_decay_fraction = 0._r8
-      IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (tracers(itrc)%reaction_mode /= REACTION_FIRST_ORDER) RETURN
-      IF (deltim <= 0._r8) RETURN
-      IF (tracers(itrc)%decay_rate <= 0._r8) RETURN
-
-      kdt = min(tracers(itrc)%decay_rate * deltim, 700._r8)
-      tracer_decay_fraction = 1._r8 - exp(-kdt)
-   END FUNCTION tracer_decay_fraction
-
       real(r8) FUNCTION mass_to_delta (trc_mass, water_mass, ref_ratio)
          USE MOD_Vars_Global, only: spval
          real(r8), intent(in) :: trc_mass, water_mass, ref_ratio
@@ -1227,5 +1110,5 @@ CONTAINS
       IF (len_trim(clean) == 0) clean = 'unnamed'
    END FUNCTION sanitize_ncname
 
-END MODULE MOD_CT_Defs
+END MODULE MOD_MT_Defs
 #endif

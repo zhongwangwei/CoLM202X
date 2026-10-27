@@ -1,13 +1,13 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Precip
+#ifdef MaterialTransport
+MODULE MOD_MT_Precip
 
    USE MOD_Precision
-   USE MOD_CT_Defs, only: ntracers, trc_tiny, trc_water_min_for_ratio, &
-      ct_uses_land_water_transport, ct_equilibrate_dissolved
-   USE MOD_CT_Forcing, only: tracer_forcing_precip_value
-   USE MOD_CT_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
+   USE MOD_MT_Defs, only: ntracers, trc_tiny, trc_water_min_for_ratio, mt_uses_generic_water
+   USE MOD_MT_Solute, only: mt_equilibrate_dissolved
+   USE MOD_MT_Forcing, only: tracer_forcing_precip_value
+   USE MOD_MT_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
       trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage, &
       trc_canopy_solid, trc_surface_solid, trc_waterstorage_solid
    USE MOD_Const_Physical, only: tfrz
@@ -34,15 +34,15 @@ CONTAINS
    !      gets mis-attributed as drip to trc_pg_snow_ground downstream.
    !
    ! Tracer to ground = throughfall*R_precip + drip*R_mixed
-   !   (rain → trc_pg_rain_ground → surface pool via ct_soil_water;
-   !    snow → trc_pg_snow_ground → trc_scv via ct_newsnow)
+   !   (rain → trc_pg_rain_ground → surface pool via mt_soil_water;
+   !    snow → trc_pg_snow_ground → trc_scv via mt_newsnow)
    !
    ! Canopy tracer: migrate phase change first (updates "effective"
    ! pre-interception anchor so the rain/snow stages below see a
    ! consistent (ldew_*_old, trc_ldew_*) pair), then for each phase
    ! remove xsc, mix interception with remainder, and finally strip drip.
    !---------------------------------------------------------------
-   SUBROUTINE ct_precip (ipatch, deltim, &
+   SUBROUTINE mt_precip (ipatch, deltim, &
       forc_rain, forc_snow, qintr, qintr_rain, qintr_snow, &
       pg_rain, pg_snow, ldew_rain, ldew_snow, &
       ldew_rain_old, ldew_snow_old, qflx_irrig_sprinkler, &
@@ -141,10 +141,10 @@ CONTAINS
       rain_total = max(forc_rain, 0._r8) + sprinkler_rate
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          R_input = tracer_forcing_precip_value(itrc, ipatch)
          storage_ratio = R_input
-         CALL ct_equilibrate_dissolved(itrc, max(ldew_rain_old, 0._r8), &
+         CALL mt_equilibrate_dissolved(itrc, max(ldew_rain_old, 0._r8), &
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
          canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
             + trc_canopy_solid(itrc, ipatch)
@@ -162,7 +162,7 @@ CONTAINS
 
          IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
             IF (present(waterstorage_before)) THEN
-               CALL ct_equilibrate_dissolved(itrc, max(waterstorage_before, 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(waterstorage_before, 0._r8), &
                   trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
                IF (waterstorage_before > trc_water_min_for_ratio) THEN
                   storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_before
@@ -176,7 +176,7 @@ CONTAINS
             ! including near-dry and dissolved-inventory-limited withdrawals.
             IF (sprinkler_water > trc_tiny) storage_ratio = sprinkler_trc / sprinkler_water
             IF (present(waterstorage_before)) THEN
-               CALL ct_equilibrate_dissolved(itrc, &
+               CALL mt_equilibrate_dissolved(itrc, &
                   max(waterstorage_before - sprinkler_water, 0._r8), &
                   trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
             ENDIF
@@ -362,9 +362,9 @@ CONTAINS
          ! pg_* plus clamped xsc/gross terms. That can leave O(1e-8)
          ! residuals which later show up as wetland/soil balance errors.
          ! Preserve the prognostic canopy pools and put the tiny correction
-         ! on the internal ground flux consumed by ct_soil_water /
-         ! ct_wetland; atmospheric a_trc_precip remains unchanged.
-         CALL ct_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
+         ! on the internal ground flux consumed by mt_soil_water /
+         ! mt_wetland; atmospheric a_trc_precip remains unchanged.
+         CALL mt_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
          canopy_trc_end = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
             + trc_canopy_solid(itrc, ipatch)
@@ -387,17 +387,17 @@ CONTAINS
          ! Ground rain is a liquid mobile pool. Excess solute precipitates
          ! directly into the surface solid inventory; existing surface solid
          ! may redissolve only up to the rainwater capacity.
-         CALL ct_equilibrate_dissolved(itrc, max(pg_rain, 0._r8) * deltim, &
+         CALL mt_equilibrate_dissolved(itrc, max(pg_rain, 0._r8) * deltim, &
             trc_rain_ground, trc_surface_solid(itrc, ipatch))
 
         ! Store rain/snow tracer separately: rain feeds the surface mixed
-        ! pool in ct_soil_water; snow feeds trc_scv in ct_newsnow.
+        ! pool in mt_soil_water; snow feeds trc_scv in mt_newsnow.
          trc_pg_rain_ground(itrc, ipatch) = trc_rain_ground
          trc_pg_snow_ground(itrc, ipatch) = trc_snow_ground
 
       ENDDO
 
-   END SUBROUTINE ct_precip
+   END SUBROUTINE mt_precip
 
    !---------------------------------------------------------------
    ! Canopy rain/snow pools when the host keeps a single canopy store.
@@ -408,13 +408,13 @@ CONTAINS
    ! code. The host values are left untouched; only the tracer pools are
    ! arranged here so that they match the store the host is acting on.
    !
-   ! ct_canopy_lump (before interception): put all canopy tracer into the
+   ! mt_canopy_lump (before interception): put all canopy tracer into the
    !   phase the host interception uses and return that phase's water.
-   ! ct_canopy_split (before the energy balance): split ldew the way the
+   ! mt_canopy_split (before the energy balance): split ldew the way the
    !   leaf temperature code splits it, and the tracer in the same ratio.
    ! With DEF_VEG_SNOW = .true. both return the host components unchanged.
    !---------------------------------------------------------------
-   SUBROUTINE ct_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
+   SUBROUTINE mt_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
 
       IMPLICIT NONE
       integer,  intent(in)  :: ipatch
@@ -438,7 +438,7 @@ CONTAINS
          ENDIF
 
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             IF (tleaf > tfrz) THEN
                trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
                trc_ldew_snow(itrc, ipatch) = 0._r8
@@ -448,9 +448,9 @@ CONTAINS
             ENDIF
          ENDDO
 
-   END SUBROUTINE ct_canopy_lump
+   END SUBROUTINE mt_canopy_lump
 
-   SUBROUTINE ct_canopy_split (ipatch, ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
+   SUBROUTINE mt_canopy_split (ipatch, ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
 
       IMPLICIT NONE
       integer,  intent(in)  :: ipatch
@@ -460,11 +460,11 @@ CONTAINS
       integer  :: itrc
       real(r8) :: total
 
-         CALL ct_canopy_parts (ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
+         CALL mt_canopy_parts (ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
          IF (DEF_VEG_SNOW) RETURN
 
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             total = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
             IF (ldew > 0._r8) THEN
                trc_ldew_rain(itrc, ipatch) = total * (rain_eff / ldew)
@@ -472,7 +472,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-   END SUBROUTINE ct_canopy_split
+   END SUBROUTINE mt_canopy_split
 
    !---------------------------------------------------------------
    ! Rain and snow parts of ldew as the DEF_VEG_SNOW = .false. branch of
@@ -480,7 +480,7 @@ CONTAINS
    ! the energy balance: LeafTemperaturePC has no such re-split, so its
    ! ldew_rain/ldew_snow need not add up to ldew there.
    !---------------------------------------------------------------
-   SUBROUTINE ct_canopy_parts (ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
+   SUBROUTINE mt_canopy_parts (ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
 
       IMPLICIT NONE
       real(r8), intent(in)  :: ldew, ldew_rain, ldew_snow, tleaf
@@ -505,7 +505,7 @@ CONTAINS
             snow_eff = 0._r8
          ENDIF
 
-   END SUBROUTINE ct_canopy_parts
+   END SUBROUTINE mt_canopy_parts
 
-END MODULE MOD_CT_Precip
+END MODULE MOD_MT_Precip
 #endif

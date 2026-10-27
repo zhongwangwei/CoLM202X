@@ -1,15 +1,15 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Conservation
+#ifdef MaterialTransport
+MODULE MOD_MT_Conservation
 
    USE MOD_Precision
-   USE MOD_CT_Namelist, only: DEF_CT_BALANCE_ABORT_NBAD, DEF_CT_RESID_ABORT_NBAD
-   USE MOD_CT_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
-      tracer_decay_fraction, tracer_can_use_fixed_signature, &
-      ct_has_dissolved_limit, ct_uses_land_water_transport
-   USE MOD_CT_Frac, only: tracer_fractionation_active
-   USE MOD_CT_Vars
+   USE MOD_MT_Namelist, only: DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD
+   USE MOD_MT_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
+      tracer_can_use_fixed_signature, mt_uses_generic_water
+   USE MOD_MT_Solute, only: tracer_decay_fraction, mt_has_dissolved_limit
+   USE MOD_MT_Frac, only: tracer_fractionation_active
+   USE MOD_MT_Vars
 #ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
    USE MOD_SPMD_Task, only: CoLM_stop
 #endif
@@ -24,7 +24,7 @@ MODULE MOD_CT_Conservation
    ! or missing-flux errors are not hidden by a broad absolute tolerance.
    ! Urban simple patches use the same threshold as ordinary land patches;
    ! their impermeable qgtop<0 evaporation branch is mirrored explicitly in
-   ! MOD_CT_SoilWater instead of hidden behind a local tolerance waiver.
+   ! MOD_MT_SoilWater instead of hidden behind a local tolerance waiver.
    real(r8), parameter :: trc_balance_abs_tol = 1.0e-12_r8
    real(r8), parameter :: trc_balance_rel_tol = 1.0e-10_r8
    integer, parameter :: n_storage_diag = 12
@@ -41,7 +41,7 @@ MODULE MOD_CT_Conservation
    real(r8), allocatable, save :: snap_qcharge(:,:)
    real(r8), allocatable, save :: snap_storage_comp(:,:,:) ! (component, tracer, patch)
 
-   ! Worker-local worst-patch tracker for ct_balance_check. Previously
+   ! Worker-local worst-patch tracker for mt_balance_check. Previously
    ! the routine only printed when `ipatch <= 1 .and. itrc == 1`, so every
    ! other failing patch was invisible. These counters accumulate across
    ! patches within a step; caller drains them via tracer_balance_report
@@ -68,7 +68,7 @@ MODULE MOD_CT_Conservation
    integer,  save :: signature_worst_ptype  = -1
    integer,  save :: signature_nbad         = 0
    ! P1 diagnostic: the per-layer trc_wliq<->wliq_soisno reconciliation
-   ! (MOD_CT_SoilWater) injects/removes tracer booked as numerical_source_sink.
+   ! (MOD_MT_SoilWater) injects/removes tracer booked as numerical_source_sink.
    ! This is an explicit solver-closure term, not an unbooked transport leak, so
    ! the hard transport-balance check subtracts it like decay_source_sink.
    ! It still has its own independent hard cap below; otherwise a large
@@ -86,17 +86,17 @@ MODULE MOD_CT_Conservation
    integer,  save :: resid_hard_nbad      = 0
 
    PUBLIC :: deallocate_tracer_conservation
-   PUBLIC :: ct_apply_decay
+   PUBLIC :: mt_apply_decay
    PUBLIC :: tracer_balance_report
 
 CONTAINS
 
    !---------------------------------------------------------------
    ! Release the save-level snap_* snapshots. Must be called from
-   ! ct_land_final so that a subsequent ct_land_init on the same
+   ! mt_land_final so that a subsequent mt_land_init on the same
    ! process (regression harness, embedded driver) does not re-use
    ! stale arrays sized to the previous numpatch — the lazy
-   ! `IF (.not. allocated) allocate` guard in ct_save_storage
+   ! `IF (.not. allocated) allocate` guard in mt_save_storage
    ! only fires on the first call ever, so without this deallocate
    ! a changed numpatch would either truncate or overrun snap_*.
    !---------------------------------------------------------------
@@ -113,7 +113,7 @@ CONTAINS
       IF (allocated(snap_storage_comp)) deallocate(snap_storage_comp)
    END SUBROUTINE deallocate_tracer_conservation
 
-   SUBROUTINE ct_save_storage (ipatch, snl, nl_soil, waterstorage)
+   SUBROUTINE mt_save_storage (ipatch, snl, nl_soil, waterstorage)
       IMPLICIT NONE
       integer, intent(in) :: ipatch, snl, nl_soil
       ! Optional: patch-level irrigation reservoir (mm of water equivalent).
@@ -152,7 +152,7 @@ CONTAINS
       ENDIF
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
             trc_rnof_step(itrc, ipatch) = 0._r8
             IF (allocated(trc_decay_source_step)) trc_decay_source_step(itrc, ipatch) = 0._r8
             IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
@@ -164,7 +164,7 @@ CONTAINS
          ! not overwrite the reservoir isotope state with the initial delta.
          fixed_signature_storage = tracer_can_use_fixed_signature(itrc) .and. &
             .not. tracer_fractionation_active(itrc) .and. &
-            .not. ct_has_dissolved_limit(itrc)
+            .not. mt_has_dissolved_limit(itrc)
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature_storage = fixed_signature_storage .and. .not. trc_runtime_forced(itrc)
          ENDIF
@@ -232,15 +232,15 @@ CONTAINS
          snap_qinfl (itrc, ipatch) = a_trc_qinfl (itrc, ipatch)
          snap_qcharge(itrc, ipatch) = a_trc_qcharge(itrc, ipatch)
       ENDDO
-   END SUBROUTINE ct_save_storage
+   END SUBROUTINE mt_save_storage
 
    ! Contract: this routine applies only first-order decay of the generic land-water pools
-   ! that live in MOD_CT_Vars and share the ordinary water-transport
+   ! that live in MOD_MT_Vars and share the ordinary water-transport
    ! storage/flux budget.  species-owned reacting state (for example CH4's
    ! conc_methane* prognostic pools) must keep its own source/sink accounting
    ! and restart callbacks; it must not be double-booked here through
    ! trc_decay_source_step.
-   SUBROUTINE ct_apply_decay (ipatch, snl, nl_soil, deltim)
+   SUBROUTINE mt_apply_decay (ipatch, snl, nl_soil, deltim)
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, nl_soil
       real(r8), intent(in) :: deltim
@@ -252,7 +252,7 @@ CONTAINS
          lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          decay_fraction = tracer_decay_fraction(itrc, deltim)
          IF (decay_fraction <= 0._r8) CYCLE
 
@@ -313,9 +313,9 @@ CONTAINS
          source_sink = source_sink + pool - before
       END SUBROUTINE decay_pool
 
-   END SUBROUTINE ct_apply_decay
+   END SUBROUTINE mt_apply_decay
 
-   SUBROUTINE ct_balance_check (ipatch, snl, nl_soil, deltim, xerr_tracer, &
+   SUBROUTINE mt_balance_check (ipatch, snl, nl_soil, deltim, xerr_tracer, &
                                     patchtype_in, water_err_in, water_dS_in, &
                                     water_input_in, water_output_in, &
                                     water_evap_in, water_rnof_in, flood_heterogeneous_in)
@@ -357,9 +357,9 @@ CONTAINS
       lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          ! Current storage split by component; keep this in the same
-         ! component order as ct_save_storage.
+         ! component order as mt_save_storage.
          storage_comp_end = 0._r8
          storage_comp_end(1) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
          DO j = lb_store, nl_soil
@@ -640,11 +640,11 @@ CONTAINS
             xerr_tracer = max(xerr_tracer, abs(check_err))
          ENDIF
       ENDDO
-   END SUBROUTINE ct_balance_check
+   END SUBROUTINE mt_balance_check
 
    !---------------------------------------------------------------
    ! Drain worker-local balance counters. Call once per CoLM step
-   ! after all patches have run ct_balance_check. Reduces the
+   ! after all patches have run mt_balance_check. Reduces the
    ! worst-err across workers so a single-patch failure elsewhere
    ! still lands in the per-rank log. Zeros the state so next step
    ! starts fresh.
@@ -913,7 +913,7 @@ CONTAINS
             resid_nbad_total, ' worst_abs=', resid_abs_total
       ENDIF
 
-      IF (print_me .and. resid_hard_nbad_total > DEF_CT_RESID_ABORT_NBAD) THEN
+      IF (print_me .and. resid_hard_nbad_total > DEF_MT_RESID_ABORT_NBAD) THEN
          WRITE(*,'(A,I8,A,E12.5,A,E12.5,A,I8,A,I4,A,I3,A,I4)') &
             'TRC_BAL residual hard failure: n_entries=', resid_hard_nbad_total, &
             ' worst_abs=', resid_hard_abs_total, &
@@ -939,11 +939,11 @@ CONTAINS
             ' rnof_minus_water_R=', signature_terms_total(3)
       ENDIF
 
-      IF (print_me .and. signature_nbad_total > DEF_CT_BALANCE_ABORT_NBAD) THEN
+      IF (print_me .and. signature_nbad_total > DEF_MT_BALANCE_ABORT_NBAD) THEN
          CALL CoLM_stop ('TRC_SIG hard failure: fixed-signature flux differs from water flux times R_init')
       ENDIF
 
-      IF (print_me .and. nbad_total > DEF_CT_BALANCE_ABORT_NBAD) THEN
+      IF (print_me .and. nbad_total > DEF_MT_BALANCE_ABORT_NBAD) THEN
          CALL CoLM_stop ('TRC_BAL hard failure: tracer balance error exceeds aggregate threshold')
       ENDIF
 
@@ -974,5 +974,5 @@ CONTAINS
       resid_hard_nbad      = 0
    END SUBROUTINE tracer_balance_report
 
-END MODULE MOD_CT_Conservation
+END MODULE MOD_MT_Conservation
 #endif

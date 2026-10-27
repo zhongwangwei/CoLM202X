@@ -1,12 +1,12 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Snow
+#ifdef MaterialTransport
+MODULE MOD_MT_Snow
 
    USE MOD_Precision
-   USE MOD_CT_Defs, only: ntracers, trc_tiny, ct_uses_land_water_transport, &
-      ct_equilibrate_dissolved
-	   USE MOD_CT_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
+   USE MOD_MT_Defs, only: ntracers, trc_tiny, mt_uses_generic_water
+   USE MOD_MT_Solute, only: mt_equilibrate_dissolved
+	   USE MOD_MT_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_pg_snow_ground, &
 	      trc_scv, trc_wetwat, trc_solid_soisno, trc_numerical_residual_step
    USE MOD_Namelist, only: DEF_USE_VariablySaturatedFlow
 
@@ -14,7 +14,7 @@ MODULE MOD_CT_Snow
 
 CONTAINS
 
-   SUBROUTINE ct_newsnow (ipatch, patchtype, snl, snl_old, pg_snow, deltim, &
+   SUBROUTINE mt_newsnow (ipatch, patchtype, snl, snl_old, pg_snow, deltim, &
       scv, scv_bef, wetwat_val, &
       wliq_soisno, wice_soisno, wice_soisno_bef)
       IMPLICIT NONE
@@ -37,7 +37,7 @@ CONTAINS
       IF (ntracers <= 0) RETURN
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          snow_mass_step = max(pg_snow, 0._r8) * deltim
          IF (snow_mass_step > trc_tiny) THEN
             R_snow_step = trc_pg_snow_ground(itrc, ipatch) / snow_mass_step
@@ -56,7 +56,7 @@ CONTAINS
 	         ! B/C now fold any residual into the top snow layer before reset.
          IF (snl_old < 0 .and. abs(trc_scv(itrc, ipatch)) > trc_tiny) THEN
             write(*,'(A,I8,A,I3,A,E12.5)') &
-               ' WARNING ct_newsnow: trc_scv residual under layered snow ipatch=', &
+               ' WARNING mt_newsnow: trc_scv residual under layered snow ipatch=', &
                ipatch, ' itrc=', itrc, ' trc_scv_pre=', trc_scv(itrc, ipatch)
          ENDIF
 #endif
@@ -105,7 +105,7 @@ CONTAINS
             IF (present(wice_soisno)) THEN
                IF (abs(wice_soisno(1) - max(pg_snow, 0._r8) * deltim) > 1.e-6_r8) THEN
                   write(*,'(A,I8,A,I3,A,E12.5,A,E12.5)') &
-                     ' WARNING ct_newsnow Case B: wice_soisno(1) /= pg_snow*dt ipatch=', &
+                     ' WARNING mt_newsnow Case B: wice_soisno(1) /= pg_snow*dt ipatch=', &
                      ipatch, ' itrc=', itrc, &
                      ' wice=', wice_soisno(1), &
                      ' pg_snow*dt=', max(pg_snow, 0._r8) * deltim
@@ -132,7 +132,7 @@ CONTAINS
             ! Do not route through trc_scv here: once layered snow exists,
             ! the water-side pg_snow increment goes directly into the top
             ! snow ice layer. A previous scv -> d_wice-gated -> clear path
-            ! could silently drop ground-snow tracer if ct_precip's
+            ! could silently drop ground-snow tracer if mt_precip's
             ! canopy residual correction and the water increment differed by
             ! more than trc_tiny.
             j = snl + 1
@@ -146,7 +146,7 @@ CONTAINS
                IF (abs(d_wice - snow_mass_step) > 1.e-6_r8 .and. &
                    trc_pg_snow_ground(itrc, ipatch) > trc_tiny) THEN
                   write(*,'(A,I8,A,I3,A,E12.5,A,E12.5,A,E12.5)') &
-                     ' WARNING ct_newsnow Case C: d_wice /= pg_snow*dt ipatch=', &
+                     ' WARNING mt_newsnow Case C: d_wice /= pg_snow*dt ipatch=', &
                      ipatch, ' itrc=', itrc, ' d_wice=', d_wice, &
                      ' pg_snow*dt=', snow_mass_step, &
                      ' trc_pg_snow_ground=', trc_pg_snow_ground(itrc, ipatch)
@@ -165,7 +165,7 @@ CONTAINS
             ! the first real snow layer is created.
             !
             ! scv sink handling (warm wetland melt, thin-snow melt) is done
-            ! AFTER THERMAL in CoLMMAIN, not here. ct_newsnow only
+            ! AFTER THERMAL in CoLMMAIN, not here. mt_newsnow only
             ! accumulates and transfers on layer creation.
             !
             ! One exception: warm wetland zeroing scv happens INSIDE newsnow
@@ -201,12 +201,12 @@ CONTAINS
          IF (snl < 0 .and. present(wliq_soisno)) THEN
             j = snl + 1
             IF (size(wliq_soisno) > 0) THEN
-               CALL ct_equilibrate_dissolved(itrc, max(wliq_soisno(1), 0._r8), &
+               CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(1), 0._r8), &
                   trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
             ENDIF
          ENDIF
       ENDDO
-   END SUBROUTINE ct_newsnow
+   END SUBROUTINE mt_newsnow
 
    ! tracer_snow_layer_adj was removed: the prior post-hoc redistribution
    ! (total-tracer / total-water share) homogenised the snow column every
@@ -216,5 +216,5 @@ CONTAINS
    ! per-layer topology as water via the new optional hooks on
    ! MOD_SnowLayersCombineDivide's combine/divide routines.
 
-END MODULE MOD_CT_Snow
+END MODULE MOD_MT_Snow
 #endif

@@ -1,10 +1,10 @@
 #include <define.h>
 
-! Sediment is a river-routing constituent: it USEs MOD_Grid_RiverLakeNetwork
+! Sediment is a river-routing material: it USEs MOD_Grid_RiverLakeNetwork
 ! and other GridRiverLakeFlow-only modules, so it is compiled only with the
-! grid river-lake flow (ct_register_providers is guarded to match).
-#if (defined ConstituentTransport) && (defined GridRiverLakeFlow)
-MODULE MOD_CT_Sediment
+! grid river-lake flow (mt_register_providers is guarded to match).
+#if (defined MaterialTransport) && (defined GridRiverLakeFlow)
+MODULE MOD_MT_Sediment
 !-------------------------------------------------------------------------------------
 ! DESCRIPTION:
 !
@@ -229,8 +229,8 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE register_sediment_tracer_provider()
    !-------------------------------------------------------------------------------------
-      USE MOD_CT_Defs, only: FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE
-      USE MOD_CT_Lifecycle, only: tracer_lifecycle_hooks_type, register_tracer_provider
+      USE MOD_MT_Defs, only: FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE
+      USE MOD_MT_Lifecycle, only: tracer_lifecycle_hooks_type, register_tracer_provider
       IMPLICIT NONE
       type(tracer_lifecycle_hooks_type) :: hooks
 
@@ -273,7 +273,7 @@ CONTAINS
       ENDIF
 
       ! Set species-local defaults.  Overrides come from DEF_SEDIMENT_PARAM_FILE
-      ! (&nl_colm_constituent), which may be left out.
+      ! (&nl_colm_material), which may be left out.
       lambda    = SED_DEFAULT_LAMBDA
       lyrdph    = SED_DEFAULT_LYRDPH
       psedD     = SED_DEFAULT_DENSITY
@@ -346,7 +346,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE read_sediment_parameter_file()
    !-------------------------------------------------------------------------------------
-   USE MOD_CT_Defs, only: tracer_param_file_for_index
+   USE MOD_MT_Defs, only: tracer_param_file_for_index
    IMPLICIT NONE
 
    type(sediment_parameter_type) :: DEF_SEDIMENT
@@ -3036,7 +3036,7 @@ CONTAINS
                   ENDIF
                ENDIF
                has_river_tracer_commit = &
-                  (nf90_inq_varid(ncid, 'trc_river_restart_complete', varid) == NF90_NOERR)
+                  (nf90_inq_varid(ncid, 'mt_river_restart_complete', varid) == NF90_NOERR)
                has_complete = (nf90_inq_varid(ncid, 'sed_restart_complete_meta', varid) == NF90_NOERR)
                has_canonical_mass = (nf90_inq_varid(ncid, 'sedsto_1', varid) == NF90_NOERR)
                has_any_sediment = has_schema .or. has_complete .or. has_canonical_mass
@@ -4312,5 +4312,5 @@ CONTAINS
       IF (allocated(a_shearvel   )) deallocate(a_shearvel   )
    END SUBROUTINE grid_sediment_final
 
-END MODULE MOD_CT_Sediment
+END MODULE MOD_MT_Sediment
 #endif

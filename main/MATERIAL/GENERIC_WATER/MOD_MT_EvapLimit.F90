@@ -1,7 +1,7 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_EvapLimit
+#ifdef MaterialTransport
+MODULE MOD_MT_EvapLimit
 !=======================================================================
 ! Shared finite-pool evaporation/sublimation limiter for tracer losses.
 ! Callers provide the current isotope/solute evaporation ratio callback;
@@ -219,5 +219,5 @@ CONTAINS
 
    END FUNCTION tracer_evaporative_tracer_loss
 
-END MODULE MOD_CT_EvapLimit
+END MODULE MOD_MT_EvapLimit
 #endif

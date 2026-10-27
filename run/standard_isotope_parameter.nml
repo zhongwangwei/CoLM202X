@@ -25,7 +25,7 @@
     DEF_ISO_INIT_DELTA_HDO         = -70.0            ! initial delta-D [permil]
 /
 
-&nl_colm_ct_forcing
+&nl_colm_mt_forcing
     ! ------------------------------------------------------------------
     ! Forcing of one species. IsoGSM fields are SMOW-normalised
     ! (raw = water * R/Rstd); 'normalized_over_total' recovers
@@ -43,7 +43,7 @@
     forcing_input_mode = 'normalized_over_total', 'normalized_over_total'
 /
 
-&nl_colm_ct_forcing
+&nl_colm_mt_forcing
     forcing_species    = 'HDO'
     forcing_num        = 2
     forcing_role       = 'precip', 'vapor'

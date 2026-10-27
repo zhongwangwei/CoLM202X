@@ -22,15 +22,15 @@ MODULE MOD_Grid_RiverLakeFlow
    USE MOD_Grid_RiverLakeBifurcation, only: bifurcation_init, read_bifurcation_restart, &
       bifurcation_final, bifurcation_calc, &
       bif_hflux_sum, bif_hflux_lev, bif_lev_hflux_sum, bif_path_active
-#ifdef ConstituentTransport
-   ! Constituent transport: the ct_rlc_* calls below (one per marked block) change
-   ! only constituent pools, never the river water state, so the host solution
+#ifdef MaterialTransport
+   ! Material transport: the mt_rlc_* calls below (one per marked block) change
+   ! only material pools, never the river water state, so the host solution
    ! is the same as without them.
-   USE MOD_CT_RiverLakeCoupling, only: ct_rlc_init, ct_rlc_runoff_input, ct_rlc_begin_routing, &
-      ct_rlc_levee_repartition, ct_rlc_equilibrate_cell, ct_rlc_substep, ct_rlc_inland_depression, &
-      ct_rlc_diag_accumulate, ct_rlc_debug_discharge, ct_rlc_end_routing, ct_rlc_flood_init, &
-      ct_rlc_flood_withhold, ct_rlc_flood_publish_reset, ct_rlc_flood_publish_cell, &
-      ct_rlc_flood_publish_push, ct_rlc_flood_debit, ct_rlc_final
+   USE MOD_MT_RiverLakeCoupling, only: mt_rlc_init, mt_rlc_runoff_input, mt_rlc_begin_routing, &
+      mt_rlc_levee_repartition, mt_rlc_equilibrate_cell, mt_rlc_substep, mt_rlc_inland_depression, &
+      mt_rlc_diag_accumulate, mt_rlc_debug_discharge, mt_rlc_end_routing, mt_rlc_flood_init, &
+      mt_rlc_flood_withhold, mt_rlc_flood_publish_reset, mt_rlc_flood_publish_cell, &
+      mt_rlc_flood_publish_push, mt_rlc_flood_debit, mt_rlc_final
 #endif
    IMPLICIT NONE
 
@@ -142,9 +142,9 @@ CONTAINS
 
       CALL rebuild_volwater_ucat ()
 
-#ifdef ConstituentTransport
-      ! constituent pools from the river restart, else from the water state
-      CALL ct_rlc_init (start_year, gridriver_restart_file)
+#ifdef MaterialTransport
+      ! material pools from the river restart, else from the water state
+      CALL mt_rlc_init (start_year, gridriver_restart_file)
 #endif
 
       gridriver_restart_file = ''
@@ -235,9 +235,9 @@ CONTAINS
       IF (numinpm > 0) flood_grid_area = max(flood_grid_area, push_ucat2inpm%sum_area)
       deallocate(grid_area_local)
 
-#ifdef ConstituentTransport
-      ! constituent of the flood credit, on the same patches
-      CALL ct_rlc_flood_init ()
+#ifdef MaterialTransport
+      ! material of the flood credit, on the same patches
+      CALL mt_rlc_flood_init ()
 #endif
 
    END SUBROUTINE init_flood_feedback
@@ -295,8 +295,8 @@ CONTAINS
          flood_depth_patch = 0._r8
          flood_fraction_patch = 0._r8
       ENDIF
-#ifdef ConstituentTransport
-      CALL ct_rlc_flood_withhold ()
+#ifdef MaterialTransport
+      CALL mt_rlc_flood_withhold ()
 #endif
 
    END SUBROUTINE withhold_flood_feedback
@@ -408,9 +408,9 @@ CONTAINS
          IF (numucat > 0) THEN
             acc_rnof_uc = acc_rnof_uc + rnof_uc*1.e-3*deltime
          ENDIF
-#ifdef ConstituentTransport
-         ! constituent of the runoff, mapped as the runoff water
-         CALL ct_rlc_runoff_input (filter_rnof, rnof_uc, deltime)
+#ifdef MaterialTransport
+         ! material of the runoff, mapped as the runoff water
+         CALL mt_rlc_runoff_input (filter_rnof, rnof_uc, deltime)
 #endif
 
          deallocate(rnof_gd)
@@ -477,9 +477,9 @@ CONTAINS
             allocate (volresv_safe(0))
          ENDIF
 
-#ifdef ConstituentTransport
-         ! the accumulated runoff constituent joins the input, as acc_rnof_uc below
-         CALL ct_rlc_begin_routing ()
+#ifdef MaterialTransport
+         ! the accumulated runoff material joins the input, as acc_rnof_uc below
+         CALL mt_rlc_begin_routing ()
 #endif
 
 #ifdef CoLMDEBUG
@@ -529,8 +529,8 @@ CONTAINS
                   CALL levee_repartition_storage(i, volwater, wdsrf_ucat(i), fldfrc_levee, &
                      vis_vol_bef_lv, levsto_bef_lv)
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
-#ifdef ConstituentTransport
-                  CALL ct_rlc_levee_repartition (i, vis_vol_bef_lv, levsto_bef_lv, &
+#ifdef MaterialTransport
+                  CALL mt_rlc_levee_repartition (i, vis_vol_bef_lv, levsto_bef_lv, &
                      volwater, levsto(i), with_input = .true.)
 #endif
                ELSE
@@ -1045,9 +1045,9 @@ CONTAINS
 #endif
             ENDIF
 
-#ifdef ConstituentTransport
-            ! constituent transport with this substep's water fluxes
-            CALL ct_rlc_substep (acctime_rnof, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
+#ifdef MaterialTransport
+            ! material transport with this substep's water fluxes
+            CALL mt_rlc_substep (acctime_rnof, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
                ucatfilter, is_built_resv)
 #endif
 
@@ -1087,8 +1087,8 @@ CONTAINS
                   IF (volwater > topo_rivstomax(i)) THEN
                      hflux_fc(i) = (volwater - topo_rivstomax(i)) / dt_all(irivsys(i))
                      IF (is_built_resv(i)) qresv_out(ucat2resv(i)) = hflux_fc(i)
-#ifdef ConstituentTransport
-                     CALL ct_rlc_inland_depression (i, volwater, topo_rivstomax(i), dt_all(irivsys(i)))
+#ifdef MaterialTransport
+                     CALL mt_rlc_inland_depression (i, volwater, topo_rivstomax(i), dt_all(irivsys(i)))
 #endif
                      volwater = topo_rivstomax(i)
                   ENDIF
@@ -1098,8 +1098,8 @@ CONTAINS
                   CALL levee_repartition_storage(i, volwater, wdsrf_ucat(i), fldfrc_levee, &
                      vis_vol_bef_lv2, levsto_bef_lv2)
                   levee_floodarea(i) = fldfrc_levee * topo_area(i)
-#ifdef ConstituentTransport
-                  CALL ct_rlc_levee_repartition (i, vis_vol_bef_lv2, levsto_bef_lv2, volwater, levsto(i))
+#ifdef MaterialTransport
+                  CALL mt_rlc_levee_repartition (i, vis_vol_bef_lv2, levsto_bef_lv2, volwater, levsto(i))
 #endif
                ELSE
                   wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
@@ -1137,8 +1137,8 @@ CONTAINS
 
             ENDDO
 
-#ifdef ConstituentTransport
-            CALL ct_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv, &
+#ifdef MaterialTransport
+            CALL mt_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv, &
                hflux_fc, levee_floodarea)
 #endif
 
@@ -1148,8 +1148,8 @@ CONTAINS
 #ifdef CoLMDEBUG
                   IF (ucat_next(i) <= 0) THEN
                      totaldis = totaldis + hflux_fc(i)*dt_all(irivsys(i))
-#ifdef ConstituentTransport
-                     CALL ct_rlc_debug_discharge (i, dt_all(irivsys(i)))
+#ifdef MaterialTransport
+                     CALL mt_rlc_debug_discharge (i, dt_all(irivsys(i)))
 #endif
                   ENDIF
 #endif
@@ -1288,9 +1288,9 @@ CONTAINS
       flood_evap_period = 0._r8
       flood_infil_period = 0._r8
 
-#ifdef ConstituentTransport
-      ! constituent balance (CoLMDEBUG), limiter statistics, reset of the accumulations
-      CALL ct_rlc_end_routing ()
+#ifdef MaterialTransport
+      ! material balance (CoLMDEBUG), limiter statistics, reset of the accumulations
+      CALL mt_rlc_end_routing ()
 #endif
 
       acctime_rnof = 0.
@@ -1491,8 +1491,8 @@ CONTAINS
       flood_visible_uc = 0._r8
       flood_protected_uc = 0._r8
       flood_reservoir_uc = .false.
-#ifdef ConstituentTransport
-      CALL ct_rlc_flood_publish_reset ()
+#ifdef MaterialTransport
+      CALL mt_rlc_flood_publish_reset ()
 #endif
       frac_uc = 0._r8
       DO i = 1, numucat
@@ -1510,8 +1510,8 @@ CONTAINS
          ENDIF
          protected = 0._r8
          IF (DEF_USE_LEVEE .and. has_levee(i)) protected = max(0._r8, levsto(i))
-#ifdef ConstituentTransport
-         CALL ct_rlc_equilibrate_cell (i, visible, DEF_USE_LEVEE .and. has_levee(i))
+#ifdef MaterialTransport
+         CALL mt_rlc_equilibrate_cell (i, visible, DEF_USE_LEVEE .and. has_levee(i))
 #endif
          IF (DEF_USE_LEVEE .and. has_levee(i)) THEN
             CALL levee_fldstg(i, visible+protected, stage, protected_new, protected_stage, fraction)
@@ -1523,8 +1523,8 @@ CONTAINS
          flood_visible_uc(i) = max(0._r8, visible - topo_rivstomax(i))
          flood_protected_uc(i) = protected
          frac_uc(i) = min(1._r8, fraction)
-#ifdef ConstituentTransport
-         CALL ct_rlc_flood_publish_cell (i, visible, protected, flood_visible_uc(i))
+#ifdef MaterialTransport
+         CALL mt_rlc_flood_publish_cell (i, visible, protected, flood_visible_uc(i))
 #endif
       ENDDO
 
@@ -1574,9 +1574,9 @@ CONTAINS
          WHERE (flood_fraction_patch > epsilon(1._r8)) &
             flood_depth_patch = 1000._r8 * flood_credit_patch / max(flood_fraction_patch, tiny(1._r8))
       ENDIF
-#ifdef ConstituentTransport
-      ! constituent of the flood credit, mapped to the patches as the water
-      CALL ct_rlc_flood_publish_push (flood_grid_area)
+#ifdef MaterialTransport
+      ! material of the flood credit, mapped to the patches as the water
+      CALL mt_rlc_flood_publish_push (flood_grid_area)
 #endif
    END SUBROUTINE publish_flood_feedback
 
@@ -1657,9 +1657,9 @@ CONTAINS
       ENDDO
       IF (any(fraction_sum > 1._r8+1.e-10_r8)) &
          CALL CoLM_stop('grid flood feedback: donor overdraft')
-#ifdef ConstituentTransport
-      ! take from the river constituent pools what the land took; check the ledger
-      CALL ct_rlc_flood_debit (flood_credit_patch, flood_evap_acc, flood_infil_acc, &
+#ifdef MaterialTransport
+      ! take from the river material pools what the land took; check the ledger
+      CALL mt_rlc_flood_debit (flood_credit_patch, flood_evap_acc, flood_infil_acc, &
          flood_grid_area, flood_visible_uc, flood_protected_uc)
 #endif
       DO j = 1, numucat
@@ -1671,15 +1671,15 @@ CONTAINS
          ENDIF
          IF (DEF_USE_LEVEE .and. has_levee(j)) &
             levsto(j) = max(0._r8, levsto(j) - fraction_sum(j)*flood_protected_uc(j))
-#ifdef ConstituentTransport
-         CALL ct_rlc_equilibrate_cell (j, volwater_ucat(j), DEF_USE_LEVEE .and. has_levee(j))
+#ifdef MaterialTransport
+         CALL mt_rlc_equilibrate_cell (j, volwater_ucat(j), DEF_USE_LEVEE .and. has_levee(j))
 #endif
          IF (fraction_sum(j) > 0._r8) THEN
             IF (DEF_USE_LEVEE .and. has_levee(j) .and. .not. flood_reservoir_uc(j)) THEN
                CALL levee_repartition_storage(j, volwater_ucat(j), wdsrf_ucat(j), &
                   fraction, visible_before, protected_before)
-#ifdef ConstituentTransport
-               CALL ct_rlc_levee_repartition (j, visible_before, protected_before, &
+#ifdef MaterialTransport
+               CALL mt_rlc_levee_repartition (j, visible_before, protected_before, &
                   volwater_ucat(j), levsto(j))
 #endif
             ELSEIF (flood_reservoir_uc(j)) THEN
@@ -1705,8 +1705,8 @@ CONTAINS
 
       CALL levee_final()
       CALL bifurcation_final()
-#ifdef ConstituentTransport
-      CALL ct_rlc_final ()
+#ifdef MaterialTransport
+      CALL mt_rlc_final ()
 #endif
 
       IF (allocated(filter_rnof)) deallocate(filter_rnof)

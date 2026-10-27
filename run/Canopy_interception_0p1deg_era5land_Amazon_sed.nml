@@ -67,7 +67,7 @@
 
 /
 
-&nl_colm_constituent
+&nl_colm_material
    ! river sediment parameters: the &nl_colm_sediment_parameter group below
    ! (path as given to colm.x)
    DEF_SEDIMENT_PARAM_FILE = 'Canopy_interception_0p1deg_era5land_Amazon_sed.nml'

@@ -2,7 +2,7 @@
     ! ------------------------------------------------------------------
     ! Dilute chloride, a conservative hydrologic tracer.
     !
-    !   &nl_colm_constituent
+    !   &nl_colm_material
     !      DEF_SOLUTE_NAMES       = 'CL'
     !      DEF_SOLUTE_PARAM_FILES = 'CL:run/standard_chloride_parameter.nml'
     !   /

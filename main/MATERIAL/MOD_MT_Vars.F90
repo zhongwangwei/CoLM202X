@@ -1,15 +1,15 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Vars
+#ifdef MaterialTransport
+MODULE MOD_MT_Vars
 
    USE MOD_Precision
    USE MOD_Namelist, only: DEF_USE_VariablySaturatedFlow
-   USE MOD_CT_Namelist, only: DEF_CT_LULCC_ABORT_NBAD, DEF_CT_AQUIFER_MIXING_WATER_MM
+   USE MOD_MT_Namelist, only: DEF_MT_LULCC_ABORT_NBAD, DEF_MT_AQUIFER_MIXING_WATER_MM
    USE MOD_SPMD_Task, only: p_is_io, CoLM_stop
-   USE MOD_CT_Defs, only: ntracers, tracers, tracer_build_descriptor_identity, &
-      ct_uses_land_water_transport, tracer_is_isotope, &
-      tracer_aquifer_actual_water, ct_equilibrate_dissolved
+   USE MOD_MT_Defs, only: ntracers, tracers, tracer_build_descriptor_identity, &
+      mt_uses_generic_water, tracer_is_isotope, tracer_aquifer_actual_water
+   USE MOD_MT_Solute, only: mt_equilibrate_dissolved
    USE MOD_Const_LC, only: patchtypes
 
    IMPLICIT NONE
@@ -65,7 +65,7 @@ MODULE MOD_CT_Vars
 
    ! Throughfall tracer reaching ground [kg/m2 per step]
    ! Rain and snow kept separate: rain enters the surface mixed pool via
-   ! ct_soil_water; snow enters trc_scv via ct_newsnow (mirrors
+   ! mt_soil_water; snow enters trc_scv via mt_newsnow (mirrors
    ! water side where gwat only carries pg_rain). A previous "trc_pg_to_ground
    ! = rain+snow" combined var double-counted snow tracer when used in the
    ! surface pool — removed to prevent reintroduction.
@@ -75,7 +75,7 @@ MODULE MOD_CT_Vars
 
    ! Tracer carried by snowmelt sm from thin-snow (snl==0) scv during THERMAL.
    ! Set in CoLMMAIN after THERMAL based on the actual trc_scv reduction;
-   ! consumed by ct_soil_water when snl==0 .and. sm>0. Replaces the old
+   ! consumed by mt_soil_water when snl==0 .and. sm>0. Replaces the old
    ! "sm * R_precip" injection which used a fixed init delta instead of the
    ! real scv ratio.
    real(r8), allocatable :: trc_sm_carry(:,:)          ! (ntracers, numpatch)
@@ -170,7 +170,7 @@ MODULE MOD_CT_Vars
    real(r8), allocatable :: a_water_snow    (:,:)     ! (abs(maxsnl), numpatch) snow layers
 
    ! Surface / aquifer / wetland / thin-snow diagnostic accumulators.
-   ! ct_balance_check already includes these four pools in the conservation
+   ! mt_balance_check already includes these four pools in the conservation
    ! sum, but the history writer only had canopy + soil + snow, so users could
    ! not see the δ values of wa (aquifer), wdsrf (surface water), wetwat
    ! (wetland pool) or scv (pre-layer thin snow). These accumulators let
@@ -233,10 +233,10 @@ MODULE MOD_CT_Vars
    PUBLIC :: a_trc_surface_residue_mass, a_trc_subsurface_residue_mass
    PUBLIC :: a_trc_layer_dry_mass, a_trc_solid_mass, a_trc_scv_mass, a_water_scv
 
-   ! Whether the land constituent state came from the restart file (not a
+   ! Whether the land material state came from the restart file (not a
    ! cold start); only then do the history sums saved with it belong to the
    ! current species (MOD_HistAccRestart).
-   logical, PUBLIC :: ct_land_restart_loaded = .false.
+   logical, PUBLIC :: mt_land_restart_loaded = .false.
 
 CONTAINS
 
@@ -277,7 +277,7 @@ CONTAINS
       allocate(trc_leaf_iso_storage(ntracers, numpatch));    trc_leaf_iso_storage = 0._r8
       allocate(trc_runtime_forced(ntracers));                trc_runtime_forced = .false.
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          trc_leaf_delta_e(itrc, :) = tracers(itrc)%init_delta
          trc_leaf_delta_b(itrc, :) = tracers(itrc)%init_delta
       ENDDO
@@ -540,9 +540,9 @@ CONTAINS
       deallocate(remapped_ref_water)
       CALL remap2d_mass(lulcc_trc_aquifer_ref_mass_old, trc_aquifer_ref_mass)
       require_isotope_reference = .false.
-      IF (DEF_USE_VariablySaturatedFlow .and. DEF_CT_AQUIFER_MIXING_WATER_MM > 0._r8) THEN
+      IF (DEF_USE_VariablySaturatedFlow .and. DEF_MT_AQUIFER_MIXING_WATER_MM > 0._r8) THEN
          DO itrc = 1, ntracers
-            IF (ct_uses_land_water_transport(itrc) .and. tracer_is_isotope(itrc)) &
+            IF (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc)) &
                require_isotope_reference = .true.
          ENDDO
       ENDIF
@@ -656,7 +656,7 @@ CONTAINS
             patch_area = max(0._r8, area(ip))
             IF (patch_area <= tiny(1._r8)) CYCLE
             DO itrc = 1, n1
-               IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+               IF (.not. mt_uses_generic_water(itrc)) CYCLE
                total(itrc) = total(itrc) + pool(itrc, ip) * patch_area
             ENDDO
          ENDDO
@@ -675,7 +675,7 @@ CONTAINS
             IF (patch_area <= tiny(1._r8)) CYCLE
             DO iz = 1, size(pool,2)
                DO itrc = 1, n1
-                  IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+                  IF (.not. mt_uses_generic_water(itrc)) CYCLE
                   total(itrc) = total(itrc) + pool(itrc, iz, ip) * patch_area
                ENDDO
             ENDDO
@@ -691,7 +691,7 @@ CONTAINS
          worst_itrc = 0
          worst_abs = 0._r8
          DO itrc = 1, min(size(before), size(after), ntracers)
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             diff = after(itrc) - before(itrc)
             abs_err = abs(diff)
             scale = max(abs(before(itrc)), abs(after(itrc)), 1._r8)
@@ -704,7 +704,7 @@ CONTAINS
             IF (abs_err > tol) nbad = nbad + 1
          ENDDO
 
-         IF (nbad > DEF_CT_LULCC_ABORT_NBAD) THEN
+         IF (nbad > DEF_MT_LULCC_ABORT_NBAD) THEN
             IF (p_is_io) THEN
                WRITE(*,'(A,I0,A,E12.5,A,E12.5)') &
                   'TRC_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
@@ -1073,7 +1073,7 @@ CONTAINS
       IF (ntracers <= 0) RETURN
 
       DO itrc = 1, ntracers
-         IF (ct_uses_land_water_transport(itrc)) CYCLE
+         IF (mt_uses_generic_water(itrc)) CYCLE
 
          IF (allocated(trc_ldew_rain  )) trc_ldew_rain  (itrc, :)    = 0._r8
          IF (allocated(trc_ldew_snow  )) trc_ldew_snow  (itrc, :)    = 0._r8
@@ -1199,7 +1199,7 @@ CONTAINS
    ! no longer assume a fixed R_init signature when runtime forcing or
    ! fractionation is enabled.
    !
-   ! `snl` is the accounting lower bound used by ct_save_storage:
+   ! `snl` is the accounting lower bound used by mt_save_storage:
    ! layers below snl+1 are zeroed so hidden snow-layer tracer cannot
    ! leak outside the caller's conservation account.
    !---------------------------------------------------------------
@@ -1224,7 +1224,7 @@ CONTAINS
          IF (j >= snl + 1) THEN
             trc_wliq_soisno(itrc, j, ipatch) = max(wliq_soisno(j), 0._r8) * R_mix
             trc_wice_soisno(itrc, j, ipatch) = max(wice_soisno(j), 0._r8) * R_mix
-            CALL ct_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+            CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
                trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
          ELSE
             trc_wliq_soisno(itrc, j, ipatch) = 0._r8
@@ -1239,9 +1239,9 @@ CONTAINS
          trc_wa(itrc, ipatch) = wa * R_mix
       ENDIF
       trc_wdsrf(itrc, ipatch) = max(wdsrf, 0._r8) * R_mix
-      CALL ct_equilibrate_dissolved(itrc, wa, trc_wa(itrc, ipatch), &
+      CALL mt_equilibrate_dissolved(itrc, wa, trc_wa(itrc, ipatch), &
          trc_subsurface_solid(itrc, ipatch))
-      CALL ct_equilibrate_dissolved(itrc, max(wdsrf, 0._r8), &
+      CALL mt_equilibrate_dissolved(itrc, max(wdsrf, 0._r8), &
          trc_wdsrf(itrc, ipatch), trc_surface_solid(itrc, ipatch))
 
       IF (snl < 0) THEN
@@ -1252,5 +1252,5 @@ CONTAINS
    END SUBROUTINE sync_tracer_patch_ratio
 
 
-END MODULE MOD_CT_Vars
+END MODULE MOD_MT_Vars
 #endif

@@ -1,6 +1,6 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
 SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
 #else
 SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
@@ -30,12 +30,12 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
    USE omp_lib
-#ifdef ConstituentTransport
-   USE MOD_CT_LandPhase, only: ct_resolve_step, ct_lake_step, &
-      ct_wetland_decomp, ct_soil_step, ct_report
-   USE MOD_CT_Defs, only: ntracers
+#ifdef MaterialTransport
+   USE MOD_MT_LandPhase, only: mt_resolve_step, mt_lake_step, &
+      mt_wetland_decomp, mt_soil_step, mt_report
+   USE MOD_MT_Defs, only: ntracers
    USE MOD_SPMD_Task, only: CoLM_stop
-   USE MOD_CT_SpecialPatches, only: ct_waterbody_hist_sample
+   USE MOD_MT_SpecialPatches, only: mt_waterbody_hist_sample
 #endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
@@ -53,9 +53,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
       finfg_fld => flood_infil_patch
 #endif
 
-#if (defined ConstituentTransport) && (defined OPENMP)
-   ! the constituent step counters and balance accumulators are not thread safe
-#error "ConstituentTransport does not support OPENMP in CoLMDRIVER"
+#if (defined MaterialTransport) && (defined OPENMP)
+   ! the material step counters and balance accumulators are not thread safe
+#error "MaterialTransport does not support OPENMP in CoLMDRIVER"
 #endif
    IMPLICIT NONE
 
@@ -67,21 +67,21 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    logical,  intent(in) :: dosst    ! true if time for update sst/ice/snow
 
    real(r8), intent(inout) :: oro(numpatch)  ! ocean(0)/seaice(2)/ flag
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    integer,  intent(in), optional :: istep_in
 #endif
 
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
-#ifdef ConstituentTransport
+#ifdef MaterialTransport
    integer  :: istep_local
 #endif
 
 ! ======================================================================
 
-#ifdef ConstituentTransport
-      CALL ct_resolve_step (istep_in, istep_local)
+#ifdef MaterialTransport
+      CALL mt_resolve_step (istep_in, istep_local)
 #endif
 #ifdef OPENMP
 !$OMP PARALLEL DO NUM_THREADS(OPENMP) &
@@ -105,10 +105,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
          m = patchclass(i)
 
-#if (defined URBAN_MODEL) && (defined ConstituentTransport)
+#if (defined URBAN_MODEL) && (defined MaterialTransport)
          IF (DEF_URBAN_RUN .and. m.eq.URBAN .and. ntracers > 0) THEN
-            CALL CoLM_stop ('Constituent transport does not support full urban patches yet: ' // &
-               'CoLMMAIN_Urban has no constituent sub-surface state or runoff update.')
+            CALL CoLM_stop ('Material transport does not support full urban patches yet: ' // &
+               'CoLMMAIN_Urban has no material sub-surface state or runoff update.')
          ENDIF
 #endif
          steps_in_one_deltim = 1
@@ -121,8 +121,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
          IF (.not.DEF_URBAN_RUN .or. m.ne.URBAN) THEN
 
             DO k = 1, steps_in_one_deltim
-#ifdef ConstituentTransport
-               ct_waterbody_hist_sample = k == steps_in_one_deltim
+#ifdef MaterialTransport
+               mt_waterbody_hist_sample = k == steps_in_one_deltim
 #endif
                !                ***** Call CoLM main program *****
                !
@@ -249,8 +249,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                ustar(i),        qstar(i),        tstar(i),                         &
                fm(i),           fh(i),           fq(i)                             )
 
-#ifdef ConstituentTransport
-               CALL ct_lake_step (istep_local, i, idate, deltim_phy, k, steps_in_one_deltim)
+#ifdef MaterialTransport
+               CALL mt_lake_step (istep_local, i, idate, deltim_phy, k, steps_in_one_deltim)
 #endif
             ENDDO
          ENDIF
@@ -263,9 +263,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             !
             CALL bgc_driver (i,idate(1:3),deltim, patchlatr(i)*180/PI,patchlonr(i)*180/PI)
          ENDIF
-#ifdef ConstituentTransport
-         CALL ct_wetland_decomp (i, deltim)
-         CALL ct_soil_step (istep_local, i, idate, deltim)
+#ifdef MaterialTransport
+         CALL mt_wetland_decomp (i, deltim)
+         CALL mt_soil_step (istep_local, i, idate, deltim)
 #endif
 #endif
 
@@ -414,8 +414,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 !$OMP END PARALLEL DO
 #endif
 
-#ifdef ConstituentTransport
-      CALL ct_report ()
+#ifdef MaterialTransport
+      CALL mt_report ()
 #endif
 END SUBROUTINE CoLMDRIVER
 ! ---------- EOP ------------

@@ -1,20 +1,20 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_HostFixes
+#ifdef MaterialTransport
+MODULE MOD_MT_HostFixes
 
 !-----------------------------------------------------------------------
 ! Fixes for two upstream problems that break restart reproducibility.
-! Constituent runs need a split run (restart) to reproduce an unbroken
+! Material runs need a split run (restart) to reproduce an unbroken
 ! run exactly, so both fixes are applied here, and ONLY when at least one
-! constituent is switched on (ct_any_enabled). With constituents off, or
-! with ConstituentTransport not defined, the host keeps its upstream
+! material is switched on (mt_any_enabled). With materials off, or
+! with MaterialTransport not defined, the host keeps its upstream
 ! behaviour bit for bit: the host calls below are inside
-! #ifdef ConstituentTransport and both functions return the upstream
-! value when ct_any_enabled() is false.
+! #ifdef MaterialTransport and both functions return the upstream
+! value when mt_any_enabled() is false.
 !
 ! 1. Start year of the BGC nitrogen-deposition / fire data
-!    (ct_bgc_data_init_year). CoLM.F90 passes sdate(1) after
+!    (mt_bgc_data_init_year). CoLM.F90 passes sdate(1) after
 !    adj2end(sdate). A run starting at 00:00 on 1 January has its start
 !    date moved to the end of the previous year (day 365/366, 86400 s),
 !    so the data of the previous year are read and kept for the whole
@@ -24,7 +24,7 @@ MODULE MOD_CT_HostFixes
 !    sminn_vr, ...). The year that the simulation actually starts in is
 !    DEF_simulation_time%start_year (s_year), as CoLM202X uses.
 !
-! 2. History file continued after a restart (ct_hist_continue_file).
+! 2. History file continued after a restart (mt_hist_continue_file).
 !    The host creates a new history file when the file name differs from
 !    the last file written in this run; that name is 'null' at start-up,
 !    so a run restarted inside a history group (e.g. on day 2 with
@@ -37,31 +37,31 @@ MODULE MOD_CT_HostFixes
 !    files need nothing: they are only created when missing.
 !-----------------------------------------------------------------------
 
-   USE MOD_CT_Namelist, only: ct_any_enabled
+   USE MOD_MT_Namelist, only: mt_any_enabled
    IMPLICIT NONE
    PRIVATE
 
-   PUBLIC :: ct_bgc_data_init_year
-   PUBLIC :: ct_hist_continue_file
+   PUBLIC :: mt_bgc_data_init_year
+   PUBLIC :: mt_hist_continue_file
 
 CONTAINS
 
-   integer FUNCTION ct_bgc_data_init_year (sdate_year, start_year)
+   integer FUNCTION mt_bgc_data_init_year (sdate_year, start_year)
    ! sdate_year: sdate(1) after adj2end (upstream argument)
    ! start_year: DEF_simulation_time%start_year
    IMPLICIT NONE
    integer, intent(in) :: sdate_year, start_year
 
-      IF (ct_any_enabled()) THEN
-         ct_bgc_data_init_year = start_year
+      IF (mt_any_enabled()) THEN
+         mt_bgc_data_init_year = start_year
       ELSE
-         ct_bgc_data_init_year = sdate_year
+         mt_bgc_data_init_year = sdate_year
       ENDIF
 
-   END FUNCTION ct_bgc_data_init_year
+   END FUNCTION mt_bgc_data_init_year
 
 
-   SUBROUTINE ct_hist_continue_file (file_hist, idate, histform, file_last)
+   SUBROUTINE mt_hist_continue_file (file_hist, idate, histform, file_last)
    ! file_hist: the history file about to be written
    ! idate:     current model time (end of the time step)
    ! histform:  'Gridded', 'Vector' or 'Single' (MOD_Hist HistForm)
@@ -83,7 +83,7 @@ CONTAINS
    character(len=256) :: fileblock
    logical :: lcontinue, fexists, per_block
 
-      IF (.not. ct_any_enabled()) RETURN
+      IF (.not. mt_any_enabled()) RETURN
       ! only the first write of this run
       IF (trim(file_last) /= 'null') RETURN
       ! only gridded history has per-block files
@@ -142,10 +142,10 @@ CONTAINS
 
       IF (lcontinue) THEN
          file_last = file_hist
-         IF (p_is_master) write(*,'(A)') 'Constituent restart: continuing history file ' // trim(file_hist)
+         IF (p_is_master) write(*,'(A)') 'Material restart: continuing history file ' // trim(file_hist)
       ENDIF
 
-   END SUBROUTINE ct_hist_continue_file
+   END SUBROUTINE mt_hist_continue_file
 
-END MODULE MOD_CT_HostFixes
+END MODULE MOD_MT_HostFixes
 #endif

@@ -1,17 +1,17 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Frac
+#ifdef MaterialTransport
+MODULE MOD_MT_Frac
 
    USE MOD_Precision
-   USE MOD_CT_Namelist, only: DEF_ISO_USE_FRACTIONATION, DEF_ISO_NSS_LEAF_WATER_PER_LAI, DEF_ISO_NSS_LEAF_PATH_LENGTH, &
+   USE MOD_MT_Namelist, only: DEF_ISO_USE_FRACTIONATION, DEF_ISO_NSS_LEAF_WATER_PER_LAI, DEF_ISO_NSS_LEAF_PATH_LENGTH, &
       DEF_ISO_NSS_LEAF_RB, DEF_ISO_ICE_SUPERSAT_SLOPE, DEF_ISO_CG_RELHUM_MAX, &
       DEF_ISO_OPEN_WATER_KINETIC
-   USE MOD_CT_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
-   USE MOD_CT_Isotope_Registry, only: isotope_fractionation_registered, &
+   USE MOD_MT_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
+   USE MOD_MT_Isotope_Registry, only: isotope_fractionation_registered, &
       isotope_alpha_liq_vap, isotope_alpha_ice_vap, isotope_diffusivity_ratio_air, &
       isotope_leaf_liquid_diffusivity, isotope_mj79_relative_factor
-   USE MOD_CT_Providers, only: ensure_isotope_physics_registered
+   USE MOD_MT_Providers, only: ensure_isotope_physics_registered
 
    IMPLICIT NONE
    SAVE
@@ -996,5 +996,5 @@ CONTAINS
    END FUNCTION tracer_delta_to_ratio
 
 
-END MODULE MOD_CT_Frac
+END MODULE MOD_MT_Frac
 #endif

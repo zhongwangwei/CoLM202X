@@ -1,44 +1,44 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_SpecialPatches
+#ifdef MaterialTransport
+MODULE MOD_MT_SpecialPatches
 
    USE MOD_Precision
    USE MOD_SPMD_Task, only: CoLM_stop
-   USE MOD_CT_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
-      trc_delta_sanity_max, tracer_init_water_ratio, &
-      tracer_can_use_fixed_signature, ct_uses_land_water_transport, tracer_is_nonvolatile_solute, &
-      ct_has_dissolved_limit, ct_equilibrate_dissolved
-   USE MOD_CT_Namelist, only: DEF_ISO_SUBL_SKIN_MM
-   USE MOD_CT_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
-   USE MOD_CT_EvapLimit, only: tracer_atmospheric_tracer_loss
-   USE MOD_CT_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
+   USE MOD_MT_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
+      trc_delta_sanity_max, tracer_init_water_ratio, tracer_can_use_fixed_signature, &
+      mt_uses_generic_water, tracer_is_nonvolatile_solute
+   USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
+   USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM
+   USE MOD_MT_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
+   USE MOD_MT_EvapLimit, only: tracer_atmospheric_tracer_loss
+   USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_ratio, &
       tracer_alpha_kinetic_open_water, &
       tracer_equilibrium_deposition_ratio
-   USE MOD_CT_Conservation, only: ct_save_storage, ct_balance_check, &
-      ct_apply_decay
-   USE MOD_CT_Hist, only: ct_hist_accumulate
-   USE MOD_CT_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_scv, trc_wdsrf, &
+   USE MOD_MT_Conservation, only: mt_save_storage, mt_balance_check, &
+      mt_apply_decay
+   USE MOD_MT_Hist, only: mt_hist_accumulate
+   USE MOD_MT_Vars, only: trc_wliq_soisno, trc_wice_soisno, trc_scv, trc_wdsrf, &
       trc_ldew_rain, trc_ldew_snow, trc_rnof_step, a_trc_precip, tracer_book_evap_loss, &
       TRC_EVAP_KIND_SOILEVAP, TRC_EVAP_KIND_SUBL, &
       a_trc_rsur, a_trc_rnof, trc_wetwat, trc_waterstorage, trc_storage_beg, &
       trc_surface_residue, trc_subsurface_residue, trc_runtime_forced, &
       trc_solid_soisno, trc_canopy_solid, trc_surface_solid, &
       trc_subsurface_solid, trc_waterstorage_solid, sync_tracer_patch_ratio
-   USE MOD_CT_Vars, only: trc_aquifer_ref_water
+   USE MOD_MT_Vars, only: trc_aquifer_ref_water
 
    IMPLICIT NONE
    PRIVATE
 
-   PUBLIC :: ct_glacier_patch
-   PUBLIC :: ct_waterbody_patch
+   PUBLIC :: mt_glacier_patch
+   PUBLIC :: mt_waterbody_patch
 
-   logical, PUBLIC :: ct_waterbody_hist_sample = .true.
+   logical, PUBLIC :: mt_waterbody_hist_sample = .true.
 
 CONTAINS
 
-   SUBROUTINE ct_glacier_patch(ipatch, maxsnl, nl_soil, deltim, &
+   SUBROUTINE mt_glacier_patch(ipatch, maxsnl, nl_soil, deltim, &
       prc_rain, prl_rain, prc_snow, prl_snow, rnof, qseva, qsubl, qsdew, qfros, &
       endwb, totwb, glacier_overflow_mass, errorw, wdsrf, scv, t_grnd, forc_q, &
       forc_psrf, wliq_soisno, wice_soisno)
@@ -72,7 +72,7 @@ CONTAINS
       IF (trc_aquifer_ref_water(ipatch) > 0._r8) &
          CALL CoLM_stop('glacier transition with isotope aquifer reference needs explicit water transfer')
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          ! Glacier physics exposes a single bulk snow carrier (scv).  Fold any
          ! layered state left by the preceding patch/step into that carrier
          ! before the balance snapshot instead of clearing it outside the
@@ -88,7 +88,7 @@ CONTAINS
          ! resolved glacier surface carrier below.
          IF (tracer_is_nonvolatile_solute(itrc)) THEN
             CALL move_special_subsurface_residue_to_surface(itrc, ipatch)
-            IF (ct_has_dissolved_limit(itrc)) THEN
+            IF (mt_has_dissolved_limit(itrc)) THEN
                trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) + &
                   trc_surface_residue(itrc, ipatch) + trc_ldew_rain(itrc, ipatch) + &
                   trc_ldew_snow(itrc, ipatch) + trc_wetwat(itrc, ipatch) + &
@@ -120,7 +120,7 @@ CONTAINS
       ENDDO
 
       snl_trc = 0
-      CALL ct_save_storage(ipatch, snl_trc, nl_soil)
+      CALL mt_save_storage(ipatch, snl_trc, nl_soil)
       precip_mass = (prc_rain + prl_rain + prc_snow + prl_snow) * deltim
       rnof_mass   = max(rnof, 0._r8) * deltim
       evap_liq_mass = max(qseva, 0._r8) * deltim
@@ -138,7 +138,7 @@ CONTAINS
       water_beg = water_end - water_dS
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          trc_rnof_step(itrc, ipatch) = 0._r8
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
@@ -186,7 +186,7 @@ CONTAINS
             trc_evap = trc_evap_liq + trc_evap_ice
             water_after_evap = water_before_output - evap_mass
             trc_final = max(trc_available - trc_evap, 0._r8)
-            CALL ct_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
+            CALL mt_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
                trc_surface_solid(itrc, ipatch))
             IF (water_after_evap > trc_water_min_for_ratio) THEN
                R_runoff = trc_final / water_after_evap
@@ -197,7 +197,7 @@ CONTAINS
             surface_liquid_end = max(wdsrf, 0._r8) + max(wliq_soisno(1), 0._r8)
             surface_carrier = surface_liquid_end + rnof_mass
             surface_residue_export = 0._r8
-            IF (nonvolatile_solute .and. .not. ct_has_dissolved_limit(itrc) .and. &
+            IF (nonvolatile_solute .and. .not. mt_has_dissolved_limit(itrc) .and. &
                 surface_residue_beg > trc_tiny .and. &
                 rnof_mass > trc_tiny .and. &
                 surface_carrier > trc_water_min_for_ratio) THEN
@@ -208,7 +208,7 @@ CONTAINS
             ENDIF
             ! surface_residue_export comes from held mass, not trc_available.
             trc_final = max(trc_final - trc_rnof + surface_residue_export, 0._r8)
-            CALL ct_equilibrate_dissolved(itrc, water_end, trc_final, &
+            CALL mt_equilibrate_dissolved(itrc, water_end, trc_final, &
                trc_surface_solid(itrc, ipatch))
             IF (water_end > trc_water_min_for_ratio) THEN
                R_final = trc_final / water_end
@@ -238,7 +238,7 @@ CONTAINS
          ENDIF
          CALL sync_tracer_patch_ratio(itrc, ipatch, snl_trc, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, 0._r8, wdsrf, scv, R_final)
-         IF (nonvolatile_solute .and. .not. ct_has_dissolved_limit(itrc) .and. &
+         IF (nonvolatile_solute .and. .not. mt_has_dissolved_limit(itrc) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
             IF (wdsrf > trc_water_min_for_ratio) THEN
                trc_wdsrf(itrc, ipatch) = trc_wdsrf(itrc, ipatch) + &
@@ -253,12 +253,12 @@ CONTAINS
          ENDIF
       ENDDO
 
-      CALL ct_apply_decay(ipatch, snl_trc, nl_soil, deltim)
-      CALL ct_balance_check(ipatch, snl_trc, nl_soil, deltim, xerr_tracer, &
+      CALL mt_apply_decay(ipatch, snl_trc, nl_soil, deltim)
+      CALL mt_balance_check(ipatch, snl_trc, nl_soil, deltim, xerr_tracer, &
          patchtype_in = 3, water_err_in = errorw, water_dS_in = water_dS, &
          water_input_in = precip_mass + dep_mass, water_output_in = evap_mass + rnof_mass, &
          water_evap_in = evap_mass, water_rnof_in = rnof_mass)
-      CALL ct_hist_accumulate(ipatch, snl_trc, maxsnl, nl_soil, 0._r8, 0._r8, &
+      CALL mt_hist_accumulate(ipatch, snl_trc, maxsnl, nl_soil, 0._r8, 0._r8, &
          wliq_soisno(snl_trc+1:nl_soil), wice_soisno(snl_trc+1:nl_soil), 0._r8, wdsrf, 0._r8, scv)
 
    CONTAINS
@@ -278,9 +278,9 @@ CONTAINS
             temp_k, relhum, alpha_k, from_ice)
       END FUNCTION glacier_evap_ratio_for
 
-   END SUBROUTINE ct_glacier_patch
+   END SUBROUTINE mt_glacier_patch
 
-   SUBROUTINE ct_waterbody_patch(ipatch, maxsnl, nl_soil, snl, deltim, &
+   SUBROUTINE mt_waterbody_patch(ipatch, maxsnl, nl_soil, snl, deltim, &
       forc_rain, forc_snow, lake_deficit, rnof, qseva, qsubl, qsdew, qfros, &
       endwb, totwb, errorw, wa, wdsrf, scv, t_grnd, forc_q, forc_psrf, &
       forc_us, forc_vs, &
@@ -318,13 +318,13 @@ CONTAINS
       IF (trc_aquifer_ref_water(ipatch) > 0._r8) &
          CALL CoLM_stop('waterbody transition with isotope aquifer reference needs explicit water transfer')
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          ! Waterbody patches have no canopy, wetland, or irrigation-reservoir
          ! carrier in this branch. Preserve conservative transition mass in a
          ! surface quarantine instead of reporting a carrierless concentration.
          IF (tracer_is_nonvolatile_solute(itrc)) THEN
             CALL move_special_subsurface_residue_to_surface(itrc, ipatch)
-            IF (ct_has_dissolved_limit(itrc)) THEN
+            IF (mt_has_dissolved_limit(itrc)) THEN
                trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) + &
                   trc_surface_residue(itrc, ipatch) + trc_ldew_rain(itrc, ipatch) + &
                   trc_ldew_snow(itrc, ipatch) + trc_wetwat(itrc, ipatch) + &
@@ -355,7 +355,7 @@ CONTAINS
          trc_waterstorage_solid(itrc, ipatch) = 0._r8
       ENDDO
 
-      CALL ct_save_storage(ipatch, maxsnl, nl_soil)
+      CALL mt_save_storage(ipatch, maxsnl, nl_soil)
       atm_precip_mass = (forc_rain + forc_snow) * deltim
       IF (use_dynamic_lake) THEN
          precip_mass = atm_precip_mass
@@ -382,7 +382,7 @@ CONTAINS
       water_beg = water_end - water_dS
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          trc_rnof_step(itrc, ipatch) = 0._r8
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
@@ -437,7 +437,7 @@ CONTAINS
             trc_evap = trc_evap_liq + trc_evap_ice
             water_after_evap = water_before_output - evap_mass
             trc_final = max(trc_available - trc_evap, 0._r8)
-            CALL ct_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
+            CALL mt_equilibrate_dissolved(itrc, water_after_evap, trc_final, &
                trc_surface_solid(itrc, ipatch))
             IF (water_after_evap > trc_water_min_for_ratio) THEN
                R_runoff = trc_final / water_after_evap
@@ -449,7 +449,7 @@ CONTAINS
                max(wliq_soisno(snl+1), 0._r8)
             surface_carrier = surface_liquid_end + rnof_mass
             surface_residue_export = 0._r8
-            IF (nonvolatile_solute .and. .not. ct_has_dissolved_limit(itrc) .and. &
+            IF (nonvolatile_solute .and. .not. mt_has_dissolved_limit(itrc) .and. &
                 surface_residue_beg > trc_tiny .and. &
                 rnof_mass > trc_tiny .and. &
                 surface_carrier > trc_water_min_for_ratio) THEN
@@ -460,7 +460,7 @@ CONTAINS
             ENDIF
             ! surface_residue_export comes from held mass, not trc_available.
             trc_final = max(trc_final - trc_rnof + surface_residue_export, 0._r8)
-            CALL ct_equilibrate_dissolved(itrc, water_end, trc_final, &
+            CALL mt_equilibrate_dissolved(itrc, water_end, trc_final, &
                trc_surface_solid(itrc, ipatch))
             IF (water_end > trc_water_min_for_ratio) THEN
                R_final = trc_final / water_end
@@ -490,7 +490,7 @@ CONTAINS
          ENDIF
          CALL sync_tracer_patch_ratio(itrc, ipatch, snl, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, wa, wdsrf, scv, R_final)
-         IF (nonvolatile_solute .and. .not. ct_has_dissolved_limit(itrc) .and. &
+         IF (nonvolatile_solute .and. .not. mt_has_dissolved_limit(itrc) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
             IF (wdsrf > trc_water_min_for_ratio) THEN
                trc_wdsrf(itrc, ipatch) = trc_wdsrf(itrc, ipatch) + &
@@ -505,12 +505,12 @@ CONTAINS
          ENDIF
       ENDDO
 
-      CALL ct_apply_decay(ipatch, maxsnl, nl_soil, deltim)
-      CALL ct_balance_check(ipatch, maxsnl, nl_soil, deltim, xerr_tracer, &
+      CALL mt_apply_decay(ipatch, maxsnl, nl_soil, deltim)
+      CALL mt_balance_check(ipatch, maxsnl, nl_soil, deltim, xerr_tracer, &
          patchtype_in = 4, water_err_in = errorw, water_dS_in = water_dS, &
          water_input_in = precip_mass + dep_mass, water_output_in = evap_mass + rnof_mass, &
          water_evap_in = evap_mass, water_rnof_in = rnof_mass)
-      IF (ct_waterbody_hist_sample) CALL ct_hist_accumulate(ipatch, snl, maxsnl, nl_soil, 0._r8, 0._r8, &
+      IF (mt_waterbody_hist_sample) CALL mt_hist_accumulate(ipatch, snl, maxsnl, nl_soil, 0._r8, 0._r8, &
          wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), wa, wdsrf, 0._r8, scv)
 
    CONTAINS
@@ -531,13 +531,13 @@ CONTAINS
             temp_k, relhum, alpha_k, from_ice)
       END FUNCTION waterbody_evap_ratio_for
 
-   END SUBROUTINE ct_waterbody_patch
+   END SUBROUTINE mt_waterbody_patch
 
    SUBROUTINE move_special_subsurface_residue_to_surface (itrc, ipatch)
       integer, intent(in) :: itrc, ipatch
 
       IF (trc_subsurface_residue(itrc, ipatch) <= trc_tiny) RETURN
-      IF (ct_has_dissolved_limit(itrc)) THEN
+      IF (mt_has_dissolved_limit(itrc)) THEN
          trc_surface_solid(itrc, ipatch) = trc_surface_solid(itrc, ipatch) + &
             trc_subsurface_residue(itrc, ipatch)
       ELSE
@@ -565,5 +565,5 @@ CONTAINS
          0._r8, tracer_fractionation_active(itrc))
    END FUNCTION tracer_ratio_cap
 
-END MODULE MOD_CT_SpecialPatches
+END MODULE MOD_MT_SpecialPatches
 #endif

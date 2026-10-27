@@ -1,16 +1,16 @@
 #include <define.h>
 
-#ifdef ConstituentTransport
-MODULE MOD_CT_Namelist
+#ifdef MaterialTransport
+MODULE MOD_MT_Namelist
 !-----------------------------------------------------------------------
 ! !DESCRIPTION:
 !
-!  Switches and settings of constituent transport.
+!  Switches and settings of material transport.
 !
 !  They are kept out of MOD_Namelist on purpose: the main namelist file
 !  carries one extra group, read here on the master and broadcast,
 !
-!     &nl_colm_constituent
+!     &nl_colm_material
 !        DEF_USE_ISOTOPE        = .true.
 !        DEF_ISOTOPE_SPECIES    = 'H2_18O,HDO'
 !        DEF_ISOTOPE_PARAM_FILE = 'run/standard_isotope_parameter.nml'
@@ -20,22 +20,22 @@ MODULE MOD_CT_Namelist
 !     /
 !
 !  The group may be left out; every setting then keeps its default and no
-!  constituent is carried. DEF_USE_SEDIMENT stays in &nl_colm, where
+!  material is carried. DEF_USE_SEDIMENT stays in &nl_colm, where
 !  upstream has it; the river sediment then needs GridRiverLakeFlow, and its
 !  &nl_colm_sediment_parameter (DEF_SEDIMENT_PARAM_FILE, 'null' = code
-!  defaults) is read by MOD_CT_Sediment.
+!  defaults) is read by MOD_MT_Sediment.
 !
 !  Isotope physics settings live in &nl_colm_isotope_parameter of
 !  DEF_ISOTOPE_PARAM_FILE ('null' = code defaults). Solute parameter files
-!  are read per species by MOD_CT_Defs; per-species forcing by
-!  MOD_CT_ForcingInput.
+!  are read per species by MOD_MT_Defs; per-species forcing by
+!  MOD_MT_ForcingInput.
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
    IMPLICIT NONE
    SAVE
 
-   ! ----- &nl_colm_constituent -----
+   ! ----- &nl_colm_material -----
    logical            :: DEF_USE_ISOTOPE        = .false.
    ! Only species with compiled physics: H2_18O, HDO.
    character(len=256) :: DEF_ISOTOPE_SPECIES    = 'H2_18O,HDO'
@@ -47,15 +47,15 @@ MODULE MOD_CT_Namelist
    character(len=256) :: DEF_SEDIMENT_PARAM_FILE = 'null'
 
    ! Abort after this many cells fail a check (0 = report only).
-   integer            :: DEF_CT_BALANCE_ABORT_NBAD = 0
-   integer            :: DEF_CT_RESID_ABORT_NBAD   = 0
-   integer            :: DEF_CT_LULCC_ABORT_NBAD   = 0
+   integer            :: DEF_MT_BALANCE_ABORT_NBAD = 0
+   integer            :: DEF_MT_RESID_ABORT_NBAD   = 0
+   integer            :: DEF_MT_LULCC_ABORT_NBAD   = 0
    ! Water depth that carries the aquifer signature when the
    ! variably saturated flow scheme is on (required > 0 for isotopes then).
-   real(r8)           :: DEF_CT_AQUIFER_MIXING_WATER_MM = -1._r8
-   logical            :: DEF_CT_USE_SOIL_INIT   = .false.
-   character(len=256) :: DEF_CT_SOIL_INIT_FILE  = 'null'
-   character(len=256) :: DEF_CT_SOIL_INIT_VARS  = ''
+   real(r8)           :: DEF_MT_AQUIFER_MIXING_WATER_MM = -1._r8
+   logical            :: DEF_MT_USE_SOIL_INIT   = .false.
+   character(len=256) :: DEF_MT_SOIL_INIT_FILE  = 'null'
+   character(len=256) :: DEF_MT_SOIL_INIT_VARS  = ''
 
    ! ----- &nl_colm_isotope_parameter (in DEF_ISOTOPE_PARAM_FILE) -----
    logical            :: DEF_ISO_USE_FRACTIONATION     = .false.
@@ -81,15 +81,15 @@ MODULE MOD_CT_Namelist
 
    logical, private :: loaded = .false.
 
-   PUBLIC :: ct_read_namelist
-   PUBLIC :: ct_any_enabled
-   PUBLIC :: ct_namelist_group_present
+   PUBLIC :: mt_read_namelist
+   PUBLIC :: mt_any_enabled
+   PUBLIC :: mt_namelist_group_present
 
 CONTAINS
 
-   SUBROUTINE ct_read_namelist (nlfile)
+   SUBROUTINE mt_read_namelist (nlfile)
    !-----------------------------------------------------------------------
-   !  Read the constituent groups once. nlfile is the main namelist file;
+   !  Read the material groups once. nlfile is the main namelist file;
    !  without it the first command-line argument is used, as in CoLM.F90.
    !-----------------------------------------------------------------------
    USE MOD_SPMD_Task
@@ -101,11 +101,11 @@ CONTAINS
    integer :: ierr, unit_nml
    character(len=512) :: iomsg
 
-      namelist /nl_colm_constituent/ DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, &
+      namelist /nl_colm_material/ DEF_USE_ISOTOPE, DEF_ISOTOPE_SPECIES, &
          DEF_ISOTOPE_PARAM_FILE, DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, &
-         DEF_SEDIMENT_PARAM_FILE, DEF_CT_BALANCE_ABORT_NBAD, DEF_CT_RESID_ABORT_NBAD, DEF_CT_LULCC_ABORT_NBAD, &
-         DEF_CT_AQUIFER_MIXING_WATER_MM, &
-         DEF_CT_USE_SOIL_INIT, DEF_CT_SOIL_INIT_FILE, DEF_CT_SOIL_INIT_VARS
+         DEF_SEDIMENT_PARAM_FILE, DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD, DEF_MT_LULCC_ABORT_NBAD, &
+         DEF_MT_AQUIFER_MIXING_WATER_MM, &
+         DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
 
       namelist /nl_colm_isotope_parameter/ DEF_ISO_USE_FRACTIONATION, &
          DEF_ISO_KINETIC_SCHEME, DEF_ISO_ICE_SUPERSAT_SLOPE, DEF_ISO_CG_RELHUM_MAX, &
@@ -126,22 +126,22 @@ CONTAINS
             CALL get_command_argument (1, mainfile)
          ENDIF
 
-         IF (ct_namelist_group_present (mainfile, 'nl_colm_constituent')) THEN
+         IF (mt_namelist_group_present (mainfile, 'nl_colm_material')) THEN
             open (newunit=unit_nml, status='OLD', file=trim(mainfile), form='FORMATTED')
             iomsg = ''
-            read (unit_nml, nml=nl_colm_constituent, iostat=ierr, iomsg=iomsg)
+            read (unit_nml, nml=nl_colm_material, iostat=ierr, iomsg=iomsg)
             close (unit_nml)
             IF (ierr /= 0) THEN
                write(*,*) 'ERROR in ', trim(mainfile), ' : ', trim(iomsg)
-               CALL CoLM_Stop (' ***** ERROR: Problem reading &nl_colm_constituent')
+               CALL CoLM_Stop (' ***** ERROR: Problem reading &nl_colm_material')
             ENDIF
          ENDIF
 
          IF (len_trim(DEF_SOLUTE_PARAM_FILES) == len(DEF_SOLUTE_PARAM_FILES)) &
             CALL CoLM_Stop ('DEF_SOLUTE_PARAM_FILES is too long.')
 
-         IF (DEF_USE_ISOTOPE .and. ct_file_given (DEF_ISOTOPE_PARAM_FILE)) THEN
-            IF (.not. ct_namelist_group_present (DEF_ISOTOPE_PARAM_FILE, &
+         IF (DEF_USE_ISOTOPE .and. mt_file_given (DEF_ISOTOPE_PARAM_FILE)) THEN
+            IF (.not. mt_namelist_group_present (DEF_ISOTOPE_PARAM_FILE, &
                                                  'nl_colm_isotope_parameter')) THEN
                CALL CoLM_Stop ('No &nl_colm_isotope_parameter in '//trim(DEF_ISOTOPE_PARAM_FILE))
             ENDIF
@@ -166,13 +166,13 @@ CONTAINS
       CALL mpi_bcast (DEF_SOLUTE_NAMES              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SOLUTE_PARAM_FILES        ,len(DEF_SOLUTE_PARAM_FILES) ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SEDIMENT_PARAM_FILE       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_BALANCE_ABORT_NBAD     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_RESID_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_LULCC_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_AQUIFER_MIXING_WATER_MM,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_USE_SOIL_INIT          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_SOIL_INIT_FILE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
-      CALL mpi_bcast (DEF_CT_SOIL_INIT_VARS         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_BALANCE_ABORT_NBAD     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_RESID_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_LULCC_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_AQUIFER_MIXING_WATER_MM,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_USE_SOIL_INIT          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_SOIL_INIT_FILE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_SOIL_INIT_VARS         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_ISO_USE_FRACTIONATION     ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_ISO_KINETIC_SCHEME        ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -196,7 +196,7 @@ CONTAINS
 
       loaded = .true.
 
-   END SUBROUTINE ct_read_namelist
+   END SUBROUTINE mt_read_namelist
 
 
    SUBROUTINE check_settings ()
@@ -237,30 +237,30 @@ CONTAINS
           DEF_ISO_SUBL_SKIN_MM < 0._r8 .or. DEF_ISO_ICE_SUPERSAT_SLOPE < 0._r8) &
          CALL CoLM_Stop ('Invalid isotope fractionation parameter.')
 
-      IF (DEF_CT_BALANCE_ABORT_NBAD < 0 .or. DEF_CT_RESID_ABORT_NBAD < 0 .or. &
-          DEF_CT_LULCC_ABORT_NBAD < 0) CALL CoLM_Stop ('Invalid DEF_CT_*_ABORT_NBAD.')
+      IF (DEF_MT_BALANCE_ABORT_NBAD < 0 .or. DEF_MT_RESID_ABORT_NBAD < 0 .or. &
+          DEF_MT_LULCC_ABORT_NBAD < 0) CALL CoLM_Stop ('Invalid DEF_MT_*_ABORT_NBAD.')
 
    END SUBROUTINE check_settings
 
 
-   logical FUNCTION ct_any_enabled ()
-   ! True when at least one constituent is switched on.
+   logical FUNCTION mt_any_enabled ()
+   ! True when at least one material is switched on.
    USE MOD_Namelist, only: DEF_USE_SEDIMENT
    IMPLICIT NONE
-      ct_any_enabled = DEF_USE_ISOTOPE .or. len_trim(DEF_SOLUTE_NAMES) > 0 .or. DEF_USE_SEDIMENT
-   END FUNCTION ct_any_enabled
+      mt_any_enabled = DEF_USE_ISOTOPE .or. len_trim(DEF_SOLUTE_NAMES) > 0 .or. DEF_USE_SEDIMENT
+   END FUNCTION mt_any_enabled
 
 
-   logical FUNCTION ct_file_given (fname)
+   logical FUNCTION mt_file_given (fname)
    IMPLICIT NONE
    character(len=*), intent(in) :: fname
-      ct_file_given = len_trim(fname) > 0
-      IF (ct_file_given) ct_file_given = trim(adjustl(fname)) /= 'null' &
+      mt_file_given = len_trim(fname) > 0
+      IF (mt_file_given) mt_file_given = trim(adjustl(fname)) /= 'null' &
                                    .and. trim(adjustl(fname)) /= 'NULL'
-   END FUNCTION ct_file_given
+   END FUNCTION mt_file_given
 
 
-   logical FUNCTION ct_namelist_group_present (fname, group)
+   logical FUNCTION mt_namelist_group_present (fname, group)
    !-----------------------------------------------------------------------
    !  Whether a file holds "&group" at the start of a line, so that an
    !  optional group can be skipped rather than read to end of file.
@@ -273,10 +273,10 @@ CONTAINS
    logical :: fexists
    integer :: ierr, unit_nml, i, ia
 
-      ct_namelist_group_present = .false.
+      mt_namelist_group_present = .false.
       INQUIRE (file=trim(fname), exist=fexists)
       IF (.not. fexists) THEN
-         IF (trim(group) == 'nl_colm_constituent') RETURN
+         IF (trim(group) == 'nl_colm_material') RETURN
          CALL stop_missing (fname)
       ENDIF
 
@@ -294,7 +294,7 @@ CONTAINS
          IF (index(line, trim(key)) == 1) THEN
             i = len_trim(key) + 1
             IF (i > len_trim(line) .or. line(i:i) == ' ' .or. line(i:i) == '!') THEN
-               ct_namelist_group_present = .true.
+               mt_namelist_group_present = .true.
                EXIT
             ENDIF
          ENDIF
@@ -306,10 +306,10 @@ CONTAINS
       SUBROUTINE stop_missing (f)
       USE MOD_SPMD_Task, only: CoLM_Stop
       character(len=*), intent(in) :: f
-         CALL CoLM_Stop ('Constituent parameter file not found: '//trim(f))
+         CALL CoLM_Stop ('Material parameter file not found: '//trim(f))
       END SUBROUTINE stop_missing
 
-   END FUNCTION ct_namelist_group_present
+   END FUNCTION mt_namelist_group_present
 
-END MODULE MOD_CT_Namelist
+END MODULE MOD_MT_Namelist
 #endif

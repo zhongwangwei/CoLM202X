@@ -1,59 +1,59 @@
 #include <define.h>
 
-#if (defined GridRiverLakeFlow) && (defined ConstituentTransport)
-MODULE MOD_CT_RiverLakeCoupling
+#if (defined GridRiverLakeFlow) && (defined MaterialTransport)
+MODULE MOD_MT_RiverLakeCoupling
 !-------------------------------------------------------------------------------------
 ! DESCRIPTION:
 !
-!   Constituents in the grid river-lake flow: the calls made from
-!   MOD_Grid_RiverLakeFlow (each one marked "#ifdef ConstituentTransport" there).
+!   Materials in the grid river-lake flow: the calls made from
+!   MOD_Grid_RiverLakeFlow (each one marked "#ifdef MaterialTransport" there).
 !
 !   The routines read the host water state (passed in, or from the river
-!   modules) and change only the constituent pools of MOD_CT_RiverLake and the
-!   flood-feedback constituent arrays below.  No host variable is changed, so
+!   modules) and change only the material pools of MOD_MT_RiverLake and the
+!   flood-feedback material arrays below.  No host variable is changed, so
 !   the host solution is the same as without them.
 !
 !   Units: river pools are R*m^3 (ratio times water volume); land-side flood
-!   arrays are R*mm over the patch, as the land constituent pools.
+!   arrays are R*mm over the patch, as the land material pools.
 !
-!   Constituents with their own river state (sediment) are reached through the
-!   route hooks of MOD_CT_Lifecycle, called from the same routines.
+!   Materials with their own river state (sediment) are reached through the
+!   route hooks of MOD_MT_Lifecycle, called from the same routines.
 !-------------------------------------------------------------------------------------
 
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_Namelist
-   USE MOD_CT_Defs, only: ntracers, ct_uses_land_water_transport, ct_has_dissolved_limit, &
-      ct_equilibrate_dissolved, tracer_is_nonvolatile_solute
-   USE MOD_CT_RiverLake
-   USE MOD_CT_Lifecycle, only: ct_lifecycle_route_has_active, ct_lifecycle_route_init, &
-      ct_lifecycle_route_read_restart, ct_lifecycle_route_forcing_put, &
-      ct_lifecycle_route_diag_accumulate, ct_lifecycle_route_calc, &
-      ct_lifecycle_route_sediment_bif_accumulate, ct_lifecycle_route_sediment_levee_repartition, &
-      ct_lifecycle_route_final
+   USE MOD_MT_Defs, only: ntracers, mt_uses_generic_water, tracer_is_nonvolatile_solute
+   USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
+   USE MOD_MT_RiverLake
+   USE MOD_MT_Lifecycle, only: mt_lifecycle_route_has_active, mt_lifecycle_route_init, &
+      mt_lifecycle_route_read_restart, mt_lifecycle_route_forcing_put, &
+      mt_lifecycle_route_diag_accumulate, mt_lifecycle_route_calc, &
+      mt_lifecycle_route_sediment_bif_accumulate, mt_lifecycle_route_sediment_levee_repartition, &
+      mt_lifecycle_route_final
    IMPLICIT NONE
 
    ! ----- grid flood feedback -----
    ! Land side (ntracers, numpatch), read and written in CoLMMAIN:
-   !   flood_tracer_credit_patch : constituent of the flood water published to the patch
-   !   flood_tracer_evap_patch   : constituent lost (>0) or gained (<0) by flood evaporation
-   !   flood_tracer_land_patch   : constituent that entered the soil with flood infiltration
+   !   flood_tracer_credit_patch : material of the flood water published to the patch
+   !   flood_tracer_evap_patch   : material lost (>0) or gained (<0) by flood evaporation
+   !   flood_tracer_land_patch   : material that entered the soil with flood infiltration
    real(r8), allocatable :: flood_tracer_credit_patch(:,:)
    real(r8), allocatable :: flood_tracer_evap_patch  (:,:)
    real(r8), allocatable :: flood_tracer_land_patch  (:,:)
-   ! River side (ntracers, numucat): constituent of the published visible and
+   ! River side (ntracers, numucat): material of the published visible and
    ! protected (levee) flood water of each unit catchment
    real(r8), allocatable :: flood_visible_tracer_uc  (:,:)
    real(r8), allocatable :: flood_protected_tracer_uc(:,:)
    integer, save :: flood_tracer_ledger_reports = 0
 
    ! reservoir state passed to the transport (empty when there are no reservoirs)
-   real(r8), allocatable :: volresv_ct  (:)
-   integer,  allocatable :: ucat2resv_ct(:)
+   real(r8), allocatable :: volresv_mt  (:)
+   integer,  allocatable :: ucat2resv_mt(:)
 
    integer, save :: lim_diag_printed = 0
 
-   ! water carrier of the provider constituents in one substep (numucat):
+   ! water carrier of the provider materials in one substep (numucat):
    ! storage at the start (before the host update) and at the end, the levee
    ! protected part of both, the flooded and the protected wet area
    real(r8), allocatable :: prov_storage_start  (:)
@@ -64,7 +64,7 @@ MODULE MOD_CT_RiverLakeCoupling
    real(r8), allocatable :: prov_protected_area (:)
 
 #ifdef CoLMDEBUG
-   ! constituent balance of one routing call (cf. the water balance printed there)
+   ! material balance of one routing call (cf. the water balance printed there)
    real(r8), allocatable :: trc_mass_bef(:), trc_mass_inp(:), trc_mass_dis(:)
 #endif
 
@@ -73,10 +73,10 @@ MODULE MOD_CT_RiverLakeCoupling
 CONTAINS
 
    ! ---------
-   SUBROUTINE ct_rlc_init (start_year, restart_file)
+   SUBROUTINE mt_rlc_init (start_year, restart_file)
 
-   ! River constituent pools: from the river restart file, else (or for the
-   ! constituents missing in it) from the water state at the default ratio.
+   ! River material pools: from the river restart file, else (or for the
+   ! materials missing in it) from the water state at the default ratio.
    ! Called after the river water state is complete (rebuild_volwater_ucat).
 
    USE MOD_Grid_RiverLakeNetwork,  only: lake_type
@@ -93,17 +93,17 @@ CONTAINS
    real(r8), allocatable :: wdsrf_safe(:), volresv_safe(:)
    integer,  allocatable :: ucat2resv_safe(:)
 
-      CALL ct_riverlake_init ()
+      CALL mt_riverlake_init ()
       IF (ntracers <= 0) RETURN
 
-      CALL ct_lifecycle_route_init ()
-      IF (len_trim(restart_file) > 0) CALL ct_lifecycle_route_read_restart (restart_file)
+      CALL mt_lifecycle_route_init ()
+      IF (len_trim(restart_file) > 0) CALL mt_lifecycle_route_read_restart (restart_file)
 
       allocate (trc_missing(ntracers))
       trc_missing = .true.
       trc_restart_found = .false.
       IF (len_trim(restart_file) > 0) THEN
-         CALL ct_riverlake_read_restart (restart_file, trc_restart_found, trc_missing)
+         CALL mt_riverlake_read_restart (restart_file, trc_restart_found, trc_missing)
       ENDIF
 
       IF (any(trc_missing)) THEN
@@ -133,29 +133,29 @@ CONTAINS
                is_built_resv_init(i) = start_year >= dam_build_year(irsv)
             ENDDO
          ENDIF
-         CALL ct_riverlake_init_from_water (wdsrf_safe, volresv_safe, ucat2resv_safe, &
+         CALL mt_riverlake_init_from_water (wdsrf_safe, volresv_safe, ucat2resv_safe, &
             trc_missing, is_built_resv_init)
          deallocate (wdsrf_safe, volresv_safe, ucat2resv_safe, is_built_resv_init)
       ENDIF
 
       deallocate (trc_missing)
 
-   END SUBROUTINE ct_rlc_init
+   END SUBROUTINE mt_rlc_init
 
    ! ---------
-   SUBROUTINE ct_rlc_runoff_input (filter_rnof, rnof_uc, deltime)
+   SUBROUTINE mt_rlc_runoff_input (filter_rnof, rnof_uc, deltime)
 
-   ! Constituent of the land runoff of this land step, mapped to the unit
+   ! Material of the land runoff of this land step, mapped to the unit
    ! catchments as the runoff water is (patch -> input grid -> unit catchment),
    ! into the accumulation that is merged at the next routing call; and the
-   ! precipitation forcing of the provider constituents (sediment yield).
+   ! precipitation forcing of the provider materials (sediment yield).
    ! Called on all workers (the pushes are collective).
 
    USE MOD_LandPatch,             only: numpatch
    USE MOD_Grid_RiverLakeNetwork, only: numinpm, numucat, remap_patch2inpm, &
       push_inpm2ucat, push_ucat2inpm
    USE MOD_WorkerPushData
-   USE MOD_CT_Vars,               only: trc_rnof_step
+   USE MOD_MT_Vars,               only: trc_rnof_step
    IMPLICIT NONE
 
    logical,  intent(in) :: filter_rnof(:)   ! patches whose runoff enters the rivers
@@ -174,7 +174,7 @@ CONTAINS
       trc_rnof_uc = 0._r8
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          IF (numpatch > 0) &
             CALL worker_remap_data_pset2grid (remap_patch2inpm, trc_rnof_step(itrc,:), &
                trc_rnof_gd(itrc,:), fillvalue = 0._r8, filter = filter_rnof)
@@ -187,15 +187,15 @@ CONTAINS
             fillvalue = 0._r8, mode = 'sum')
       ENDDO
 
-      ! water reference [m^3] as acc_rnof_uc; constituent [R*mm*m^2 -> R*m^3]
+      ! water reference [m^3] as acc_rnof_uc; material [R*mm*m^2 -> R*m^3]
       IF (numucat > 0) &
-         CALL ct_riverlake_input_from_runoff (rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc*1.e-3)
+         CALL mt_riverlake_input_from_runoff (rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc*1.e-3)
 
       deallocate (trc_rnof_gd, trc_rnof_uc)
 
-      IF (ct_lifecycle_route_has_active()) CALL provider_precip_input (filter_rnof, deltime)
+      IF (mt_lifecycle_route_has_active()) CALL provider_precip_input (filter_rnof, deltime)
 
-   END SUBROUTINE ct_rlc_runoff_input
+   END SUBROUTINE mt_rlc_runoff_input
 
    ! ---------
    SUBROUTINE provider_precip_input (filter_rnof, deltime)
@@ -270,16 +270,16 @@ CONTAINS
          END WHERE
       ENDIF
 
-      CALL ct_lifecycle_route_forcing_put (prcp_uc, deltime, prcp_area_uc)
+      CALL mt_lifecycle_route_forcing_put (prcp_uc, deltime, prcp_area_uc)
 
       deallocate (prcp_pch, filter_prcp, prcp_gd, prcp_area_gd, prcp_uc, prcp_area_uc)
 
    END SUBROUTINE provider_precip_input
 
    ! ---------
-   SUBROUTINE ct_rlc_begin_routing ()
+   SUBROUTINE mt_rlc_begin_routing ()
 
-   ! Start of a routing call (workers): the runoff constituent accumulated over
+   ! Start of a routing call (workers): the runoff material accumulated over
    ! the land steps joins the input buffer, as acc_rnof_uc joins the water.
 
    USE MOD_Grid_RiverLakeNetwork,  only: numucat
@@ -292,19 +292,19 @@ CONTAINS
       IF (.not. p_is_worker) RETURN
       IF (ntracers <= 0) RETURN
 
-      IF (allocated(volresv_ct)) deallocate (volresv_ct)
-      IF (allocated(ucat2resv_ct)) deallocate (ucat2resv_ct)
+      IF (allocated(volresv_mt)) deallocate (volresv_mt)
+      IF (allocated(ucat2resv_mt)) deallocate (ucat2resv_mt)
       IF (allocated(volresv)) THEN
-         allocate (volresv_ct(size(volresv)))
-         volresv_ct = volresv
+         allocate (volresv_mt(size(volresv)))
+         volresv_mt = volresv
       ELSE
-         allocate (volresv_ct(0))
+         allocate (volresv_mt(0))
       ENDIF
       IF (allocated(ucat2resv)) THEN
-         allocate (ucat2resv_ct(size(ucat2resv)))
-         ucat2resv_ct = ucat2resv
+         allocate (ucat2resv_mt(size(ucat2resv)))
+         ucat2resv_mt = ucat2resv
       ELSE
-         allocate (ucat2resv_ct(0))
+         allocate (ucat2resv_mt(0))
       ENDIF
 
       IF (allocated(trc_decay_source)) trc_decay_source = 0._r8
@@ -313,7 +313,7 @@ CONTAINS
       CALL ensure_debug_arrays ()
       IF (numucat > 0) THEN
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             trc_mass_bef(itrc) = pool_total(itrc)
             trc_mass_inp(itrc) = sum(acc_trc_inp(itrc,:))
          ENDDO
@@ -322,20 +322,20 @@ CONTAINS
 
       IF (numucat > 0) THEN
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             trc_inp_buf(itrc,:) = trc_inp_buf(itrc,:) + acc_trc_inp(itrc,:)
             acc_trc_inp(itrc,:) = 0._r8
          ENDDO
       ENDIF
 
-   END SUBROUTINE ct_rlc_begin_routing
+   END SUBROUTINE mt_rlc_begin_routing
 
    ! ---------
-   SUBROUTINE ct_rlc_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, with_input)
+   SUBROUTINE mt_rlc_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, with_input)
 
    ! The host has moved water between the visible and the protected (levee)
-   ! side of unit catchment i; move the constituent with it.  with_input: the
-   ! water of this call's runoff is already in vis_bef, its constituent still
+   ! side of unit catchment i; move the material with it.  with_input: the
+   ! water of this call's runoff is already in vis_bef, its material still
    ! in the input buffer (before the first substep).
 
    IMPLICIT NONE
@@ -344,20 +344,20 @@ CONTAINS
    logical,  intent(in), optional :: with_input
 
       IF (ntracers <= 0) RETURN
-      CALL ct_lifecycle_route_sediment_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft)
+      CALL mt_lifecycle_route_sediment_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft)
       IF (present(with_input)) THEN
          IF (with_input) THEN
-            CALL ct_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, &
+            CALL mt_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, &
                pending_trc_pool = trc_inp_buf(:,i))
             RETURN
          ENDIF
       ENDIF
-      CALL ct_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft)
+      CALL mt_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft)
 
-   END SUBROUTINE ct_rlc_levee_repartition
+   END SUBROUTINE mt_rlc_levee_repartition
 
    ! ---------
-   SUBROUTINE ct_rlc_equilibrate_cell (i, visible, with_levee)
+   SUBROUTINE mt_rlc_equilibrate_cell (i, visible, with_levee)
 
    ! Dissolution equilibrium of unit catchment i for the given visible water and
    ! the protected water of its levee (if any), before the host takes water out.
@@ -373,16 +373,16 @@ CONTAINS
       IF (ntracers <= 0) RETURN
       protected = 0._r8
       IF (with_levee) protected = levsto(i)
-      CALL ct_riverlake_equilibrate_cell (i, visible, protected)
+      CALL mt_riverlake_equilibrate_cell (i, visible, protected)
 
-   END SUBROUTINE ct_rlc_equilibrate_cell
+   END SUBROUTINE mt_rlc_equilibrate_cell
 
    ! ---------
-   SUBROUTINE ct_rlc_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, ucatfilter, is_built_resv)
+   SUBROUTINE mt_rlc_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, ucatfilter, is_built_resv)
 
-   ! Constituent transport of one routing substep, with the water fluxes of the
+   ! Material transport of one routing substep, with the water fluxes of the
    ! substep, before the host updates the storages with them.  For the provider
-   ! constituents: the bifurcation fluxes, and the water storage at the start.
+   ! materials: the bifurcation fluxes, and the water storage at the start.
 
    USE MOD_Grid_RiverLakeNetwork,     only: numucat, npthout_local, floodplain_curve
    USE MOD_Grid_RiverLakeTimeVars,    only: wdsrf_ucat, volresv, volwater_ucat
@@ -405,9 +405,9 @@ CONTAINS
       IF (ntracers <= 0) RETURN
 
       IF (DEF_USE_BIFURCATION) &
-         CALL ct_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
+         CALL mt_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
 
-      IF (ct_lifecycle_route_has_active()) THEN
+      IF (mt_lifecycle_route_has_active()) THEN
          CALL ensure_provider_arrays (numucat)
          prov_storage_start   = 0._r8
          prov_protected_start = 0._r8
@@ -415,7 +415,7 @@ CONTAINS
             IF (.not. ucatfilter(i)) CYCLE
             ! the water the host starts the substep from (cf. its update loop)
             IF (is_built_resv(i)) THEN
-               volwater = volresv(ucat2resv_ct(i))
+               volwater = volresv(ucat2resv_mt(i))
             ELSEIF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                volwater = volwater_ucat(i)
             ELSE
@@ -429,23 +429,23 @@ CONTAINS
          ENDDO
       ENDIF
 
-      IF (allocated(volresv)) volresv_ct = volresv
+      IF (allocated(volresv)) volresv_mt = volresv
       IF (DEF_USE_BIFURCATION) THEN
-         CALL ct_riverlake_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
-            wdsrf_ucat, ucatfilter, volresv_ct, ucat2resv_ct, is_built_resv, &
+         CALL mt_riverlake_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
+            wdsrf_ucat, ucatfilter, volresv_mt, ucat2resv_mt, is_built_resv, &
             do_bif = .true., bif_hflux_lev_in = bif_hflux_lev, npthout_local_in = npthout_local)
       ELSE
-         CALL ct_riverlake_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
-            wdsrf_ucat, ucatfilter, volresv_ct, ucat2resv_ct, is_built_resv)
+         CALL mt_riverlake_substep (dt_ref, dt_all, irivsys, hflux_fc, sum_hflux_riv, &
+            wdsrf_ucat, ucatfilter, volresv_mt, ucat2resv_mt, is_built_resv)
       ENDIF
 
-   END SUBROUTINE ct_rlc_substep
+   END SUBROUTINE mt_rlc_substep
 
    ! ---------
-   SUBROUTINE ct_rlc_inland_depression (i, volwater, volmax, dt)
+   SUBROUTINE mt_rlc_inland_depression (i, volwater, volmax, dt)
 
    ! The host removes the water above volmax from an inland depression; the
-   ! constituent leaves with it at the cell's dissolved ratio.
+   ! material leaves with it at the cell's dissolved ratio.
 
    IMPLICIT NONE
 
@@ -462,24 +462,24 @@ CONTAINS
 
       frac_remove = (volwater - volmax) / volwater
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          IF (allocated(trc_solid)) THEN
-            IF (ct_has_dissolved_limit(itrc)) &
-               CALL ct_equilibrate_dissolved (itrc, volwater, trc_mass(itrc,i), trc_solid(itrc,i))
+            IF (mt_has_dissolved_limit(itrc)) &
+               CALL mt_equilibrate_dissolved (itrc, volwater, trc_mass(itrc,i), trc_solid(itrc,i))
          ENDIF
          trc_removed = trc_mass(itrc,i) * frac_remove
          trc_mass(itrc,i) = trc_mass(itrc,i) - trc_removed
          trc_flux_out(itrc,i) = trc_removed / dt
       ENDDO
 
-   END SUBROUTINE ct_rlc_inland_depression
+   END SUBROUTINE mt_rlc_inland_depression
 
    ! ---------
-   SUBROUTINE ct_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv, &
+   SUBROUTINE mt_rlc_diag_accumulate (dt_all, irivsys, ucatfilter, is_built_resv, &
          hflux_fc, levee_floodarea)
 
    ! History accumulation of the substep, after the host storage update; and
-   ! the substep's water state for the provider constituents.
+   ! the substep's water state for the provider materials.
 
    USE MOD_Grid_RiverLakeNetwork,  only: numucat, topo_area, floodplain_curve, levee_frc_data
    USE MOD_Grid_RiverLakeTimeVars, only: wdsrf_ucat, volresv, volwater_ucat, veloc_riv
@@ -499,11 +499,11 @@ CONTAINS
       IF (.not. p_is_worker) RETURN
       IF (ntracers <= 0 .or. numucat <= 0) RETURN
 
-      IF (allocated(volresv)) volresv_ct = volresv
-      CALL ct_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
-         volresv_ct, ucat2resv_ct, is_built_resv)
+      IF (allocated(volresv)) volresv_mt = volresv
+      CALL mt_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
+         volresv_mt, ucat2resv_mt, is_built_resv)
 
-      IF (.not. ct_lifecycle_route_has_active()) RETURN
+      IF (.not. mt_lifecycle_route_has_active()) RETURN
 
       CALL ensure_provider_arrays (numucat)
       DO i = 1, numucat
@@ -524,7 +524,7 @@ CONTAINS
          ENDIF
 
          IF (is_built_resv(i)) THEN
-            prov_storage_end(i) = max(volresv(ucat2resv_ct(i)), 0._r8)
+            prov_storage_end(i) = max(volresv(ucat2resv_mt(i)), 0._r8)
          ELSE
             prov_storage_end(i) = max(volwater_ucat(i), 0._r8)
             IF (leveed) THEN
@@ -534,16 +534,16 @@ CONTAINS
          ENDIF
       ENDDO
 
-      CALL ct_lifecycle_route_diag_accumulate (dt_all, irivsys, ucatfilter, &
+      CALL mt_lifecycle_route_diag_accumulate (dt_all, irivsys, ucatfilter, &
          veloc_riv, wdsrf_ucat, prov_storage_start, prov_storage_end, hflux_fc, prov_floodarea, &
          prov_protected_start, prov_protected_end, prov_protected_area)
 
-   END SUBROUTINE ct_rlc_diag_accumulate
+   END SUBROUTINE mt_rlc_diag_accumulate
 
    ! ---------
-   SUBROUTINE ct_rlc_debug_discharge (i, dt)
+   SUBROUTINE mt_rlc_debug_discharge (i, dt)
 
-   ! CoLMDEBUG: constituent leaving the network at outlet i in this substep.
+   ! CoLMDEBUG: material leaving the network at outlet i in this substep.
 
    IMPLICIT NONE
    integer,  intent(in) :: i
@@ -554,19 +554,19 @@ CONTAINS
       IF (ntracers <= 0) RETURN
       CALL ensure_debug_arrays ()
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          trc_mass_dis(itrc) = trc_mass_dis(itrc) + trc_flux_out(itrc,i) * dt
       ENDDO
 #endif
 
-   END SUBROUTINE ct_rlc_debug_discharge
+   END SUBROUTINE mt_rlc_debug_discharge
 
    ! ---------
-   SUBROUTINE ct_rlc_end_routing ()
+   SUBROUTINE mt_rlc_end_routing ()
 
-   ! End of a routing call, on all processes: CoLMDEBUG constituent balance,
+   ! End of a routing call, on all processes: CoLMDEBUG material balance,
    ! donor-limiter statistics, reset of the per-call accumulations, and the
-   ! provider constituents of the call (acctime_rnof is still its length).
+   ! provider materials of the call (acctime_rnof is still its length).
 
    USE MOD_Grid_RiverLakeNetwork,  only: numucat
    USE MOD_Grid_RiverLakeTimeVars, only: acctime_rnof
@@ -587,7 +587,7 @@ CONTAINS
       trc_mass_decay = 0._r8
       IF (p_is_worker .and. numucat > 0) THEN
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             trc_mass_aft(itrc) = pool_total(itrc)
             trc_mass_dis(itrc) = trc_mass_dis(itrc) + sum(trc_dry_drain(itrc,:))
             IF (allocated(trc_decay_source)) trc_mass_decay(itrc) = sum(trc_decay_source(itrc,:))
@@ -606,7 +606,7 @@ CONTAINS
 #endif
       IF (p_is_master) THEN
          DO itrc = 1, ntracers
-            IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
             write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass before  : ', trc_mass_bef(itrc), ' R*m3'
             write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass input   : ', trc_mass_inp(itrc), ' R*m3'
             write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass discharge: ', trc_mass_dis(itrc), ' R*m3'
@@ -624,7 +624,7 @@ CONTAINS
 #endif
 
       IF (p_is_worker) THEN
-         CALL ct_riverlake_limiter_stats (lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft, &
+         CALL mt_riverlake_limiter_stats (lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft, &
             reset = .true.)
 #ifdef USEMPI
          CALL mpi_allreduce (MPI_IN_PLACE, lim_calls,     1, MPI_INTEGER, MPI_SUM, p_comm_worker, p_err)
@@ -647,16 +647,16 @@ CONTAINS
             IF (allocated(trc_dry_drain)) trc_dry_drain = 0._r8
          ENDIF
 
-         ! provider constituents (sediment) over the whole routing call
-         IF (ct_lifecycle_route_has_active()) CALL ct_lifecycle_route_calc (acctime_rnof)
+         ! provider materials (sediment) over the whole routing call
+         IF (mt_lifecycle_route_has_active()) CALL mt_lifecycle_route_calc (acctime_rnof)
       ENDIF
 
-   END SUBROUTINE ct_rlc_end_routing
+   END SUBROUTINE mt_rlc_end_routing
 
    ! ---------
-   SUBROUTINE ct_rlc_flood_init ()
+   SUBROUTINE mt_rlc_flood_init ()
 
-   ! Flood-feedback constituent arrays on the current land patches: at start-up
+   ! Flood-feedback material arrays on the current land patches: at start-up
    ! and after LULCC (called from init_flood_feedback, workers).
 
    USE MOD_LandPatch,             only: numpatch
@@ -674,7 +674,7 @@ CONTAINS
 
       has_flood_tracer = .false.
       DO itrc = 1, ntracers
-         IF (ct_uses_land_water_transport(itrc)) has_flood_tracer = .true.
+         IF (mt_uses_generic_water(itrc)) has_flood_tracer = .true.
       ENDDO
       IF (.not. has_flood_tracer) RETURN
 
@@ -687,20 +687,20 @@ CONTAINS
       flood_visible_tracer_uc   = 0._r8
       flood_protected_tracer_uc = 0._r8
 
-   END SUBROUTINE ct_rlc_flood_init
+   END SUBROUTINE mt_rlc_flood_init
 
    ! ---------
-   SUBROUTINE ct_rlc_flood_withhold ()
+   SUBROUTINE mt_rlc_flood_withhold ()
 
-   ! No flood is published to the land: no constituent either.
+   ! No flood is published to the land: no material either.
 
       IF (.not. p_is_worker) RETURN
       IF (allocated(flood_tracer_credit_patch)) flood_tracer_credit_patch = 0._r8
 
-   END SUBROUTINE ct_rlc_flood_withhold
+   END SUBROUTINE mt_rlc_flood_withhold
 
    ! ---------
-   SUBROUTINE ct_rlc_flood_publish_reset ()
+   SUBROUTINE mt_rlc_flood_publish_reset ()
 
    ! Start of publish_flood_feedback: a new flood state replaces the old one.
 
@@ -712,12 +712,12 @@ CONTAINS
       flood_tracer_evap_patch   = 0._r8
       flood_tracer_land_patch   = 0._r8
 
-   END SUBROUTINE ct_rlc_flood_publish_reset
+   END SUBROUTINE mt_rlc_flood_publish_reset
 
    ! ---------
-   SUBROUTINE ct_rlc_flood_publish_cell (i, visible, protected, visible_flood)
+   SUBROUTINE mt_rlc_flood_publish_cell (i, visible, protected, visible_flood)
 
-   ! Constituent of the flood water published from unit catchment i:
+   ! Material of the flood water published from unit catchment i:
    ! the visible part above the river channel at the visible dissolved ratio,
    ! and all protected (levee) water.
 
@@ -732,12 +732,12 @@ CONTAINS
          max(trc_mass(:,i), 0._r8) * (visible_flood / visible)
       IF (protected > 0._r8) flood_protected_tracer_uc(:,i) = max(trc_levsto(:,i), 0._r8)
 
-   END SUBROUTINE ct_rlc_flood_publish_cell
+   END SUBROUTINE mt_rlc_flood_publish_cell
 
    ! ---------
-   SUBROUTINE ct_rlc_flood_publish_push (flood_grid_area)
+   SUBROUTINE mt_rlc_flood_publish_push (flood_grid_area)
 
-   ! Map the published flood constituent to the patches, as the flood water is
+   ! Map the published flood material to the patches, as the flood water is
    ! (unit catchment -> input grid -> patch), into flood_tracer_credit_patch.
    ! Called on all workers (the pushes are collective).
 
@@ -758,7 +758,7 @@ CONTAINS
 
       allocate (density(numucat), grid_tracer(numinpm), patch_tracer(numpatch))
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          DO iside = 1, 2
             ! sum_area is allocated only on workers with requests (numucat > 0)
             density = 0._r8
@@ -793,13 +793,13 @@ CONTAINS
       ENDDO
       deallocate (density, grid_tracer, patch_tracer)
 
-   END SUBROUTINE ct_rlc_flood_publish_push
+   END SUBROUTINE mt_rlc_flood_publish_push
 
    ! ---------
-   SUBROUTINE ct_rlc_flood_debit (flood_credit_patch, flood_evap_acc, flood_infil_acc, &
+   SUBROUTINE mt_rlc_flood_debit (flood_credit_patch, flood_evap_acc, flood_infil_acc, &
          flood_grid_area, flood_visible_uc, flood_protected_uc)
 
-   ! Constituent side of debit_flood_feedback (workers, collective): take from
+   ! Material side of debit_flood_feedback (workers, collective): take from
    ! the river pools what the land took with flood evaporation (vapour
    ! exchange, flood_tracer_evap_patch) and infiltration (flood_tracer_land_patch),
    ! and stop if the land-side and river-side totals do not close.
@@ -834,7 +834,7 @@ CONTAINS
       tracer_exchange_ledger = 0._r8
 
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          ratio_patch = 0._r8
          gain_patch = 0._r8
          DO i = 1, numpatch
@@ -864,11 +864,11 @@ CONTAINS
                CALL CoLM_stop('grid flood feedback: tracer infiltration overdraft')
             infiltrated_fraction = min(1._r8,max(0._r8,infiltrated_fraction))
             ratio_patch(i) = evaporated_fraction + (1._r8-evaporated_fraction)*infiltrated_fraction
-            IF (ct_has_dissolved_limit(itrc) .and. tracer_credit > 0._r8) &
+            IF (mt_has_dissolved_limit(itrc) .and. tracer_credit > 0._r8) &
                ratio_patch(i) = min(1._r8,max(0._r8,flood_tracer_land_patch(itrc,i)/tracer_credit))
             gain_patch(i) = vapor_gain*(1._r8-infiltrated_fraction)/water_credit
             patch_area = sum(remap_patch2inpm%areapart(i)%val)*1.e-3_r8
-            IF (ct_has_dissolved_limit(itrc)) THEN
+            IF (mt_has_dissolved_limit(itrc)) THEN
                IF (flood_tracer_land_patch(itrc,i) < -ledger_tol .or. &
                    flood_tracer_land_patch(itrc,i) > &
                    (tracer_credit-vapor_loss)*infiltrated_fraction + ledger_tol) &
@@ -884,7 +884,7 @@ CONTAINS
             tracer_exchange_ledger(2,itrc) = tracer_exchange_ledger(2,itrc) + vapor_loss*patch_area
          ENDDO
 
-         ! fraction of the published constituent taken, per unit catchment
+         ! fraction of the published material taken, per unit catchment
          ratio_grid = 0._r8
          IF (numpatch > 0) CALL worker_remap_data_pset2grid (remap_patch2inpm, ratio_patch, ratio_grid, &
             fillvalue=0._r8, filter=flood_credit_patch>0._r8)
@@ -941,7 +941,7 @@ CONTAINS
          MPI_SUM, p_comm_worker, p_err)
 #endif
       DO itrc = 1, ntracers
-         IF (.not. ct_uses_land_water_transport(itrc)) CYCLE
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
          ledger_tol = max(1.e-8_r8, 1.e-10_r8*maxval(abs(tracer_exchange_ledger(:,itrc))))
          IF (abs(tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc) - &
                 tracer_exchange_ledger(3,itrc)) > ledger_tol) &
@@ -959,26 +959,26 @@ CONTAINS
       deallocate (ratio_patch, ratio_grid, ratio_uc, gain_patch, coefficient_uc, gain_uc, &
          tracer_exchange_ledger)
 
-   END SUBROUTINE ct_rlc_flood_debit
+   END SUBROUTINE mt_rlc_flood_debit
 
    ! ---------
-   SUBROUTINE ct_rlc_final ()
+   SUBROUTINE mt_rlc_final ()
 
-      CALL ct_lifecycle_route_final ()
-      CALL ct_riverlake_final ()
+      CALL mt_lifecycle_route_final ()
+      CALL mt_riverlake_final ()
 
       IF (allocated(flood_tracer_credit_patch)) deallocate (flood_tracer_credit_patch, &
          flood_tracer_evap_patch, flood_tracer_land_patch, &
          flood_visible_tracer_uc, flood_protected_tracer_uc)
-      IF (allocated(volresv_ct))   deallocate (volresv_ct)
-      IF (allocated(ucat2resv_ct)) deallocate (ucat2resv_ct)
+      IF (allocated(volresv_mt))   deallocate (volresv_mt)
+      IF (allocated(ucat2resv_mt)) deallocate (ucat2resv_mt)
       IF (allocated(prov_storage_start)) deallocate (prov_storage_start, prov_protected_start, &
          prov_storage_end, prov_protected_end, prov_floodarea, prov_protected_area)
 #ifdef CoLMDEBUG
       IF (allocated(trc_mass_bef)) deallocate (trc_mass_bef, trc_mass_inp, trc_mass_dis)
 #endif
 
-   END SUBROUTINE ct_rlc_final
+   END SUBROUTINE mt_rlc_final
 
    ! ---------
    SUBROUTINE ensure_provider_arrays (n)
@@ -1016,7 +1016,7 @@ CONTAINS
    ! ---------
    real(r8) FUNCTION pool_total (itrc)
 
-   ! all river pools of constituent itrc on this worker [R*m^3]
+   ! all river pools of material itrc on this worker [R*m^3]
 
    integer, intent(in) :: itrc
 
@@ -1028,5 +1028,5 @@ CONTAINS
    END FUNCTION pool_total
 #endif
 
-END MODULE MOD_CT_RiverLakeCoupling
+END MODULE MOD_MT_RiverLakeCoupling
 #endif
