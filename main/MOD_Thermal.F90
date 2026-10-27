@@ -78,6 +78,10 @@ CONTAINS
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
                       ,flddepth      ,fldfrc        ,fevpg_fld                    &
 #endif
+#ifdef ConstituentTransport
+                      ,canopy_smelt_mass_th, canopy_frzc_mass_th                  ,&
+                       qphs_thaw_lay_th, qphs_frzc_lay_th, raw_trc_th             &
+#endif
                        )
 
 !=======================================================================
@@ -284,6 +288,14 @@ CONTAINS
    real(r8), intent(inout) :: flddepth   ! inundation depth [mm]
    real(r8), intent(in)    :: fldfrc     ! inundation fraction [0-1]
    real(r8), intent(out)   :: fevpg_fld  ! inundation evaporation [mm/s]
+#endif
+#ifdef ConstituentTransport
+   ! Diagnostics for constituent transport only; not used by the host.
+   real(r8), intent(out), optional :: canopy_smelt_mass_th          ! canopy snow melted [mm]
+   real(r8), intent(out), optional :: canopy_frzc_mass_th           ! canopy water frozen [mm]
+   real(r8), intent(out), optional :: qphs_thaw_lay_th(lb:nl_soil)  ! ice melted per layer [mm]
+   real(r8), intent(out), optional :: qphs_frzc_lay_th(lb:nl_soil)  ! water frozen per layer [mm]
+   real(r8), intent(out), optional :: raw_trc_th                    ! moisture resistance [s/m]
 #endif
 
        ! state variables (2)
@@ -507,6 +519,10 @@ CONTAINS
    real(r8), allocatable :: assimsha_p    (:)
    real(r8), allocatable :: etrsha_p      (:)
    real(r8), allocatable :: dheatl_p      (:)
+#ifdef ConstituentTransport
+   real(r8) :: canopy_smelt_mass_local, canopy_frzc_mass_local, raw_trc_local, raw_trc_pc
+   real(r8), allocatable :: canopy_smelt_mass_p_local(:), canopy_frzc_mass_p_local(:), raw_trc_p(:)
+#endif
 
 
 !=======================================================================
@@ -534,6 +550,17 @@ CONTAINS
       assim  = 0.;  respc  = 0.
       hprl   = 0.;  dheatl = 0.
 
+#ifdef ConstituentTransport
+      canopy_smelt_mass_local = 0._r8
+      canopy_frzc_mass_local  = 0._r8
+      raw_trc_local           = 0._r8
+      raw_trc_pc              = 0._r8
+      IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = 0._r8
+      IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = 0._r8
+      IF (present(qphs_thaw_lay_th)) qphs_thaw_lay_th(:) = 0._r8
+      IF (present(qphs_frzc_lay_th)) qphs_frzc_lay_th(:) = 0._r8
+      IF (present(raw_trc_th)) raw_trc_th = 0._r8
+#endif
       emis   = 0.;  z0m    = 0.
       zol    = 0.;  rib    = 0.
       ustar  = 0.;  qstar  = 0.
@@ -674,7 +701,12 @@ ENDIF
                          !taux,tauy,fseng,fevpg,tref,qref, &
                          taux,tauy,fseng,fseng_soil,fseng_snow, &
                          fevpg,fevpg_soil,fevpg_snow,tref,qref, &
+#ifdef ConstituentTransport
+                         z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g, &
+                         raw_out=raw_trc_local)
+#else
                          z0m_g,z0h_g,zol_g,rib_g,ustar_g,qstar_g,tstar_g,fm_g,fh_g,fq_g)
+#endif
 
       obu_g = forc_hgt_u / zol_g
 
@@ -744,7 +776,14 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 !End WUE stomata model parameter
                  forc_hpbl   ,&
                  qintr_rain  ,qintr_snow  ,t_precip    ,hprl        ,dheatl      ,&
+#ifdef ConstituentTransport
+                 smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)               &
+                ,canopy_smelt_mass_out=canopy_smelt_mass_local, &
+                 canopy_frzc_mass_out =canopy_frzc_mass_local, &
+                 raw_trc_out=raw_trc_local)
+#else
                  smp         ,hk(1:)      ,hksati(1:)  ,rootflux(1:)              )
+#endif
       ELSE
          tleaf         = forc_t
          laisun        = 0.
@@ -811,6 +850,14 @@ IF (patchtype == 0) THEN
       allocate ( assimsha_p        (ps:pe))
       allocate ( etrsha_p          (ps:pe))
       allocate ( dheatl_p          (ps:pe))
+#ifdef ConstituentTransport
+      allocate ( canopy_smelt_mass_p_local(ps:pe) )
+      allocate ( canopy_frzc_mass_p_local (ps:pe) )
+      allocate ( raw_trc_p(ps:pe) )
+      canopy_smelt_mass_p_local(:) = 0._r8
+      canopy_frzc_mass_p_local (:) = 0._r8
+      raw_trc_p(:) = 0._r8
+#endif
 
       sabv_p(ps:pe) = sabvsun_p(ps:pe) + sabvsha_p(ps:pe)
       sabv = sabvsun + sabvsha
@@ -952,7 +999,14 @@ IF (patchtype == 0) THEN
                  forc_hpbl                                                                         ,&
                  qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,hprl_p(i)       ,dheatl_p(i)   ,&
                  smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                ,&
+#ifdef ConstituentTransport
+                 ipft_index=i                                        , &
+                 canopy_smelt_mass_out=canopy_smelt_mass_p_local(i), &
+                 canopy_frzc_mass_out =canopy_frzc_mass_p_local (i), &
+                 raw_trc_out=raw_trc_p(i))
+#else
                  ipft_index=i)
+#endif
          ELSE
 
             CALL GroundFluxes (zlnd,zsno,forc_hgt_u,forc_hgt_t,forc_hgt_q,forc_hpbl, &
@@ -963,7 +1017,11 @@ IF (patchtype == 0) THEN
                                taux_p(i),tauy_p(i),fseng_p(i),fseng_soil_p(i),fseng_snow_p(i), &
                                fevpg_p(i),fevpg_soil_p(i),fevpg_snow_p(i),tref_p(i),qref_p(i), &
                                z0m_p(i),z0h_g,zol_p(i),rib_p(i),ustar_p(i),&
+#ifdef ConstituentTransport
+                               qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i),raw_out=raw_trc_p(i))
+#else
                                qstar_p(i),tstar_p(i),fm_p(i),fh_p(i),fq_p(i))
+#endif
 
             tleaf_p      (i) = forc_t
             gssun_p      (i) = 0.
@@ -1080,7 +1138,14 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
          forc_hpbl            ,&
          qintr_rain_p(ps:pe)  ,qintr_snow_p(ps:pe)  ,t_precip             ,hprl_p(:)            ,&
          dheatl_p(ps:pe)      ,smp                  ,hk(1:)               ,hksati(1:)           ,&
+#ifdef ConstituentTransport
+         rootflux_p(:,:)                                          &
+        ,canopy_smelt_mass_p_out=canopy_smelt_mass_p_local(ps:pe),&
+         canopy_frzc_mass_p_out =canopy_frzc_mass_p_local (ps:pe),&
+         raw_trc_out=raw_trc_pc                                  )
+#else
          rootflux_p(:,:)       )
+#endif
 
       dlrad_p      (ps:pe) = dlrad
       ulrad_p      (ps:pe) = ulrad
@@ -1106,6 +1171,9 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       fm_p         (ps:pe) = fm
       fh_p         (ps:pe) = fh
       fq_p         (ps:pe) = fq
+#ifdef ConstituentTransport
+      raw_trc_p    (ps:pe) = raw_trc_pc
+#endif
 ENDIF
 
       pe = patch_pft_e(ipatch)
@@ -1161,6 +1229,11 @@ ENDIF
       etrsha_out    = sum( etrsha_p    (ps:pe)*pftfrac(ps:pe) )
       hprl          = sum( hprl_p      (ps:pe)*pftfrac(ps:pe) )
       dheatl        = sum( dheatl_p    (ps:pe)*pftfrac(ps:pe) )
+#ifdef ConstituentTransport
+      canopy_smelt_mass_local = sum( canopy_smelt_mass_p_local(ps:pe)*pftfrac(ps:pe) )
+      canopy_frzc_mass_local  = sum( canopy_frzc_mass_p_local (ps:pe)*pftfrac(ps:pe) )
+      raw_trc_local           = sum( raw_trc_p(ps:pe)*pftfrac(ps:pe) )
+#endif
 IF (DEF_USE_OZONESTRESS)THEN
       o3uptakesun   = sum(o3uptakesun_p(ps:pe)*pftfrac(ps:pe) )
       o3uptakesha   = sum(o3uptakesha_p(ps:pe)*pftfrac(ps:pe) )
@@ -1219,10 +1292,20 @@ END IF
       deallocate ( assimsha_p   )
       deallocate ( etrsha_p     )
       deallocate ( dheatl_p     )
+#ifdef ConstituentTransport
+      deallocate ( canopy_smelt_mass_p_local )
+      deallocate ( canopy_frzc_mass_p_local  )
+      deallocate ( raw_trc_p )
+#endif
 
 ENDIF
 #endif
 
+#ifdef ConstituentTransport
+      IF (present(canopy_smelt_mass_th)) canopy_smelt_mass_th = canopy_smelt_mass_local
+      IF (present(canopy_frzc_mass_th))  canopy_frzc_mass_th  = canopy_frzc_mass_local
+      IF (present(raw_trc_th)) raw_trc_th = raw_trc_local
+#endif
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       ! CaMa: inundation evaporation is part of the ground energy balance
       IF (LWEVAP .and. patchtype == 0 .and. &
@@ -1272,7 +1355,12 @@ ENDIF
                       t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                       frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                       fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
+#ifdef ConstituentTransport
+                      imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
+                     ,qphs_thaw_lay=qphs_thaw_lay_th, qphs_frzc_lay=qphs_frzc_lay_th)
+#else
                       imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip)
+#endif
 
 !=======================================================================
 ! [6] Correct fluxes to present soil temperature

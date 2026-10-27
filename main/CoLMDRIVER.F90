@@ -1,6 +1,10 @@
 #include <define.h>
 
+#ifdef ConstituentTransport
+SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro,istep_in)
+#else
 SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
+#endif
 
 
 !=======================================================================
@@ -26,6 +30,13 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
    USE omp_lib
+#ifdef ConstituentTransport
+   USE MOD_CT_LandPhase, only: ct_resolve_step, ct_lake_step, &
+      ct_wetland_decomp, ct_soil_step, ct_report
+   USE MOD_CT_Defs, only: ntracers
+   USE MOD_SPMD_Task, only: CoLM_stop
+   USE MOD_CT_SpecialPatches, only: ct_waterbody_hist_sample
+#endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
 #endif
@@ -42,6 +53,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
       finfg_fld => flood_infil_patch
 #endif
 
+#if (defined ConstituentTransport) && (defined OPENMP)
+   ! the constituent step counters and balance accumulators are not thread safe
+#error "ConstituentTransport does not support OPENMP in CoLMDRIVER"
+#endif
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3) ! model calendar for next time step (year, julian day, seconds)
@@ -52,13 +67,22 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    logical,  intent(in) :: dosst    ! true if time for update sst/ice/snow
 
    real(r8), intent(inout) :: oro(numpatch)  ! ocean(0)/seaice(2)/ flag
+#ifdef ConstituentTransport
+   integer,  intent(in), optional :: istep_in
+#endif
 
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
+#ifdef ConstituentTransport
+   integer  :: istep_local
+#endif
 
 ! ======================================================================
 
+#ifdef ConstituentTransport
+      CALL ct_resolve_step (istep_in, istep_local)
+#endif
 #ifdef OPENMP
 !$OMP PARALLEL DO NUM_THREADS(OPENMP) &
 !$OMP PRIVATE(i, m, u, k, steps_in_one_deltim, deltim_phy) &
@@ -81,6 +105,12 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
          m = patchclass(i)
 
+#if (defined URBAN_MODEL) && (defined ConstituentTransport)
+         IF (DEF_URBAN_RUN .and. m.eq.URBAN .and. ntracers > 0) THEN
+            CALL CoLM_stop ('Constituent transport does not support full urban patches yet: ' // &
+               'CoLMMAIN_Urban has no constituent sub-surface state or runoff update.')
+         ENDIF
+#endif
          steps_in_one_deltim = 1
          ! deltim need to be within 1800s for water body with snow in order to avoid large
          ! temperature fluctuations due to rapid snow heat conductance
@@ -91,6 +121,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
          IF (.not.DEF_URBAN_RUN .or. m.ne.URBAN) THEN
 
             DO k = 1, steps_in_one_deltim
+#ifdef ConstituentTransport
+               ct_waterbody_hist_sample = k == steps_in_one_deltim
+#endif
                !                ***** Call CoLM main program *****
                !
                CALL CoLMMAIN (  i,idate,         coszen(i),       deltim_phy,      &
@@ -216,6 +249,9 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                ustar(i),        qstar(i),        tstar(i),                         &
                fm(i),           fh(i),           fq(i)                             )
 
+#ifdef ConstituentTransport
+               CALL ct_lake_step (istep_local, i, idate, deltim_phy, k, steps_in_one_deltim)
+#endif
             ENDDO
          ENDIF
 
@@ -227,6 +263,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             !
             CALL bgc_driver (i,idate(1:3),deltim, patchlatr(i)*180/PI,patchlonr(i)*180/PI)
          ENDIF
+#ifdef ConstituentTransport
+         CALL ct_wetland_decomp (i, deltim)
+         CALL ct_soil_step (istep_local, i, idate, deltim)
+#endif
 #endif
 
 
@@ -374,5 +414,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 !$OMP END PARALLEL DO
 #endif
 
+#ifdef ConstituentTransport
+      CALL ct_report ()
+#endif
 END SUBROUTINE CoLMDRIVER
 ! ---------- EOP ------------

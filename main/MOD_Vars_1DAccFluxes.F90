@@ -11,6 +11,9 @@ MODULE MOD_Vars_1DAccFluxes
 #ifdef EXTERNAL_LAKE
    USE MOD_Lake_1DAccVars
 #endif
+#ifdef ConstituentTransport
+   USE MOD_CT_LandPhase, only: ct_flush_acc_fluxes, ct_accumulate_fluxes
+#endif
 
    real(r8) :: nac ! number of accumulation
    real(r8), allocatable :: nac_ln      (:)
@@ -1789,13 +1792,26 @@ CONTAINS
    END SUBROUTINE deallocate_acc_fluxes
 
    !-----------------------
+#ifdef ConstituentTransport
+   SUBROUTINE FLUSH_acc_fluxes (flush_ct)
+#else
    SUBROUTINE FLUSH_acc_fluxes ()
+#endif
 
       USE MOD_SPMD_Task
       USE MOD_LandPatch, only: numpatch
       USE MOD_LandUrban, only: numurban
       USE MOD_Vars_Global, only: spval
       IMPLICIT NONE
+#ifdef ConstituentTransport
+      ! .false. keeps the constituent accumulators: at start-up they may
+      ! already hold values read from the constituent restart.
+      logical, intent(in), optional :: flush_ct
+      logical :: flush_ct_active
+
+      flush_ct_active = .true.
+      IF (present(flush_ct)) flush_ct_active = flush_ct
+#endif
 
       IF (p_is_worker) THEN
 
@@ -2383,6 +2399,9 @@ CONTAINS
       CALL Flush_LakeAccVars
 #endif
 
+#ifdef ConstituentTransport
+      IF (flush_ct_active) CALL ct_flush_acc_fluxes ()
+#endif
    END SUBROUTINE FLUSH_acc_fluxes
 
    SUBROUTINE accumulate_fluxes
@@ -3398,6 +3417,9 @@ CONTAINS
       CALL accumulate_LakeTimeVars
 #endif
 
+#ifdef ConstituentTransport
+      CALL ct_accumulate_fluxes ()
+#endif
    END SUBROUTINE accumulate_fluxes
 
 

@@ -30,7 +30,12 @@ CONTAINS
                      theta_r,alpha_vgm,n_vgm,L_vgm,&
                      sc_vgm,fc_vgm,&
 #endif
+#ifdef ConstituentTransport
+                     dz &
+                    ,qphs_thaw_lay, qphs_frzc_lay)
+#else
                      dz)
+#endif
 
 !-----------------------------------------------------------------------
 ! !DESCRIPTION:
@@ -100,6 +105,10 @@ CONTAINS
    real(r8), intent(out) :: sm                         !rate of snowmelt [mm/s, kg/(m2 s)]
    real(r8), intent(out) :: xmf                        !total latent heat of phase change
     integer, intent(out) :: imelt(lb:nl_soil)          !flag for melting or freezing [-]
+#ifdef ConstituentTransport
+   real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
+   real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
+#endif
 
 !-------------------------- Local Variables ----------------------------
    real(r8) :: hm(lb:nl_soil)        !energy residual [W/m2]
@@ -116,6 +125,10 @@ CONTAINS
 !-----------------------------------------------------------------------
       sm = 0.
       xmf = 0.
+#ifdef ConstituentTransport
+      IF (present(qphs_thaw_lay)) qphs_thaw_lay(:) = 0._r8
+      IF (present(qphs_frzc_lay)) qphs_frzc_lay(:) = 0._r8
+#endif
       DO j = lb, nl_soil
          imelt(j) = 0
          hm(j) = 0.
@@ -305,6 +318,12 @@ CONTAINS
             IF(imelt(j) == 1 .and. j < 1) &
             sm = sm + max(0.,(wice0(j)-wice_soisno(j)))/deltim
 
+#ifdef ConstituentTransport
+            IF (present(qphs_thaw_lay)) &
+               qphs_thaw_lay(j) = max(wice0(j) - wice_soisno(j), 0._r8)
+            IF (present(qphs_frzc_lay)) &
+               qphs_frzc_lay(j) = max(wice_soisno(j) - wice0(j), 0._r8)
+#endif
          ENDIF
       ENDDO
 
@@ -331,7 +350,12 @@ CONTAINS
                      theta_r,alpha_vgm,n_vgm,L_vgm,&
                      sc_vgm,fc_vgm,&
 #endif
+#ifdef ConstituentTransport
+                     dz &
+                    ,qphs_thaw_lay, qphs_frzc_lay)
+#else
                      dz)
+#endif
 
 !-----------------------------------------------------------------------
 ! !DESCRIPTION:
@@ -402,6 +426,10 @@ CONTAINS
    real(r8), intent(out) :: sm                         !rate of snowmelt [mm/s, kg/(m2 s)]
    real(r8), intent(out) :: xmf                        !total latent heat of phase change
     integer, intent(out) :: imelt(lb:nl_soil)          !flag for melting or freezing [-]
+#ifdef ConstituentTransport
+   real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
+   real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
+#endif
 
 !-------------------------- Local Variables ----------------------------
    real(r8) :: hm(lb:nl_soil)        !energy residual [W/m2]
@@ -419,6 +447,10 @@ CONTAINS
 
       sm = 0.
       xmf = 0.
+#ifdef ConstituentTransport
+      IF (present(qphs_thaw_lay)) qphs_thaw_lay(:) = 0._r8
+      IF (present(qphs_frzc_lay)) qphs_frzc_lay(:) = 0._r8
+#endif
       DO j = lb, nl_soil
          imelt(j) = 0
          hm(j) = 0.
@@ -614,6 +646,12 @@ CONTAINS
             IF(imelt(j) == 1 .and. j < 1) &
             sm = sm + max(0.,(wice0(j)-wice_soisno(j)))/deltim
 
+#ifdef ConstituentTransport
+            IF (present(qphs_thaw_lay)) &
+               qphs_thaw_lay(j) = max(wice0(j) - wice_soisno(j), 0._r8)
+            IF (present(qphs_frzc_lay)) &
+               qphs_frzc_lay(j) = max(wice_soisno(j) - wice0(j), 0._r8)
+#endif
          ENDIF
       ENDDO
 

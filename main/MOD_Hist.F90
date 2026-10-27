@@ -18,6 +18,11 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
+#ifdef ConstituentTransport
+   USE MOD_CT_Vars, only: flush_Tracer_Acc
+   USE MOD_CT_Hist, only: ct_hist_out
+   USE MOD_CT_HostFixes, only: ct_hist_continue_file
+#endif
 
    USE MOD_HistGridded
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -43,6 +48,9 @@ MODULE MOD_Hist
    character(len=10) :: HistForm ! 'Gridded', 'Vector', 'Single'
 
    character(len=256) :: file_last = 'null'
+#ifdef ConstituentTransport
+   character(len=256) :: file_last_tracer = 'null'
+#endif
 
 !--------------------------------------------------------------------------
 CONTAINS
@@ -53,9 +61,21 @@ CONTAINS
 
    character(len=*) , intent(in) :: dir_hist
    logical, optional, intent(in) :: lulcc_call
+#ifdef ConstituentTransport
+   logical :: flush_ct
+#endif
 
       CALL allocate_acc_fluxes ()
+#ifdef ConstituentTransport
+      ! The constituent accumulators may hold values read from the constituent
+      ! restart at start-up; clear them only when called for a LULCC change.
+      flush_ct = .false.
+      IF (present(lulcc_call)) flush_ct = lulcc_call
+      CALL FLUSH_acc_fluxes (flush_ct=flush_ct)
+      CALL flush_Tracer_Acc ()
+#else
       CALL FLUSH_acc_fluxes ()
+#endif
 
       HistForm = 'Gridded'
 #if (defined UNSTRUCTURED || defined CATCHMENT)
@@ -162,8 +182,16 @@ CONTAINS
 
    ! Local variables
    logical :: lwrite
+#ifdef ConstituentTransport
+   logical :: forcmask_empty(0)
+#endif
    character(len=256) :: file_hist
    integer :: itime_in_file
+#ifdef ConstituentTransport
+   real(r8) :: history_window_seconds
+   character(len=256) :: file_hist_tracer
+   integer :: itime_in_file_tracer
+#endif
 #if (defined CaMa_Flood)
    character(len=256) :: file_hist_cama
    integer :: itime_in_file_cama
@@ -213,6 +241,9 @@ CONTAINS
 
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
+#ifdef ConstituentTransport
+         CALL flush_Tracer_Acc ()
+#endif
 #ifdef GridRiverLakeFlow
          CALL flush_acc_fluxes_riverlake ()
 #endif
@@ -290,7 +321,38 @@ CONTAINS
 
          file_hist = trim(dir_hist) // '/' // trim(casename) //'_hist_'//trim(cdate)//'.nc'
 
+#ifdef ConstituentTransport
+         ! After a restart inside a history group, append to the existing file
+         ! instead of creating it again (constituents enabled only; see
+         ! MOD_CT_HostFixes). Does nothing otherwise.
+         CALL ct_hist_continue_file (file_hist, idate, file_last)
+#endif
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
+#ifdef ConstituentTransport
+         ! constituent history goes to its own file, with the averaging window
+         history_window_seconds=0._r8
+         IF (p_is_worker) history_window_seconds=max(nac,0._r8)*deltim
+#ifdef USEMPI
+         CALL mpi_allreduce(MPI_IN_PLACE, history_window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+#endif
+         file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_tracer_'//trim(cdate)//'.nc'
+         CALL ct_hist_continue_file (file_hist_tracer, idate, file_last_tracer)
+         CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
+         IF (HistForm=='Gridded' .and. p_is_master) THEN
+            CALL ncio_write_serial_time (file_hist_tracer, 'history_window_seconds', &
+               itime_in_file_tracer, history_window_seconds, 'time')
+            CALL ncio_write_serial_time (file_hist_tracer, 'history_window_end_minutes', &
+               itime_in_file_tracer, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
+               real(mod(idate(3),60),r8)/60._r8, 'time')
+            IF (itime_in_file_tracer==1) THEN
+               CALL ncio_put_attr(file_hist_tracer, 'history_window_seconds', 'units', 's')
+               CALL ncio_put_attr(file_hist_tracer, 'history_window_seconds', 'long_name', &
+                  'elapsed window ending at history_window_end_minutes; terminal and resumed records can overlap')
+               CALL ncio_put_attr(file_hist_tracer, 'history_window_end_minutes', 'units', &
+                  'minutes since 1900-1-1 0:0:0')
+            ENDIF
+         ENDIF
+#endif
 
          IF (p_is_worker) THEN
             IF (numpatch > 0) THEN
@@ -5306,6 +5368,15 @@ ENDIF
 
          IF (allocated(nac_one   )) deallocate (nac_one   )
 #endif
+#ifdef ConstituentTransport
+         IF (allocated(forcmask_pch)) THEN
+            CALL ct_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
+         ELSE
+            CALL ct_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_empty)
+         ENDIF
+#endif
 
          IF (allocated(filter    )) deallocate (filter    )
          IF (allocated(filter_dt )) deallocate (filter_dt )
@@ -5314,6 +5385,9 @@ ENDIF
 #endif
 
          CALL FLUSH_acc_fluxes ()
+#ifdef ConstituentTransport
+         CALL flush_Tracer_Acc ()
+#endif
 
 #ifdef SinglePoint
          IF (USE_SITE_HistWriteBack .and. memory_to_disk) THEN
@@ -5322,6 +5396,9 @@ ENDIF
 #endif
 
          file_last = file_hist
+#ifdef ConstituentTransport
+         file_last_tracer = file_hist_tracer
+#endif
 
       ENDIF
 

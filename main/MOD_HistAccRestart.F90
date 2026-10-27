@@ -248,6 +248,9 @@ CONTAINS
 
    USE MOD_LandPatch, only: landpatch
    USE MOD_LandUrban, only: landurban
+#ifdef ConstituentTransport
+   USE MOD_CT_Vars
+#endif
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file
@@ -799,6 +802,60 @@ CONTAINS
       CALL hacc_field1d (file, mode, 'nac_ln', nac_ln, landpatch, 'patch')
       CALL hacc_field1d (file, mode, 'nac_dt', nac_dt, landpatch, 'patch')
       ! <<< fields from allocate_acc_fluxes
+
+#ifdef ConstituentTransport
+      ! Constituent sums (MOD_CT_Vars, allocate_Tracer_Vars). After a cold
+      ! start of the constituents the saved sums belong to another state (or
+      ! another species list) and are not read; their window starts again.
+      IF (mode == HACC_WRITE .or. ct_land_restart_loaded) THEN
+         CALL hacc_field2d (file, mode, 'a_trc_precip', a_trc_precip, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_vapor_exchange', a_trc_vapor_exchange, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_precip', a_water_precip, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_evap', a_trc_evap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_evap_gross', a_water_evap_gross, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_transp', a_trc_transp, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_transp_src', a_trc_transp_src, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_transp', a_water_transp, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_soilevap', a_trc_soilevap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_soilevap', a_water_soilevap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_canopyevap', a_trc_canopyevap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_canopyevap', a_water_canopyevap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_subl', a_trc_subl, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_subl', a_water_subl, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_wetland_evap', a_trc_wetland_evap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_wetland_evap', a_water_wetland_evap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_rsur', a_trc_rsur, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_rsub', a_trc_rsub, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_rnof', a_trc_rnof, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_rnof', a_water_rnof, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_qinfl', a_trc_qinfl, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_qcharge', a_trc_qcharge, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_ldew_mass', a_trc_ldew_mass, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_ldew', a_water_ldew, landpatch, 'patch')
+         CALL hacc_field3d (file, mode, 'a_trc_soil_mass', a_trc_soil_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_soil', a_water_soil, landpatch, 'patch')
+         CALL hacc_field3d (file, mode, 'a_trc_snow_mass', a_trc_snow_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_water_snow', a_water_snow, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_wa_mass', a_trc_wa_mass, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_wa', a_water_wa, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_wa_debt_mass', a_trc_wa_debt_mass, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_wa_debt', a_water_wa_debt, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_aquifer_actual', a_water_aquifer_actual, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_aquifer_actual_mass', a_trc_aquifer_actual_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_wdsrf_mass', a_trc_wdsrf_mass, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_wdsrf', a_water_wdsrf, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_wetwat_mass', a_trc_wetwat_mass, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_wetwat', a_water_wetwat, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_surface_residue_mass', a_trc_surface_residue_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_subsurface_residue_mass', a_trc_subsurface_residue_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_layer_dry_mass', a_trc_layer_dry_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_solid_mass', a_trc_solid_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_trc_scv_mass', a_trc_scv_mass, landpatch, 'patch')
+         CALL hacc_field1d (file, mode, 'a_water_scv', a_water_scv, landpatch, 'patch')
+      ELSEIF (p_is_master) THEN
+         write(*,*) 'Note: constituents were cold-started; their history window starts at the model start.'
+      ENDIF
+#endif
 
    END SUBROUTINE hacc_fields
 

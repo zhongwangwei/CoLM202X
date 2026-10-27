@@ -58,7 +58,12 @@ CONTAINS
 !End WUE stomata model parameter
               hpbl       ,&
               qintr_rain ,qintr_snow ,t_precip   ,hprl       ,dheatl     ,smp        ,&
+#ifdef ConstituentTransport
+              hk         ,hksati     ,rootflux   ,ipft_index                          &
+             ,canopy_smelt_mass_out, canopy_frzc_mass_out, raw_trc_out               )
+#else
               hk         ,hksati     ,rootflux   ,ipft_index                          )
+#endif
 
 !=======================================================================
 ! !DESCRIPTION:
@@ -267,6 +272,12 @@ CONTAINS
         gssun,      &! stomata conductance of sunlit leaf
         gssha,      &! stomata conductance of shaded leaf
         rootflux(1:nl_soil)  ! root water uptake from different layers
+#ifdef ConstituentTransport
+   ! Diagnostics for constituent transport only; not used by the host.
+   real(r8), intent(out), optional :: canopy_smelt_mass_out ! canopy snow melted this step [mm]
+   real(r8), intent(out), optional :: canopy_frzc_mass_out  ! canopy water frozen this step [mm]
+   real(r8), intent(out), optional :: raw_trc_out           ! moisture resistance raw [s/m]
+#endif
 
    real(r8), intent(inout) :: &
         assimsun,   &! sunlit leaf assimilation rate [umol co2 /m**2/ s] [+]
@@ -432,6 +443,10 @@ CONTAINS
       it     = 1    !counter for leaf temperature iteration
       del    = 0.0  !change in leaf temperature from previous iteration
       dele   = 0.0  !latent head flux from leaf for previous iteration
+#ifdef ConstituentTransport
+      IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = 0._r8
+      IF (present(canopy_frzc_mass_out))  canopy_frzc_mass_out  = 0._r8
+#endif
 
       dtl(0) = 0.
       fevpl_bef = 0.
@@ -1470,6 +1485,9 @@ ENDIF
             qmelt = min(ldew_snow/deltim,(tl-tfrz)*cpice*ldew_snow/(deltim*hfus))
             ldew_snow = max(0.,ldew_snow - qmelt*deltim)
             ldew_rain = max(0.,ldew_rain + qmelt*deltim)
+#ifdef ConstituentTransport
+            IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = qmelt*deltim
+#endif
             !NOTE: There may be some problem, energy imbalance
             !      However, detailed treatment could be somewhat trivial
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
@@ -1479,6 +1497,9 @@ ENDIF
             qfrz  = min(ldew_rain/deltim,(tfrz-tl)*cpliq*ldew_rain/(deltim*hfus))
             ldew_rain = max(0.,ldew_rain - qfrz*deltim)
             ldew_snow = max(0.,ldew_snow + qfrz*deltim)
+#ifdef ConstituentTransport
+            IF (present(canopy_frzc_mass_out)) canopy_frzc_mass_out = qfrz*deltim
+#endif
             !NOTE: There may be some problem, energy imbalance
             !      However, detailed treatment could be somewhat trivial
             tl = fwet_snow*tfrz + (1.-fwet_snow)*tl  !Niu et al., 2004
@@ -1490,6 +1511,9 @@ ENDIF
 !-----------------------------------------------------------------------
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
+#ifdef ConstituentTransport
+      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
+#endif
 
    END SUBROUTINE LeafTemperature
 !----------------------------------------------------------------------

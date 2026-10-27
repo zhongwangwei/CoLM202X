@@ -1,3 +1,8 @@
+! define.h is included only so that the ConstituentTransport hooks in this
+! file can see the macro; no other preprocessor symbol is used here, so
+! the compiled code is unchanged when ConstituentTransport is undefined.
+#include <define.h>
+
 MODULE MOD_GroundFluxes
 
 !-----------------------------------------------------------------------
@@ -23,7 +28,11 @@ CONTAINS
                             t_soil, t_snow, q_soil, q_snow, &
                             taux, tauy, fseng, fseng_soil, fseng_snow, &
                             fevpg, fevpg_soil, fevpg_snow, tref, qref, &
+#ifdef ConstituentTransport
+                            z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq, raw_out)
+#else
                             z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq)
+#endif
 
 !-----------------------------------------------------------------------
 !  This is the main SUBROUTINE to execute the calculation of thermal
@@ -107,6 +116,11 @@ CONTAINS
           fm,        &! integral of profile FUNCTION for momentum
           fh,        &! integral of profile FUNCTION for heat
           fq          ! integral of profile FUNCTION for moisture
+#ifdef ConstituentTransport
+   ! Constituent transport: aerodynamic resistance for water vapour, used by
+   ! the isotope kinetic fractionation. Output only; nothing here reads it.
+   real(r8), intent(out), optional :: raw_out
+#endif
 
 !-------------------------- Local Variables ----------------------------
    integer niters,   &! maximum number of iterations for surface temperature
@@ -222,6 +236,9 @@ CONTAINS
       ram  = 1./(ustar*ustar/um)
       rah  = 1./(vonkar/fh*ustar)
       raw  = 1./(vonkar/fq*ustar)
+#ifdef ConstituentTransport
+      IF (present(raw_out)) raw_out = raw
+#endif
 
       raih = rhoair*cpair/rah
 

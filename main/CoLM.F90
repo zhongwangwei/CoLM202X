@@ -102,6 +102,20 @@ PROGRAM CoLM
    USE MOD_Aerosol, only: AerosolDepInit, AerosolDepReadin
 
    USE MOD_ParameterOptimization
+#ifdef ConstituentTransport
+   USE MOD_CT_LandPhase, only: ct_land_init, ct_land_final
+   USE MOD_CT_Lifecycle, only: ct_lifecycle_reset
+   USE MOD_CT_Defs, only: ct_defs_final
+   USE MOD_CT_HostFixes, only: ct_bgc_data_init_year
+#ifdef CaMa_Flood
+   USE MOD_CT_Defs, only: ntracers, ct_uses_land_water_transport
+#endif
+#endif
+#ifdef ConstituentTransport
+   USE MOD_CT_Forcing, only: ct_forcing_init, ct_read_forcing, &
+                                 ct_forcing_reset, ct_forcing_final, ct_forcing_read_restart, &
+                                 ct_forcing_lulcc_save, ct_forcing_lulcc_restore
+#endif
 
 #ifdef DataAssimilation
    USE MOD_DA_Main
@@ -147,9 +161,17 @@ PROGRAM CoLM
    integer :: e_year, e_month, e_day, e_seconds, e_julian
    integer :: p_year, p_month, p_day, p_seconds, p_julian
    integer :: lc_year, lai_year
+   integer :: bgc_data_year   ! start year of the ndep/fire data, sdate(1) as upstream
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
    logical :: is_spinup
+#if (defined ConstituentTransport) && (defined CaMa_Flood)
+   integer :: itrc_cama
+#endif
+#ifdef ConstituentTransport
+   logical :: tracer_loaded_restart
+   character(len=256) :: tracer_restart_file
+#endif
 
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
 
@@ -315,6 +337,12 @@ PROGRAM CoLM
       CALL allocate_TimeVariables  ()
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
+#ifdef ConstituentTransport
+      CALL ct_land_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
+         casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
+         wice_soisno, wa, wdsrf, wetwat, scv, waterstorage, &
+         loaded_restart=tracer_loaded_restart, restart_file=tracer_restart_file)
+#endif
       ! Read in SNICAR optical and aging parameters
       IF (DEF_USE_SNICAR) THEN
          CALL SnowOptics_init( DEF_file_snowoptics ) ! SNICAR optical parameters
@@ -338,6 +366,10 @@ PROGRAM CoLM
       ! Initialize meteorological forcing data module
       CALL allocate_1D_Forcing ()
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
+#ifdef ConstituentTransport
+      CALL ct_forcing_init (gforc, numpatch)
+      CALL ct_forcing_read_restart (tracer_restart_file, tracer_loaded_restart)
+#endif
       CALL allocate_2D_Forcing (gforc)
 
       ! Initialize history data module
@@ -353,6 +385,12 @@ PROGRAM CoLM
       CALL colm_CaMa_init(jdate) !initialize CaMa-Flood
 #ifdef USEMPI
       CALL mpi_barrier (p_comm_glb, p_err)
+#endif
+#ifdef ConstituentTransport
+      IF (p_is_master .and. ntracers > 0) THEN
+         IF (any([(ct_uses_land_water_transport(itrc_cama), itrc_cama = 1, ntracers)])) &
+            write(*,'(A)') 'WARNING: CaMa_Flood does not route land runoff tracers; they leave at the land boundary.'
+      ENDIF
 #endif
 #endif
 
@@ -370,10 +408,20 @@ PROGRAM CoLM
          CALL init_nitrif_data (ststamp)
       ENDIF
 
+      ! bgc_data_year replaces the former literal sdate(1) in the three calls
+      ! below and is equal to it unless constituents are enabled. With
+      ! constituents, a start at 00:00 on 1 January would otherwise read the
+      ! data of the previous year (sdate is adj2end'ed), so that a restarted
+      ! run differs from an unbroken one; see MOD_CT_HostFixes.
+      bgc_data_year = sdate(1)
+#ifdef ConstituentTransport
+      bgc_data_year = ct_bgc_data_init_year (sdate(1), s_year)
+#endif
+
       IF (DEF_NDEP_FREQUENCY==1)THEN ! Initial annual ndep data readin
-         CALL init_ndep_data_annually (sdate(1))
+         CALL init_ndep_data_annually (bgc_data_year)
       ELSEIF(DEF_NDEP_FREQUENCY==2)THEN ! Initial monthly ndep data readin
-         CALL init_ndep_data_monthly (sdate(1),s_month)
+         CALL init_ndep_data_monthly (bgc_data_year,s_month)
       ELSE
          write(6,*) 'ERROR: DEF_NDEP_FREQUENCY should be only 1-2, Current is:', &
                      DEF_NDEP_FREQUENCY
@@ -381,7 +429,7 @@ PROGRAM CoLM
       ENDIF
 
       IF (DEF_USE_FIRE) THEN
-         CALL init_fire_data (sdate(1))
+         CALL init_fire_data (bgc_data_year)
          CALL init_lightning_data (sdate)
       ENDIF
 #endif
@@ -441,6 +489,9 @@ PROGRAM CoLM
          ! Read in the meteorological forcing
          ! ----------------------------------------------------------------------
          CALL read_forcing (jdate, dir_forcing, is_spinup)
+#ifdef ConstituentTransport
+         CALL ct_read_forcing (jdate, dir_forcing)
+#endif
 
          IF(DEF_USE_OZONEDATA)THEN
             CALL update_Ozone_data(itstamp, deltim)
@@ -499,7 +550,11 @@ PROGRAM CoLM
          ! Call CoLM driver
          ! ----------------------------------------------------------------------
          IF (p_is_worker) THEN
+#ifdef ConstituentTransport
+            CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag,istep)
+#else
             CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag)
+#endif
          ENDIF
 
 #if (defined CatchLateralFlow)
@@ -541,6 +596,10 @@ PROGRAM CoLM
             CALL deallocate_1D_Forcing
             CALL deallocate_1D_Fluxes
 
+#ifdef ConstituentTransport
+            CALL ct_forcing_lulcc_save ()
+            CALL ct_forcing_final ()
+#endif
             CALL forcing_final ()
             CALL hist_final    ()
 
@@ -553,6 +612,10 @@ PROGRAM CoLM
             ! Allocate Forcing and Fluxes variable of next year
             CALL allocate_1D_Forcing
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
+#ifdef ConstituentTransport
+            CALL ct_forcing_init (gforc, numpatch)
+            CALL ct_forcing_lulcc_restore ()
+#endif
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
             CALL allocate_1D_Fluxes
@@ -663,6 +726,9 @@ PROGRAM CoLM
                   itstamp = ststamp
                   CALL adj2begin(jdate)
                   CALL forcing_reset ()
+#ifdef ConstituentTransport
+                  CALL ct_forcing_reset ()
+#endif
                ELSE
                   is_spinup = .false.
                ENDIF
@@ -678,6 +744,10 @@ PROGRAM CoLM
          istep = istep + 1
 
       ENDDO TIMELOOP
+#ifdef ConstituentTransport
+         CALL ct_forcing_final ()
+         CALL ct_land_final ()
+#endif
 
       CALL deallocate_TimeInvariants ()
       CALL deallocate_TimeVariables  ()
@@ -695,6 +765,10 @@ PROGRAM CoLM
 
 #if (defined GridRiverLakeFlow)
       CALL grid_riverlake_flow_final ()
+#endif
+#ifdef ConstituentTransport
+      CALL ct_lifecycle_reset ()
+      CALL ct_defs_final ()
 #endif
 
       CALL forcing_final ()
