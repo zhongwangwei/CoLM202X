@@ -179,7 +179,7 @@ SUBROUTINE Aggregation_ForestHeight ( &
 
       IF (p_is_io) THEN
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             dir   = trim(dir_rawdata) // trim(DEF_rawdata%pft%dir)
             fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
 
@@ -261,7 +261,7 @@ SUBROUTINE Aggregation_ForestHeight ( &
 
       IF (p_is_io) THEN
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
             fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
             CALL read_5x5_data (dir, fname, gland, 'HTOP', htop)
