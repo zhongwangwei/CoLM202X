@@ -706,6 +706,9 @@
 
       theta = acos(max(coszen,0.01))
       forc_aer(:) = 0.          !aerosol deposition from atmosphere model (grd,aer) [kg m-1 s-1]
+#if (defined CaMa_Flood)
+      fevpg_fld = 0._r8
+#endif
 
 !======================================================================
 !  [1] Solar absorbed by vegetation and ground

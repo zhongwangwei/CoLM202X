@@ -20,6 +20,7 @@ CONTAINS
 !
 !####################################################################
 SUBROUTINE CMF_CALC_STONXT
+USE CMF_COUPLING_BUDGET_MOD, ONLY: sinks_prepaid
 USE PARKIND1,           ONLY: JPIM, JPRB, JPRD
 USE YOS_CMF_INPUT,      ONLY: LGDWDLY,   DT,  LWEVAP, LLEVEE, LROSPLIT, LWINFILT
 USE YOS_CMF_MAP,        ONLY: NSEQALL
@@ -84,7 +85,7 @@ DO ISEQ=1, NSEQALL
   P2RIVSTO(ISEQ,1) = P2RIVSTO(ISEQ,1) + DRIVROF
   P2FLDSTO(ISEQ,1) = P2FLDSTO(ISEQ,1) + DFLDROF
 
-  IF (LWEVAP) THEN
+  IF (LWEVAP .AND. .NOT.sinks_prepaid) THEN
     !! Find out amount of water to be extracted from flooplain reservoir
     !! Assuming "potential water evaporation", multiplied by flood area fraction
     !! Limited by total amount of flooplain storage 
@@ -93,11 +94,11 @@ DO ISEQ=1, NSEQALL
     D2WEVAPEX(ISEQ,1) = DWEVAPEX/DT ! keept for output as flux 
   ENDIF 
 
-  IF (LWINFILT) THEN
+  IF (LWINFILT .AND. .NOT.sinks_prepaid) THEN
     !! Find out amount of water to be extracted from flooplain reservoir
     !! Assuming " water re-infiltration", multiplied by flood area fraction
     !! Limited by total amount of flooplain storage 
-    D2WINFILTEX = MIN(P2FLDSTO(ISEQ,1),D2FLDFRC(ISEQ,1)*DT*D2WINFILT(ISEQ,1)*1._JPRD)
+    DWINFILTEX = MIN(P2FLDSTO(ISEQ,1),D2FLDFRC(ISEQ,1)*DT*D2WINFILT(ISEQ,1)*1._JPRD)
     P2FLDSTO(ISEQ,1) = P2FLDSTO(ISEQ,1) - DWINFILTEX 
     D2WINFILTEX(ISEQ,1) = DWINFILTEX/DT ! keept for output as flux 
   ENDIF 

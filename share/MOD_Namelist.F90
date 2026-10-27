@@ -336,7 +336,7 @@ MODULE MOD_Namelist
 ! ----- Part 11: parameterization schemes -----
 ! ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   integer :: DEF_Interception_scheme = 1  !1:CoLM；2:CLM4.5; 3:CLM5; 4:Noah-MP; 5:MATSIRO; 6:VIC; 7:JULES
+   integer :: DEF_Interception_scheme = 1
 
    ! ----- SOIL parameters and supercool water setting ------
    integer :: DEF_THERMAL_CONDUCTIVITY_SCHEME = 4  ! Options for soil thermal conductivity schemes
@@ -423,6 +423,9 @@ MODULE MOD_Namelist
 
    ! ----- CaMa-Flood -----
    character(len=256) :: DEF_CaMa_Namelist = 'null'
+   character(len=256) :: DEF_CaMa_Restart_file = 'null'
+   logical :: DEF_CaMa_FloodFeedback = .false.
+   logical :: DEF_CaMa_StrictDomain = .false.
 
    ! ----- lateral flow related -----
    character(len=256) :: DEF_ElementNeighbour_file = 'null'
@@ -432,6 +435,7 @@ MODULE MOD_Namelist
    logical  :: DEF_USE_EstimatedRiverDepth  = .true.
    integer  :: DEF_Reservoir_Method         = 0
    real(r8) :: DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
+   logical  :: DEF_USE_BIFURCATION = .false.
 
    ! ----- sediment module -----
    logical  :: DEF_USE_SEDIMENT        = .false.
@@ -1373,6 +1377,7 @@ CONTAINS
       DEF_USE_EstimatedRiverDepth,            &
       DEF_Reservoir_Method,                   &
       DEF_GRIDBASED_ROUTING_MAX_DT,           &
+      DEF_USE_BIFURCATION,                    &
 
       DEF_USE_SEDIMENT,                       &
       DEF_SED_LAMBDA,                         &
@@ -1419,6 +1424,9 @@ CONTAINS
       DEF_file_snowaging ,                    &
 
       DEF_CaMa_Namelist,                      &
+      DEF_CaMa_Restart_file,                  &
+      DEF_CaMa_FloodFeedback,                 &
+      DEF_CaMa_StrictDomain,                  &
 
       DEF_ElementNeighbour_file,              &
       DEF_UnitCatchment_file,                 &
@@ -1527,6 +1535,15 @@ CONTAINS
             write(*,*) '                  *****                  '
             write(*,*) 'Warning: timestep should be less than or equal to 3600 seconds.'
             CALL CoLM_Stop ()
+         ENDIF
+
+#ifndef CaMa_Flood
+         IF (DEF_CaMa_FloodFeedback) CALL CoLM_Stop ('CaMa feedback requires CaMa_Flood.')
+         IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires CaMa_Flood.')
+#endif
+         IF (DEF_CaMa_FloodFeedback .and. DEF_Runoff_SCHEME /= 0) THEN
+            write(*,*) 'Note: DEF_Runoff_SCHEME is set to 0 for two-way river coupling.'
+            DEF_Runoff_SCHEME = 0
          ENDIF
 
 ! ===============================================================
@@ -2162,6 +2179,9 @@ ENDIF
       CALL mpi_bcast (DEF_file_snowaging                     ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_CaMa_Namelist                      ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_Restart_file                  ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_FloodFeedback                 ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_CaMa_StrictDomain                  ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_ElementNeighbour_file              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_UnitCatchment_file                 ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -2187,6 +2207,7 @@ ENDIF
       CALL mpi_bcast (DEF_USE_EstimatedRiverDepth            ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_Reservoir_Method                   ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_GRIDBASED_ROUTING_MAX_DT           ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_BIFURCATION                    ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
 
       CALL mpi_bcast (DEF_USE_SEDIMENT                       ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SED_LAMBDA                         ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)

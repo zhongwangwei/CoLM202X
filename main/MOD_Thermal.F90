@@ -74,7 +74,11 @@ CONTAINS
                        zol           ,rib           ,ustar         ,qstar         ,&
                        tstar         ,fm            ,fh            ,fq            ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
-                       qintr_snow    ,snofrz        ,sabg_snow_lyr                 )
+                       qintr_snow    ,snofrz        ,sabg_snow_lyr                 &
+#if (defined CaMa_Flood)
+                      ,flddepth      ,fldfrc        ,fevpg_fld                    &
+#endif
+                       )
 
 !=======================================================================
 !  this is the main subroutine to execute the calculation
@@ -133,6 +137,10 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
+#if (defined CaMa_Flood)
+   USE MOD_CaMa_colmCaMa, only: get_fldevp
+   USE YOS_CMF_INPUT, only: LWEVAP
+#endif
 
    IMPLICIT NONE
 
@@ -262,6 +270,12 @@ CONTAINS
 
    real(r8), intent(in) :: &
        sabg_snow_lyr(lb:1)        ! snow layer absorption
+
+#if (defined CaMa_Flood)
+   real(r8), intent(inout) :: flddepth   ! inundation depth [mm]
+   real(r8), intent(in)    :: fldfrc     ! inundation fraction [0-1]
+   real(r8), intent(out)   :: fevpg_fld  ! inundation evaporation [mm/s]
+#endif
 
        ! state variables (2)
    real(r8), intent(inout) :: &
@@ -436,6 +450,15 @@ CONTAINS
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
+#if (defined CaMa_Flood)
+   logical :: flood_evap_active
+   real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
+   real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
+   real(r8) :: taux_fld, tauy_fld, tref_fld, qref_fld, z0m_fld, zol_fld, rib_fld
+   real(r8) :: ustar_fld, qstar_fld, tstar_fld, fm_fld, fh_fld, fq_fld
+   real(r8) :: fseng_land, fseng_soil_land, fseng_snow_land
+   real(r8) :: fevpg_land, fevpg_soil_land, fevpg_snow_land
+#endif
 
    integer p, ps, pe, pn
 
@@ -491,6 +514,10 @@ CONTAINS
       lfevpa = 0.;  fsenl  = 0.
       fevpl  = 0.;  etr    = 0.
       fseng  = 0.;  fevpg  = 0.
+#if (defined CaMa_Flood)
+      fevpg_fld = 0._r8
+      flood_evap_active = .FALSE.
+#endif
 
       cgrnds = 0.;  cgrndl = 0.
       cgrnd  = 0.;  tref   = 0.
@@ -915,7 +942,8 @@ IF (patchtype == 0) THEN
 !End WUE stomata model parameter
                  forc_hpbl                                                                         ,&
                  qintr_rain_p(i) ,qintr_snow_p(i) ,t_precip        ,hprl_p(i)       ,dheatl_p(i)   ,&
-                 smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                )
+                 smp             ,hk(1:)          ,hksati(1:)      ,rootflux_p(1:,i)                ,&
+                 ipft_index=i)
          ELSE
 
             CALL GroundFluxes (zlnd,zsno,forc_hgt_u,forc_hgt_t,forc_hgt_q,forc_hpbl, &
@@ -1186,6 +1214,34 @@ END IF
 ENDIF
 #endif
 
+#if (defined CaMa_Flood)
+      ! CaMa: inundation evaporation is part of the ground energy balance
+      IF (LWEVAP .and. patchtype == 0 .and. &
+          flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
+         fldfrc_eff = MIN(1._r8, MAX(0._r8, fldfrc))
+         flood_evap_active = fldfrc_eff > 0._r8
+         fseng_land = fseng; fseng_soil_land = fseng_soil; fseng_snow_land = fseng_snow
+         fevpg_land = fevpg; fevpg_soil_land = fevpg_soil; fevpg_snow_land = fevpg_snow
+         cgrnd_land = cgrnd; cgrndl_land = cgrndl; cgrnds_land = cgrnds
+         CALL get_fldevp (forc_hgt_u,forc_hgt_t,forc_hgt_q, &
+            forc_us,forc_vs,forc_t,forc_q,forc_rhoair,forc_psrf,t_grnd, &
+            forc_hpbl, taux_fld,tauy_fld,fseng_fld_local,fevpg_fld_local, &
+            tref_fld,qref_fld,z0m_fld,zol_fld,rib_fld,ustar_fld,qstar_fld, &
+            tstar_fld,fm_fld,fh_fld,fq_fld)
+         fevpg_fld_local = MIN(MAX(fevpg_fld_local,0._r8), flddepth/deltim)
+         fevpg_fld = fevpg_fld_local * fldfrc_eff
+         flddepth = MAX(0._r8, flddepth - deltim*fevpg_fld_local)
+         fseng = fseng_fld_local*fldfrc_eff + fseng_land*(1._r8-fldfrc_eff)
+         fevpg = (hvap/htvp)*fevpg_fld + fevpg_land*(1._r8-fldfrc_eff)
+         fseng_soil = fseng_fld_local*fldfrc_eff + fseng_soil_land*(1._r8-fldfrc_eff)
+         fevpg_soil = (hvap/htvp)*fevpg_fld + fevpg_soil_land*(1._r8-fldfrc_eff)
+         fseng_snow = fseng_fld_local*fldfrc_eff + fseng_snow_land*(1._r8-fldfrc_eff)
+         fevpg_snow = (hvap/htvp)*fevpg_fld + fevpg_snow_land*(1._r8-fldfrc_eff)
+         cgrnd = cgrnd_land*(1._r8-fldfrc_eff)
+         cgrndl = cgrndl_land*(1._r8-fldfrc_eff)
+         cgrnds = cgrnds_land*(1._r8-fldfrc_eff)
+      ENDIF
+#endif
 
 !=======================================================================
 ! [5] Ground temperature
@@ -1227,6 +1283,14 @@ ENDIF
       fevpg      = fevpg      + tinc*cgrndl
       fevpg_soil = fevpg_soil + tinc*cgrndl
       fevpg_snow = fevpg_snow + tinc*cgrndl
+
+#if (defined CaMa_Flood)
+      IF (flood_evap_active) THEN
+         fevpg = fevpg - (hvap/htvp)*fevpg_fld
+         fevpg_soil = fevpg_soil - (hvap/htvp)*fevpg_fld
+         fevpg_snow = fevpg_snow - (hvap/htvp)*fevpg_fld
+      ENDIF
+#endif
 
 ! calculation of evaporative potential; flux in kg m-2 s-1.
 ! egidif holds the excess energy IF all water is evaporated
@@ -1324,10 +1388,21 @@ ELSE
 ENDIF
 
 
+#if (defined CaMa_Flood)
+      IF (flood_evap_active) THEN
+         fevpg = fevpg + fevpg_fld
+         fevpg_soil = fevpg_soil + fevpg_fld
+         fevpg_snow = fevpg_snow + fevpg_fld
+      ENDIF
+#endif
+
 ! total fluxes to atmosphere
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
       lfevpa = hvap*fevpl + htvp*fevpg   ! W/m^2 (accounting for sublimation)
+#if (defined CaMa_Flood)
+      IF (flood_evap_active) lfevpa = lfevpa + (hvap-htvp)*fevpg_fld
+#endif
 
 ! ground heat flux
 IF (.not.DEF_SPLIT_SOILSNOW) THEN
@@ -1346,6 +1421,9 @@ ELSE
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ENDIF
+#if (defined CaMa_Flood)
+      IF (flood_evap_active) fgrnd = fgrnd - (hvap-htvp)*fevpg_fld
+#endif
 
 ! outgoing long-wave radiation from canopy + ground
       olrg = ulrad &
