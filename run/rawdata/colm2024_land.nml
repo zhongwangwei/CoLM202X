@@ -30,7 +30,7 @@
 
   DEF_rawdata_nml%landcover%opt(3)%dir   = '/landcover/esa/'
   DEF_rawdata_nml%landcover%opt(3)%gname = 'colm_500m'
-  DEF_rawdata_nml%landcover%opt(3)%fname = 'ESACCI'
+  DEF_rawdata_nml%landcover%opt(3)%fname = 'ESA'
 
   DEF_rawdata_nml%landcover%opt(4)%dir   = '/landcover/glc/'
   DEF_rawdata_nml%landcover%opt(4)%gname = 'colm_30m'
