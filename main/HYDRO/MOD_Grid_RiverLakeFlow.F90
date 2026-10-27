@@ -897,6 +897,18 @@ CONTAINS
             ENDDO
 
             IF (DEF_USE_BIFURCATION) THEN
+               ! Bug fix: synchronize dt BEFORE the outgoing-face limiter below.
+               ! The limiter scales the fluxes by volwater / (outflow * dt), and the
+               ! dt was the bound of this worker's cells only; the synchronization
+               ! (formerly after the limiter) can only shorten it, and the fluxes
+               ! already cut with the longer dt stayed cut.  So where the limiter
+               ! acted (ordinary_scale < 1) the result depended on how the river
+               ! systems were split over the workers.  Results change only in such
+               ! cells, and there the flux is cut less; the synchronized dt, and so
+               ! the number of substeps, is the same as before.  Without the
+               ! momentum bound below this is the same single synchronization,
+               ! moved; with it, a second one follows the bound.
+               CALL sync_global_routing_dt(dt_res, dt_all, next_loop_active)
                normal_outgoing_rate = 0._r8
                hflux_sumups = 0._r8
                DO i = 1, numucat
@@ -968,8 +980,9 @@ CONTAINS
                         ENDIF
                      ENDIF
                   ENDDO
+                  ! the bound may have shortened dt on this worker only
+                  CALL sync_global_routing_dt(dt_res, dt_all, next_loop_active)
                ENDIF
-               CALL sync_global_routing_dt(dt_res, dt_all, next_loop_active)
                sum_hflux_base = sum_hflux_riv
                IF (allocated(volresv)) volresv_safe = volresv
                CALL bifurcation_calc(wdsrf_ucat, wdsrf_ucat_prev, volwater_ucat, &
@@ -1098,12 +1111,17 @@ CONTAINS
                   a_veloc_riv (i) = a_veloc_riv (i) + veloc_riv (i) * dt_all(irivsys(i))
                   a_discharge (i) = a_discharge (i) + hflux_fc  (i) * dt_all(irivsys(i))
 
-                  IF (DEF_USE_LEVEE) THEN
-                     IF (levee_floodarea(i) > 0._r8) THEN
-                        floodarea = levee_floodarea(i)
-                     ELSE
-                        floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
-                     ENDIF
+                  ! Bug fix: a leveed cell takes the levee result even when it is
+                  ! zero.  levee_fldstg returns fldfrc = levee_frc between bank top
+                  ! and levee top, and levee_frc = 0 (all floodplain protected) is
+                  ! valid, so zero means "not flooded"; falling back to the
+                  ! floodplain curve then put the protected floodplain under water
+                  ! in the history (the flood fraction published to the land kept
+                  ! the zero).  Only the history floodarea changes, and only for
+                  ! leveed cells; reservoirs have no levee (has_levee = .false.)
+                  ! and levee_floodarea was 0 for every other cell already.
+                  IF (DEF_USE_LEVEE .and. has_levee(i) .and. (.not. is_built_resv(i))) THEN
+                     floodarea = levee_floodarea(i)
                   ELSE
                      floodarea = floodplain_curve(i)%floodarea (wdsrf_ucat(i))
                   ENDIF
