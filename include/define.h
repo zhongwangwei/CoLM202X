@@ -111,3 +111,12 @@
 
 ! 12. Hyperspectral scheme.
 #undef HYPERSPECTRAL
+
+! 13. If defined, constituent transport is compiled in (water isotopes,
+!     solutes, river sediment, methane). Each constituent is switched on
+!     in the namelist; with all of them off the results are unchanged.
+#undef ConstituentTransport
+!    Conflicts : needs the van Genuchten-Mualem soil model.
+#if (defined ConstituentTransport && defined Campbell_SOIL_MODEL)
+#error "ConstituentTransport requires vanGenuchten_Mualem_SOIL_MODEL"
+#endif

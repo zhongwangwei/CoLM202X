@@ -29,6 +29,7 @@ PROGRAM CoLM
    USE MOD_Vars_1DAccFluxes
    USE MOD_Forcing
    USE MOD_Hist
+   USE MOD_HistAccRestart, only: read_history_acc_restart, save_history_acc_restart
    USE MOD_CheckEquilibrium
    USE MOD_TimeManager
    USE MOD_RangeCheck
@@ -396,6 +397,14 @@ PROGRAM CoLM
       CALL grid_riverlake_flow_init (s_year, is_spinup)
 #endif
 
+      ! Restore the history sums of a window that was open when the restart
+      ! was written (MOD_HistAccRestart), so that a restarted run writes the
+      ! same history as a continuous run. Placed after the river-lake
+      ! initialization, which allocates the river sums. Without a saved file
+      ! (cold start, older restarts) the window starts here, as before. Only
+      ! history sums are read; the model state is not touched.
+      CALL read_history_acc_restart (jdate)
+
       CALL ParaOpt_init (jdate, lc_year)
 
 #ifdef DataAssimilation
@@ -599,6 +608,10 @@ PROGRAM CoLM
 #else
             CALL WRITE_TimeVariables (jdate, lc_year,  casename, dir_restart)
 #endif
+            ! Save the open history window next to the model restart
+            ! (MOD_HistAccRestart). Writes its own file and leaves the model
+            ! restart files and all model variables unchanged.
+            CALL save_history_acc_restart (jdate)
 
 #if (defined CaMa_Flood)
 #ifdef USEMPI

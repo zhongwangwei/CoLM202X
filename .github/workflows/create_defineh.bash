@@ -1,6 +1,6 @@
 #!/bin/bash
 #./create_defineh.bash GRID LULC_IGBP_PFT URBANON CaMaON BGCON
-echo $1 $2 $3 $4 $5 $6 $7 
+echo $1 $2 $3 $4 $5 $6 $7 $8
 
 if [ $1 = "GRID" ];then
    GRIDBASE="#define GRIDBASED"
@@ -134,6 +134,17 @@ else
    fi
 fi
 
+# Argument 8 (optional): CTON / CTOFF, constituent transport. Default CTOFF.
+if [ "${8:-CTOFF}" = "CTON" ];then
+   CT="#define ConstituentTransport"
+else
+   if [ "${8:-CTOFF}" = "CTOFF" ];then
+      CT="#undef ConstituentTransport"
+   else
+      echo "Error in argument 8, try (CTON, CTOFF)"
+   fi
+fi
+
 cat>include/define.h<<EOF
 ! 1. Spatial structure:
 !    Select one of the following options.
@@ -207,4 +218,10 @@ $CROP
 
 ! 8. If defined, open Land use and land cover change mode.
 #undef LULCC
+
+! 13. If defined, constituent transport is compiled in.
+$CT
+#if (defined ConstituentTransport && defined Campbell_SOIL_MODEL)
+#error "ConstituentTransport requires vanGenuchten_Mualem_SOIL_MODEL"
+#endif
 EOF

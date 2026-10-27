@@ -73,6 +73,8 @@ jobs:
        run: which mpif90
      #- name: Test netcdf
      #  run: nc-config --all
+     - name: Check the history-accumulator restart field list
+       run: python3 .github/workflows/hist_acc_restart_fields.py --check
      - name: Build CoLM202X
      #  run: make clean && make all
        run: |
@@ -85,8 +87,8 @@ jobs:
               echo $CaseName
               echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
  
-              echo defineh `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8}'`
-              ./.github/workflows/create_defineh.bash `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8}'`
+              echo defineh `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8,$9}'`
+              ./.github/workflows/create_defineh.bash `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8,$9}'`
 
               echo "Create test case $CaseName Complete!"
               cat ./include/define.h

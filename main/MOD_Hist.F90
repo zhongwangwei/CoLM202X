@@ -141,6 +141,7 @@ CONTAINS
    USE MOD_CaMa_Vars !definition of CaMa variables
 #endif
    USE MOD_Forcing, only: forcmask_pch
+   USE MOD_HistAccRestart, only: hist_acc_final_snapshot
 #ifdef DataAssimilation
    USE MOD_DA_TWS, only: fslp_k_mon
    USE MOD_Vars_Global
@@ -219,6 +220,14 @@ CONTAINS
       ELSE
          CALL accumulate_fluxes ()
       ENDIF
+
+      ! History-accumulator restart (MOD_HistAccRestart): at the last time
+      ! step, if the history window is not complete, the partial window is
+      ! written below and the sums are cleared before the model restart is
+      ! saved, so the raw sums are saved here first. Nothing happens at other
+      ! steps; it only writes a file in the restart directory and changes no
+      ! model or history variable.
+      CALL hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)
 
       select CASE (trim(adjustl(DEF_HIST_FREQ)))
       CASE ('TIMESTEP')
