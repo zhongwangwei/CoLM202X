@@ -225,6 +225,7 @@ CONTAINS
 
    character(len=256) :: filename, dir, fmt_str, fname
    character(len=4)   :: cyear, c
+   character(len=32)  :: vname_htop
 
    type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridcanopy, gridlai, gridlake,  &
                       gridbright, gridsoil, gridrock, gridtopo, grid_topo_factor
@@ -493,11 +494,19 @@ CONTAINS
          ! read the regional 5x5 file. Both are defined by the rawdata nml.
          filename = trim(dir) // '/' // trim(fname) // '.nc'
          INQUIRE (FILE=trim(filename), EXIST=fexists)
+         print*, filename
          IF (fexists) THEN
             CALL read_point_var_2d_real8 (gridhtop, filename, trim(DEF_rawdata%htop%vname), &
                SITE_lon_location, SITE_lat_location, SITE_htop)
          ELSE
-            CALL read_point_5x5_var_2d_real8 (gridhtop, dir, fname, trim(DEF_rawdata%htop%vname), &
+            IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+               fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
+               vname_htop = 'HTOP'
+            ELSE
+               vname_htop = trim(DEF_rawdata%htop%vname)
+            ENDIF
+
+            CALL read_point_5x5_var_2d_real8 (gridhtop, dir, fname, vname_htop, &
                SITE_lon_location, SITE_lat_location, SITE_htop)
          ENDIF
 
@@ -791,7 +800,8 @@ CONTAINS
 #else
                IF (DEF_LAI_MONTHLY) THEN
                   dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-                  fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
+                  IF ( is_colm2024_rawdata() ) THEN
+                     fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
                   CALL read_point_5x5_var_2d_time_real8 (gridlai, dir, fname, &
                      'MONTHLY_LC_LAI', SITE_lon_location, SITE_lat_location, itime, &
                      SITE_LAI_monthly(itime,iyear))
