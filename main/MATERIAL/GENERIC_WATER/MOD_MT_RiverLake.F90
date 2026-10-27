@@ -267,7 +267,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_master) THEN
-         write(*,'(A,I4,A)') ' Tracer module initialised with ', ntracers, ' tracers:'
+         write(*,'(A,I4,A)') ' Material module initialised with ', ntracers, ' materials:'
          write(*,'(A,*(A,:,", "))') '   Names: ', (trim(tracer_names(i)), i=1, ntracers)
       ENDIF
 
@@ -359,7 +359,7 @@ CONTAINS
       ENDDO
 
       IF (p_is_master .and. n_init > 0) THEN
-         write(*,'(A,I0,A)') '  River tracer cold-started from water volume for ', n_init, ' tracer(s).'
+         write(*,'(A,I0,A)') '  River material cold-started from water volume for ', n_init, ' material(s).'
       ENDIF
 
    END SUBROUTINE mt_riverlake_init_from_water
@@ -742,14 +742,14 @@ CONTAINS
                ! Dry cleanup is a budgeted sink for non-negative physical mass,
                ! not a way to erase an invalid state before the watchdog sees it.
                IF (.not. ieee_is_finite(trc_mass(itrc, i))) THEN
-                  CALL CoLM_stop('non-finite river tracer mass reached dry-cell cleanup')
+                  CALL CoLM_stop('non-finite river material mass reached dry-cell cleanup')
                ELSEIF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
-                  CALL CoLM_stop('negative river tracer mass reached dry-cell cleanup')
+                  CALL CoLM_stop('negative river material mass reached dry-cell cleanup')
                ELSEIF (trc_mass(itrc, i) < 0._r8) THEN
                   trc_mass(itrc, i) = 0._r8
                ENDIF
                IF (.not. ieee_is_finite(trc_inp_buf(itrc, i))) &
-                  CALL CoLM_stop('non-finite signed river tracer buffer reached dry-cell cleanup')
+                  CALL CoLM_stop('non-finite signed river material buffer reached dry-cell cleanup')
                IF (allocated(trc_solid)) THEN
                   IF (mt_has_dissolved_limit(itrc)) THEN
                      trc_solid(itrc, i) = trc_solid(itrc, i) + &
@@ -1033,7 +1033,7 @@ CONTAINS
       ! TRC_LIMITER_SOFT_ITER is only a fast-path threshold used to report how
       ! often long chains occur.
       IF (totalnumucat < 0 .or. totalnumucat > (huge(limiter_max_iter) - 1) / 2) &
-         CALL CoLM_stop('invalid river topology size for tracer donor limiter')
+         CALL CoLM_stop('invalid river topology size for material donor limiter')
       limiter_max_iter = 2 * totalnumucat + 1
 
       IF (numucat <= 0 .and. npth_bif <= 0 .and. .not. bif_workspace_active) RETURN
@@ -1077,18 +1077,18 @@ CONTAINS
             ! negative flux would violate the limiter's nonnegative monotone
             ! map even if the underlying mass error is numerically tiny.
             IF (.not. ieee_is_finite(trc_mass(itrc, i))) THEN
-               CALL CoLM_stop('non-finite river tracer mass before transport')
+               CALL CoLM_stop('non-finite river material mass before transport')
             ELSEIF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
-               CALL CoLM_stop('negative river tracer mass before transport')
+               CALL CoLM_stop('negative river material mass before transport')
             ELSEIF (trc_mass(itrc, i) < 0._r8) THEN
                trc_mass(itrc, i) = 0._r8
             ENDIF
             IF (allocated(trc_levsto)) THEN
                IF (i <= size(trc_levsto, 2)) THEN
                   IF (.not. ieee_is_finite(trc_levsto(itrc, i))) THEN
-                     CALL CoLM_stop('non-finite protected tracer mass before transport')
+                     CALL CoLM_stop('non-finite protected material mass before transport')
                   ELSEIF (trc_levsto(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) THEN
-                     CALL CoLM_stop('negative protected tracer mass before transport')
+                     CALL CoLM_stop('negative protected material mass before transport')
                   ELSEIF (trc_levsto(itrc, i) < 0._r8) THEN
                      trc_levsto(itrc, i) = 0._r8
                   ENDIF
@@ -1132,7 +1132,7 @@ CONTAINS
                IF (i <= size(has_levee) .and. i <= size(levsto) .and. i <= size(trc_levsto, 2)) THEN
                   IF (has_levee(i)) THEN
                      IF (.not. ieee_is_finite(levsto(i)) .or. levsto(i) < 0._r8) &
-                        CALL CoLM_stop('invalid protected water storage before tracer transport')
+                        CALL CoLM_stop('invalid protected water storage before material transport')
                      ! A real protected compartment keeps its own signature even
                      ! below the dry threshold. Falling back to visible C here
                      ! can make protected tracer demand exceed protected mass
@@ -1144,7 +1144,7 @@ CONTAINS
                         ! instead of leaving an orphan inventory behind.
                         trc_prot_conc_flux(i) = trc_levsto(itrc, i) / levsto(i)
                         IF (.not. ieee_is_finite(trc_prot_conc_flux(i))) &
-                           CALL CoLM_stop('non-finite protected tracer concentration')
+                           CALL CoLM_stop('non-finite protected material concentration')
                      ELSE
                         trc_prot_conc_flux(i) = 0._r8
                      ENDIF
@@ -1341,11 +1341,11 @@ CONTAINS
             IF (.not. ieee_is_finite(trc_mass(itrc, i)) .or. &
                 .not. ieee_is_finite(trc_out_mass(i)) .or. &
                 .not. ieee_is_finite(trc_out_mass_lev(i))) &
-               CALL CoLM_stop('non-finite river tracer donor limiter state')
+               CALL CoLM_stop('non-finite river material donor limiter state')
             IF (trc_mass(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) &
-               CALL CoLM_stop('negative river tracer mass entered donor limiter')
+               CALL CoLM_stop('negative river material mass entered donor limiter')
             IF (trc_out_mass(i) < 0._r8 .or. trc_out_mass_lev(i) < 0._r8) &
-               CALL CoLM_stop('negative river tracer gross outflow demand')
+               CALL CoLM_stop('negative river material gross outflow demand')
 
             IF (trc_out_mass(i) > TRC_LIMITER_OUT_TINY) THEN
                rate_cell(i) = min(max(trc_mass(itrc, i), 0._r8) / trc_out_mass(i), 1._r8)
@@ -1354,14 +1354,14 @@ CONTAINS
             ENDIF
             IF (trc_out_mass_lev(i) > TRC_LIMITER_OUT_TINY) THEN
                IF (.not. allocated(trc_levsto)) THEN
-                  CALL CoLM_stop('protected tracer outflow has no protected donor pool')
+                  CALL CoLM_stop('protected material outflow has no protected donor pool')
                ELSEIF (i > size(trc_levsto, 2)) THEN
-                  CALL CoLM_stop('protected tracer outflow has no protected donor pool')
+                  CALL CoLM_stop('protected material outflow has no protected donor pool')
                ELSE
                   IF (.not. ieee_is_finite(trc_levsto(itrc, i))) &
-                     CALL CoLM_stop('non-finite protected tracer donor limiter state')
+                     CALL CoLM_stop('non-finite protected material donor limiter state')
                   IF (trc_levsto(itrc, i) < -TRC_RESTART_NEGATIVE_DUST) &
-                     CALL CoLM_stop('negative protected tracer mass entered donor limiter')
+                     CALL CoLM_stop('negative protected material mass entered donor limiter')
                   rate_cell_lev(i) = min(max(trc_levsto(itrc, i), 0._r8) / trc_out_mass_lev(i), 1._r8)
                ENDIF
             ELSE
@@ -1390,7 +1390,7 @@ CONTAINS
          ENDIF
 #endif
          IF (.not. ieee_is_finite(limiter_delta_global)) &
-            CALL CoLM_stop('non-finite river tracer donor limiter residual')
+            CALL CoLM_stop('non-finite river material donor limiter residual')
          limiter_converged = limiter_delta_global <= TRC_LIMITER_RATE_TOL
 
          DO limiter_iter = 1, limiter_max_iter
@@ -1498,15 +1498,15 @@ CONTAINS
                IF (.not. ieee_is_finite(trc_in_mass(i)) .or. &
                    .not. ieee_is_finite(trc_in_mass_lev(i)) .or. &
                    trc_in_mass(i) < 0._r8 .or. trc_in_mass_lev(i) < 0._r8) &
-                  CALL CoLM_stop('invalid actual incoming mass in river tracer donor limiter')
+                  CALL CoLM_stop('invalid actual incoming mass in river material donor limiter')
 
                IF (trc_out_mass(i) > TRC_LIMITER_OUT_TINY) THEN
                   limiter_rate_new = min((max(trc_mass(itrc, i), 0._r8) + trc_in_mass(i)) / &
                      trc_out_mass(i), 1._r8)
                   IF (.not. ieee_is_finite(limiter_rate_new)) &
-                     CALL CoLM_stop('non-finite visible river tracer donor rate')
+                     CALL CoLM_stop('non-finite visible river material donor rate')
                   IF (limiter_rate_new + TRC_LIMITER_RATE_TOL < rate_cell(i)) &
-                     CALL CoLM_stop('river tracer donor limiter lost monotonicity')
+                     CALL CoLM_stop('river material donor limiter lost monotonicity')
                   limiter_rate_new = max(rate_cell(i), limiter_rate_new)
                   limiter_delta = max(limiter_delta, limiter_rate_new - rate_cell(i))
                   rate_cell(i) = limiter_rate_new
@@ -1516,9 +1516,9 @@ CONTAINS
                   limiter_rate_new = min((max(trc_levsto(itrc, i), 0._r8) + trc_in_mass_lev(i)) / &
                      trc_out_mass_lev(i), 1._r8)
                   IF (.not. ieee_is_finite(limiter_rate_new)) &
-                     CALL CoLM_stop('non-finite protected river tracer donor rate')
+                     CALL CoLM_stop('non-finite protected river material donor rate')
                   IF (limiter_rate_new + TRC_LIMITER_RATE_TOL < rate_cell_lev(i)) &
-                     CALL CoLM_stop('protected tracer donor limiter lost monotonicity')
+                     CALL CoLM_stop('protected material donor limiter lost monotonicity')
                   limiter_rate_new = max(rate_cell_lev(i), limiter_rate_new)
                   limiter_delta = max(limiter_delta, limiter_rate_new - rate_cell_lev(i))
                   rate_cell_lev(i) = limiter_rate_new
@@ -1536,7 +1536,7 @@ CONTAINS
             ENDIF
 #endif
             IF (.not. ieee_is_finite(limiter_delta_global)) &
-               CALL CoLM_stop('non-finite river tracer donor limiter residual')
+               CALL CoLM_stop('non-finite river material donor limiter residual')
             limiter_converged = limiter_delta_global <= TRC_LIMITER_RATE_TOL
          ENDDO
 
@@ -1550,9 +1550,9 @@ CONTAINS
             ! reachable, so exhausting it means the limiter itself is broken
             ! (a truncated exit would silently under-export into the dry-cell
             ! sink).  Keep this fatal.
-            WRITE(*,'(A,I0,A,I0,A,ES12.4)') 'ERROR tracer donor limiter: tracer=', itrc, &
+            WRITE(*,'(A,I0,A,I0,A,ES12.4)') 'ERROR material donor limiter: material=', itrc, &
                ' iterations=', limiter_iters_used, ' residual=', limiter_delta_global
-            CALL CoLM_stop('river tracer donor limiter did not converge')
+            CALL CoLM_stop('river material donor limiter did not converge')
          ENDIF
 
          ! 7c: Get downstream cell rate (for reverse main flow)
@@ -1648,10 +1648,10 @@ CONTAINS
             trc_mass_new = trc_mass(itrc, i) &
                + (- trc_flux(i) + flux_ups(i) - bif_net(i)) * dt_i
             IF (.not. ieee_is_finite(trc_mass_new)) &
-               CALL CoLM_stop('non-finite river tracer mass after coupled donor limiter')
+               CALL CoLM_stop('non-finite river material mass after coupled donor limiter')
             IF (trc_mass_new < -max(TRC_RESTART_NEGATIVE_DUST, TRC_UPDATE_ROUNDOFF * &
                 (abs(trc_mass(itrc, i)) + (abs(trc_flux(i)) + abs(flux_ups(i)) + abs(bif_net(i))) * dt_i))) &
-               CALL CoLM_stop('negative river tracer mass after coupled donor limiter')
+               CALL CoLM_stop('negative river material mass after coupled donor limiter')
 
             ! Transport owns only conservative edge transfers.  Never snap the
             ! result back to R_fill: doing so is an unbooked source/sink and can
@@ -1662,10 +1662,10 @@ CONTAINS
                   levsto_old = trc_levsto(itrc, i)
                   trc_levsto(itrc, i) = trc_levsto(itrc, i) - trc_bif_lev_net(i) * dt_i
                   IF (.not. ieee_is_finite(trc_levsto(itrc, i))) &
-                     CALL CoLM_stop('non-finite protected tracer mass after coupled donor limiter')
+                     CALL CoLM_stop('non-finite protected material mass after coupled donor limiter')
                   IF (trc_levsto(itrc, i) < -max(TRC_RESTART_NEGATIVE_DUST, TRC_UPDATE_ROUNDOFF * &
                       (abs(levsto_old) + abs(trc_bif_lev_net(i)) * dt_i))) &
-                     CALL CoLM_stop('negative protected tracer mass after coupled donor limiter')
+                     CALL CoLM_stop('negative protected material mass after coupled donor limiter')
                   trc_levsto(itrc, i) = max(trc_levsto(itrc, i), 0._r8)
                ENDIF
             ENDIF
@@ -1780,7 +1780,7 @@ CONTAINS
       ! established, so never scatter their state.
       IF (flags(4) == 0) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            '  NOTE mt_riverlake_read_restart: restart has no tracer commit marker; cold-starting river tracers.'
+            '  NOTE mt_riverlake_read_restart: restart has no material commit marker; cold-starting river materials.'
          riverlake_restart_descriptor_compatible = .false.
          deallocate(expected)
          RETURN
@@ -1874,10 +1874,10 @@ CONTAINS
 #endif
 
       IF (status < 0) THEN
-         CALL CoLM_stop('malformed/incomplete river tracer restart descriptor metadata')
+         CALL CoLM_stop('malformed/incomplete river material restart descriptor metadata')
       ELSEIF (status == 0) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            '  NOTE mt_riverlake_read_restart: tracer descriptor changed; cold-starting river tracers.'
+            '  NOTE mt_riverlake_read_restart: material descriptor changed; cold-starting river materials.'
       ENDIF
       riverlake_restart_descriptor_compatible = status == 1
       IF (status == 1) river_restart_schema_loaded = schema
@@ -1921,9 +1921,9 @@ CONTAINS
 
       IF (status < 0 .or. (required .and. status == 0)) THEN
          IF (p_is_master) WRITE(*,'(3A)') &
-            'ERROR mt_riverlake_read_restart: required/current river tracer vector "', &
+            'ERROR mt_riverlake_read_restart: required/current river material vector "', &
             trim(varname), '" is absent or has the wrong rank/ucatch extent.'
-         CALL CoLM_stop('incomplete or malformed committed river tracer restart')
+         CALL CoLM_stop('incomplete or malformed committed river material restart')
       ENDIF
       present_on_disk = status == 1
    END SUBROUTINE probe_riverlake_restart_vector
@@ -1987,7 +1987,7 @@ CONTAINS
                '[mass_nan mass_neg buffer_nan accinp_nan runoff_nan levee_nan levee_neg '// &
                'solid_nan solid_neg levee_solid_nan levee_solid_neg]: ', invalid_counts
          ENDIF
-         CALL CoLM_stop('invalid river/lake tracer restart state')
+         CALL CoLM_stop('invalid river/lake material restart state')
       ENDIF
 
       ! Canonicalize only sub-picomass negative roundoff admitted by the
@@ -2175,7 +2175,7 @@ CONTAINS
 #endif
       IF (.not. network_meta_matches) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            'ERROR: river/lake tracer restart belongs to a different catchment network; aborting.'
+            'ERROR: river/lake material restart belongs to a different catchment network; aborting.'
          CALL CoLM_stop()
       ENDIF
 
@@ -2189,7 +2189,7 @@ CONTAINS
 #endif
       IF (.not. field_present) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            'ERROR: river/lake tracer restart catchment-count metadata is inconsistent.'
+            'ERROR: river/lake material restart catchment-count metadata is inconsistent.'
          CALL CoLM_stop()
       ENDIF
 
@@ -2261,7 +2261,7 @@ CONTAINS
       ENDIF
       IF (.not. hist_complete) THEN
          IF (p_is_master) WRITE(*,'(A)') &
-            '  NOTE mt_riverlake_read_restart: legacy tracer history starts a post-restart window.'
+            '  NOTE mt_riverlake_read_restart: legacy material history starts a post-restart window.'
       ELSE
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
@@ -2687,8 +2687,8 @@ CONTAINS
          ELSE
             conc_word  = 'concentration'
             conc_units = tracer_concentration_units(itrc)
-            mass_units = 'tracer'
-            flux_units = 'tracer/s'
+            mass_units = 'material'
+            flux_units = 'material/s'
          ENDIF
 
          ! --- Tracer concentration ---
@@ -2714,7 +2714,7 @@ CONTAINS
          ENDIF
 
          write(varname, '(A,A)') 'f_mt_conc_', trim(tracer_names(itrc))
-         write(longname, '(5A)') 'tracer ', trim(conc_word), &
+         write(longname, '(5A)') 'material ', trim(conc_word), &
             ' (', trim(tracer_names(itrc)), ')'
 
          CALL route_hist_write_ucat (tmpvec, trim(varname), &
@@ -2744,7 +2744,7 @@ CONTAINS
             ENDIF
 
             write(varname, '(A,A)') 'f_mt_delta_', trim(tracer_names(itrc))
-            write(longname, '(A,A,A)') 'tracer delta (', trim(tracer_names(itrc)), ')'
+            write(longname, '(A,A,A)') 'material delta (', trim(tracer_names(itrc)), ')'
             CALL route_hist_write_ucat (tmpvec, trim(varname), &
                longname = trim(longname), &
                units = 'permil')
@@ -2762,7 +2762,7 @@ CONTAINS
          ENDIF
 
          write(varname, '(A,A)') 'f_mt_flux_', trim(tracer_names(itrc))
-         write(longname, '(A,A,A)') 'tracer outflux (', trim(tracer_names(itrc)), ')'
+         write(longname, '(A,A,A)') 'material outflux (', trim(tracer_names(itrc)), ')'
 
          CALL route_hist_write_ucat (tmpvec, trim(varname), &
             longname = trim(longname), &
@@ -2785,7 +2785,7 @@ CONTAINS
             ENDIF
 
             write(varname, '(A,A)') 'f_mt_levsto_', trim(tracer_names(itrc))
-            write(longname, '(A,A,A)') 'protected-side levee tracer storage (', trim(tracer_names(itrc)), ')'
+            write(longname, '(A,A,A)') 'protected-side levee material storage (', trim(tracer_names(itrc)), ')'
 
             CALL route_hist_write_ucat (tmpvec, trim(varname), &
                longname = trim(longname), &
@@ -2813,7 +2813,7 @@ CONTAINS
                ENDIF
 
                write(varname, '(A,A)') 'f_mt_levdelta_', trim(tracer_names(itrc))
-               write(longname, '(A,A,A)') 'protected-side levee tracer delta (', trim(tracer_names(itrc)), ')'
+               write(longname, '(A,A,A)') 'protected-side levee material delta (', trim(tracer_names(itrc)), ')'
                CALL route_hist_write_ucat (tmpvec, trim(varname), &
                   longname = trim(longname), &
                   units = 'permil')
@@ -2833,7 +2833,7 @@ CONTAINS
             ENDIF
 
             write(varname, '(A,A)') 'f_mt_bifout_', trim(tracer_names(itrc))
-            write(longname, '(A,A,A)') 'tracer net bifurcation outflux (', trim(tracer_names(itrc)), ')'
+            write(longname, '(A,A,A)') 'material net bifurcation outflux (', trim(tracer_names(itrc)), ')'
 
             CALL route_hist_write_ucat (tmpvec, trim(varname), &
                longname = trim(longname), &
@@ -2887,7 +2887,7 @@ CONTAINS
       IF (p_is_worker .and. (.not. allocated(trc_mass) .or. .not. allocated(trc_conc))) RETURN
 
       IF (p_is_master) THEN
-         write(*,'(/,A)') 'Checking Tracer Variables ...'
+         write(*,'(/,A)') 'Checking Material Variables ...'
       ENDIF
 
       IF (p_is_worker .and. numucat > 0) THEN
@@ -2927,9 +2927,9 @@ CONTAINS
             trc_conc_units = 'R'
             trc_flux_units = 'R*m3/s'
          ELSE
-            trc_mass_units = 'tracer'
+            trc_mass_units = 'material'
             trc_conc_units = tracer_concentration_units(itrc)
-            trc_flux_units = 'tracer/s'
+            trc_flux_units = 'material/s'
          ENDIF
 
          IF (p_is_worker .and. numucat > 0) THEN

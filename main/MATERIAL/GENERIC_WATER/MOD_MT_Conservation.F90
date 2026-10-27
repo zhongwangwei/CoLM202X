@@ -944,7 +944,7 @@ CONTAINS
       ENDIF
 
       IF (print_me .and. nbad_total > DEF_MT_BALANCE_ABORT_NBAD) THEN
-         CALL CoLM_stop ('TRC_BAL hard failure: tracer balance error exceeds aggregate threshold')
+         CALL CoLM_stop ('TRC_BAL hard failure: material balance error exceeds aggregate threshold')
       ENDIF
 
       balance_worst_err    = 0._r8

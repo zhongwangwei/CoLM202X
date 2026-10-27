@@ -158,7 +158,7 @@ CONTAINS
             IF (forcing_dtime(k) <= 0) THEN
                IF (p_is_master) THEN
                   write(*,'(A,I0,A,A,A,I0,A)') 'ERROR tracer_forcing_input_load: forcing_dtime(', k, &
-                     ') for tracer "', trim(tracers(itrc)%name), '" must be > 0, got ', forcing_dtime(k), '.'
+                     ') for material "', trim(tracers(itrc)%name), '" must be > 0, got ', forcing_dtime(k), '.'
                ENDIF
                CALL CoLM_stop()
             ENDIF
@@ -167,7 +167,7 @@ CONTAINS
             CASE ('linear', 'nearest')
             CASE DEFAULT
                IF (p_is_master) WRITE(*,'(A,I0,5A)') &
-                  'ERROR tracer_forcing_input_load: forcing_tintalgo(', k, ') for tracer "', &
+                  'ERROR tracer_forcing_input_load: forcing_tintalgo(', k, ') for material "', &
                   trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_tintalgo(k)), '".'
                CALL CoLM_stop()
             END SELECT
@@ -178,7 +178,7 @@ CONTAINS
                   'normalized_over_total', 'normalized_ratio', 'isogsm', 'standard_over_total')
             CASE DEFAULT
                IF (p_is_master) WRITE(*,'(A,I0,5A)') &
-                  'ERROR tracer_forcing_input_load: forcing_input_mode(', k, ') for tracer "', &
+                  'ERROR tracer_forcing_input_load: forcing_input_mode(', k, ') for material "', &
                   trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_input_mode(k)), '".'
                CALL CoLM_stop()
             END SELECT
@@ -187,7 +187,7 @@ CONTAINS
                role_hint = tracer_forcing_role_hint (itrc, forcing_role(k))
                IF (p_is_master) THEN
                   WRITE(*,'(A,I0,5A)') &
-                     'ERROR tracer_forcing_input_load: forcing_role(', k, ') for tracer "', &
+                     'ERROR tracer_forcing_input_load: forcing_role(', k, ') for material "', &
                      trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_role(k)), '".'
                   IF (len_trim(role_hint) > 0) THEN
                      ! Accepting it and reading nothing is what this replaces.
@@ -209,7 +209,7 @@ CONTAINS
                   IF (p_is_master) THEN
                      WRITE(*,'(A,I0,A,I0,4A)') &
                         'ERROR tracer_forcing_input_load: forcing_role(', kdup, ') and (', k, &
-                        ') for tracer "', trim(tracers(itrc)%name), '" are both "', &
+                        ') for material "', trim(tracers(itrc)%name), '" are both "', &
                         trim(forcing_role(k))//'".'
                      WRITE(*,'(A)') '       only the first would ever be read; each role may appear once.'
                   ENDIF
@@ -227,7 +227,7 @@ CONTAINS
          ENDDO
 
          IF (p_is_master) write(*,'(A,I0,A,A,A,I0,A)') &
-            ' [tracer-forcing] tracer ', itrc, ' (', trim(tracers(itrc)%name), '): ', nf, ' forcing input(s)'
+            ' [material-forcing] material ', itrc, ' (', trim(tracers(itrc)%name), '): ', nf, ' forcing input(s)'
       ENDDO
    CONTAINS
 
@@ -325,7 +325,7 @@ CONTAINS
 
       SELECT CASE (trim(role))
       CASE ('inundation')
-         hint = 'inundated fraction is read from DEF_file_GIEMS, not from tracer forcing'
+         hint = 'inundated fraction is read from DEF_file_GIEMS, not from material forcing'
       CASE ('atm')
          hint = 'atmospheric CH4 comes from DEF_METHANE%atm_methane or its transient table'
       CASE ('erosion_yield')

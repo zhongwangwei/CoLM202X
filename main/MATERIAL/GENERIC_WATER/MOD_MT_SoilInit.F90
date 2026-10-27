@@ -60,7 +60,7 @@ CONTAINS
       IF (p_is_master) THEN
          inquire(file=trim(soil_file), exist=file_ok)
          IF (.not. file_ok) THEN
-            WRITE(*,'(2A)') 'WARNING tracer soil init file not found: ', trim(soil_file)
+            WRITE(*,'(2A)') 'WARNING material soil init file not found: ', trim(soil_file)
          ENDIF
       ENDIF
 #ifdef USEMPI
@@ -72,7 +72,7 @@ CONTAINS
       IF (p_is_master) THEN
          has_soildepth = ncio_var_exist(trim(soil_file), 'soildepth', readflag=.false.)
          IF (.not. has_soildepth) THEN
-            WRITE(*,'(2A)') 'WARNING tracer soil init missing soildepth: ', trim(soil_file)
+            WRITE(*,'(2A)') 'WARNING material soil init missing soildepth: ', trim(soil_file)
          ENDIF
       ENDIF
 #ifdef USEMPI
@@ -100,7 +100,7 @@ CONTAINS
       CALL msoil2p%build_arealweighted(gsoil, landpatch)
 
       IF (p_is_master) THEN
-         WRITE(*,'(A,I0,2A)') 'Use tracer soil isotope initial field for month ', &
+         WRITE(*,'(A,I0,2A)') 'Use material soil isotope initial field for month ', &
             month, ' from ', trim(soil_file)
       ENDIF
 
@@ -109,7 +109,7 @@ CONTAINS
          CALL tracer_soil_init_varname(itrc, varname)
          IF (.not. tracer_is_isotope(itrc)) THEN
             IF (len_trim(varname) > 0 .and. trim(varname) /= 'null' .and. p_is_master) THEN
-               WRITE(*,'(A,I0,3A)') 'WARNING tracer soil init ignores non-isotope tracer ', &
+               WRITE(*,'(A,I0,3A)') 'WARNING material soil init ignores non-isotope material ', &
                   itrc, ' variable ', trim(varname), '.'
             ENDIF
             CYCLE
@@ -120,7 +120,7 @@ CONTAINS
          IF (p_is_master) THEN
             has_var = ncio_var_exist(trim(soil_file), trim(varname), readflag=.false.)
             IF (.not. has_var) THEN
-               WRITE(*,'(4A)') 'WARNING tracer soil init missing ', trim(varname), &
+               WRITE(*,'(4A)') 'WARNING material soil init missing ', trim(varname), &
                   ' in ', trim(soil_file)
             ENDIF
          ENDIF

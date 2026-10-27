@@ -569,7 +569,7 @@ CONTAINS
          ENDIF
       ENDDO
       IF (matches > 1) &
-         CALL CoLM_stop('MOD_MT_Defs: tracer name/aliases match multiple configured tracers')
+         CALL CoLM_stop('MOD_MT_Defs: material name/aliases match multiple configured materials')
    END FUNCTION tracer_index_for_name
 
    logical FUNCTION tracer_name_matches (candidate, name, aliases)
@@ -767,7 +767,7 @@ CONTAINS
       CASE (FAMILY_ISOTOPE, FAMILY_SOLUTE, FAMILY_PARTICLE, FAMILY_GAS)
          CONTINUE
       CASE DEFAULT
-         CALL tracer_descriptor_error(itrc, 'family_id', 'unsupported tracer family')
+         CALL tracer_descriptor_error(itrc, 'family_id', 'unsupported material family')
       END SELECT
       IF (tracers(itrc)%state_owner /= STATE_OWNER_GENERIC_WATER .and. &
           tracers(itrc)%state_owner /= STATE_OWNER_PROVIDER) THEN
@@ -839,31 +839,31 @@ CONTAINS
          CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', 'must be positive')
       ENDIF
       IF (tracer_is_isotope(itrc) .and. trim(tracers(itrc)%unit_kind) /= 'ratio') THEN
-         CALL tracer_descriptor_error(itrc, 'unit_kind', 'isotope tracers require ratio')
+         CALL tracer_descriptor_error(itrc, 'unit_kind', 'isotope materials require ratio')
       ENDIF
       IF (tracers(itrc)%charge /= 0 .and. .not. tracer_is_solute(itrc)) THEN
          CALL tracer_descriptor_error(itrc, 'charge', &
-            'non-zero ionic charge is valid only for solute tracers')
+            'non-zero ionic charge is valid only for solute materials')
       ENDIF
       IF ((tracer_is_isotope(itrc) .or. tracer_is_solute(itrc)) .and. &
           tracers(itrc)%state_owner /= STATE_OWNER_GENERIC_WATER) THEN
          CALL tracer_descriptor_error(itrc, 'state_owner', &
-            'isotope and solute tracers require generic land-water transport')
+            'isotope and solute materials require generic land-water transport')
       ENDIF
       IF ((tracer_is_particle(itrc) .or. tracer_is_gas(itrc)) .and. &
           tracers(itrc)%state_owner /= STATE_OWNER_PROVIDER) THEN
          CALL tracer_descriptor_error(itrc, 'state_owner', &
-            'particle and gas tracers require provider-owned state')
+            'particle and gas materials require provider-owned state')
       ENDIF
       IF (tracers(itrc)%max_dissolved_conc < huge(1.0_r8) .and. &
           .not. tracer_is_solute(itrc)) THEN
          CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', &
-            'is valid only for solute tracers')
+            'is valid only for solute materials')
       ENDIF
       IF (tracers(itrc)%decay_rate > 0._r8 .and. &
           .not. tracer_is_solute(itrc)) THEN
          CALL tracer_descriptor_error(itrc, 'decay_rate', &
-            'first-order decay is supported only by solute tracers')
+            'first-order decay is supported only by solute materials')
       ENDIF
 
       IF (tracers(itrc)%state_owner == STATE_OWNER_PROVIDER .and. &
@@ -890,7 +890,7 @@ CONTAINS
          character(len=*), intent(in) :: field_name, reason
 
          IF (p_is_master) THEN
-            write(*,'(5A)') 'ERROR tracer_defs_init: tracer "', trim(tracers(itrc_local)%name), &
+            write(*,'(5A)') 'ERROR tracer_defs_init: material "', trim(tracers(itrc_local)%name), &
                '" field ', trim(field_name), ': '//trim(reason)
          ENDIF
          CALL CoLM_stop()
@@ -1015,7 +1015,7 @@ CONTAINS
       integer, intent(in) :: itrc
       character(len=32) :: units
 
-      units = 'tracer/water'
+      units = 'material/water'
       IF (.not. allocated(tracers)) RETURN
       IF (itrc < 1 .or. itrc > ntracers) RETURN
 
@@ -1029,7 +1029,7 @@ CONTAINS
       CASE ('species_owned')
          units = 'species-owned'
       CASE DEFAULT
-         units = 'tracer/water'
+         units = 'material/water'
       END SELECT
    END FUNCTION tracer_concentration_units
 

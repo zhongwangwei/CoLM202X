@@ -61,7 +61,7 @@ CONTAINS
             trc_aquifer_ref_mass(itrc, ipatch))) RETURN
       WRITE(*,'(2A,2(A,I0),2(A,ES16.8))') &
          'Unresolved isotope aquifer debt at ', trim(stage), &
-         ' tracer=', itrc, ' patch=', ipatch, ' water=', water_mass, ' isotope=', isotope_mass
+         ' material=', itrc, ' patch=', ipatch, ' water=', water_mass, ' isotope=', isotope_mass
       CALL CoLM_stop('isotope aquifer debt has no physical water carrier')
    END SUBROUTINE check_isotope_aquifer
 
@@ -381,7 +381,7 @@ CONTAINS
          resolved_rsub = sum(rsub_source_layer) + rsub_source_surface + rsub_source_aquifer > trc_tiny
       ENDIF
       IF (flood_water > 0._r8 .and. .not. present(flood_tracer_input)) &
-         CALL CoLM_stop('grid flood tracer: water input has no tracer composition')
+         CALL CoLM_stop('grid flood material: water input has no material composition')
       IF (.not. ieee_is_finite(qcharge_eff) .or. &
           abs(qcharge_eff) > 0.5_r8 * abs(spval)) qcharge_eff = 0._r8
 
@@ -1370,7 +1370,7 @@ CONTAINS
                   trc_surface_residue(itrc,ipatch) = trc_surface_residue(itrc,ipatch) + max(late_tracer,0._r8)
                ELSEIF (late_tracer > max(trc_tiny, 1.e-10_r8*late_scale, trc_water_min_for_ratio * &
                        tracers(itrc)%ref_ratio*(1._r8 + trc_delta_sanity_max/1000._r8))) THEN
-                  CALL CoLM_stop('grid flood tracer: unresolved dry isotope surface pool')
+                  CALL CoLM_stop('grid flood material: unresolved dry isotope surface pool')
                ELSEIF (late_tracer > 0._r8 .and. allocated(trc_numerical_residual_step)) THEN
                   trc_numerical_residual_step(itrc, ipatch) = &
                      trc_numerical_residual_step(itrc, ipatch) - late_tracer

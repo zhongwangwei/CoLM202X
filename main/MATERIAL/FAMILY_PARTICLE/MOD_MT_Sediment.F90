@@ -1868,7 +1868,7 @@ CONTAINS
       allocate(sDiam(nsed))
       IF (allocated(sDiam_from_param)) THEN
          sDiam(:) = sDiam_from_param(:)
-         IF (p_is_io) WRITE(*,*) 'Grain diameters (m) from sediment tracer parameter file:', sDiam
+         IF (p_is_io) WRITE(*,*) 'Grain diameters (m) from sediment material parameter file:', sDiam
          RETURN
       ENDIF
       str = trim(adjustl(SED_DEFAULT_DIAMETER))

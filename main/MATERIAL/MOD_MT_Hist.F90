@@ -284,7 +284,7 @@ CONTAINS
                      write(trc_varname , '(A,A)') 'f_mt_delta_precip_', trim(tracers(itrc_loc)%name)
                      ! a_water_precip also books dew/frost deposition (MOD_MT_Evapo,
                      ! MOD_MT_SoilWater), so say so in the name.
-                     write(trc_longname, '(A,A,A)') 'precipitation plus dew/frost deposition tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'precipitation plus dew/frost deposition material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_delta_2d (DEF_hist_vars%xy_prc .or. DEF_hist_vars%xy_prl, &
                         a_trc_precip(itrc_loc, :), a_water_precip(itrc_loc, :), &
@@ -293,7 +293,7 @@ CONTAINS
                         water_min_override = trc_flux_water_min_for_delta)
 
                      write(trc_varname , '(A,A)') 'f_mt_delta_runoff_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'total runoff tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'total runoff material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_delta_2d (DEF_hist_vars%rnof, &
                         a_trc_rnof(itrc_loc, :), a_water_rnof(itrc_loc, :), &
@@ -311,7 +311,7 @@ CONTAINS
                      ! mass_to_delta(sum(mass), sum(water)) invariant
                      ! documented in MOD_MT_Defs.F90.
                      write(trc_varname , '(A,A)')   'f_mt_delta_evap_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'evapotranspiration tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'evapotranspiration material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
                            a_trc_evap(itrc_loc, :), a_water_evap_gross(itrc_loc, :), &
@@ -320,14 +320,14 @@ CONTAINS
                            water_min_override = trc_flux_water_min_for_delta)
 
                      write(trc_varname , '(A,A)')   'f_mt_evap_mass_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'signed evapotranspiration tracer mass (', &
+                     write(trc_longname, '(A,A,A)') 'signed evapotranspiration material mass (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
                         a_trc_evap(itrc_loc, :), file_hist, trim(trc_varname), &
-                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
 
                      write(trc_varname , '(A,A)')   'f_mt_delta_soilevap_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'soil/surface evaporation tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'soil/surface evaporation material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
                            a_trc_soilevap(itrc_loc, :), a_water_soilevap(itrc_loc, :), &
@@ -336,7 +336,7 @@ CONTAINS
                            water_min_override = trc_flux_water_min_for_delta)
 
                      write(trc_varname , '(A,A)')   'f_mt_delta_canopyevap_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'canopy evaporation tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'canopy evaporation material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
                            a_trc_canopyevap(itrc_loc, :), a_water_canopyevap(itrc_loc, :), &
@@ -345,7 +345,7 @@ CONTAINS
                            water_min_override = trc_flux_water_min_for_delta)
 
                      write(trc_varname , '(A,A)')   'f_mt_delta_subl_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'sublimation tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'sublimation material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
                            a_trc_subl(itrc_loc, :), a_water_subl(itrc_loc, :), &
@@ -354,7 +354,7 @@ CONTAINS
                            water_min_override = trc_flux_water_min_for_delta)
 
                      write(trc_varname , '(A,A)')   'f_mt_delta_wetland_evap_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'wetland evaporation/sublimation tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'wetland evaporation/sublimation material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%fevpa, &
                            a_trc_wetland_evap(itrc_loc, :), a_water_wetland_evap(itrc_loc, :), &
@@ -366,7 +366,7 @@ CONTAINS
                      ! write_history_tracer_delta_2d does sum-then-divide on
                      ! the grid; no per-patch delta needed here.
                      write(trc_varname , '(A,A)')   'f_mt_delta_transp_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'transpiration tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'transpiration material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
                            a_trc_transp(itrc_loc, :), a_water_transp(itrc_loc, :), &
@@ -376,7 +376,7 @@ CONTAINS
 
                      ! --- Transpiration source/xylem delta before NSS storage exchange ---
                      write(trc_varname , '(A,A)')   'f_mt_delta_transp_src_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'transpiration source/xylem tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'transpiration source/xylem material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                         CALL write_history_tracer_delta_2d (DEF_hist_vars%etr, &
                            a_trc_transp_src(itrc_loc, :), a_water_transp(itrc_loc, :), &
@@ -457,11 +457,11 @@ CONTAINS
                      ! nonvolatile solute: dew-only periods read 0, not missing.
                      IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
                         write(trc_longname, '(A,A,A)') &
-                           'precipitation plus dew/frost deposition tracer concentration, dew/frost adding water only (', &
+                           'precipitation plus dew/frost deposition material concentration, dew/frost adding water only (', &
                            trim(tracers(itrc_loc)%name), ')'
                      ELSE
                         write(trc_longname, '(A,A,A)') &
-                           'precipitation plus dew/frost deposition tracer concentration (', &
+                           'precipitation plus dew/frost deposition material concentration (', &
                            trim(tracers(itrc_loc)%name), ')'
                      ENDIF
                      CALL write_history_tracer_ratio_2d (DEF_hist_vars%xy_prc .or. DEF_hist_vars%xy_prl, &
@@ -470,7 +470,7 @@ CONTAINS
                         trim(trc_longname), trim(trc_ratio_units))
 
                      write(trc_varname , '(A,A)') 'f_mt_conc_runoff_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'total runoff tracer concentration (', &
+                     write(trc_longname, '(A,A,A)') 'total runoff material concentration (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_ratio_2d (DEF_hist_vars%rnof, &
                         a_trc_rnof(itrc_loc, :), a_water_rnof(itrc_loc, :), &
@@ -492,7 +492,7 @@ CONTAINS
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%fevpa, &
                         a_trc_vapor_exchange(itrc_loc, :), file_hist, trim(trc_varname), &
-                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
                   ENDIF
 
                   ! Waterless residue is an areal tracer inventory, not a
@@ -500,37 +500,37 @@ CONTAINS
                   ! history switch until history namelist gains a dedicated key.
                   IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
                      write(trc_varname , '(A,A)') 'f_mt_surface_residue_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'immobile surface tracer residue (', &
+                     write(trc_longname, '(A,A,A)') 'immobile surface material residue (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wdsrf, &
                         a_trc_surface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
-                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
 
                      write(trc_varname , '(A,A)') 'f_mt_subsurface_residue_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'immobile subsurface tracer residue (', &
+                     write(trc_longname, '(A,A,A)') 'immobile subsurface material residue (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wa, &
                         a_trc_subsurface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
-                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
 
                      write(trc_varname , '(A,A)') 'f_mt_layer_dry_inventory_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'dry snow/soil layer tracer inventory (', &
+                     write(trc_longname, '(A,A,A)') 'dry snow/soil layer material inventory (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
                         a_trc_layer_dry_mass(itrc_loc, :), file_hist, trim(trc_varname), &
-                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
 
                      write(trc_varname , '(A,A)') 'f_mt_solid_inventory_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'precipitated solid tracer inventory (', &
+                     write(trc_longname, '(A,A,A)') 'precipitated solid material inventory (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_variable_2d (DEF_hist_vars%wliq_soisno, &
                         a_trc_solid_mass(itrc_loc, :), file_hist, trim(trc_varname), &
-                        itime_in_file, sumarea, filter, trim(trc_longname), 'tracer amount/m2')
+                        itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
                   ENDIF
 
                   ! --- Canopy ratio ---
                   write(trc_varname , '(A,A)')   'f_mt_conc_ldew_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'canopy tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'canopy material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%ldew, &
                      a_trc_ldew_mass(itrc_loc, :), a_water_ldew, &
@@ -565,7 +565,7 @@ CONTAINS
                      ENDDO
                   ENDIF
                   write(trc_varname , '(A,A)')   'f_mt_conc_soisno_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'soil/snow layer tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'soil/snow layer material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_3d (DEF_hist_vars%wliq_soisno, &
                      trc_mass_soisno, water_soisno, file_hist, trim(trc_varname), itime_in_file, &
@@ -593,7 +593,7 @@ CONTAINS
                   ENDIF
 
                   write(trc_varname , '(A,A)')   'f_mt_conc_snowpack_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'total snowpack tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'total snowpack material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%scv, &
                      snowpack_mass_pat, snowpack_water_pat, &
@@ -602,7 +602,7 @@ CONTAINS
 
                   IF (tracer_uses_delta_diagnostics(itrc_loc)) THEN
                      write(trc_varname , '(A,A)')   'f_mt_delta_snowpack_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(A,A,A)') 'total snowpack tracer delta (', &
+                     write(trc_longname, '(A,A,A)') 'total snowpack material delta (', &
                         trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_delta_2d (DEF_hist_vars%scv, &
                         snowpack_mass_pat, snowpack_water_pat, &
@@ -614,7 +614,7 @@ CONTAINS
                   ! wa can be negative during wetland aquifer-debt episodes;
                   ! the mt_wetland redistribution keeps signed arithmetic.
                   write(trc_varname , '(A,A)')   'f_mt_conc_wa_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'aquifer tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'aquifer material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                      IF (tracer_is_isotope(itrc_loc)) THEN
                         CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
@@ -629,7 +629,7 @@ CONTAINS
                      ENDIF
 
                      write(trc_varname , '(A,A)')   'f_mt_conc_wa_debt_', trim(tracers(itrc_loc)%name)
-                     write(trc_longname, '(5A)') 'aquifer debt tracer ', trim(trc_ratio_word), &
+                     write(trc_longname, '(5A)') 'aquifer debt material ', trim(trc_ratio_word), &
                         ' (', trim(tracers(itrc_loc)%name), ')'
                      CALL write_history_tracer_ratio_2d (DEF_hist_vars%wa, &
                         a_trc_wa_debt_mass(itrc_loc, :), a_water_wa_debt, &
@@ -638,7 +638,7 @@ CONTAINS
 
                   ! --- Surface water (wdsrf) ratio ---
                   write(trc_varname , '(A,A)')   'f_mt_conc_wdsrf_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'surface water tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'surface water material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%wdsrf, &
                      a_trc_wdsrf_mass(itrc_loc, :), a_water_wdsrf, &
@@ -647,7 +647,7 @@ CONTAINS
 
                   ! --- Wetland pool (wetwat) ratio ---
                   write(trc_varname , '(A,A)')   'f_mt_conc_wetwat_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'wetland pool tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'wetland pool material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   IF (p_is_worker) THEN
                      IF (numpatch > 0) THEN
@@ -679,7 +679,7 @@ CONTAINS
                   ! therefore filters out snl<0 states so this ratio cannot
                   ! divide thin-snow tracer by total layered-snow SWE.
                   write(trc_varname , '(A,A)')   'f_mt_conc_scv_', trim(tracers(itrc_loc)%name)
-                  write(trc_longname, '(5A)') 'thin-snow (scv) tracer ', trim(trc_ratio_word), &
+                  write(trc_longname, '(5A)') 'thin-snow (scv) material ', trim(trc_ratio_word), &
                      ' (', trim(tracers(itrc_loc)%name), ')'
                   CALL write_history_tracer_ratio_2d (DEF_hist_vars%scv, &
                      a_trc_scv_mass(itrc_loc, :), a_water_scv, &

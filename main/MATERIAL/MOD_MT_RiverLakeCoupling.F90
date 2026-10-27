@@ -636,12 +636,12 @@ CONTAINS
       IF (p_is_master) THEN
          DO itrc = 1, ntracers
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass before  : ', trc_mass_bef(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass input   : ', trc_mass_inp(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass discharge: ', trc_mass_dis(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass decay   : ', trc_mass_decay(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass after   : ', trc_mass_aft(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Tracer(', itrc, ') mass balance : ', &
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass before  : ', trc_mass_bef(itrc), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass input   : ', trc_mass_inp(itrc), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass discharge: ', trc_mass_dis(itrc), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass decay   : ', trc_mass_decay(itrc), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass after   : ', trc_mass_aft(itrc), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass balance : ', &
                trc_mass_aft(itrc) - trc_mass_bef(itrc) - trc_mass_inp(itrc) + trc_mass_dis(itrc) &
                - trc_mass_decay(itrc), ' R*m3'
          ENDDO
@@ -664,7 +664,7 @@ CONTAINS
          IF (p_iam_worker == p_root) THEN
             IF (lim_calls > 0 .and. (lim_diag_printed < 5 .or. lim_over_soft > 0)) THEN
                IF (lim_diag_printed < 5) lim_diag_printed = lim_diag_printed + 1
-               write(*,'(A,I0,A,F9.3,A,I0,A,I0)') 'River tracer donor limiter: calls=', lim_calls, &
+               write(*,'(A,I0,A,F9.3,A,I0,A,I0)') 'River material donor limiter: calls=', lim_calls, &
                   ' mean iter=', real(lim_iter_sum, r8) / real(lim_calls, r8), &
                   ' peak=', lim_iter_peak, ' over_soft=', lim_over_soft
             ENDIF
@@ -966,7 +966,7 @@ CONTAINS
             vapor_gain = max(-vapor_loss,0._r8)
             ledger_tol = max(1.e-12_r8, 1.e-10_r8*abs(tracer_credit))
             IF (positive_loss > tracer_credit+ledger_tol) &
-               CALL CoLM_stop('grid flood feedback: isotope evaporation overdrew tracer')
+               CALL CoLM_stop('grid flood feedback: isotope evaporation overdrew material')
             evaporated_fraction = 0._r8
             IF (tracer_credit > 0._r8) evaporated_fraction = min(1._r8,positive_loss/tracer_credit)
             infiltrated_fraction = 0._r8
@@ -979,7 +979,7 @@ CONTAINS
                ENDIF
             ENDIF
             IF (infiltrated_fraction > 1._r8+1.e-10_r8) &
-               CALL CoLM_stop('grid flood feedback: tracer infiltration overdraft')
+               CALL CoLM_stop('grid flood feedback: material infiltration overdraft')
             infiltrated_fraction = min(1._r8,max(0._r8,infiltrated_fraction))
             ratio_patch(i) = evaporated_fraction + (1._r8-evaporated_fraction)*infiltrated_fraction
             IF (mt_has_dissolved_limit(itrc) .and. tracer_credit > 0._r8) &
@@ -995,7 +995,7 @@ CONTAINS
                IF (abs(flood_tracer_land_patch(itrc,i) - &
                    (tracer_credit-vapor_loss)*infiltrated_fraction) > &
                    max(1.e-12_r8,1.e-10_r8*max(abs(tracer_credit),abs(flood_tracer_land_patch(itrc,i))))) &
-                  CALL CoLM_stop('grid flood feedback: land tracer input differs from donor exchange')
+                  CALL CoLM_stop('grid flood feedback: land material input differs from donor exchange')
             ENDIF
             tracer_exchange_ledger(1,itrc) = tracer_exchange_ledger(1,itrc) + &
                flood_tracer_land_patch(itrc,i)*patch_area
@@ -1039,14 +1039,14 @@ CONTAINS
             tracer_after = trc_mass(itrc,j) - coefficient_uc(j)*flood_visible_tracer_uc(itrc,j) &
                + gain_uc(j)*flood_visible_uc(j)
             IF (tracer_after < -1.e-10_r8*max(1._r8,trc_mass(itrc,j))) &
-               CALL CoLM_stop('grid flood feedback: negative visible tracer')
+               CALL CoLM_stop('grid flood feedback: negative visible material')
             tracer_cell_debit = coefficient_uc(j)*flood_visible_tracer_uc(itrc,j) &
                - gain_uc(j)*flood_visible_uc(j) + min(tracer_after,0._r8)
             trc_mass(itrc,j) = max(0._r8,tracer_after)
             tracer_after = trc_levsto(itrc,j) - coefficient_uc(j)*flood_protected_tracer_uc(itrc,j) &
                + gain_uc(j)*flood_protected_uc(j)
             IF (tracer_after < -1.e-10_r8*max(1._r8,trc_levsto(itrc,j))) &
-               CALL CoLM_stop('grid flood feedback: negative protected tracer')
+               CALL CoLM_stop('grid flood feedback: negative protected material')
             tracer_cell_debit = tracer_cell_debit + coefficient_uc(j)*flood_protected_tracer_uc(itrc,j) &
                - gain_uc(j)*flood_protected_uc(j) + min(tracer_after,0._r8)
             trc_levsto(itrc,j) = max(0._r8,tracer_after)
@@ -1063,10 +1063,10 @@ CONTAINS
          ledger_tol = max(1.e-8_r8, 1.e-10_r8*maxval(abs(tracer_exchange_ledger(:,itrc))))
          IF (abs(tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc) - &
                 tracer_exchange_ledger(3,itrc)) > ledger_tol) &
-            CALL CoLM_stop('grid flood feedback: land/river tracer exchange ledger mismatch')
+            CALL CoLM_stop('grid flood feedback: land/river material exchange ledger mismatch')
          IF (p_iam_worker == p_root .and. flood_tracer_ledger_reports < 5 .and. &
              tracer_exchange_ledger(1,itrc) > 0._r8) THEN
-            write(*,'(A,I0,4(1X,ES16.8))') 'Grid flood tracer land/vapor/donor/residual:', itrc, &
+            write(*,'(A,I0,4(1X,ES16.8))') 'Grid flood material land/vapor/donor/residual:', itrc, &
                tracer_exchange_ledger(1,itrc), tracer_exchange_ledger(2,itrc), &
                tracer_exchange_ledger(3,itrc), &
                tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc)-tracer_exchange_ledger(3,itrc)

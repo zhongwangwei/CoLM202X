@@ -417,11 +417,11 @@ CONTAINS
 #endif
 
       IF (counts(7) > 0) &
-         CALL CoLM_stop('aquifer reference calibration differs from tracer restart')
+         CALL CoLM_stop('aquifer reference calibration differs from material restart')
       IF (generation_mismatch .or. counts(5) > 0 .or. &
           (counts(2) > 0 .and. counts(2) < counts(1)) .or. &
           (counts(3) > 0 .and. counts(4) > 0)) THEN
-         CALL CoLM_stop('malformed/incomplete generic land tracer restart transaction')
+         CALL CoLM_stop('malformed/incomplete generic land material restart transaction')
       ENDIF
 
       ! A complete but different schema/descriptor is a coherent checkpoint
@@ -529,7 +529,7 @@ CONTAINS
       CALL ncio_read_vector(file_restart, varname, ntransport, landpatch, packed)
       IF (p_is_worker) THEN
          IF (landpatch%nset > 0 .and. .not. allocated(target)) &
-            CALL CoLM_stop('generic land tracer restart target is not allocated')
+            CALL CoLM_stop('generic land material restart target is not allocated')
          IF (allocated(target)) THEN
             target = 0._r8
             k = 0
@@ -556,7 +556,7 @@ CONTAINS
       CALL ncio_read_vector(file_restart, varname, ntransport, nlayers, landpatch, packed)
       IF (p_is_worker) THEN
          IF (landpatch%nset > 0 .and. .not. allocated(target)) &
-            CALL CoLM_stop('generic layered land tracer restart target is not allocated')
+            CALL CoLM_stop('generic layered land material restart target is not allocated')
          IF (allocated(target)) THEN
             target = 0._r8
             k = 0
@@ -796,9 +796,9 @@ CONTAINS
 
       IF (any(invalid_counts > 0)) THEN
          IF (p_is_master) WRITE(*,'(A,7(I0,1X))') &
-            'ERROR generic land tracer restart state counts '// &
+            'ERROR generic land material restart state counts '// &
             '[amount_nan amount_neg signed_nan peclet_range missing_state aquifer_state reference]: ', invalid_counts
-         CALL CoLM_stop('invalid generic land tracer restart state')
+         CALL CoLM_stop('invalid generic land material restart state')
       ENDIF
 
       ! Only canonicalize the tiny negative dust admitted above.  Signed debt
@@ -984,9 +984,9 @@ CONTAINS
             ENDDO
          ENDIF
          IF (active_isotope .and. state_present) &
-            CALL CoLM_stop('old/incompatible isotope tracer restart: explicit fresh tracer initialization required')
+            CALL CoLM_stop('old/incompatible isotope material restart: explicit fresh material initialization required')
          IF (p_is_master) WRITE(*,'(3A)') &
-            'Generic land tracer restart is legacy/incompatible in ', &
+            'Generic land material restart is legacy/incompatible in ', &
             TRIM(file_restart), '; using whole-domain cold start.'
          RETURN
       ENDIF
@@ -1048,7 +1048,7 @@ CONTAINS
       field_matches = tracer_dim_matches(file_restart, 'mt_leaf_iso_storage')
       restart_complete = restart_complete .and. field_matches
       IF (.not. restart_complete) &
-         CALL CoLM_stop('incomplete or malformed committed generic land tracer restart')
+         CALL CoLM_stop('incomplete or malformed committed generic land material restart')
 
       CALL read_transport_patch_field(file_restart, 'mt_ldew_rain', trc_ldew_rain)
       CALL read_transport_patch_field(file_restart, 'mt_ldew_snow', trc_ldew_snow)

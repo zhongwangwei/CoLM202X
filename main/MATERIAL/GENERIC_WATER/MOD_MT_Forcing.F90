@@ -133,8 +133,8 @@ CONTAINS
       IF (.not. trc_runtime_forcing_enabled) RETURN
       IF (trim(DEF_forcing%dataset) == 'POINT') THEN
          IF (p_is_master) THEN
-            WRITE(*,'(A)') 'ERROR tracer runtime forcing does not support DEF_forcing%dataset=POINT.'
-            WRITE(*,'(A)') '      Disable tracer forcing variables or use gridded forcing for tracer fields.'
+            WRITE(*,'(A)') 'ERROR material runtime forcing does not support DEF_forcing%dataset=POINT.'
+            WRITE(*,'(A)') '      Disable material forcing variables or use gridded forcing for material fields.'
          ENDIF
          CALL CoLM_stop()
       ENDIF
@@ -145,7 +145,7 @@ CONTAINS
       ELSEIF (trim(DEF_Forcing_Interp_Method) == 'bilinear') THEN
          CALL trc_mg2p_forc%build_bilinear(trc_gforc, landpatch)
       ELSE
-         IF (p_is_master) WRITE(*,'(2A)') 'ERROR tracer forcing unsupported interp method: ', &
+         IF (p_is_master) WRITE(*,'(2A)') 'ERROR material forcing unsupported interp method: ', &
             trim(DEF_Forcing_Interp_Method)
          CALL CoLM_stop()
       ENDIF
@@ -166,7 +166,7 @@ CONTAINS
       trc_forc_patch(:,:) = 0._r8
 
       IF (p_is_master) THEN
-         WRITE(*,'(A,I0,A)') 'Tracer runtime forcing enabled: ', n_trc_forc_vars, &
+         WRITE(*,'(A,I0,A)') 'Material runtime forcing enabled: ', n_trc_forc_vars, &
             ' variable(s) from main forcing namelist.'
       ENDIF
    END SUBROUTINE mt_forcing_init
@@ -227,12 +227,12 @@ CONTAINS
    SUBROUTINE mt_forcing_lulcc_save ()
       IF (.not. p_is_worker .or. .not. trc_runtime_forcing_enabled) RETURN
       IF (.not. allocated(trc_forc_precip_value) .or. allocated(lulcc_precip_old)) &
-         CALL CoLM_stop('tracer forcing LULCC snapshot is unavailable or already active')
+         CALL CoLM_stop('material forcing LULCC snapshot is unavailable or already active')
       IF (size(trc_forc_precip_value,2) == 0) RETURN
       IF (.not. allocated(elm_patch%subfrc)) &
-         CALL CoLM_stop('tracer forcing LULCC requires old element-patch area fractions')
+         CALL CoLM_stop('material forcing LULCC requires old element-patch area fractions')
       IF (size(elm_patch%subfrc) /= size(trc_forc_precip_value,2)) &
-         CALL CoLM_stop('tracer forcing LULCC old element-patch area shape mismatch')
+         CALL CoLM_stop('material forcing LULCC old element-patch area shape mismatch')
       lulcc_old_patch_area = elm_patch%subfrc
       CALL move_alloc(trc_forc_precip_value, lulcc_precip_old)
       CALL move_alloc(trc_forc_vapor_value, lulcc_vapor_old)
@@ -249,7 +249,7 @@ CONTAINS
       integer :: raw, source_class(0:N_land_classification)
 
       IF (.not. p_is_worker .or. .not. allocated(lulcc_precip_old)) RETURN
-      IF (allocated(lulcc_precip_new)) CALL CoLM_stop('tracer forcing LULCC remap repeated')
+      IF (allocated(lulcc_precip_new)) CALL CoLM_stop('material forcing LULCC remap repeated')
       allocate(lulcc_precip_new(ntracers, size(patchclass_new)))
       allocate(lulcc_vapor_new(ntracers, size(patchclass_new)))
       DO itrc = 1, ntracers
@@ -271,7 +271,7 @@ CONTAINS
       CALL tracer_forcing_lulcc_map(lulcc_vapor_old, lulcc_vapor_new, &
          patchclass_new, eindex_new, patchclass_old, eindex_old, ignored, &
          lccpct_patches, lulcc_old_patch_area, source_class)
-      IF (unsupported > 0) WRITE(*,'(A,I0,A)') 'Tracer forcing LULCC: ', unsupported, &
+      IF (unsupported > 0) WRITE(*,'(A,I0,A)') 'Material forcing LULCC: ', unsupported, &
          ' patch(es) have no eligible transfer source; using configured forcing defaults.'
       deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_old_patch_area)
    END SUBROUTINE mt_forcing_lulcc_remap
@@ -280,17 +280,17 @@ CONTAINS
       IF (.not. p_is_worker) RETURN
       IF (allocated(lulcc_precip_old)) THEN
          IF (.not. allocated(trc_forc_precip_value)) &
-            CALL CoLM_stop('tracer forcing LULCC restore precedes forcing init')
+            CALL CoLM_stop('material forcing LULCC restore precedes forcing init')
          IF (size(trc_forc_precip_value,2) > 0) &
-            CALL CoLM_stop('tracer forcing LULCC remap missing for rebuilt patches')
+            CALL CoLM_stop('material forcing LULCC remap missing for rebuilt patches')
          deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_old_patch_area)
       ENDIF
       IF (.not. allocated(lulcc_precip_new)) RETURN
       IF (.not. allocated(trc_forc_precip_value)) &
-         CALL CoLM_stop('tracer forcing LULCC restore precedes forcing init')
+         CALL CoLM_stop('material forcing LULCC restore precedes forcing init')
       IF (any(shape(trc_forc_precip_value) /= shape(lulcc_precip_new)) .or. &
           any(shape(trc_forc_vapor_value) /= shape(lulcc_vapor_new))) &
-         CALL CoLM_stop('tracer forcing LULCC patch/species count changed after remap')
+         CALL CoLM_stop('material forcing LULCC patch/species count changed after remap')
       CALL move_alloc(lulcc_precip_new, trc_forc_precip_value)
       CALL move_alloc(lulcc_vapor_new, trc_forc_vapor_value)
    END SUBROUTINE mt_forcing_lulcc_restore
@@ -312,29 +312,29 @@ CONTAINS
 
       IF (size(old,1) /= size(mapped,1) .or. size(old,2) /= size(patchclass_old) .or. &
           size(old,2) /= size(eindex_old) .or. size(mapped,2) /= size(patchclass_new) .or. &
-          size(mapped,2) /= size(eindex_new)) CALL CoLM_stop('tracer forcing LULCC map shape mismatch')
+          size(mapped,2) /= size(eindex_new)) CALL CoLM_stop('material forcing LULCC map shape mismatch')
       IF (present(lccpct_patches)) THEN
          IF (size(lccpct_patches,1) < size(patchclass_new)) &
-            CALL CoLM_stop('tracer forcing LULCC trace is shorter than new patch map')
+            CALL CoLM_stop('material forcing LULCC trace is shorter than new patch map')
          IF (any(.not. ieee_is_finite(lccpct_patches))) &
-            CALL CoLM_stop('tracer forcing LULCC trace has invalid source fractions')
+            CALL CoLM_stop('material forcing LULCC trace has invalid source fractions')
          IF (any(lccpct_patches < 0._r8)) &
-            CALL CoLM_stop('tracer forcing LULCC trace has invalid source fractions')
+            CALL CoLM_stop('material forcing LULCC trace has invalid source fractions')
       ENDIF
       IF (present(old_patch_area)) THEN
          IF (size(old_patch_area) /= size(patchclass_old)) &
-            CALL CoLM_stop('tracer forcing LULCC old-area shape mismatch')
+            CALL CoLM_stop('material forcing LULCC old-area shape mismatch')
          IF (any(.not. ieee_is_finite(old_patch_area))) &
-            CALL CoLM_stop('tracer forcing LULCC old-area fractions are invalid')
+            CALL CoLM_stop('material forcing LULCC old-area fractions are invalid')
          IF (any(old_patch_area < 0._r8)) &
-            CALL CoLM_stop('tracer forcing LULCC old-area fractions are invalid')
+            CALL CoLM_stop('material forcing LULCC old-area fractions are invalid')
       ENDIF
       IF (present(source_class) .and. present(lccpct_patches)) THEN
          IF (ubound(source_class,1) /= ubound(lccpct_patches,2)) &
-            CALL CoLM_stop('tracer forcing LULCC source-class map shape mismatch')
+            CALL CoLM_stop('material forcing LULCC source-class map shape mismatch')
       ENDIF
       IF (any(.not. ieee_is_finite(old))) &
-         CALL CoLM_stop('tracer forcing LULCC old cache contains non-finite values')
+         CALL CoLM_stop('material forcing LULCC old cache contains non-finite values')
       old_sorted = .true.
       IF (size(eindex_old) > 1) old_sorted = all(eindex_old(2:) >= eindex_old(:size(eindex_old)-1))
       IF (present(lccpct_patches) .and. present(old_patch_area)) THEN
@@ -519,15 +519,15 @@ CONTAINS
 
       IF (ntracers <= 0) RETURN
       IF (n_trc_forc_vars > 0 .and. .not. allocated(trc_forc_precip_value)) &
-         CALL CoLM_stop('tracer forcing cache is not allocated at restart write')
+         CALL CoLM_stop('material forcing cache is not allocated at restart write')
       IF (n_trc_forc_vars > 0 .and. p_is_worker) THEN
          IF (size(trc_forc_precip_value,1) /= ntracers .or. &
              size(trc_forc_precip_value,2) /= landpatch%nset .or. &
              any(shape(trc_forc_vapor_value) /= shape(trc_forc_precip_value))) &
-            CALL CoLM_stop('tracer forcing cache shape mismatch at restart write')
+            CALL CoLM_stop('material forcing cache shape mismatch at restart write')
          IF (any(.not. ieee_is_finite(trc_forc_precip_value)) .or. &
              any(.not. ieee_is_finite(trc_forc_vapor_value))) &
-            CALL CoLM_stop('non-finite tracer forcing cache at restart write')
+            CALL CoLM_stop('non-finite material forcing cache at restart write')
       ENDIF
       IF (p_is_io) THEN
          DO iblkgrp = 1, landpatch%nblkgrp
@@ -668,11 +668,11 @@ CONTAINS
       CALL mpi_allreduce(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
       IF (counts(1) > 0 .and. counts(4) > 0) &
-         CALL CoLM_stop('mixed legacy/current tracer forcing cache blocks')
+         CALL CoLM_stop('mixed legacy/current material forcing cache blocks')
       IF (counts(1) > 0 .and. n_trc_forc_vars > 0) &
-         CALL CoLM_stop('old tracer restart lacks last-valid forcing cache; cannot reconstruct it')
-      IF (counts(2) > 0) CALL CoLM_stop('incomplete or malformed tracer forcing cache restart')
-      IF (counts(3) > 0) CALL CoLM_stop('tracer forcing cache configuration differs from restart')
+         CALL CoLM_stop('old material restart lacks last-valid forcing cache; cannot reconstruct it')
+      IF (counts(2) > 0) CALL CoLM_stop('incomplete or malformed material forcing cache restart')
+      IF (counts(3) > 0) CALL CoLM_stop('material forcing cache configuration differs from restart')
       IF (n_trc_forc_vars <= 0) RETURN
       CALL ncio_read_vector(file_restart, 'mt_forcing_precip_last', ntracers, landpatch, &
          precip)
@@ -704,7 +704,7 @@ CONTAINS
 #ifdef USEMPI
       CALL mpi_allreduce(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
-      IF (counts(2) > 0) CALL CoLM_stop('non-finite or invalid tracer forcing cache restart')
+      IF (counts(2) > 0) CALL CoLM_stop('non-finite or invalid material forcing cache restart')
       IF (p_is_worker .and. allocated(precip)) trc_forc_precip_value = precip
       IF (p_is_worker .and. allocated(vapor)) trc_forc_vapor_value = vapor
    END SUBROUTINE mt_forcing_read_restart
@@ -774,7 +774,7 @@ CONTAINS
          IF (tracer_fractionation_active(itrc) .and. .not. has_vapor(itrc)) THEN
             IF (p_is_master) THEN
                WRITE(*,'(A,I0,3A)') &
-                  'ERROR tracer_forcing_configure: fractionating tracer ', itrc, &
+                  'ERROR tracer_forcing_configure: fractionating material ', itrc, &
                   ' (', trim(tracers(itrc)%name), &
                   ') must define vapor forcing with role=''vapor'' in &nl_colm_mt_forcing.'
             ENDIF
@@ -814,7 +814,7 @@ CONTAINS
 
       IF (dtime <= 0) THEN
          IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') &
-            'ERROR tracer_forcing_add_var: forcing dtime for tracer ', itrc, ' must be > 0, got ', dtime, '.'
+            'ERROR tracer_forcing_add_var: forcing dtime for material ', itrc, ' must be > 0, got ', dtime, '.'
          CALL CoLM_stop()
       ENDIF
       IF (.not. tracer_forcing_token_present(fprefix)) RETURN
@@ -826,7 +826,7 @@ CONTAINS
          IF (dtime /= trc_var_dtime(total_idx) .or. offset /= trc_var_offset(total_idx) .or. &
              trim(tracer_lower(tintalgo)) /= trim(trc_var_tintalgo(total_idx))) THEN
             IF (p_is_master) WRITE(*,'(A,I0,A)') &
-               'ERROR tracer_forcing_add_var: raw/total forcing temporal config mismatch for tracer ', &
+               'ERROR tracer_forcing_add_var: raw/total forcing temporal config mismatch for material ', &
                itrc, '.'
             CALL CoLM_stop()
          ENDIF
@@ -996,7 +996,7 @@ CONTAINS
 
       mtstamp = idate
       IF ((mtstamp < trc_tstamp_LB(iv)) .or. (trc_tstamp_UB(iv) < mtstamp)) THEN
-         WRITE(6, *) 'tracer forcing data required is out of range! STOP!'
+         WRITE(6, *) 'material forcing data required is out of range! STOP!'
          CALL CoLM_stop()
       ENDIF
 
@@ -1305,12 +1305,12 @@ CONTAINS
          time_i = floor((sec - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
 
       ELSE
-         IF (p_is_master) WRITE(*,'(2A)') 'ERROR tracer forcing unsupported groupby: ', trim(DEF_forcing%groupby)
+         IF (p_is_master) WRITE(*,'(2A)') 'ERROR material forcing unsupported groupby: ', trim(DEF_forcing%groupby)
          CALL CoLM_stop()
       ENDIF
 
       IF (time_i <= 0) THEN
-         WRITE(6, *) 'got the wrong time record of tracer forcing! STOP!'
+         WRITE(6, *) 'got the wrong time record of material forcing! STOP!'
          CALL CoLM_stop()
       ENDIF
    END SUBROUTINE tracer_forcing_setstamp_LB
@@ -1410,12 +1410,12 @@ CONTAINS
          time_i = floor((sec - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
 
       ELSE
-         IF (p_is_master) WRITE(*,'(2A)') 'ERROR tracer forcing unsupported groupby: ', trim(DEF_forcing%groupby)
+         IF (p_is_master) WRITE(*,'(2A)') 'ERROR material forcing unsupported groupby: ', trim(DEF_forcing%groupby)
          CALL CoLM_stop()
       ENDIF
 
       IF (time_i <= 0) THEN
-         WRITE(6, *) 'got the wrong time record of tracer forcing! STOP!'
+         WRITE(6, *) 'got the wrong time record of material forcing! STOP!'
          CALL CoLM_stop()
       ENDIF
    END SUBROUTINE tracer_forcing_setstamp_UB
@@ -1425,15 +1425,15 @@ CONTAINS
       integer, intent(in) :: iv
 
       IF (.not. allocated(trc_var_dtime)) THEN
-         IF (p_is_master) WRITE(*,'(A)') 'ERROR tracer forcing dtime is not configured.'
+         IF (p_is_master) WRITE(*,'(A)') 'ERROR material forcing dtime is not configured.'
          CALL CoLM_stop()
       ENDIF
       IF (iv < 1 .or. iv > n_trc_forc_vars) THEN
-         IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR tracer forcing variable index ', iv, ' is out of range.'
+         IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR material forcing variable index ', iv, ' is out of range.'
          CALL CoLM_stop()
       ENDIF
       IF (trc_var_dtime(iv) <= 0) THEN
-         IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') 'ERROR tracer forcing dtime for variable ', iv, &
+         IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') 'ERROR material forcing dtime for variable ', iv, &
             ' must be > 0, got ', trc_var_dtime(iv), '.'
          CALL CoLM_stop()
       ENDIF
@@ -1667,7 +1667,7 @@ CONTAINS
                emit_header = .true.
          ENDDO
          IF (emit_header) WRITE(*,'(/,A,I4.4,A,I3.3,A,I5.5)') &
-            'Checking tracer forcing at ', idate(1), '-', idate(2), '-', idate(3)
+            'Checking material forcing at ', idate(1), '-', idate(2), '-', idate(3)
          DO itrc = 1, ntracers
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
             IF (trc_forcing_log_count < 3 .and. pcnt(itrc) > 0) THEN

@@ -230,7 +230,7 @@ CONTAINS
       itrc = tracer_index_for_name(name, aliases)
       IF (itrc == 0) RETURN
       IF (len_trim(provider_name(itrc)) > 0) &
-         CALL lifecycle_error ('duplicate provider attachment for configured tracer')
+         CALL lifecycle_error ('duplicate provider attachment for configured material')
 
       DO i = 1, ntracers
          IF (len_trim(provider_name(i)) > 0 .and. &
@@ -242,7 +242,7 @@ CONTAINS
       IF (tracers(itrc)%family_id == FAMILY_UNRESOLVED) THEN
          tracers(itrc)%family_id = declared_family
       ELSEIF (tracers(itrc)%family_id /= declared_family) THEN
-         CALL lifecycle_error ('provider family does not match configured tracer family')
+         CALL lifecycle_error ('provider family does not match configured material family')
       ENDIF
 
       tracers(itrc)%state_owner = declared_owner
@@ -276,13 +276,13 @@ CONTAINS
          ENDIF
 
          IF (tracers(i)%state_owner == STATE_OWNER_UNKNOWN) &
-            CALL lifecycle_error ('tracer state owner remains unresolved')
+            CALL lifecycle_error ('material state owner remains unresolved')
          IF ((tracers(i)%family_id == FAMILY_GAS .or. &
               tracers(i)%family_id == FAMILY_PARTICLE .or. &
               tracers(i)%state_owner == STATE_OWNER_PROVIDER .or. &
               tracers(i)%reaction_mode == REACTION_PROVIDER) .and. &
              len_trim(provider_name(i)) == 0) THEN
-            CALL lifecycle_error ('provider-owned tracer has no compiled provider')
+            CALL lifecycle_error ('provider-owned material has no compiled provider')
          ENDIF
          IF ((tracers(i)%family_id == FAMILY_GAS .or. &
               tracers(i)%family_id == FAMILY_PARTICLE) .and. &
@@ -316,7 +316,7 @@ CONTAINS
       IF (.not. p_is_master) RETURN
       IF (.not. allocated(lifecycle) .or. .not. allocated(provider_name)) RETURN
 
-      WRITE (*,'(A,I0)') 'TRACER lifecycle registry: count=', ntracers
+      WRITE (*,'(A,I0)') 'MT lifecycle registry: count=', ntracers
       DO i = 1, ntracers
          provider = '-'
          IF (len_trim(provider_name(i)) > 0) provider = trim(provider_name(i))
@@ -912,7 +912,7 @@ CONTAINS
          ENDIF
          IF (end_pos >= start_pos) THEN
             IF (len_trim(adjustl(aliases(start_pos:end_pos))) > len(item)) &
-               CALL lifecycle_error ('provider alias exceeds tracer-name length')
+               CALL lifecycle_error ('provider alias exceeds material-name length')
             item = tracer_upper(adjustl(trim(aliases(start_pos:end_pos))))
             IF (len_trim(item) > 0) THEN
                IF (trim(item) == trim(tracer_upper(name))) &

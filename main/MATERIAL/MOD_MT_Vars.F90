@@ -710,12 +710,12 @@ CONTAINS
                   'TRC_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
                   ' worst_rel=', rel_err
                IF (worst_itrc > 0) THEN
-                  WRITE(*,'(A,I0,3A,2(A,E12.5))') '  tracer=', worst_itrc, &
+                  WRITE(*,'(A,I0,3A,2(A,E12.5))') '  material=', worst_itrc, &
                      ' name=', trim(tracers(worst_itrc)%name), ' ', &
                      ' before=', before(worst_itrc), ' after=', after(worst_itrc)
                ENDIF
             ENDIF
-            CALL CoLM_stop('TRACER LULCC remap land-water mass conservation failed')
+            CALL CoLM_stop('MT LULCC remap land-water mass conservation failed')
          ENDIF
       END SUBROUTINE assert_lulcc_land_water_mass_conserved
 
@@ -911,9 +911,9 @@ CONTAINS
          IF (lulcc_area_fallback_warned) RETURN
          lulcc_area_fallback_warned = .true.
          IF (p_is_io) THEN
-            WRITE(*,'(A,A)') 'TRACER LULCC remap falling back to source-area weighting: ', &
+            WRITE(*,'(A,A)') 'MT LULCC remap falling back to source-area weighting: ', &
                trim(reason)
-            WRITE(*,'(A)') '  Land-water tracer area-mass conservation requires old and new patch areas.'
+            WRITE(*,'(A)') '  Land-water material area-mass conservation requires old and new patch areas.'
          ENDIF
       END SUBROUTINE warn_lulcc_area_fallback
 

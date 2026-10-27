@@ -52,7 +52,7 @@ MODULE MOD_MT_Namelist
    logical            :: DEF_USE_METHANE        = .false.
    character(len=256) :: DEF_METHANE_PARAM_FILE = 'null'
 
-   ! Abort after this many cells fail a check (0 = report only).
+   ! Stop when more than this many cells fail a check (default 0: any failure stops).
    integer            :: DEF_MT_BALANCE_ABORT_NBAD = 0
    integer            :: DEF_MT_RESID_ABORT_NBAD   = 0
    integer            :: DEF_MT_LULCC_ABORT_NBAD   = 0
