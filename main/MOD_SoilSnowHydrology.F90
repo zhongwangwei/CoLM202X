@@ -964,7 +964,7 @@ IF((patchtype<=1) .or. is_dry_lake &
                wice_soisno(1:nl_soil), wliq_soisno(1:nl_soil), fevpg(ipatch), rootflux, gwat, &
 #endif
                vic_b_infilt(ipatch), vic_Dsmax(ipatch), vic_Ds(ipatch), vic_Ws(ipatch), vic_c(ipatch),&
-               rsur, rsubst, wliq_soisno_tmp)
+               rsur, rsubst, wliq_soisno_tmp, frcsat=frcsat)
 
             rsur_se = rsur
             rsur_ie = 0.
