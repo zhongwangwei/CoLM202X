@@ -326,6 +326,9 @@ CONTAINS
       CALL hacc_field1d (file, mode, 'a_snowdp', a_snowdp, landpatch, 'patch')
       CALL hacc_field1d (file, mode, 'a_fsno', a_fsno, landpatch, 'patch')
       CALL hacc_field1d (file, mode, 'a_frcsat', a_frcsat, landpatch, 'patch')
+#ifdef MaterialTransport
+      CALL hacc_frcsat_count (file, mode)
+#endif
       CALL hacc_field1d (file, mode, 'a_sigf', a_sigf, landpatch, 'patch')
       CALL hacc_field1d (file, mode, 'a_green', a_green, landpatch, 'patch')
       CALL hacc_field1d (file, mode, 'a_lai', a_lai, landpatch, 'patch')
@@ -859,6 +862,93 @@ CONTAINS
 
    END SUBROUTINE hacc_fields
 
+#ifdef MaterialTransport
+   !-----------------------------------------------------------------------
+   SUBROUTINE hacc_frcsat_count (file, mode)
+
+   USE, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+   USE netcdf
+   USE MOD_Block, only: get_filename_block
+   USE MOD_LandPatch, only: landpatch
+   USE MOD_MT_Namelist, only: mt_any_enabled
+   USE MOD_Vars_Global, only: spval
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: file
+   integer, intent(in) :: mode
+   character(len=256) :: fileblock
+   integer :: iblkgrp, ncid, varid, status, found(2), bad(1)
+   real(r8) :: vmin, vmax
+
+      IF (.not. mt_any_enabled()) RETURN
+
+      IF (mode == HACC_WRITE) THEN
+         CALL write_marker (file, 'hacc_frcsat_count_version', 1._r8)
+         CALL hacc_field1d (file, mode, 'nac_frcsat', nac_frcsat, landpatch, 'patch')
+         RETURN
+      ENDIF
+
+      found = 0
+      bad = 0
+      IF (p_is_io) THEN
+         DO iblkgrp = 1, landpatch%nblkgrp
+            CALL get_filename_block (file, landpatch%xblkgrp(iblkgrp), landpatch%yblkgrp(iblkgrp), fileblock)
+            IF (nf90_open (trim(fileblock), NF90_NOWRITE, ncid) /= NF90_NOERR) THEN
+               bad = 1
+               CYCLE
+            ENDIF
+            status = nf90_inq_varid (ncid, 'hacc_frcsat_count_version', varid)
+            IF (status == NF90_NOERR) THEN
+               found(1) = 1
+            ELSEIF (status /= NF90_ENOTVAR) THEN
+               bad = 1
+            ENDIF
+            status = nf90_inq_varid (ncid, 'nac_frcsat', varid)
+            IF (status == NF90_NOERR) THEN
+               found(2) = 1
+            ELSEIF (status /= NF90_ENOTVAR) THEN
+               bad = 1
+            ENDIF
+            IF (nf90_close (ncid) /= NF90_NOERR) bad = 1
+         ENDDO
+      ENDIF
+      CALL global_max (bad)
+      IF (bad(1) /= 0) CALL CoLM_stop ('Cannot inspect frcsat history sample-count metadata')
+      CALL global_max (found)
+
+      IF (found(1) == 0) THEN
+         IF (found(2) /= 0) CALL CoLM_stop ('frcsat history count has no version marker')
+         ! Keep the legacy sum, but never guess how many dry steps it contains.
+         IF (allocated(nac_frcsat)) nac_frcsat = -1._r8
+         IF (p_is_master) write(*,'(A)') &
+            'Warning: legacy history restart has no frcsat valid-sample count; this window is missing for f_frcsat.'
+         RETURN
+      ENDIF
+
+      CALL require_var (file, 'hacc_frcsat_count_version', landpatch, 'patch', 1, 0, 0)
+      CALL read_marker (file, 'hacc_frcsat_count_version', vmin, vmax)
+      IF (vmin /= 1._r8 .or. vmax /= 1._r8) &
+         CALL CoLM_stop ('Unsupported frcsat history sample-count version')
+      CALL hacc_field1d (file, mode, 'nac_frcsat', nac_frcsat, landpatch, 'patch')
+
+      bad = 0
+      IF (allocated(nac_frcsat)) THEN
+         IF (any(.not. ieee_is_finite(nac_frcsat))) THEN
+            bad = 1
+         ELSEIF (any(nac_frcsat < -1._r8) .or. any(nac_frcsat > nac) .or. &
+                 any(nac_frcsat /= anint(nac_frcsat))) THEN
+            bad = 1
+         ELSEIF (any((nac_frcsat >= 0._r8) .and. &
+                     ((nac_frcsat == 0._r8) .neqv. (a_frcsat == spval)))) THEN
+            bad = 1
+         ENDIF
+      ENDIF
+      CALL global_max (bad)
+      IF (bad(1) /= 0) CALL CoLM_stop ('Invalid frcsat history valid-sample count')
+
+   END SUBROUTINE hacc_frcsat_count
+#endif
+
    !-----------------------------------------------------------------------
    SUBROUTINE hacc_field1d (file, mode, name, var, pixelset, vecname)
 
@@ -1230,6 +1320,7 @@ CONTAINS
 
    ! Global minimum and maximum of a marker over all patches.
 
+   USE, intrinsic :: ieee_arithmetic, only: ieee_is_finite
    USE MOD_LandPatch, only: landpatch, numpatch
    USE MOD_NetCDFVector, only: ncio_read_vector
    IMPLICIT NONE
@@ -1237,8 +1328,16 @@ CONTAINS
    character(len=*), intent(in)  :: file, name
    real(r8),         intent(out) :: vmin, vmax
    real(r8), allocatable :: marker (:)
+   integer :: bad(1)
 
       CALL ncio_read_vector (file, name, landpatch, marker)
+      ! MINVAL/MAXVAL can hide a NaN among otherwise valid marker values.
+      bad = 0
+      IF (allocated(marker)) THEN
+         IF (any(.not. ieee_is_finite(marker))) bad = 1
+      ENDIF
+      CALL global_max (bad)
+      IF (bad(1) /= 0) CALL CoLM_stop ('Non-finite history-accumulator marker '//trim(name))
       vmin =  huge(vmin)
       vmax = -huge(vmax)
       IF (p_is_worker .and. numpatch > 0) THEN

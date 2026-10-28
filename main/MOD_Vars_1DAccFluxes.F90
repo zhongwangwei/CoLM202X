@@ -13,6 +13,7 @@ MODULE MOD_Vars_1DAccFluxes
 #endif
 #ifdef MaterialTransport
    USE MOD_MT_LandPhase, only: mt_flush_acc_fluxes, mt_accumulate_fluxes
+   USE MOD_MT_Namelist, only: mt_any_enabled
 #endif
 
    real(r8) :: nac ! number of accumulation
@@ -90,6 +91,9 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_snowdp    (:)
    real(r8), allocatable :: a_fsno      (:)
    real(r8), allocatable :: a_frcsat    (:)
+#ifdef MaterialTransport
+   real(r8), allocatable :: nac_frcsat  (:)
+#endif
    real(r8), allocatable :: a_sigf      (:)
    real(r8), allocatable :: a_green     (:)
    real(r8), allocatable :: a_lai       (:)
@@ -681,6 +685,11 @@ CONTAINS
             allocate (a_snowdp    (numpatch))
             allocate (a_fsno      (numpatch))
             allocate (a_frcsat    (numpatch))
+#ifdef MaterialTransport
+            IF (mt_any_enabled()) THEN
+               allocate (nac_frcsat (numpatch))
+            ENDIF
+#endif
             allocate (a_sigf      (numpatch))
             allocate (a_green     (numpatch))
             allocate (a_lai       (numpatch))
@@ -1278,6 +1287,9 @@ CONTAINS
             deallocate (a_snowdp    )
             deallocate (a_fsno      )
             deallocate (a_frcsat    )
+#ifdef MaterialTransport
+            IF (allocated(nac_frcsat)) deallocate (nac_frcsat)
+#endif
             deallocate (a_sigf      )
             deallocate (a_green     )
             deallocate (a_lai       )
@@ -1891,6 +1903,9 @@ CONTAINS
             a_snowdp    (:) = spval
             a_fsno      (:) = spval
             a_frcsat    (:) = spval
+#ifdef MaterialTransport
+            IF (allocated(nac_frcsat)) nac_frcsat(:) = 0._r8
+#endif
             a_sigf      (:) = spval
             a_green     (:) = spval
             a_lai       (:) = spval
@@ -2576,7 +2591,21 @@ CONTAINS
             CALL acc1d (scv           , a_scv            )
             CALL acc1d (snowdp        , a_snowdp         )
             CALL acc1d (fsno          , a_fsno           )
+#ifdef MaterialTransport
+            IF (mt_any_enabled()) THEN
+               CALL acc1d (frcsat, a_frcsat, frcsat_hist_valid)
+               DO i = 1, numpatch
+                  IF (.not. frcsat_hist_valid(i)) CYCLE
+                  ! A legacy partial window has no recoverable valid-sample count.
+                  IF (nac_frcsat(i) < 0._r8) CYCLE
+                  IF (frcsat(i) /= spval) nac_frcsat(i) = nac_frcsat(i) + 1._r8
+               ENDDO
+            ELSE
+#endif
             CALL acc1d (frcsat        , a_frcsat         )
+#ifdef MaterialTransport
+            ENDIF
+#endif
             CALL acc1d (sigf          , a_sigf           )
             CALL acc1d (green         , a_green          )
             CALL acc1d (lai           , a_lai            )
@@ -3424,7 +3453,7 @@ CONTAINS
 
 
 
-   SUBROUTINE acc1d (var, s)
+   SUBROUTINE acc1d (var, s, filter)
 
    USE MOD_Precision
    USE MOD_Vars_Global, only: spval
@@ -3433,10 +3462,14 @@ CONTAINS
 
    real(r8), intent(in)    :: var(:)
    real(r8), intent(inout) :: s  (:)
+   logical,  intent(in), optional :: filter(:)
    ! Local variables
    integer :: i
 
       DO i = lbound(var,1), ubound(var,1)
+         IF (present(filter)) THEN
+            IF (.not. filter(i)) CYCLE
+         ENDIF
          IF (var(i) /= spval) THEN
             IF (s(i) /= spval) THEN
                s(i) = s(i) + var(i)

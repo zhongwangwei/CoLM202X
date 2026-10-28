@@ -88,7 +88,11 @@ def render(items):
             lines.append(t[1])
         else:
             _, name, rank, pset, dname = t
-            lines.append(f"      CALL hacc_field{rank}d (file, mode, '{name}', {name}, {pset}, '{dname}')")
+            if name == 'nac_frcsat':
+                # Older partial windows have no trustworthy valid-sample count.
+                lines.append('      CALL hacc_frcsat_count (file, mode)')
+            else:
+                lines.append(f"      CALL hacc_field{rank}d (file, mode, '{name}', {name}, {pset}, '{dname}')")
     return lines
 
 

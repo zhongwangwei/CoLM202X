@@ -69,6 +69,9 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: xerr   (:) !the error of water balance [mm/s]
    real(r8), allocatable :: zerr   (:) !the error of energy balance [W/m2]
    real(r8), allocatable :: frcsat (:) !fraction of saturation area [-]
+#ifdef MaterialTransport
+   logical, allocatable :: frcsat_hist_valid(:)
+#endif
    real(r8), allocatable :: rsur   (:) !surface runoff (mm h2o/s)
    real(r8), allocatable :: rsur_se(:) !saturation excess surface runoff (mm h2o/s)
    real(r8), allocatable :: rsur_ie(:) !infiltration excess surface runoff (mm h2o/s)
@@ -159,6 +162,9 @@ CONTAINS
             allocate ( zerr   (numpatch) )  ; zerr   (:) = spval ! the error of energy balance [W/m2]
 
             allocate ( frcsat (numpatch) )  ; frcsat (:) = spval ! fraction of saturation area [-]
+#ifdef MaterialTransport
+            allocate (frcsat_hist_valid(numpatch)); frcsat_hist_valid(:) = .true.
+#endif
             allocate ( rsur   (numpatch) )  ; rsur   (:) = spval ! surface runoff (mm h2o/s)
             allocate ( rsur_se(numpatch) )  ; rsur_se(:) = spval ! saturation excess surface runoff (mm h2o/s)
             allocate ( rsur_ie(numpatch) )  ; rsur_ie(:) = spval ! infiltration excess surface runoff (mm h2o/s)
@@ -257,6 +263,9 @@ CONTAINS
             deallocate ( xerr    )  ! the error of water balance [mm/s]
             deallocate ( zerr    )  ! the error of energy balance [W/m2]
             deallocate ( frcsat  )  ! fraction of saturation area [-]
+#ifdef MaterialTransport
+            deallocate (frcsat_hist_valid)
+#endif
             deallocate ( rsur    )  ! surface runoff (mm h2o/s)
             deallocate ( rsur_se )  ! saturation excess surface runoff (mm h2o/s)
             deallocate ( rsur_ie )  ! infiltration excess surface runoff (mm h2o/s)

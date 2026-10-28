@@ -222,6 +222,8 @@ SUBROUTINE CoLMMAIN ( &
       trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv, trc_sm_carry
    USE MOD_MT_Precip, only: mt_canopy_lump, mt_canopy_split, mt_canopy_parts
    USE MOD_MT_Hist, only: mt_hist_accumulate
+   USE MOD_MT_Namelist, only: mt_any_enabled
+   USE MOD_Vars_1DFluxes, only: frcsat_hist_valid
    USE MOD_MT_SpecialPatches, only: mt_glacier_patch, mt_waterbody_patch
 #ifdef GridRiverLakeFlow
    ! material of the grid flood credit published by the river
@@ -774,6 +776,10 @@ SUBROUTINE CoLMMAIN ( &
 
       is_dry_lake = DEF_USE_Dynamic_Lake .and. (patchtype == 4) .and. &
                     ((wdsrf < 100.) .or. (zwt > 0.))
+#ifdef MaterialTransport
+      ! The dry-lake branch leaves frcsat undefined; record its entry state before water changes.
+      IF (mt_any_enabled()) frcsat_hist_valid(ipatch) = .not. is_dry_lake
+#endif
 
 
                                                   !         / SOIL GROUND          (patchtype = 0)

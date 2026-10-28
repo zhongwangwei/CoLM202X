@@ -812,9 +812,22 @@ CONTAINS
             'fraction of snow cover on ground','-')
 
          ! fraction of saturation area on ground
+#ifdef MaterialTransport
+         IF (mt_any_enabled()) THEN
+            IF (allocated(nac_frcsat)) THEN
+               WHERE (nac_frcsat <= 0._r8) a_frcsat = spval
+            ENDIF
+            CALL write_history_variable_2d ( DEF_hist_vars%frcsat, &
+               a_frcsat, file_hist, 'f_frcsat', itime_in_file, sumarea, filter, &
+               'fraction of saturation area on ground','-', acc_num=nac_frcsat)
+         ELSE
+#endif
          CALL write_history_variable_2d ( DEF_hist_vars%frcsat, &
             a_frcsat, file_hist, 'f_frcsat', itime_in_file, sumarea, filter, &
             'fraction of saturation area on ground','-')
+#ifdef MaterialTransport
+         ENDIF
+#endif
 
          ! fraction of veg cover, excluding snow-covered veg [-]
          CALL write_history_variable_2d ( DEF_hist_vars%sigf, &

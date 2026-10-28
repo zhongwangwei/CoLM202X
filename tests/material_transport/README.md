@@ -80,6 +80,19 @@ clears obsolete leaf memory, and rejects unsafe receiving pools or incompatible
 fixed signatures. Its closed-pool host stubs do not validate evaporation physics
 or replace the cross-year LULCC matrix.
 
+```sh
+python3 tests/material_transport/check_frcsat_history.py
+python3 .github/workflows/hist_acc_restart_fields.py --check
+```
+
+The `frcsat` check compiles production fragments with and without material
+transport. It checks step-entry dry-lake validity, valid-only final averaging,
+count reset/restart semantics and legacy unknown counts. The actual marker
+reader rejects mixed NaN/Inf at `-O0` and `-O2`. The NetCDF backing store and MPI
+are lightweight stubs; these checks do not replace real partial-window or
+multi-process restart tests. Legacy partial windows without a valid-sample count
+continue physically, but report `f_frcsat` as missing until the next window.
+
 ## Check regional surface clipping
 
 ```sh
