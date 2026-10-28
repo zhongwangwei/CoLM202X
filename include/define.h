@@ -1,9 +1,9 @@
 ! 1. Spatial structure:
 !    Select one of the following options.
-#undef GRIDBASED
+#define GRIDBASED
 #undef CATCHMENT
 #undef UNSTRUCTURED
-#define SinglePoint
+#undef SinglePoint
 
 ! 2. Land subgrid type classification:
 !    Select one of the following options.
@@ -59,20 +59,13 @@
 
 #define GridRiverLakeFlow
 !    Conflicts :
-!    The river network is built per worker, so it needs MPI (as CaMa_Flood).
-#ifndef USEMPI
-#undef GridRiverLakeFlow
-#endif
-#if (defined CATCHMENT || defined SinglePoint || defined CaMa_Flood)
+#if (defined CATCHMENT || defined SinglePoint)
 #undef GridRiverLakeFlow
 #endif
 
 #undef GridRiverLakeSediment
 #if (!defined GridRiverLakeFlow)
 #undef GridRiverLakeSediment
-#endif
-#ifdef GridRiverLakeSediment
-#error "GridRiverLakeSediment is not yet coupled to this version of GridRiverLakeFlow"
 #endif
 
 ! 7. If defined, BGC model is used.
