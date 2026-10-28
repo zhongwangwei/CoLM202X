@@ -45,11 +45,24 @@ default and carries no material.
   in `&nl_colm_methane_parameter` of `DEF_METHANE_PARAM_FILE`.
 
 Framework settings (`DEF_MT_*`: balance abort thresholds, aquifer mixing
-depth, soil initial state file, `DEF_MT_FORCING_MIN_PRECIP`: the total
-precipitation rate below which a heavy/total precipitation forcing ratio
-is not used, default 5e-6 kg m-2 s-1 because IsoGSM ratios are noise at
-smaller rates) are in the same group; see
-`MOD_MT_Namelist.F90`. Every parameter file entry is optional, the values in
+depth, soil initial state file, forcing thresholds) are in the same group;
+see `MOD_MT_Namelist.F90`.
+
+- `DEF_MT_FORCING_MIN_PRECIP` (default 5e-6 kg m-2 s-1): total
+  precipitation rate below which a heavy/total precipitation forcing ratio
+  is not used, because IsoGSM ratios are noise at smaller rates. For an
+  isotope with both a precipitation and a vapour forcing, rain then takes
+  the ratio in equilibrium with the forcing vapour at the air temperature
+  and snow the ratio of the last reliable record; other materials keep the
+  last valid ratio.
+- `DEF_MT_FORCING_MEMORY_PRECIP` (default 2e-5 kg m-2 s-1): only records
+  above this rate are remembered as that snow ratio. Before the first
+  one (cold start, or a new patch after land cover change) the snow ratio
+  is the ratio of ice deposited from the forcing vapour. Land cover changes
+  mix only reliable source ratios, weighted by their contributing area;
+  a patch with no reliable source uses the deposition-equilibrium estimate.
+
+Every parameter file entry is optional, the values in
 `run/standard_*_parameter.nml` are the code defaults unless stated there.
 A full case is in
 `run/examples/Amazon_Grid_25km_IGBP_VG_RiverLake_Material.nml`.

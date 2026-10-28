@@ -23,12 +23,14 @@ MODULE MOD_MT_Forcing
    USE MOD_LandPatch
    USE MOD_TimeManager
    USE MOD_UserSpecifiedForcing, only: metfilename
-   USE MOD_MT_Namelist, only: DEF_MT_FORCING_MIN_PRECIP
+   USE MOD_MT_Namelist, only: DEF_MT_FORCING_MIN_PRECIP, DEF_MT_FORCING_MEMORY_PRECIP
    USE MOD_MT_Defs, only: ntracers, tracers, tracer_precip_default_ratio, &
       tracer_vapor_default_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
       mt_uses_generic_water, tracer_lower
-   USE MOD_MT_Frac, only: tracer_fractionation_active
+   USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_alpha_liq_vap, &
+      tracer_alpha_ice_vap_deposition
+   USE MOD_Vars_1DForcing, only: forc_t
    USE MOD_MT_Vars, only: trc_runtime_forced
    USE MOD_MT_Providers, only: ensure_isotope_physics_registered
    USE MOD_MT_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
@@ -56,7 +58,9 @@ MODULE MOD_MT_Forcing
    ! MOD_MT_Namelist for the IsoGSM evidence behind its default).
    real(r8), parameter :: trc_forc_min_q    = 1.0e-12_r8
    real(r8), parameter :: trc_forc_max_abs  = 1.0e10_r8
-   integer, parameter :: TRC_FORC_CACHE_SCHEMA = 1
+   ! Schema 2 adds mt_forcing_precip_reliable.  A schema-1 restart is still
+   ! read: its remembered ratio was the last valid one, so it counts as reliable.
+   integer, parameter :: TRC_FORC_CACHE_SCHEMA = 2
    integer, parameter :: TRC_FORC_ID_WIDTH = 8 + 6*256
 
    logical :: trc_runtime_forcing_enabled = .false.
@@ -88,11 +92,26 @@ MODULE MOD_MT_Forcing
 
    real(r8), allocatable :: trc_forc_precip_value(:,:)
    real(r8), allocatable :: trc_forc_vapor_value(:,:)
+   ! Precipitation ratio of the current step, valid where trc_forc_has_precip.
+   ! trc_forc_precip_value is the remembered ratio used when the current
+   ! record is near-dry (see tracer_forcing_snow_value).
+   real(r8), allocatable :: trc_forc_precip_step(:,:)
+   ! 1 where trc_forc_precip_value holds a ratio of a reliable record
+   ! (total precipitation above DEF_MT_FORCING_MEMORY_PRECIP), 0 where it
+   ! still holds the vapour-equilibrium estimate.  Kept as real so that it is
+   ! restarted and LULCC-remapped like the ratios.
+   real(r8), allocatable :: trc_forc_precip_reliable(:,:)
+   ! Species whose below-threshold precipitation ratio is filled by phase
+   ! (rain from the vapour equilibrium, snow from the remembered ratio):
+   ! isotopes with both a precipitation and a vapour forcing.
+   logical,  allocatable :: trc_forc_phase_fill(:)
    ! Last-valid compositions survive the annual patch rebuild; they are
    ! intensive forcing state, not tracer mass.
    real(r8), allocatable :: lulcc_precip_old(:,:), lulcc_vapor_old(:,:)
    real(r8), allocatable :: lulcc_precip_new(:,:), lulcc_vapor_new(:,:)
+   real(r8), allocatable :: lulcc_reliable_old(:,:), lulcc_reliable_new(:,:)
    real(r8), allocatable :: lulcc_old_patch_area(:)
+   logical, allocatable :: lulcc_phase_fill(:)
    logical,  allocatable :: trc_forc_has_precip(:,:)
    logical,  allocatable :: trc_forc_has_vapor(:,:)
    integer,  allocatable :: trc_forc_precip_status(:,:)
@@ -107,6 +126,7 @@ MODULE MOD_MT_Forcing
    PUBLIC :: mt_forcing_reset
    PUBLIC :: mt_forcing_final
    PUBLIC :: tracer_forcing_precip_value
+   PUBLIC :: tracer_forcing_rain_value, tracer_forcing_snow_value
    PUBLIC :: tracer_forcing_vapor_value
    PUBLIC :: tracer_forcing_precip_ratio
    PUBLIC :: tracer_forcing_vapor_ratio
@@ -235,6 +255,8 @@ CONTAINS
       lulcc_old_patch_area = elm_patch%subfrc
       CALL move_alloc(trc_forc_precip_value, lulcc_precip_old)
       CALL move_alloc(trc_forc_vapor_value, lulcc_vapor_old)
+      CALL move_alloc(trc_forc_precip_reliable, lulcc_reliable_old)
+      CALL move_alloc(trc_forc_phase_fill, lulcc_phase_fill)
    END SUBROUTINE mt_forcing_lulcc_save
 
    ! Called while LulccDriver still holds both patch maps and the transfer
@@ -251,6 +273,10 @@ CONTAINS
       IF (allocated(lulcc_precip_new)) CALL CoLM_stop('material forcing LULCC remap repeated')
       allocate(lulcc_precip_new(ntracers, size(patchclass_new)))
       allocate(lulcc_vapor_new(ntracers, size(patchclass_new)))
+      ! A patch without a source starts unreliable: its remembered ratio is
+      ! replaced by the vapour-equilibrium estimate at the next forcing update.
+      allocate(lulcc_reliable_new(ntracers, size(patchclass_new)))
+      lulcc_reliable_new(:,:) = 0._r8
       DO itrc = 1, ntracers
          lulcc_precip_new(itrc,:) = tracer_precip_default_ratio(itrc)
          lulcc_vapor_new(itrc,:) = tracer_vapor_default_ratio(itrc)
@@ -264,15 +290,34 @@ CONTAINS
                source_class(raw) = CROPLAND
          ENDDO
       ENDIF
+      ! Only reliable records contribute to the inherited snow memory.
+      DO itrc = 1, ntracers
+         IF (lulcc_phase_fill(itrc)) &
+            lulcc_precip_old(itrc,:) = lulcc_precip_old(itrc,:) * lulcc_reliable_old(itrc,:)
+      ENDDO
       CALL tracer_forcing_lulcc_map(lulcc_precip_old, lulcc_precip_new, &
          patchclass_new, eindex_new, patchclass_old, eindex_old, unsupported, &
          lccpct_patches, lulcc_old_patch_area, source_class)
       CALL tracer_forcing_lulcc_map(lulcc_vapor_old, lulcc_vapor_new, &
          patchclass_new, eindex_new, patchclass_old, eindex_old, ignored, &
          lccpct_patches, lulcc_old_patch_area, source_class)
+      ! Normalize by reliable source area, not by the area of all sources.
+      CALL tracer_forcing_lulcc_map(lulcc_reliable_old, lulcc_reliable_new, &
+         patchclass_new, eindex_new, patchclass_old, eindex_old, ignored, &
+         lccpct_patches, lulcc_old_patch_area, source_class)
+      DO itrc = 1, ntracers
+         IF (.not. lulcc_phase_fill(itrc)) CYCLE
+         WHERE (lulcc_reliable_new(itrc,:) > 0._r8)
+            lulcc_precip_new(itrc,:) = lulcc_precip_new(itrc,:) / lulcc_reliable_new(itrc,:)
+            lulcc_reliable_new(itrc,:) = 1._r8
+         ELSEWHERE
+            lulcc_precip_new(itrc,:) = tracer_precip_default_ratio(itrc)
+         END WHERE
+      ENDDO
+      lulcc_reliable_new = merge(1._r8, 0._r8, lulcc_reliable_new >= 0.5_r8)
       IF (unsupported > 0) WRITE(*,'(A,I0,A)') 'Material forcing LULCC: ', unsupported, &
          ' patch(es) have no eligible transfer source; using configured forcing defaults.'
-      deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_old_patch_area)
+      deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_reliable_old, lulcc_old_patch_area, lulcc_phase_fill)
    END SUBROUTINE mt_forcing_lulcc_remap
 
    SUBROUTINE mt_forcing_lulcc_restore ()
@@ -282,16 +327,18 @@ CONTAINS
             CALL CoLM_stop('material forcing LULCC restore precedes forcing init')
          IF (size(trc_forc_precip_value,2) > 0) &
             CALL CoLM_stop('material forcing LULCC remap missing for rebuilt patches')
-         deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_old_patch_area)
+         deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_reliable_old, lulcc_old_patch_area, lulcc_phase_fill)
       ENDIF
       IF (.not. allocated(lulcc_precip_new)) RETURN
       IF (.not. allocated(trc_forc_precip_value)) &
          CALL CoLM_stop('material forcing LULCC restore precedes forcing init')
       IF (any(shape(trc_forc_precip_value) /= shape(lulcc_precip_new)) .or. &
-          any(shape(trc_forc_vapor_value) /= shape(lulcc_vapor_new))) &
+          any(shape(trc_forc_vapor_value) /= shape(lulcc_vapor_new)) .or. &
+          any(shape(trc_forc_precip_reliable) /= shape(lulcc_reliable_new))) &
          CALL CoLM_stop('material forcing LULCC patch/species count changed after remap')
       CALL move_alloc(lulcc_precip_new, trc_forc_precip_value)
       CALL move_alloc(lulcc_vapor_new, trc_forc_vapor_value)
+      CALL move_alloc(lulcc_reliable_new, trc_forc_precip_reliable)
    END SUBROUTINE mt_forcing_lulcc_restore
 
    SUBROUTINE tracer_forcing_lulcc_map (old, mapped, patchclass_new, eindex_new, &
@@ -556,6 +603,8 @@ CONTAINS
          'patch', landpatch, trc_forc_precip_value, DEF_REST_CompressLevel)
       CALL ncio_write_vector(file_restart, 'mt_forcing_vapor_last', 'mt_forcing_species', ntracers, &
          'patch', landpatch, trc_forc_vapor_value, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'mt_forcing_precip_reliable', 'mt_forcing_species', ntracers, &
+         'patch', landpatch, trc_forc_precip_reliable, DEF_REST_CompressLevel)
    END SUBROUTINE tracer_forcing_write_restart
 
    ! Restore only after mt_forcing_init has created its patch-local arrays.
@@ -567,8 +616,8 @@ CONTAINS
       character(len=*), intent(in) :: file_restart
       logical, intent(in) :: loaded_restart
       integer, allocatable :: expected(:,:), ondisk(:,:), varsize(:)
-      real(r8), allocatable :: precip(:,:), vapor(:,:)
-      integer :: iblkgrp, iblk, jblk, schema, nvars, counts(4), itrc
+      real(r8), allocatable :: precip(:,:), vapor(:,:), reliable(:,:)
+      integer :: iblkgrp, iblk, jblk, schema, nvars, counts(6), itrc
       logical :: have_schema, have_count, block_ok
       character(len=256) :: fileblock
 
@@ -608,11 +657,36 @@ CONTAINS
             ENDIF
             CALL ncio_read_serial(fileblock, 'mt_forcing_cache_schema', schema)
             CALL ncio_read_serial(fileblock, 'mt_forcing_cache_count', nvars)
-            IF (schema /= TRC_FORC_CACHE_SCHEMA .or. nvars /= n_trc_forc_vars) THEN
+            IF ((schema /= TRC_FORC_CACHE_SCHEMA .and. schema /= 1) .or. &
+                nvars /= n_trc_forc_vars) THEN
                counts(3) = counts(3) + 1
                CYCLE
             ENDIF
+            IF (schema == 1) THEN
+               counts(5) = counts(5) + 1
+            ELSE
+               counts(6) = counts(6) + 1
+            ENDIF
             IF (nvars <= 0) CYCLE
+            IF (schema /= 1) THEN
+               block_ok = ncio_var_exist(fileblock, 'mt_forcing_precip_reliable', readflag=.false.)
+               IF (block_ok) THEN
+                  CALL ncio_inquire_varsize(fileblock, 'mt_forcing_precip_reliable', varsize)
+                  block_ok = allocated(varsize)
+                  IF (block_ok) THEN
+                     block_ok = size(varsize) == 2
+                     IF (block_ok) block_ok = varsize(1) == ntracers .and. &
+                        varsize(2) == landpatch%vecgs%vlen(iblk,jblk)
+                     deallocate(varsize)
+                  ENDIF
+               ENDIF
+               IF (block_ok) block_ok = tracer_forcing_dim_names_match(fileblock, &
+                  'mt_forcing_precip_reliable', 'mt_forcing_species', 'patch')
+               IF (.not. block_ok) THEN
+                  counts(2) = counts(2) + 1
+                  CYCLE
+               ENDIF
+            ENDIF
             IF (.not. ncio_var_exist(fileblock, 'mt_forcing_cache_identity', readflag=.false.) .or. &
                 .not. ncio_var_exist(fileblock, 'mt_forcing_precip_last', readflag=.false.) .or. &
                 .not. ncio_var_exist(fileblock, 'mt_forcing_vapor_last', readflag=.false.)) THEN
@@ -664,10 +738,14 @@ CONTAINS
          ENDDO
       ENDIF
 #ifdef USEMPI
-      CALL mpi_allreduce(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, counts, 6, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
       IF (counts(1) > 0 .and. counts(4) > 0) &
          CALL CoLM_stop('mixed legacy/current material forcing cache blocks')
+      IF (counts(5) > 0 .and. counts(6) > 0) &
+         CALL CoLM_stop('mixed schema-1/schema-2 material forcing cache blocks')
+      schema = TRC_FORC_CACHE_SCHEMA
+      IF (counts(5) > 0) schema = 1
       IF (counts(1) > 0 .and. n_trc_forc_vars > 0) &
          CALL CoLM_stop('old material restart lacks last-valid forcing cache; cannot reconstruct it')
       IF (counts(2) > 0) CALL CoLM_stop('incomplete or malformed material forcing cache restart')
@@ -677,6 +755,8 @@ CONTAINS
          precip)
       CALL ncio_read_vector(file_restart, 'mt_forcing_vapor_last', ntracers, landpatch, &
          vapor)
+      IF (schema /= 1) CALL ncio_read_vector(file_restart, 'mt_forcing_precip_reliable', ntracers, &
+         landpatch, reliable)
       counts = 0
       IF (p_is_worker) THEN
          IF (size(trc_forc_precip_value,2) > 0 .and. &
@@ -699,13 +779,28 @@ CONTAINS
                ENDDO
             ENDIF
          ENDIF
+         IF (schema /= 1 .and. size(trc_forc_precip_value,2) > 0) THEN
+            IF (.not. allocated(reliable)) THEN
+               counts(2) = counts(2) + 1
+            ELSEIF (any(reliable /= 0._r8 .and. reliable /= 1._r8)) THEN
+               counts(2) = counts(2) + 1
+            ENDIF
+         ENDIF
       ENDIF
 #ifdef USEMPI
-      CALL mpi_allreduce(MPI_IN_PLACE, counts, 4, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, counts, 6, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
       IF (counts(2) > 0) CALL CoLM_stop('non-finite or invalid material forcing cache restart')
       IF (p_is_worker .and. allocated(precip)) trc_forc_precip_value = precip
       IF (p_is_worker .and. allocated(vapor)) trc_forc_vapor_value = vapor
+      ! A schema-1 cache remembered every valid record: take it as reliable.
+      IF (p_is_worker) THEN
+         IF (schema == 1) THEN
+            trc_forc_precip_reliable(:,:) = 1._r8
+         ELSEIF (allocated(reliable)) THEN
+            trc_forc_precip_reliable = reliable
+         ENDIF
+      ENDIF
    END SUBROUTINE mt_forcing_read_restart
 
    SUBROUTINE tracer_forcing_configure ()
@@ -904,6 +999,9 @@ CONTAINS
       CALL tracer_forcing_deallocate_state()
       allocate(trc_forc_precip_value(ntracers, numpatch))
       allocate(trc_forc_vapor_value(ntracers, numpatch))
+      allocate(trc_forc_precip_step(ntracers, numpatch))
+      allocate(trc_forc_precip_reliable(ntracers, numpatch))
+      allocate(trc_forc_phase_fill(ntracers))
       allocate(trc_forc_has_precip(ntracers, numpatch))
       allocate(trc_forc_has_vapor(ntracers, numpatch))
       allocate(trc_forc_precip_status(ntracers, numpatch))
@@ -919,7 +1017,14 @@ CONTAINS
       DO itrc = 1, ntracers
          trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)
          trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)
+         trc_forc_precip_step(itrc, :) = tracer_precip_default_ratio(itrc)
+         trc_forc_phase_fill(itrc) = tracer_is_isotope(itrc) .and. &
+            tracer_forcing_precip_configured(itrc) .and. tracer_forcing_vapor_configured(itrc)
       ENDDO
+      IF (any(trc_forc_phase_fill) .and. &
+          .not. (DEF_MT_FORCING_MEMORY_PRECIP >= DEF_MT_FORCING_MIN_PRECIP)) &
+         CALL CoLM_stop('DEF_MT_FORCING_MEMORY_PRECIP must be >= DEF_MT_FORCING_MIN_PRECIP for phase fill.')
+      trc_forc_precip_reliable(:,:) = 0._r8
       CALL tracer_forcing_prepare_step()
    END SUBROUTINE tracer_forcing_allocate_state
 
@@ -928,6 +1033,9 @@ CONTAINS
 
       IF (allocated(trc_forc_precip_value)) deallocate(trc_forc_precip_value)
       IF (allocated(trc_forc_vapor_value)) deallocate(trc_forc_vapor_value)
+      IF (allocated(trc_forc_precip_step)) deallocate(trc_forc_precip_step)
+      IF (allocated(trc_forc_precip_reliable)) deallocate(trc_forc_precip_reliable)
+      IF (allocated(trc_forc_phase_fill)) deallocate(trc_forc_phase_fill)
       IF (allocated(trc_forc_has_precip)) deallocate(trc_forc_has_precip)
       IF (allocated(trc_forc_has_vapor)) deallocate(trc_forc_has_vapor)
       IF (allocated(trc_forc_precip_status)) deallocate(trc_forc_precip_status)
@@ -1053,15 +1161,53 @@ CONTAINS
             IF (trc_var_stream(iv) == STREAM_VAPOR) trc_forc_vapor_status(itrc, ip) = decode_status
             IF (.not. value_valid) CYCLE
             IF (trc_var_stream(iv) == STREAM_PRECIP) THEN
-               trc_forc_precip_value(itrc, ip) = value
+               trc_forc_precip_step(itrc, ip) = value
                trc_forc_has_precip(itrc, ip) = .true.
+               IF (tracer_forcing_reliable_record(iv, ip)) THEN
+                  trc_forc_precip_value(itrc, ip) = value
+                  trc_forc_precip_reliable(itrc, ip) = 1._r8
+               ENDIF
             ELSEIF (trc_var_stream(iv) == STREAM_VAPOR) THEN
                trc_forc_vapor_value(itrc, ip) = value
                trc_forc_has_vapor(itrc, ip) = .true.
             ENDIF
          ENDDO
       ENDDO
+
+      ! Until a patch has seen a reliable record (cold start, or a new patch
+      ! after LULCC), its remembered snow ratio is the ratio of ice deposited
+      ! from the forcing vapour (Jouzel-Merlivat effective alpha at the air
+      ! temperature), updated each step, instead of the fixed default ratio.
+      DO itrc = 1, ntracers
+         IF (.not. trc_forc_phase_fill(itrc)) CYCLE
+         DO ip = 1, size(trc_forc_precip_value, 2)
+            IF (trc_forc_precip_reliable(itrc, ip) > 0.5_r8) CYCLE
+            value = tracer_alpha_ice_vap_deposition(itrc, forc_t(ip)) * trc_forc_vapor_value(itrc, ip)
+            IF (tracer_forcing_valid_value(value) .and. value > trc_tiny) &
+               trc_forc_precip_value(itrc, ip) = value
+         ENDDO
+      ENDDO
    END SUBROUTINE tracer_forcing_update_values
+
+   ! A valid precipitation record updates the remembered ratio only when it is
+   ! reliable.  With phase fill (isotopes with precipitation and vapour
+   ! forcing), a heavy/total ratio is reliable above
+   ! DEF_MT_FORCING_MEMORY_PRECIP; without it every valid record is
+   ! remembered, as before.
+   logical FUNCTION tracer_forcing_reliable_record (iv, ip)
+      IMPLICIT NONE
+      integer, intent(in) :: iv, ip
+      integer :: itrc
+
+      tracer_forcing_reliable_record = .true.
+      itrc = trc_var_itrc(iv)
+      IF (.not. trc_forc_phase_fill(itrc)) RETURN
+      IF (trc_var_mode(iv) /= MODE_HEAVY_OVER_TOTAL .and. &
+          trc_var_mode(iv) /= MODE_NORMALIZED_OVER_TOTAL) RETURN
+      IF (trc_var_total(iv) <= 0) RETURN
+      tracer_forcing_reliable_record = &
+         trc_forc_patch(ip, trc_var_total(iv)) > DEF_MT_FORCING_MEMORY_PRECIP
+   END FUNCTION tracer_forcing_reliable_record
 
    SUBROUTINE tracer_forcing_decode_value (iv, ip, value, valid, status)
       IMPLICIT NONE
@@ -1490,6 +1636,69 @@ CONTAINS
       tracer_forcing_precip_value = trc_forc_precip_value(itrc, ipatch)
    END FUNCTION tracer_forcing_precip_value
 
+   !---------------------------------------------------------------
+   ! Precipitation ratio by phase.
+   !
+   ! Where the current record is valid (total above DEF_MT_FORCING_MIN_PRECIP)
+   ! rain and snow both take it.  Where it is near-dry, the heavy/total ratio
+   ! of IsoGSM is noise, and the two phases are filled differently
+   ! (IsoGSM 2004, 6-hourly, predicting the ratio of records above 2e-5
+   ! kg m-2 s-1, d18O bias / RMSE in permil):
+   !
+   ! - rain: in isotopic equilibrium with the forcing vapour at the air
+   !   temperature (falling drops exchange with the surface air): NEC May
+   !   -0.6 / 2.3, NEC Jul +0.5 / 1.5, AMZ +0.2..+0.6 / 0.9; the last valid
+   !   ratio gives 0.9..5.4 RMSE.
+   ! - snow: the ratio of the last reliable record (total above
+   !   DEF_MT_FORCING_MEMORY_PRECIP): NEC Jan +0.1 / 4.5, 40-60N Jan +0.2 /
+   !   4.5; ice in equilibrium with the vapour is +6.6..+8.7 too heavy (snow
+   !   forms aloft from colder, more depleted vapour).  Before any reliable
+   !   record the remembered ratio is the deposition-equilibrium estimate
+   !   (tracer_forcing_update_values).
+   !
+   ! The fixed default ratio of the old fallback was the worst (NEC Jan
+   ! +18, AMZ -7).  Species without phase fill (not an isotope, or no vapour
+   ! forcing) keep the last valid ratio for both phases, as before.
+   ! The alphas describe the atmosphere that made the forcing, so they do not
+   ! depend on DEF_ISO_USE_FRACTIONATION.
+   !---------------------------------------------------------------
+   real(r8) FUNCTION tracer_forcing_rain_value (itrc, ipatch)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc, ipatch
+      real(r8) :: value
+
+      tracer_forcing_rain_value = tracer_forcing_precip_value(itrc, ipatch)
+      IF (.not. tracer_forcing_phase_fill_at(itrc, ipatch)) RETURN
+      IF (trc_forc_has_precip(itrc, ipatch)) THEN
+         tracer_forcing_rain_value = trc_forc_precip_step(itrc, ipatch)
+      ELSEIF (trc_forc_precip_status(itrc, ipatch) == DECODE_NEAR_DRY) THEN
+         value = tracer_alpha_liq_vap(itrc, forc_t(ipatch)) * trc_forc_vapor_value(itrc, ipatch)
+         IF (tracer_forcing_valid_value(value) .and. value > trc_tiny) &
+            tracer_forcing_rain_value = value
+      ENDIF
+   END FUNCTION tracer_forcing_rain_value
+
+   real(r8) FUNCTION tracer_forcing_snow_value (itrc, ipatch)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc, ipatch
+
+      tracer_forcing_snow_value = tracer_forcing_precip_value(itrc, ipatch)
+      IF (.not. tracer_forcing_phase_fill_at(itrc, ipatch)) RETURN
+      IF (trc_forc_has_precip(itrc, ipatch)) &
+         tracer_forcing_snow_value = trc_forc_precip_step(itrc, ipatch)
+   END FUNCTION tracer_forcing_snow_value
+
+   logical FUNCTION tracer_forcing_phase_fill_at (itrc, ipatch)
+      IMPLICIT NONE
+      integer, intent(in) :: itrc, ipatch
+
+      tracer_forcing_phase_fill_at = .false.
+      IF (.not. allocated(trc_forc_phase_fill)) RETURN
+      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (ipatch < 1 .or. ipatch > size(trc_forc_precip_value, 2)) RETURN
+      tracer_forcing_phase_fill_at = trc_forc_phase_fill(itrc)
+   END FUNCTION tracer_forcing_phase_fill_at
+
    real(r8) FUNCTION tracer_forcing_vapor_value (itrc, ipatch)
       IMPLICIT NONE
       integer, intent(in) :: itrc, ipatch
@@ -1606,7 +1815,7 @@ CONTAINS
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
             DO ip = 1, size(trc_forc_precip_value, 2)
                IF (trc_forc_has_precip(itrc, ip)) THEN
-                  outval = tracer_forcing_diag_value(itrc, trc_forc_precip_value(itrc, ip))
+                  outval = tracer_forcing_diag_value(itrc, trc_forc_precip_step(itrc, ip))
                   pmin(itrc) = min(pmin(itrc), outval)
                   pmax(itrc) = max(pmax(itrc), outval)
                   pcnt(itrc) = pcnt(itrc) + 1
@@ -1679,9 +1888,15 @@ CONTAINS
             ENDIF
             IF (pdry(itrc) > 0 .and. &
                 (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_dry(itrc))) THEN
-               WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(itrc)%name), &
-                  ' near-dry fallback patches=', pdry(itrc), &
-                  ' (retaining the previous valid/default precip ratio)'
+               IF (trc_forc_phase_fill(itrc)) THEN
+                  WRITE(*,'(3A,I0,A)') '  NOTE precip ', trim(tracers(itrc)%name), &
+                     ' near-dry patches=', pdry(itrc), &
+                     ' (rain: vapour equilibrium; snow: last reliable precip ratio)'
+               ELSE
+                  WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(itrc)%name), &
+                     ' near-dry fallback patches=', pdry(itrc), &
+                     ' (retaining the previous valid/default precip ratio)'
+               ENDIF
                trc_forc_precip_warned_dry(itrc) = .true.
             ENDIF
             IF (pmiss(itrc) > 0 .and. &

@@ -60,12 +60,26 @@ MODULE MOD_MT_Namelist
    ! variably saturated flow scheme is on (required > 0 for isotopes then).
    real(r8)           :: DEF_MT_AQUIFER_MIXING_WATER_MM = -1._r8
    ! Total precipitation rate [kg m-2 s-1] at or below which a heavy/total
-   ! forcing ratio is taken as near-dry and the default ratio is used.
+   ! forcing ratio is taken as near-dry and not used.
    ! IsoGSM 2004 global (January and July, 6-hourly): at 1e-7..1e-6 the
    ! ratio is noise (60-65% of records with |d-excess| > 100), 22-32% at
    ! 1e-6..2e-6, 3-8% at 2e-6..5e-6, at most 0.5% above 5e-6; 5e-6 leaves
-   ! 1.2-1.5% of the precipitation mass at the default ratio.
+   ! 1.2-1.5% of the precipitation mass to the fallback.  For isotopes with
+   ! a vapour forcing the fallback is rain in equilibrium with the vapour and
+   ! snow at the last reliable ratio (tracer_forcing_rain_value /
+   ! tracer_forcing_snow_value in MOD_MT_Forcing); otherwise the last valid
+   ! ratio (the default ratio before the first one).
    real(r8)           :: DEF_MT_FORCING_MIN_PRECIP = 5.e-6_r8
+   ! Total precipitation rate [kg m-2 s-1] above which a record is remembered
+   ! as the snow fallback ratio (isotopes with a vapour forcing).  Records just
+   ! above DEF_MT_FORCING_MIN_PRECIP still carry noisy d-excess that a
+   ! remembered ratio would repeat for days.  IsoGSM 2004, predicting the
+   ! ratio of the next snowfall above 2e-5 (d18O RMSE / d-excess RMSE,
+   ! permil): remembering records above 5e-6: NEC Jan 4.0 / 14.0, 40-60N Jan
+   ! 4.4 / 12.2, 40-60N May 4.4 / 20.9; above 2e-5: 4.5 / 9.2, 4.5 / 8.4,
+   ! 4.3 / 17.6; above 5e-5 the remembered ratio gets old (NEC Jan bias +4.5,
+   ! RMSE 7.2).  Must be >= DEF_MT_FORCING_MIN_PRECIP when phase fill is used.
+   real(r8)           :: DEF_MT_FORCING_MEMORY_PRECIP = 2.e-5_r8
    logical            :: DEF_MT_USE_SOIL_INIT   = .false.
    character(len=256) :: DEF_MT_SOIL_INIT_FILE  = 'null'
    character(len=256) :: DEF_MT_SOIL_INIT_VARS  = ''
@@ -119,7 +133,7 @@ CONTAINS
          DEF_SEDIMENT_PARAM_FILE, DEF_USE_METHANE, DEF_METHANE_PARAM_FILE, &
          DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD, DEF_MT_LULCC_ABORT_NBAD, &
          DEF_MT_AQUIFER_MIXING_WATER_MM, DEF_MT_FORCING_MIN_PRECIP, &
-         DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
+         DEF_MT_FORCING_MEMORY_PRECIP, DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
 
       namelist /nl_colm_isotope_parameter/ DEF_ISO_USE_FRACTIONATION, &
          DEF_ISO_KINETIC_SCHEME, DEF_ISO_ICE_SUPERSAT_SLOPE, DEF_ISO_CG_RELHUM_MAX, &
@@ -187,6 +201,7 @@ CONTAINS
       CALL mpi_bcast (DEF_MT_LULCC_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_AQUIFER_MIXING_WATER_MM,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_FORCING_MIN_PRECIP     ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_FORCING_MEMORY_PRECIP  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_USE_SOIL_INIT          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_SOIL_INIT_FILE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_SOIL_INIT_VARS         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -223,6 +238,8 @@ CONTAINS
 
       IF (.not. (DEF_MT_FORCING_MIN_PRECIP >= 0._r8)) &
          CALL CoLM_Stop ('DEF_MT_FORCING_MIN_PRECIP must be >= 0.')
+      IF (.not. (DEF_MT_FORCING_MEMORY_PRECIP >= 0._r8)) &
+         CALL CoLM_Stop ('DEF_MT_FORCING_MEMORY_PRECIP must be >= 0.')
 
       SELECT CASE (trim(adjustl(DEF_ISO_KINETIC_SCHEME)))
       CASE ('CAPPA2003', 'Cappa2003', 'cappa2003')

@@ -10,7 +10,8 @@ MODULE MOD_MT_SpecialPatches
       mt_uses_generic_water, tracer_is_nonvolatile_solute
    USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
    USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM
-   USE MOD_MT_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
+   USE MOD_MT_Forcing, only: tracer_forcing_rain_value, tracer_forcing_snow_value, &
+      tracer_forcing_vapor_value
    USE MOD_MT_EvapLimit, only: tracer_atmospheric_tracer_loss
    USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_affine, &
@@ -54,9 +55,9 @@ CONTAINS
       real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
 
       integer  :: itrc, j_trc, snl_trc
-      real(r8) :: R_init, R_precip, R_vapor, R_final
+      real(r8) :: R_init, R_precip, R_rain, R_vapor, R_final
       real(r8) :: R_dew, R_frost, R_runoff
-      real(r8) :: precip_mass, rnof_mass
+      real(r8) :: precip_mass, rain_mass, rnof_mass
       real(r8) :: evap_mass, dep_mass
       real(r8) :: evap_liq_mass, evap_ice_mass, dep_liq_mass, dep_ice_mass
       real(r8) :: water_dS, water_end, water_beg, water_input
@@ -122,6 +123,7 @@ CONTAINS
       snl_trc = 0
       CALL mt_save_storage(ipatch, snl_trc, nl_soil)
       precip_mass = (prc_rain + prl_rain + prc_snow + prl_snow) * deltim
+      rain_mass   = (prc_rain + prl_rain) * deltim
       rnof_mass   = max(rnof, 0._r8) * deltim
       evap_liq_mass = max(qseva, 0._r8) * deltim
       evap_ice_mass = max(qsubl, 0._r8) * deltim
@@ -153,7 +155,11 @@ CONTAINS
          mixed_signature = .not. fixed_signature
 
          IF (mixed_signature) THEN
-            R_precip = tracer_forcing_precip_value(itrc, ipatch)
+            ! Snow ratio for all precipitation plus the rain correction: the
+            ! correction is exactly zero where rain and snow share a ratio
+            ! (see tracer_forcing_rain_value in MOD_MT_Forcing).
+            R_precip = tracer_forcing_snow_value(itrc, ipatch)
+            R_rain   = tracer_forcing_rain_value(itrc, ipatch)
             R_vapor  = tracer_forcing_vapor_value (itrc, ipatch)
             IF (nonvolatile_solute) THEN
                R_dew = 0._r8
@@ -166,7 +172,8 @@ CONTAINS
                   R_frost = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .true.)
                ENDIF
             ENDIF
-            trc_input = precip_mass * R_precip + dep_liq_mass * R_dew + dep_ice_mass * R_frost
+            trc_input = precip_mass * R_precip + rain_mass * (R_rain - R_precip) &
+               + dep_liq_mass * R_dew + dep_ice_mass * R_frost
             trc_available = max(trc_storage_beg(itrc, ipatch) - &
                trc_held_storage + trc_input, 0._r8)
             water_before_output = water_beg + water_input
@@ -302,7 +309,7 @@ CONTAINS
       logical,  intent(in) :: use_dynamic_lake
 
       integer  :: itrc, j_trc
-      real(r8) :: R_init, R_precip, R_vapor, R_pool, R_final
+      real(r8) :: R_init, R_precip, R_rain, R_vapor, R_pool, R_final
       real(r8) :: R_dew, R_frost, R_runoff
       real(r8) :: atm_precip_mass, deficit_mass, precip_mass, rnof_mass
       real(r8) :: evap_mass, dep_mass
@@ -399,13 +406,16 @@ CONTAINS
          mixed_signature = .not. fixed_signature
 
          IF (mixed_signature) THEN
-            R_precip = tracer_forcing_precip_value(itrc, ipatch)
+            ! As on glaciers: snow ratio for all precipitation plus the rain
+            ! correction, exactly zero where the two ratios are the same.
+            R_precip = tracer_forcing_snow_value(itrc, ipatch)
+            R_rain   = tracer_forcing_rain_value(itrc, ipatch)
             R_vapor  = tracer_forcing_vapor_value (itrc, ipatch)
             IF (water_beg > trc_water_min_for_ratio) THEN
                R_pool = max(trc_storage_beg(itrc, ipatch) - &
                   trc_held_storage, 0._r8) / water_beg
             ELSE
-               R_pool = R_precip
+               R_pool = R_rain
             ENDIF
             IF (nonvolatile_solute) THEN
                R_dew = 0._r8
@@ -418,8 +428,8 @@ CONTAINS
                   R_frost = tracer_equilibrium_deposition_ratio(itrc, R_vapor, t_grnd, .true.)
                ENDIF
             ENDIF
-            trc_input = atm_precip_mass * R_precip + dep_liq_mass * R_dew + &
-               dep_ice_mass * R_frost + deficit_mass * R_pool
+            trc_input = atm_precip_mass * R_precip + forc_rain * deltim * (R_rain - R_precip) &
+               + dep_liq_mass * R_dew + dep_ice_mass * R_frost + deficit_mass * R_pool
             trc_available = max(trc_storage_beg(itrc, ipatch) - &
                trc_held_storage + trc_input, 0._r8)
             water_before_output = water_beg + water_input

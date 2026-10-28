@@ -13,7 +13,7 @@ MODULE MOD_MT_SoilWater
       tracer_aquifer_actual_mass, tracer_aquifer_isotope_ratio, mt_uses_generic_water, &
       tracer_is_nonvolatile_solute
    USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
-   USE MOD_MT_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value, &
+   USE MOD_MT_Forcing, only: tracer_forcing_rain_value, tracer_forcing_vapor_value, &
       tracer_forcing_has_vapor
    USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
       tracer_transpiration_nss_ratio, tracer_alpha_kinetic_craig_gordon, &
@@ -395,7 +395,8 @@ CONTAINS
             aquifer_ref_water = trc_aquifer_ref_water(ipatch)
             aquifer_ref_mass = trc_aquifer_ref_mass(itrc, ipatch)
          ENDIF
-         R_precip = tracer_forcing_precip_value(itrc, ipatch)
+         ! Liquid proxy for the irrigation storage ratio (see below).
+         R_precip = tracer_forcing_rain_value(itrc, ipatch)
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          soil_resid_trc = 0._r8
          soil_resid_water = 0._r8

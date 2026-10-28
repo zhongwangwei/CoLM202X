@@ -464,7 +464,7 @@ MOD_Hist.o: MOD_HistAccRestart.o MOD_MT_HostFixes.o
 # Material transport (main/MATERIAL); every file is empty unless MaterialTransport is defined.
 MOD_MT_Conservation.o: MOD_MT_Defs.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Evapo.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
-MOD_MT_Forcing.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_ForcingInput.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_Vars.o MOD_UserSpecifiedForcing.o
+MOD_MT_Forcing.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_ForcingInput.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_Vars.o MOD_UserSpecifiedForcing.o MOD_Vars_1DForcing.o
 MOD_MT_ForcingInput.o: MOD_MT_Defs.o
 MOD_MT_Frac.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o
 MOD_MT_HostFixes.o: MOD_MT_Namelist.o MOD_HistGridded.o

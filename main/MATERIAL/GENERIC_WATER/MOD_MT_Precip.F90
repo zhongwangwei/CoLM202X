@@ -6,7 +6,7 @@ MODULE MOD_MT_Precip
    USE MOD_Precision
    USE MOD_MT_Defs, only: ntracers, trc_tiny, trc_water_min_for_ratio, mt_uses_generic_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
-   USE MOD_MT_Forcing, only: tracer_forcing_precip_value
+   USE MOD_MT_Forcing, only: tracer_forcing_rain_value, tracer_forcing_snow_value
    USE MOD_MT_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
       trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage, &
       trc_canopy_solid, trc_surface_solid, trc_waterstorage_solid
@@ -70,8 +70,9 @@ CONTAINS
       ! schemes 3/5/6/7 can have qintr_rain < 0 when stored canopy water
       ! drips out while new rain simultaneously enters the pool. Using
       ! only qintr (net) would attribute the released canopy water to the
-      ! fresh-precipitation signature R_input. Using gross_intr_* gives
-      ! the right R_mixed for the drip and R_input for the pure-gap part.
+      ! fresh-precipitation signature R_snow_input / R_rain_input. Using
+      ! gross_intr_* gives the right R_mixed for the drip and the fresh
+      ! ratio for the pure-gap part.
       real(r8), intent(in) :: gross_intr_rain
       real(r8), intent(in) :: gross_intr_snow
       ! Pre-mix old-pool release rate [mm/s], >=0. In most schemes a
@@ -101,7 +102,7 @@ CONTAINS
       real(r8), intent(in), optional :: waterstorage_before
 
       integer  :: itrc
-      real(r8) :: R_input, storage_ratio, R_rain_input
+      real(r8) :: R_snow_input, R_rain_atm, storage_ratio, R_rain_input
       real(r8) :: intercepted, drip, throughfall
       real(r8) :: trc_mixed, water_mixed, R_mixed
       real(r8) :: trc_throughfall, trc_drip
@@ -142,8 +143,12 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         R_input = tracer_forcing_precip_value(itrc, ipatch)
-         storage_ratio = R_input
+         ! Rain and snow take their own forcing ratio: they differ only where
+         ! the forcing record is near-dry (see tracer_forcing_rain_value in
+         ! MOD_MT_Forcing); elsewhere both are the same value as before.
+         R_rain_atm   = tracer_forcing_rain_value(itrc, ipatch)
+         R_snow_input = tracer_forcing_snow_value(itrc, ipatch)
+         storage_ratio = R_rain_atm
          CALL mt_equilibrate_dissolved(itrc, max(ldew_rain_old, 0._r8), &
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
          canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
@@ -157,8 +162,11 @@ CONTAINS
          ! trc_waterstorage for sprinkler and keep a_trc_precip purely
          ! atmospheric, so the tracer budget's "external input"
          ! matches the water-side definition.
+         ! The second term is exactly zero when rain and snow share a ratio,
+         ! which keeps this sum bit-identical to the single-ratio form.
          a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) &
-            + (forc_rain + forc_snow) * R_input * deltim
+            + (forc_rain + forc_snow) * R_snow_input * deltim &
+            + forc_rain * (R_rain_atm - R_snow_input) * deltim
 
          IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
             IF (present(waterstorage_before)) THEN
@@ -184,9 +192,9 @@ CONTAINS
             sprinkler_trc = sprinkler_water * storage_ratio
          ENDIF
 
-         R_rain_input = R_input
+         R_rain_input = R_rain_atm
          IF (rain_total > trc_tiny) THEN
-            R_rain_input = (max(forc_rain, 0._r8) * R_input + sprinkler_rate * storage_ratio) / rain_total
+            R_rain_input = (max(forc_rain, 0._r8) * R_rain_atm + sprinkler_rate * storage_ratio) / rain_total
          ENDIF
 
          trc_rain_ground = 0._r8
@@ -212,7 +220,7 @@ CONTAINS
             IF (ldew_snow_old_eff > trc_tiny) THEN
                R_snow_pre = trc_ldew_snow(itrc, ipatch) / ldew_snow_old_eff
             ELSE
-               R_snow_pre = R_input
+               R_snow_pre = R_snow_input
             ENDIF
             trc_smelt = smelt_mass * R_snow_pre
             trc_ldew_snow(itrc, ipatch) = max(0._r8, &
@@ -230,7 +238,7 @@ CONTAINS
             IF (ldew_rain_old_eff > trc_tiny) THEN
                R_rain_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
             ELSE
-               R_rain_pre = R_input
+               R_rain_pre = R_rain_atm
             ENDIF
             trc_frzc = frzc_mass * R_rain_pre
             trc_ldew_rain(itrc, ipatch) = max(0._r8, &
@@ -332,7 +340,7 @@ CONTAINS
          IF (ldew_snow_old_eff > trc_tiny) THEN
             R_canopy_pre = trc_ldew_snow(itrc, ipatch) / ldew_snow_old_eff
          ELSE
-            R_canopy_pre = R_input
+            R_canopy_pre = R_snow_input
          ENDIF
          trc_xsc = xsc_mass * R_canopy_pre
          ldew_snow_pre_mix = ldew_snow_old_eff - xsc_mass
@@ -340,11 +348,11 @@ CONTAINS
          intercepted = max(0._r8, gross_intr_snow) * deltim
          water_mixed = ldew_snow_pre_mix + intercepted
          trc_mixed = (trc_ldew_snow(itrc, ipatch) - trc_xsc) &
-                   + intercepted * R_input
+                   + intercepted * R_snow_input
          IF (water_mixed > trc_tiny) THEN
             R_mixed = trc_mixed / water_mixed
          ELSE
-            R_mixed = R_input
+            R_mixed = R_snow_input
          ENDIF
 
          throughfall = max(forc_snow * deltim - intercepted, 0._r8)
@@ -353,7 +361,7 @@ CONTAINS
 
          trc_ldew_snow(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
 
-         trc_snow_ground = throughfall * R_input + trc_xsc + drip * R_mixed
+         trc_snow_ground = throughfall * R_snow_input + trc_xsc + drip * R_mixed
 
          ! Close the combined canopy interception budget exactly:
          !   Δ(canopy tracer) = rain/snow input tracer - ground tracer.
@@ -368,7 +376,7 @@ CONTAINS
             trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
          canopy_trc_end = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
             + trc_canopy_solid(itrc, ipatch)
-         canopy_input_trc = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_input
+         canopy_input_trc = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_snow_input
          canopy_resid = canopy_trc_end - canopy_trc_beg - canopy_input_trc &
                       + trc_rain_ground + trc_snow_ground
          IF (abs(canopy_resid) > trc_tiny) THEN
