@@ -4,6 +4,8 @@
 
 用户已要求整理提交并交接 DeepSeek；接手入口为[交接文档](material-transport-handoff-deepseek-20261028.md)，小型验收证据见[证据目录](material-transport-evidence/20261028/README.md)。已有后台计算保留，不因交接重复提交。
 
+**2026-10-29 DeepSeek 接续进展见[接续记录](material-transport-continuation-deepseek-20261029.md)**：p9r 无强迫回归 PASS；p9s 长窗口极值诊断完成（透明探针 + Decimal50 回放）；最新组合源码验收 FAIL（触发项已定位、属分支基线既有缺陷）；甲烷闭合仍 NOT_READY（已有两条可执行路线，待用户决策）；完整 CI 矩阵已在个人 fork 触发（run 40725517808），终态以该记录为准。
+
 本次仅在个人 fork `zhongwangwei/CoLM202X` 留档，来源分支为 `feature/constituent-transport`，草稿基线为 `checkpoint/material-transport-base-20261028`（冻结于 `f9ea408e`）。不合并至 `CoLM-SYSU/CoLM`，也不改动个人 fork 的 `master`。前置河湖流 [PR #512](https://github.com/CoLM-SYSU/CoLM/pull/512) 已合并。整理起点为 `28478b18`，当时相对该基线包含 19 个分支提交；下述最新修复尚待完整集成验收。
 
 原计划将框架与甲烷拆为两个 PR。本次先累计留档，不改变原始决定；正式合并前是否拆分仍待确定。
