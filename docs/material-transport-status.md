@@ -62,8 +62,8 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 ## 未完成清单
 
 - [ ] 用修正后的检查器复核 p9k/p9l，完成 p9m 的真实跨年、断点和进程数验收。
-- [ ] 补 CI 的 `PC+BGC+MT` 与 `LULCC+MT`；当前生成脚本会关闭 PC 的 BGC，并固定关闭 LULCC。
-- [ ] 补最新修复的非零 CL 回归。过去已有非零 CL 案例，但 p9l 定义的 `N_CLNZ` 未进入任务列表，实际 CL 单独案例使用默认零浓度。
+- [x] 补 CI 的 `PC+BGC+MT` 与 IGBP/PFT 的 `LULCC+MT`，并修正精确案例名匹配和全参数传递。93 个配置的有效宏检查通过；四项定向 GNU 构建通过，完整 GitHub 编译器/MPI 矩阵未运行。
+- [x] 补最新修复的非零 CL 回归：以 `28478b18` 对当前数值版本，NEC 两天 CL-only 与 isotope+CL 的四组实际运行、26 文件和 1,296 变量完整位比较通过；仅明确的缓存 schema `1→2` 例外。此项不替代强迫/LULCC 验证。
 - [ ] 完成甲烷与 fork 的两年全球平场对照。NEC/AMZ 三个月区域对照不能替代这一项。
 - [ ] 完成湖底碳、土壤 pH 两个 Aggregation 的真实预处理与区域裁剪验收，补齐所需 rawdata。
 - [ ] 完成空间 pH 和水稻甲烷的真实运行验收；已找到的后续对照算例仍关闭这两项。
@@ -85,3 +85,15 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 - [宿主修改登记表](superpowers/specs/2026-10-27-ct-host-changes.md)
 - [宿主钩子清单](superpowers/specs/2026-10-27-ct-hook-inventory.md)
 - [物质输送使用说明](../main/MATERIAL/README.md)
+
+## 接续验收记录
+
+- 定向编译 `codex-d479cc7d5bb04bf190119a0427536a24` 终态成功：PC+BGC+MT、IGBP+LULCC+MT、PFT+LULCC+MT 的 `make all`，以及 SinglePoint 的 `colm.x/mkinidata.x`。构建输入为 `3a1c391a` 加 CI 改动；不包含后续运行暴露问题的修复。首轮环境链接失败已保留，重试显式统一 Conda GNU/NetCDF 和编译选项，不改生产构建文件。
+- 非零 CL 验收 `codex-577f4c4aa667427f8b04ceeca34e5946` 终态成功。每例 96 步，签名、质量与硬残差诊断为零；实际 CL 初值 `2e-5`、降水浓度 `3e-6`，每例有 11,742 个正 CL 值。
+- p9l 严格复核确认 Jan4 拆分的 history/restart 完整位一致。与 P9B 的四组 history 不同，冻结源码证明 P9B 混入先前 `9d351369` 的 history patch 掩码阈值变化，不能当作本次降水修复的单因素基线；保留原始失败记录，不回滚正确的输出掩码。尚未逐点消融所有末位差异。
+- p9k/p9l 模型均已完成，所有模型日志的守恒诊断为零；区域裁剪与科学极值的进一步复核仍在进行。无 NaN/Inf 不等于所有 δ 极值已解释。
+- 新 SinglePoint 默认缓存真实运行在 Jan17 发生越界：host/material 两份 history 共用单流时间缓存；有界检查已定位。关闭缓存的显式补测不替代默认路径验收，修复与重跑进行中。
+- 新 Vector isotope 验收在首日触发签名断言，关闭 PHS 后仍复现；正在定位，未记为通过。
+- 新真实 `mksrfdata` 已生成 42 patches、其中 9 个湖泊的湖底碳，十层与生产聚合 OM 的 `580×OM` 精确一致。随后 RegionClip 因无年份路径与真实年份目录不兼容而失败，不能将该整体任务记为成功；修复与裁剪复核进行中。
+
+本次 Draft PR 只在个人 fork 的冻结留档基线上记录。该基线不匹配现有 GitHub Actions 的 master/colm30 触发过滤，因此上面的定向远程结果不代表托管 CI 矩阵已执行。

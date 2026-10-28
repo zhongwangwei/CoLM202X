@@ -75,6 +75,8 @@ jobs:
      #  run: nc-config --all
      - name: Check the history-accumulator restart field list
        run: python3 .github/workflows/hist_acc_restart_fields.py --check
+     - name: Check effective test case macros
+       run: python3 tests/material_transport/check_defineh.py
      - name: Build CoLM202X
      #  run: make clean && make all
        run: |
@@ -87,8 +89,9 @@ jobs:
               echo $CaseName
               echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
  
-              echo defineh `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8,$9}'`
-              ./.github/workflows/create_defineh.bash `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8,$9}'`
+              read -r -a DefineArgs <<< "$(awk -v name="$CaseName" '$1 == name {$1=""; print}' "$TestList")"
+              echo defineh "${DefineArgs[@]}"
+              ./.github/workflows/create_defineh.bash "${DefineArgs[@]}"
 
               echo "Create test case $CaseName Complete!"
               cat ./include/define.h

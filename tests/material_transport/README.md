@@ -23,6 +23,20 @@ python3 tests/material_transport/compare.py --self-test
 python3 tests/material_transport/iso_check.py --self-test
 ```
 
+## Check CI configurations
+
+This standard-library check needs a C preprocessor (`cc`). It generates headers
+in temporary directories, checks effective macros and unique case names, and
+never changes the working `include/define.h`.
+
+```sh
+python3 tests/material_transport/check_defineh.py
+```
+
+The generator accepts an optional ninth argument, `LULCCON` or `LULCCOFF`
+(default off); the optional eighth material-transport argument is unchanged.
+BGC is supported with both PFT and PC, as in the production header.
+
 ## Check simulation outputs
 
 ```sh
