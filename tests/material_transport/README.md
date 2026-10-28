@@ -55,3 +55,17 @@ The isotope report distinguishes declared fill values from unmasked NaN/Inf,
 and computes d-excess using jointly valid positions in the same file. Unmasked
 non-finite values and missing isotope histories fail the check. Its broad delta
 ranges are diagnostics, not observation-based acceptance criteria.
+
+## Additional regression checks
+
+```sh
+python3 tests/material_transport/check_singlebucket_precip.py
+python3 tests/material_transport/check_site_history.py CASE/history --days 365
+```
+
+The canopy test compiles extracted production routines and needs `gfortran`.
+The site-history validator checks complete daily timelines, masks and exact
+numerical equality against an optional reference; it is not a raw-bit comparator.
+Use `compare.py` separately when both NetCDF layouts should match bit for bit.
+The old host same-month site-writeback restart limitation is recorded in the
+status document and is not hidden by these checks.

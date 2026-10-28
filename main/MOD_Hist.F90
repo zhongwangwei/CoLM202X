@@ -192,6 +192,9 @@ CONTAINS
    real(r8) :: history_window_seconds
    character(len=256) :: file_hist_tracer
    integer :: itime_in_file_tracer
+#ifdef SinglePoint
+   logical :: site_hist_writeback_saved
+#endif
 #endif
 #if (defined CaMa_Flood)
    character(len=256) :: file_hist_cama
@@ -340,7 +343,15 @@ CONTAINS
 #endif
             file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_material_'//trim(cdate)//'.nc'
             CALL mt_hist_continue_file (file_hist_tracer, idate, HistForm, file_last_tracer)
+#ifdef SinglePoint
+            ! The single-site cache belongs to the host stream, not this file.
+            site_hist_writeback_saved = USE_SITE_HistWriteBack
+            USE_SITE_HistWriteBack = .false.
+#endif
             CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
+#ifdef SinglePoint
+            USE_SITE_HistWriteBack = site_hist_writeback_saved
+#endif
             ! Written by the master into the single file; in 'block' mode that file
             ! does not exist (per-block files), and with write-back it is created
             ! by the write-back process, so the window is not written there.

@@ -129,6 +129,7 @@ CONTAINS
       real(r8) :: canopy_resid, ground_trc_total, desired_ground_total
       real(r8) :: sprinkler_trc
       real(r8) :: canopy_old_water, canopy_release_trc
+      real(r8) :: release_rain, release_snow, release_total
 
       IF (ntracers <= 0) RETURN
 
@@ -280,6 +281,47 @@ CONTAINS
                trc_ldew_snow(itrc, ipatch) = canopy_release_trc
                ldew_rain_old_eff = 0._r8
                ldew_snow_old_eff = canopy_old_water
+            ENDIF
+         ENDIF
+
+         ! A single bucket can release both phases: PC/PFT interception uses
+         ! each PFT's leaf temperature, not the patch mean used by canopy_lump.
+         ! When a release lacks its nominal phase donor, reserve that water
+         ! from the COMMON old inventory before the ordinary two-stage update.
+         ! Keep the remainder in its original phase and leave already-matching
+         ! donors untouched (including the homogeneous IGBP path).
+         release_rain = max(xsc_rain_out, 0._r8) * deltim
+         release_snow = max(xsc_snow_out, 0._r8) * deltim
+         IF (.not. DEF_VEG_SNOW .and. canopy_old_water > trc_tiny .and. &
+             (release_rain > ldew_rain_old_eff .or. release_snow > ldew_snow_old_eff)) THEN
+            release_total = release_rain + release_snow
+            IF (release_total > canopy_old_water) THEN
+               release_rain = canopy_old_water * (release_rain / release_total)
+               release_snow = canopy_old_water - release_rain
+            ENDIF
+            canopy_release_trc = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+            ! Retain the established empty-canopy flush of solid inventory,
+            ! also when the complete release has BOTH phases.
+            IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= trc_water_min_for_ratio .and. &
+                release_total >= canopy_old_water - trc_water_min_for_ratio) THEN
+               canopy_release_trc = canopy_release_trc + trc_canopy_solid(itrc, ipatch)
+               trc_canopy_solid(itrc, ipatch) = 0._r8
+            ENDIF
+            IF (release_snow > ldew_snow_old_eff) THEN
+               ldew_snow_old_eff = release_snow
+               ldew_rain_old_eff = canopy_old_water - ldew_snow_old_eff
+            ELSE
+               ldew_rain_old_eff = release_rain
+               ldew_snow_old_eff = canopy_old_water - ldew_rain_old_eff
+            ENDIF
+            ! Compute the smaller share directly, avoiding cancellation for
+            ! tiny releases from a much larger canopy reservoir.
+            IF (ldew_rain_old_eff <= ldew_snow_old_eff) THEN
+               trc_ldew_rain(itrc, ipatch) = canopy_release_trc * (ldew_rain_old_eff / canopy_old_water)
+               trc_ldew_snow(itrc, ipatch) = canopy_release_trc - trc_ldew_rain(itrc, ipatch)
+            ELSE
+               trc_ldew_snow(itrc, ipatch) = canopy_release_trc * (ldew_snow_old_eff / canopy_old_water)
+               trc_ldew_rain(itrc, ipatch) = canopy_release_trc - trc_ldew_snow(itrc, ipatch)
             ENDIF
          ENDIF
 

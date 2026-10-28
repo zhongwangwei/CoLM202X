@@ -222,8 +222,18 @@ CONTAINS
             character(len=32)  :: trc_ratio_word, trc_ratio_units
             real(r8) :: delta_loc, leaf_R_loc
             integer :: itrc_loc, ip_loc, j_loc, jsnow_loc
+#ifdef SinglePoint
+            logical :: site_hist_writeback_saved
+#endif
 
       HistForm = hist_form_in
+
+#ifdef SinglePoint
+      ! Match the material time writer: bypass the host's shared site cache,
+      ! including provider output, then restore the host write-back policy.
+      site_hist_writeback_saved = USE_SITE_HistWriteBack
+      USE_SITE_HistWriteBack = .false.
+#endif
 
       IF ((p_is_worker) .and. (numpatch > 0)) THEN
          filter(:) = patchtype < 99
@@ -695,6 +705,10 @@ CONTAINS
 
       CALL tracer_lifecycle_land_history (file_hist, itime_in_file, sumarea, filter, &
          nl_soil, forcing_has_missing_value, forcmask_pch)
+
+#ifdef SinglePoint
+      USE_SITE_HistWriteBack = site_hist_writeback_saved
+#endif
 
    END SUBROUTINE mt_hist_out
 
