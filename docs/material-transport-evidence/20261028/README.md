@@ -28,13 +28,18 @@
   （`trc_surface_residue`，不放松阈值、不裁 δ）；组件级验证：两种构建触发案例均 END、零 TRC 诊断、
   仓库 9 项自检 PASS。完整组合验收重跑与修复-vs-基线回归对照的作业编号见该文；**在它们终态前不写成组合通过**。
   原始记录为 `residual-fix/validation.json`、`residual-fix/*-log-markers.txt`、`residual-fix/define-*.h`。
-- [完整 hosted CI 矩阵记录](ci-matrix.md)：个人 fork `workflow_dispatch` 触发（run `40725517808`，head `10e9fbd2`，
-  23 job）。记录时 16/23 success、0 失败、7 个 mpich 待终态；**未到终态，不写成完整通过**。
-  `ci-coverage-check.txt` 是独立矩阵展开与 `check_defineh.py` 覆盖核对输出。
+- [完整 hosted CI 矩阵记录](ci-matrix.md)：两次 run。Run 1（`40725517808`，head `10e9fbd2`）官方终态
+  **cancelled = 20 success + 3 cancelled（6h 上限）**，完整矩阵未通过；随后提交 `2bc7510a` 把 93 例构建分片
+  （23×4=92 job，覆盖不变）并触发 Run 2（`40784782071`，head `2bc7510a`），**Run 2 终态前不写成完整通过**。
+  证据在 `ci-matrix/`（REST/web 快照、逐 job 汇总、cancelled 摘录）与 `ci-coverage-check.txt`。
 - [甲烷候选输入闭合与运行设计](methane-closure/README.md)：只读调查，结论 `NOT_READY`；15 个缺失边界文件
-  权威源已实测存在于 `bd:` 路径（补传需授权），窗口改写 W1 可零新增数据（少 9 h）。仍未运行甲烷模型。
+  权威源已实测存在于 `bd:` 路径（补传需授权），窗口改写 W1 可零新增数据（少 9 h）。
+- [甲烷真实构建、pilot 与两年全球准备](methane-runs/README.md)：真实 `CROP+BGC+MT` 构建与 mkinidata PASS；
+  交付默认 hybrid 被 fail-closed 守卫阻断（根因见 [methane-guard-fix.md](methane-guard-fix.md)，提交 `3778404f`
+  已改为 host-supported 封顶分配）；替代 wetwat 口径 1/3/30 天 PASS；水稻与两年 W1 在守卫修复后的验收
+  **仍在进行，未完成**。原始记录 `methane-runs/{EVIDENCE.md,results.json,PLAN_global2yr_7920.md}`。
 - `methane-input-audit-summary.json`：只读候选包元数据审计，结论为
   `NOT_READY / UNVERIFIED_CANDIDATE`。传输一致不代表来源唯一、输入闭合或科学正确；
-  没有启动甲烷模型。完整原报告仍在审计任务结果目录。
+  完整原报告仍在审计任务结果目录。
 
 原始位结论不比较 NetCDF 属性或文件编码；数值一致不等于观测准确性或全部配置验收通过。

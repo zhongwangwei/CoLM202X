@@ -90,32 +90,45 @@
   修复 vs `6d995438` 回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087`。**终态前不写组合验收通过。**
 - 证据：[residual-fix.md](material-transport-evidence/20261028/residual-fix.md)、`residual-fix/`。
 
-### 2.4 甲烷候选输入闭合与运行设计 — 只读调查，仍 NOT_READY
+### 2.4 甲烷：真实构建/mkinidata 通过；交付默认 hybrid 守卫已根因修复；水稻与两年 W1 运行中
 
-- **未运行任何甲烷模型、未传输数据。** 精确 1995–1996 窗口缺 15 个边界文件（1994 年 `dlwrf,pre,pres,spfh,tmp,
-  ugrd,vgrd` 末记录；1997 年全部 8 变量首记录）。**权威源已实测存在于 `bd:` 原传输路径**
-  （`/share/home/dq013/zhwei/colm/data/CoLM_Forcing/crujra_v2.5/`，尺寸与 1995 同变量一致，合计 21.15 GiB），
-  补传通道现成、**待用户授权**；7920 本机无 CRUJRA 数据。
-- **零传输替代**：生产时间索引例程实测窗口 1995-01-01 03:00 → 1996-12-31 18:00 时新增外部文件需求为 0
-  （少 9 h 模拟时间，需用户确认实验定义）；只补 1997（11.28 GiB）或只补 1994（9.87 GiB）也可行。
-- 候选包传输一致 40,450 文件/26,618,457,915 B，但仍是 **UNVERIFIED_CANDIDATE**；参数未冻结
-  （旧运行实测 spatial pH=off、`allowlakeprod=.false.`、rice=off；HEAD 默认相反；旧 case namelist 15 个 TRACER 键已删除）。
-- 两年全球有真实旧作业基准（720 ranks、35,088 步、mkinidata 4m28s、model 3h05m、成功；7920 @64CPU ≈34.5 h/两年，
-  **必须拆年度作业**，每年约 17.3 h）；内存需短跑标定。水稻设计就绪但 CROP+BGC+MT 无任何 CI 组合，需先真实编译。
-- 证据：[methane-closure/README.md](material-transport-evidence/20261028/methane-closure/README.md) 及同目录
-  `GAP_ANALYSIS.md`、`PLAN_global2yr.md`、`PLAN_rice.md`、`closure.json`。
+- **输入闭合**：精确 1995–1996 窗口缺 15 个边界文件（1994 年 `dlwrf,pre,pres,spfh,tmp,ugrd,vgrd` 末记录；
+  1997 年全部 8 变量首记录）。权威源已实测存在于 `bd:` 原路径（21.15 GiB，补传需用户授权；7920 本机无 CRUJRA）。
+  **采用 W1 零传输窗口**（1995-01-01 03:00 → 1996-12-31 18:00，35,070 步，少 9 h；实验定义变更须在结果中声明）。
+- **真实构建（首份 CROP+BGC+MT 编译证据）**：`MT+BGC+CROP+LULC_IGBP_PFT+vanGenuchten+GridRiverLakeFlow` `make all` PASS，
+  define.h 与三个二进制 SHA256 已固定；mkinidata 冷启动 PASS（4m12s、restart 642MB、END banner）。
+- **交付默认 hybrid 全球口径阻塞（根因已定位）**：fail-closed 守卫 `methane inundation exceeds host soil water`
+  （`MOD_MT_Methane_Physics.F90`）只比较 `finundated×孔隙体积` 与土壤孔隙水；但 hybrid 的 finundated 是独立水位估计，
+  洪水/湿地/含水层水不在孔隙水内，失配可合法接近 1（1 天诊断：0.05→step2, 0.20→step3, 0.95→step36 增长到 0.96；
+  dynamic_wtd 同；水稻同 patch/数值）。**调大容差不可救**。
+- **根因修复 `3778404f`**：把 abort 改为“记录 host-water 最大失配 + host-supported 封顶分配”（既有 `1/finundated`
+  封顶被原注释证明面积加权 host 水精确守恒，不造水）；`methane_host_water_report` 仍显示最坏失配，不隐藏；
+  未改物理参数、未放宽 tolerance 语义、未改 CH4 产生/氧化/输运。
+- **替代 wetwat 口径实测（可运行但科学代价须声明）**：1/3/30 天真实运行全部 END；30 天 wall 53m12s、
+  水量平衡 8.7e-3 m³（全球存量 1.9e12）、CH4 balance residual 4.5e-21、CH4 通量有限非零（rice=0）。
+  该口径丢 routing floodplain/稻田淹水物理，不能替代默认口径或水稻验收。
+- **修复后验收（进行中）**：hybrid 1/3 天、水稻（dynamic_wtd+rice+irrigation）1/3/30 天、两年 W1
+  （Y1 17,514 步 → Y2 17,556 步串行，各约 9–11.5h@64CPU，实测 1.84 s/step、峰值 33–37GB）。**结果出来前甲烷不写通过。**
+- 证据：[methane-runs/README.md](material-transport-evidence/20261028/methane-runs/README.md)、
+  [methane-guard-fix.md](material-transport-evidence/20261028/methane-guard-fix.md)、`methane-runs/`；
+  输入闭合只读调查另见 [methane-closure/README.md](material-transport-evidence/20261028/methane-closure/README.md)。
 
-### 2.5 完整 CI 编译器/MPI 矩阵 — 已在个人 fork 触发（终态前状态，见 §4）
+### 2.5 完整 CI 编译器/MPI 矩阵 — Run 1 未通过（3 个 6h 超时），已分片修复并触发 Run 2（进行中）
 
-- 触发方式：fork `workflow_dispatch`（head `10e9fbd2`，与交付 HEAD 的生产目录一致），**没有**向上游开 PR、
-  没有合并 SYSU/master、没有改 workflow 触发过滤——这正面解决“冻结 PR base 不匹配 master/colm30 触发”的限制。
-- run `40725517808`：https://github.com/zhongwangwei/CoLM202X/actions/runs/40725517808
-  实际矩阵展开为 **23 个 job**（YAML：2 OS × 3 MPI × 6 GCC = 36，exclude 去重后 23；不是 25）。
-- 截至本文最后核对（2026-10-29 03:29 CST）：**已完成 16/23 全部 success、0 失败、7 个 mpich job 仍 in_progress**（已跑约 3.0 h）；CI 内容核对已确认
-  `check_defineh.py` PASS（93 唯一用例）、525 字段历史累加量检查、93 例逐例 `make clean && make all`、
-  5 个 MTON/2 个 LULCCON 宏出现次数正确。mpich 历史上单例 3h06–5h48，可能拖到 6h 单 job 上限（06:24 CST）。
-- 终态判定口径：全部 job success 才算完整矩阵通过；若有 job 被 6h 超时取消或失败，按下述“未完成/缺口”保留。
-- 证据：[ci-matrix.md](material-transport-evidence/20261028/ci-matrix.md)、`ci-coverage-check.txt`；本地 API 快照与日志标记在 `.tmp/ct/ci10/`。
+- 触发方式：fork `workflow_dispatch`（**没有**向上游开 PR、没有合并 SYSU/master、没有改触发过滤）。
+- **Run 1 `40725517808`（head `10e9fbd2`）官方 REST 终态：`conclusion=cancelled`，
+  23 job = 20 success + 3 cancelled（`ubuntu-latest×mpich×gcc12/13/14` 触发 GitHub 6h 单 job 硬上限）
+  + 0 failure**；中位 99 min、最长 360.2 min。**完整矩阵未通过，不写成通过。**
+  CI 内容核对：23/23 job 的 `check_defineh.py` 与历史字段检查步骤 success；93 唯一用例；MTON=5、LULCCON=2；
+  独立覆盖核对与 YAML/API 名单一致（矩阵实为 23 job，不是 25）。
+- **结构修复 `2bc7510a`**：`.github/workflows/build_CoLM_gnu.yml` 增加 `matrix.shard: [0,1,2,3]`，
+  93 例构建分片到 4 个 job（23×4=**92 job**；每个 os/mpi/toolchain 仍覆盖全部 93 例，`check_defineh.py` 仍全量执行；
+  不减少覆盖、不改触发过滤），把单 job 工作量压到 6h 内。
+- **Run 2 `40784782071`（head `2bc7510a`）已触发，进行中**（首次核对 92 job：40 in_progress / 52 queued）。
+  **92/92 终态 success 前不写完整矩阵通过**；终态证据由 `ci-matrix` 子任务写入 `ci-matrix/`（`run-fixed`）。
+- 证据：[ci-matrix.md](material-transport-evidence/20261028/ci-matrix.md)、`ci-matrix/`（REST/web 快照、逐 job 汇总、
+  cancelled 摘录）、`ci-coverage-check.txt`；本机 API 快照与日志标记在 `.tmp/ct/ci10/`。
+  本机代理故障期间用本机 SSH SOCKS 中继（`ssh -f -N -D 11080 7920l`）恢复访问，未改系统代理、未把 token 传给远端。
 
 ## 3. 本轮新增 Git 提交（均在个人 fork 分支）
 
@@ -126,26 +139,32 @@
 | `3daa60e8` | 记录 p9s 长窗口三个完整窗口完成与 `report.json` 极值定位 |
 | `83d1d6c0` | 7 个透明探针 + Decimal50 回放：解释 p9s 长窗口极值（含工具归档与证据 JSON） |
 | `894720da` | 记录最新组合源码验收 FAIL、触发项定位、既有缺陷分类、frcsat 隔离、甲烷只读调查证据 |
+| `9f7c9a52` | **生产修复**：无载体干池同位素质量隔离到 `trc_surface_residue`（组合验收 abort 根因） |
+| `d6347f6c` | 记录该修复、组件级验证与回归差异（本轮文档/证据） |
+| `2bc7510a` | **CI 结构修复**：93 例构建分片为 4 shard（92 job），保证单 job <6h |
+| `3778404f` | **生产修复**：甲烷 host-water fail-closed 守卫改为 host-supported 封顶分配（hybrid 根因） |
 
-无生产源码改动；只 `docs/` 与 `tests/`（本提交串）变化。
+生产代码变化仅：`MOD_MT_SoilWater.F90`/`MOD_MT_Hist.F90`/`MOD_MT_Vars.F90`（同位素隔离修复）、
+`MOD_MT_Methane_Physics.F90`（甲烷守卫修复）、`.github/workflows/build_CoLM_gnu.yml`（CI 分片）；其余为 docs/evidence。
 
 ## 4. 未完成 / 未验证 / 延期项（保留，不掩盖）
 
 1. **最新组合源码验收：原 FAIL 的根因已修复，完整验收重跑尚未终态**。修复 `9f7c9a52`
    把无载体干池同位素质量隔离到既有 `trc_surface_residue`（不放松阈值、不裁 δ），组件级验证通过；
-   但 **combined10 全量门禁重跑 `codex-d48a500ecf994f2fb89a6e2856a1cc6a` 与修复-vs-`6d995438`
-   回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087` 仍在运行**——终态通过前，组合验收仍记为未完成。
+   回归对照 `codex-d64e0d0b…` 已实测：同配置 fixed vs `6d995438` 的 host 水/能量/网格 river 状态**逐位相同**，
+   仅 4 个 tracer 状态（含新隔离库）差 ≤1.3e-16 kg/m²、history 常见诊断差 ≤1.2e-11，并新增 4 个同位素
+   residue 输出变量（预期诊断增补）——即修复对不触发该路径的配置是舍入级惰性。但 **combined10 全量门禁重跑
+   `codex-d48a500ecf994f2fb89a6e2856a1cc6a` 仍在运行**——终态通过前，组合验收仍记为未完成。
    其它数值残余路径（土壤相变/雪层/蒸发边界）未修改；LULC_IGBP_PC、其它区域/scheme/强迫产品仍未覆盖。
-2. **完整 CI 矩阵未到终态**：旧 run `40725517808` 在 2026-10-29 04:0x CST 仍是 16/23 success、0 失败、
-   7 个 mpich in_progress；**本机 GitHub 网络在 04:08 后不可达（DNS 被解析到 198.18.0.33 代理假地址，
-   git/curl 均 SSL_ERROR_SYSCALL）**，因此修复提交 `9f7c9a52` 的推送与新的完整 CI 触发被阻塞，
-   恢复后必须补做：推送 → 触发新 run → 跟到 23/23 终态。旧 run 的 mpich 是否在 6 h 上限内成功同样以终态为准。
-3. **甲烷两年全球与水稻**：已开始真实推进（用户已授权 7920l 作为测试平台）。已真实编译
-   `MT+BGC+CROP+LULC_IGBP_PFT+vanGenuchten+GridRiverLakeFlow` 并通过 mkinidata（4m12s、峰值 28 GB）；
-   3 天首次运行触发 fail-closed `methane inundation exceeds host soil water`（deficit/pore 最大 0.0509
-   > 交付默认容差 0.05），已记录并按源码自身设计的合法容差（0.20）重跑 3 天（rice off / rice on /
-   rice on+only_wetland），后续 30 天水稻 pilot 与两年全球 W1 运行仍待完成。**未完成前不得写甲烷验收通过，
-   旧甲烷结果只作对照、不是正确基准。**
+2. **完整 CI 矩阵未通过/未完成**：Run 1 `40725517808` 官方终态 **cancelled = 20 success + 3 cancelled（6h 上限）**，
+   完整矩阵未通过；已提交 `2bc7510a` 分片修复并触发 Run 2 `40784782071`（head `2bc7510a`，92 job）。
+   **92/92 终态 success 前不写通过。** 本机代理故障期间用本机 SSH SOCKS 中继恢复 GitHub 访问（未改系统代理、
+   未把 token 传远端）。
+3. **甲烷两年全球与水稻（已真实推进，未完成）**：真实构建（CROP+BGC+MT）与 mkinidata PASS；
+   交付默认 hybrid 被 fail-closed 守卫阻断，根因修复 `3778404f`（host-supported 封顶分配替代 abort，分配守恒不造水）。
+   替代 wetwat 口径 1/3/30 天已 PASS（30 天 CH4 balance residual 4.5e-21、通量有限非零），但科学代价须声明。
+   **修复后的 hybrid/水稻 1/3/30 天与两年 W1（Y1 17,514 步 → Y2 17,556 步串行）仍待完成**；
+   未完成前不得写甲烷验收通过，旧 BD 结果只作对照、不是正确基准。
 4. **其它未覆盖边界**（沿用交接文档）：BGC+LULCC 是上游不支持组合；空 MPI worker 8-rank 崩溃未修；
    SinglePoint host 同月缓存覆盖未修；schema-1 缓存可靠性/阈值与 forcing identity 边界；观测准确度与
    全球代表性未验证；8 组以外 MPI rank 矩阵未重跑。
@@ -153,13 +172,12 @@
 
 ## 5. 建议的下一步（按优先级）
 
-1. 等 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（组合验收重跑）与 `codex-2608f8979c3449e8bb3cef74e9aba087`
-   （修复回归对照）终态：通过则更新组合验收结论；失败则保留原因并继续定位（不得放宽阈值）。
-2. GitHub 网络恢复后：推送 `9f7c9a52` 及后续文档提交，触发**修复提交的**完整 CI 矩阵并跟到 23/23 终态；
-   同时读取旧 run `40725517808` 的最终 mpich 结果。
-3. 甲烷：读取 3 天三口径结果；通过后跑 30 天水稻 pilot；再按 W1 零传输窗口准备/提交两个年度全球作业
-   （每作业约 17 h，注意 24 h 上限与内存标定）；参数口径（pH/lake/rice/only_wetland/irrigation）
-   逐项记录，旧结果只作参照。
+1. 等 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（组合验收重跑）终态：G1–G7 全 PASS 则更新组合验收结论；
+   失败则保留原因并继续定位（不得放宽阈值）。
+2. 等 Run 2 `40784782071` 的 92 job 终态：全 success 才记录“完整 CI 矩阵通过”；失败/取消按缺口保留并
+   考虑进一步分片或拆分 job；同时保留 Run 1 的 20/23 未通过记录。
+3. 甲烷：读取修复后 hybrid/水稻 1/3 天与 30 天水稻结果；通过后依次完成两年 W1（Y1 → Y2，各约 9–11.5h@64CPU），
+   保存 job ID/终态/CH4 通量与守恒诊断；wetwat 替代口径仅作对照并声明科学代价。
 4. 正式 PR 拆分/合并决定仍由用户作出；当前仅个人 Draft 留档，不向上游交付。
 
 ## 6. 证据索引
@@ -168,9 +186,9 @@
 | --- | --- |
 | p9r 验收 | `docs/material-transport-evidence/20261028/p9r-acceptance.md`（+ report/job/logs/provenance） |
 | p9s 报告与诊断 | `docs/material-transport-evidence/20261028/p9s-report.json`、`p9s-longwindow-diagnosis.md`、`p9s-probe-results.json`、`longwindow-probe-tools/` |
-| 组合验收 | `docs/material-transport-evidence/20261028/combined-acceptance.md`、`combined-report.json`、`combined-EVIDENCE.md`、`combined-attempts.json` |
-| 甲烷闭合 | `docs/material-transport-evidence/20261028/methane-closure/` |
-| CI | run `40725517808`（fork；证据在 `.tmp/ct/ci10/`，原报告在 GitHub Actions） |
+| 组合验收（原 FAIL + 根因修复） | `docs/material-transport-evidence/20261028/combined-acceptance.md`、`residual-fix.md`、`combined-report.json`、`combined-EVIDENCE.md`、`residual-fix/` |
+| 甲烷（输入闭合 + 真实运行 + 守卫修复） | `docs/material-transport-evidence/20261028/methane-closure/`、`methane-runs/`、`methane-guard-fix.md` |
+| CI | `docs/material-transport-evidence/20261028/ci-matrix.md`、`ci-matrix/`、`ci-coverage-check.txt`（Run 1 REST 终态 + Run 2 进行中） |
 | 状态总表 | `docs/material-transport-status.md` |
 
 ## 7. 复现命令（只读复核）
@@ -181,8 +199,10 @@ git log --oneline 10e9fbd2..HEAD
 ~/.local/bin/run-7920 status codex-4ba194bf50074f68aaa3d76178c49830   # p9r succeeded/0
 ~/.local/bin/run-7920 status codex-23354a2d716f45059da97e74b357b906   # p9s succeeded/0
 ~/.local/bin/run-7920 status codex-452fcc287377488daef69b1491144c1b   # p9s 探针 succeeded/0
-~/.local/bin/run-7920 status codex-2434412927a94e38a44ad21db5643a38   # 组合验收 failed/1（验收 FAIL）
-gh run view 40725517808 --repo zhongwangwei/CoLM202X                  # CI 矩阵
+~/.local/bin/run-7920 status codex-2434412927a94e38a44ad21db5643a38   # 组合验收原作业 failed/1（验收 FAIL）
+~/.local/bin/run-7920 status codex-6696730ffec34c518f011b395657e983   # 同位素修复组件验证 succeeded/0
+# 组合验收重跑/回归/甲烷作业的 job id 见本文件 §2.3–§2.4 与对应 EVIDENCE
+curl --socks5-hostname 127.0.0.1:11080 https://api.github.com/repos/zhongwangwei/CoLM202X/actions/runs/40725517808  # Run 1（需本机 SOCKS 中继）
 ```
 
-本地私有工件（不进 Git）：`/Users/zhongwangwei/Desktop/Github/CoLM202X/.tmp/ct/{p9r_accept,p9s_report,p9s_probe,combined10,ch4_closure10,ci10}/`。
+本地私有工件（不进 Git）：`/Users/zhongwangwei/Desktop/Github/CoLM202X/.tmp/ct/{p9r_accept,p9s_report,p9s_probe,combined10,combined10_fix,residue_fix,residue_regress,ch4_closure10,methane10,ci10}/`。

@@ -1,0 +1,17 @@
+methane10 source freeze
+=======================
+repo: /Users/zhongwangwei/Desktop/Github/CoLM-constituent (branch feature/constituent-transport)
+snapshot commit: e33d64f81508014b175592df4359474ede4712ab (worktree HEAD, clean at snapshot time)
+delivery HEAD: 10e9fbd204a99ff81bd60a98198b364d489e10d9
+verified before snapshot: `git diff --name-only 10e9fbd2 e33d64f8 -- . ':(exclude)docs' ':(exclude)tests'` is empty,
+so new/ (extracted with `git -C repo archive e33d64f8`) equals the production tree of the delivery HEAD;
+the only post-delivery commits are docs/tests/evidence.
+new/ manifest: source.sha256 (relative paths, checked inside the run-7920 job from new/).
+build define.h: .github/workflows/create_defineh.bash GRID LULC_IGBP_PFT URBANOFF vanGenu CaMaOFF BGCON CROPON MTON LULCCOFF
+               => MaterialTransport + BGC + CROP + LULC_IGBP_PFT + vanGenuchten_Mualem_SOIL_MODEL + GridRiverLakeFlow + USEMPI,
+                  LULCC/CaMa_Flood/Campbell/URBAN_MODEL undefined.
+build: make all FF=mpif90, NETCDF_INC/NETCDF_LIB from nf-config/nc-config,
+       FOPTS='-fdefault-real-8 -fdefault-double-8 -ffree-form -O2 -cpp -ffree-line-length-0 -fallow-argument-mismatch -mcmodel=medium'
+toolchain (7920, verified): gfortran 15.2.0, MPICH hydra 4.3.2, netCDF4-python 1.7.2 / numpy 2.3.5
+data root: /media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/ (UNVERIFIED_CANDIDATE)
+runtime:   /media/zhwei/data02/zhwei/CoLMruntime/ (identity unproven vs BD historical case)

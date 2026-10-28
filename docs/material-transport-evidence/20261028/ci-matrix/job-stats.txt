@@ -1,0 +1,5 @@
+total=23
+by_conclusion: cancelled=3 success=20
+by_status: completed=23
+job_duration_min=51.9 median=99.0 max=360.2
+run_started=2026-10-28T16:23:40Z run_updated=2026-10-28T22:23:59Z

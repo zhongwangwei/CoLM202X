@@ -82,13 +82,13 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 - [x] 读取 p9r 完整结果并完成同位素无强迫回归验收（终态 succeeded/0，10/10 例 + 10/10 严格比较，`failures: []`，唯一样本差异为允许的 schema 标量迁移；见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)）。
 - [x] 读取 p9s 完整结果并完成同位素长期尾部账本诊断：7 个透明探针 + Decimal50 回放，21 个有效 target×isotope δ 由真实 gross water/有符号质量重建、1 个负 signed ratio 按缺测输出；见[长窗口诊断](material-transport-evidence/20261028/p9s-longwindow-diagnosis.md)。仍不等同于全部超范围值解释或观测准确度。
 - [ ] 最新组合源码（含 frcsat + 强迫同位素 + LULCC + CL + 泥沙/河网）的完整验收：原组合验收 **FAIL**（`codex-2434412927…` failed/1），触发项已定位为 flood feedback + 运行时同位素强迫且 `28478b18` 基线同样复现（既有交互缺陷，非最新提交回归）。**根因已修复（提交 `9f7c9a52`：无载体干池同位素质量隔离到既有 `trc_surface_residue`，不放松阈值/不裁 δ）**；组件级验证 `codex-6696730…` 通过（两种构建触发案例 END、零 TRC 诊断、9 项自检 PASS）。完整组合验收重跑 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（G1–G7）与修复-vs-基线回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087` 运行中，**终态通过前仍记为未完成**。见[组合验收证据](material-transport-evidence/20261028/combined-acceptance.md)与[根因修复记录](material-transport-evidence/20261028/residual-fix.md)。
-- [ ] 完整 hosted CI 编译器/MPI 矩阵：已在个人 fork 用 `workflow_dispatch` 触发（run `40725517808`，head `10e9fbd2`，23 个 job；**不依赖 PR base 触发过滤**）。截至 2026-10-29 03:29 CST：**16/23 success、0 失败、7 个 mpich job 待终态**（已跑约 3.0 h）；mpich 历史单例 3h06–5h48，6h 上限为 06:24 CST。**只有 23/23 全 success 才算完整矩阵通过，当前不写成已通过。** 见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)。
+- [ ] 完整 hosted CI 编译器/MPI 矩阵：Run 1 `40725517808`（head `10e9fbd2`）官方终态 **cancelled：20 success + 3 cancelled（6h 上限）+ 0 failure**，完整矩阵未通过；已提交 `2bc7510a` 将 93 例构建分片为 23×4=92 job（覆盖不变）并触发 Run 2 `40784782071`（head `2bc7510a`，进行中）。**Run 2 全部 92 job 终态 success 前仍记为未完成。** 见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)。
+- [ ] 完成甲烷与 fork 的两年全球平场对照（**已启动真实推进，未完成**）。候选 1995–1996 精确窗口缺 15 个边界文件，已实测权威源存在于 `bd:` 原路径（21.15 GiB，补传需用户授权）；采用 **W1 零传输窗口**（1995-01-01 03:00 → 1996-12-31 18:00，35,070 步，少 9 h，需在结果中声明实验定义变更）。真实构建与 mkinidata 已 PASS；交付默认 hybrid 被 fail-closed 守卫阻断，根因修复 `3778404f` 后 hybrid/水稻/两年 W1 验收进行中（Y1 17,514 步约 9–11.5h，之后 Y2 17,556 步串行）。wetwat 替代口径 1/3/30 天已 PASS 但科学代价必须声明。旧 BD 结果只作参照、不是正确基准。见[甲烷运行证据](material-transport-evidence/20261028/methane-runs/README.md)。
 - [x] 补 CI 的 `PC+BGC+MT` 与 IGBP/PFT 的 `LULCC+MT`，并修正精确案例名匹配和全参数传递。93 个配置的有效宏检查通过；四项定向 GNU 构建通过。
 - [x] 补最新修复的非零 CL 回归：以 `28478b18` 对当前数值版本，NEC 两天 CL-only 与 isotope+CL 的四组实际运行、26 文件和 1,296 变量完整位比较通过；仅明确的缓存 schema `1→2` 例外。此项不替代强迫/LULCC 验证。
-- [ ] 完成甲烷与 fork 的两年全球平场对照（**未启动，等待用户决策**）。候选 1995–1996 输入不闭合：按真实生产时间索引需要 1994 年除 dswrf 外的 7 个末记录文件及 1997 年全部 8 个首记录文件；本轮已实测这些文件存在于 `bd:` 原路径（21.15 GiB，补传需授权），并实测窗口改写 W1（1995-01-01 03:00 → 1996-12-31 18:00）新增外部文件需求为 0（少 9 h）。旧参数与构建宏仍未冻结（旧运行与 HEAD 默认不同）。必须先由用户选择输入路线与参数口径、补/不补数据、短跑估时；没有启动新的全球甲烷模型。NEC/AMZ 三个月区域对照不能替代这一项。
-- [x] 完成湖底碳、土壤 pH 两个 Aggregation 的真实预处理与区域裁剪验收。RegionClip 年份路径、元数据及向量子集修复通过真实数据检查；TOPMODEL 常数模式与合法无 PFT 块两处复审发现已修正，独立复审通过。未扩展至所有可选地表模式或空 MPI worker。
+- [x] 湖底碳、土壤 pH 两个 Aggregation 的真实预处理与区域裁剪验收。RegionClip 年份路径、元数据及向量子集修复通过真实数据检查；TOPMODEL 常数模式与合法无 PFT 块两处复审发现已修正，独立复审通过。未扩展至所有可选地表模式或空 MPI worker。
 - [x] 空间 pH：真实生成、加载、强制裁剪及两天连续/拆分运行通过。27 个相关斑块全部非默认，19 restart 文件/1356 变量与 6 history 文件/706 变量逐位一致；甲烷闭合残差最大约 `2e-22 mol/m²/s`。这不是观测或长期平衡验证。
-- [ ] 水稻甲烷真实运行验收（**设计就绪、未运行**）。需要 MT+BGC+CROP+（IGBP_PFT|PC）+vanGenuchten+GridRiverLakeFlow 构建；CROP+BGC+MT 组合无任何 CI 覆盖，必须先真实编译；候选 landdata 已含 crop CFT/pH/lake_soilc，可用文件内部窗口（如 1995-06）不依赖缺失边界文件；估时 30 天约 1.4 h@64CPU。见[水稻设计](material-transport-evidence/20261028/methane-closure/PLAN_rice.md)。
+- [ ] 水稻甲烷真实运行验收（**已真实启动，未完成**）。真实 `MT+BGC+CROP+IGBP_PFT+VG+GridRiverLakeFlow` 构建 PASS、irrigation-on mkinidata PASS；旧 guard 在 step 36 以同一 patch/数值中止（水稻非触发因素）；`3778404f` 修复后需重跑 1/3/30 天并确认水稻通量非零、水量平衡与 CH4 守恒正常。wetwat 口径下稻田 finundated≡0、通量=0，不能替代验收。见[守卫修复记录](material-transport-evidence/20261028/methane-guard-fix.md)。
 - [x] SinglePoint 默认缓存一年验收：修复 host/material 共用单流缓存越界，全年 365 日/流；与直接写出 history 24 文件/2340 变量、restart 27 文件/1352 变量原始位一致。
 - [x] Vector 完整宿主 history 与 NP5/NP9/5→9 续跑验收；真实半日计数保存和最终动态状态补核通过。范围为 UNSTRUCTURED/PC/VG、静态同位素与非零 CL、无 BGC/侧向河网，不替代强迫同位素、LULCC 或全部配置验收。
 - [ ] 完成最新代码的回归汇总与最终审查，再决定正式 PR 的拆分和合并。
@@ -114,7 +114,20 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 
 - **最新组合源码整体验收（`6d995438`/HEAD `10e9fbd2`）：验收结果 FAIL，触发项已定位**（`codex-2434412927a94e38a44ad21db5643a38`，终态 failed/1）。LULC_IGBP/NEC 的六个完整组合案例都在 step 4 / 2005-12-25-05400 触发已记账数值残余硬限（`worst_abs=9.0882e-5 > tol=5.0e-5`，ipatch=213 itrc=1 ptype=0）而中止；G1 构建 PASS，G2–G7 随中止案例 FAIL，验证报告 status=FAIL（89 条 failures）。单因素消融把触发项定位为 `DEF_GridRiverLake_FloodFeedback=.true.` **与运行期 IsoGSM 同位素强迫同时开启**（与 CL/泥沙/levee/bifurcation/reservoir/分馏/LULCC scheme/LULCC 编译开关无关）；用 `28478b18` 与 `c315c849` 两套既有二进制作回归分类，两者同点同值失败 → **该交互缺陷在分支基线已存在，不是最新提交引入的回归**，是旧验收从未覆盖的组合。未放宽阈值、未裁 δ。frcsat 修复的数值不变性另有真实 120 步 NetCDF/MPI 隔离证据（`c315c849` 对 `6d995438`：history 全部原始位相同；restart 13 文件/767 公共变量相同，仅新增 2 个 mid-window 侧车字段）。详见[组合验收证据](material-transport-evidence/20261028/combined-acceptance.md)。
   **后续：根因已定位并修复（提交 `9f7c9a52`）**——表层“无载体塌陷”把整块同位素库存（patch 213 为 9.0765e-05 kg/m²）记成数值源汇，超过 `trc_resid_abs_tol=5e-5`；修复把非挥发溶质既有的 `trc_surface_residue` 隔离规则推广到水同位素，并在复水时溶解回来（不放松阈值、不裁 δ、不新增 restart 字段、不改水和能量物理）。组件级验证 `codex-6696730…` 通过：无 LULCC 与 LULCC 两种构建的触发案例均 `CoLM Execution Completed.`、零 `TRC_SIG/TRC_BAL/residual hard/residual note/STOP/abort`、仓库 9 项自检全 PASS。完整组合验收重跑 `codex-d48a500ecf994f2fb89a6e2856a1cc6a` 与修复-vs-`6d995438` 回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087` 运行中；**在它们终态前不写组合验收通过**。详见[根因修复记录](material-transport-evidence/20261028/residual-fix.md)。
-- **完整 hosted CI 矩阵已触发（终态前）**：个人 fork `workflow_dispatch`，run `40725517808`，head `10e9fbd2`，实际 23 个 job。截至 2026-10-29 03:05 CST：16/23 success、0 失败、7 个 mpich 仍在运行（历史单例 3h06–5h48，6h 上限 06:24 CST）。CI 内容已核对：`check_defineh.py` PASS 93 个唯一用例、525 字段历史累加量、93 例逐例 `make clean && make all`、5 个 MTON/2 个 LULCCON 宏计数正确。**未到终态，不写成完整通过。** 详见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)。
+- **完整 hosted CI 矩阵（Run 1 `40725517808` / head `10e9fbd2`）：未通过**。官方 REST 终态 `conclusion=cancelled`，
+  **23 job = 20 success + 3 cancelled（ubuntu-latest×mpich×gcc12/13/14 触发 6h 单 job 硬上限）+ 0 failure**；
+  中位 99 min、最长 360.2 min。CI 内容已核对：`check_defineh.py` PASS 93 个唯一用例、525 字段历史累加量、
+  93 例逐例 `make clean && make all`、5 个 MTON/2 个 LULCCON 宏计数正确。**20/23 不算完整通过。**
+  已提交 `2bc7510a` 把 93 例构建分片到 4 个 job（23×4=92 job，覆盖不变、不改触发过滤），并触发 Run 2
+  `40784782071`（head `2bc7510a`，进行中）；Run 2 终态前不写完整通过。详见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)、`ci-matrix/`。
+- **甲烷真实推进（2026-10-29）**：真实构建 `MT+BGC+CROP+LULC_IGBP_PFT+VG+GridRiverLakeFlow` PASS（CROP+BGC+MT
+  无 CI 覆盖，属首份真实编译证据），mkinidata PASS（4m12s/restart 642MB）。交付默认 hybrid 全球冷启动被
+  fail-closed 守卫 `methane inundation exceeds host soil water` 阻断（结构性：finundated 独立水位估计 vs 土壤孔隙水）；
+  **已提交根因修复 `3778404f`**（host-supported 封顶分配替代 abort，分配守恒、不造水、记录并不隐藏失配）。
+  替代 wetwat 口径 1/3/30 天真实运行已 PASS（30 天 wall 53m12s、CH4 balance residual 4.5e-21、通量有限非零）。
+  修复后的 hybrid/水稻 1/3/30 天与两年 W1（Y1 17,514 步 → Y2 17,556 步，各约 9–11.5h@64CPU）验收**进行中，
+  未完成**；wetwat 口径的科学代价（无 routing floodplain/稻田淹水）必须随结果声明。详见
+  [甲烷运行证据](material-transport-evidence/20261028/methane-runs/README.md)与[守卫修复记录](material-transport-evidence/20261028/methane-guard-fix.md)。
 - **p9r 同位素/CL 无强迫回归**（DeepSeek 接续，`codex-4ba194bf50074f68aaa3d76178c49830`）：2026-10-29 00:26:59 CST 终态 succeeded/0。旧 `28478b18` 对冻结 `c315c849` 的五种无强迫配置各重跑，10/10 例 END 且步数/最终时间戳精确、描述符身份正确、诊断失败 0；10/10 完整文件集/变量集/原始位比较通过，唯一差异为设计允许的标量 `mt_forcing_cache_schema 1→2`（两侧 count=0、无可靠性向量）；`failures: []`，验证器自测通过。不覆盖 `6d995438` frcsat 诊断字段或最新组合源码。详见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)。
 - 定向编译 `codex-d479cc7d5bb04bf190119a0427536a24` 终态成功：PC+BGC+MT、IGBP+LULCC+MT、PFT+LULCC+MT 的 `make all`，以及 SinglePoint 的 `colm.x/mkinidata.x`。构建输入为 `3a1c391a` 加 CI 改动；不包含后续运行暴露问题的修复。首轮环境链接失败已保留，重试显式统一 Conda GNU/NetCDF 和编译选项，不改生产构建文件。
 - 非零 CL 验收 `codex-577f4c4aa667427f8b04ceeca34e5946` 终态成功。每例 96 步，签名、质量与硬残差诊断为零；实际 CL 初值 `2e-5`、降水浓度 `3e-6`，每例有 11,742 个正 CL 值。

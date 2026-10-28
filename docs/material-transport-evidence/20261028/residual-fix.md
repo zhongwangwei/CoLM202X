@@ -67,13 +67,34 @@ TRC_BAL residual hard failure: n_entries=1 worst_abs=9.0882E-05 tol=5.0000E-05 @
 - 证据：`residual-fix/validation.json`、`residual-fix/*-log-markers.txt`、`residual-fix/define-*.h`、
   `residual-fix/environment.txt`；诊断作业日志在 7920 对应 job 的 `results/logs/`。
 
+## 修复回归对照（已完成：舍入级惰性，差异已逐项定性）
+
+作业 `codex-d64e0d0b17264f8db7d81038056a6030`：用同一套 `MT+GridRiverLakeFlow`（无 LULCC）配置分别构建
+fixed（`9f7c9a52`）与 base（`6d995438`），各跑两个 3 天案例：
+
+- A `all`：JRA 动力强迫 + 静态同位素 + CL + 泥沙 + levee/bifurcation/reservoir + flood feedback；
+- B `iso`：JRA 动力强迫 + 静态同位素（无 flood feedback、无 CL/泥沙/河网选项）。
+
+结果（作业终态 failed/1 只是严格比较器/复核脚本对“预期差异”返回非零；4 个模型 run 全部 143 步 END、无诊断）：
+
+| 比较 | 结果 |
+| --- | --- |
+| restart 宿主/网格/水量状态 | **逐位相同**（`case_restart_gridriver_*`、`case_restart_hist_*` 0 差异；`mt_wliq/wice/wdsrf` 等仅 4 个 tracer 状态差） |
+| restart tracer 状态差异 | `all`：`mt_wliq_soisno` ≤8.7e-19、`mt_wice_soisno` ≤3.5e-18、`mt_wdsrf` ≤2.1e-20、`mt_surface_residue` ≤1.8e-18（kg/m²）；`iso`：相应 ≤5.0e-17 / 3.5e-18 / 1.1e-16 / 1.3e-16 |
+| history 变量集 | fixed 仅**新增** 4 个诊断变量：`f_mt_surface_residue_{H2_18O,HDO}`、`f_mt_subsurface_residue_{H2_18O,HDO}`；base 无多余变量 |
+| history 公共变量差异 | `all` 8 个、`iso` 12 个，全部是 tracer 浓度/δ/evap 质量诊断；max abs 4.4e-13 / 1.1e-11（源于极小的 tracer 差与除法放大），**宿主水/能量/网格状态无差异** |
+
+**结论**：该修复对不触发“无载体干池”路径的配置是**舍入级惰性**（差异 ≤1.3e-16 kg/m² tracer 状态、
+≤1.1e-11 诊断），只新增 4 个可审计的同位素隔离库 history 变量；它只改变“本来会被记成数值源汇并可能 fatal”
+的隔离质量去向（这正是修复目的）。严格原始位比较器的非零返回被如实保留，不能写成“逐位一致通过”。
+
 ## 进行中的完整验收（本文件写作时尚未终态）
 
 | 作业 | 目的 | 状态 |
 | --- | --- | --- |
-| `codex-d48a500ecf994f2fb89a6e2856a1cc6a` | combined10 全量验收重跑（两套 LULCC 构建 + 10 案例 + 全部 G1–G7 门禁，源码 = `9f7c9a52`） | 运行中 |
-| `codex-2608f8979c3449e8bb3cef74e9aba087` | 修复 vs `6d995438` 回归对照（相同配置构建/运行，A: 无强迫+同位素+CL+泥沙+河网+flood feedback 3 天；B: 仅同位素 3 天） | 运行中 |
-| 待办 | 修复提交后的完整 hosted CI 矩阵（GitHub 网络恢复后触发）；p9r 类验收在修复源码上的数值一致性说明 | 待办 |
+| `codex-d48a500ecf994f2fb89a6e2856a1cc6a` | combined10 全量验收重跑（两套 LULCC 构建 + 10 案例 + 全部 G1–G7 门禁，源码 = `9f7c9a52`） | 运行中（IGBP/NEC 原 abort 案例已越过 step 4，接近 12 天窗口尾部） |
+| `codex-d64e0d0b17264f8db7d81038056a6030` | 修复 vs `6d995438` 回归对照 | **已完成**（上表；终态 failed/1 是严格比较器对预期差异返回） |
+| 待办 | 修复提交后的完整 hosted CI 矩阵；p9r 类验收在修复源码上的进一步结论 | 待办 |
 
 ## 边界与未覆盖
 
