@@ -4,13 +4,11 @@
 MODULE MOD_MT_Vars
 
    USE MOD_Precision
-   USE MOD_Namelist, only: DEF_USE_VariablySaturatedFlow
-   USE MOD_MT_Namelist, only: DEF_MT_LULCC_ABORT_NBAD, DEF_MT_AQUIFER_MIXING_WATER_MM
+   USE MOD_MT_Namelist, only: DEF_MT_LULCC_ABORT_NBAD
    USE MOD_SPMD_Task, only: p_is_io, CoLM_stop
    USE MOD_MT_Defs, only: ntracers, tracers, tracer_build_descriptor_identity, &
       mt_uses_generic_water, tracer_is_isotope, tracer_aquifer_actual_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
-   USE MOD_Const_LC, only: patchtypes
 
    IMPLICIT NONE
    SAVE
@@ -198,6 +196,7 @@ MODULE MOD_MT_Vars
    ! history, and host facades are exposed.
    PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
    PUBLIC :: save_land_tracer_lulcc_state, remap_land_tracer_lulcc_state
+   PUBLIC :: mt_patch_land_water_mass
    PUBLIC :: zero_provider_owned_land_tracer_state, sync_tracer_patch_ratio
    PUBLIC :: tracer_book_evap_loss
 
@@ -481,17 +480,45 @@ CONTAINS
    END SUBROUTINE save_land_tracer_lulcc_state
 
    SUBROUTINE remap_land_tracer_lulcc_state (patchclass_new, eindex_new, patchclass_old, eindex_old, &
-                                             lccpct_patches, new_patch_area, old_patch_area)
+                                             wa_new, host_water_old_2d, host_water_old_3d, &
+                                             host_sync, lccpct_patches, new_patch_area, old_patch_area)
+#ifdef LULCC
+      USE MOD_MT_Isotope_Lulcc, only: mt_isotope_lulcc_aquifer_reference
+#endif
       IMPLICIT NONE
       integer,   intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
+      real(r8),  intent(in) :: wa_new(:)      ! host aquifer water on the new patches
+      ! Host water of the old patches, one row per compartment (MOD_MT_Lulcc
+      ! builds and reads the rows). It is remapped with the same weights as
+      ! the material pools, so host_sync can see where the host did not carry
+      ! its water over the same way.
+      real(r8),  intent(in) :: host_water_old_2d(:,:)    ! (compartment, old patch)
+      real(r8),  intent(in) :: host_water_old_3d(:,:,:)  ! (phase, layer, old patch)
+      ! Brings the remapped pools in line with what the host LULCC did to its
+      ! water (MOD_MT_Lulcc): cold start of patches without a source patch,
+      ! wetland water reset, material following the host water wherever the
+      ! host water differs from the remapped old host water. It adds the
+      ! material mass it changes, per unit area times patch area, to change.
+      INTERFACE
+         SUBROUTINE host_sync (no_source, patch_area, change, src_water_2d, src_water_3d)
+            USE MOD_Precision, only: r8
+            logical,  intent(in)    :: no_source(:)
+            real(r8), intent(in)    :: patch_area(:)
+            real(r8), intent(inout) :: change(:)
+            real(r8), intent(in)    :: src_water_2d(:,:)
+            real(r8), intent(in)    :: src_water_3d(:,:,:)
+         END SUBROUTINE host_sync
+      END INTERFACE
       real(r8),  intent(in), optional :: lccpct_patches(:,0:)
       real(r8),  intent(in), optional :: new_patch_area(:), old_patch_area(:)
 
-      integer :: nnew, maxsnl_saved, nl_soil_saved, np, itrc
-      real(r8), allocatable :: mass_before(:), mass_after(:)
-      real(r8), allocatable :: remapped_ref_water(:,:)
-      logical :: check_lulcc_mass, require_isotope_reference
+      integer :: nnew, maxsnl_saved, nl_soil_saved, np
+      real(r8), allocatable :: mass_before(:), mass_after(:), carrier_change(:), host_change(:)
+      real(r8), allocatable :: remapped_ref_water(:,:), sync_area(:)
+      real(r8), allocatable :: src_water_2d(:,:), src_water_3d(:,:,:)
+      logical,  allocatable :: no_source(:)
+      logical :: check_lulcc_mass
 
       IF (.not. land_tracer_lulcc_snapshot_valid) RETURN
       IF (.not. allocated(lulcc_trc_wliq_soisno_old)) THEN
@@ -539,28 +566,6 @@ CONTAINS
       trc_aquifer_ref_water = remapped_ref_water(1, :)
       deallocate(remapped_ref_water)
       CALL remap2d_mass(lulcc_trc_aquifer_ref_mass_old, trc_aquifer_ref_mass)
-      require_isotope_reference = .false.
-      IF (DEF_USE_VariablySaturatedFlow .and. DEF_MT_AQUIFER_MIXING_WATER_MM > 0._r8) THEN
-         DO itrc = 1, ntracers
-            IF (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc)) &
-               require_isotope_reference = .true.
-         ENDDO
-      ENDIF
-      IF (require_isotope_reference .or. any(lulcc_trc_aquifer_ref_water_old > 0._r8)) THEN
-         DO np = 1, nnew
-            IF (patchclass_new(np) < lbound(patchtypes, 1) .or. &
-                patchclass_new(np) > ubound(patchtypes, 1)) &
-               CALL CoLM_stop('invalid LULCC patch class for aquifer isotope reference')
-            IF (trc_aquifer_ref_water(np) > 0._r8 .and. &
-                patchtypes(patchclass_new(np)) /= 0 .and. &
-                patchtypes(patchclass_new(np)) /= 2) &
-               CALL CoLM_stop('LULCC cannot transfer isotope aquifer reference to special patch')
-            IF (require_isotope_reference .and. trc_aquifer_ref_water(np) <= 0._r8 .and. &
-                (patchtypes(patchclass_new(np)) == 0 .or. &
-                 patchtypes(patchclass_new(np)) == 2)) &
-               CALL CoLM_stop('LULCC cannot create soil or wetland isotope aquifer without reference')
-         ENDDO
-      ENDIF
       CALL remap2d_mass(lulcc_trc_wdsrf_old,             trc_wdsrf)
       CALL remap2d_mass(lulcc_trc_wetwat_old,            trc_wetwat)
       CALL remap2d_mass(lulcc_trc_surface_residue_old,    trc_surface_residue)
@@ -578,12 +583,54 @@ CONTAINS
       CALL remap2d_mass(lulcc_trc_leaf_water_moles_old,  trc_leaf_water_moles)
       CALL remap2d_mass(lulcc_trc_leaf_iso_storage_old,  trc_leaf_iso_storage)
 
+      ! The host re-initialises every patch for the new year and copies back
+      ! only some of its water (MOD_Lulcc_Initialize, REST_LulccTimeVariables,
+      ! LulccMassEnergyConserve). The material pools follow it here; what
+      ! that adds or removes is counted by the mass check below.
+      allocate(no_source(nnew), host_change(ntracers))
+      DO np = 1, nnew
+         no_source(np) = .not. patch_has_source(np)
+      ENDDO
+      ! The old host water on the new patches, moved exactly as the pools.
+      allocate(src_water_2d(size(host_water_old_2d,1), nnew))
+      allocate(src_water_3d(size(host_water_old_3d,1), size(host_water_old_3d,2), nnew))
+      src_water_2d = 0._r8
+      src_water_3d = 0._r8
+      CALL remap2d_mass(host_water_old_2d, src_water_2d)
+      CALL remap3d_mass(host_water_old_3d, src_water_3d)
+      host_change = 0._r8
+      IF (check_lulcc_mass) THEN
+         CALL host_sync (no_source, new_patch_area, host_change, src_water_2d, src_water_3d)
+      ELSE
+         allocate(sync_area(nnew)); sync_area = 0._r8
+         CALL host_sync (no_source, sync_area, host_change, src_water_2d, src_water_3d)
+         deallocate(sync_area)
+      ENDIF
+      deallocate(src_water_2d, src_water_3d)
+
+      ! A special patch that received reference water, or a soil/wetland patch
+      ! that received none, gets its isotope reference carrier fixed in the
+      ! isotope family; the carrier mass that leaves or enters is counted by
+      ! the mass check below. It runs after the host sync, so a
+      ! cold-started patch already has its reference.
+      allocate(carrier_change(ntracers))
+      carrier_change = 0._r8
+#ifdef LULCC
+      IF (check_lulcc_mass) THEN
+         CALL mt_isotope_lulcc_aquifer_reference (patchclass_new, wa_new, &
+            trc_aquifer_ref_water, trc_aquifer_ref_mass, trc_wa, new_patch_area, carrier_change)
+      ELSE
+         CALL mt_isotope_lulcc_aquifer_reference (patchclass_new, wa_new, &
+            trc_aquifer_ref_water, trc_aquifer_ref_mass, trc_wa)
+      ENDIF
+#endif
       IF (check_lulcc_mass) THEN
          CALL compute_current_lulcc_land_water_mass(new_patch_area, mass_after)
-         CALL assert_lulcc_land_water_mass_conserved(mass_before, mass_after)
+         CALL assert_lulcc_land_water_mass_conserved(mass_before + host_change + carrier_change, mass_after)
          deallocate(mass_before, mass_after)
       ENDIF
 
+      deallocate(carrier_change, host_change, no_source)
       CALL clear_land_tracer_lulcc_snapshot()
 
    CONTAINS
@@ -861,6 +908,36 @@ CONTAINS
          ! a newly created patch with another surface type's tracer pools.
       END FUNCTION fallback_source
 
+      ! Whether the remap gives new patch np any source: a positive transfer
+      ! weight (MEC) or an old patch of the same class in the element. The
+      ! same tests as remap2d_mass.
+      logical FUNCTION patch_has_source(np) RESULT(has)
+         integer, intent(in) :: np
+         integer :: op
+         real(r8) :: w
+         logical :: conserve_area_mass
+
+         has = .false.
+         IF (present(lccpct_patches)) THEN
+            conserve_area_mass = area_mass_remap_available(np)
+            DO op = 1, min(size(patchclass_old), size(eindex_old))
+               IF (eindex_old(op) /= eindex_new(np)) CYCLE
+               IF (patchclass_old(op) < lbound(lccpct_patches,2) .or. &
+                   patchclass_old(op) > ubound(lccpct_patches,2)) CYCLE
+               IF (conserve_area_mass) THEN
+                  w = lulcc_mass_transfer_area(np, op)
+               ELSE
+                  w = lulcc_source_area_weight(np, op)
+               ENDIF
+               IF (w > 0._r8) THEN
+                  has = .true.
+                  RETURN
+               ENDIF
+            ENDDO
+         ENDIF
+         has = fallback_source(np, size(patchclass_old)) > 0
+      END FUNCTION patch_has_source
+
       REAL(r8) FUNCTION lulcc_source_area_weight(np, op) RESULT(w)
          integer, intent(in) :: np, op
          integer :: oq
@@ -981,6 +1058,37 @@ CONTAINS
          ENDIF
       END FUNCTION remap_denominator
    END SUBROUTINE remap_land_tracer_lulcc_state
+
+   ! Land-water material mass of one patch per unit area, over the same pools
+   ! as the LULCC mass check (remap_land_tracer_lulcc_state).
+   SUBROUTINE mt_patch_land_water_mass (ip, total)
+      IMPLICIT NONE
+      integer,  intent(in)  :: ip
+      real(r8), intent(out) :: total(:)
+      integer :: itrc
+
+      total = 0._r8
+      DO itrc = 1, min(size(total), ntracers)
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+         IF (allocated(trc_ldew_rain))    total(itrc) = total(itrc) + trc_ldew_rain(itrc,ip)
+         IF (allocated(trc_ldew_snow))    total(itrc) = total(itrc) + trc_ldew_snow(itrc,ip)
+         IF (allocated(trc_wliq_soisno))  total(itrc) = total(itrc) + sum(trc_wliq_soisno(itrc,:,ip))
+         IF (allocated(trc_wice_soisno))  total(itrc) = total(itrc) + sum(trc_wice_soisno(itrc,:,ip))
+         IF (allocated(trc_wa))           total(itrc) = total(itrc) + trc_wa(itrc,ip)
+         IF (allocated(trc_aquifer_ref_mass)) total(itrc) = total(itrc) + trc_aquifer_ref_mass(itrc,ip)
+         IF (allocated(trc_wdsrf))        total(itrc) = total(itrc) + trc_wdsrf(itrc,ip)
+         IF (allocated(trc_wetwat))       total(itrc) = total(itrc) + trc_wetwat(itrc,ip)
+         IF (allocated(trc_surface_residue)) total(itrc) = total(itrc) + trc_surface_residue(itrc,ip)
+         IF (allocated(trc_subsurface_residue)) total(itrc) = total(itrc) + trc_subsurface_residue(itrc,ip)
+         IF (allocated(trc_solid_soisno)) total(itrc) = total(itrc) + sum(trc_solid_soisno(itrc,:,ip))
+         IF (allocated(trc_canopy_solid)) total(itrc) = total(itrc) + trc_canopy_solid(itrc,ip)
+         IF (allocated(trc_surface_solid)) total(itrc) = total(itrc) + trc_surface_solid(itrc,ip)
+         IF (allocated(trc_subsurface_solid)) total(itrc) = total(itrc) + trc_subsurface_solid(itrc,ip)
+         IF (allocated(trc_waterstorage_solid)) total(itrc) = total(itrc) + trc_waterstorage_solid(itrc,ip)
+         IF (allocated(trc_waterstorage)) total(itrc) = total(itrc) + trc_waterstorage(itrc,ip)
+         IF (allocated(trc_scv))          total(itrc) = total(itrc) + trc_scv(itrc,ip)
+      ENDDO
+   END SUBROUTINE mt_patch_land_water_mass
 
    SUBROUTINE clear_land_tracer_lulcc_snapshot ()
       IMPLICIT NONE

@@ -699,11 +699,20 @@ CONTAINS
       tracer_craig_gordon_evap_ratio = source_ratio
       IF (.not. tracer_fractionation_active(itrc)) RETURN
 
-      IF (from_ice) THEN
-         alpha_eq = tracer_alpha_ice_vap(itrc, temp_k)
-      ELSE
-         alpha_eq = tracer_alpha_liq_vap(itrc, temp_k)
-      ENDIF
+      ! Sublimation (ice -> vapour) does not fractionate: the vapour leaves
+      ! at the ratio of the ice it comes from. Self-diffusion in ice is far
+      ! too slow for a fractionated boundary layer to form at the surface, so
+      ! the ice is removed layer by layer at its own composition (the usual
+      ! assumption for snow and ice sublimation, e.g. Friedman et al. 1991,
+      ! Moser & Stichler 1975). Applying Craig-Gordon to ice instead, with
+      ! the humidity near ice saturation over snow, gave vapour of
+      ! delta18O -122 permil / deltaD -830 permil at h = 0.99 (cap of
+      ! DEF_ISO_CG_RELHUM_MAX) in the 2000-2004 IsoGSM cases, far outside
+      ! any observed snow vapour. Every ice source (canopy snow, snow layers,
+      ! soil ice, glacier, frozen lake) comes through here.
+      IF (from_ice) RETURN
+
+      alpha_eq = tracer_alpha_liq_vap(itrc, temp_k)
       IF (alpha_eq <= trc_tiny .or. alpha_eq /= alpha_eq) RETURN
 
       tracer_craig_gordon_evap_ratio = tracer_craig_gordon_ratio_core(source_ratio, &
@@ -764,7 +773,6 @@ CONTAINS
       real(r8) :: delta_x, delta_v, delta_es, delta_t
       real(r8) :: leaf_moles, transp_moles, transp_moles_leaf_s
       real(r8) :: prev_e, prev_p, prev_w, liquid_diff, peclet_number
-      real(r8) :: leaf_moles_ratio
       real(r8) :: relax_b, denom, tk
       real(r8) :: gross_moles, conductance_gross_moles
       real(r8) :: vapor_molar_density_sat, total_resistance
@@ -822,15 +830,18 @@ CONTAINS
       ENDIF
       new_peclet = min(max(new_peclet, 0._r8), 1._r8)
 
-	      IF (prev_leaf_moles > trc_tiny) THEN
-	         leaf_moles_ratio = prev_leaf_moles / max(leaf_moles, trc_tiny)
-	         IF (leaf_moles_ratio > 0.25_r8 .and. leaf_moles_ratio < 4._r8) THEN
-	            prev_w = prev_leaf_moles
-	         ELSE
-	            ! Ignore a storage-size jump from changed NSS parameters or legacy restart files.
-	            prev_w = leaf_moles
-	         ENDIF
-	         prev_e = prev_delta_e
+      ! The leaf water amount W = LAI * DEF_ISO_NSS_LEAF_WATER_PER_LAI is a
+      ! diagnostic size, not host water: when LAI changes, the leaf keeps its
+      ! isotope ratio and only its size changes, so the previous state is
+      ! taken at the current W. Carrying the previous W instead turned the
+      ! LAI step into an isotope storage change: at the January-February LAI
+      ! step in the NEC case (LAI 1.13 -> 0.33) the storage limiter below
+      ! froze the tracer storage and put it into the smaller leaf, giving
+      ! bulk leaf delta18O of +530 to +1700 permil, and about -650 permil
+      ! when LAI grew.
+      IF (prev_leaf_moles > trc_tiny) THEN
+         prev_w = leaf_moles
+         prev_e = prev_delta_e
 	         prev_p = min(max(prev_peclet, 0._r8), 1._r8)
       ELSE
          prev_w = leaf_moles

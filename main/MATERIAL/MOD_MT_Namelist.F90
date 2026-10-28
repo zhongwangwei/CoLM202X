@@ -59,6 +59,13 @@ MODULE MOD_MT_Namelist
    ! Water depth that carries the aquifer signature when the
    ! variably saturated flow scheme is on (required > 0 for isotopes then).
    real(r8)           :: DEF_MT_AQUIFER_MIXING_WATER_MM = -1._r8
+   ! Total precipitation rate [kg m-2 s-1] at or below which a heavy/total
+   ! forcing ratio is taken as near-dry and the default ratio is used.
+   ! IsoGSM 2004 global (January and July, 6-hourly): at 1e-7..1e-6 the
+   ! ratio is noise (60-65% of records with |d-excess| > 100), 22-32% at
+   ! 1e-6..2e-6, 3-8% at 2e-6..5e-6, at most 0.5% above 5e-6; 5e-6 leaves
+   ! 1.2-1.5% of the precipitation mass at the default ratio.
+   real(r8)           :: DEF_MT_FORCING_MIN_PRECIP = 5.e-6_r8
    logical            :: DEF_MT_USE_SOIL_INIT   = .false.
    character(len=256) :: DEF_MT_SOIL_INIT_FILE  = 'null'
    character(len=256) :: DEF_MT_SOIL_INIT_VARS  = ''
@@ -111,7 +118,7 @@ CONTAINS
          DEF_ISOTOPE_PARAM_FILE, DEF_SOLUTE_NAMES, DEF_SOLUTE_PARAM_FILES, &
          DEF_SEDIMENT_PARAM_FILE, DEF_USE_METHANE, DEF_METHANE_PARAM_FILE, &
          DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD, DEF_MT_LULCC_ABORT_NBAD, &
-         DEF_MT_AQUIFER_MIXING_WATER_MM, &
+         DEF_MT_AQUIFER_MIXING_WATER_MM, DEF_MT_FORCING_MIN_PRECIP, &
          DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
 
       namelist /nl_colm_isotope_parameter/ DEF_ISO_USE_FRACTIONATION, &
@@ -179,6 +186,7 @@ CONTAINS
       CALL mpi_bcast (DEF_MT_RESID_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_LULCC_ABORT_NBAD       ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_AQUIFER_MIXING_WATER_MM,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_FORCING_MIN_PRECIP     ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_USE_SOIL_INIT          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_SOIL_INIT_FILE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_SOIL_INIT_VARS         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -212,6 +220,9 @@ CONTAINS
 
    USE MOD_SPMD_Task, only: CoLM_Stop
    IMPLICIT NONE
+
+      IF (.not. (DEF_MT_FORCING_MIN_PRECIP >= 0._r8)) &
+         CALL CoLM_Stop ('DEF_MT_FORCING_MIN_PRECIP must be >= 0.')
 
       SELECT CASE (trim(adjustl(DEF_ISO_KINETIC_SCHEME)))
       CASE ('CAPPA2003', 'Cappa2003', 'cappa2003')

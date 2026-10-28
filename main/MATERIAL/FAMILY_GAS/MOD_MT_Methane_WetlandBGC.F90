@@ -39,9 +39,13 @@ MODULE MOD_MT_Methane_WetlandBGC
 !  column (zero after mkinidata unless the CN initial file is used); a
 !  layer without carbon gets the organic matter of the soil data
 !  (OM_density * 580 gC/kg, split 5/10/5/0/5/25/50 % into the litter, CWD
-!  and soil pools, C:N 15), as CoLM202X mkinidata did.  CoLM202X also
-!  filled the wetland column from the CN initial file (DEF_USE_CN_INIT);
-!  that file is read by mkinidata only and is not used here.
+!  and soil pools, C:N 15).  CoLM202X mkinidata applied the same split,
+!  but only inside its DEF_USE_CN_INIT branch, so with the default
+!  (.false.) its wetland columns started without carbon and produced
+!  almost no methane.  Here the organic matter start is applied in every
+!  cold start, so that the default configuration has wetland substrate.
+!  CoLM202X also filled the wetland column from the CN initial file; that
+!  file is read by mkinidata only and is not used here.
 !=======================================================================
 
    USE MOD_Precision

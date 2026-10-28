@@ -825,7 +825,7 @@ CONTAINS
 
    SUBROUTINE mt_init_from_water (numpatch, maxsnl, nl_soil, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
-      wa, wdsrf, wetwat, scv, waterstorage)
+      wa, wdsrf, wetwat, scv, waterstorage, patch_mask)
 
       IMPLICIT NONE
       integer,  intent(in) :: numpatch, maxsnl, nl_soil
@@ -845,21 +845,41 @@ CONTAINS
       ! and the first step's balance check would under-count the
       ! reservoir mass that the water side already tracks.
       real(r8), intent(in), optional :: waterstorage(numpatch)
+      ! Optional: cold-start only these patches (LULCC patches with no source
+      ! patch, MOD_MT_Lulcc); the other patches and the provider-owned state
+      ! are left as they are. Without it every patch is cold-started.
+      logical,  intent(in), optional :: patch_mask(numpatch)
 
       integer  :: itrc, ip, j, snl_local
       real(r8) :: R_init
 
-      IF (allocated(trc_surface_residue)) trc_surface_residue = 0._r8
-      IF (allocated(trc_subsurface_residue)) trc_subsurface_residue = 0._r8
-      IF (allocated(trc_solid_soisno)) trc_solid_soisno = 0._r8
-      IF (allocated(trc_canopy_solid)) trc_canopy_solid = 0._r8
-      IF (allocated(trc_surface_solid)) trc_surface_solid = 0._r8
-      IF (allocated(trc_subsurface_solid)) trc_subsurface_solid = 0._r8
-      IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid = 0._r8
+      IF (present(patch_mask)) THEN
+         DO ip = 1, numpatch
+            IF (.not. patch_mask(ip)) CYCLE
+            IF (allocated(trc_surface_residue)) trc_surface_residue(:,ip) = 0._r8
+            IF (allocated(trc_subsurface_residue)) trc_subsurface_residue(:,ip) = 0._r8
+            IF (allocated(trc_solid_soisno)) trc_solid_soisno(:,:,ip) = 0._r8
+            IF (allocated(trc_canopy_solid)) trc_canopy_solid(:,ip) = 0._r8
+            IF (allocated(trc_surface_solid)) trc_surface_solid(:,ip) = 0._r8
+            IF (allocated(trc_subsurface_solid)) trc_subsurface_solid(:,ip) = 0._r8
+            IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid(:,ip) = 0._r8
+         ENDDO
+      ELSE
+         IF (allocated(trc_surface_residue)) trc_surface_residue = 0._r8
+         IF (allocated(trc_subsurface_residue)) trc_subsurface_residue = 0._r8
+         IF (allocated(trc_solid_soisno)) trc_solid_soisno = 0._r8
+         IF (allocated(trc_canopy_solid)) trc_canopy_solid = 0._r8
+         IF (allocated(trc_surface_solid)) trc_surface_solid = 0._r8
+         IF (allocated(trc_subsurface_solid)) trc_subsurface_solid = 0._r8
+         IF (allocated(trc_waterstorage_solid)) trc_waterstorage_solid = 0._r8
+      ENDIF
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
          R_init = tracer_init_water_ratio(itrc)
          DO ip = 1, numpatch
+            IF (present(patch_mask)) THEN
+               IF (.not. patch_mask(ip)) CYCLE
+            ENDIF
             trc_ldew_rain(itrc, ip) = ldew_rain(ip) * R_init
             trc_ldew_snow(itrc, ip) = ldew_snow(ip) * R_init
             CALL mt_equilibrate_dissolved(itrc, max(ldew_rain(ip), 0._r8), &
@@ -938,7 +958,7 @@ CONTAINS
             ENDIF
          ENDDO
       ENDDO
-      CALL zero_provider_owned_land_tracer_state()
+      IF (.not. present(patch_mask)) CALL zero_provider_owned_land_tracer_state()
    END SUBROUTINE mt_init_from_water
 
    SUBROUTINE read_land_tracer_restart (file_restart, maxsnl, nl_soil, found_restart, &

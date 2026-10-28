@@ -181,6 +181,8 @@ OBJS_BASIC =    \
 				 MOD_MT_Isotope_Registry.o       \
 				 MOD_MT_Isotope_O18.o            \
 				 MOD_MT_Isotope_HDO.o            \
+				 MOD_MT_Isotope_Lulcc.o          \
+				 MOD_MT_Isotope_SoilFlow.o       \
 				 MOD_MT_Providers.o              \
 				 MOD_MT_Frac.o                   \
 				 MOD_MT_EvapLimit.o              \
@@ -460,7 +462,7 @@ MOD_Hist.o: MOD_HistAccRestart.o MOD_MT_HostFixes.o
 # Material transport (main/MATERIAL); every file is empty unless MaterialTransport is defined.
 MOD_MT_Conservation.o: MOD_MT_Defs.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Evapo.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
-MOD_MT_Forcing.o: MOD_MT_Defs.o MOD_MT_ForcingInput.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_Vars.o MOD_UserSpecifiedForcing.o
+MOD_MT_Forcing.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_ForcingInput.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_Vars.o MOD_UserSpecifiedForcing.o
 MOD_MT_ForcingInput.o: MOD_MT_Defs.o
 MOD_MT_Frac.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o
 MOD_MT_HostFixes.o: MOD_MT_Namelist.o MOD_HistGridded.o
@@ -468,9 +470,11 @@ MOD_MT_Hist.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_Vars.o MOD_HistGridded.o
 MOD_MT_Isotope_HDO.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
 MOD_MT_Isotope_O18.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o
 MOD_MT_Isotope_Registry.o: MOD_MT_Defs.o
+MOD_MT_Isotope_Lulcc.o: MOD_MT_Defs.o MOD_MT_Namelist.o
+MOD_MT_Isotope_SoilFlow.o: MOD_MT_Defs.o
 MOD_MT_LandPhase.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_Evapo.o MOD_MT_Lifecycle.o MOD_MT_Precip.o MOD_MT_Rest.o MOD_MT_Snow.o MOD_MT_SoilInit.o MOD_MT_SoilWater.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Lifecycle.o: MOD_MT_Defs.o
-MOD_MT_Lulcc.o: MOD_Lulcc_Vars_TimeInvariants.o MOD_Lulcc_TransferTraceReadin.o MOD_MT_Lifecycle.o MOD_MT_Vars.o MOD_MT_Forcing.o MOD_MT_Conservation.o
+MOD_MT_Lulcc.o: MOD_Lulcc_Vars_TimeInvariants.o MOD_Lulcc_Vars_TimeVariables.o MOD_Lulcc_TransferTraceReadin.o MOD_MT_Lifecycle.o MOD_MT_Vars.o MOD_MT_Forcing.o MOD_MT_Conservation.o MOD_Vars_TimeVariables.o MOD_MT_Rest.o MOD_MT_Solute.o MOD_MT_Defs.o
 MOD_Lulcc_Driver.o: MOD_MT_Lulcc.o
 MOD_MT_Precip.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Providers.o: MOD_MT_Isotope_HDO.o MOD_MT_Isotope_O18.o
@@ -495,9 +499,9 @@ MOD_MT_Rest.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Lifecycle.o MOD_MT_Namelist
 MOD_MT_Solute.o: MOD_MT_Defs.o MOD_MT_Namelist.o
 MOD_MT_Snow.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_SoilInit.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o MOD_MT_Vars.o
-MOD_MT_SoilWater.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
+MOD_MT_SoilWater.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_MT_Isotope_SoilFlow.o
 MOD_MT_SpecialPatches.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Hist.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
-MOD_MT_Vars.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_Solute.o
+MOD_MT_Vars.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Isotope_Lulcc.o
 MOD_Vars_TimeVariables.o: MOD_MT_Rest.o MOD_MT_RiverLake.o
 MOD_Grid_RiverLakeFlow.o: MOD_MT_RiverLakeCoupling.o
 MOD_Grid_RiverLakeHist.o: MOD_MT_RiverLake.o

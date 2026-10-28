@@ -23,6 +23,7 @@ MODULE MOD_MT_Forcing
    USE MOD_LandPatch
    USE MOD_TimeManager
    USE MOD_UserSpecifiedForcing, only: metfilename
+   USE MOD_MT_Namelist, only: DEF_MT_FORCING_MIN_PRECIP
    USE MOD_MT_Defs, only: ntracers, tracers, tracer_precip_default_ratio, &
       tracer_vapor_default_ratio, &
       tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
@@ -50,11 +51,9 @@ MODULE MOD_MT_Forcing
    integer, parameter :: MODE_HEAVY_OVER_TOTAL = 3
    integer, parameter :: MODE_NORMALIZED_OVER_TOTAL = 4
 
-   ! Normalized isotope-over-total precipitation ratios are numerically
-   ! unreliable for near-dry IsoGSM records. 1e-7 kg m-2 s-1 is only
-   ! 0.00216 mm per 6-hour forcing interval, so filtering it has negligible
-   ! water-mass impact while preventing ratio spikes from becoming forcings.
-   real(r8), parameter :: trc_forc_min_prcp = 1.0e-7_r8
+   ! Heavy/total precipitation ratios are numerically unreliable for
+   ! near-dry records; the threshold is DEF_MT_FORCING_MIN_PRECIP (see
+   ! MOD_MT_Namelist for the IsoGSM evidence behind its default).
    real(r8), parameter :: trc_forc_min_q    = 1.0e-12_r8
    real(r8), parameter :: trc_forc_max_abs  = 1.0e10_r8
    integer, parameter :: TRC_FORC_CACHE_SCHEMA = 1
@@ -1092,7 +1091,7 @@ CONTAINS
             RETURN
          ENDIF
          min_total = trc_forc_min_q
-         IF (trc_var_stream(iv) == STREAM_PRECIP) min_total = trc_forc_min_prcp
+         IF (trc_var_stream(iv) == STREAM_PRECIP) min_total = DEF_MT_FORCING_MIN_PRECIP
          IF (total <= min_total) THEN
             decode_status = DECODE_NEAR_DRY
             IF (present(status)) status = decode_status

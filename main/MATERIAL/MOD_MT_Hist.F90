@@ -702,6 +702,11 @@ CONTAINS
 
 
 #ifdef MaterialTransport
+   ! Ratio writers (2d, 3d and their vector forms) drop a patch whose
+   ! accumulated water is at most trc_water_min_for_delta, as the delta
+   ! writers do. With trc_tiny they wrote the ratio of rounding dust: a
+   ! NEC January IsoGSM run gave f_mt_conc_wdsrf = 0 (delta -1000) where
+   ! the accumulated surface water was 1e-17..1e-14 mm.
    SUBROUTINE write_history_tracer_ratio_2d ( is_hist, &
          tracer_mass_acc, water_acc, file_hist, varname, itime_in_file, &
          filter, longname, units)
@@ -739,7 +744,7 @@ CONTAINS
          allocate(ratio_vec(size(water_acc)))
          ratio_vec = spval
          DO ip = 1, size(water_acc)
-            IF (abs(water_acc(ip)) > trc_tiny .and. tracer_mass_acc(ip) /= spval) THEN
+            IF (abs(water_acc(ip)) > trc_water_min_for_delta .and. tracer_mass_acc(ip) /= spval) THEN
                ratio_vec(ip) = tracer_mass_acc(ip) / water_acc(ip)
             ENDIF
          ENDDO
@@ -765,7 +770,7 @@ CONTAINS
 
       IF (p_is_worker) THEN
          DO ip = 1, size(water_acc)
-            IF (abs(water_acc(ip)) > trc_tiny .and. tracer_mass_acc(ip) /= spval) THEN
+            IF (abs(water_acc(ip)) > trc_water_min_for_delta .and. tracer_mass_acc(ip) /= spval) THEN
                tracer_map_vec(ip) = tracer_mass_acc(ip)
                water_map_vec(ip) = water_acc(ip)
             ENDIF
@@ -856,7 +861,7 @@ CONTAINS
          ratio_vec = spval
          DO ip = 1, size(water_acc, 2)
             DO i1 = lb_vec, ub_vec
-               IF (abs(water_acc(i1, ip)) > trc_tiny .and. tracer_mass_acc(i1, ip) /= spval) THEN
+               IF (abs(water_acc(i1, ip)) > trc_water_min_for_delta .and. tracer_mass_acc(i1, ip) /= spval) THEN
                   ! single_write_3d divides by nac internally like ordinary
                   ! accumulated variables. Ratio is already a final diagnostic,
                   ! so pre-scale here to leave the written value unchanged.
@@ -890,7 +895,7 @@ CONTAINS
       IF (p_is_worker) THEN
          DO ip = 1, size(water_acc, 2)
             DO i1 = lb_vec, ub_vec
-               IF (water_acc(i1, ip) > trc_tiny .and. tracer_mass_acc(i1, ip) /= spval) THEN
+               IF (water_acc(i1, ip) > trc_water_min_for_delta .and. tracer_mass_acc(i1, ip) /= spval) THEN
                   tracer_map_vec(i1, ip) = tracer_mass_acc(i1, ip)
                   water_map_vec  (i1, ip) = water_acc(i1, ip)
                ENDIF
@@ -1077,7 +1082,7 @@ CONTAINS
       character(len=*), intent(in) :: units
 
       CALL write_history_tracer_vector_2d (tracer_mass_acc, water_acc, 0._r8, &
-         .false., trc_tiny, file_hist, varname, itime_in_file, filter, &
+         .false., trc_water_min_for_delta, file_hist, varname, itime_in_file, filter, &
          longname, units)
    END SUBROUTINE write_history_tracer_ratio_vector_2d
 
@@ -1350,7 +1355,7 @@ CONTAINS
 #endif
                   DO i1 = lb1, ub1
                      k = i1 - lb1 + 1
-                     mask = (abs(water_acc(i1, istt:iend)) > trc_tiny) .and. &
+                     mask = (abs(water_acc(i1, istt:iend)) > trc_water_min_for_delta) .and. &
                         (tracer_mass_acc(i1, istt:iend) /= spval) .and. filter(istt:iend)
                      IF (any(mask)) THEN
                         trc_local(k, iset) = sum(frac * tracer_mass_acc(i1, istt:iend), mask = mask)

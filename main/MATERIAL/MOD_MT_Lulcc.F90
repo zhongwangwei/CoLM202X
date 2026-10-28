@@ -38,6 +38,10 @@ MODULE MOD_MT_Lulcc
    real(r8), allocatable :: old_patch_area(:)
    logical :: inventory_active = .false.
 
+   ! Rows of the old host water passed through the remap to host_sync.
+   integer, parameter :: HW_LDEW = 1, HW_LDEW_RAIN = 2, HW_LDEW_SNOW = 3, &
+                         HW_THIN_SNOW = 4, HW_WDSRF = 5, HW_N2D = 5
+
 CONTAINS
 
    SUBROUTINE mt_lulcc_save ()
@@ -77,6 +81,10 @@ CONTAINS
    USE MOD_Vars_TimeInvariants, only: patchclass
    USE MOD_Lulcc_Vars_TimeInvariants, only: landpatch_, patchclass_
    USE MOD_Lulcc_TransferTraceReadin, only: lccpct_patches
+   USE MOD_Vars_TimeVariables, only: wa
+   USE MOD_Vars_Global, only: maxsnl, nl_soil
+   USE MOD_Lulcc_Vars_TimeVariables, only: ldew_, ldew_rain_, ldew_snow_, scv_, wdsrf_, &
+                                           wliq_soisno_, wice_soisno_
    USE MOD_MT_Vars,   only: remap_land_tracer_lulcc_state
    USE MOD_MT_Lifecycle, only: mt_lifecycle_land_remap_lulcc_state, &
                                mt_lifecycle_land_reload_lulcc_inputs
@@ -88,6 +96,8 @@ CONTAINS
    character(len=*), intent(in) :: dir_landdata
 
    real(r8), allocatable :: new_patch_area(:), inventory_trace(:,:)
+   real(r8), allocatable :: host_water_old_2d(:,:), host_water_old_3d(:,:,:)
+   integer :: nold
 
       IF (inventory_active) THEN
          IF ((size(old_patch_area) > 0) .neqv. (numpatch > 0)) &
@@ -127,21 +137,44 @@ CONTAINS
       IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_) .and. &
           allocated(landpatch%eindex) .and. allocated(landpatch_%eindex)) THEN
          CALL deallocate_tracer_conservation ()
+         ! Old host water by compartment (see HW_* and mt_lulcc_host_sync);
+         ! the host keeps the old arrays until LulccDriver frees them after
+         ! this call.
+         nold = size(patchclass_)
+         allocate(host_water_old_2d(HW_N2D, nold))
+         allocate(host_water_old_3d(2, maxsnl+1:nl_soil, nold))
+         host_water_old_2d = 0._r8
+         host_water_old_3d = 0._r8
+         IF (nold > 0) THEN
+            host_water_old_2d(HW_LDEW,      :) = ldew_     (1:nold)
+            host_water_old_2d(HW_LDEW_RAIN, :) = ldew_rain_(1:nold)
+            host_water_old_2d(HW_LDEW_SNOW, :) = ldew_snow_(1:nold)
+            host_water_old_2d(HW_WDSRF,     :) = wdsrf_    (1:nold)
+            ! Pre-layer snow: scv holds it while snow layer 0 is empty.
+            WHERE (wliq_soisno_(0,1:nold) + wice_soisno_(0,1:nold) <= 0._r8)
+               host_water_old_2d(HW_THIN_SNOW, :) = scv_(1:nold)
+            END WHERE
+            host_water_old_3d(1, :, :) = wliq_soisno_(:, 1:nold)
+            host_water_old_3d(2, :, :) = wice_soisno_(:, 1:nold)
+         ENDIF
          IF (inventory_active) THEN
             CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
-               patchclass_, landpatch_%eindex, inventory_trace, new_patch_area, old_patch_area)
+               patchclass_, landpatch_%eindex, wa, host_water_old_2d, host_water_old_3d, &
+               mt_lulcc_host_sync, inventory_trace, new_patch_area, old_patch_area)
             CALL mt_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, inventory_trace, new_patch_area, old_patch_area)
             CALL mt_forcing_lulcc_remap (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, lccpct_patches)
          ELSE
             CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
-               patchclass_, landpatch_%eindex)
+               patchclass_, landpatch_%eindex, wa, host_water_old_2d, host_water_old_3d, &
+               mt_lulcc_host_sync)
             CALL mt_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
             CALL mt_forcing_lulcc_remap (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex)
          ENDIF
+         deallocate(host_water_old_2d, host_water_old_3d)
       ENDIF
 
       IF (allocated(old_patch_area))  deallocate(old_patch_area)
@@ -153,6 +186,209 @@ CONTAINS
 
    END SUBROUTINE mt_lulcc_remap
 
+
+   ! Called by remap_land_tracer_lulcc_state after the pools are remapped.
+   ! The host LULCC re-initialises every patch for the new year and then
+   ! copies back only the variables it saved (REST_LulccTimeVariables,
+   ! LulccMassEnergyConserve), so
+   !  - a new patch with no source patch keeps the host cold-start water: its
+   !    material pools get the material cold start (mt_init_from_water);
+   !  - wetland water (wetwat) is not copied back and restarts from its cold
+   !    value on every patch: the material in it restarts from the cold
+   !    ratio as well;
+   !  - elsewhere the host does not always carry its water over the way the
+   !    material pools are moved (by area, compartment by compartment):
+   !    MEC re-bins the snow layers to the dominant source patch and drops
+   !    the pre-layer snow of the other sources, and with PFT or PC the
+   !    patch canopy water is rebuilt from the new PFT fractions. The old
+   !    host water, remapped with the same weights as the pools
+   !    (src_water_2d/3d), shows where. In a compartment where it differs
+   !    from the new host water, the material follows the host water at the
+   !    ratio it had (material over remapped old water), or at the cold
+   !    ratio where no old water was there. The snow column is handled as
+   !    one: if any of its layers or its pre-layer snow differs, every snow
+   !    pool gets the column ratio. Elsewhere nothing is touched, so the
+   !    material profiles are kept wherever the host kept its water.
+   ! The material mass this adds or removes (per unit area times patch area)
+   ! is added to change for the LULCC mass check.
+   SUBROUTINE mt_lulcc_host_sync (no_source, patch_area, change, src_water_2d, src_water_3d)
+
+   USE MOD_SPMD_Task, only: p_iam_glb
+   USE MOD_LandPatch, only: numpatch
+   USE MOD_Namelist,  only: DEF_VEG_SNOW
+   USE MOD_Vars_Global, only: maxsnl, nl_soil
+   USE MOD_Vars_TimeVariables, only: ldew, ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
+                                     wa, wdsrf, wetwat, scv
+   USE MOD_MT_Defs,   only: ntracers, mt_uses_generic_water, tracer_init_water_ratio, &
+                            trc_water_min_for_ratio
+   USE MOD_MT_Vars,   only: trc_wetwat, trc_surface_solid, mt_patch_land_water_mass, &
+                            trc_ldew_rain, trc_ldew_snow, trc_wliq_soisno, trc_wice_soisno, &
+                            trc_scv, trc_wdsrf, trc_solid_soisno
+   USE MOD_MT_Solute, only: mt_equilibrate_dissolved
+   USE MOD_MT_Rest,   only: mt_init_from_water
+   IMPLICIT NONE
+
+   logical,  intent(in)    :: no_source(:)
+   real(r8), intent(in)    :: patch_area(:)
+   real(r8), intent(inout) :: change(:)
+   real(r8), intent(in)    :: src_water_2d(:,:)    ! remapped old host water, HW_* rows
+   real(r8), intent(in)    :: src_water_3d(:,:,:)  ! (liquid/ice, maxsnl+1:nl_soil, patch)
+
+   real(r8), allocatable :: before(:,:)
+   real(r8) :: after(ntracers), R_init
+   integer  :: ip, itrc, ncold, nfollow
+   logical  :: followed
+
+      IF (numpatch <= 0 .or. ntracers <= 0) RETURN
+
+      allocate(before(ntracers, numpatch))
+      DO ip = 1, numpatch
+         CALL mt_patch_land_water_mass (ip, before(:,ip))
+      ENDDO
+
+      ncold = count(no_source(1:numpatch))
+      IF (ncold > 0) THEN
+         CALL mt_init_from_water (numpatch, maxsnl, nl_soil, &
+            ldew_rain, ldew_snow, wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv, &
+            patch_mask = no_source(1:numpatch))
+      ENDIF
+
+      nfollow = 0
+      DO ip = 1, numpatch
+         IF (no_source(ip)) CYCLE
+         IF (ip > size(src_water_2d,2) .or. ip > size(src_water_3d,3)) CYCLE
+         followed = .false.
+         DO itrc = 1, ntracers
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
+            R_init = tracer_init_water_ratio(itrc)
+            trc_wetwat(itrc,ip) = max(wetwat(ip), 0._r8) * R_init
+            CALL mt_equilibrate_dissolved (itrc, max(wetwat(ip), 0._r8), &
+               trc_wetwat(itrc,ip), trc_surface_solid(itrc,ip))
+            CALL follow_host_water (itrc, ip, R_init, followed)
+         ENDDO
+         IF (followed) nfollow = nfollow + 1
+      ENDDO
+
+      DO ip = 1, numpatch
+         CALL mt_patch_land_water_mass (ip, after)
+         IF (ip <= size(patch_area)) change = change + (after - before(:,ip)) * patch_area(ip)
+      ENDDO
+      deallocate(before)
+
+      IF (ncold > 0) write(*,'(A,I6,A,I8,A)') ' MT LULCC on process', p_iam_glb, ': ', ncold, &
+         ' new patches without a source patch cold-started from the host water'
+      IF (nfollow > 0) write(*,'(A,I6,A,I8,A)') ' MT LULCC on process', p_iam_glb, ': ', nfollow, &
+         ' patches with material set to follow host water the host did not carry over by area'
+
+   CONTAINS
+
+      logical FUNCTION water_differs (a, b)
+         real(r8), intent(in) :: a, b
+         water_differs = abs(a - b) > trc_water_min_for_ratio + 1.e-12_r8 * max(abs(a), abs(b))
+      END FUNCTION water_differs
+
+      ! Material of one compartment at its own ratio, now on the host water.
+      SUBROUTINE follow_pool (pool, w_src, w_new, R_init, followed)
+         real(r8), intent(inout) :: pool
+         real(r8), intent(in)    :: w_src, w_new, R_init
+         logical,  intent(inout) :: followed
+         IF (.not. water_differs(w_src, w_new)) RETURN
+         IF (w_src > trc_water_min_for_ratio) THEN
+            pool = pool / w_src * max(w_new, 0._r8)
+         ELSE
+            pool = R_init * max(w_new, 0._r8)
+         ENDIF
+         followed = .true.
+      END SUBROUTINE follow_pool
+
+      SUBROUTINE follow_host_water (itrc, ip, R_init, followed)
+         integer,  intent(in)    :: itrc, ip
+         real(r8), intent(in)    :: R_init
+         logical,  intent(inout) :: followed
+         integer  :: j, k
+         logical  :: snow_differs
+         real(r8) :: w_src, pool_before, ratio, thin_new, solid, wsnow
+
+         ! Canopy. Without DEF_VEG_SNOW the material splits the total
+         ! ldew into its rain and snow pools itself (MOD_MT_Precip), so
+         ! the total is what must match.
+         IF (DEF_VEG_SNOW) THEN
+            CALL follow_pool (trc_ldew_rain(itrc,ip), src_water_2d(HW_LDEW_RAIN,ip), &
+               ldew_rain(ip), R_init, followed)
+            CALL follow_pool (trc_ldew_snow(itrc,ip), src_water_2d(HW_LDEW_SNOW,ip), &
+               ldew_snow(ip), R_init, followed)
+         ELSE
+            w_src = src_water_2d(HW_LDEW,ip)
+            IF (water_differs(w_src, ldew(ip))) THEN
+               IF (w_src > trc_water_min_for_ratio) THEN
+                  trc_ldew_rain(itrc,ip) = trc_ldew_rain(itrc,ip) / w_src * max(ldew(ip), 0._r8)
+                  trc_ldew_snow(itrc,ip) = trc_ldew_snow(itrc,ip) / w_src * max(ldew(ip), 0._r8)
+               ELSE
+                  trc_ldew_rain(itrc,ip) = R_init * max(ldew(ip), 0._r8)
+                  trc_ldew_snow(itrc,ip) = 0._r8
+               ENDIF
+               followed = .true.
+            ENDIF
+         ENDIF
+
+         ! Snow column: snow layers and the pre-layer snow (scv while snow
+         ! layer 0 is empty), as in mt_init_from_water.
+         thin_new = 0._r8
+         IF (wliq_soisno(0,ip) + wice_soisno(0,ip) <= 0._r8) thin_new = scv(ip)
+         snow_differs = water_differs(src_water_2d(HW_THIN_SNOW,ip), thin_new)
+         DO j = maxsnl+1, 0
+            k = j - maxsnl
+            snow_differs = snow_differs .or. water_differs(src_water_3d(1,k,ip), wliq_soisno(j,ip)) &
+                                        .or. water_differs(src_water_3d(2,k,ip), wice_soisno(j,ip))
+         ENDDO
+         IF (snow_differs) THEN
+            w_src = src_water_2d(HW_THIN_SNOW,ip) + sum(src_water_3d(:,1:-maxsnl,ip))
+            IF (w_src > trc_water_min_for_ratio) THEN
+               ratio = (trc_scv(itrc,ip) + sum(trc_wliq_soisno(itrc,maxsnl+1:0,ip)) &
+                  + sum(trc_wice_soisno(itrc,maxsnl+1:0,ip))) / w_src
+            ELSE
+               ratio = R_init
+            ENDIF
+            trc_scv(itrc,ip) = ratio * max(thin_new, 0._r8)
+            DO j = maxsnl+1, 0
+               trc_wliq_soisno(itrc,j,ip) = ratio * max(wliq_soisno(j,ip), 0._r8)
+               trc_wice_soisno(itrc,j,ip) = ratio * max(wice_soisno(j,ip), 0._r8)
+            ENDDO
+            ! Undissolved material of the snow layers goes with the new snow
+            ! layers, or to the top soil layer when no snow layer is left.
+            solid = sum(trc_solid_soisno(itrc,maxsnl+1:0,ip))
+            wsnow = sum(max(wliq_soisno(maxsnl+1:0,ip), 0._r8) + max(wice_soisno(maxsnl+1:0,ip), 0._r8))
+            IF (solid /= 0._r8) THEN
+               IF (wsnow > 0._r8) THEN
+                  DO j = maxsnl+1, 0
+                     trc_solid_soisno(itrc,j,ip) = solid * (max(wliq_soisno(j,ip), 0._r8) &
+                        + max(wice_soisno(j,ip), 0._r8)) / wsnow
+                  ENDDO
+               ELSE
+                  trc_solid_soisno(itrc,maxsnl+1:0,ip) = 0._r8
+                  trc_solid_soisno(itrc,1,ip) = trc_solid_soisno(itrc,1,ip) + solid
+               ENDIF
+            ENDIF
+            followed = .true.
+         ENDIF
+
+         ! Soil layers, each phase on its own.
+         DO j = 1, nl_soil
+            k = j - maxsnl
+            CALL follow_pool (trc_wliq_soisno(itrc,j,ip), src_water_3d(1,k,ip), &
+               wliq_soisno(j,ip), R_init, followed)
+            CALL follow_pool (trc_wice_soisno(itrc,j,ip), src_water_3d(2,k,ip), &
+               wice_soisno(j,ip), R_init, followed)
+         ENDDO
+
+         ! Surface water.
+         pool_before = trc_wdsrf(itrc,ip)
+         CALL follow_pool (trc_wdsrf(itrc,ip), src_water_2d(HW_WDSRF,ip), wdsrf(ip), R_init, followed)
+         IF (trc_wdsrf(itrc,ip) /= pool_before) CALL mt_equilibrate_dissolved (itrc, &
+            max(wdsrf(ip), 0._r8), trc_wdsrf(itrc,ip), trc_surface_solid(itrc,ip))
+      END SUBROUTINE follow_host_water
+
+   END SUBROUTINE mt_lulcc_host_sync
 
    ! Physical area (m2) of every patch, from its pixels and shared fraction.
    SUBROUTINE lulcc_patch_areas(patches, areas)

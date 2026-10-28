@@ -29,6 +29,7 @@ MODULE MOD_MT_SoilWater
    USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM, DEF_ISO_SOIL_KINETIC, DEF_ISO_SOIL_DIFFUSION, &
       DEF_ISO_SOIL_VAPOR_DIFFUSION, DEF_ISO_SNOWMELT_EQUILIBRATION
    USE MOD_MT_EvapLimit, only: tracer_atmospheric_tracer_loss
+   USE MOD_MT_Isotope_SoilFlow, only: isotope_sweep_deficit_from_host_water, isotope_wetland_vapor_uptake
 #ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
    USE MOD_MT_Defs, only: tracer_has_decay
 #endif
@@ -241,6 +242,7 @@ CONTAINS
       real(r8) :: trc_upflow_deferred     ! upflow tracer layer 1 pays after the qlayer transfers
       real(r8) :: evap_pool_water, evap_deficit_trc   ! layer-1 evaporation beyond its liquid
       real(r8) :: trc_wliq_qlayer_bef(1:nl_soil), water_shadow_qlayer_bef(1:nl_soil)
+      logical  :: sweep_ok(1:nl_soil)
       real(r8) :: qlayer_through(1:nl_soil)
       real(r8) :: evap_base_water         ! surface water excluding this step's exfiltration
       integer  :: qlayer_pass
@@ -1495,8 +1497,17 @@ CONTAINS
                ENDIF
             ENDDO
             IF (qlayer_clamp) EXIT
-            IF (all(trc_wliq_soisno(itrc, 1:nl_soil, ipatch) >= -1.e-12_r8 * qlayer_through(1:nl_soil) &
-                    .or. trc_wliq_soisno(itrc, 1:nl_soil, ipatch) >= trc_wliq_qlayer_bef(1:nl_soil))) THEN
+            sweep_ok(1:nl_soil) = trc_wliq_soisno(itrc, 1:nl_soil, ipatch) >= -1.e-12_r8 * qlayer_through(1:nl_soil) &
+                    .or. trc_wliq_soisno(itrc, 1:nl_soil, ipatch) >= trc_wliq_qlayer_bef(1:nl_soil)
+            ! Isotopes: a deficit that only mirrors the host's own rounding of
+            ! the layer water is rounding too (see MOD_MT_Isotope_SoilFlow).
+            IF (tracer_is_isotope(itrc)) THEN
+               DO j = 1, nl_soil
+                  IF (.not. sweep_ok(j)) sweep_ok(j) = isotope_sweep_deficit_from_host_water( &
+                     trc_wliq_soisno(itrc, j, ipatch), water_shadow(j), layer_transport_ratio(j))
+               ENDDO
+            ENDIF
+            IF (all(sweep_ok(1:nl_soil))) THEN
                ! Rounding dust left by the unclamped sweep: zero it as an
                ! explicit numerical source so no negative stock survives.
                DO j = 1, nl_soil
@@ -1513,20 +1524,15 @@ CONTAINS
          ENDDO
 
          ! Layer 1 now holds the water that reached it
-         ! from below; it pays the deferred exfiltration tracer. Anything it
-         ! still cannot cover is an explicit numerical source.
+         ! from below; it pays the deferred exfiltration tracer. What it
+         ! cannot cover yet stays deferred: in a frozen top layer the host
+         ! takes the evaporation from the ice (wblc_ice_sink), and that
+         ! water reaches the liquid only in the phase-change section below,
+         ! where the rest is paid (see there).
          IF (trc_upflow_deferred > 0._r8) THEN
             trc_flux = min(trc_upflow_deferred, max(trc_wliq_soisno(itrc, 1, ipatch), 0._r8))
             trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_flux
-            IF (trc_upflow_deferred - trc_flux > 0._r8) THEN
-               IF (allocated(trc_numerical_residual_step)) THEN
-                  trc_numerical_residual_step(itrc, ipatch) = &
-                     trc_numerical_residual_step(itrc, ipatch) + (trc_upflow_deferred - trc_flux)
-               ELSE
-                  trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) &
-                     - (trc_upflow_deferred - trc_flux)
-               ENDIF
-            ENDIF
+            trc_upflow_deferred = trc_upflow_deferred - trc_flux
          ENDIF
 
          ! --- liquid-phase molecular diffusion between soil layers ---
@@ -1967,12 +1973,54 @@ CONTAINS
                ENDIF
             ENDDO
 
+            ! The deferred exfiltration tracer layer 1 could not pay after the
+            ! qlayer transfers. With a frozen top layer that holds almost no
+            ! liquid, the host takes the soil evaporation from the ice of
+            ! layer 1 (wblc_ice_sink), while above it was booked from the
+            ! liquid and the shortfall deferred. The ice-sink transfer just
+            ! above has moved that water and its tracer into the liquid, so
+            ! layer 1 can pay now. Paying it after the qlayer transfers only
+            ! booked the shortfall as a numerical source and left the same
+            ! amount of tracer in the liquid: a NEC December run then carried
+            ! 6.2e-8 of excess H2_18O into the next step's soil evaporation
+            ! and stopped on the fixed-signature check. Only a deferral that
+            ! is still unpaid here is an explicit numerical source; a
+            ! deferral paid in full above leaves nothing to do, so every
+            ! other step is unchanged.
+            IF (trc_upflow_deferred > 0._r8) THEN
+               trc_flux = min(trc_upflow_deferred, max(trc_wliq_soisno(itrc, 1, ipatch), 0._r8))
+               trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) - trc_flux
+               IF (trc_upflow_deferred - trc_flux > 0._r8) THEN
+                  IF (allocated(trc_numerical_residual_step)) THEN
+                     trc_numerical_residual_step(itrc, ipatch) = &
+                        trc_numerical_residual_step(itrc, ipatch) + (trc_upflow_deferred - trc_flux)
+                  ELSE
+                     trc_wliq_soisno(itrc, 1, ipatch) = trc_wliq_soisno(itrc, 1, ipatch) &
+                        - (trc_upflow_deferred - trc_flux)
+                  ENDIF
+               ENDIF
+               trc_upflow_deferred = 0._r8
+            ENDIF
+
             ! VSF can redistribute finite water between connected saturated layers
             ! without reporting that transfer in qlayer.  Move its dissolved
             ! tracer across the omitted faces before accounting for any true
             ! numerical water residual.  A nonclosing column is left to the
             ! explicit residual ledger below.
             CALL reconcile_internal_soil_flow()
+
+            ! VSF can also move water between layers that are not adjacent
+            ! (for example infiltration through frozen layers into the first
+            ! layer below them) without reporting it in qlayer.  The column
+            ! residuals then cancel: layers that lost water against the
+            ! shadow and layers that gained it.  Booking both at each layer's
+            ! own concentration creates or destroys material whenever the
+            ! layers differ (a solute concentrated near the surface, an empty
+            ! receiving layer at zero).  Move the part that cancels as a
+            ! transfer from the losing to the gaining layers at the losing
+            ! layers' concentration; only what does not cancel is booked as a
+            ! numerical source/sink below.
+            CALL move_matched_layer_residual()
 
             ! Carry the remaining numerical storage residual at the layer's
             ! current concentration so it cannot appear as fractionation.
@@ -2371,6 +2419,40 @@ CONTAINS
          ENDDO
       END SUBROUTINE reconcile_internal_soil_flow
 
+      SUBROUTINE move_matched_layer_residual()
+         ! The losing layers give their share of the matched volume at their
+         ! own concentration (limited by what they hold); the gaining layers
+         ! share the pooled material by the volume they receive.  Material
+         ! is conserved exactly and nothing is booked.
+         real(r8) :: resid(1:nl_soil), lost, gained, matched, w, pooled, moved
+         integer  :: jl
+
+         DO jl = 1, nl_soil
+            resid(jl) = wliq_soisno(jl) - water_shadow(jl)
+         ENDDO
+         lost   = -sum(min(resid, 0._r8), mask = resid < -trc_tiny)
+         gained =  sum(max(resid, 0._r8), mask = resid >  trc_tiny)
+         matched = min(lost, gained)
+         IF (matched <= trc_tiny) RETURN
+
+         pooled = 0._r8
+         DO jl = 1, nl_soil
+            IF (resid(jl) >= -trc_tiny) CYCLE
+            w = -resid(jl) * (matched / lost)
+            moved = min(w * max(current_liq_ratio(jl), 0._r8), &
+               max(trc_wliq_soisno(itrc, jl, ipatch), 0._r8))
+            trc_wliq_soisno(itrc, jl, ipatch) = trc_wliq_soisno(itrc, jl, ipatch) - moved
+            water_shadow(jl) = water_shadow(jl) - w
+            pooled = pooled + moved
+         ENDDO
+         DO jl = 1, nl_soil
+            IF (resid(jl) <= trc_tiny) CYCLE
+            w = resid(jl) * (matched / gained)
+            trc_wliq_soisno(itrc, jl, ipatch) = trc_wliq_soisno(itrc, jl, ipatch) + pooled * (w / matched)
+            water_shadow(jl) = water_shadow(jl) + w
+         ENDDO
+      END SUBROUTINE move_matched_layer_residual
+
       SUBROUTINE move_dissolved_face(donor, receiver, moved_water)
          integer, intent(in) :: donor, receiver
          real(r8), intent(in) :: moved_water
@@ -2608,7 +2690,7 @@ CONTAINS
       real(r8) :: R_atm, ratio_src, trc_flux, storage_ratio
       real(r8) :: wresi_j, wresi_sum, trc_wresi_j, trc_wresi_sum
       real(r8) :: q_rain_in, q_dew_in, q_frost_in
-      real(r8) :: q_evap_out, q_subl_out, q_etr_out, q_sm_in
+      real(r8) :: q_evap_out, q_subl_out, q_etr_out, q_sm_in, q_vapor_uptake
       real(r8) :: pool_water, pool_tracer, pool_ratio
       real(r8) :: trc_loss, loss_water, trc_rsur_local
       real(r8) :: aquifer_ref_water, aquifer_ref_mass
@@ -3076,6 +3158,19 @@ CONTAINS
             pool_tracer = pool_tracer + trc_dew_input + trc_frost_input
             a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_dew_input + trc_frost_input
             a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + q_dew_in + q_frost_in
+         ENDIF
+
+         ! Isotopes: vapour gained through negative transpiration, which the
+         ! host wetland water includes (see MOD_MT_Isotope_SoilFlow).
+         IF (tracer_is_isotope(itrc)) THEN
+            q_vapor_uptake = isotope_wetland_vapor_uptake(etr, deltim)
+            IF (q_vapor_uptake > trc_tiny) THEN
+               trc_flux = q_vapor_uptake * deposition_ratio_for(layer_temp(1), .false.)
+               pool_water  = pool_water  + q_vapor_uptake
+               pool_tracer = pool_tracer + trc_flux
+               a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) + trc_flux
+               a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + q_vapor_uptake
+            ENDIF
          ENDIF
 
          IF (tracer_is_nonvolatile_solute(itrc) .and. &
