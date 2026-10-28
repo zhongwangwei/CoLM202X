@@ -224,7 +224,7 @@ CONTAINS
    integer  :: start_year, end_year, ntime, itime
 
    character(len=256) :: filename, dir, fmt_str, fname
-   character(len=4)   :: cyear, c, cyear_lc
+   character(len=4)   :: cyear, c
 
    type(grid_type) :: gridpatch,  gridcrop, gridpft,  gridhtop, gridcanopy, gridlai, gridlake,  &
                       gridbright, gridsoil, gridrock, gridtopo, grid_topo_factor
@@ -416,9 +416,9 @@ CONTAINS
 
             CALL gridpft%define_by_name (trim(DEF_rawdata%pft%gname))
 
-            write(cyear_lc,'(i4.4)') DEF_LC_YEAR
+            write(cyear,'(i4.4)') DEF_LC_YEAR
             dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-            fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear_lc, '')
+            fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
             CALL read_point_5x5_var_3d_real8 (gridpft, dir, fname, 'PCT_PFT', &
                SITE_lon_location, SITE_lat_location, N_PFT_modis, pctpfts)
          ENDIF
@@ -776,9 +776,8 @@ CONTAINS
                ELSEIF (SITE_landtype == CROPLAND) THEN
                   CALL gridpft%define_by_name (trim(DEF_rawdata%pft%gname))
 
-                  write(cyear_lc,'(i4.4)') DEF_LC_YEAR
                   dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-                  fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear_lc, '')
+                  fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
                   CALL read_point_5x5_var_3d_real8 (gridpft, dir, fname, 'PCT_PFT', &
                      SITE_lon_location, SITE_lat_location, N_PFT_modis, pctpfts)
                   SITE_LAI_pfts_monthly(:,itime,iyear) = sum(pftLAI * pctpfts) / sum(pctpfts)
