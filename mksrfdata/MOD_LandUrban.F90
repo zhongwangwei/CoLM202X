@@ -112,7 +112,7 @@ CONTAINS
 IF (DEF_URBAN_type_scheme == 1) THEN
          CALL read_5x5_data (dir_urban, fname, grid_urban, 'URBAN_DENSITY_CLASS', data_urb_class)
 ELSE IF (DEF_URBAN_type_scheme == 2) THEN
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             CALL read_5x5_data (dir_urban, fname, grid_urban, 'LCZ_DOM', data_urb_class)
          ELSE
             CALL read_5x5_data (dir_urban, fname, grid_urban, 'LCZ', data_urb_class)

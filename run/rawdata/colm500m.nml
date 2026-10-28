@@ -30,7 +30,7 @@
 
   DEF_rawdata_nml%landcover%opt(3)%dir   = '/landcover/esa/'
   DEF_rawdata_nml%landcover%opt(3)%gname = 'colm_500m'
-  DEF_rawdata_nml%landcover%opt(3)%fname = 'ESACCI'
+  DEF_rawdata_nml%landcover%opt(3)%fname = 'ESA'
 
   DEF_rawdata_nml%landcover%opt(4)%dir   = '/landcover/glc/'
   DEF_rawdata_nml%landcover%opt(4)%gname = 'colm_30m'
@@ -95,8 +95,8 @@
 
   DEF_rawdata_nml%htop%opt(1)%dir   = '/vegetation_morphology/tree_height_Simard/'
   DEF_rawdata_nml%htop%opt(1)%gname = 'colm_1km'
-  DEF_rawdata_nml%htop%opt(1)%fname = 'Forest_Height'
-  DEF_rawdata_nml%htop%opt(1)%vname = 'forest_height'
+  DEF_rawdata_nml%htop%opt(1)%fname = 'Htop1km.Simard'
+  DEF_rawdata_nml%htop%opt(1)%vname = 'HTOP'
 
   DEF_rawdata_nml%htop%opt(2)%dir   = '/vegetation_morphology/tree_height_ETH/'
   DEF_rawdata_nml%htop%opt(2)%gname = 'colm_500m'
