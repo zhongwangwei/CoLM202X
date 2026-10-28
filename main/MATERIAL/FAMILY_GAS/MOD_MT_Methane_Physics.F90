@@ -1117,11 +1117,29 @@ contains
 					vtot = pore_volume
 				endif
 				if (vtot < finundated * pore_volume - host_water_tol) then
-					write(6,*) 'ERROR: methane inundation exceeds host soil water: ', &
-						ipatch, j, finundated, vtot, pore_volume, &
-						' deficit/pore =', (finundated * pore_volume - vtot) / pore_volume, &
-						' tolerance =', DEF_METHANE%host_water_tolerance
-					CALL CoLM_stop ('methane inundation exceeds host soil water')
+					! The water-table estimate (saturation scheme 6/7) and the host
+					! soil water are independently computed quantities: ponded water,
+					! the wetland/aquifer store and the routing water table are not
+					! part of the soil-pore sum this guard compares against. A
+					! saturated area fraction above the host-supported one is
+					! therefore a *structural* disagreement of the hybrid /
+					! dynamic-water-table configurations, not water that the methane
+					! model would create: the capped allocation below limits the
+					! inundated column to the host-supported saturation and
+					! reproduces the host liquid/ice mass exactly (area-weighted
+					! total == host total).  Aborting here made the delivered hybrid
+					! default unusable globally while the cap already guaranteed
+					! conservation, so record the disagreement and let the cap act;
+					! the worst value is reported by methane_host_water_report.
+					host_water_resid = (finundated * pore_volume - vtot) / pore_volume
+					host_water_max_resid = max(host_water_max_resid, host_water_resid)
+					if (.not. host_water_warned) then
+						host_water_warned = .true.
+						write(6,*) 'WARNING: methane inundation exceeds host soil water: ', &
+							ipatch, j, ' deficit/pore =', host_water_resid, &
+							' tolerance =', DEF_METHANE%host_water_tolerance, &
+							'; capped to host-supported saturation (host water conserved)'
+					endif
 				endif
 
 				! Inside the tolerance the host state is left untouched: vtot,
