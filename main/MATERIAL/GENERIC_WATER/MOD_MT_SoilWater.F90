@@ -24,7 +24,7 @@ MODULE MOD_MT_SoilWater
       tracer_snow_vapor_equivalent_diffusivity, tracer_alpha_ice_vap, &
       tracer_alpha_ice_liq, tracer_equilibration_exchange, &
       tracer_liquid_self_diffusivity, &
-      tracer_craig_gordon_evap_ratio, tracer_alpha_liq_vap, &
+      tracer_craig_gordon_evap_ratio, tracer_craig_gordon_evap_affine, tracer_alpha_liq_vap, &
       tracer_rayleigh_freezing_loss, tracer_equilibrium_deposition_ratio
    USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM, DEF_ISO_SOIL_KINETIC, DEF_ISO_SOIL_DIFFUSION, &
       DEF_ISO_SOIL_VAPOR_DIFFUSION, DEF_ISO_SNOWMELT_EQUILIBRATION
@@ -317,7 +317,7 @@ CONTAINS
       real(r8) :: transp_source_tracer_total, transp_output_tracer
       real(r8) :: transp_ratio, remove_ratio, R_vapor
       ! True only around the exposed-soil-surface evaporation calls, so
-      ! evap_ratio_for applies the resistance-weighted soil kinetic law there
+      ! evap_cg_inputs applies the resistance-weighted soil kinetic law there
       ! without touching snow-layer or surface-water evaporation.  Declared
       ! WITHOUT an initialiser on purpose: an initialised local would acquire
       ! an implicit SAVE and be shared between OpenMP threads.
@@ -2497,21 +2497,25 @@ CONTAINS
          ! from_ice routes through the surface-skin limiter: a snow layer is
          ! not a well-mixed reservoir for sublimation.
          atmospheric_loss_tracer = tracer_atmospheric_tracer_loss(pool_trc, pool_water, &
-            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+            water_loss, temp_k, from_ice, evap_affine_for, trc_tiny, &
             merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
                   0._r8, tracer_fractionation_active(itrc)), tracer_is_nonvolatile_solute(itrc), &
             skin_mass = DEF_ISO_SUBL_SKIN_MM)
       END FUNCTION atmospheric_loss_tracer
 
-      real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)
-         real(r8), intent(in) :: source_ratio
-         real(r8), intent(in) :: temp_k
-         logical,  intent(in) :: from_ice
-         real(r8) :: relhum, alpha_k
+      ! Humidity and kinetic factor of the Craig-Gordon evaporate, shared by
+      ! the ratio form (evap_ratio_for) and the affine form (evap_affine_for).
+      SUBROUTINE evap_cg_inputs (temp_k, from_ice, active, relhum, alpha_k)
+         real(r8), intent(in)  :: temp_k
+         logical,  intent(in)  :: from_ice
+         logical,  intent(out) :: active
+         real(r8), intent(out) :: relhum, alpha_k
 
-         evap_ratio_for = source_ratio
-         IF (.not. tracer_fractionation_active(itrc)) RETURN
-         IF (.not. present(forc_q_frac) .or. .not. present(forc_psrf_frac)) RETURN
+         relhum = 0._r8
+         alpha_k = 1._r8
+         active = tracer_fractionation_active(itrc) .and. &
+            present(forc_q_frac) .and. present(forc_psrf_frac)
+         IF (.not. active) RETURN
 
          relhum = tracer_surface_relhum(forc_q_frac, forc_psrf_frac, temp_k, from_ice)
          ! Bare-soil liquid evaporation: weight the turbulent and pore-diffusion
@@ -2525,9 +2529,39 @@ CONTAINS
          ELSE
             alpha_k = tracer_alpha_kinetic_craig_gordon(itrc, from_ice)
          ENDIF
+      END SUBROUTINE evap_cg_inputs
+
+      ! Evaporate ratio of water that does not come from a finite pool (the
+      ! layer-1 evaporation deficit drawn from below).
+      real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)
+         real(r8), intent(in) :: source_ratio
+         real(r8), intent(in) :: temp_k
+         logical,  intent(in) :: from_ice
+         real(r8) :: relhum, alpha_k
+         logical  :: active
+
+         evap_ratio_for = source_ratio
+         CALL evap_cg_inputs(temp_k, from_ice, active, relhum, alpha_k)
+         IF (.not. active) RETURN
          evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_atm, &
             temp_k, relhum, alpha_k, from_ice)
       END FUNCTION evap_ratio_for
+
+      ! Affine evaporate ratio of a finite pool, for atmospheric_loss_tracer.
+      SUBROUTINE evap_affine_for (temp_k, from_ice, slope, offset)
+         real(r8), intent(in)  :: temp_k
+         logical,  intent(in)  :: from_ice
+         real(r8), intent(out) :: slope, offset
+         real(r8) :: relhum, alpha_k
+         logical  :: active
+
+         slope  = 1._r8
+         offset = 0._r8
+         CALL evap_cg_inputs(temp_k, from_ice, active, relhum, alpha_k)
+         IF (.not. active) RETURN
+         CALL tracer_craig_gordon_evap_affine(itrc, R_atm, temp_k, relhum, &
+            alpha_k, from_ice, slope, offset)
+      END SUBROUTINE evap_affine_for
 
          real(r8) FUNCTION deposition_ratio_for (temp_k, from_ice)
             real(r8), intent(in) :: temp_k
@@ -3436,19 +3470,20 @@ CONTAINS
          ! from_ice routes through the surface-skin limiter: a snow layer is
          ! not a well-mixed reservoir for sublimation.
          atmospheric_loss_tracer = tracer_atmospheric_tracer_loss(pool_trc, pool_water, &
-            water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+            water_loss, temp_k, from_ice, evap_affine_for, trc_tiny, &
             merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
                   0._r8, tracer_fractionation_active(itrc)), tracer_is_nonvolatile_solute(itrc), &
             skin_mass = DEF_ISO_SUBL_SKIN_MM)
       END FUNCTION atmospheric_loss_tracer
 
-      real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)
-         real(r8), intent(in) :: source_ratio
+      SUBROUTINE evap_affine_for (temp_k, from_ice, slope, offset)
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
+         real(r8), intent(out) :: slope, offset
          real(r8) :: relhum, alpha_k
 
-         evap_ratio_for = source_ratio
+         slope  = 1._r8
+         offset = 0._r8
          IF (.not. tracer_fractionation_active(itrc)) RETURN
          IF (.not. present(forc_q_frac) .or. .not. present(forc_psrf_frac)) RETURN
 
@@ -3459,9 +3494,9 @@ CONTAINS
             alpha_k = tracer_alpha_kinetic_open_water(itrc, &
                sqrt(max(forc_us_frac*forc_us_frac + forc_vs_frac*forc_vs_frac, 0._r8)))
          ENDIF
-         evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_atm, &
-            temp_k, relhum, alpha_k, from_ice)
-      END FUNCTION evap_ratio_for
+         CALL tracer_craig_gordon_evap_affine(itrc, R_atm, temp_k, relhum, &
+            alpha_k, from_ice, slope, offset)
+      END SUBROUTINE evap_affine_for
 
          real(r8) FUNCTION deposition_ratio_for (temp_k, from_ice)
             real(r8), intent(in) :: temp_k

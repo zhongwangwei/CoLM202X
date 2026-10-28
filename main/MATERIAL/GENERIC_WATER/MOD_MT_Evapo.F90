@@ -9,7 +9,7 @@ MODULE MOD_MT_Evapo
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
    USE MOD_MT_Forcing, only: tracer_forcing_vapor_value
    USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
-      tracer_craig_gordon_evap_ratio, tracer_equilibrium_deposition_ratio, &
+      tracer_craig_gordon_evap_affine, tracer_equilibrium_deposition_ratio, &
       tracer_rayleigh_freezing_loss, tracer_surface_relhum, &
       tracer_equilibration_exchange, tracer_alpha_liq_vap, tracer_alpha_kinetic_open_water
    USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM, DEF_ISO_CANOPY_EQUILIBRATION
@@ -44,24 +44,26 @@ CONTAINS
          vapor_ratio = tracer_forcing_vapor_value(itrc, ipatch)
          tracer_loss(itrc) = tracer_atmospheric_tracer_loss( &
             tracer_credit(itrc), water_credit, water_evap, temp_k, .false., &
-            evap_ratio, trc_tiny, &
+            evap_affine, trc_tiny, &
             merge(tracers(itrc)%ref_ratio * (1._r8+trc_delta_sanity_max/1000._r8), &
                   0._r8, tracer_fractionation_active(itrc)), .false.)
       ENDDO
 
    CONTAINS
-      real(r8) FUNCTION evap_ratio(source_ratio, temp, from_ice)
-         real(r8), intent(in) :: source_ratio, temp
+      SUBROUTINE evap_affine(temp, from_ice, slope, offset)
+         real(r8), intent(in) :: temp
          logical, intent(in) :: from_ice
+         real(r8), intent(out) :: slope, offset
          real(r8) :: relhum, alpha_k
-         evap_ratio = source_ratio
+         slope  = 1._r8
+         offset = 0._r8
          IF (.not. tracer_fractionation_active(itrc)) RETURN
          relhum = tracer_surface_relhum(forc_q, forc_psrf, temp, from_ice)
          alpha_k = tracer_alpha_kinetic_open_water(itrc, &
             sqrt(max(forc_us*forc_us+forc_vs*forc_vs,0._r8)))
-         evap_ratio = tracer_craig_gordon_evap_ratio(itrc, source_ratio, vapor_ratio, &
-            temp, relhum, alpha_k, from_ice)
-      END FUNCTION evap_ratio
+         CALL tracer_craig_gordon_evap_affine(itrc, vapor_ratio, temp, relhum, &
+            alpha_k, from_ice, slope, offset)
+      END SUBROUTINE evap_affine
    END SUBROUTINE mt_flood_evap_loss
 
    !---------------------------------------------------------------
@@ -474,12 +476,12 @@ CONTAINS
                ! Sublimation: only a thin surface skin exchanges isotopically;
                ! deeper ice leaves bodily as the surface retreats.
                evaporative_tracer_loss = tracer_skin_limited_tracer_loss(pool_trc, pool_water, &
-                  water_loss, DEF_ISO_SUBL_SKIN_MM, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+                  water_loss, DEF_ISO_SUBL_SKIN_MM, temp_k, from_ice, evap_affine_for, trc_tiny, &
                   merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
                         0._r8, tracer_fractionation_active(itrc)))
             ELSE
                evaporative_tracer_loss = tracer_evaporative_tracer_loss(pool_trc, pool_water, &
-                  water_loss, temp_k, from_ice, evap_ratio_for, trc_tiny, &
+                  water_loss, temp_k, from_ice, evap_affine_for, trc_tiny, &
                   merge(tracers(itrc)%ref_ratio * (1._r8 + trc_delta_sanity_max / 1000._r8), &
                         0._r8, tracer_fractionation_active(itrc)))
             ENDIF
@@ -498,21 +500,22 @@ CONTAINS
          IF (present(t_soisno_frac)) layer_temp = t_soisno_frac(jlay)
       END FUNCTION layer_temp
 
-      real(r8) FUNCTION evap_ratio_for (source_ratio, temp_k, from_ice)
-         real(r8), intent(in) :: source_ratio
+      SUBROUTINE evap_affine_for (temp_k, from_ice, slope, offset)
          real(r8), intent(in) :: temp_k
          logical,  intent(in) :: from_ice
+         real(r8), intent(out) :: slope, offset
          real(r8) :: relhum, alpha_k
 
-         evap_ratio_for = source_ratio
+         slope  = 1._r8
+         offset = 0._r8
          IF (.not. tracer_fractionation_active(itrc)) RETURN
          IF (.not. present(forc_q_frac) .or. .not. present(forc_psrf_frac)) RETURN
 
          relhum = tracer_surface_relhum(forc_q_frac, forc_psrf_frac, temp_k, from_ice)
          alpha_k = tracer_alpha_kinetic_craig_gordon(itrc, from_ice)
-         evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
-            temp_k, relhum, alpha_k, from_ice)
-      END FUNCTION evap_ratio_for
+         CALL tracer_craig_gordon_evap_affine(itrc, R_vapor, temp_k, relhum, &
+            alpha_k, from_ice, slope, offset)
+      END SUBROUTINE evap_affine_for
 
       real(r8) FUNCTION deposition_ratio_for (temp_k, from_ice)
          real(r8), intent(in) :: temp_k

@@ -13,7 +13,7 @@ MODULE MOD_MT_SpecialPatches
    USE MOD_MT_Forcing, only: tracer_forcing_precip_value, tracer_forcing_vapor_value
    USE MOD_MT_EvapLimit, only: tracer_atmospheric_tracer_loss
    USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_surface_relhum, &
-      tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_ratio, &
+      tracer_alpha_kinetic_craig_gordon, tracer_craig_gordon_evap_affine, &
       tracer_alpha_kinetic_open_water, &
       tracer_equilibrium_deposition_ratio
    USE MOD_MT_Conservation, only: mt_save_storage, mt_balance_check, &
@@ -175,12 +175,12 @@ CONTAINS
                trc_evap_ice = 0._r8
             ELSE
                trc_evap_liq = tracer_atmospheric_tracer_loss(trc_available, water_before_output, &
-                  evap_liq_mass, t_grnd, .false., glacier_evap_ratio_for, trc_tiny, &
+                  evap_liq_mass, t_grnd, .false., glacier_evap_affine_for, trc_tiny, &
                   tracer_ratio_cap(itrc), nonvolatile_solute)
                trc_after_liq = trc_available - trc_evap_liq
                water_after_liq = water_before_output - evap_liq_mass
                trc_evap_ice = tracer_atmospheric_tracer_loss(trc_after_liq, water_after_liq, &
-                  evap_ice_mass, t_grnd, .true., glacier_evap_ratio_for, trc_tiny, &
+                  evap_ice_mass, t_grnd, .true., glacier_evap_affine_for, trc_tiny, &
                   tracer_ratio_cap(itrc), nonvolatile_solute, skin_mass = DEF_ISO_SUBL_SKIN_MM)
             ENDIF
             trc_evap = trc_evap_liq + trc_evap_ice
@@ -263,20 +263,22 @@ CONTAINS
 
    CONTAINS
 
-      real(r8) FUNCTION glacier_evap_ratio_for (source_ratio, temp_k, from_ice)
-         real(r8), intent(in) :: source_ratio, temp_k
+      SUBROUTINE glacier_evap_affine_for (temp_k, from_ice, slope, offset)
+         real(r8), intent(in)  :: temp_k
          logical,  intent(in) :: from_ice
+         real(r8), intent(out) :: slope, offset
          real(r8) :: relhum, alpha_k, alpha_k_liq, alpha_k_ice
 
-         glacier_evap_ratio_for = source_ratio
+         slope  = 1._r8
+         offset = 0._r8
          IF (.not. tracer_fractionation_active(itrc)) RETURN
          alpha_k_liq = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
          alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
          alpha_k = merge(alpha_k_ice, alpha_k_liq, from_ice)
          relhum = tracer_surface_relhum(forc_q, forc_psrf, temp_k, from_ice)
-         glacier_evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
-            temp_k, relhum, alpha_k, from_ice)
-      END FUNCTION glacier_evap_ratio_for
+         CALL tracer_craig_gordon_evap_affine(itrc, R_vapor, temp_k, relhum, &
+            alpha_k, from_ice, slope, offset)
+      END SUBROUTINE glacier_evap_affine_for
 
    END SUBROUTINE mt_glacier_patch
 
@@ -426,12 +428,12 @@ CONTAINS
                trc_evap_ice = 0._r8
             ELSE
                trc_evap_liq = tracer_atmospheric_tracer_loss(trc_available, water_before_output, &
-                  evap_liq_mass, t_grnd, .false., waterbody_evap_ratio_for, trc_tiny, &
+                  evap_liq_mass, t_grnd, .false., waterbody_evap_affine_for, trc_tiny, &
                   tracer_ratio_cap(itrc), nonvolatile_solute)
                trc_after_liq = trc_available - trc_evap_liq
                water_after_liq = water_before_output - evap_liq_mass
                trc_evap_ice = tracer_atmospheric_tracer_loss(trc_after_liq, water_after_liq, &
-                  evap_ice_mass, t_grnd, .true., waterbody_evap_ratio_for, trc_tiny, &
+                  evap_ice_mass, t_grnd, .true., waterbody_evap_affine_for, trc_tiny, &
                   tracer_ratio_cap(itrc), nonvolatile_solute, skin_mass = DEF_ISO_SUBL_SKIN_MM)
             ENDIF
             trc_evap = trc_evap_liq + trc_evap_ice
@@ -515,21 +517,23 @@ CONTAINS
 
    CONTAINS
 
-      real(r8) FUNCTION waterbody_evap_ratio_for (source_ratio, temp_k, from_ice)
-         real(r8), intent(in) :: source_ratio, temp_k
+      SUBROUTINE waterbody_evap_affine_for (temp_k, from_ice, slope, offset)
+         real(r8), intent(in)  :: temp_k
          logical,  intent(in) :: from_ice
+         real(r8), intent(out) :: slope, offset
          real(r8) :: relhum, alpha_k, alpha_k_liq, alpha_k_ice
 
-         waterbody_evap_ratio_for = source_ratio
+         slope  = 1._r8
+         offset = 0._r8
          IF (.not. tracer_fractionation_active(itrc)) RETURN
          alpha_k_liq = tracer_alpha_kinetic_open_water(itrc, &
             sqrt(max(forc_us*forc_us + forc_vs*forc_vs, 0._r8)))
          alpha_k_ice = tracer_alpha_kinetic_craig_gordon(itrc, .true.)
          alpha_k = merge(alpha_k_ice, alpha_k_liq, from_ice)
          relhum = tracer_surface_relhum(forc_q, forc_psrf, temp_k, from_ice)
-         waterbody_evap_ratio_for = tracer_craig_gordon_evap_ratio(itrc, source_ratio, R_vapor, &
-            temp_k, relhum, alpha_k, from_ice)
-      END FUNCTION waterbody_evap_ratio_for
+         CALL tracer_craig_gordon_evap_affine(itrc, R_vapor, temp_k, relhum, &
+            alpha_k, from_ice, slope, offset)
+      END SUBROUTINE waterbody_evap_affine_for
 
    END SUBROUTINE mt_waterbody_patch
 

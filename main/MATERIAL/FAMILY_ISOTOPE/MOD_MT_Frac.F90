@@ -69,6 +69,7 @@ MODULE MOD_MT_Frac
    PUBLIC :: tracer_alpha_kinetic_craig_gordon
    PUBLIC :: tracer_mj79_kinetic_alpha, tracer_alpha_kinetic_open_water
    PUBLIC :: tracer_craig_gordon_evap_ratio, tracer_craig_gordon_ratio_core
+   PUBLIC :: tracer_craig_gordon_evap_affine, tracer_craig_gordon_affine_core
    PUBLIC :: tracer_equilibrium_deposition_ratio
    PUBLIC :: tracer_transpiration_nss_ratio
    PUBLIC :: tracer_saturation_vapor_pressure, tracer_surface_relhum
@@ -721,6 +722,77 @@ CONTAINS
          tracer_craig_gordon_evap_ratio = source_ratio
       ENDIF
    END FUNCTION tracer_craig_gordon_evap_ratio
+
+   !---------------------------------------------------------------
+   ! Craig-Gordon evaporate ratio as an affine function of the pool ratio:
+   !
+   !   R_E = slope * R_s + offset
+   !   slope  = 1 / (alpha_eq * alpha_k * (1-h))
+   !   offset = -h * R_a / (alpha_k * (1-h))
+   !
+   ! the same expression as tracer_craig_gordon_ratio_core, without its
+   ! +-craig_gordon_max_ratio_amplification bound. A finite pool that
+   ! evaporates integrates this ratio over its water loss
+   ! (tracer_evaporative_tracer_loss); near saturation slope is of order
+   ! 1/(1-h) (100 at h = 0.99), so the pool ratio relaxes to its limit within
+   ! a small fraction of the loss and the integration has to be exact, not
+   ! stepped. h = 1 leaves only equilibrium (slope = 1/alpha_eq, offset = 0),
+   ! as in the ratio form.
+   !---------------------------------------------------------------
+   SUBROUTINE tracer_craig_gordon_affine_core (vapor_ratio, alpha_eq, alpha_k, &
+      relhum, relhum_max, slope, offset)
+      real(r8), intent(in)  :: vapor_ratio
+      real(r8), intent(in)  :: alpha_eq
+      real(r8), intent(in)  :: alpha_k
+      real(r8), intent(in)  :: relhum
+      real(r8), intent(in)  :: relhum_max
+      real(r8), intent(out) :: slope, offset
+      real(r8) :: h, one_minus_h
+
+      slope  = 1._r8
+      offset = 0._r8
+      IF (alpha_eq <= 0._r8 .or. alpha_k <= 0._r8) RETURN
+
+      slope = 1._r8 / alpha_eq
+
+      h = min(max(relhum, 0._r8), max(min(relhum_max, 0.999999_r8), 0._r8))
+      one_minus_h = 1._r8 - h
+      IF (one_minus_h <= 0._r8) RETURN
+
+      slope  = 1._r8 / (alpha_eq * alpha_k * one_minus_h)
+      offset = -h * vapor_ratio / (alpha_k * one_minus_h)
+   END SUBROUTINE tracer_craig_gordon_affine_core
+
+   ! Affine form of tracer_craig_gordon_evap_ratio: slope = 1, offset = 0
+   ! wherever that function returns the source ratio (no fractionation, ice).
+   SUBROUTINE tracer_craig_gordon_evap_affine (itrc, vapor_ratio, temp_k, relhum, &
+      alpha_k, from_ice, slope, offset)
+      integer,  intent(in)  :: itrc
+      real(r8), intent(in)  :: vapor_ratio
+      real(r8), intent(in)  :: temp_k
+      real(r8), intent(in)  :: relhum
+      real(r8), intent(in)  :: alpha_k
+      logical,  intent(in)  :: from_ice
+      real(r8), intent(out) :: slope, offset
+
+      real(r8) :: alpha_eq
+
+      slope  = 1._r8
+      offset = 0._r8
+      IF (.not. tracer_fractionation_active(itrc)) RETURN
+      ! Sublimation does not fractionate (see tracer_craig_gordon_evap_ratio).
+      IF (from_ice) RETURN
+
+      alpha_eq = tracer_alpha_liq_vap(itrc, temp_k)
+      IF (alpha_eq <= trc_tiny .or. alpha_eq /= alpha_eq) RETURN
+
+      CALL tracer_craig_gordon_affine_core(vapor_ratio, alpha_eq, max(alpha_k, trc_tiny), &
+         relhum, DEF_ISO_CG_RELHUM_MAX, slope, offset)
+      IF (slope /= slope .or. offset /= offset) THEN
+         slope  = 1._r8
+         offset = 0._r8
+      ENDIF
+   END SUBROUTINE tracer_craig_gordon_evap_affine
 
    real(r8) FUNCTION tracer_equilibrium_deposition_ratio (itrc, vapor_ratio, temp_k, from_ice)
       integer,  intent(in) :: itrc
