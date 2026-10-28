@@ -22,6 +22,11 @@
   - history：各 3 文件 / 225（iso）、191（CL）、276（all）变量；0 处迁移，全部原始位相同。
 - `failures: []`。验证器自测先 PASS：接受"仅 schema 标量迁移"，拒绝 signed-zero、active-cache、额外变量。
 - 两次独立构建 PASS（old/new，相同 Conda MPI/GNU/NetCDF 与 Fortran 选项）；构建日志与源清单随任务 `work/` 保存。
+- **冻结源独立复核（Lead 在 2026-10-29 复核）**：用 `git archive` 重新导出两个声明提交，逐文件 SHA256 与任务证据
+  `p9r/evidence/{old,new}-source.sha256` 比对——old 606 个常规文件、new 619 个常规文件全部哈希一致、无多余文件；
+  重算清单摘要分别等于 `e18ed7fd…`、`9b5140e4…`，与 `source-manifests.json` 完全一致。3 个 per-side 条目是
+  symlink（`include/Makeoptions`、`run/scripts/batch.config`、`run/scripts/machine.config`），不参与编译。详见
+  [`p9r-provenance-check.txt`](p9r-provenance-check.txt)。
 
 ## 证据
 
