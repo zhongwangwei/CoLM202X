@@ -1,0 +1,13 @@
+date: 2026-10-28T19:52:13+00:00
+host: T7920
+OBREF_JOB_ID: codex-6696730ffec34c518f011b395657e983
+OBREF_INPUT_ISOGSM2=/media/zhwei/data02/zhwei/IsoGSM_2005-2006
+OBREF_INPUT_P6B=/media/zhwei/data01/compute_runs/claude/claude-6247c29c2d7146c1a8b3a586d90e3837/results
+OBREF_INPUT_RAW=/media/zhwei/data02/zhwei/CoLMrawdata
+OBREF_INPUT_RT=/media/zhwei/data02/zhwei/CoLMruntime
+OBREF_INPUT_UCAT=/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc
+OBREF_JOB_ID=codex-6696730ffec34c518f011b395657e983
+OBREF_JOB_RESULTS=/media/zhwei/data01/compute_runs/codex/codex-6696730ffec34c518f011b395657e983/results
+OBREF_OPENBLAS_LIB_DIR=/home/zhwei/miniconda3/lib
+/bin/bash: /home/zhwei/miniconda3/lib/libtinfo.so.6: no version information available (required by /bin/bash)
+GNU Fortran (Ubuntu 15.2.0-16ubuntu1) 15.2.0

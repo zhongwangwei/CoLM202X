@@ -71,6 +71,25 @@
 - 证据：[combined-acceptance.md](material-transport-evidence/20261028/combined-acceptance.md)、
   `combined-report.json`、`combined-EVIDENCE.md`、`combined-attempts.json`。
 
+#### 2.3.1 根因修复（2026-10-29，提交 `9f7c9a52`）
+
+- **根因**（两个 7920 诊断作业逐点打印定位）：`MOD_MT_SoilWater.F90` 表层混合池“无载体塌陷”分支
+  在 `surface_base_water=0` 时把整块同位素库存（patch 213 为 `9.0765e-05 kg/m²`）记成
+  `trc_numerical_residual_step`（数值源汇），超过 `trc_resid_abs_tol=5.0e-05` 而 fatal。
+  该路径对非挥发溶质已有“隔离到 `trc_surface_residue`、复水再溶解”的正确处置，同位素被排除。
+- **修复**：把同一隔离规则推广到水同位素——表层塌陷、洪水 late-pool 残余、dew/frost late surface
+  （原 fatal）、湿地塌陷四处；4 处复水入口扩展溶解条件；history 增加
+  `f_mt_surface_residue_<species>` / `f_mt_subsurface_residue_<species>` 输出。
+  复用既有 storage 组件，**不新增 restart 字段、不放松阈值、不裁 δ、不改水/能量物理**；
+  其它数值残余路径保持原记账。
+- **组件级验证**（`codex-6696730ffec34c518f011b395657e983`）：无 LULCC 与 LULCC 两种构建均 PASS；
+  触发案例（IsoGSM+flood feedback，NEC，47 步）两种构建都 `CoLM Execution Completed.`，
+  零 `TRC_SIG/TRC_BAL/residual hard/residual note/STOP/abort`；restart/history 中同位素隔离库有限非负；
+  仓库 9 项自检全 PASS。
+- **进行中**：完整组合验收重跑 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（G1–G7 全门禁，源码 `9f7c9a52`）；
+  修复 vs `6d995438` 回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087`。**终态前不写组合验收通过。**
+- 证据：[residual-fix.md](material-transport-evidence/20261028/residual-fix.md)、`residual-fix/`。
+
 ### 2.4 甲烷候选输入闭合与运行设计 — 只读调查，仍 NOT_READY
 
 - **未运行任何甲烷模型、未传输数据。** 精确 1995–1996 窗口缺 15 个边界文件（1994 年 `dlwrf,pre,pres,spfh,tmp,
@@ -112,20 +131,21 @@
 
 ## 4. 未完成 / 未验证 / 延期项（保留，不掩盖）
 
-1. **最新组合源码验收仍不通过**：`frcsat + 强迫同位素 + LULCC + CL + 泥沙/河网` 完整组合在 LULC_IGBP/NEC 上
-   因 flood feedback + 运行期同位素强迫的已记账数值残余硬限中止。需要根因修复，或由用户明确残余策略；
-   **放宽 `DEF_MT_RESID_ABORT_NBAD` 只掩盖问题，不算通过**。触发复现未覆盖 LULC_IGBP_PC/其它区域/其它
-   scheme/其它强迫产品；干湖无效样本分支未在完成的组合案例中出现。
-2. **完整 CI 矩阵未到终态**：见 §2.5 与 run URL；7 个 mpich job 是否在 6 h 上限内全部成功需以终态为准。
-   若被取消/失败，按“未完成/缺口”报告，不能写成完整通过。
-3. **甲烷两年全球与水稻**：未运行。需用户先决策：
-   (a) 输入路线（BD 补 21.15 GiB / 只补 1997 11.28 GiB / W1 零传输窗口）；
-   (b) 参数口径（复现旧：pH off/lake off/rice off，还是 HEAD 新默认）；
-   (c) 构建宏矩阵（PFT vs PC；是否补 CI 用例）；
-   (d) 两年拆两个年度作业是否接受；
-   (e) 1995/96 使用 2005 landdata 是否接受（历史即如此）；
-   (f) 运行时依赖与 BD 历史算例内容身份未证实，是否接受或先取哈希。
-   决策后顺序：短跑标定（估时/内存）→ 水稻 pilot → 分年度两年全球。旧甲烷结果只能作对照，不是正确基准。
+1. **最新组合源码验收：原 FAIL 的根因已修复，完整验收重跑尚未终态**。修复 `9f7c9a52`
+   把无载体干池同位素质量隔离到既有 `trc_surface_residue`（不放松阈值、不裁 δ），组件级验证通过；
+   但 **combined10 全量门禁重跑 `codex-d48a500ecf994f2fb89a6e2856a1cc6a` 与修复-vs-`6d995438`
+   回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087` 仍在运行**——终态通过前，组合验收仍记为未完成。
+   其它数值残余路径（土壤相变/雪层/蒸发边界）未修改；LULC_IGBP_PC、其它区域/scheme/强迫产品仍未覆盖。
+2. **完整 CI 矩阵未到终态**：旧 run `40725517808` 在 2026-10-29 04:0x CST 仍是 16/23 success、0 失败、
+   7 个 mpich in_progress；**本机 GitHub 网络在 04:08 后不可达（DNS 被解析到 198.18.0.33 代理假地址，
+   git/curl 均 SSL_ERROR_SYSCALL）**，因此修复提交 `9f7c9a52` 的推送与新的完整 CI 触发被阻塞，
+   恢复后必须补做：推送 → 触发新 run → 跟到 23/23 终态。旧 run 的 mpich 是否在 6 h 上限内成功同样以终态为准。
+3. **甲烷两年全球与水稻**：已开始真实推进（用户已授权 7920l 作为测试平台）。已真实编译
+   `MT+BGC+CROP+LULC_IGBP_PFT+vanGenuchten+GridRiverLakeFlow` 并通过 mkinidata（4m12s、峰值 28 GB）；
+   3 天首次运行触发 fail-closed `methane inundation exceeds host soil water`（deficit/pore 最大 0.0509
+   > 交付默认容差 0.05），已记录并按源码自身设计的合法容差（0.20）重跑 3 天（rice off / rice on /
+   rice on+only_wetland），后续 30 天水稻 pilot 与两年全球 W1 运行仍待完成。**未完成前不得写甲烷验收通过，
+   旧甲烷结果只作对照、不是正确基准。**
 4. **其它未覆盖边界**（沿用交接文档）：BGC+LULCC 是上游不支持组合；空 MPI worker 8-rank 崩溃未修；
    SinglePoint host 同月缓存覆盖未修；schema-1 缓存可靠性/阈值与 forcing identity 边界；观测准确度与
    全球代表性未验证；8 组以外 MPI rank 矩阵未重跑。
@@ -133,10 +153,13 @@
 
 ## 5. 建议的下一步（按优先级）
 
-1. 由用户决定组合验收缺陷的处置：根因修复（`MOD_MT_SoilWater` 近干/洪水路径的 booked residual）或明确的残余策略；
-   修复后重跑本记录的 `combined10` 门禁。
-2. 等待并读取 CI run `40725517808` 终态；如有 mpich 失败/超时，单独记录并决定是否拆分 CI 矩阵或对 mpich 单独重试。
-3. 用户对甲烷 6 个决策点给出口径；随后按 §4.3 顺序推进，不把区域三个月当全球两年。
+1. 等 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（组合验收重跑）与 `codex-2608f8979c3449e8bb3cef74e9aba087`
+   （修复回归对照）终态：通过则更新组合验收结论；失败则保留原因并继续定位（不得放宽阈值）。
+2. GitHub 网络恢复后：推送 `9f7c9a52` 及后续文档提交，触发**修复提交的**完整 CI 矩阵并跟到 23/23 终态；
+   同时读取旧 run `40725517808` 的最终 mpich 结果。
+3. 甲烷：读取 3 天三口径结果；通过后跑 30 天水稻 pilot；再按 W1 零传输窗口准备/提交两个年度全球作业
+   （每作业约 17 h，注意 24 h 上限与内存标定）；参数口径（pH/lake/rice/only_wetland/irrigation）
+   逐项记录，旧结果只作参照。
 4. 正式 PR 拆分/合并决定仍由用户作出；当前仅个人 Draft 留档，不向上游交付。
 
 ## 6. 证据索引

@@ -24,6 +24,10 @@
   flood feedback + 运行期同位素强迫，且 `28478b18` 基线同样复现（既有交互缺陷）。frcsat 修复的数值不变性
   另有真实 120 步隔离证据。原始记录为 `combined-report.json`、`combined-job-status.json`、
   `combined-attempts.json`、`combined-EVIDENCE.md`。
+- [组合验收缺陷的根因修复](residual-fix.md)：把“无载体干池质量隔离”从非挥发溶质推广到水同位素
+  （`trc_surface_residue`，不放松阈值、不裁 δ）；组件级验证：两种构建触发案例均 END、零 TRC 诊断、
+  仓库 9 项自检 PASS。完整组合验收重跑与修复-vs-基线回归对照的作业编号见该文；**在它们终态前不写成组合通过**。
+  原始记录为 `residual-fix/validation.json`、`residual-fix/*-log-markers.txt`、`residual-fix/define-*.h`。
 - [完整 hosted CI 矩阵记录](ci-matrix.md)：个人 fork `workflow_dispatch` 触发（run `40725517808`，head `10e9fbd2`，
   23 job）。记录时 16/23 success、0 失败、7 个 mpich 待终态；**未到终态，不写成完整通过**。
   `ci-coverage-check.txt` 是独立矩阵展开与 `check_defineh.py` 覆盖核对输出。
