@@ -67,15 +67,98 @@ flood-feedback runs had no runtime isotope forcing).
 | 8 | `codex-0c007acf2ceb4863aebe3d3dbf812cd2` | ablation round 2: fractionation / LULCC scheme / long no-feedback control | succeeded/0 | W2 (fractionation off) and W3 (SAT) still abort at step 4 -> fractionation and scheme are not the trigger. W4 (full config without flood feedback, 5 days) passes with zero diagnostics. W1 was a namelist configuration error (IsoGSM isotope-forcing groups left in a JRA-forced run), redone correctly in job 9. |
 | 9 | `codex-3c6c916b96a142f6a17f88cbfe25c374` | ablation round 3: JRA/static-isotope full config and LULCC-off build | succeeded/0 | X1 (JRA dynamics + static isotopes + full river options incl. flood feedback + CL + sediment, 3 days) passes; X2 (flood feedback + IsoGSM isotope forcing on the LULCC-off build) still aborts at step 4 -> isotope forcing is required for the failure and the LULCC compile switch is irrelevant. |
 | 10 | `codex-69298c1322fd4c749b69e9999c7b74d8` | trigger regression classification on pre-built p9r binaries (old=28478b18, new=c315c849) | succeeded/0 | Both binaries abort identically at step 4 with the same residual -> the interaction is pre-existing at the branch base 28478b18, not introduced by the latest commits. |
+| 11 | `codex-81a0f423c967451abfcb5adb5ef28881` | read-only supplementary audit (corrected iso_check path, field-level forcing-cache audit, frcsat boundary counts) | failed/1 | Two explained audit flags (cold-start exemption; isotope-only positivity assumption of the delivery cache tool) plus the expected no-history result for the aborted i-NEC-MEC case; supplies the corrected subset facts used in the gate discussion. |
 
 Every job except the main one was a bounded probe/ablation using existing builds; none of them
 re-ran the failed main configuration in the hope of a different result.
 
 ## Main acceptance job `codex-2434412927a94e38a44ad21db5643a38`
 
-MAIN_GATE_TABLE_PLACEHOLDER
+### Gate results as reported by the main job
 
-SUBSET_PLACEHOLDER
+Job: `codex-2434412927a94e38a44ad21db5643a38` — terminal state `failed/1` (validation gate verdict, not infrastructure).
+Full machine report: `evidence/main/report.json`; log: `evidence/main/validation.log`.
+
+| gate | result | key evidence from report.json |
+|---|---|---|
+| G1 两种构建（LULC_IGBP / LULC_IGBP_PFT，MT+LULCC+GridRiverLakeFlow，BGC/CaMa/CROP off） | **PASS** | no errors recorded |
+| G2 组合配置成立 + 连续/拆分 restart/history 全文件全变量原始位一致 | **FAIL** | full history comparison i-NEC-MEC vs i-NEC-MEC-s0101 failed: FILESET a=0 b=0 unmatched=0; full history comparison i-NEC-MEC vs i-NEC-MEC-s0103 failed: FILESET a=0 b=0 unmatched=0; noon-split restart alignment: expected exactly the mid-window checkpoint 2006-001-43200 extra, got [] |
+| G3 全部 END / 步数时间戳精确 / NBAD=0 / 无 SIG/BAL/LULCC_BAL/residual hard/STOP/abort / 无未掩码 NaN/Inf | **FAIL** | i-NEC-MEC: log.colm: no "CoLM Execution Completed"; i-NEC-MEC: log.colm: diagnostic "residual hard failure" x1; i-NEC-MEC: log.colm: diagnostic "MPI_Abort" x1 |
+| G4 每个 restart 陆地块 schema-2 forcing cache 有效（check_forcing_cache.py） | **FAIL** | i-NEC-MEC: forcing cache check failed: AssertionError('no initialized forced checkpoints'); i-NEC-MEC-s0101: forcing cache check failed: AssertionError('no initialized forced checkpoints'); i-NEC-MEC-s0103: forcing cache check failed: AssertionError('no initialized forced checkpoints') |
+| G5 frcsat 有效样本协议（history 掩码/计数一致、mid-window 计数版本保存/边界重置/恢复、部分窗口重算） | **FAIL** | i-NEC-MEC: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data); i-NEC-MEC-s0101: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data); i-NEC-MEC-s0101: 2006-001-00000: history sidecar missing at the split checkpoint |
+| G6 真实 MEC/SAT 过渡 + isotope/CL 账本诊断为零 + tracer 注册 | **FAIL** | i-NEC-MEC: LULCC transition banner count 0 != 1; i-NEC-MEC: transition log does not contain "(MEC)"; i-NEC-MEC: no scheme-specific transition line found |
+| G7 同位素 δ 宽范围诊断（不作观测准确度判据） | **FAIL** | i-NEC-MEC: iso_check rc=1; f-NEC-MEC: iso_check rc=1; i-AMZ-MEC-cl2e5: iso_check rc=1 |
+
+Key counts (from the same report):
+
+| case | steps | segments | final timestamp | diagnostics | history files | restart files |
+|---|---|---|---|---|---|---|
+| i-NEC-MEC | 4 | [4] | 2005-12-25-05400 | 2 | 0 | 4 |
+| i-NEC-MEC-s0101 | 4 | [4] | 2005-12-25-05400 | 2 | 0 | 4 |
+| i-NEC-MEC-s0103 | 4 | [4] | 2005-12-25-05400 | 2 | 0 | 4 |
+| i-NEC-SAT | 4 | [4] | 2005-12-25-05400 | 2 | 0 | 4 |
+| f-NEC-MEC | 576 | [576] | 2006-01-05-84600 | 0 | 6 | 57 |
+| f-NEC-MEC-s0101 | 576 | [336, 240] | 2006-01-05-84600 | 0 | 6 | 57 |
+| f-NEC-MEC-s0103 | 576 | [432, 144] | 2006-01-05-84600 | 0 | 6 | 57 |
+| f-NEC-SAT | 576 | [576] | 2006-01-05-84600 | 0 | 6 | 57 |
+| i-NEC-MEC-noon | 4 | [4] | 2005-12-25-05400 | 2 | 0 | 4 |
+
+### Subset behaviour (not a pass of the whole combination)
+
+- `i-NEC-MEC`: FAIL — log.colm: no "CoLM Execution Completed"
+- `i-NEC-MEC-s0101`: FAIL — expected 2 colm segment logs, found 1
+- `i-NEC-MEC-s0103`: FAIL — expected 2 colm segment logs, found 1
+- `i-NEC-SAT`: FAIL — log.colm: no "CoLM Execution Completed"
+- `f-NEC-MEC`: model-completion checks PASS locally (steps=576, final=2006-01-05-84600, diagnostics=0).
+- `f-NEC-MEC-s0101`: model-completion checks PASS locally (steps=576, final=2006-01-05-84600, diagnostics=0).
+- `f-NEC-MEC-s0103`: model-completion checks PASS locally (steps=576, final=2006-01-05-84600, diagnostics=0).
+- `f-NEC-SAT`: model-completion checks PASS locally (steps=576, final=2006-01-05-84600, diagnostics=0).
+- `i-NEC-MEC-noon`: FAIL — expected 2 colm segment logs, found 1
+
+The f-* (LULC_IGBP_PFT/NEC) and i-AMZ (LULC_IGBP/AMZ) cases do not show the step-4
+residual in the portion of the 12-day window they reached; that is subset evidence only.
+The main acceptance verdict remains FAIL because the required IGBP/NEC combined cases abort.
+
+### Validator reporting corrections (read-only, no physics rerun)
+
+The main job's `report.json` is the executed validator's output and is preserved as-is. Two
+*reporting* defects were found afterwards and corrected in `combined10/validate.py`; neither
+changes the FAIL verdict (the IGBP/NEC abort is in the model logs):
+
+1. `iso_check.py` was invoked on `<run>/` instead of the model case directory `<run>/case/`, so the
+   G7 rows for `f-NEC-MEC` and `i-AMZ-MEC-cl2e5` show `rc=1` spuriously. Re-run correctly inside
+   `codex-81a0f423c967451abfcb5adb5ef28881`: `f-NEC-MEC`, `f-NEC-SAT` and `i-AMZ-MEC-cl2e5` all
+   return rc=0 with 50 isotope variables, ~18,219,880 / 18,219,870 / 18,217,609 valid values,
+   0 unmasked non-finite values and 19–21 d-excess variable pairs (broad diagnostics only).
+   `i-NEC-MEC` still fails because the aborted run produced no isotope history at all.
+2. The delivery tool `tests/material_transport/check_forcing_cache.py` assumes an isotope-only run:
+   it requires `mt_forcing_precip_last/vapor_last > 0` for *every* column of
+   `mt_forcing_species`. A combined run registers CL and SEDIMENT as tracers, so
+   `mt_forcing_species = ntracers = 4`, while the CL column is legitimately 0 (standard chloride
+   namelist: init/precip/vapour default 0) or 3e-6 (nonzero-CL extra) and SEDIMENT is 0. The
+   tool therefore rejects otherwise valid schema-2 caches. The same read-only job audited the
+   fields directly on the completed subset: `f-NEC-MEC`, `-s0101`, `-s0103`, `-SAT` each have 12
+   initialized checkpoints with schema=2, forcing_variables=6, identity shape (7, 1544),
+   reliability flags in {0,1}, both isotope columns strictly positive and all non-isotope columns
+   exactly 0; `i-AMZ-MEC-cl2e5` (nonzero CL) matches with CL precip column = 3e-6 as configured.
+   The only audit flag left is the declared cold-start checkpoint `2005-359-00000` (no cache by
+   design, allowed exception). Consequence: gate G4 cannot be certified by the required delivery
+   tool for a combined isotope+CL+SEDIMENT cache without extending the tool; the caches
+   themselves are structurally consistent on the completed subset, and the IGBP/NEC cases have no
+   initialized checkpoints at all because they abort at step 4.
+
+### Positive subset facts (still not a pass of the full combination)
+
+From the same preserved report/logs, the four LULC_IGBP_PFT/NEC cases are internally clean over
+the full 12-day window: 576 steps each (split segments 336+240 / 432+144), final timestamp
+`2006-01-05-84600`, model END, zero SIG/BAL/LULCC_BAL/residual-hard/STOP/abort messages, zero
+unmasked NaN/Inf, real LULCC MEC and SAT transitions at the 2005→2006 boundary, registered
+transport species `H2_18O, HDO, CL`, `f_frcsat` valid for all 1,200 element-days per case with no
+masked value, 12 window-boundary sidecars per case with `hacc_nac=0` (window reset before the
+restart), and **continuous runs bit-identical to both split runs** (restart and history, all
+files/variables: 4 strict comparisons in the report). The `i-AMZ-MEC-cl2e5` extra also reaches
+576 steps / END with the same clean diagnostics (its only G4 issue is the tool limitation above).
+Subset results do not turn the overall verdict into a pass.
 
 ## Trigger localization (single-factor ablations)
 
@@ -173,6 +256,12 @@ and is the only part of this work that can be cited as a positive frcsat number-
   other scheme, or other forcing dataset was tested for this trigger.
 - The root cause inside the booked residual path was not fixed and no bisect beyond the existing
   p9r old/new binaries was performed (the defect predates both).
+- PFT/NEC and IGBP/AMZ reached the full window cleanly in the main job, but only NEC/IGBP (and the
+  p9r old/new binaries) were tested for the step-4 trigger; other regions, LULC_IGBP_PC, other
+  forcing datasets and any additional scheme combinations were not re-run.
+- Gate G4 cannot be certified with the delivered `check_forcing_cache.py` for a combined
+  isotope+CL+SEDIMENT restart because that tool encodes the isotope-only positivity invariant;
+  the field-level audit in this directory is supplementary evidence, not a replacement tool.
 - The dry-lake invalid-sample branch of the frcsat protocol was not observed in a completed
   run: the extra `DEF_USE_Dynamic_Lake=.true.` case aborted at the same flood-feedback step 4,
   and the standard combined runs keep `DEF_USE_Dynamic_Lake=.false.` (so valid counts equal
@@ -191,7 +280,9 @@ Local (this directory):
 
 - `run.sh`, `lib.sh`, `validate.py`, `new/`, `source.sha256`, `source_versions.txt`, `regions.txt` — the executed acceptance harness and frozen source.
 - `iso/` — fcrsat isolation harness (`iso/run.sh`, `iso/validate.py`, `iso/old` = c315c849 archive).
-- `iso2/`, `iso3/`, `iso4/` — ablation harnesses (locate the flood-feedback trigger).
+- `iso2/`, `iso3/`, `iso4/`, `iso5/` — ablation/classification harnesses (locate the flood-feedback trigger; iso5 runs the minimal trigger on the pre-built p9r old/new binaries).
+- `iso6/` — read-only supplementary audit harness (corrected iso_check path, field-level forcing-cache audit, frcsat boundary counts).
+- `results.json` — machine summary of the verdict, jobs, gates, localization and limits.
 - `evidence/main/` — main job status/report/validation log, build define.h/logs, failed-case log excerpts.
 - `evidence/iso*/` — small reports of the isolation and ablation jobs; `evidence/attempts.json`.
 
@@ -200,4 +291,6 @@ Remote (kept on 7920, read-only for later audits):
 - `codex-2434412927a94e38a44ad21db5643a38/results` — main job full outputs (failed verdict).
 - `codex-17e7132400c44adeb691e66e3dc2c586/results`, `codex-0c007acf2ceb4863aebe3d3dbf812cd2/results`, `codex-3c6c916b96a142f6a17f88cbfe25c374/results` — ablations.
 - `codex-05c172686e434105884e3a0c7297f6fb/results` — frcsat isolation.
+- `codex-69298c1322fd4c749b69e9999c7b74d8/results` — trigger regression classification on the pre-built p9r binaries.
+- `codex-81a0f423c967451abfcb5adb5ef28881/results` — read-only supplementary audit.
 - Builds reused read-only by the probes: `codex-2434412927.../results/bld/i-on` (LULCC on), `codex-05c17268.../results/bld/new6` (LULCC off).

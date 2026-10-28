@@ -24,10 +24,23 @@ Abort(1) on node 1 ... application called MPI_Abort
 | 门禁 | 结果 |
 | --- | --- |
 | G1 构建（LULC_IGBP / LULC_IGBP_PFT，MT+LULCC+GridRiverLakeFlow） | **PASS**（两套 `make all` 成功，define.h 宏核对一致） |
-| G2 配置与完整位比较 | FAIL（IGBP/NEC 案例在 step 4 中止，无法形成完整窗口比较） |
-| G3 模型完成 | FAIL（6/9 案例未完成；PFT/NEC 与 IGBP/AMZ 子集 576 步 END） |
-| G4 forcing cache / G5 frcsat / G6 LULCC 注册 / G7 同位素诊断 | FAIL（随中止案例） |
+| G2 配置与完整位比较 | FAIL（IGBP/NEC 中止无法比较）；**子集事实**：PFT/NEC 的 4 组拆分对连续比较（restart+history 全文件全变量原始位）通过 |
+| G3 模型完成 | FAIL（IGBP/NEC 中止）；**子集事实**：PFT 4 例 + AMZ 非零 CL 例均 576 步、`2006-01-05-84600` END、零诊断、无未掩码非有限值 |
+| G4 forcing cache | FAIL（IGBP/NEC 无后续 checkpoint；交付工具对 isotope+CL+SEDIMENT 组合 cache 存在工具缺口，见下）；**子集事实**：PFT 每例 12 个初始化 checkpoint 字段审计合格（schema=2、forcing_variables=6、identity(7,1544)、reliability∈{0,1}、同位素列>0、非同位素列=0），AMZ 非零 CL 列=3e-6 符合配置 |
+| G5 frcsat 协议 | FAIL（IGBP/NEC 无 history）；**子集事实**：PFT 每例 1,200 个有效要素-日 `f_frcsat`、0 掩码、12 个窗口边界 sidecar（`hacc_nac=0` 已重置） |
+| G6 LULCC 注册/守恒 | FAIL（IGBP/NEC 未到过渡）；**子集事实**：PFT 4 例为真实 MEC/SAT transition，注册 `H2_18O,HDO,CL`，守恒诊断 0 |
+| G7 同位素诊断 | FAIL（报告值，主作业有路径 bug）；**只读补核更正**：f-NEC-MEC、f-NEC-SAT、i-AMZ 的 iso_check rc=0（各 50 个同位素变量、约 1,822 万有效值、0 未掩码非有限、19–21 组 d-excess）；i-NEC-MEC 因中止无 history |
 | 总体 | **FAIL**（`validation` report：status=FAIL，failures=89） |
+
+### 校验器报告瑕疵（只读补核 `codex-81a0f423c967451abfcb5adb5ef28881`，不改变 FAIL）
+
+1. G7 的 `iso_check.py` 被主作业在 `<run>/` 而非 `<run>/case/` 上调用，导致 f-NEC-MEC 与
+   i-AMZ 出现假 rc=1；只读补核按正确路径重跑后上述子集 rc=0（数字见上表）。i-NEC-MEC 仍因中止无 history。
+2. 交付工具 `tests/material_transport/check_forcing_cache.py` 假定纯同位素运行，要求
+   `mt_forcing_species` 每一列的 `mt_forcing_precip_last/vapor_last > 0`；组合运行 `ntracers=4`
+   （isotope+CL+SEDIMENT），CL/SEDIMENT 列合法为 0 或 3e-6，工具因此拒绝结构有效的 schema-2 cache。
+   只读补核直接审计字段确认子集 cache 结构一致；**G4 在组合配置下无法仅凭该交付工具认证**，
+   需要扩展工具（本轮未改工具）。IGBP/NEC 中止案例没有任何 initialized checkpoint。
 
 ## 触发项定位（单因素消融，全部复用冻结源码与既有构建，只改 namelist）
 
@@ -70,10 +83,13 @@ JRA / CL / 河网案例分别用 `c315c849` 与 `6d995438` 独立构建跑 120 �
 
 ## 子集结果（不得当作整体通过）
 
-- PFT/NEC：f-NEC-MEC、f-NEC-MEC-s0101、f-NEC-MEC-s0103、f-NEC-SAT 四例均 576 步 END（12 天完整窗口），
-  但按验收口径整体 FAIL。
-- IGBP/AMZ 非零 CL 案例 `i-AMZ-MEC-cl2e5` 576 步 END（1h47m）。
-- 这些子集只说明触发不是全局的，不证明完整组合通过。
+四个 LULC_IGBP_PFT/NEC 案例在完整 12 天窗口内部干净：各 576 步（拆分 336+240 / 432+144）、终点
+`2006-01-05-84600`、模型 END、零 SIG/BAL/LULCC_BAL/residual hard/STOP/abort、零未掩码 NaN/Inf；
+2005→2006 边界为真实 MEC/SAT transition；注册物种 `H2_18O,HDO,CL`；每例 1,200 个有效要素-日
+`f_frcsat` 且 0 掩码，12 个窗口边界 sidecar 且 `hacc_nac=0`（窗口在 restart 前已重置）；
+**连续运行与两种拆分运行 restart/history 全文件全变量原始位一致（报告内 4 组严格比较）**。
+IGBP/AMZ 非零 CL 案例 `i-AMZ-MEC-cl2e5` 同样 576 步 END、诊断干净（其 G4 问题仅为上述工具缺口）。
+这些子集只说明触发不是全局的，不证明完整组合通过。
 
 ## 失败/尝试保留记录
 
@@ -83,6 +99,7 @@ JRA / CL / 河网案例分别用 `c315c849` 与 `6d995438` 独立构建跑 120 �
 ## 证据
 
 - `combined-report.json`：主作业完整验收报告（status=FAIL、逐门禁、逐案例、89 条 failures、limits）。
+- `combined-results.json`：执行子任务的机器可读结论（verdict、门禁、触发定位、回归分类、未覆盖项）。
 - `combined-job-status.json`：runner 终态（failed/1）与输入/资源声明。
 - `combined-EVIDENCE.md`（由执行子任务维护）：源码冻结、作业/尝试表、消融与分类细节。
 - `combined-attempts.json`：作业尝试记录。

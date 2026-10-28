@@ -1,0 +1,194 @@
+{
+  "task": "combined10: latest combined-source acceptance (frcsat + forced isotopes + LULCC + CL + sediment/river)",
+  "generated": "2026-10-29T02:56:32.635525+08:00",
+  "source": "6d99543861c38c708f6c833e6349bcd3d7d3b879 (git archive; production tree equal to delivery HEAD)",
+  "verdict": "FAIL \u2014 the required full combination aborts on LULC_IGBP/NEC; trigger pre-existing at 28478b18, not a latest-commit regression",
+  "main_job": {
+    "id": "codex-2434412927a94e38a44ad21db5643a38",
+    "terminal": "failed/1 (validator gate verdict)",
+    "gates": {
+      "G1_builds": "PASS",
+      "G2_config_and_comparisons": "FAIL",
+      "G3_model_completion": "FAIL",
+      "G4_forcing_cache": "FAIL",
+      "G5_frcsat_protocol": "FAIL",
+      "G6_lulcc_and_registration": "FAIL",
+      "G7_isotope_diagnostics": "FAIL"
+    },
+    "report": "evidence/main/report.json",
+    "validation_log": "evidence/main/validation.log",
+    "terminal_state": "failed",
+    "exit_code": 1,
+    "finished_at": 1793212699.6320884,
+    "created_at": 1793205931.7388854
+  },
+  "jobs": [
+    {
+      "id": "codex-2e853460a0984d3c93ce2e6cdaa12b5d",
+      "purpose": "combined10 main acceptance, attempt 1",
+      "terminal": "failed/1"
+    },
+    {
+      "id": "codex-1c0b12b7efa44efc9eaf2540062163ae",
+      "purpose": "frcsat isolation attempt 1",
+      "terminal": "failed/1"
+    },
+    {
+      "id": "codex-6d761e65ddd54ccf987df1d0bc68b2f0",
+      "purpose": "frcsat isolation attempt 2",
+      "terminal": "failed/1"
+    },
+    {
+      "id": "codex-6284ea5dd86e486ab6fa97288b96dff1",
+      "purpose": "option-subset localization attempt 1",
+      "terminal": "failed/1"
+    },
+    {
+      "id": "codex-17e7132400c44adeb691e66e3dc2c586",
+      "purpose": "option-subset localization round 1 (9 variants)",
+      "terminal": "succeeded/0"
+    },
+    {
+      "id": "codex-2434412927a94e38a44ad21db5643a38",
+      "purpose": "combined10 main acceptance, attempt 2",
+      "terminal": "EXPECTED_FAILED_1"
+    },
+    {
+      "id": "codex-05c172686e434105884e3a0c7297f6fb",
+      "purpose": "frcsat fix isolation: c315c849 vs 6d995438 on an identical no-LULCC/no-forcing MT case",
+      "terminal": "succeeded/0"
+    },
+    {
+      "id": "codex-0c007acf2ceb4863aebe3d3dbf812cd2",
+      "purpose": "ablation round 2: fractionation / LULCC scheme / long no-feedback control",
+      "terminal": "succeeded/0"
+    },
+    {
+      "id": "codex-3c6c916b96a142f6a17f88cbfe25c374",
+      "purpose": "ablation round 3: JRA/static-isotope full config and LULCC-off build",
+      "terminal": "succeeded/0"
+    },
+    {
+      "id": "codex-69298c1322fd4c749b69e9999c7b74d8",
+      "purpose": "trigger regression classification on pre-built p9r binaries (old=28478b18, new=c315c849)",
+      "terminal": "succeeded/0"
+    }
+  ],
+  "root_cause": {
+    "failure": "TRC_BAL residual hard failure (booked trc_numerical_residual_step) 9.0882e-05 > hard limit 5.0e-05",
+    "where": "TIMESTEP=4, DATE=2005-12-25-05400, @ipatch=213 itrc=1 (H2_18O) ptype=0 (soil)",
+    "trigger": "DEF_GridRiverLake_FloodFeedback=.true. together with runtime isotope forcing (IsoGSM material forcing fields)",
+    "independent_of": [
+      "CL",
+      "sediment",
+      "levee/bifurcation/reservoir",
+      "fractionation on/off",
+      "LULCC scheme MEC/SAT",
+      "LULCC compile switch"
+    ],
+    "regression": "pre-existing: 28478b18 (branch base) and c315c849 pre-built p9r binaries both abort identically (job codex-69298c1322fd4c749b69e9999c7b74d8)",
+    "not_relaxed": "DEF_MT_RESID_ABORT_NBAD was NOT raised and delta was NOT clipped; relaxing the limit would not count as a pass"
+  },
+  "frcsat_isolation": {
+    "job": "codex-05c172686e434105884e3a0c7297f6fb",
+    "status": "PASS",
+    "history": "identical raw bits (all files/variables, incl. f_frcsat)",
+    "restart": "13 files / 767 common variables bit-identical; only intended new mid-window sidecar fields differ",
+    "mid_window_sidecar": {
+      "file": "case_restart_hist_2005-361-43200_e125_n45.nc",
+      "patches": 587,
+      "hacc_nac": 24.0,
+      "nac_min": 24.0,
+      "nac_max": 24.0,
+      "version": [
+        1.0
+      ]
+    }
+  },
+  "ablations": {
+    "round1": {
+      "job": "codex-17e7132400c44adeb691e66e3dc2c586",
+      "summary": {
+        "V0-control": "PASS",
+        "V1-cl": "PASS",
+        "V2-sed": "PASS",
+        "V3-rivaropts": "PASS",
+        "V4-fb": "DIAG_RESIDUAL",
+        "V5-riveropts-fb": "DIAG_RESIDUAL",
+        "V6-full-no-cl": "DIAG_RESIDUAL",
+        "V7-full": "DIAG_RESIDUAL",
+        "V8-sed-cl": "PASS"
+      }
+    },
+    "round2": {
+      "job": "codex-0c007acf2ceb4863aebe3d3dbf812cd2",
+      "summary": {
+        "W1-jra-full": "DIAG_OTHER",
+        "W2-fb-nofrac": "DIAG_RESIDUAL",
+        "W3-fb-sat": "DIAG_RESIDUAL",
+        "W4-nofb-full-frac": "PASS"
+      }
+    },
+    "round3": {
+      "job": "codex-3c6c916b96a142f6a17f88cbfe25c374",
+      "summary": {
+        "X1-jra-static-full": "PASS",
+        "X2-fb-lulccoff": "DIAG_RESIDUAL"
+      }
+    },
+    "regression": {
+      "job": "codex-69298c1322fd4c749b69e9999c7b74d8",
+      "summary": {
+        "OLD-28478b18": "DIAG_RESIDUAL",
+        "NEW-c315c849": "DIAG_RESIDUAL"
+      }
+    }
+  },
+  "subset_behaviour": {
+    "i-NEC-MEC": "FAIL",
+    "i-NEC-MEC-s0101": "FAIL",
+    "i-NEC-MEC-s0103": "FAIL",
+    "i-NEC-SAT": "FAIL",
+    "f-NEC-MEC": "PASS-local",
+    "f-NEC-MEC-s0101": "PASS-local",
+    "f-NEC-MEC-s0103": "PASS-local",
+    "f-NEC-SAT": "PASS-local",
+    "i-NEC-MEC-noon": "FAIL"
+  },
+  "uncovered": [
+    "other regions / LULC_IGBP_PC / other schemes not tested for the trigger",
+    "dry-lake invalid-sample branch not observed in a completed combined run",
+    "root-cause fix of the booked residual path not attempted",
+    "no hosted-CI matrix or methane work in this directory"
+  ],
+  "evidence_dir": "/Users/zhongwangwei/Desktop/Github/CoLM202X/.tmp/ct/combined10",
+  "supplementary_audit": {
+    "job": "codex-81a0f423c967451abfcb5adb5ef28881",
+    "corrected_iso_check": {
+      "f-NEC-MEC": "rc=0, 50 isotope variables, 18,219,880 valid values, 0 unmasked non-finite",
+      "f-NEC-SAT": "rc=0, 50 isotope variables, 18,219,870 valid values, 0 unmasked non-finite",
+      "i-AMZ-MEC-cl2e5": "rc=0, 50 isotope variables, 18,217,609 valid values, 0 unmasked non-finite",
+      "i-NEC-MEC": "rc=1 only because the aborted run wrote no isotope history"
+    },
+    "forcing_cache_field_audit": {
+      "f-NEC-MEC/-s0101/-s0103/-SAT": "12 initialized checkpoints each: schema=2, forcing_variables=6, identity (7,1544), reliability in {0,1}, isotope columns >0, non-isotope columns 0",
+      "i-AMZ-MEC-cl2e5": "same, CL precip column = 3e-6 as configured (nonzero-CL extra)",
+      "checker_limitation": "delivery check_forcing_cache.py enforces isotope-only positivity but combined runs have mt_forcing_species = ntracers = 4 (isotopes+CL+SEDIMENT) with legitimately zero non-isotope columns",
+      "cold_start": "2005-359-00000 has no cache by design (declared exception)"
+    },
+    "frcsat_boundary": {
+      "f-NEC-MEC": "12 window-boundary sidecars with hacc_nac=0, 0 mid-window (daily restarts)",
+      "f-NEC-SAT": "12 window-boundary sidecars with hacc_nac=0, 0 mid-window"
+    }
+  },
+  "validator_reporting_fixes": [
+    "iso_check.py is now invoked on <run>/case instead of <run> (the executed main report has the stale G7 rc values; corrected facts above)",
+    "forcing-cache gate now falls back to a field-level audit with documented combined-run semantics when the delivery isotope-only checker rejects CL/SEDIMENT zero columns",
+    "these are reporting fixes only and do not change the FAIL verdict"
+  ],
+  "positive_subset": {
+    "f-NEC-MEC/-s0101/-s0103/-SAT": "576 steps, END, final 2006-01-05-84600, zero diagnostics, real MEC/SAT transitions, species H2_18O/HDO/CL, f_frcsat 1200 valid element-days, 12 reset boundary sidecars, continuous vs split restart+history bit-identical (4 strict comparisons)",
+    "i-AMZ-MEC-cl2e5": "576 steps, END, same clean diagnostics; only G4 tool limitation",
+    "note": "subset only; overall verdict remains FAIL"
+  }
+}

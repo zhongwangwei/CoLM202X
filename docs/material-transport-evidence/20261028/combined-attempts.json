@@ -68,5 +68,12 @@
   "purpose": "trigger regression classification on pre-built p9r binaries (old=28478b18, new=c315c849)",
   "terminal": "succeeded/0",
   "note": "Both pre-built binaries show the identical step-4 residual (9.0765e-5 > 5.0e-5, patch 213, H2_18O) with the minimal trigger (IsoGSM runtime isotope forcing + flood feedback). The interaction predates the latest commits; it is not a regression introduced by 6d995438 or the commits after the branch base."
+ },
+ {
+  "n": 11,
+  "id": "codex-81a0f423c967451abfcb5adb5ef28881",
+  "purpose": "read-only supplementary audit (corrected iso_check invocation + field-level forcing-cache audit + frcsat boundary counts)",
+  "terminal": "failed/1",
+  "note": "Its report intentionally surfaces two explained flags (cold-start checkpoint exemption and the isotope-only positivity assumption of the delivery cache tool) plus the expected i-NEC-MEC \"no isotope history\" from the aborted run; it supplies the corrected G7/G4 facts used below. A cleaner rerun was not needed once both flags were explained."
  }
 ]
