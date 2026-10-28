@@ -92,7 +92,7 @@
   没有合并 SYSU/master、没有改 workflow 触发过滤——这正面解决“冻结 PR base 不匹配 master/colm30 触发”的限制。
 - run `40725517808`：https://github.com/zhongwangwei/CoLM202X/actions/runs/40725517808
   实际矩阵展开为 **23 个 job**（YAML：2 OS × 3 MPI × 6 GCC = 36，exclude 去重后 23；不是 25）。
-- 截至本文最后核对：**已完成 16/23 全部 success、0 失败、7 个 mpich job 仍 in_progress**；CI 内容核对已确认
+- 截至本文最后核对（2026-10-29 03:29 CST）：**已完成 16/23 全部 success、0 失败、7 个 mpich job 仍 in_progress**（已跑约 3.0 h）；CI 内容核对已确认
   `check_defineh.py` PASS（93 唯一用例）、525 字段历史累加量检查、93 例逐例 `make clean && make all`、
   5 个 MTON/2 个 LULCCON 宏出现次数正确。mpich 历史上单例 3h06–5h48，可能拖到 6h 单 job 上限（06:24 CST）。
 - 终态判定口径：全部 job success 才算完整矩阵通过；若有 job 被 6h 超时取消或失败，按下述“未完成/缺口”保留。

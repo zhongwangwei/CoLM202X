@@ -1,6 +1,6 @@
 # 完整 hosted CI 编译器/MPI 矩阵（个人 fork workflow_dispatch）
 
-状态记录：2026-10-29 03:05 CST。**本文件记录的是“已触发 + 终态前”的真实状态，不是最终通过结论。**
+状态记录：2026-10-29 03:29 CST（最后核对）。**本文件记录的是“已触发 + 终态前”的真实状态，不是最终通过结论。**
 
 ## 触发方式与身份
 
@@ -24,13 +24,13 @@
 - `define.h` 中 `#define MaterialTransport` 出现 5 次（5 个 MTON 例）、`#define LULCC` 2 次（IGBP、PFT 的 MTON+LULCCON 例），与 `TestCaseLists` 一致。
 - 本地 `check_defineh.py` 的覆盖声明与 `TestCaseLists` 实际内容一致（93 例、唯一名、参数个数 7/8/9、PC+BGC+MT、IGBP/PFT+LULCC+MT、BGC+LULCC 被排除、非法 LULCC 参数负例）。独立脚本 `verify_matrix.py` 输出见 `.tmp/ct/ci10/coverage-check.txt`。
 
-## 当前状态（2026-10-29 03:05 CST 快照）
+## 当前状态（2026-10-29 03:29 CST 快照）
 
 | 指标 | 值 |
 | --- | --- |
 | 已完成 | **16 / 23**，全部 **success**，0 失败、0 取消 |
 | 仍需等待 | **7 个 mpich job** 全部 in progress（ubuntu-latest mpich gcc12/13/14；ubuntu-22.04 mpich gcc10/11/12/13） |
-| 已耗时 | 约 2.7 小时（run 于 16:23:40Z 启动） |
+| 已耗时 | 约 3.0 小时（run 于 16:23:40Z 启动；7 个 mpich 已跑约 2.98 h） |
 | 历史参照 | 上游同类 run（`40682560947`）的 mpich job 单例耗时 **3h06m–5h48m**，明显慢于 openmpi/intelmpi（约 1.5 h）；本 run 的 mpich 预计 19:30Z–22:15Z 陆续完成 |
 | 单 job 上限 | GitHub Actions 默认 **6 h** → 最迟 22:23Z（**CST 06:23**）；若个别 job 超时被取消，按“未完成/缺口”保留，不算通过 |
 | 结论口径 | **只有 23/23 全部 success 才算完整矩阵通过**；当前只能报告“16 个非 mpich job 全通过、mpich 待定”，不能写成完整通过 |
