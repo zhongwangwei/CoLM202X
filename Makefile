@@ -90,7 +90,12 @@ OBJS_MKSRFDATA = \
 				  Aggregation_Urban.o                    \
 				  Aggregation_SoilTexture.o              \
 				  MOD_Lulcc_TransferTrace.o              \
+				  MOD_UnitCatchmentSubset.o              \
+				  MOD_UnitCatchmentRegional.o            \
 				  MKSRFDATA.o
+
+MOD_UnitCatchmentRegional.o: MOD_UnitCatchmentSubset.o
+MKSRFDATA.o: MOD_UnitCatchmentRegional.o
 
 $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -116,9 +121,15 @@ OBJS_BASIC =    \
 				 MOD_Catch_BasinNetwork.o        \
 				 MOD_Catch_Vars_TimeVariables.o  \
 				 MOD_Catch_Vars_1DFluxes.o       \
+				 MOD_Grid_RiverLakePush.o        \
+				 MOD_Grid_RiverLakeVectorIO.o    \
 				 MOD_Grid_RiverLakeNetwork.o     \
 				 MOD_Grid_Reservoir.o            \
-				 MOD_Grid_RiverLakeSediment.o    \
+				 MOD_Grid_RiverLakeLevee.o       \
+				 MOD_Grid_RiverLakeBifurcation.o \
+				 MOD_Grid_RiverLakeHistState.o   \
+				 MOD_Grid_RiverLakeHistShard.o   \
+				 MOD_Grid_RiverLakeHistRoute.o   \
 				 MOD_Grid_RiverLakeTimeVars.o    \
 				 MOD_BGC_Vars_1DFluxes.o         \
 				 MOD_BGC_Vars_1DPFTFluxes.o      \
@@ -370,8 +381,13 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
 MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
-MOD_Grid_RiverLakeSediment.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
-MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeSediment.o
+MOD_Grid_RiverLakeNetwork.o: MOD_Grid_RiverLakePush.o
+MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeVectorIO.o
+MOD_Grid_RiverLakeLevee.o: MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
+MOD_Grid_RiverLakeBifurcation.o: MOD_Grid_Reservoir.o MOD_Grid_RiverLakeLevee.o
+MOD_Grid_RiverLakeHistRoute.o: MOD_Grid_RiverLakeHistShard.o MOD_Grid_Reservoir.o
+MOD_Grid_RiverLakeTimeVars.o: MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeLevee.o
+MOD_Vars_TimeVariables.o: MOD_Grid_RiverLakeTimeVars.o
 MOD_Grid_RiverLakeFlow.o: MOD_Grid_RiverLakeHist.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
@@ -407,9 +423,11 @@ endif
 OBJS_POST1 = MOD_Concatenate.o HistConcatenate.o
 OBJS_POST2 = MOD_Vector2Grid.o POST_Vector2Grid.o
 OBJS_POST3 = SrfDataConcatenate.o
+OBJS_POST4 = RiverHistConcatenate.o
 OBJS_POST1_T = $(addprefix .bld/,${OBJS_POST1})
 OBJS_POST2_T = $(addprefix .bld/,${OBJS_POST2})
 OBJS_POST3_T = $(addprefix .bld/,${OBJS_POST3})
+OBJS_POST4_T = $(addprefix .bld/,${OBJS_POST4})
 
 $(OBJS_POST1):%.o:%.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -418,6 +436,9 @@ $(OBJS_POST2):%.o:%.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 $(OBJS_POST3):%.o:%.F90 ${HEADER}
+	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+
+$(OBJS_POST4):%.o:%.F90 ${HEADER} ${OBJS_SHARED}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST1}
@@ -429,6 +450,9 @@ post_vector2grid.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST2}
 srfdata_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST3}
 	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST3_T} -o run/$@ ${LDFLAGS}
 
+river_hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST4}
+	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST4_T} -o run/$@ ${LDFLAGS}
+
 # ------ Target 4: postprocess --------
 DEF = $(shell grep -i CATCHMENT include/define.h)
 vector2grid = $(word 1, ${DEF})
@@ -439,10 +463,10 @@ endif
 
 .PHONY: postprocess.x
 ifneq (${vector2grid},\#define)
-postprocess.x : mkdir_build hist_concatenate.x srfdata_concatenate.x
+postprocess.x : mkdir_build hist_concatenate.x river_hist_concatenate.x srfdata_concatenate.x
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM postprocessing completed!'
 else
-postprocess.x : mkdir_build hist_concatenate.x srfdata_concatenate.x post_vector2grid.x
+postprocess.x : mkdir_build hist_concatenate.x river_hist_concatenate.x srfdata_concatenate.x post_vector2grid.x
 	@echo '<<<<<<<<<<<<<<<<<<<<<<<<< making CoLM postprocessing completed!'
 endif
 # --- End of Target 4 postprocess ------
@@ -463,6 +487,6 @@ clean :
 	rm -rf .bld
 	rm -rf lib libcolm.a
 	rm -f run/mksrfdata.x run/mkinidata.x run/colm.x
-	rm -f run/hist_concatenate.x run/srfdata_concatenate.x run/post_vector2grid.x
+	rm -f run/hist_concatenate.x run/river_hist_concatenate.x run/srfdata_concatenate.x run/post_vector2grid.x
 	rm -f CaMa/src/*.o CaMa/src/*.mod CaMa/src/*.a
 

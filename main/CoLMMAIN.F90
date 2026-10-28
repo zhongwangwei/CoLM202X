@@ -20,7 +20,7 @@ SUBROUTINE CoLMMAIN ( &
            hksati,       csol,         k_solids,     dksatu,       &
            dksatf,       dkdry,        BA_alpha,     BA_beta,      &
            rootfr,       lakedepth,    dz_lake,      elvstd,  BVIC,&
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
            ! add flood depth, flood fraction, flood evaporation and
            ! flood re-infiltration
            flddepth,     fldfrc,       fevpg_fld,    qinfl_fld,    &
@@ -199,6 +199,13 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_LeafInterception
 #if (defined CaMa_Flood)
    USE YOS_CMF_INPUT, only: LWINFILT
+#elif (defined GridRiverLakeFlow)
+   ! [GridRiverLakeFlow] Grid flood feedback reuses the CaMa flood-feedback code paths
+   ! (all "CaMa_Flood || GridRiverLakeFlow" blocks in this file), with its namelist
+   ! switch in place of CaMa's LWINFILT.  CaMa_Flood builds are unchanged, and with
+   ! DEF_GridRiverLake_FloodFeedback = .false. (default) the blocks do nothing, as
+   ! without them (checked: land restart bit-identical to upstream).
+   USE MOD_Namelist, only: LWINFILT => DEF_GridRiverLake_FloodFeedback
 #endif
 #ifdef CROP
    USE MOD_Irrigation, only: CalIrrigationApplicationFluxes
@@ -374,7 +381,7 @@ SUBROUTINE CoLMMAIN ( &
         forc_hpbl   ,&! atmospheric boundary layer height [m]
         forc_aerdep(14)!atmospheric aerosol deposition data [kg/m/s]
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    real(r8), intent(in)    :: fldfrc    !inundation fraction
                                         ! --> allow re-evaporation and infiltration![0-1]
    real(r8), intent(inout) :: flddepth  !inundation depth
@@ -649,7 +656,7 @@ SUBROUTINE CoLMMAIN ( &
 
 !-----------------------------------------------------------------------
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       fevpg_fld = 0._r8
       qinfl_fld = 0._r8
 #endif
@@ -873,7 +880,7 @@ SUBROUTINE CoLMMAIN ( &
               tstar             ,fm                ,fh                ,fq                ,&
               pg_rain           ,pg_snow           ,t_precip          ,qintr_rain        ,&
               qintr_snow        ,snofrz(lbsn:0)    ,sabg_snow_lyr(lb:1)                   &
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
              ,flddepth          ,fldfrc            ,fevpg_fld                            &
 #endif
               )
@@ -894,7 +901,7 @@ SUBROUTINE CoLMMAIN ( &
                  ssi               ,wimp              ,smpmin            ,zwt               ,&
                  wdsrf             ,wa                ,qcharge           ,&
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
                  !add variables for flood depth [mm], flood fraction [0-1]
                  !and re-infiltration [mm/s] calculation.
                  flddepth          ,fldfrc            ,qinfl_fld         ,&
@@ -929,7 +936,7 @@ SUBROUTINE CoLMMAIN ( &
                  qinfl                                                                      ,&
                  qlayer            ,ssi               ,pondmx            ,wimp              ,&
                  zwt               ,wdsrf             ,wa                ,wetwat            ,&
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
                  !add variables for flood depth [mm], flood fraction [0-1]
                  !and re-infiltration [mm/s] calculation.
                  flddepth          ,fldfrc            ,qinfl_fld         ,&
@@ -1033,7 +1040,7 @@ SUBROUTINE CoLMMAIN ( &
                endwb = endwb + wetwat
             ENDIF
          ENDIF
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
          IF (LWINFILT) THEN
             IF (patchtype == 0) THEN
                endwb=endwb - qinfl_fld*deltim
@@ -1047,7 +1054,7 @@ SUBROUTINE CoLMMAIN ( &
          ! for lateral flow, "rsur" is considered in HYDRO/MOD_Hydro_SurfaceFlow.F90
          errorw=(endwb-totwb)-(forc_prc+forc_prl-fevpa)*deltim
 #endif
-#ifdef CaMa_Flood
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
          IF (patchtype == 0) errorw=errorw-fevpg_fld*deltim
 #endif
 

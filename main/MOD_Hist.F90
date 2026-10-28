@@ -212,6 +212,9 @@ CONTAINS
 
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
+#ifdef GridRiverLakeFlow
+         CALL flush_acc_fluxes_riverlake ()
+#endif
          RETURN
       ELSE
          CALL accumulate_fluxes ()

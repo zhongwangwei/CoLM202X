@@ -109,6 +109,14 @@ CONTAINS
             CALL quicksort (num_me, ids_me_sorted, order_ids)
          ENDIF
 
+         ! [GridRiverLakeFlow] A worker may own no element (num_me = 0) but still
+         ! request some, e.g. a worker without any bifurcation pathway in the
+         ! pathway pushes.  find_in_sorted_list1 below would then get the
+         ! unallocated ids_me_sorted, which is invalid Fortran and is stopped by
+         ! runtime checks.  A zero-length list gives the same answer (not found).
+         ! Results are unchanged: nothing else differs when num_me > 0.
+         IF (.not. allocated(ids_me_sorted)) allocate (ids_me_sorted (0), order_ids (0))
+
          pushdata%nself = 0
 
          IF (n_req_uniq > 0) THEN
@@ -258,6 +266,12 @@ CONTAINS
 
          pushdata%num_req_uniq = n_req_uniq
 
+         ! [GridRiverLakeFlow] With no request (num_req = 0, e.g. a worker without
+         ! any bifurcation pathway) ids_req_uniq is never allocated, and the
+         ! section ids_req_uniq(1:0) of an unallocated array is invalid Fortran.
+         ! Results are unchanged: the array is only allocated here when num_req = 0.
+         IF (.not. allocated(ids_req_uniq)) allocate (ids_req_uniq (0))
+
          CALL build_worker_pushdata_uniq ( &
             num_me, ids_me, n_req_uniq, ids_req_uniq(1:n_req_uniq), pushdata)
 
@@ -309,6 +323,12 @@ CONTAINS
          ENDIF
 
          pushdata%num_req_uniq = n_req_uniq
+
+         ! [GridRiverLakeFlow] With no request (num_req = 0, e.g. a worker without
+         ! any bifurcation pathway) ids_req_uniq is never allocated, and the
+         ! section ids_req_uniq(1:0) of an unallocated array is invalid Fortran.
+         ! Results are unchanged: the array is only allocated here when num_req = 0.
+         IF (.not. allocated(ids_req_uniq)) allocate (ids_req_uniq (0))
 
          CALL build_worker_pushdata_uniq ( &
             num_me, ids_me, n_req_uniq, ids_req_uniq(1:n_req_uniq), pushdata)
