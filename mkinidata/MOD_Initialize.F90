@@ -72,6 +72,7 @@ CONTAINS
 #ifdef GridRiverLakeFlow
    USE MOD_Grid_RiverLakeNetwork
    USE MOD_Grid_Reservoir
+   USE MOD_Grid_RiverLakeLevee, only: levee_init, levsto, levdph
 #endif
 #ifdef CROP
    USE MOD_CropReadin
@@ -262,6 +263,10 @@ CONTAINS
    !BVIC          =   1.0  0.050,    0.080,    0.090,    0.250,    0.150,    0.180,    0.200,    0.220,    0.230,    0.250,    0.280,    0.300
    !re-arranged BVIC for USDA soil texture class:
    real(r8), parameter :: BVIC_USDA(0:12) = (/ 1., 0.300,  0.280, 0.250, 0.230,  0.220, 0.200,  0.180, 0.100,  0.090, 0.150, 0.080,  0.050/)
+#ifdef GridRiverLakeFlow
+   ! Levee-protected storage held across the LULCC re-initialization (see below).
+   real(r8), allocatable :: levsto_lulcc(:), levdph_lulcc(:)
+#endif
 
 
 
@@ -270,10 +275,33 @@ CONTAINS
 #endif
 
 #ifdef GridRiverLakeFlow
+      ! LULCC re-runs the initialization with the network already built: release it first.
+      ! The unit catchments do not change, but the patch-to-grid runoff mapping does.
+      IF (present(lulcc_call)) CALL riverlake_network_final ()
       CALL build_riverlake_network ()
 
       IF (DEF_Reservoir_Method > 0) THEN
+         ! LULCC: the reservoir tables of the previous year are still allocated.
+         IF (present(lulcc_call)) CALL reservoir_final ()
          CALL reservoir_init ()
+      ENDIF
+
+      IF (DEF_USE_LEVEE) THEN
+         ! LULCC: levee_init rebuilds the (unchanged) levee geometry and zeroes the
+         ! protected-side state; levsto/levdph are river state like those kept by
+         ! hold/restore_GridRiverLakeTimeVars_lulcc, so carry them across.
+         IF (present(lulcc_call) .and. allocated(levsto)) THEN
+            levsto_lulcc = levsto
+            levdph_lulcc = levdph
+         ENDIF
+         CALL levee_init ()
+         IF (allocated(levsto_lulcc)) THEN
+            IF (size(levsto_lulcc) == size(levsto)) THEN
+               levsto = levsto_lulcc
+               levdph = levdph_lulcc
+            ENDIF
+            deallocate (levsto_lulcc, levdph_lulcc)
+         ENDIF
       ENDIF
 #endif
 
@@ -379,6 +407,24 @@ ENDIF
          ENDIF
       ENDIF
 #endif
+
+      ! [GridRiverLakeFlow] Only some runoff schemes read these, but all are written
+      ! into the constant restart, so with any other scheme (e.g. DEF_Runoff_SCHEME = 0,
+      ! which grid flood feedback and CaMa flood feedback require) uninitialised memory
+      ! was written there and runs differed between process counts.  Give them a
+      ! defined value first (soil texture 0 = no class).
+      ! Results are unchanged: a scheme that uses them sets them right below
+      ! (soiltext_readin, BVIC) or reads them later, and no other scheme reads them.
+      IF (p_is_worker) THEN
+         IF (numpatch > 0) THEN
+            soiltext(:) = 0
+            BVIC    (:) = BVIC_USDA(0)
+            topoweti(:) = 0.
+            alp_twi (:) = 0.
+            chi_twi (:) = 0.
+            mu_twi  (:) = 0.
+         ENDIF
+      ENDIF
 
 #ifdef CatchLateralFlow
       use_soiltext = .true.

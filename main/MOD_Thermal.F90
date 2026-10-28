@@ -75,7 +75,7 @@ CONTAINS
                        tstar         ,fm            ,fh            ,fq            ,&
                        pg_rain       ,pg_snow       ,t_precip      ,qintr_rain    ,&
                        qintr_snow    ,snofrz        ,sabg_snow_lyr                 &
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
                       ,flddepth      ,fldfrc        ,fevpg_fld                    &
 #endif
                        )
@@ -137,9 +137,18 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_RSS_SCHEME, DEF_SPLIT_SOILSNOW, &
                            DEF_USE_LCT,DEF_USE_PFT,DEF_USE_PC,DEF_PC_CROP_SPLIT
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    USE MOD_CaMa_colmCaMa, only: get_fldevp
+#ifdef CaMa_Flood
    USE YOS_CMF_INPUT, only: LWEVAP
+#else
+   ! [GridRiverLakeFlow] Grid flood feedback reuses the CaMa flood-feedback code paths
+   ! (all "CaMa_Flood || GridRiverLakeFlow" blocks in this file), with its namelist
+   ! switch in place of CaMa's LWEVAP.  CaMa_Flood builds are unchanged, and with
+   ! DEF_GridRiverLake_FloodFeedback = .false. (default) the blocks do nothing, as
+   ! without them (checked: land restart bit-identical to upstream).
+   USE MOD_Namelist, only: LWEVAP => DEF_GridRiverLake_FloodFeedback
+#endif
 #endif
 
    IMPLICIT NONE
@@ -271,7 +280,7 @@ CONTAINS
    real(r8), intent(in) :: &
        sabg_snow_lyr(lb:1)        ! snow layer absorption
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    real(r8), intent(inout) :: flddepth   ! inundation depth [mm]
    real(r8), intent(in)    :: fldfrc     ! inundation fraction [0-1]
    real(r8), intent(out)   :: fevpg_fld  ! inundation evaporation [mm/s]
@@ -450,7 +459,7 @@ CONTAINS
 
    real(r8) :: z0m_g,z0h_g,zol_g,obu_g,rib_g,ustar_g,qstar_g,tstar_g
    real(r8) :: fm10m,fm_g,fh_g,fq_g,fh2m,fq2m,um,obu
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
    logical :: flood_evap_active
    real(r8) :: fldfrc_eff, fevpg_fld_local, fseng_fld_local
    real(r8) :: cgrnd_land, cgrndl_land, cgrnds_land
@@ -514,7 +523,7 @@ CONTAINS
       lfevpa = 0.;  fsenl  = 0.
       fevpl  = 0.;  etr    = 0.
       fseng  = 0.;  fevpg  = 0.
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       fevpg_fld = 0._r8
       flood_evap_active = .FALSE.
 #endif
@@ -1214,7 +1223,7 @@ END IF
 ENDIF
 #endif
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       ! CaMa: inundation evaporation is part of the ground energy balance
       IF (LWEVAP .and. patchtype == 0 .and. &
           flddepth > 0._r8 .and. fldfrc > EPSILON(1._r8)) THEN
@@ -1284,7 +1293,7 @@ ENDIF
       fevpg_soil = fevpg_soil + tinc*cgrndl
       fevpg_snow = fevpg_snow + tinc*cgrndl
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       IF (flood_evap_active) THEN
          fevpg = fevpg - (hvap/htvp)*fevpg_fld
          fevpg_soil = fevpg_soil - (hvap/htvp)*fevpg_fld
@@ -1388,7 +1397,7 @@ ELSE
 ENDIF
 
 
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       IF (flood_evap_active) THEN
          fevpg = fevpg + fevpg_fld
          fevpg_soil = fevpg_soil + fevpg_fld
@@ -1400,7 +1409,7 @@ ENDIF
       fsena  = fsenl + fseng
       fevpa  = fevpl + fevpg
       lfevpa = hvap*fevpl + htvp*fevpg   ! W/m^2 (accounting for sublimation)
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       IF (flood_evap_active) lfevpa = lfevpa + (hvap-htvp)*fevpg_fld
 #endif
 
@@ -1421,7 +1430,7 @@ ELSE
             + cpliq*pg_rain*(t_precip-t_grnd) &
             + cpice*pg_snow*(t_precip-t_grnd)
 ENDIF
-#if (defined CaMa_Flood)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
       IF (flood_evap_active) fgrnd = fgrnd - (hvap-htvp)*fevpg_fld
 #endif
 

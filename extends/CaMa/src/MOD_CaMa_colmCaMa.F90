@@ -73,8 +73,23 @@ MODULE MOD_CaMa_colmCaMa
    INTERFACE colm_CaMa_exit
       MODULE PROCEDURE colm_CaMa_exit
    END INTERFACE
+#endif
+#ifdef GridRiverLakeFlow
+   ! [GridRiverLakeFlow] Grid flood feedback evaporates floodwater exactly like
+   ! CaMa flood feedback, so MOD_Thermal calls the same get_fldevp below instead
+   ! of a copy of it.  Without CaMa_Flood only get_fldevp is compiled here.
+   ! CaMa_Flood builds are unchanged: the two models cannot be defined together
+   ! (see the check above), so for them only the preprocessor lines differ.
+   USE MOD_Namelist, only: DEF_USE_CBL_HEIGHT
+   USE MOD_Precision, only: r8
+   USE MOD_Qsadv
+   IMPLICIT NONE
+#endif
+#if defined(CaMa_Flood) || defined(GridRiverLakeFlow)
 CONTAINS
+#endif
 
+#ifdef CaMa_Flood
    SUBROUTINE colm_CaMa_init(start_date)
    USE MOD_LandPatch
    USE MOD_Utils,            only: areaquad
@@ -741,7 +756,9 @@ CONTAINS
          END WHERE
       ENDIF
    END SUBROUTINE publish_flood_credit
+#endif
 
+#if defined(CaMa_Flood) || defined(GridRiverLakeFlow)
    SUBROUTINE get_fldevp (hu,ht,hq,us,vs,tm,qm,rhoair,psrf,tssea,&
 	   hpbl, &
       taux,tauy,fseng,fevpg,tref,qref,z0m,zol,rib,ustar,qstar,tstar,fm,fh,fq)

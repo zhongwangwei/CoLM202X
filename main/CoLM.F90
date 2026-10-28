@@ -393,7 +393,7 @@ PROGRAM CoLM
       CALL lateral_flow_init (lc_year)
 #endif
 #ifdef GridRiverLakeFlow
-      CALL grid_riverlake_flow_init ()
+      CALL grid_riverlake_flow_init (s_year, is_spinup)
 #endif
 
       CALL ParaOpt_init (jdate, lc_year)
@@ -537,6 +537,9 @@ PROGRAM CoLM
 
             ! Call LULCC driver
             CALL LulccDriver (casename, dir_landdata, dir_restart, jdate, greenwich)
+#ifdef GridRiverLakeFlow
+            CALL grid_riverlake_flow_lulcc (jdate(1), is_spinup)
+#endif
 
             ! Allocate Forcing and Fluxes variable of next year
             CALL allocate_1D_Forcing

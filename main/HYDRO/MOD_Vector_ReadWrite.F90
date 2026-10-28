@@ -112,6 +112,13 @@ CONTAINS
    logical :: write_attr
 
 
+      ! [GridRiverLakeFlow] Nothing to write when the vector is empty on all
+      ! processes (e.g. no reservoir or no bifurcation pathway in the domain);
+      ! writing it would define a zero-length dimension, which netCDF takes as
+      ! unlimited.  totalvlen is the same on all processes, so all return together.
+      ! Results are unchanged for any non-empty vector.
+      IF (totalvlen <= 0) RETURN
+
       CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
 
       IF (p_is_master) THEN
@@ -175,6 +182,13 @@ CONTAINS
    integer :: i
    real(r8), allocatable :: wdata(:), wdata2d(:,:)
    logical :: write_attr
+
+      ! [GridRiverLakeFlow] Nothing to write when the vector is empty on all
+      ! processes (e.g. no reservoir or no bifurcation pathway in the domain);
+      ! writing it would define a zero-length dimension, which netCDF takes as
+      ! unlimited.  totalvlen is the same on all processes, so all return together.
+      ! Results are unchanged for any non-empty vector.
+      IF (totalvlen <= 0) RETURN
 
       CALL vector_gather_to_master (vector, vlen, totalvlen, data_address, wdata)
 
