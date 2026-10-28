@@ -1525,7 +1525,8 @@ CONTAINS
          IF (DEF_UnitCatchment_regional) THEN
             IF (trim(DEF_UnitCatchment_file) == 'null') &
                CALL CoLM_Stop ('Regional unit catchment requires DEF_UnitCatchment_file.')
-            IF (len_trim(DEF_dir_landdata) + len(REGIONAL_UNITCATCHMENT_SUFFIX) > len(DEF_dir_landdata)) &
+            IF (len_trim(DEF_dir_output) + len_trim(adjustl(DEF_CASE_NAME)) + 1 &
+                + len(REGIONAL_UNITCATCHMENT_SUFFIX) > len(DEF_dir_landdata)) &
                CALL CoLM_Stop ('Regional unit catchment path is too long.')
 #ifndef GridRiverLakeFlow
             CALL CoLM_Stop ('Regional unit catchment requires GridRiverLakeFlow.')
@@ -3068,13 +3069,14 @@ ENDIF
 
    END SUBROUTINE sync_hist_vars_one
 
-   ! path of the regional unit catchment file written by mksrfdata
+   ! path of the regional unit catchment file written by mkinidata: in the case
+   ! directory next to restart and history, so landdata shared by cases is not written
    FUNCTION regional_unitcatchment_file () RESULT (fname)
 
    IMPLICIT NONE
    character(len=256) :: fname
 
-      fname = trim(DEF_dir_landdata) // REGIONAL_UNITCATCHMENT_SUFFIX
+      fname = trim(DEF_dir_output) // '/' // trim(adjustl(DEF_CASE_NAME)) // REGIONAL_UNITCATCHMENT_SUFFIX
 
    END FUNCTION regional_unitcatchment_file
 

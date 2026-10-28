@@ -76,7 +76,6 @@ PROGRAM MKSRFDATA
    USE MOD_LandCrop
 #endif
    USE MOD_RegionClip
-   USE MOD_UnitCatchmentRegional, only: unitcatchment_regional_build
 #if (defined MaterialTransport) && (defined BGC)
    USE MOD_MT_Methane_Preprocessing, only: methane_preprocessing_requirements
 #endif
@@ -477,10 +476,6 @@ PROGRAM MKSRFDATA
 #ifdef URBAN_MODEL
       CALL pixelset_save_to_file  (dir_landdata, 'landurban', landurban, lc_year)
 #endif
-
-      IF (DEF_UnitCatchment_regional) THEN
-         CALL unitcatchment_regional_build ()
-      ENDIF
 
 ! ................................................................
 ! 3. Mapping land characteristic parameters to the model grids

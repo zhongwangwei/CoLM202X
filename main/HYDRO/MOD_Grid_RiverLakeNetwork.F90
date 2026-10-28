@@ -1146,9 +1146,10 @@ CONTAINS
 
    ! The regional network must take the runoff of every runoff-input cell that the
    ! land patches overlap and that the full network (DEF_UnitCatchment_file) routes;
-   ! otherwise that runoff would be dropped without notice.  mksrfdata cuts the
-   ! network so, but with LULCC the patches of a later year may overlap cells that
-   ! the network was not cut for.  Called at start-up and after each LULCC.
+   ! otherwise that runoff would be dropped without notice.  mkinidata cuts the
+   ! network so, from the land patches of every land-cover year of the run, but the
+   ! run may reach a year that mkinidata had no land data for, or use a file cut for
+   ! another period or domain.  Called at start-up and after each LULCC.
    ! Collective over all processes.  idmap_x/idmap_y (the regional input matrix) are
    ! used on the master only.
 
@@ -1206,8 +1207,8 @@ CONTAINS
          IF (nmiss > 0) THEN
             write(*,'(A,I0,A)') 'ERROR: ', nmiss, ' runoff-input cells under the land patches are routed by'
             write(*,'(A)') '   DEF_UnitCatchment_file but not by the regional unit-catchment network.'
-            write(*,'(A)') '   With LULCC run mksrfdata for every land-cover year before mkinidata;'
-            write(*,'(A)') '   otherwise run mksrfdata again for this domain.'
+            write(*,'(A)') '   Run mkinidata again for this domain and simulation period'
+            write(*,'(A)') '   (with LULCC, after mksrfdata has made the land data of every year).'
          ENDIF
          deallocate (touched, routed_full, routed_regional, src_x, src_y)
       ENDIF
@@ -1269,7 +1270,7 @@ CONTAINS
       IF (.not. consistent) THEN
          write(*,'(A)') 'ERROR: the regional unit-catchment network does not belong to DEF_UnitCatchment_file.'
          write(*,'(2A)') '   regional file: ', trim(file_regional)
-         write(*,'(A)') '   Run mksrfdata again with the current DEF_UnitCatchment_file.'
+         write(*,'(A)') '   Run mkinidata again with the current DEF_UnitCatchment_file.'
          CALL CoLM_stop ()
       ENDIF
 

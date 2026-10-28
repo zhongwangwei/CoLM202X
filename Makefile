@@ -110,14 +110,11 @@ OBJS_MKSRFDATA = \
 				  Aggregation_Urban.o                    \
 				  Aggregation_SoilTexture.o              \
 				  MOD_Lulcc_TransferTrace.o              \
-				  MOD_UnitCatchmentSubset.o              \
-				  MOD_UnitCatchmentRegional.o            \
 				  Aggregation_LakeSoilC.o                \
 				  Aggregation_MethanePH.o                \
 				  MKSRFDATA.o
 
-MOD_UnitCatchmentRegional.o: MOD_UnitCatchmentSubset.o
-MKSRFDATA.o: MOD_UnitCatchmentRegional.o MOD_MT_Methane_Preprocessing.o
+MKSRFDATA.o: MOD_MT_Methane_Preprocessing.o
 
 $(OBJS_MKSRFDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -241,7 +238,12 @@ $(OBJS_BASIC) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG}
 OBJS_BASIC_T = $(addprefix .bld/,${OBJS_BASIC})
 
 OBJS_MKINIDATA = \
+				  MOD_UnitCatchmentSubset.o              \
+				  MOD_UnitCatchmentRegional.o            \
 				  CoLMINI.o
+
+MOD_UnitCatchmentRegional.o: MOD_UnitCatchmentSubset.o
+CoLMINI.o: MOD_UnitCatchmentRegional.o
 
 $(OBJS_MKINIDATA) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJS_BASIC}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
