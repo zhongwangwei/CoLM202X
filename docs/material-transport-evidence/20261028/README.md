@@ -15,6 +15,10 @@
 - `vector-io-results.json` 与 fatal 摘录：真实新旧计数 sidecar 以及损坏输入拒绝。
 - `crossyear-cache-results.json` 与 `crossyear-cache-acceptance.md`：冻结 p9q 九模型的
   只读严格补核通过；原 runner 的冷启动误判和首轮审计失败仍保留，不假称旧任务成功。
+- [p9s 长窗口同位素极值诊断](p9s-longwindow-diagnosis.md)：7 个透明探针（每月 restart 重跑目标月、
+  重叠 history 逐位一致）+ 12 条真实极值复现 + Decimal50 账本回放；21 个有效 δ 由 gross water /
+  有符号质量重建，1 个负 signed ratio 按缺测输出。原始记录为 `p9s-probe-results.json`、
+  `p9s-probe-job-status.json`，工具在 `longwindow-probe-tools/`。
 - `methane-input-audit-summary.json`：只读候选包元数据审计，结论为
   `NOT_READY / UNVERIFIED_CANDIDATE`。传输一致不代表来源唯一、输入闭合或科学正确；
   没有启动甲烷模型。完整原报告仍在审计任务结果目录。

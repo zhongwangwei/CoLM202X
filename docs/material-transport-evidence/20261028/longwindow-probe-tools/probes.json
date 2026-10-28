@@ -1,0 +1,98 @@
+[
+  {
+    "name": "amz-wet-2004-03",
+    "baseline_case": "amz-wet",
+    "start_year": 2004,
+    "start_month": 3,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 3,
+    "end_day": 10,
+    "targets": [
+      "amz-wet-wet-HDO-max-2004-03-10"
+    ]
+  },
+  {
+    "name": "amz-wet-2004-02",
+    "baseline_case": "amz-wet",
+    "start_year": 2004,
+    "start_month": 2,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 2,
+    "end_day": 19,
+    "targets": [
+      "amz-wet-wet-HDO-min-2004-02-19"
+    ]
+  },
+  {
+    "name": "amz-wet-2004-01",
+    "baseline_case": "amz-wet",
+    "start_year": 2004,
+    "start_month": 1,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 1,
+    "end_day": 15,
+    "targets": [
+      "amz-wet-soil-HDO-min-2004-01-02",
+      "amz-wet-wet-H2_18O-min-2004-01-15"
+    ]
+  },
+  {
+    "name": "nec-sum-2004-07",
+    "baseline_case": "nec-sum",
+    "start_year": 2004,
+    "start_month": 7,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 7,
+    "end_day": 3,
+    "targets": [
+      "nec-sum-soil-HDO-min-2004-07-03",
+      "nec-sum-wet-HDO-max-2004-07-03",
+      "nec-sum-soil-H2_18O-min-2004-07-03"
+    ]
+  },
+  {
+    "name": "nec-sum-2004-05",
+    "baseline_case": "nec-sum",
+    "start_year": 2004,
+    "start_month": 5,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 5,
+    "end_day": 8,
+    "targets": [
+      "nec-sum-wet-HDO-min-2004-05-08"
+    ]
+  },
+  {
+    "name": "nec-win-2004-02",
+    "baseline_case": "nec-win",
+    "start_year": 2004,
+    "start_month": 2,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 2,
+    "end_day": 10,
+    "targets": [
+      "nec-win-soil-HDO-min-2004-02-10"
+    ]
+  },
+  {
+    "name": "nec-win-2004-01",
+    "baseline_case": "nec-win",
+    "start_year": 2004,
+    "start_month": 1,
+    "start_day": 1,
+    "end_year": 2004,
+    "end_month": 1,
+    "end_day": 18,
+    "targets": [
+      "nec-win-wet-HDO-min-2004-01-01",
+      "nec-win-soil-H2_18O-max-2004-01-18",
+      "nec-win-soil-HDO-max-2004-01-17"
+    ]
+  }
+]
