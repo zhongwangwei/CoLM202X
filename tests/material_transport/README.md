@@ -56,6 +56,19 @@ and computes d-excess using jointly valid positions in the same file. Unmasked
 non-finite values and missing isotope histories fail the check. Its broad delta
 ranges are diagnostics, not observation-based acceptance criteria.
 
+For a forced-isotope restart tree, validate every land block's schema-2 cache:
+
+```sh
+python3 tests/material_transport/check_forcing_cache.py --self-test
+python3 tests/material_transport/check_forcing_cache.py CASE/restart --initial-date 2005-359-00000
+```
+
+The optional date permits only host-only files or a committed schema-5 empty material transaction (transport count zero, no material pools) at that first cold checkpoint,
+as written by `mkinidata` before material/forcing initialization. Initialized
+material files and all later checkpoints still require complete valid caches.
+`const` and `ParaOpt` are static directories, not model checkpoints. The caller
+must separately check the expected checkpoint dates and model completion.
+
 ## Additional regression checks
 
 ```sh

@@ -1,0 +1,1637 @@
+{
+  "input": "/media/zhwei/data01/compute_runs/codex/codex-1f593daee0854b2587cee991b7996e45/results",
+  "original_job": "codex-1f593daee0854b2587cee991b7996e45",
+  "original_terminal_status": "failed (preserved)",
+  "scope": "existing p9q outputs only; not latest frcsat combined-source LULCC",
+  "runs": {
+    "i-NEC-MEC": {
+      "steps": [
+        576
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": 2,
+      "finite_values": 12175242,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        }
+      ]
+    },
+    "i-NEC-MEC-s0101": {
+      "steps": [
+        336,
+        240
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": null,
+      "finite_values": 12175242,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        }
+      ]
+    },
+    "i-NEC-MEC-s0103": {
+      "steps": [
+        432,
+        144
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": null,
+      "finite_values": 12175242,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        }
+      ]
+    },
+    "i-NEC-MEC-np9": {
+      "steps": [
+        576
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": 2,
+      "finite_values": 12175242,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        }
+      ]
+    },
+    "i-NEC-SAT": {
+      "steps": [
+        576
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 1,
+      "saved_nml_scheme": 1,
+      "finite_values": 12175276,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 587,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 98
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 593,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 1186
+            }
+          ]
+        }
+      ]
+    },
+    "i-AMZ-MEC": {
+      "steps": [
+        576
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": 2,
+      "finite_values": 12171435,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_w060_s05.nc",
+              "patches": 196,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 370
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_w060_s05.nc",
+              "patches": 196,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 392
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_w060_s05.nc",
+              "patches": 196,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 392
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_w060_s05.nc",
+              "patches": 196,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 392
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_w060_s05.nc",
+              "patches": 196,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 392
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_w060_s05.nc",
+              "patches": 196,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 392
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_w060_s05.nc",
+              "patches": 198,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 396
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_w060_s05.nc",
+              "patches": 198,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 396
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_w060_s05.nc",
+              "patches": 198,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 396
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_w060_s05.nc",
+              "patches": 198,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 396
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_w060_s05.nc",
+              "patches": 198,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 396
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_w060_s05.nc",
+              "patches": 198,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 396
+            }
+          ]
+        }
+      ]
+    },
+    "f-NEC-MEC": {
+      "steps": [
+        576
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": 2,
+      "finite_values": 12172732,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 32
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 32
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        }
+      ]
+    },
+    "f-NEC-MEC-s0101": {
+      "steps": [
+        336,
+        240
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 2,
+      "saved_nml_scheme": null,
+      "finite_values": 12172732,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 32
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 32
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        }
+      ]
+    },
+    "f-NEC-SAT": {
+      "steps": [
+        576
+      ],
+      "start": "2005-12-25 00:00:00",
+      "end": "2006-01-05 23:30:00",
+      "lulcc": 1,
+      "nbad": 0,
+      "scheme_from_transition_log": 1,
+      "saved_nml_scheme": 1,
+      "finite_values": 12172724,
+      "checkpoints": [
+        {
+          "date": "2005-359-00000",
+          "cold_host_blocks": 1,
+          "cache_blocks": []
+        },
+        {
+          "date": "2005-360-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-360-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-361-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-361-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-362-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-362-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-363-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-363-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 0
+            }
+          ]
+        },
+        {
+          "date": "2005-364-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-364-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 32
+            }
+          ]
+        },
+        {
+          "date": "2005-365-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2005-365-00000_lc2005_e125_n45.nc",
+              "patches": 201,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 32
+            }
+          ]
+        },
+        {
+          "date": "2006-001-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-001-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-002-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-002-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-003-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-003-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-004-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-004-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-005-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-005-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        },
+        {
+          "date": "2006-006-00000",
+          "cold_host_blocks": 0,
+          "cache_blocks": [
+            {
+              "file": "case_restart_2006-006-00000_lc2006_e125_n45.nc",
+              "patches": 202,
+              "species": 2,
+              "forcing_variables": 6,
+              "reliable": 404
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "comparisons": [
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0101",
+      "kind": "restart",
+      "result": "IDENTICAL files=42 vars=1934 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0101",
+      "kind": "history",
+      "result": "IDENTICAL files=6 vars=450 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0103",
+      "kind": "restart",
+      "result": "IDENTICAL files=42 vars=1934 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0103",
+      "kind": "history",
+      "result": "IDENTICAL files=6 vars=450 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-np9",
+      "kind": "restart",
+      "result": "IDENTICAL files=42 vars=1934 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-np9",
+      "kind": "history",
+      "result": "IDENTICAL files=6 vars=450 (variable bits; not attributes)"
+    },
+    {
+      "a": "f-NEC-MEC",
+      "b": "f-NEC-MEC-s0101",
+      "kind": "restart",
+      "result": "IDENTICAL files=57 vars=2241 (variable bits; not attributes)"
+    },
+    {
+      "a": "f-NEC-MEC",
+      "b": "f-NEC-MEC-s0101",
+      "kind": "history",
+      "result": "IDENTICAL files=6 vars=450 (variable bits; not attributes)"
+    }
+  ],
+  "status": "PASS"
+}

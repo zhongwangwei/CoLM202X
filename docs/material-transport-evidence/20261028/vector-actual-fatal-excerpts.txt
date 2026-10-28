@@ -1,0 +1,6 @@
+== orphan
+ frcsat history count has no version marker
+== missingcount
+ERROR: nac_frcsat missing or of wrong shape in /media/zhwei/data01/compute_runs/codex/codex-005e25fe7c6948e69428ca773dcc762b/results/runs/missingcount//case/restart/2005-001-43200/case_restart_hist_2005-001-43200_e100_n20.nc
+== mixednan
+ Non-finite history-accumulator marker hacc_frcsat_count_version

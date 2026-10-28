@@ -1,0 +1,200 @@
+{
+  "job": "codex-6d036be5acbd4ef5bfec97ab3c0605d3",
+  "records": {
+    "validation.json": "{\n  \"comparisons\": [\n    {\n      \"case\": \"split5\",\n      \"kind\": \"history\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=2 vars=193 (variable bits; not attributes)\"\n    },\n    {\n      \"case\": \"split5\",\n      \"kind\": \"restart\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=115 vars=4690 (variable bits; not attributes)\"\n    },\n    {\n      \"case\": \"full9\",\n      \"kind\": \"history\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=2 vars=193 (variable bits; not attributes)\"\n    },\n    {\n      \"case\": \"full9\",\n      \"kind\": \"restart\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=115 vars=4690 (variable bits; not attributes)\"\n    },\n    {\n      \"case\": \"split59\",\n      \"kind\": \"history\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=2 vars=193 (variable bits; not attributes)\"\n    },\n    {\n      \"case\": \"split59\",\n      \"kind\": \"restart\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=115 vars=4690 (variable bits; not attributes)\"\n    },\n    {\n      \"case\": \"partial59\",\n      \"kind\": \"final_checkpoint\",\n      \"passed\": true,\n      \"result\": \"IDENTICAL files=13 vars=364 (variable bits; not attributes)\"\n    }\n  ],\n  \"health\": {\n    \"full5\": {\n      \"files\": 2,\n      \"nonzero_CL_values\": 60551,\n      \"material_finite\": true,\n      \"daily_records\": 5,\n      \"prefix_preserved\": false\n    },\n    \"split5\": {\n      \"files\": 2,\n      \"nonzero_CL_values\": 60551,\n      \"material_finite\": true,\n      \"daily_records\": 5,\n      \"prefix_preserved\": true\n    },\n    \"full9\": {\n      \"files\": 2,\n      \"nonzero_CL_values\": 60551,\n      \"material_finite\": true,\n      \"daily_records\": 5,\n      \"prefix_preserved\": false\n    },\n    \"split59\": {\n      \"files\": 2,\n      \"nonzero_CL_values\": 60551,\n      \"material_finite\": true,\n      \"daily_records\": 5,\n      \"prefix_preserved\": true\n    }\n  },\n  \"partial_window\": {\n    \"midday_counts\": [\n      {\n        \"file\": \"partial-mid-restart/2005-001-43200/case_restart_hist_2005-001-43200_e110_n20.nc\",\n        \"patches\": 869,\n        \"valid\": 869\n      },\n      {\n        \"file\": \"partial-mid-restart/2005-001-43200/case_restart_hist_2005-001-43200_e100_n25.nc\",\n        \"patches\": 223,\n        \"valid\": 223\n      },\n      {\n        \"file\": \"partial-mid-restart/2005-001-43200/case_restart_hist_2005-001-43200_e110_n25.nc\",\n        \"patches\": 511,\n        \"valid\": 511\n      },\n      {\n        \"file\": \"partial-mid-restart/2005-001-43200/case_restart_hist_2005-001-43200_e100_n20.nc\",\n        \"patches\": 459,\n        \"valid\": 459\n      },\n      {\n        \"file\": \"partial-mid-restart/2005-001-43200/case_restart_hist_2005-001-43200_e105_n20.nc\",\n        \"patches\": 680,\n        \"valid\": 680\n      },\n      {\n        \"file\": \"partial-mid-restart/2005-001-43200/case_restart_hist_2005-001-43200_e105_n25.nc\",\n        \"patches\": 210,\n        \"valid\": 210\n      }\n    ],\n    \"full_day_vars_identical\": 193,\n    \"explicitly_accounted_extra_records\": [\n      {\n        \"file\": \"case_hist_2005-01.nc\",\n        \"extra_endpoint\": 55225440.0,\n        \"full_day_endpoint\": 55226160.0,\n        \"units\": \"minutes since 1900-1-1 0:0:0\"\n      },\n      {\n        \"file\": \"case_hist_material_2005-01.nc\",\n        \"extra_endpoint\": 55225440.0,\n        \"full_day_endpoint\": 55226160.0,\n        \"units\": \"minutes since 1900-1-1 0:0:0\"\n      }\n    ]\n  }\n}",
+    "source_versions.txt": "base=c315c849\noverlay=reviewed_six_frcsat_files_plus_test\n3ae572acc733df560db96930ec0a1f7307a9a53396f60adb01ad6795464c0c89  main/CoLMMAIN.F90\n3e094b4cfd231fde260395b5ba1579a8b2d11ed981d4624cd5fe587147ef2111  main/MOD_Vars_1DFluxes.F90\n01ccce012d73ebaab80d3af39fd2a33f31763afa9f5217dfdc57577419328f97  main/MOD_Vars_1DAccFluxes.F90\nc990254f4182a51fa60c30830ee6fec7ea9ca2c3d64ff6538c512289879fbea2  main/MOD_Hist.F90\nf4b1b773f71a4ad1d99792a794124731b06117ec7f3296a81cb6c2c3f6077d30  main/MOD_HistAccRestart.F90\n57253cca6ec225b3a25dc7970fdec0182bb430bdfc1d19b70a97848179d34c67  tests/material_transport/check_frcsat_history.py\nbad95c8049989cc0a47491e56b8e14a587bf37b1c7f96b421809db1290239362  .github/workflows/hist_acc_restart_fields.py\n"
+  },
+  "source_hashes": {
+    "main/CoLMMAIN.F90": "3ae572acc733df560db96930ec0a1f7307a9a53396f60adb01ad6795464c0c89",
+    "main/MOD_Vars_1DFluxes.F90": "3e094b4cfd231fde260395b5ba1579a8b2d11ed981d4624cd5fe587147ef2111",
+    "main/MOD_Vars_1DAccFluxes.F90": "01ccce012d73ebaab80d3af39fd2a33f31763afa9f5217dfdc57577419328f97",
+    "main/MOD_Hist.F90": "c990254f4182a51fa60c30830ee6fec7ea9ca2c3d64ff6538c512289879fbea2",
+    "main/MOD_HistAccRestart.F90": "f4b1b773f71a4ad1d99792a794124731b06117ec7f3296a81cb6c2c3f6077d30",
+    ".github/workflows/hist_acc_restart_fields.py": "bad95c8049989cc0a47491e56b8e14a587bf37b1c7f96b421809db1290239362"
+  },
+  "script_hashes": {
+    "run.sh": "35737c805640e173bba84118f512c9bdc9a6c25908f13cf063ae7de35cbfbfce",
+    "setup.py": "0f0655ab920bc49895b3db283d854c15d9f1616b0e1eff5dec0ac80cefdd3680",
+    "validate.py": "9dad70797793f2ed4082c3b086158760c5963940930677712191769dc2bc0e17",
+    "compare.py": "aafba57f2b821bdc0aaa369f1fff5284fe09f31b3383e6938bb785600136ed02"
+  },
+  "model_logs": {
+    "runs/full5/log.colm.1-0": {
+      "date_records": 240,
+      "first": "2005-01-01-00000",
+      "last": "2005-01-05-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "48fa30f3d97723140bdd6e0e8bbcf302cc041c07b7354515addb26eaa8d4c346"
+    },
+    "runs/full9/log.colm.1-0": {
+      "date_records": 240,
+      "first": "2005-01-01-00000",
+      "last": "2005-01-05-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "c44a4bde76602081b6f0ae30019757a241a2102d22aea5dd6ec07b48c787b09c"
+    },
+    "runs/partial59/log.colm.1-0": {
+      "date_records": 24,
+      "first": "2005-01-01-00000",
+      "last": "2005-01-01-41400",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "c0678a0b100df13fe1b2963d9611c1073ae142bcb5e7627bbe053c718c667338"
+    },
+    "runs/partial59/log.colm.1-43200": {
+      "date_records": 24,
+      "first": "2005-01-01-43200",
+      "last": "2005-01-01-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "fcb7ec9b67ed3d89303dc3329bc10f11f2ca2e6837b4c0bee1de0887b0e1f659"
+    },
+    "runs/split5/log.colm.1-0": {
+      "date_records": 96,
+      "first": "2005-01-01-00000",
+      "last": "2005-01-02-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "a88ea591b58e680e8e89dc8ef5120a251d6f567af8e23ae80a6dd04852a6643e"
+    },
+    "runs/split5/log.colm.3-0": {
+      "date_records": 144,
+      "first": "2005-01-03-00000",
+      "last": "2005-01-05-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "287a284aaa1b21cc97e1e17fff8a5ac8a00a0545f542ae162fc81b1e0ad174e6"
+    },
+    "runs/split59/log.colm.1-0": {
+      "date_records": 96,
+      "first": "2005-01-01-00000",
+      "last": "2005-01-02-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "3a68e39bcb3cb165b053bb7e7444e927af67b88cd13bf84a127fc245bcc1771c"
+    },
+    "runs/split59/log.colm.3-0": {
+      "date_records": 144,
+      "first": "2005-01-03-00000",
+      "last": "2005-01-05-84600",
+      "END": 1,
+      "diagnostics": {
+        "TRC_SIG step report": 0,
+        "TRC_BAL step report": 0,
+        "residual hard failure": 0,
+        "ERROR STOP": 0,
+        "MPI_Abort": 0,
+        "Water balance violation": 0,
+        "Energy balance violation": 0
+      },
+      "sha256": "192f0dd5c3d196ee0c966ad50bf980cb9adb8bf7c7da4604f4e442941ceff134"
+    }
+  },
+  "checkpoint_dirs": {
+    "full5": [
+      "2005-001-00000",
+      "2005-002-00000",
+      "2005-003-00000",
+      "2005-004-00000",
+      "2005-005-00000",
+      "2005-006-00000",
+      "ParaOpt",
+      "const"
+    ],
+    "full9": [
+      "2005-001-00000",
+      "2005-002-00000",
+      "2005-003-00000",
+      "2005-004-00000",
+      "2005-005-00000",
+      "2005-006-00000",
+      "ParaOpt",
+      "const"
+    ],
+    "partial59": [
+      "2005-001-00000",
+      "2005-001-43200",
+      "2005-002-00000",
+      "ParaOpt",
+      "const"
+    ],
+    "split5": [
+      "2005-001-00000",
+      "2005-002-00000",
+      "2005-003-00000",
+      "2005-004-00000",
+      "2005-005-00000",
+      "2005-006-00000",
+      "ParaOpt",
+      "const"
+    ],
+    "split59": [
+      "2005-001-00000",
+      "2005-002-00000",
+      "2005-003-00000",
+      "2005-004-00000",
+      "2005-005-00000",
+      "2005-006-00000",
+      "ParaOpt",
+      "const"
+    ]
+  }
+}
