@@ -1,6 +1,6 @@
 # 物质输送 Draft PR 状态
 
-状态记录：2026-10-28 启动、2026-10-29 整理交接；后台状态以注明的观测为准。本次累计 Draft PR 用于保存实现、历史决定和未完成清单，**不是可合并版本**。
+状态记录：2026-10-28 启动、2026-10-29 整理交接；**2026-10-29 起 DeepSeek 接续验收**，后台状态以注明的观测为准。本次累计 Draft PR 用于保存实现、历史决定和未完成清单，**不是可合并版本**。
 
 用户已要求整理提交并交接 DeepSeek；接手入口为[交接文档](material-transport-handoff-deepseek-20261028.md)，小型验收证据见[证据目录](material-transport-evidence/20261028/README.md)。已有后台计算保留，不因交接重复提交。
 
@@ -60,7 +60,7 @@
 - p9m：`codex-f92acf9040bf46b0bdf82d0782ba8c4f`
 - p9q：`codex-1f593daee0854b2587cee991b7996e45`，`6666cdbb` 加叶片库存修复；不包含随后独立整理的 RegionClip 或进行中的 Vector 输出改动。
 - p9q 只读补核：首个 `codex-5d025b6634c442778093eca0089788fd` 因错误要求 split 最终 namelist 保留显式 scheme 而 failed/1；实际 transition 日志为 MEC。修订审计 `codex-bc9d9644688a4ea0b68817319dcc242c` 为 succeeded/0，report=PASS；九例 108 个后续缓存日期与八次完整比较通过，没有重跑模型。缓存 checker 的 17 项正负 fixture 通过；仅显式初始日期允许 host-only 或 schema5/complete1/transport_count0 的空事务，后续必须有 schema2 cache。
-- p9r：`codex-4ba194bf50074f68aaa3d76178c49830`，正确基线 `28478b18` 对冻结 `c315c849` 的五种无强迫配置，每种均重跑旧/新源码，保持原完整月或三日窗口；运行中，不使用 P9B 旧掩码结果代替基线。
+- p9r：`codex-4ba194bf50074f68aaa3d76178c49830`，正确基线 `28478b18` 对冻结 `c315c849` 的五种无强迫配置，每种均重跑旧/新源码，保持原完整月或三日窗口。**2026-10-29 00:26:59 CST 终态 succeeded/0**：10/10 模型例 END、步数/最终时间戳精确、描述符身份正确、诊断失败 0；10/10 严格比较通过（restart 各 7 文件/289·283·438 变量，history 各 3 文件/225·191·276 变量原始位一致），唯一差异为设计允许的标量 `mt_forcing_cache_schema` 1→2（两侧 cache count=0、无可靠性向量）；`failures: []`，验证器自测通过。证据见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)。**边界：只覆盖 `c315c849` 相对 `28478b18` 的无强迫回归，不含 `6d995438` frcsat 诊断字段，也不等于最新组合源码验收。**
 - p9s：`codex-23354a2d716f45059da97e74b357b906`，冻结 `c315c849` 重跑三个完整长窗口，补齐正确区域配置；运行中，尚未完成尾部账本解释。
 - Vector p9t2：`codex-6d036be5acbd4ef5bfec97ab3c0605d3`，终态 succeeded/0。三组五日对照各覆盖 history 2 文件/193 变量、restart 115 文件/4690 变量，全量原始位一致；真实半日 NP5→9 的计数与完整日输出恢复通过。不含最后一个纯损坏输入护栏，正常数值路径未改变。
 - Vector 动态 checkpoint 补核：`codex-ca35eb4112334ef991fe7ad03f6b8d00`，succeeded/0，明确 `2005-002-00000` 的 18 文件/750 变量全量原始位一致。原 p9t2 validator 误用目录名最大值选到 `const`，其 13 文件/364 变量不能证明动态状态；旧记录保留，由此补核关闭缺口。
@@ -76,7 +76,8 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 ## 未完成清单
 
 - [x] 关闭冻结 p9q 的冷启动缓存检查误判，并严格复核九模型跨年、断点、进程数、守恒与缓存。
-- [ ] 读取 p9r/p9s 完整结果并完成同位素长期尾部账本诊断；最终最新组合源码的 LULCC 仍需确认覆盖范围。
+- [x] 读取 p9r 完整结果并完成同位素无强迫回归验收（终态 succeeded/0，10/10 例 + 10/10 严格比较，`failures: []`，唯一样本差异为允许的 schema 标量迁移；见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)）。
+- [ ] 读取 p9s 完整结果并完成同位素长期尾部账本诊断；最新组合源码的 LULCC 覆盖由独立组合验收作业确认。
 - [x] 补 CI 的 `PC+BGC+MT` 与 IGBP/PFT 的 `LULCC+MT`，并修正精确案例名匹配和全参数传递。93 个配置的有效宏检查通过；四项定向 GNU 构建通过，完整 GitHub 编译器/MPI 矩阵未运行。
 - [x] 补最新修复的非零 CL 回归：以 `28478b18` 对当前数值版本，NEC 两天 CL-only 与 isotope+CL 的四组实际运行、26 文件和 1,296 变量完整位比较通过；仅明确的缓存 schema `1→2` 例外。此项不替代强迫/LULCC 验证。
 - [ ] 完成甲烷与 fork 的两年全球平场对照。候选 1995–1996 输入不闭合：按真实生产时间索引需要 1994 年除 dswrf 外的 7 个末记录文件及 1997 年全部 8 个首记录文件；旧参数与构建宏也未冻结。必须先补齐来源与输入闭合性，再短跑估时；没有启动新的全球甲烷模型。NEC/AMZ 三个月区域对照不能替代这一项。
@@ -106,6 +107,7 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 
 ## 接续验收记录
 
+- **p9r 同位素/CL 无强迫回归**（DeepSeek 接续，`codex-4ba194bf50074f68aaa3d76178c49830`）：2026-10-29 00:26:59 CST 终态 succeeded/0。旧 `28478b18` 对冻结 `c315c849` 的五种无强迫配置各重跑，10/10 例 END 且步数/最终时间戳精确、描述符身份正确、诊断失败 0；10/10 完整文件集/变量集/原始位比较通过，唯一差异为设计允许的标量 `mt_forcing_cache_schema 1→2`（两侧 count=0、无可靠性向量）；`failures: []`，验证器自测通过。不覆盖 `6d995438` frcsat 诊断字段或最新组合源码。详见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)。
 - 定向编译 `codex-d479cc7d5bb04bf190119a0427536a24` 终态成功：PC+BGC+MT、IGBP+LULCC+MT、PFT+LULCC+MT 的 `make all`，以及 SinglePoint 的 `colm.x/mkinidata.x`。构建输入为 `3a1c391a` 加 CI 改动；不包含后续运行暴露问题的修复。首轮环境链接失败已保留，重试显式统一 Conda GNU/NetCDF 和编译选项，不改生产构建文件。
 - 非零 CL 验收 `codex-577f4c4aa667427f8b04ceeca34e5946` 终态成功。每例 96 步，签名、质量与硬残差诊断为零；实际 CL 初值 `2e-5`、降水浓度 `3e-6`，每例有 11,742 个正 CL 值。
 - p9l 严格复核确认 Jan4 拆分的 history/restart 完整位一致。与 P9B 的四组 history 不同，冻结源码证明 P9B 混入先前 `9d351369` 的 history patch 掩码阈值变化，不能当作本次降水修复的单因素基线；保留原始失败记录，不回滚正确的输出掩码。尚未逐点消融所有末位差异。

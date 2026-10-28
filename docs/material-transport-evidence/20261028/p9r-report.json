@@ -1,0 +1,179 @@
+{
+  "cases": {
+    "old-iso-dec-nec": {
+      "steps": 1488,
+      "days": 31,
+      "final_date": "2005-12-31-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "old-iso-dec-amz": {
+      "steps": 1488,
+      "days": 31,
+      "final_date": "2005-12-31-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "old-cl-dec-nec": {
+      "steps": 1488,
+      "days": 31,
+      "final_date": "2005-12-31-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "CL"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "old-all-jan-nec": {
+      "steps": 144,
+      "days": 3,
+      "final_date": "2005-01-03-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "CL",
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "old-all-jan-amz": {
+      "steps": 144,
+      "days": 3,
+      "final_date": "2005-01-03-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "CL",
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "new-iso-dec-nec": {
+      "steps": 1488,
+      "days": 31,
+      "final_date": "2005-12-31-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "new-iso-dec-amz": {
+      "steps": 1488,
+      "days": 31,
+      "final_date": "2005-12-31-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "new-cl-dec-nec": {
+      "steps": 1488,
+      "days": 31,
+      "final_date": "2005-12-31-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "CL"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "new-all-jan-nec": {
+      "steps": 144,
+      "days": 3,
+      "final_date": "2005-01-03-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "CL",
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    },
+    "new-all-jan-amz": {
+      "steps": 144,
+      "days": 3,
+      "final_date": "2005-01-03-84600",
+      "descriptor_checks": 1,
+      "registered": [
+        "CL",
+        "H2_18O",
+        "HDO"
+      ],
+      "forcing_caches_inactive": 1,
+      "diagnostic_failures": 0
+    }
+  },
+  "comparisons": {
+    "iso-dec-nec-restart": {
+      "files": 7,
+      "variables": 289,
+      "schema_migrations": 1
+    },
+    "iso-dec-nec-history": {
+      "files": 3,
+      "variables": 225,
+      "schema_migrations": 0
+    },
+    "iso-dec-amz-restart": {
+      "files": 7,
+      "variables": 289,
+      "schema_migrations": 1
+    },
+    "iso-dec-amz-history": {
+      "files": 3,
+      "variables": 225,
+      "schema_migrations": 0
+    },
+    "cl-dec-nec-restart": {
+      "files": 7,
+      "variables": 283,
+      "schema_migrations": 1
+    },
+    "cl-dec-nec-history": {
+      "files": 3,
+      "variables": 191,
+      "schema_migrations": 0
+    },
+    "all-jan-nec-restart": {
+      "files": 7,
+      "variables": 438,
+      "schema_migrations": 1
+    },
+    "all-jan-nec-history": {
+      "files": 3,
+      "variables": 276,
+      "schema_migrations": 0
+    },
+    "all-jan-amz-restart": {
+      "files": 7,
+      "variables": 438,
+      "schema_migrations": 1
+    },
+    "all-jan-amz-history": {
+      "files": 3,
+      "variables": 276,
+      "schema_migrations": 0
+    }
+  },
+  "failures": []
+}

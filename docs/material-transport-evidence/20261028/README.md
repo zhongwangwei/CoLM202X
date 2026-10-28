@@ -5,6 +5,9 @@
 冻结驱动与源快照在相应 `work/`。任务号和读法见[交接文档](../../material-transport-handoff-deepseek-20261028.md)。
 
 - [Vector / 实际 restart 独立复核](vector-acceptance.md)：限定配置的完整变量原始位比较。
+- [p9r 无强迫同位素/CL 回归验收](p9r-acceptance.md)：旧 `28478b18` 对新 `c315c849` 的十例完整窗口，
+  10/10 模型例与 10/10 严格比较通过，唯一允许差异为标量 schema 1→2；原始记录为
+  `p9r-report.json`、`p9r-task-log.txt`、`p9r-job-status.json`、`p9r-source-versions.txt`。
 - `vector-original-evidence.json` 忠实保留原记录；其中 partial `final_checkpoint`
   选中了 `const`，不能用原 13 文件 / 364 变量证明动态状态。
   `vector-dynamic-checkpoint.json` 与对应 job 状态补证真实 `2005-002-00000`
