@@ -152,7 +152,13 @@ PROGRAM MKSRFDATA
 
       IF (USE_srfdata_from_larger_region) THEN
 
-         CALL srfdata_region_clip (DEF_dir_existing_srfdata, DEF_dir_landdata)
+#if (defined MaterialTransport) && (defined BGC)
+         CALL methane_preprocessing_requirements(requires_lake_soilc, requires_spatial_ph)
+         CALL srfdata_region_clip (DEF_dir_existing_srfdata, DEF_dir_landdata, &
+            requires_lake_soilc, requires_spatial_ph)
+#else
+         CALL srfdata_region_clip (DEF_dir_existing_srfdata, DEF_dir_landdata, .false., .false.)
+#endif
 
 #ifdef USEMPI
          CALL mpi_barrier (p_comm_glb, p_err)

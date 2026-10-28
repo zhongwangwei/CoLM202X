@@ -69,3 +69,16 @@ numerical equality against an optional reference; it is not a raw-bit comparator
 Use `compare.py` separately when both NetCDF layouts should match bit for bit.
 The old host same-month site-writeback restart limitation is recorded in the
 status document and is not hidden by these checks.
+
+## Check regional surface clipping
+
+```sh
+python3 tests/material_transport/check_regionclip_paths.py
+python3 tests/material_transport/check_regionclip_paths.py SOURCE OUTPUT [SOURCE_YEAR OUTPUT_YEAR]
+```
+
+The standard-library-only guard checks layout and required-field contracts.
+The optional NumPy/netCDF4 comparison checks every retained block variable
+against the source subset, including attributes and mesh metadata; only the
+new output creation timestamp may change. These checks do not replace running
+the real clipping executable or its initialization consumer.
