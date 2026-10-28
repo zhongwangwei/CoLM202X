@@ -70,6 +70,16 @@ Use `compare.py` separately when both NetCDF layouts should match bit for bit.
 The old host same-month site-writeback restart limitation is recorded in the
 status document and is not hidden by these checks.
 
+```sh
+python3 tests/material_transport/check_orphan_leaf_inventory.py
+```
+
+This `gfortran` check extracts the glacier/waterbody mixing blocks and LULCC
+inventory audits. It checks signed leaf inventory is transferred exactly once,
+clears obsolete leaf memory, and rejects unsafe receiving pools or incompatible
+fixed signatures. Its closed-pool host stubs do not validate evaporation physics
+or replace the cross-year LULCC matrix.
+
 ## Check regional surface clipping
 
 ```sh

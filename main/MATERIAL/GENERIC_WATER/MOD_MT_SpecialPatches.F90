@@ -7,7 +7,7 @@ MODULE MOD_MT_SpecialPatches
    USE MOD_SPMD_Task, only: CoLM_stop
    USE MOD_MT_Defs, only: ntracers, tracers, trc_tiny, trc_water_min_for_ratio, &
       trc_delta_sanity_max, tracer_init_water_ratio, tracer_can_use_fixed_signature, &
-      mt_uses_generic_water, tracer_is_nonvolatile_solute
+      mt_uses_generic_water, tracer_is_nonvolatile_solute, tracer_is_isotope
    USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
    USE MOD_MT_Namelist, only: DEF_ISO_SUBL_SKIN_MM
    USE MOD_MT_Forcing, only: tracer_forcing_rain_value, tracer_forcing_snow_value, &
@@ -27,7 +27,8 @@ MODULE MOD_MT_SpecialPatches
       trc_surface_residue, trc_subsurface_residue, trc_runtime_forced, &
       trc_solid_soisno, trc_canopy_solid, trc_surface_solid, &
       trc_subsurface_solid, trc_waterstorage_solid, sync_tracer_patch_ratio
-   USE MOD_MT_Vars, only: trc_aquifer_ref_water
+   USE MOD_MT_Vars, only: trc_aquifer_ref_water, trc_leaf_iso_storage, &
+      trc_leaf_water_moles, trc_leaf_delta_e, trc_leaf_delta_b, trc_leaf_peclet
 
    IMPLICIT NONE
    PRIVATE
@@ -152,6 +153,17 @@ CONTAINS
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature = fixed_signature .and. .not. trc_runtime_forced(itrc)
          ENDIF
+         ! The beginning inventory already includes the signed NSS anomaly.
+         ! It must enter the receiving water once, never a fixed-signature reset.
+         IF (tracer_is_isotope(itrc)) THEN
+            IF (trc_leaf_iso_storage(itrc, ipatch) /= 0._r8) THEN
+               IF (water_end <= trc_water_min_for_ratio .or. &
+                   trc_storage_beg(itrc, ipatch) - trc_held_storage < 0._r8) &
+                  CALL CoLM_stop('special patch leaf isotope anomaly has no safe receiving water inventory')
+               IF (fixed_signature) &
+                  CALL CoLM_stop('special patch leaf isotope anomaly requires mixed-signature transport')
+            ENDIF
+         ENDIF
          mixed_signature = .not. fixed_signature
 
          IF (mixed_signature) THEN
@@ -245,6 +257,14 @@ CONTAINS
          ENDIF
          CALL sync_tracer_patch_ratio(itrc, ipatch, snl_trc, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, 0._r8, wdsrf, scv, R_final)
+         IF (tracer_is_isotope(itrc)) THEN
+            ! sync has transferred the anomaly included in trc_storage_beg.
+            trc_leaf_iso_storage(itrc, ipatch) = 0._r8
+            trc_leaf_water_moles(itrc, ipatch) = 0._r8
+            trc_leaf_delta_e(itrc, ipatch) = tracers(itrc)%init_delta
+            trc_leaf_delta_b(itrc, ipatch) = tracers(itrc)%init_delta
+            trc_leaf_peclet(itrc, ipatch) = 1._r8
+         ENDIF
          IF (nonvolatile_solute .and. .not. mt_has_dissolved_limit(itrc) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
             IF (wdsrf > trc_water_min_for_ratio) THEN
@@ -403,6 +423,17 @@ CONTAINS
          IF (allocated(trc_runtime_forced)) THEN
             fixed_signature = fixed_signature .and. .not. trc_runtime_forced(itrc)
          ENDIF
+         ! The beginning inventory already includes the signed NSS anomaly.
+         ! It must enter the receiving water once, never a fixed-signature reset.
+         IF (tracer_is_isotope(itrc)) THEN
+            IF (trc_leaf_iso_storage(itrc, ipatch) /= 0._r8) THEN
+               IF (water_end <= trc_water_min_for_ratio .or. &
+                   trc_storage_beg(itrc, ipatch) - trc_held_storage < 0._r8) &
+                  CALL CoLM_stop('special patch leaf isotope anomaly has no safe receiving water inventory')
+               IF (fixed_signature) &
+                  CALL CoLM_stop('special patch leaf isotope anomaly requires mixed-signature transport')
+            ENDIF
+         ENDIF
          mixed_signature = .not. fixed_signature
 
          IF (mixed_signature) THEN
@@ -502,6 +533,14 @@ CONTAINS
          ENDIF
          CALL sync_tracer_patch_ratio(itrc, ipatch, snl, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, wa, wdsrf, scv, R_final)
+         IF (tracer_is_isotope(itrc)) THEN
+            ! sync has transferred the anomaly included in trc_storage_beg.
+            trc_leaf_iso_storage(itrc, ipatch) = 0._r8
+            trc_leaf_water_moles(itrc, ipatch) = 0._r8
+            trc_leaf_delta_e(itrc, ipatch) = tracers(itrc)%init_delta
+            trc_leaf_delta_b(itrc, ipatch) = tracers(itrc)%init_delta
+            trc_leaf_peclet(itrc, ipatch) = 1._r8
+         ENDIF
          IF (nonvolatile_solute .and. .not. mt_has_dissolved_limit(itrc) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
             IF (wdsrf > trc_water_min_for_ratio) THEN

@@ -664,6 +664,8 @@ CONTAINS
             CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_solid_old, area, total)
          IF (allocated(lulcc_trc_waterstorage_old)) CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_old, area, total)
          IF (allocated(lulcc_trc_scv_old))          CALL accumulate_lulcc_mass_2d(lulcc_trc_scv_old, area, total)
+         IF (allocated(lulcc_trc_leaf_iso_storage_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_trc_leaf_iso_storage_old, area, total)
       END SUBROUTINE compute_lulcc_snapshot_land_water_mass
 
       SUBROUTINE compute_current_lulcc_land_water_mass(area, total)
@@ -689,6 +691,8 @@ CONTAINS
          IF (allocated(trc_waterstorage_solid)) CALL accumulate_lulcc_mass_2d(trc_waterstorage_solid, area, total)
          IF (allocated(trc_waterstorage)) CALL accumulate_lulcc_mass_2d(trc_waterstorage, area, total)
          IF (allocated(trc_scv))          CALL accumulate_lulcc_mass_2d(trc_scv, area, total)
+         IF (allocated(trc_leaf_iso_storage)) &
+            CALL accumulate_lulcc_mass_2d(trc_leaf_iso_storage, area, total)
       END SUBROUTINE compute_current_lulcc_land_water_mass
 
       SUBROUTINE accumulate_lulcc_mass_2d(pool, area, total)
