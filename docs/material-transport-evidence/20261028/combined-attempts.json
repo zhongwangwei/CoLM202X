@@ -1,0 +1,72 @@
+[
+ {
+  "n": 1,
+  "id": "codex-2e853460a0984d3c93ce2e6cdaa12b5d",
+  "purpose": "combined10 main acceptance, attempt 1",
+  "terminal": "failed/1",
+  "note": "Stopped in the build gate before any model ran: the script check required a literal \"#define USEMPI\" but create_defineh writes \"#define  USEMPI\"; fixed the checker (no model was run, no physics result exists for this job)."
+ },
+ {
+  "n": 2,
+  "id": "codex-1c0b12b7efa44efc9eaf2540062163ae",
+  "purpose": "frcsat isolation attempt 1",
+  "terminal": "failed/1",
+  "note": "Both builds OK; runs failed because the helper used `local c=$OUT/runs/$tag bld=$2`, so $tag/$bld expanded empty before assignment and cases landed in the wrong directory; validator then found no case dirs. Fixed."
+ },
+ {
+  "n": 3,
+  "id": "codex-6d761e65ddd54ccf987df1d0bc68b2f0",
+  "purpose": "frcsat isolation attempt 2",
+  "terminal": "failed/1",
+  "note": "Both builds OK; runs aborted with \"No &nl_colm_isotope_parameter in .../iso_off.nml\" because the no-forcing isotope namelist file was empty; replaced with an explicit empty namelist group."
+ },
+ {
+  "n": 4,
+  "id": "codex-6284ea5dd86e486ab6fa97288b96dff1",
+  "purpose": "option-subset localization attempt 1",
+  "terminal": "failed/1",
+  "note": "run_variant was not exported to the xargs subshells (\"run_variant: command not found\"); no model ran. Fixed with export -f."
+ },
+ {
+  "n": 5,
+  "id": "codex-17e7132400c44adeb691e66e3dc2c586",
+  "purpose": "option-subset localization round 1 (9 variants)",
+  "terminal": "succeeded/0",
+  "note": "PASS as a diagnostic job. Isolated the trigger to DEF_GridRiverLake_FloodFeedback=.true.; V4-fb and every variant containing flood feedback aborted at step 4."
+ },
+ {
+  "n": 6,
+  "id": "codex-2434412927a94e38a44ad21db5643a38",
+  "purpose": "combined10 main acceptance, attempt 2",
+  "terminal": "EXPECTED_FAILED_1",
+  "note": "All six IGBP/NEC main cases abort at TIMESTEP=4 with TRC_BAL residual hard failure 9.0882e-5 > 5.0e-5; f-* PFT and i-AMZ cases run on. Runner state will be failed/1 because the validator gate fails; this is the acceptance verdict, not an infrastructure error."
+ },
+ {
+  "n": 7,
+  "id": "codex-05c172686e434105884e3a0c7297f6fb",
+  "purpose": "frcsat fix isolation: c315c849 vs 6d995438 on an identical no-LULCC/no-forcing MT case",
+  "terminal": "succeeded/0",
+  "note": "PASS: 120 steps each, history identical raw bits, all 13 restart files and 767 common variables identical; only the intended two new sidecar fields at the mid-window checkpoint."
+ },
+ {
+  "n": 8,
+  "id": "codex-0c007acf2ceb4863aebe3d3dbf812cd2",
+  "purpose": "ablation round 2: fractionation / LULCC scheme / long no-feedback control",
+  "terminal": "succeeded/0",
+  "note": "W2 (fractionation off) and W3 (SAT) still abort at step 4 -> fractionation and scheme are not the trigger. W4 (full config without flood feedback, 5 days) passes with zero diagnostics. W1 was a namelist configuration error (IsoGSM isotope-forcing groups left in a JRA-forced run), redone correctly in job 9."
+ },
+ {
+  "n": 9,
+  "id": "codex-3c6c916b96a142f6a17f88cbfe25c374",
+  "purpose": "ablation round 3: JRA/static-isotope full config and LULCC-off build",
+  "terminal": "succeeded/0",
+  "note": "X1 (JRA dynamics + static isotopes + full river options incl. flood feedback + CL + sediment, 3 days) passes; X2 (flood feedback + IsoGSM isotope forcing on the LULCC-off build) still aborts at step 4 -> isotope forcing is required for the failure and the LULCC compile switch is irrelevant."
+ },
+ {
+  "n": 10,
+  "id": "codex-69298c1322fd4c749b69e9999c7b74d8",
+  "purpose": "trigger regression classification on pre-built p9r binaries (old=28478b18, new=c315c849)",
+  "terminal": "succeeded/0",
+  "note": "Both pre-built binaries show the identical step-4 residual (9.0765e-5 > 5.0e-5, patch 213, H2_18O) with the minimal trigger (IsoGSM runtime isotope forcing + flood feedback). The interaction predates the latest commits; it is not a regression introduced by 6d995438 or the commits after the branch base."
+ }
+]

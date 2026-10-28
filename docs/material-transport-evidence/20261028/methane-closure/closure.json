@@ -1,0 +1,1238 @@
+{
+  "task": "\u7532\u70f7\u5019\u9009\u8f93\u5165\u95ed\u5408\u3001\u53c2\u6570\u51bb\u7ed3\u4e0e\u6c34\u7a3b/\u4e24\u5e74\u5168\u7403\u8fd0\u884c\u8bbe\u8ba1\uff08\u53ea\u8bfb\uff09",
+  "task_id": "task-2",
+  "generated_from": "local copy of codex-ad6b48e0cb0044a9bbf0ce2903195234 results (audit.json sha256 verified identical to 7920)",
+  "readiness": "NOT_READY",
+  "scientific_status": "UNVERIFIED_CANDIDATE",
+  "no_model_launched": true,
+  "candidate_root": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930",
+  "audit_job": "codex-ad6b48e0cb0044a9bbf0ce2903195234",
+  "audit_job_state": null,
+  "audit_job_exit": null,
+  "transfer": {
+    "state": "TRANSFER_VERIFIED",
+    "scientific_status": "UNVERIFIED_CANDIDATE",
+    "groups": [
+      {
+        "name": "forcing",
+        "source": "/share/home/dq013/zhwei/colm/data/CoLM_Forcing/crujra_v2.5",
+        "target": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/forcing",
+        "files": 16,
+        "bytes": 24219856144,
+        "source_metadata_stable": true,
+        "checksum_dry_run_clean": true
+      },
+      {
+        "name": "landdata",
+        "source": "/share/home/dq013/zhwei/colm/cases/globe/g_global_ch4_test/landdata",
+        "target": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/landdata",
+        "files": 40429,
+        "bytes": 2362078324,
+        "source_metadata_stable": true,
+        "checksum_dry_run_clean": true
+      },
+      {
+        "name": "baseline",
+        "source": "/share/home/dq013/zhwei/colm/cases/globe/g_global_ch4_flat_2yr_20260527_200428",
+        "target": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/baseline",
+        "files": 5,
+        "bytes": 36523447,
+        "source_metadata_stable": true,
+        "checksum_dry_run_clean": true
+      }
+    ],
+    "warning": "Only transfer equality proven. Scientific suitability, completeness including 1994/1997 boundaries, historical frozen parameters and uniqueness are NOT established. Old history is candidate comparison data, not ground truth. No models launched."
+  },
+  "forcing_closure": {
+    "status": "NOT_CLOSED",
+    "missing_files": 15,
+    "missing_1994": [
+      {
+        "variable": "dlwrf",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/dlwrf/crujra.v2.5.5d.dlwrf.1994.365d.noc.nc"
+      },
+      {
+        "variable": "pre",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/pre/crujra.v2.5.5d.pre.1994.365d.noc.nc"
+      },
+      {
+        "variable": "pres",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/pres/crujra.v2.5.5d.pres.1994.365d.noc.nc"
+      },
+      {
+        "variable": "spfh",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/spfh/crujra.v2.5.5d.spfh.1994.365d.noc.nc"
+      },
+      {
+        "variable": "tmp",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/tmp/crujra.v2.5.5d.tmp.1994.365d.noc.nc"
+      },
+      {
+        "variable": "ugrd",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/ugrd/crujra.v2.5.5d.ugrd.1994.365d.noc.nc"
+      },
+      {
+        "variable": "vgrd",
+        "file_year": 1994,
+        "record_index_1based": 1460,
+        "bound": "LB",
+        "model_time": {
+          "year": 1995,
+          "day_of_year": 1,
+          "second_of_day": 0
+        },
+        "requested_records": [
+          1460
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/vgrd/crujra.v2.5.5d.vgrd.1994.365d.noc.nc"
+      }
+    ],
+    "missing_1997": [
+      {
+        "variable": "dlwrf",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/dlwrf/crujra.v2.5.5d.dlwrf.1997.365d.noc.nc"
+      },
+      {
+        "variable": "dswrf",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 64800
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/dswrf/crujra.v2.5.5d.dswrf.1997.365d.noc.nc"
+      },
+      {
+        "variable": "pre",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/pre/crujra.v2.5.5d.pre.1997.365d.noc.nc"
+      },
+      {
+        "variable": "pres",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/pres/crujra.v2.5.5d.pres.1997.365d.noc.nc"
+      },
+      {
+        "variable": "spfh",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/spfh/crujra.v2.5.5d.spfh.1997.365d.noc.nc"
+      },
+      {
+        "variable": "tmp",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/tmp/crujra.v2.5.5d.tmp.1997.365d.noc.nc"
+      },
+      {
+        "variable": "ugrd",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/ugrd/crujra.v2.5.5d.ugrd.1997.365d.noc.nc"
+      },
+      {
+        "variable": "vgrd",
+        "file_year": 1997,
+        "record_index_1based": 1,
+        "bound": "UB",
+        "model_time": {
+          "year": 1996,
+          "day_of_year": 366,
+          "second_of_day": 75600
+        },
+        "requested_records": [
+          1
+        ],
+        "requested_record_count": 1,
+        "candidate_path_missing": "forcing/vgrd/crujra.v2.5.5d.vgrd.1997.365d.noc.nc"
+      }
+    ],
+    "request_logic_source_matches_head": true,
+    "request_logic_source_note": "MOD_Forcing.F90 / MOD_Precision.F90 / MOD_TimeManager.F90 / MOD_UserDefFun.F90 in the audit source snapshot are byte-identical to CoLM-constituent HEAD 10e9fbd2 (sha256 source.sha256), so the 15-file request set still holds at HEAD.",
+    "raw_record_semantics_examples": {
+      "tmp": {
+        "file": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/forcing/tmp/crujra.v2.5.5d.tmp.1995.365d.noc.nc",
+        "n_records": 1460,
+        "first_record_decoded": "1995-01-01 00:00:00",
+        "last_record_decoded": "1995-12-31 18:00:00",
+        "step_hours": 6
+      },
+      "dswrf": {
+        "file": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/forcing/dswrf/crujra.v2.5.5d.dswrf.1995.365d.noc.nc",
+        "n_records": 1460,
+        "first_record_decoded": "1995-01-01 00:00:00",
+        "last_record_decoded": "1995-12-31 18:00:00",
+        "step_hours": 6
+      }
+    },
+    "boundary_meaning": "1994 record 1460 is the last 6-hourly record of the 1995 forcing file set, requested as the LB stencil endpoint for the first model step (1995-01-01 00:00); 1997 record 1 is the first record of the 1997 file, requested as the UB endpoint for the last model step (1996-12-31). dswrf is absent from the 1994 set because its offset=0 forward/coszen handling starts with the 1995 first record.",
+    "needed_data_volume_estimate": {
+      "files": 15,
+      "bytes_from_1995_analog_files": 22706115044,
+      "GiB_from_1995_analog_files": 21.147,
+      "seven_1994_files_bytes": 10596186972,
+      "eight_1997_files_bytes": 12109928072,
+      "note": "exact sum of the 1995 file sizes of the same variables (same CRUJRA v2.5 product); only one record per file is read, but the production reader addresses record indices inside the file, so full-year files are the safe unit."
+    },
+    "window_shift_probe": {
+      "W0_audit_original": {
+        "window": [
+          1995,
+          1,
+          0,
+          1997,
+          1,
+          0
+        ],
+        "request_rows": 23407,
+        "steps": 35088,
+        "file_years": [
+          1994,
+          1995,
+          1996,
+          1997
+        ],
+        "out_of_candidate_requests": {
+          "count": 15,
+          "by_file_year": {
+            "1994": 7,
+            "1997": 8
+          },
+          "detail": [
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 1,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 2,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 3,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 4,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 5,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 6,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 8,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 64800,
+              "var": 7,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 1,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 2,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 3,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 4,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 5,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 6,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 8,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            }
+          ]
+        }
+      },
+      "W1_shift_both": {
+        "window": [
+          1995,
+          1,
+          10800,
+          1996,
+          366,
+          64800
+        ],
+        "request_rows": 23392,
+        "steps": 35070,
+        "file_years": [
+          1995,
+          1996
+        ],
+        "out_of_candidate_requests": {
+          "count": 0,
+          "by_file_year": {},
+          "detail": []
+        }
+      },
+      "W2_shift_start_only": {
+        "window": [
+          1995,
+          1,
+          10800,
+          1997,
+          1,
+          0
+        ],
+        "request_rows": 23400,
+        "steps": 35082,
+        "file_years": [
+          1995,
+          1996,
+          1997
+        ],
+        "out_of_candidate_requests": {
+          "count": 8,
+          "by_file_year": {
+            "1997": 8
+          },
+          "detail": [
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 64800,
+              "var": 7,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 1,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 2,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 3,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 4,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 5,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 6,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            },
+            {
+              "model_year": 1996,
+              "model_day": 366,
+              "model_second": 75600,
+              "var": 8,
+              "bound": "UB",
+              "file_year": 1997,
+              "record": 1
+            }
+          ]
+        }
+      },
+      "W3_shift_end_only": {
+        "window": [
+          1995,
+          1,
+          0,
+          1996,
+          366,
+          64800
+        ],
+        "request_rows": 23399,
+        "steps": 35076,
+        "file_years": [
+          1994,
+          1995,
+          1996
+        ],
+        "out_of_candidate_requests": {
+          "count": 7,
+          "by_file_year": {
+            "1994": 7
+          },
+          "detail": [
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 1,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 2,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 3,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 4,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 5,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 6,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            },
+            {
+              "model_year": 1995,
+              "model_day": 1,
+              "model_second": 0,
+              "var": 8,
+              "bound": "LB",
+              "file_year": 1994,
+              "record": 1460
+            }
+          ]
+        }
+      }
+    }
+  },
+  "candidate_identity": {
+    "configuration_files": [
+      "CRUJRA_local_abs.nml",
+      "g_global_ch4_flat_2yr_20260527_200428.nml",
+      "run_g_global_ch4_flat_2yr_20260527_200428.lsf"
+    ],
+    "n_configuration_files": 3,
+    "config_is_two_namelists_plus_one_lsf": true,
+    "staged_groups": [
+      {
+        "name": "forcing",
+        "source": "/share/home/dq013/zhwei/colm/data/CoLM_Forcing/crujra_v2.5",
+        "target": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/forcing",
+        "files": 16,
+        "bytes": 24219856144,
+        "source_metadata_stable": true,
+        "checksum_dry_run_clean": true
+      },
+      {
+        "name": "landdata",
+        "source": "/share/home/dq013/zhwei/colm/cases/globe/g_global_ch4_test/landdata",
+        "target": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/landdata",
+        "files": 40429,
+        "bytes": 2362078324,
+        "source_metadata_stable": true,
+        "checksum_dry_run_clean": true
+      },
+      {
+        "name": "baseline",
+        "source": "/share/home/dq013/zhwei/colm/cases/globe/g_global_ch4_flat_2yr_20260527_200428",
+        "target": "/media/zhwei/data01/compute_runs/data-stage/mt-ch4-global2yr-20261028-2053-1793191930/baseline",
+        "files": 5,
+        "bytes": 36523447,
+        "source_metadata_stable": true,
+        "checksum_dry_run_clean": true
+      }
+    ],
+    "land_families": {
+      "LAI/2005": 6744,
+      ".": 2,
+      "htop/2005": 281,
+      "lakedepth/2005": 144,
+      "landelm/2005": 144,
+      "landpatch/2005": 288,
+      "landpft/2005": 137,
+      "mesh/2005": 145,
+      "pctpft/2005": 288,
+      "soil/2005": 30960,
+      "topography/2005": 1296
+    },
+    "known_7920_dependencies": [
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/soilstate.nc",
+        "exists": true,
+        "readable": true,
+        "kind": "file",
+        "bytes": 34249742
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/cnsteadystate.nc",
+        "exists": true,
+        "readable": true,
+        "kind": "file",
+        "bytes": 46243066
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc",
+        "exists": true,
+        "readable": true,
+        "kind": "file",
+        "bytes": 240217739
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/nitrif",
+        "exists": true,
+        "readable": true,
+        "kind": "directory",
+        "bytes": null
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/ndep",
+        "exists": true,
+        "readable": true,
+        "kind": "directory",
+        "bytes": null
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/crop",
+        "exists": true,
+        "readable": true,
+        "kind": "directory",
+        "bytes": null
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/fire",
+        "exists": true,
+        "readable": true,
+        "kind": "directory",
+        "bytes": null
+      },
+      {
+        "path": "/media/zhwei/data02/zhwei/CoLMruntime/snicar",
+        "exists": true,
+        "readable": true,
+        "kind": "directory",
+        "bytes": null
+      }
+    ],
+    "history_files": [
+      {
+        "file": "g_global_ch4_flat_2yr_20260527_200428_hist_tracer_1995.nc",
+        "create_time_attr": "20260527-20:16:24 UTC+08:00",
+        "bytes": 18154380
+      },
+      {
+        "file": "g_global_ch4_flat_2yr_20260527_200428_hist_tracer_1996.nc",
+        "create_time_attr": "20260527-21:45:09 UTC+08:00",
+        "bytes": 18360992
+      }
+    ],
+    "uniqueness_established": false,
+    "scientific_ground_truth": false
+  },
+  "namelist_compatibility": {
+    "head": "10e9fbd204a99ff81bd60a98198b364d489e10d9",
+    "old_main_keys": 65,
+    "old_main_keys_missing_in_HEAD": [
+      "DEF_METHANE_enable_rice_paddy",
+      "DEF_METHANE_only_wetland",
+      "DEF_USE_METHANE_para",
+      "DEF_file_METHANE_para",
+      "DEF_TRACER_REACTIVE_PARAM_FILES",
+      "DEF_METHANE_inundation_mode",
+      "DEF_TRACER_REACTIVE_OPTIONS",
+      "DEF_USE_SpatialpH",
+      "DEF_TRACER_NUM",
+      "DEF_TRACER_NAMES",
+      "DEF_TRACER_TYPES",
+      "DEF_TRACER_MRAT",
+      "DEF_TRACER_REF_RATIO",
+      "DEF_TRACER_INIT_DELTA",
+      "DEF_TRACER_REACTIVE_DECAY_RATE"
+    ],
+    "old_forcing_keys": 26,
+    "old_forcing_keys_missing_in_HEAD": [],
+    "forcing_type_fields_missing_in_HEAD": [],
+    "verdict": "INCOMPATIBLE_AS_IS: old &nl_colm block contains TRACER-era methane keys that HEAD no longer defines; Fortran namelist read would stop. The old forcing namelist (CRUJRA_local_abs.nml) is fully compatible apart from absolute paths.",
+    "required_rewrite": {
+      "DEF_USE_METHANE_para": "DEF_USE_METHANE = .true.  (in &nl_colm_material)",
+      "DEF_file_METHANE_para / DEF_TRACER_REACTIVE_PARAM_FILES": "DEF_METHANE_PARAM_FILE = '<path>/standard_methane_parameter.nml' (in &nl_colm_material)",
+      "DEF_METHANE_enable_rice_paddy": "DEF_METHANE%%enable_rice_paddy in &nl_colm_methane_parameter",
+      "DEF_METHANE_only_wetland": "DEF_METHANE%%only_wetland",
+      "DEF_METHANE_inundation_mode": "DEF_METHANE%%inundation_mode",
+      "DEF_USE_SpatialpH": "DEF_METHANE%%use_spatial_ph",
+      "DEF_TRACER_*": "removed; CH4 is registered by DEF_USE_METHANE + parameter file"
+    }
+  },
+  "freeze_checklist": {
+    "status": "NOT_FROZEN",
+    "known_from_candidate": {
+      "domain_global_2deg": "DEF_domain [-90,90,-180,180], DEF_nx_blocks=18, DEF_ny_blocks=9, DEF_GRIDBASED_lon_res=2, DEF_GRIDBASED_lat_res=2",
+      "simulation": "1995-01-01 00:00 .. 1996-12-31 24:00, timestep 1800 s, spinup_repeat=0",
+      "land_cover_year": "DEF_LC_YEAR not present in old namelist -> default 2005; staged landdata only has year 2005",
+      "init": "DEF_USE_SoilInit + DEF_file_SoilInit; DEF_USE_CN_INIT + DEF_file_cn_init; DEF_USE_NITRIF=.true.",
+      "wetland": "DEF_USE_Dynamic_Wetland=.true.; DEF_Runoff_SCHEME=0; DEF_UnitCatchment_file=grid_routing_data_15min.nc",
+      "hydrology": "DEF_USE_VariablySaturatedFlow=.true.",
+      "methane_old": "TRACER CH4: enable_rice_paddy=.false., only_wetland=.false., inundation_mode=hybrid, DEF_USE_SpatialpH=.true.",
+      "output": "DEF_WRST_FREQ=YEARLY, DEF_HIST_FREQ=MONTHLY, DEF_HIST_groupby=YEAR, DEF_HIST_mode=one, compress 1/1",
+      "lsf": "BSUB 720 tasks, mem=150G, mvapich2/intel on the BD cluster (not 7920); mkinidata 48 ranks then colm 720 ranks"
+    },
+    "not_in_candidate_and_must_be_frozen_by_user": [
+      "exact compiler/macro matrix (build macros are not recorded in the candidate package)",
+      "methane parameter file content (old standard_ch4_parameter.nml is NOT in the candidate; only its path is referenced)",
+      "provenance identity of soilstate.nc / cnsteadystate.nc / grid_routing_data_15min.nc versus the historical BD case files (readable on 7920, identity unproven)",
+      "whether the historical landdata was built with CROPON (inferred from pct_crops/methane_ph/lake_soilc vectors; build macros unrecorded) and PFT vs PC subgrid layout",
+      "acceptance criteria / reference data for CH4 science (old history is a candidate comparison only, in obsolete TRACER output layout)"
+    ]
+  },
+  "rice_design": {
+    "status": "DESIGN_ONLY_NOT_RUN",
+    "minimal_real_build": "MaterialTransport + BGC + CROP + (LULC_IGBP_PFT or LULC_IGBP_PC) + vanGenuchten_Mualem_SOIL_MODEL + GridRiverLakeFlow",
+    "ci_coverage": "no CI case combines CROPON+BGCON+MTON; MTON cases are CROPOFF (verified in .github/workflows/TestCaseLists lines 89-93) -> rice methane build is not CI-covered",
+    "required_parameter_file_keys": "DEF_METHANE%%enable_rice_paddy=.true., DEF_METHANE%%inundation_mode=hybrid (+DEF_USE_Dynamic_Wetland=.true.), DEF_METHANE%%use_spatial_ph, only_wetland choice",
+    "required_landdata": "pctpft/<year>/pct_crops* (crop CFT fractions), soil/<year>/methane_ph_patches* and lake_soilc_patches*, plus BGC/CROP state restart fields (cropfrac, irrig_method_p...)",
+    "candidate_landdata_supports_it": true,
+    "old_run_switch_difference": "old global run had enable_rice_paddy=.false."
+  },
+  "global2yr_estimate": {
+    "status": "AUTHORITATIVE_HISTORICAL_BENCHMARK_FOUND (BD logs; nothing measured on 7920)",
+    "benchmark": {
+      "source": "BD cluster (ssh alias bd reachable from 7920l), read-only",
+      "case_dir": "/share/home/dq013/zhwei/colm/cases/globe/g_global_ch4_flat_2yr_20260527_200428",
+      "lsf_job": {
+        "id": 168594,
+        "name": "ch4_flat_2yr",
+        "cluster": "myCluster",
+        "tasks": 720,
+        "nodes": 15,
+        "ptile": 48,
+        "mem_per_task": "150G",
+        "submitted": "2026-05-27 20:04:29 +08",
+        "terminated": "2026-05-27 23:14:14 +08",
+        "state": "Successfully completed",
+        "run_time_s": 11377,
+        "cpu_time_s": 7952842,
+        "max_memory_mb": 1288799,
+        "avg_memory_mb": 741290,
+        "evidence_file": "logs/lsf.168594.out (read-only cat)"
+      },
+      "mkinidata": {
+        "ranks": 48,
+        "start": "20:04:31",
+        "end": "20:08:59",
+        "wall_s": 268,
+        "log_says": "Overall system time used: 4 minutes 23 seconds",
+        "evidence_file": "mkinidata_global_current.log tail (read-only)"
+      },
+      "colm": {
+        "ranks": 720,
+        "start": "20:08:59",
+        "end": "23:14:04",
+        "wall_s": 11105,
+        "log_last_time_elapsed": "3 hours 4 minutes 49 seconds",
+        "completion_line": "CoLM Execution Completed.",
+        "accumnstep_max": 35088,
+        "evidence_file": "colm_global_current.log tail (read-only, 1.28 GB file not copied)"
+      },
+      "derived": {
+        "steps": 35088,
+        "core_seconds_per_step": 226.654,
+        "core_hours_two_years": 2209.1,
+        "core_hours_per_year": 1104.6,
+        "wall_064cpu_ideal_h_two_years": 34.52,
+        "wall_096cpu_ideal_h_two_years": 23.01,
+        "history_create_time_crosscheck_s_per_year": 5325,
+        "actual_half_wall_s": 5552.5
+      },
+      "outputs": {
+        "history_bytes": 942669824,
+        "restart_bytes": 2469606195.2,
+        "history_layout": "hist + hist_tracer + hist_unitcat per year",
+        "restart_dates": [
+          "1995-001-00000",
+          "1996-001-00000",
+          "1997-001-00000",
+          "const"
+        ]
+      },
+      "old_run_analysis_summary": {
+        "file": "analysis/ch4_1996_summary.md (read-only)",
+        "ch4_total_Tg_yr": 119.813,
+        "production_Tg_yr": 145.848,
+        "oxidation_Tg_yr": 6.871,
+        "ebullition_Tg_yr": 96.217,
+        "diffusion_Tg_yr": 28.646,
+        "aerenchyma_Tg_yr": 3.004,
+        "annual_mean_flux_nmol_m2_s": 1.751,
+        "note": "candidate comparison only, TRACER lineage output, not ground truth"
+      },
+      "runtime_log_facts": {
+        "methane_registry": "CH4 active at tracer index 1",
+        "inundation": "hybrid -> scheme=6 wetwat_override=F dry_unsat=T",
+        "spatial_ph": "PH-LOAD patch pH: active=F, nonfallback=0/0, range=[6.20,6.20]",
+        "old_param_allowlakeprod": ".false. (git show 39a8b691:run/standard_ch4_parameter.nml)",
+        "old_param_write_ch4_history": ".true., ch4_history_vars='core'",
+        "crop_warning_present": false,
+        "crop_inference": "no 'Fertilization is on when CROP is off' warning -> CROP likely ON (unproven)"
+      }
+    },
+    "derived": {
+      "steps": 35088,
+      "core_seconds_per_step": 226.654,
+      "core_hours_two_years": 2209.1,
+      "core_hours_per_year": 1104.6,
+      "wall_064cpu_ideal_h_two_years": 34.52,
+      "wall_096cpu_ideal_h_two_years": 23.01,
+      "history_create_time_crosscheck_s_per_year": 5325,
+      "actual_half_wall_s": 5552.5
+    },
+    "note": "Old run is TRACER-lineage output and its actual switches differ from HEAD defaults (spatial pH off, lake production off, rice off), see historical_parameters_observed."
+  },
+  "decisions_needed_from_user": [
+    "A. which source of 1994/1997 CRUJRA v2.5 files is authorised (BD cluster copy, official download, or existing 7920 copy found by the survey), and whether ~22 GiB transfer into a new private data-stage dir is approved",
+    "B. whether the two-year window may be shifted (start 03:00, end 18:00) to avoid the boundary files for the pilot, accepting 9 h less simulated time",
+    "C. which build macro matrix and subgrid (PFT vs PC) is the frozen reference; CROP+BGC+MT is not CI-covered today",
+    "D. which methane parameter file version and value set is frozen; the old package references a standard_ch4_parameter.nml that was not transferred",
+    "E. acceptable provenance level for soilstate/cnsteadystate/routing/crop runtime inputs (readable but not proven identical to the BD case)",
+    "F. rice pilot domain: global 2-deg short window vs a regional clip; and whether only_wetland=.true. (wetland+rice) or .false. (all soil incl. rice) is the reference"
+  ],
+  "evidence_paths": [
+    "evidence/audit.json",
+    "local-boundary-requests.csv",
+    "evidence/g_global_ch4_flat_2yr_20260527_200428.nml",
+    "evidence/CRUJRA_local_abs.nml",
+    "evidence/run_g_global_ch4_flat_2yr_20260527_200428.lsf",
+    "evidence/namelist_compat.json"
+  ],
+  "remote_survey": {
+    "job": "codex-fa5a1a057cc848e3a2468dd9797a73c0 (succeeded/0)",
+    "host_utc": "2026-10-28T16:40:42Z",
+    "staging_on_disk_matches_manifest": {
+      "forcing": {
+        "files": 16,
+        "bytes": 24219856144,
+        "matches": true
+      },
+      "landdata": {
+        "files": 40429,
+        "bytes": 2362078324,
+        "matches": true
+      },
+      "baseline": {
+        "files": 5,
+        "bytes": 36523447,
+        "matches": true
+      }
+    },
+    "candidate_landdata": {
+      "years": {
+        "LAI": [
+          "2005"
+        ],
+        "htop": [
+          "2005"
+        ],
+        "lakedepth": [
+          "2005"
+        ],
+        "landelm": [
+          "2005"
+        ],
+        "landpatch": [
+          "2005"
+        ],
+        "landpft": [
+          "2005"
+        ],
+        "mesh": [
+          "2005"
+        ],
+        "pctpft": [
+          "2005"
+        ],
+        "soil": [
+          "2005"
+        ],
+        "topography": [
+          "2005"
+        ]
+      },
+      "families": [
+        "LAI",
+        "htop",
+        "lakedepth",
+        "landelm",
+        "landpatch",
+        "landpft",
+        "mesh",
+        "pctpft",
+        "soil",
+        "topography"
+      ],
+      "has_crop_cft_vectors": true,
+      "has_methane_ph_vectors": 144,
+      "has_lake_soilc_vectors": 144,
+      "missing_families_for_default_build": [
+        "cstructure",
+        "dbedrock",
+        "urban",
+        "riverlake",
+        "lulcc"
+      ],
+      "landpft_settyp_sample": "0..78 incl 61/62 (nrice/nirrig_rice) -> CROP 64-CFT build",
+      "methane_ph_probe": {
+        "methane_ph_patches": {
+          "n": 367,
+          "min": 5.0,
+          "max": 8.225000000000001,
+          "mean": 6.635157432636996,
+          "unique_first": [
+            5,
+            5.575,
+            5.75,
+            5.800000000000001,
+            5.825,
+            5.8694444444444445,
+            6,
+            6.008333333333334,
+            6.025,
+            6.050000000000001,
+            6.075,
+            6.1000000000000005,
+            6.15,
+            6.2,
+            6.2250000000000005,
+            6.25,
+            6.261111111111111,
+            6.300000000000001,
+            6.305555555555555,
+            6.325,
+            6.3500000000000005,
+            6.375,
+            6.4,
+            6.425000000000001,
+            6.430555555555555,
+            6.433333333333334,
+            6.45,
+            6.4750000000000005,
+            6.5,
+            6.525,
+            6.550000000000001,
+            6.6000000000000005,
+            6.625,
+            6.65,
+            6.675000000000001,
+            6.7,
+            6.702777777777778,
+            6.75,
+            6.780555555555556,
+            6.8500000000000005
+          ]
+        }
+      },
+      "lake_soilc_probe": {
+        "soil": 10,
+        "patch": 367
+      }
+    },
+    "runtime_dependencies_readable": {
+      "/media/zhwei/data02/zhwei/CoLMruntime/soilstate.nc": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/cnsteadystate.nc": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/nitrif": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/ndep": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/crop": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/fire": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/snicar": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/aerosol": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/Ozone": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/urban": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/reservoir": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/wtd.nc": true,
+      "/media/zhwei/data02/zhwei/CoLMruntime/runoff_clim.nc": true
+    },
+    "crop_runtime_files": {
+      "plantdt-colm-64cfts-rice2_fillcoast.nc": true,
+      "fertnitro_fillcoast.nc": true,
+      "fertilizer_2015soc.nc": true,
+      "surfdata_irrigation_method_96x144.nc": true,
+      "surfdata_irrigation_allocation.nc": false
+    },
+    "ph_staging_file": {
+      "path": "/media/zhwei/data01/compute_runs/data-stage/mt-ph-20261028-2053-1793191930/soil/PHH2O1.nc",
+      "exists": true,
+      "kind": "file",
+      "size": 2903280596,
+      "readable": true,
+      "mtime": "2013-11-03T08:02:22"
+    },
+    "crujra_search": {
+      "searches": [
+        {
+          "root": null,
+          "cmd": "find /media/zhwei/data01 -xdev -maxdepth 5  \\( -iname '*crujra*' -o -iname '*CRUJRA*' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 0
+        },
+        {
+          "root": null,
+          "cmd": "find /media/zhwei/data02 -xdev -maxdepth 5 -path '*/CoLMrawdata*' -prune -o \\( -iname '*crujra*' -o -iname '*CRUJRA*' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 5
+        },
+        {
+          "root": null,
+          "cmd": "find /home/zhwei -xdev -maxdepth 4  \\( -iname '*crujra*' -o -iname '*CRUJRA*' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 0
+        },
+        {
+          "root": null,
+          "cmd": "find /media/zhwei/data01 -xdev -maxdepth 5  \\( -iname '*CoLM_Forcing*' -o -iname 'crujra_v2*' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 0
+        },
+        {
+          "root": null,
+          "cmd": "find /media/zhwei/data02 -xdev -maxdepth 5 -path '*/CoLMrawdata*' -prune -o \\( -iname '*CoLM_Forcing*' -o -iname 'crujra_v2*' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 24
+        },
+        {
+          "root": null,
+          "cmd": "find /media/zhwei/data01/compute_runs -xdev -maxdepth 6  \\( -iname '*.1994.365d.noc.nc' -o -iname '*.1997.365d.noc.nc' -o -iname '*.1994.*.nc' -o -iname '*.1997.*.nc' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 0
+        },
+        {
+          "root": null,
+          "cmd": "find /media/zhwei/data02/zhwei -xdev -maxdepth 4 -path '*/CoLMrawdata*' -prune -o \\( -iname '*.1994.365d.noc.nc' -o -iname '*.1997.365d.noc.nc' \\) -print 2>/dev/null | head -200",
+          "timed_out": false,
+          "n_hits": 0
+        }
+      ],
+      "hits": [
+        "/media/zhwei/data02/zhwei/CoLM202X/preprocess/Forcings/CRUJRA",
+        "/media/zhwei/data02/zhwei/CoLM202X/run/forcing/CRUJRA.nml",
+        "/media/zhwei/data02/zhwei/training2026/ex01_global/CRUJRA.nml",
+        "/media/zhwei/data02/zhwei/training2026/ex04_bgc/CRUJRA.nml"
+      ],
+      "conclusion": "no CRUJRA v2.5 data files on 7920; only a dangling symlink training2026/CoLM_Forcing/crujra_v2.5 -> /share/home/dq013/... ; authoritative 1994/1997 files verified present on BD via read-only bd: listing",
+      "jra3q_product_coverage_1947_09_to_2024_09": true,
+      "isogsm_years": {
+        "IsoGSM_2000-2004": 30,
+        "IsoGSM_2005-2006": 12
+      }
+    },
+    "old_run_artifacts_on_7920": {
+      "coLM_methane_benchmark_found": false,
+      "hits": [],
+      "note": "7920 hits for methane are the OpenBench/OBRef raw-engine smoke test, not CoLM runs"
+    }
+  },
+  "boundary_source_on_bd": {
+    "host": "bd (ssh alias configured on 7920; same channel used by the original staging rsync)",
+    "root": "/share/home/dq013/zhwei/colm/data/CoLM_Forcing/crujra_v2.5",
+    "coverage_listing_years": "1849..2024 files visible in var dirs",
+    "missing_files_present_on_bd": 15,
+    "seven_1994_files_bytes": 10596186972,
+    "eight_1997_files_bytes": 12109928072,
+    "all_sizes_match_1995_analogs": true,
+    "not_transferred_by_this_task": true
+  },
+  "historical_parameters_observed": {
+    "inundation_mode": "hybrid",
+    "spatial_ph_active_in_old_run": false,
+    "spatial_ph_fallback": 6.2,
+    "allowlakeprod_at_39a8b691": false,
+    "enable_rice_paddy_main_namelist": false,
+    "only_wetland_main_namelist": false,
+    "head_standard_methane_parameter_defaults_differ": {
+      "use_spatial_ph": true,
+      "allowlakeprod": true,
+      "enable_rice_paddy": true
+    },
+    "verdict": "parameter file NOT frozen; reproduce-old and use-HEAD-defaults are different experiments"
+  }
+}

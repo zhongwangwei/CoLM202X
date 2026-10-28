@@ -1,0 +1,80 @@
+{
+ "source": "BD cluster (ssh alias bd reachable from 7920l), read-only",
+ "case_dir": "/share/home/dq013/zhwei/colm/cases/globe/g_global_ch4_flat_2yr_20260527_200428",
+ "lsf_job": {
+  "id": 168594,
+  "name": "ch4_flat_2yr",
+  "cluster": "myCluster",
+  "tasks": 720,
+  "nodes": 15,
+  "ptile": 48,
+  "mem_per_task": "150G",
+  "submitted": "2026-05-27 20:04:29 +08",
+  "terminated": "2026-05-27 23:14:14 +08",
+  "state": "Successfully completed",
+  "run_time_s": 11377,
+  "cpu_time_s": 7952842,
+  "max_memory_mb": 1288799,
+  "avg_memory_mb": 741290,
+  "evidence_file": "logs/lsf.168594.out (read-only cat)"
+ },
+ "mkinidata": {
+  "ranks": 48,
+  "start": "20:04:31",
+  "end": "20:08:59",
+  "wall_s": 268,
+  "log_says": "Overall system time used: 4 minutes 23 seconds",
+  "evidence_file": "mkinidata_global_current.log tail (read-only)"
+ },
+ "colm": {
+  "ranks": 720,
+  "start": "20:08:59",
+  "end": "23:14:04",
+  "wall_s": 11105,
+  "log_last_time_elapsed": "3 hours 4 minutes 49 seconds",
+  "completion_line": "CoLM Execution Completed.",
+  "accumnstep_max": 35088,
+  "evidence_file": "colm_global_current.log tail (read-only, 1.28 GB file not copied)"
+ },
+ "derived": {
+  "steps": 35088,
+  "core_seconds_per_step": 226.654,
+  "core_hours_two_years": 2209.1,
+  "core_hours_per_year": 1104.6,
+  "wall_064cpu_ideal_h_two_years": 34.52,
+  "wall_096cpu_ideal_h_two_years": 23.01,
+  "history_create_time_crosscheck_s_per_year": 5325,
+  "actual_half_wall_s": 5552.5
+ },
+ "outputs": {
+  "history_bytes": 942669824,
+  "restart_bytes": 2469606195.2,
+  "history_layout": "hist + hist_tracer + hist_unitcat per year",
+  "restart_dates": [
+   "1995-001-00000",
+   "1996-001-00000",
+   "1997-001-00000",
+   "const"
+  ]
+ },
+ "old_run_analysis_summary": {
+  "file": "analysis/ch4_1996_summary.md (read-only)",
+  "ch4_total_Tg_yr": 119.813,
+  "production_Tg_yr": 145.848,
+  "oxidation_Tg_yr": 6.871,
+  "ebullition_Tg_yr": 96.217,
+  "diffusion_Tg_yr": 28.646,
+  "aerenchyma_Tg_yr": 3.004,
+  "annual_mean_flux_nmol_m2_s": 1.751,
+  "note": "candidate comparison only, TRACER lineage output, not ground truth"
+ },
+ "runtime_log_facts": {
+  "methane_registry": "CH4 active at tracer index 1",
+  "inundation": "hybrid -> scheme=6 wetwat_override=F dry_unsat=T",
+  "spatial_ph": "PH-LOAD patch pH: active=F, nonfallback=0/0, range=[6.20,6.20]",
+  "old_param_allowlakeprod": ".false. (git show 39a8b691:run/standard_ch4_parameter.nml)",
+  "old_param_write_ch4_history": ".true., ch4_history_vars='core'",
+  "crop_warning_present": false,
+  "crop_inference": "no 'Fertilization is on when CROP is off' warning -> CROP likely ON (unproven)"
+ }
+}

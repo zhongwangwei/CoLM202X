@@ -1,0 +1,30 @@
+{
+  "job_id": "codex-2434412927a94e38a44ad21db5643a38",
+  "state": "failed",
+  "created_at": 1793205931.7388854,
+  "job_dir": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38",
+  "agent": "codex",
+  "inputs_remote": {
+    "RAW": "/media/zhwei/data02/zhwei/CoLMrawdata",
+    "RT": "/media/zhwei/data02/zhwei/CoLMruntime",
+    "UCAT": "/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc",
+    "P6B": "/media/zhwei/data01/compute_runs/claude/claude-6247c29c2d7146c1a8b3a586d90e3837/results",
+    "ISOGSM2": "/media/zhwei/data02/zhwei/IsoGSM_2005-2006"
+  },
+  "protocol_version": 3,
+  "runner_version": 3,
+  "runner_sha256": "56c58d4b4d7fcc622818e2dc2c175326b2385dee89af72e534dbba1c5183d71e",
+  "resources": {
+    "cpus": 32,
+    "memory_gb": 64,
+    "timeout": 14400
+  },
+  "queued_at": 1793205932.6331575,
+  "started_at": 1793205932.7419121,
+  "exclusive": false,
+  "slots": [
+    0
+  ],
+  "exit_code": 1,
+  "finished_at": 1793212699.6320884
+}

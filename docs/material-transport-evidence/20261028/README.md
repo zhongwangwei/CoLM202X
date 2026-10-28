@@ -19,6 +19,13 @@
   重叠 history 逐位一致）+ 12 条真实极值复现 + Decimal50 账本回放；21 个有效 δ 由 gross water /
   有符号质量重建，1 个负 signed ratio 按缺测输出。原始记录为 `p9s-probe-results.json`、
   `p9s-probe-job-status.json`，工具在 `longwindow-probe-tools/`。
+- [最新组合源码整体验收](combined-acceptance.md)：frcsat + 强迫同位素 + LULCC + CL + 泥沙/河网的完整组合
+  **FAIL**（LULC_IGBP/NEC 在 step 4 触发已记账数值残余硬限 9.0882e-5 > 5.0e-5）；触发项定位为
+  flood feedback + 运行期同位素强迫，且 `28478b18` 基线同样复现（既有交互缺陷）。frcsat 修复的数值不变性
+  另有真实 120 步隔离证据。原始记录为 `combined-report.json`、`combined-job-status.json`、
+  `combined-attempts.json`、`combined-EVIDENCE.md`。
+- [甲烷候选输入闭合与运行设计](methane-closure/README.md)：只读调查，结论 `NOT_READY`；15 个缺失边界文件
+  权威源已实测存在于 `bd:` 路径（补传需授权），窗口改写 W1 可零新增数据（少 9 h）。仍未运行甲烷模型。
 - `methane-input-audit-summary.json`：只读候选包元数据审计，结论为
   `NOT_READY / UNVERIFIED_CANDIDATE`。传输一致不代表来源唯一、输入闭合或科学正确；
   没有启动甲烷模型。完整原报告仍在审计任务结果目录。

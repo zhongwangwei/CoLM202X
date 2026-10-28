@@ -1,0 +1,2146 @@
+{
+  "job_id": "codex-2434412927a94e38a44ad21db5643a38",
+  "results_root": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results",
+  "source": "6d99543861c38c708f6c833e6349bcd3d7d3b879 (git archive; production tree equal to HEAD 10e9fbd2)",
+  "generated": "2026-10-28T18:36:04.184057+00:00",
+  "gates": {
+    "G1_builds": {
+      "status": "PASS",
+      "checks": {
+        "i-on": {
+          "build": "i-on",
+          "expected_lulc": "LULC_IGBP",
+          "defines": [
+            "#define GRIDBASED",
+            "#undef CATCHMENT",
+            "#undef UNSTRUCTURED",
+            "#undef SinglePoint",
+            "#undef LULC_USGS",
+            "#define LULC_IGBP",
+            "#undef LULC_IGBP_PFT",
+            "#undef LULC_IGBP_PC",
+            "#undef URBAN_MODEL",
+            "#undef URBAN_LCZ",
+            "#define CoLMDEBUG",
+            "#define RangeCheck",
+            "#undef SrfdataDiag",
+            "#define  USEMPI",
+            "#undef USEMPI",
+            "#undef Campbell_SOIL_MODEL",
+            "#define vanGenuchten_Mualem_SOIL_MODEL",
+            "#define  LATERAL_FLOW",
+            "#undef LATERAL_FLOW",
+            "#undef CaMa_Flood",
+            "#define GridRiverLakeFlow",
+            "#undef GridRiverLakeFlow",
+            "#undef GridRiverLakeFlow",
+            "#undef BGC",
+            "#undef BGC",
+            "#undef CROP",
+            "#undef CROP",
+            "#define LULCC",
+            "#define MaterialTransport"
+          ],
+          "define_sha256": "94170f5281e50604e3bccc78d32ddf59be730b0ca89ef5c7c5c226efe17b83e3",
+          "binaries": {
+            "colm": true,
+            "mkinidata": true,
+            "mksrfdata": true
+          },
+          "build_log": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/build/i-on.log",
+          "build_log_bytes": 193489,
+          "success_banner": true
+        },
+        "f-on": {
+          "build": "f-on",
+          "expected_lulc": "LULC_IGBP_PFT",
+          "defines": [
+            "#define GRIDBASED",
+            "#undef CATCHMENT",
+            "#undef UNSTRUCTURED",
+            "#undef SinglePoint",
+            "#undef LULC_USGS",
+            "#undef LULC_IGBP",
+            "#define LULC_IGBP_PFT",
+            "#undef LULC_IGBP_PC",
+            "#undef URBAN_MODEL",
+            "#undef URBAN_LCZ",
+            "#define CoLMDEBUG",
+            "#define RangeCheck",
+            "#undef SrfdataDiag",
+            "#define  USEMPI",
+            "#undef USEMPI",
+            "#undef Campbell_SOIL_MODEL",
+            "#define vanGenuchten_Mualem_SOIL_MODEL",
+            "#define  LATERAL_FLOW",
+            "#undef LATERAL_FLOW",
+            "#undef CaMa_Flood",
+            "#define GridRiverLakeFlow",
+            "#undef GridRiverLakeFlow",
+            "#undef GridRiverLakeFlow",
+            "#undef BGC",
+            "#undef BGC",
+            "#undef CROP",
+            "#undef CROP",
+            "#define LULCC",
+            "#define MaterialTransport"
+          ],
+          "define_sha256": "0e0bdf66115f28b25ae16d9ce4c00024df525a6d838c63875c4575f7a0c20fb6",
+          "binaries": {
+            "colm": true,
+            "mkinidata": true,
+            "mksrfdata": true
+          },
+          "build_log": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/build/f-on.log",
+          "build_log_bytes": 193489,
+          "success_banner": true
+        }
+      },
+      "errors": []
+    },
+    "G2_config_and_comparisons": {
+      "status": "FAIL",
+      "checks": {
+        "i-NEC-MEC": {
+          "config_errors": []
+        },
+        "i-NEC-MEC-s0101": {
+          "config_errors": []
+        },
+        "i-NEC-MEC-s0103": {
+          "config_errors": []
+        },
+        "i-NEC-SAT": {
+          "config_errors": []
+        },
+        "f-NEC-MEC": {
+          "config_errors": []
+        },
+        "f-NEC-MEC-s0101": {
+          "config_errors": []
+        },
+        "f-NEC-MEC-s0103": {
+          "config_errors": []
+        },
+        "f-NEC-SAT": {
+          "config_errors": []
+        },
+        "i-NEC-MEC-noon": {
+          "config_errors": []
+        },
+        "strict_comparisons": [
+          {
+            "a": "i-NEC-MEC",
+            "b": "i-NEC-MEC-s0101",
+            "kind": "restart",
+            "label": "IGBP MEC split at LULCC boundary 2006-01-01",
+            "ok": true,
+            "message": "IDENTICAL files=4 vars=164 (variable bits; not attributes)"
+          },
+          {
+            "a": "i-NEC-MEC",
+            "b": "i-NEC-MEC-s0101",
+            "kind": "history",
+            "label": "IGBP MEC split at LULCC boundary 2006-01-01",
+            "ok": false,
+            "message": "FILESET a=0 b=0 unmatched=0"
+          },
+          {
+            "a": "i-NEC-MEC",
+            "b": "i-NEC-MEC-s0103",
+            "kind": "restart",
+            "label": "IGBP MEC split after LULCC 2006-01-03",
+            "ok": true,
+            "message": "IDENTICAL files=4 vars=164 (variable bits; not attributes)"
+          },
+          {
+            "a": "i-NEC-MEC",
+            "b": "i-NEC-MEC-s0103",
+            "kind": "history",
+            "label": "IGBP MEC split after LULCC 2006-01-03",
+            "ok": false,
+            "message": "FILESET a=0 b=0 unmatched=0"
+          },
+          {
+            "a": "f-NEC-MEC",
+            "b": "f-NEC-MEC-s0101",
+            "kind": "restart",
+            "label": "PFT MEC split at LULCC boundary 2006-01-01",
+            "ok": true,
+            "message": "IDENTICAL files=57 vars=3881 (variable bits; not attributes)"
+          },
+          {
+            "a": "f-NEC-MEC",
+            "b": "f-NEC-MEC-s0101",
+            "kind": "history",
+            "label": "PFT MEC split at LULCC boundary 2006-01-01",
+            "ok": true,
+            "message": "IDENTICAL files=6 vars=552 (variable bits; not attributes)"
+          },
+          {
+            "a": "f-NEC-MEC",
+            "b": "f-NEC-MEC-s0103",
+            "kind": "restart",
+            "label": "PFT MEC split after LULCC 2006-01-03",
+            "ok": true,
+            "message": "IDENTICAL files=57 vars=3881 (variable bits; not attributes)"
+          },
+          {
+            "a": "f-NEC-MEC",
+            "b": "f-NEC-MEC-s0103",
+            "kind": "history",
+            "label": "PFT MEC split after LULCC 2006-01-03",
+            "ok": true,
+            "message": "IDENTICAL files=6 vars=552 (variable bits; not attributes)"
+          }
+        ],
+        "strict_comparison_all_identical": false,
+        "noon_aligned": {
+          "restart": {
+            "a": "i-NEC-MEC",
+            "b": "i-NEC-MEC-noon",
+            "common_dates": 1,
+            "extra_dates": [],
+            "errors": [
+              "expected exactly the mid-window checkpoint 2006-001-43200 extra, got []",
+              "ParaOpt: FILESET a=0 b=0 unmatched=0"
+            ]
+          },
+          "history": {
+            "a": "i-NEC-MEC",
+            "b": "i-NEC-MEC-noon",
+            "files": 0,
+            "slices_compared": 0,
+            "variables": 0,
+            "errors": [
+              "history file set differs []"
+            ],
+            "extra_times": {}
+          }
+        }
+      },
+      "errors": [
+        "full history comparison i-NEC-MEC vs i-NEC-MEC-s0101 failed: FILESET a=0 b=0 unmatched=0",
+        "full history comparison i-NEC-MEC vs i-NEC-MEC-s0103 failed: FILESET a=0 b=0 unmatched=0",
+        "noon-split restart alignment: expected exactly the mid-window checkpoint 2006-001-43200 extra, got []",
+        "noon-split restart alignment: ParaOpt: FILESET a=0 b=0 unmatched=0",
+        "noon-split history alignment: history file set differs []"
+      ]
+    },
+    "G3_model_completion": {
+      "status": "FAIL",
+      "checks": {
+        "i-NEC-MEC": {
+          "name": "i-NEC-MEC",
+          "mode": "none",
+          "expected_counts": [
+            576
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [
+            "log.colm: no \"CoLM Execution Completed\"",
+            "log.colm: diagnostic \"residual hard failure\" x1",
+            "log.colm: diagnostic \"MPI_Abort\" x1",
+            "step counts [4] != expected [576]",
+            "step/date sequence mismatch: got 4 expected 576",
+            "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+          ],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            4
+          ],
+          "diagnostic_counts": {
+            "residual hard failure": 1,
+            "MPI_Abort": 1
+          },
+          "steps": 4,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2005-12-25 01:30:00",
+          "last_date_string": "2005-12-25-05400",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 0,
+            "variables": 0,
+            "masked_values": 0,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 4,
+            "variables": 164,
+            "masked_values": 300,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 0,
+          "restart_files": 4
+        },
+        "i-NEC-MEC-s0101": {
+          "name": "i-NEC-MEC-s0101",
+          "mode": "0101",
+          "expected_counts": [
+            336,
+            240
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [
+            "expected 2 colm segment logs, found 1",
+            "log.colm: no \"CoLM Execution Completed\"",
+            "log.colm: diagnostic \"residual hard failure\" x1",
+            "log.colm: diagnostic \"MPI_Abort\" x1",
+            "step counts [4] != expected [336, 240]",
+            "step/date sequence mismatch: got 4 expected 576",
+            "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+          ],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            4
+          ],
+          "diagnostic_counts": {
+            "residual hard failure": 1,
+            "MPI_Abort": 1
+          },
+          "steps": 4,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2005-12-25 01:30:00",
+          "last_date_string": "2005-12-25-05400",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 0,
+            "variables": 0,
+            "masked_values": 0,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 4,
+            "variables": 164,
+            "masked_values": 300,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 0,
+          "restart_files": 4
+        },
+        "i-NEC-MEC-s0103": {
+          "name": "i-NEC-MEC-s0103",
+          "mode": "0103",
+          "expected_counts": [
+            432,
+            144
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [
+            "expected 2 colm segment logs, found 1",
+            "log.colm: no \"CoLM Execution Completed\"",
+            "log.colm: diagnostic \"residual hard failure\" x1",
+            "log.colm: diagnostic \"MPI_Abort\" x1",
+            "step counts [4] != expected [432, 144]",
+            "step/date sequence mismatch: got 4 expected 576",
+            "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+          ],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            4
+          ],
+          "diagnostic_counts": {
+            "residual hard failure": 1,
+            "MPI_Abort": 1
+          },
+          "steps": 4,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2005-12-25 01:30:00",
+          "last_date_string": "2005-12-25-05400",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 0,
+            "variables": 0,
+            "masked_values": 0,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 4,
+            "variables": 164,
+            "masked_values": 300,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 0,
+          "restart_files": 4
+        },
+        "i-NEC-SAT": {
+          "name": "i-NEC-SAT",
+          "mode": "none",
+          "expected_counts": [
+            576
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [
+            "log.colm: no \"CoLM Execution Completed\"",
+            "log.colm: diagnostic \"residual hard failure\" x1",
+            "log.colm: diagnostic \"MPI_Abort\" x1",
+            "step counts [4] != expected [576]",
+            "step/date sequence mismatch: got 4 expected 576",
+            "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+          ],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            4
+          ],
+          "diagnostic_counts": {
+            "residual hard failure": 1,
+            "MPI_Abort": 1
+          },
+          "steps": 4,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2005-12-25 01:30:00",
+          "last_date_string": "2005-12-25-05400",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 0,
+            "variables": 0,
+            "masked_values": 0,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 4,
+            "variables": 164,
+            "masked_values": 300,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 0,
+          "restart_files": 4
+        },
+        "f-NEC-MEC": {
+          "name": "f-NEC-MEC",
+          "mode": "none",
+          "expected_counts": [
+            576
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            576
+          ],
+          "diagnostic_counts": {},
+          "steps": 576,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2006-01-05 23:30:00",
+          "last_date_string": "2006-01-05-84600",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 6,
+            "variables": 552,
+            "masked_values": 477810037,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 57,
+            "variables": 3881,
+            "masked_values": 3696,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 6,
+          "restart_files": 57
+        },
+        "f-NEC-MEC-s0101": {
+          "name": "f-NEC-MEC-s0101",
+          "mode": "0101",
+          "expected_counts": [
+            336,
+            240
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [],
+          "segments": [
+            "log.colm.1",
+            "log.colm"
+          ],
+          "step_counts": [
+            336,
+            240
+          ],
+          "diagnostic_counts": {},
+          "steps": 576,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2006-01-05 23:30:00",
+          "last_date_string": "2006-01-05-84600",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 6,
+            "variables": 552,
+            "masked_values": 477810037,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 57,
+            "variables": 3881,
+            "masked_values": 3696,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 6,
+          "restart_files": 57
+        },
+        "f-NEC-MEC-s0103": {
+          "name": "f-NEC-MEC-s0103",
+          "mode": "0103",
+          "expected_counts": [
+            432,
+            144
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [],
+          "segments": [
+            "log.colm.1",
+            "log.colm"
+          ],
+          "step_counts": [
+            432,
+            144
+          ],
+          "diagnostic_counts": {},
+          "steps": 576,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2006-01-05 23:30:00",
+          "last_date_string": "2006-01-05-84600",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 6,
+            "variables": 552,
+            "masked_values": 477810037,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 57,
+            "variables": 3881,
+            "masked_values": 3696,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 6,
+          "restart_files": 57
+        },
+        "f-NEC-SAT": {
+          "name": "f-NEC-SAT",
+          "mode": "none",
+          "expected_counts": [
+            576
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            576
+          ],
+          "diagnostic_counts": {},
+          "steps": 576,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2006-01-05 23:30:00",
+          "last_date_string": "2006-01-05-84600",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 6,
+            "variables": 552,
+            "masked_values": 477810052,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 57,
+            "variables": 3881,
+            "masked_values": 3696,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 6,
+          "restart_files": 57
+        },
+        "i-NEC-MEC-noon": {
+          "name": "i-NEC-MEC-noon",
+          "mode": "noon",
+          "expected_counts": [
+            360,
+            216
+          ],
+          "expected_last": "2006-01-05-84600",
+          "errors": [
+            "expected 2 colm segment logs, found 1",
+            "log.colm: no \"CoLM Execution Completed\"",
+            "log.colm: diagnostic \"residual hard failure\" x1",
+            "log.colm: diagnostic \"MPI_Abort\" x1",
+            "step counts [4] != expected [360, 216]",
+            "step/date sequence mismatch: got 4 expected 576",
+            "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+          ],
+          "segments": [
+            "log.colm"
+          ],
+          "step_counts": [
+            4
+          ],
+          "diagnostic_counts": {
+            "residual hard failure": 1,
+            "MPI_Abort": 1
+          },
+          "steps": 4,
+          "first_step": "2005-12-25 00:00:00",
+          "last_step": "2005-12-25 01:30:00",
+          "last_date_string": "2005-12-25-05400",
+          "nbad_abort_zero": true,
+          "history_nonfinite": {
+            "files": 0,
+            "variables": 0,
+            "masked_values": 0,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "restart_nonfinite": {
+            "files": 4,
+            "variables": 164,
+            "masked_values": 300,
+            "unmasked_nonfinite": 0,
+            "read_errors": 0,
+            "examples": []
+          },
+          "history_files": 0,
+          "restart_files": 4
+        }
+      },
+      "errors": [
+        "i-NEC-MEC: log.colm: no \"CoLM Execution Completed\"",
+        "i-NEC-MEC: log.colm: diagnostic \"residual hard failure\" x1",
+        "i-NEC-MEC: log.colm: diagnostic \"MPI_Abort\" x1",
+        "i-NEC-MEC: step counts [4] != expected [576]",
+        "i-NEC-MEC: step/date sequence mismatch: got 4 expected 576",
+        "i-NEC-MEC: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+        "i-NEC-MEC-s0101: expected 2 colm segment logs, found 1",
+        "i-NEC-MEC-s0101: log.colm: no \"CoLM Execution Completed\"",
+        "i-NEC-MEC-s0101: log.colm: diagnostic \"residual hard failure\" x1",
+        "i-NEC-MEC-s0101: log.colm: diagnostic \"MPI_Abort\" x1",
+        "i-NEC-MEC-s0101: step counts [4] != expected [336, 240]",
+        "i-NEC-MEC-s0101: step/date sequence mismatch: got 4 expected 576",
+        "i-NEC-MEC-s0101: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+        "i-NEC-MEC-s0103: expected 2 colm segment logs, found 1",
+        "i-NEC-MEC-s0103: log.colm: no \"CoLM Execution Completed\"",
+        "i-NEC-MEC-s0103: log.colm: diagnostic \"residual hard failure\" x1",
+        "i-NEC-MEC-s0103: log.colm: diagnostic \"MPI_Abort\" x1",
+        "i-NEC-MEC-s0103: step counts [4] != expected [432, 144]",
+        "i-NEC-MEC-s0103: step/date sequence mismatch: got 4 expected 576",
+        "i-NEC-MEC-s0103: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+        "i-NEC-SAT: log.colm: no \"CoLM Execution Completed\"",
+        "i-NEC-SAT: log.colm: diagnostic \"residual hard failure\" x1",
+        "i-NEC-SAT: log.colm: diagnostic \"MPI_Abort\" x1",
+        "i-NEC-SAT: step counts [4] != expected [576]",
+        "i-NEC-SAT: step/date sequence mismatch: got 4 expected 576",
+        "i-NEC-SAT: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+        "i-NEC-MEC-noon: expected 2 colm segment logs, found 1",
+        "i-NEC-MEC-noon: log.colm: no \"CoLM Execution Completed\"",
+        "i-NEC-MEC-noon: log.colm: diagnostic \"residual hard failure\" x1",
+        "i-NEC-MEC-noon: log.colm: diagnostic \"MPI_Abort\" x1",
+        "i-NEC-MEC-noon: step counts [4] != expected [360, 216]",
+        "i-NEC-MEC-noon: step/date sequence mismatch: got 4 expected 576",
+        "i-NEC-MEC-noon: final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+      ]
+    },
+    "G4_forcing_cache": {
+      "status": "FAIL",
+      "checks": {
+        "i-NEC-MEC": {
+          "name": "i-NEC-MEC",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('no initialized forced checkpoints')"
+          ]
+        },
+        "i-NEC-MEC-s0101": {
+          "name": "i-NEC-MEC-s0101",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('no initialized forced checkpoints')"
+          ]
+        },
+        "i-NEC-MEC-s0103": {
+          "name": "i-NEC-MEC-s0103",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('no initialized forced checkpoints')"
+          ]
+        },
+        "i-NEC-SAT": {
+          "name": "i-NEC-SAT",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('no initialized forced checkpoints')"
+          ]
+        },
+        "f-NEC-MEC": {
+          "name": "f-NEC-MEC",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')"
+          ]
+        },
+        "f-NEC-MEC-s0101": {
+          "name": "f-NEC-MEC-s0101",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC-s0101/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')"
+          ]
+        },
+        "f-NEC-MEC-s0103": {
+          "name": "f-NEC-MEC-s0103",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC-s0103/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')"
+          ]
+        },
+        "f-NEC-SAT": {
+          "name": "f-NEC-SAT",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-SAT/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')"
+          ]
+        },
+        "i-NEC-MEC-noon": {
+          "name": "i-NEC-MEC-noon",
+          "errors": [
+            "check_forcing_cache failed: AssertionError('no initialized forced checkpoints')"
+          ]
+        }
+      },
+      "errors": [
+        "i-NEC-MEC: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+        "i-NEC-MEC-s0101: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+        "i-NEC-MEC-s0103: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+        "i-NEC-SAT: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+        "f-NEC-MEC: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+        "f-NEC-MEC-s0101: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC-s0101/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+        "f-NEC-MEC-s0103: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC-s0103/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+        "f-NEC-SAT: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-SAT/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+        "i-NEC-MEC-noon: forcing cache check failed: AssertionError('no initialized forced checkpoints')"
+      ]
+    },
+    "G5_frcsat_protocol": {
+      "status": "FAIL",
+      "checks": {
+        "i-NEC-MEC": {
+          "name": "i-NEC-MEC",
+          "history": {},
+          "restart": {
+            "boundary_sidecars": 0,
+            "mid_window": []
+          },
+          "errors": [
+            "history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)"
+          ],
+          "history_valid_values": 0,
+          "history_masked_values": 0,
+          "history_range": [
+            null,
+            null
+          ]
+        },
+        "i-NEC-MEC-s0101": {
+          "name": "i-NEC-MEC-s0101",
+          "history": {},
+          "restart": {
+            "boundary_sidecars": 0,
+            "mid_window": []
+          },
+          "errors": [
+            "history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+            "2006-001-00000: history sidecar missing at the split checkpoint"
+          ],
+          "history_valid_values": 0,
+          "history_masked_values": 0,
+          "history_range": [
+            null,
+            null
+          ]
+        },
+        "i-NEC-MEC-s0103": {
+          "name": "i-NEC-MEC-s0103",
+          "history": {},
+          "restart": {
+            "boundary_sidecars": 0,
+            "mid_window": []
+          },
+          "errors": [
+            "history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+            "2006-003-00000: history sidecar missing at the split checkpoint"
+          ],
+          "history_valid_values": 0,
+          "history_masked_values": 0,
+          "history_range": [
+            null,
+            null
+          ]
+        },
+        "i-NEC-SAT": {
+          "name": "i-NEC-SAT",
+          "history": {},
+          "restart": {
+            "boundary_sidecars": 0,
+            "mid_window": []
+          },
+          "errors": [
+            "history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)"
+          ],
+          "history_valid_values": 0,
+          "history_masked_values": 0,
+          "history_range": [
+            null,
+            null
+          ]
+        },
+        "f-NEC-MEC": {
+          "name": "f-NEC-MEC",
+          "history": {
+            "case_hist_2005-12.nc": {
+              "records": 7,
+              "valid": 700,
+              "masked": 0
+            },
+            "case_hist_2006-01.nc": {
+              "records": 5,
+              "valid": 500,
+              "masked": 0
+            }
+          },
+          "restart": {
+            "boundary_sidecars": 12,
+            "mid_window": []
+          },
+          "errors": [],
+          "history_valid_values": 1200,
+          "history_masked_values": 0,
+          "history_range": [
+            0.21493743606888902,
+            0.3153506305025004
+          ]
+        },
+        "f-NEC-MEC-s0101": {
+          "name": "f-NEC-MEC-s0101",
+          "history": {
+            "case_hist_2005-12.nc": {
+              "records": 7,
+              "valid": 700,
+              "masked": 0
+            },
+            "case_hist_2006-01.nc": {
+              "records": 5,
+              "valid": 500,
+              "masked": 0
+            }
+          },
+          "restart": {
+            "boundary_sidecars": 12,
+            "mid_window": []
+          },
+          "errors": [],
+          "history_valid_values": 1200,
+          "history_masked_values": 0,
+          "history_range": [
+            0.21493743606888902,
+            0.3153506305025004
+          ]
+        },
+        "f-NEC-MEC-s0103": {
+          "name": "f-NEC-MEC-s0103",
+          "history": {
+            "case_hist_2005-12.nc": {
+              "records": 7,
+              "valid": 700,
+              "masked": 0
+            },
+            "case_hist_2006-01.nc": {
+              "records": 5,
+              "valid": 500,
+              "masked": 0
+            }
+          },
+          "restart": {
+            "boundary_sidecars": 12,
+            "mid_window": []
+          },
+          "errors": [],
+          "history_valid_values": 1200,
+          "history_masked_values": 0,
+          "history_range": [
+            0.21493743606888902,
+            0.3153506305025004
+          ]
+        },
+        "f-NEC-SAT": {
+          "name": "f-NEC-SAT",
+          "history": {
+            "case_hist_2005-12.nc": {
+              "records": 7,
+              "valid": 700,
+              "masked": 0
+            },
+            "case_hist_2006-01.nc": {
+              "records": 5,
+              "valid": 500,
+              "masked": 0
+            }
+          },
+          "restart": {
+            "boundary_sidecars": 12,
+            "mid_window": []
+          },
+          "errors": [],
+          "history_valid_values": 1200,
+          "history_masked_values": 0,
+          "history_range": [
+            0.21493743666089218,
+            0.3153506305025004
+          ]
+        },
+        "i-NEC-MEC-noon": {
+          "name": "i-NEC-MEC-noon",
+          "history": {},
+          "restart": {
+            "boundary_sidecars": 0,
+            "mid_window": []
+          },
+          "errors": [
+            "history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+            "expected exactly one mid-window sidecar at 2006-001-43200, found []",
+            "partial-window recompute: expected exactly one land hist sidecar at 2006-001-43200"
+          ],
+          "history_valid_values": 0,
+          "history_masked_values": 0,
+          "history_range": [
+            null,
+            null
+          ],
+          "partial_recompute": {
+            "checkpoint": "2006-001-43200",
+            "landdata_year": "2006",
+            "sidecar_files": 0,
+            "error": "expected exactly one land hist sidecar at 2006-001-43200"
+          }
+        }
+      },
+      "errors": [
+        "i-NEC-MEC: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+        "i-NEC-MEC-s0101: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+        "i-NEC-MEC-s0101: 2006-001-00000: history sidecar missing at the split checkpoint",
+        "i-NEC-MEC-s0103: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+        "i-NEC-MEC-s0103: 2006-003-00000: history sidecar missing at the split checkpoint",
+        "i-NEC-SAT: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+        "i-NEC-MEC-noon: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+        "i-NEC-MEC-noon: expected exactly one mid-window sidecar at 2006-001-43200, found []",
+        "i-NEC-MEC-noon: partial-window recompute: expected exactly one land hist sidecar at 2006-001-43200"
+      ]
+    },
+    "G6_lulcc_and_registration": {
+      "status": "FAIL",
+      "checks": {
+        "i-NEC-MEC": {
+          "name": "i-NEC-MEC",
+          "scheme": 2,
+          "errors": [
+            "LULCC transition banner count 0 != 1",
+            "transition log does not contain \"(MEC)\"",
+            "no scheme-specific transition line found",
+            "no MT LULCC material audit lines at the transition",
+            "non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+            "no mt_land_descriptor_identity in later restart land blocks"
+          ],
+          "transition_count": 0,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": null,
+          "nml_scheme": 2,
+          "mt_lulcc_audit_lines": 0,
+          "isotope_aquifer_lines": 0,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 1,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 1,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          }
+        },
+        "i-NEC-MEC-s0101": {
+          "name": "i-NEC-MEC-s0101",
+          "scheme": 2,
+          "errors": [
+            "LULCC transition banner count 0 != 1",
+            "transition log does not contain \"(MEC)\"",
+            "no scheme-specific transition line found",
+            "no MT LULCC material audit lines at the transition",
+            "non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+            "no mt_land_descriptor_identity in later restart land blocks"
+          ],
+          "transition_count": 0,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": null,
+          "nml_scheme": 2,
+          "mt_lulcc_audit_lines": 0,
+          "isotope_aquifer_lines": 0,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 1,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 1,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          }
+        },
+        "i-NEC-MEC-s0103": {
+          "name": "i-NEC-MEC-s0103",
+          "scheme": 2,
+          "errors": [
+            "LULCC transition banner count 0 != 1",
+            "transition log does not contain \"(MEC)\"",
+            "no scheme-specific transition line found",
+            "no MT LULCC material audit lines at the transition",
+            "non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+            "no mt_land_descriptor_identity in later restart land blocks"
+          ],
+          "transition_count": 0,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": null,
+          "nml_scheme": 2,
+          "mt_lulcc_audit_lines": 0,
+          "isotope_aquifer_lines": 0,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 1,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 1,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          }
+        },
+        "i-NEC-SAT": {
+          "name": "i-NEC-SAT",
+          "scheme": 1,
+          "errors": [
+            "LULCC transition banner count 0 != 1",
+            "transition log does not contain \"(SAT)\"",
+            "no scheme-specific transition line found",
+            "no MT LULCC material audit lines at the transition",
+            "non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+            "no mt_land_descriptor_identity in later restart land blocks"
+          ],
+          "transition_count": 0,
+          "scheme_marker": "(SAT)",
+          "scheme_from_log": null,
+          "nml_scheme": 1,
+          "mt_lulcc_audit_lines": 0,
+          "isotope_aquifer_lines": 0,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 1,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 1,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          }
+        },
+        "f-NEC-MEC": {
+          "name": "f-NEC-MEC",
+          "scheme": 2,
+          "errors": [],
+          "transition_count": 1,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": "MEC",
+          "nml_scheme": 2,
+          "transition_step": 336,
+          "transition_date": "2005-12-31-84600",
+          "mt_lulcc_audit_lines": 5,
+          "isotope_aquifer_lines": 2,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 0,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 0,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          },
+          "transport_count": 3,
+          "registered_species": [
+            "H2_18O",
+            "HDO",
+            "CL"
+          ],
+          "descriptor_sha256": "b1dddf9b1e6e6a4c09efbe91f8d27d88fc4d30244814796d0f9f9673e6e0b97a",
+          "cl_row": {
+            "category": "solute",
+            "family": 2,
+            "owner": 1,
+            "reaction": 0,
+            "charge": -1,
+            "init_conc": 0.0,
+            "precip": 0.0,
+            "max_dissolved": 0.218,
+            "decay": 0.0
+          }
+        },
+        "f-NEC-MEC-s0101": {
+          "name": "f-NEC-MEC-s0101",
+          "scheme": 2,
+          "errors": [],
+          "transition_count": 1,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": "MEC",
+          "nml_scheme": 2,
+          "transition_step": 336,
+          "transition_date": "2005-12-31-84600",
+          "mt_lulcc_audit_lines": 5,
+          "isotope_aquifer_lines": 2,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 0,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 0,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          },
+          "transport_count": 3,
+          "registered_species": [
+            "H2_18O",
+            "HDO",
+            "CL"
+          ],
+          "descriptor_sha256": "b1dddf9b1e6e6a4c09efbe91f8d27d88fc4d30244814796d0f9f9673e6e0b97a",
+          "cl_row": {
+            "category": "solute",
+            "family": 2,
+            "owner": 1,
+            "reaction": 0,
+            "charge": -1,
+            "init_conc": 0.0,
+            "precip": 0.0,
+            "max_dissolved": 0.218,
+            "decay": 0.0
+          }
+        },
+        "f-NEC-MEC-s0103": {
+          "name": "f-NEC-MEC-s0103",
+          "scheme": 2,
+          "errors": [],
+          "transition_count": 1,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": "MEC",
+          "nml_scheme": 2,
+          "transition_step": 336,
+          "transition_date": "2005-12-31-84600",
+          "mt_lulcc_audit_lines": 5,
+          "isotope_aquifer_lines": 2,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 0,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 0,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          },
+          "transport_count": 3,
+          "registered_species": [
+            "H2_18O",
+            "HDO",
+            "CL"
+          ],
+          "descriptor_sha256": "b1dddf9b1e6e6a4c09efbe91f8d27d88fc4d30244814796d0f9f9673e6e0b97a",
+          "cl_row": {
+            "category": "solute",
+            "family": 2,
+            "owner": 1,
+            "reaction": 0,
+            "charge": -1,
+            "init_conc": 0.0,
+            "precip": 0.0,
+            "max_dissolved": 0.218,
+            "decay": 0.0
+          }
+        },
+        "f-NEC-SAT": {
+          "name": "f-NEC-SAT",
+          "scheme": 1,
+          "errors": [],
+          "transition_count": 1,
+          "scheme_marker": "(SAT)",
+          "scheme_from_log": "SAT",
+          "nml_scheme": 1,
+          "transition_step": 336,
+          "transition_date": "2005-12-31-84600",
+          "mt_lulcc_audit_lines": 4,
+          "isotope_aquifer_lines": 0,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 0,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 0,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          },
+          "transport_count": 3,
+          "registered_species": [
+            "H2_18O",
+            "HDO",
+            "CL"
+          ],
+          "descriptor_sha256": "b1dddf9b1e6e6a4c09efbe91f8d27d88fc4d30244814796d0f9f9673e6e0b97a",
+          "cl_row": {
+            "category": "solute",
+            "family": 2,
+            "owner": 1,
+            "reaction": 0,
+            "charge": -1,
+            "init_conc": 0.0,
+            "precip": 0.0,
+            "max_dissolved": 0.218,
+            "decay": 0.0
+          }
+        },
+        "i-NEC-MEC-noon": {
+          "name": "i-NEC-MEC-noon",
+          "scheme": 2,
+          "errors": [
+            "LULCC transition banner count 0 != 1",
+            "transition log does not contain \"(MEC)\"",
+            "no scheme-specific transition line found",
+            "no MT LULCC material audit lines at the transition",
+            "non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+            "no mt_land_descriptor_identity in later restart land blocks"
+          ],
+          "transition_count": 0,
+          "scheme_marker": "(MEC)",
+          "scheme_from_log": null,
+          "nml_scheme": 2,
+          "mt_lulcc_audit_lines": 0,
+          "isotope_aquifer_lines": 0,
+          "conservation_diagnostics": {
+            "TRC_SIG step report": 0,
+            "TRC_BAL step report": 0,
+            "residual hard failure": 1,
+            "TRC_LULCC_BAL": 0,
+            "ERROR STOP": 0,
+            "MPI_Abort": 1,
+            "Water balance violation": 0,
+            "Energy balance violation": 0
+          }
+        }
+      },
+      "errors": [
+        "i-NEC-MEC: LULCC transition banner count 0 != 1",
+        "i-NEC-MEC: transition log does not contain \"(MEC)\"",
+        "i-NEC-MEC: no scheme-specific transition line found",
+        "i-NEC-MEC: no MT LULCC material audit lines at the transition",
+        "i-NEC-MEC: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+        "i-NEC-MEC: no mt_land_descriptor_identity in later restart land blocks",
+        "i-NEC-MEC-s0101: LULCC transition banner count 0 != 1",
+        "i-NEC-MEC-s0101: transition log does not contain \"(MEC)\"",
+        "i-NEC-MEC-s0101: no scheme-specific transition line found",
+        "i-NEC-MEC-s0101: no MT LULCC material audit lines at the transition",
+        "i-NEC-MEC-s0101: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+        "i-NEC-MEC-s0101: no mt_land_descriptor_identity in later restart land blocks",
+        "i-NEC-MEC-s0103: LULCC transition banner count 0 != 1",
+        "i-NEC-MEC-s0103: transition log does not contain \"(MEC)\"",
+        "i-NEC-MEC-s0103: no scheme-specific transition line found",
+        "i-NEC-MEC-s0103: no MT LULCC material audit lines at the transition",
+        "i-NEC-MEC-s0103: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+        "i-NEC-MEC-s0103: no mt_land_descriptor_identity in later restart land blocks",
+        "i-NEC-SAT: LULCC transition banner count 0 != 1",
+        "i-NEC-SAT: transition log does not contain \"(SAT)\"",
+        "i-NEC-SAT: no scheme-specific transition line found",
+        "i-NEC-SAT: no MT LULCC material audit lines at the transition",
+        "i-NEC-SAT: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+        "i-NEC-SAT: no mt_land_descriptor_identity in later restart land blocks",
+        "i-NEC-MEC-noon: LULCC transition banner count 0 != 1",
+        "i-NEC-MEC-noon: transition log does not contain \"(MEC)\"",
+        "i-NEC-MEC-noon: no scheme-specific transition line found",
+        "i-NEC-MEC-noon: no MT LULCC material audit lines at the transition",
+        "i-NEC-MEC-noon: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+        "i-NEC-MEC-noon: no mt_land_descriptor_identity in later restart land blocks"
+      ]
+    },
+    "G7_isotope_diagnostics": {
+      "status": "FAIL",
+      "checks": {
+        "i-NEC-MEC": {
+          "name": "i-NEC-MEC",
+          "rc": 1,
+          "output_file": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/logs/iso-i-NEC-MEC.log",
+          "broad_range_lines": [
+            "-- worst points outside the plausible range (delta, file, index, host water)",
+            "-- d-excess (dD - 8 d18O) of the same variable"
+          ],
+          "error": "#### /media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/i-NEC-MEC: 0 material files, 0 river files\nvariable                               sp            n  nonf       min      p0.1        p1       p50       p99     p99.9       max   nout\n-- worst points outside the plausible range (delta, file, index, host water)\n-- d-excess (dD - 8 d18O) of the same variable\nTraceback (most recent call last):\n  File \"/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/work/iso_check.py\", line 178, in <module>\n    check(c)\n    ~~~~~^^^\n  File \"/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/work/iso_check.py\", line 144, in check\n    assert stats, 'no isotope history variables found'\n           ^^^^^\nAssertionError: no isotope history variables found\n"
+        },
+        "f-NEC-MEC": {
+          "name": "f-NEC-MEC",
+          "rc": 1,
+          "output_file": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/logs/iso-f-NEC-MEC.log",
+          "broad_range_lines": [
+            "-- worst points outside the plausible range (delta, file, index, host water)",
+            "-- d-excess (dD - 8 d18O) of the same variable"
+          ],
+          "error": "#### /media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC: 0 material files, 0 river files\nvariable                               sp            n  nonf       min      p0.1        p1       p50       p99     p99.9       max   nout\n-- worst points outside the plausible range (delta, file, index, host water)\n-- d-excess (dD - 8 d18O) of the same variable\nTraceback (most recent call last):\n  File \"/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/work/iso_check.py\", line 178, in <module>\n    check(c)\n    ~~~~~^^^\n  File \"/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/work/iso_check.py\", line 144, in check\n    assert stats, 'no isotope history variables found'\n           ^^^^^\nAssertionError: no isotope history variables found\n"
+        },
+        "i-AMZ-MEC-cl2e5": {
+          "name": "i-AMZ-MEC-cl2e5",
+          "rc": 1,
+          "output_file": "/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/logs/iso-i-AMZ-MEC-cl2e5.log",
+          "broad_range_lines": [
+            "-- worst points outside the plausible range (delta, file, index, host water)",
+            "-- d-excess (dD - 8 d18O) of the same variable"
+          ],
+          "error": "#### /media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/i-AMZ-MEC-cl2e5: 0 material files, 0 river files\nvariable                               sp            n  nonf       min      p0.1        p1       p50       p99     p99.9       max   nout\n-- worst points outside the plausible range (delta, file, index, host water)\n-- d-excess (dD - 8 d18O) of the same variable\nTraceback (most recent call last):\n  File \"/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/work/iso_check.py\", line 178, in <module>\n    check(c)\n    ~~~~~^^^\n  File \"/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/work/iso_check.py\", line 144, in check\n    assert stats, 'no isotope history variables found'\n           ^^^^^\nAssertionError: no isotope history variables found\n"
+        }
+      },
+      "errors": [
+        "i-NEC-MEC: iso_check rc=1",
+        "f-NEC-MEC: iso_check rc=1",
+        "i-AMZ-MEC-cl2e5: iso_check rc=1"
+      ],
+      "note": "delta ranges are broad diagnostics only; not an observation-accuracy criterion"
+    }
+  },
+  "cases": {
+    "i-NEC-MEC": {
+      "name": "i-NEC-MEC",
+      "mode": "none",
+      "expected_counts": [
+        576
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [
+        "log.colm: no \"CoLM Execution Completed\"",
+        "log.colm: diagnostic \"residual hard failure\" x1",
+        "log.colm: diagnostic \"MPI_Abort\" x1",
+        "step counts [4] != expected [576]",
+        "step/date sequence mismatch: got 4 expected 576",
+        "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+      ],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        4
+      ],
+      "diagnostic_counts": {
+        "residual hard failure": 1,
+        "MPI_Abort": 1
+      },
+      "steps": 4,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2005-12-25 01:30:00",
+      "last_date_string": "2005-12-25-05400",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 0,
+        "variables": 0,
+        "masked_values": 0,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 4,
+        "variables": 164,
+        "masked_values": 300,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 0,
+      "restart_files": 4
+    },
+    "i-NEC-MEC-s0101": {
+      "name": "i-NEC-MEC-s0101",
+      "mode": "0101",
+      "expected_counts": [
+        336,
+        240
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [
+        "expected 2 colm segment logs, found 1",
+        "log.colm: no \"CoLM Execution Completed\"",
+        "log.colm: diagnostic \"residual hard failure\" x1",
+        "log.colm: diagnostic \"MPI_Abort\" x1",
+        "step counts [4] != expected [336, 240]",
+        "step/date sequence mismatch: got 4 expected 576",
+        "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+      ],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        4
+      ],
+      "diagnostic_counts": {
+        "residual hard failure": 1,
+        "MPI_Abort": 1
+      },
+      "steps": 4,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2005-12-25 01:30:00",
+      "last_date_string": "2005-12-25-05400",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 0,
+        "variables": 0,
+        "masked_values": 0,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 4,
+        "variables": 164,
+        "masked_values": 300,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 0,
+      "restart_files": 4
+    },
+    "i-NEC-MEC-s0103": {
+      "name": "i-NEC-MEC-s0103",
+      "mode": "0103",
+      "expected_counts": [
+        432,
+        144
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [
+        "expected 2 colm segment logs, found 1",
+        "log.colm: no \"CoLM Execution Completed\"",
+        "log.colm: diagnostic \"residual hard failure\" x1",
+        "log.colm: diagnostic \"MPI_Abort\" x1",
+        "step counts [4] != expected [432, 144]",
+        "step/date sequence mismatch: got 4 expected 576",
+        "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+      ],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        4
+      ],
+      "diagnostic_counts": {
+        "residual hard failure": 1,
+        "MPI_Abort": 1
+      },
+      "steps": 4,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2005-12-25 01:30:00",
+      "last_date_string": "2005-12-25-05400",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 0,
+        "variables": 0,
+        "masked_values": 0,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 4,
+        "variables": 164,
+        "masked_values": 300,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 0,
+      "restart_files": 4
+    },
+    "i-NEC-SAT": {
+      "name": "i-NEC-SAT",
+      "mode": "none",
+      "expected_counts": [
+        576
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [
+        "log.colm: no \"CoLM Execution Completed\"",
+        "log.colm: diagnostic \"residual hard failure\" x1",
+        "log.colm: diagnostic \"MPI_Abort\" x1",
+        "step counts [4] != expected [576]",
+        "step/date sequence mismatch: got 4 expected 576",
+        "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+      ],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        4
+      ],
+      "diagnostic_counts": {
+        "residual hard failure": 1,
+        "MPI_Abort": 1
+      },
+      "steps": 4,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2005-12-25 01:30:00",
+      "last_date_string": "2005-12-25-05400",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 0,
+        "variables": 0,
+        "masked_values": 0,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 4,
+        "variables": 164,
+        "masked_values": 300,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 0,
+      "restart_files": 4
+    },
+    "f-NEC-MEC": {
+      "name": "f-NEC-MEC",
+      "mode": "none",
+      "expected_counts": [
+        576
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        576
+      ],
+      "diagnostic_counts": {},
+      "steps": 576,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2006-01-05 23:30:00",
+      "last_date_string": "2006-01-05-84600",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 6,
+        "variables": 552,
+        "masked_values": 477810037,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 57,
+        "variables": 3881,
+        "masked_values": 3696,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 6,
+      "restart_files": 57
+    },
+    "f-NEC-MEC-s0101": {
+      "name": "f-NEC-MEC-s0101",
+      "mode": "0101",
+      "expected_counts": [
+        336,
+        240
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [],
+      "segments": [
+        "log.colm.1",
+        "log.colm"
+      ],
+      "step_counts": [
+        336,
+        240
+      ],
+      "diagnostic_counts": {},
+      "steps": 576,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2006-01-05 23:30:00",
+      "last_date_string": "2006-01-05-84600",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 6,
+        "variables": 552,
+        "masked_values": 477810037,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 57,
+        "variables": 3881,
+        "masked_values": 3696,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 6,
+      "restart_files": 57
+    },
+    "f-NEC-MEC-s0103": {
+      "name": "f-NEC-MEC-s0103",
+      "mode": "0103",
+      "expected_counts": [
+        432,
+        144
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [],
+      "segments": [
+        "log.colm.1",
+        "log.colm"
+      ],
+      "step_counts": [
+        432,
+        144
+      ],
+      "diagnostic_counts": {},
+      "steps": 576,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2006-01-05 23:30:00",
+      "last_date_string": "2006-01-05-84600",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 6,
+        "variables": 552,
+        "masked_values": 477810037,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 57,
+        "variables": 3881,
+        "masked_values": 3696,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 6,
+      "restart_files": 57
+    },
+    "f-NEC-SAT": {
+      "name": "f-NEC-SAT",
+      "mode": "none",
+      "expected_counts": [
+        576
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        576
+      ],
+      "diagnostic_counts": {},
+      "steps": 576,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2006-01-05 23:30:00",
+      "last_date_string": "2006-01-05-84600",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 6,
+        "variables": 552,
+        "masked_values": 477810052,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 57,
+        "variables": 3881,
+        "masked_values": 3696,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 6,
+      "restart_files": 57
+    },
+    "i-NEC-MEC-noon": {
+      "name": "i-NEC-MEC-noon",
+      "mode": "noon",
+      "expected_counts": [
+        360,
+        216
+      ],
+      "expected_last": "2006-01-05-84600",
+      "errors": [
+        "expected 2 colm segment logs, found 1",
+        "log.colm: no \"CoLM Execution Completed\"",
+        "log.colm: diagnostic \"residual hard failure\" x1",
+        "log.colm: diagnostic \"MPI_Abort\" x1",
+        "step counts [4] != expected [360, 216]",
+        "step/date sequence mismatch: got 4 expected 576",
+        "final timestamp 2005-12-25-05400 != 2006-01-05-84600"
+      ],
+      "segments": [
+        "log.colm"
+      ],
+      "step_counts": [
+        4
+      ],
+      "diagnostic_counts": {
+        "residual hard failure": 1,
+        "MPI_Abort": 1
+      },
+      "steps": 4,
+      "first_step": "2005-12-25 00:00:00",
+      "last_step": "2005-12-25 01:30:00",
+      "last_date_string": "2005-12-25-05400",
+      "nbad_abort_zero": true,
+      "history_nonfinite": {
+        "files": 0,
+        "variables": 0,
+        "masked_values": 0,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "restart_nonfinite": {
+        "files": 4,
+        "variables": 164,
+        "masked_values": 300,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "history_files": 0,
+      "restart_files": 4
+    }
+  },
+  "extras": {
+    "i-AMZ-MEC-cl2e5": {
+      "name": "i-AMZ-MEC-cl2e5",
+      "errors": [
+        "cache check AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/i-AMZ-MEC-cl2e5/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_w060_s05.nc: invalid isotope ratio')"
+      ],
+      "config_errors": [],
+      "step_counts": [
+        576
+      ],
+      "steps": 576,
+      "last_step": "2006-01-05T23:30:00",
+      "nonfinite": {
+        "files": 6,
+        "variables": 552,
+        "masked_values": 477809255,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "lulcc_check": {
+        "name": "i-AMZ-MEC-cl2e5",
+        "scheme": 2,
+        "errors": [],
+        "transition_count": 1,
+        "scheme_marker": "(MEC)",
+        "scheme_from_log": "MEC",
+        "nml_scheme": 2,
+        "transition_step": 336,
+        "transition_date": "2005-12-31-84600",
+        "mt_lulcc_audit_lines": 1,
+        "isotope_aquifer_lines": 1,
+        "conservation_diagnostics": {
+          "TRC_SIG step report": 0,
+          "TRC_BAL step report": 0,
+          "residual hard failure": 0,
+          "TRC_LULCC_BAL": 0,
+          "ERROR STOP": 0,
+          "MPI_Abort": 0,
+          "Water balance violation": 0,
+          "Energy balance violation": 0
+        },
+        "transport_count": 3,
+        "registered_species": [
+          "H2_18O",
+          "HDO",
+          "CL"
+        ],
+        "descriptor_sha256": "dea60895d1d031cf13c76d3e22195585832e737a09f918ba264868fee313d520",
+        "cl_row": {
+          "category": "solute",
+          "family": 2,
+          "owner": 1,
+          "reaction": 0,
+          "charge": -1,
+          "init_conc": 2e-05,
+          "precip": 3e-06,
+          "max_dissolved": 0.218,
+          "decay": 0.0
+        }
+      },
+      "frcsat_check": {
+        "name": "i-AMZ-MEC-cl2e5",
+        "history": {
+          "case_hist_2005-12.nc": {
+            "records": 7,
+            "valid": 700,
+            "masked": 0
+          },
+          "case_hist_2006-01.nc": {
+            "records": 5,
+            "valid": 500,
+            "masked": 0
+          }
+        },
+        "restart": {
+          "boundary_sidecars": 12,
+          "mid_window": []
+        },
+        "errors": [],
+        "history_valid_values": 1200,
+        "history_masked_values": 0,
+        "history_range": [
+          0.22169443349296808,
+          0.6060377508565092
+        ]
+      }
+    },
+    "i-NEC-MEC-lake-noon": {
+      "name": "i-NEC-MEC-lake-noon",
+      "errors": [
+        "log.colm: no model END",
+        "log.colm: diagnostic residual hard failure",
+        "log.colm: diagnostic MPI_Abort",
+        "step counts [4] != [360]",
+        "step/date sequence mismatch",
+        "last step 2005-12-25 01:30:00 != expected 2006-01-01 11:30:00",
+        "cache check AssertionError('no initialized forced checkpoints')",
+        "i-NEC-MEC-lake-noon: LULCC transition banner count 0 != 1",
+        "i-NEC-MEC-lake-noon: transition log does not contain \"(MEC)\"",
+        "i-NEC-MEC-lake-noon: no scheme-specific transition line found",
+        "i-NEC-MEC-lake-noon: no MT LULCC material audit lines at the transition",
+        "i-NEC-MEC-lake-noon: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+        "i-NEC-MEC-lake-noon: no mt_land_descriptor_identity in later restart land blocks",
+        "i-NEC-MEC-lake-noon: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+        "i-NEC-MEC-lake-noon: expected exactly one mid-window sidecar at 2006-001-43200, found []",
+        "i-NEC-MEC-lake-noon: partial-window recompute: expected exactly one land hist sidecar at 2006-001-43200"
+      ],
+      "config_errors": [],
+      "step_counts": [
+        4
+      ],
+      "steps": 4,
+      "last_step": "2005-12-25T01:30:00",
+      "nonfinite": {
+        "files": 0,
+        "variables": 0,
+        "masked_values": 0,
+        "unmasked_nonfinite": 0,
+        "read_errors": 0,
+        "examples": []
+      },
+      "lulcc_check": {
+        "name": "i-NEC-MEC-lake-noon",
+        "scheme": 2,
+        "errors": [
+          "LULCC transition banner count 0 != 1",
+          "transition log does not contain \"(MEC)\"",
+          "no scheme-specific transition line found",
+          "no MT LULCC material audit lines at the transition",
+          "non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+          "no mt_land_descriptor_identity in later restart land blocks"
+        ],
+        "transition_count": 0,
+        "scheme_marker": "(MEC)",
+        "scheme_from_log": null,
+        "nml_scheme": 2,
+        "mt_lulcc_audit_lines": 0,
+        "isotope_aquifer_lines": 0,
+        "conservation_diagnostics": {
+          "TRC_SIG step report": 0,
+          "TRC_BAL step report": 0,
+          "residual hard failure": 1,
+          "TRC_LULCC_BAL": 0,
+          "ERROR STOP": 0,
+          "MPI_Abort": 1,
+          "Water balance violation": 0,
+          "Energy balance violation": 0
+        }
+      },
+      "frcsat_check": {
+        "name": "i-NEC-MEC-lake-noon",
+        "history": {},
+        "restart": {
+          "boundary_sidecars": 0,
+          "mid_window": []
+        },
+        "errors": [
+          "history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+          "expected exactly one mid-window sidecar at 2006-001-43200, found []",
+          "partial-window recompute: expected exactly one land hist sidecar at 2006-001-43200"
+        ],
+        "history_valid_values": 0,
+        "history_masked_values": 0,
+        "history_range": [
+          null,
+          null
+        ],
+        "partial_recompute": {
+          "checkpoint": "2006-001-43200",
+          "landdata_year": "2006",
+          "sidecar_files": 0,
+          "error": "expected exactly one land hist sidecar at 2006-001-43200"
+        }
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0101",
+      "kind": "restart",
+      "label": "IGBP MEC split at LULCC boundary 2006-01-01",
+      "ok": true,
+      "message": "IDENTICAL files=4 vars=164 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0101",
+      "kind": "history",
+      "label": "IGBP MEC split at LULCC boundary 2006-01-01",
+      "ok": false,
+      "message": "FILESET a=0 b=0 unmatched=0"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0103",
+      "kind": "restart",
+      "label": "IGBP MEC split after LULCC 2006-01-03",
+      "ok": true,
+      "message": "IDENTICAL files=4 vars=164 (variable bits; not attributes)"
+    },
+    {
+      "a": "i-NEC-MEC",
+      "b": "i-NEC-MEC-s0103",
+      "kind": "history",
+      "label": "IGBP MEC split after LULCC 2006-01-03",
+      "ok": false,
+      "message": "FILESET a=0 b=0 unmatched=0"
+    },
+    {
+      "a": "f-NEC-MEC",
+      "b": "f-NEC-MEC-s0101",
+      "kind": "restart",
+      "label": "PFT MEC split at LULCC boundary 2006-01-01",
+      "ok": true,
+      "message": "IDENTICAL files=57 vars=3881 (variable bits; not attributes)"
+    },
+    {
+      "a": "f-NEC-MEC",
+      "b": "f-NEC-MEC-s0101",
+      "kind": "history",
+      "label": "PFT MEC split at LULCC boundary 2006-01-01",
+      "ok": true,
+      "message": "IDENTICAL files=6 vars=552 (variable bits; not attributes)"
+    },
+    {
+      "a": "f-NEC-MEC",
+      "b": "f-NEC-MEC-s0103",
+      "kind": "restart",
+      "label": "PFT MEC split after LULCC 2006-01-03",
+      "ok": true,
+      "message": "IDENTICAL files=57 vars=3881 (variable bits; not attributes)"
+    },
+    {
+      "a": "f-NEC-MEC",
+      "b": "f-NEC-MEC-s0103",
+      "kind": "history",
+      "label": "PFT MEC split after LULCC 2006-01-03",
+      "ok": true,
+      "message": "IDENTICAL files=6 vars=552 (variable bits; not attributes)"
+    }
+  ],
+  "supporting": {
+    "self-compare": {
+      "rc": 0,
+      "log": "self-compare.log",
+      "tail": "compare self-test PASS (empty, equal, signed zero, missing variable/file)\n"
+    },
+    "self-iso": {
+      "rc": 0,
+      "log": "self-iso.log",
+      "tail": "iso_check self-test PASS (joint masks, unmasked NaN)\n"
+    },
+    "self-cache": {
+      "rc": 0,
+      "log": "self-cache.log",
+      "tail": "PASS forcing cache self-test: 17 positive/negative behaviors\n"
+    },
+    "self-forcing-edges": {
+      "rc": 0,
+      "log": "self-forcing-edges.log",
+      "tail": "Material forcing LULCC: 1 patch(es) have no eligible transfer source; using configured forcing defaults.\nMaterial forcing LULCC: 1 patch(es) have no eligible transfer source; using configured forcing defaults.\n PASS: forcing fallback, threshold compatibility, LULCC reliable-source remap\n"
+    },
+    "self-frcsat-history": {
+      "rc": 0,
+      "log": "self-frcsat-history.log",
+      "tail": "duction sidecar rejection: -O0 fractional\nPASS production sidecar rejection: -O0 nonfinite\nPASS production sidecar rejection: -O0 sum_mismatch\nPASS production sidecar rejection: -O0 mixed_nan_marker\nPASS production sidecar rejection: -O0 inf_marker\nPASS production sidecar rejection: -O0 orphan_count\nPASS production sidecar rejection: -O2 missing\nPASS production sidecar rejection: -O2 version\nPASS production sidecar rejection: -O2 negative\nPASS production sidecar rejection: -O2 too_many\nPASS production sidecar rejection: -O2 fractional\nPASS production sidecar rejection: -O2 nonfinite\nPASS production sidecar rejection: -O2 sum_mismatch\nPASS production sidecar rejection: -O2 mixed_nan_marker\nPASS production sidecar rejection: -O2 inf_marker\nPASS production sidecar rejection: -O2 orphan_count\n"
+    },
+    "source-check": {
+      "rc": 0,
+      "log": "source-check.log",
+      "tail": "w/share/MOD_Precision.F90: OK\nnew/share/MOD_RangeCheck.F90: OK\nnew/share/MOD_SPMD_Task.F90: OK\nnew/share/MOD_SpatialMapping.F90: OK\nnew/share/MOD_TimeManager.F90: OK\nnew/share/MOD_UserDefFun.F90: OK\nnew/share/MOD_Utils.F90: OK\nnew/share/MOD_WorkerPushData.F90: OK\nnew/tests/material_transport/README.md: OK\nnew/tests/material_transport/check_defineh.py: OK\nnew/tests/material_transport/check_forcing_edges.py: OK\nnew/tests/material_transport/check_frcsat_history.py: OK\nnew/tests/material_transport/check_orphan_leaf_inventory.py: OK\nnew/tests/material_transport/check_regionclip_paths.py: OK\nnew/tests/material_transport/check_singlebucket_precip.py: OK\nnew/tests/material_transport/check_site_history.py: OK\nnew/tests/material_transport/compare.py: OK\nnew/tests/material_transport/iso_check.py: OK\n"
+    },
+    "source_manifest_log": {
+      "exists": true,
+      "tail": "md: OK\nnew/tests/material_transport/check_defineh.py: OK\nnew/tests/material_transport/check_forcing_edges.py: OK\nnew/tests/material_transport/check_frcsat_history.py: OK\nnew/tests/material_transport/check_orphan_leaf_inventory.py: OK\nnew/tests/material_transport/check_regionclip_paths.py: OK\nnew/tests/material_transport/check_singlebucket_precip.py: OK\nnew/tests/material_transport/check_site_history.py: OK\nnew/tests/material_transport/compare.py: OK\nnew/tests/material_transport/iso_check.py: OK\n"
+    },
+    "environment": "date: 2026-10-28T16:45:32+00:00\nhost: T7920\ncpus: 1\nOBREF_JOB_ID: codex-2434412927a94e38a44ad21db5643a38\nOBREF_INPUT_ISOGSM2=/media/zhwei/data02/zhwei/IsoGSM_2005-2006\nOBREF_INPUT_P6B=/media/zhwei/data01/compute_runs/claude/claude-6247c29c2d7146c1a8b3a586d90e3837/results\nOBREF_INPUT_RAW=/media/zhwei/data02/zhwei/CoLMrawdata\nOBREF_INPUT_RT=/media/zhwei/data02/zhwei/CoLMruntime\nOBREF_INPUT_UCAT=/media/zhwei/data02/zhwei/CoLMruntime/unitcatchment/grid_routing_data_15min.nc\nOBREF_JOB_ID=codex-2434412927a94e38a44ad21db5643a38\nOBREF_JOB_RESULTS=/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results\nOBREF_OPENBLAS_LIB_DIR=/home/zhwei/miniconda3/lib\nHYDRA build details:\n    Version:                                 4.3.2\n4.6.1\n/bin/bash: /home/zhwei/miniconda3/lib/libtinfo.so.6: no version information available (required by /bin/bash)\npython 3.13.2 numpy 2.3.5 netCDF4 1.7.2\n"
+  },
+  "failures": [
+    "full history comparison i-NEC-MEC vs i-NEC-MEC-s0101 failed: FILESET a=0 b=0 unmatched=0",
+    "full history comparison i-NEC-MEC vs i-NEC-MEC-s0103 failed: FILESET a=0 b=0 unmatched=0",
+    "noon-split restart alignment: expected exactly the mid-window checkpoint 2006-001-43200 extra, got []",
+    "noon-split restart alignment: ParaOpt: FILESET a=0 b=0 unmatched=0",
+    "noon-split history alignment: history file set differs []",
+    "i-NEC-MEC: log.colm: no \"CoLM Execution Completed\"",
+    "i-NEC-MEC: log.colm: diagnostic \"residual hard failure\" x1",
+    "i-NEC-MEC: log.colm: diagnostic \"MPI_Abort\" x1",
+    "i-NEC-MEC: step counts [4] != expected [576]",
+    "i-NEC-MEC: step/date sequence mismatch: got 4 expected 576",
+    "i-NEC-MEC: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+    "i-NEC-MEC-s0101: expected 2 colm segment logs, found 1",
+    "i-NEC-MEC-s0101: log.colm: no \"CoLM Execution Completed\"",
+    "i-NEC-MEC-s0101: log.colm: diagnostic \"residual hard failure\" x1",
+    "i-NEC-MEC-s0101: log.colm: diagnostic \"MPI_Abort\" x1",
+    "i-NEC-MEC-s0101: step counts [4] != expected [336, 240]",
+    "i-NEC-MEC-s0101: step/date sequence mismatch: got 4 expected 576",
+    "i-NEC-MEC-s0101: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+    "i-NEC-MEC-s0103: expected 2 colm segment logs, found 1",
+    "i-NEC-MEC-s0103: log.colm: no \"CoLM Execution Completed\"",
+    "i-NEC-MEC-s0103: log.colm: diagnostic \"residual hard failure\" x1",
+    "i-NEC-MEC-s0103: log.colm: diagnostic \"MPI_Abort\" x1",
+    "i-NEC-MEC-s0103: step counts [4] != expected [432, 144]",
+    "i-NEC-MEC-s0103: step/date sequence mismatch: got 4 expected 576",
+    "i-NEC-MEC-s0103: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+    "i-NEC-SAT: log.colm: no \"CoLM Execution Completed\"",
+    "i-NEC-SAT: log.colm: diagnostic \"residual hard failure\" x1",
+    "i-NEC-SAT: log.colm: diagnostic \"MPI_Abort\" x1",
+    "i-NEC-SAT: step counts [4] != expected [576]",
+    "i-NEC-SAT: step/date sequence mismatch: got 4 expected 576",
+    "i-NEC-SAT: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+    "i-NEC-MEC-noon: expected 2 colm segment logs, found 1",
+    "i-NEC-MEC-noon: log.colm: no \"CoLM Execution Completed\"",
+    "i-NEC-MEC-noon: log.colm: diagnostic \"residual hard failure\" x1",
+    "i-NEC-MEC-noon: log.colm: diagnostic \"MPI_Abort\" x1",
+    "i-NEC-MEC-noon: step counts [4] != expected [360, 216]",
+    "i-NEC-MEC-noon: step/date sequence mismatch: got 4 expected 576",
+    "i-NEC-MEC-noon: final timestamp 2005-12-25-05400 != 2006-01-05-84600",
+    "i-NEC-MEC: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+    "i-NEC-MEC-s0101: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+    "i-NEC-MEC-s0103: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+    "i-NEC-SAT: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+    "f-NEC-MEC: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+    "f-NEC-MEC-s0101: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC-s0101/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+    "f-NEC-MEC-s0103: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-MEC-s0103/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+    "f-NEC-SAT: forcing cache check failed: AssertionError('/media/zhwei/data01/compute_runs/codex/codex-2434412927a94e38a44ad21db5643a38/results/runs/f-NEC-SAT/case/restart/2005-360-00000/case_restart_2005-360-00000_lc2005_e125_n45.nc: invalid isotope ratio')",
+    "i-NEC-MEC-noon: forcing cache check failed: AssertionError('no initialized forced checkpoints')",
+    "i-NEC-MEC: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+    "i-NEC-MEC-s0101: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+    "i-NEC-MEC-s0101: 2006-001-00000: history sidecar missing at the split checkpoint",
+    "i-NEC-MEC-s0103: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+    "i-NEC-MEC-s0103: 2006-003-00000: history sidecar missing at the split checkpoint",
+    "i-NEC-SAT: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+    "i-NEC-MEC-noon: history f_frcsat has no valid sample at all (cannot claim the protocol produced real data)",
+    "i-NEC-MEC-noon: expected exactly one mid-window sidecar at 2006-001-43200, found []",
+    "i-NEC-MEC-noon: partial-window recompute: expected exactly one land hist sidecar at 2006-001-43200",
+    "i-NEC-MEC: LULCC transition banner count 0 != 1",
+    "i-NEC-MEC: transition log does not contain \"(MEC)\"",
+    "i-NEC-MEC: no scheme-specific transition line found",
+    "i-NEC-MEC: no MT LULCC material audit lines at the transition",
+    "i-NEC-MEC: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+    "i-NEC-MEC: no mt_land_descriptor_identity in later restart land blocks",
+    "i-NEC-MEC-s0101: LULCC transition banner count 0 != 1",
+    "i-NEC-MEC-s0101: transition log does not contain \"(MEC)\"",
+    "i-NEC-MEC-s0101: no scheme-specific transition line found",
+    "i-NEC-MEC-s0101: no MT LULCC material audit lines at the transition",
+    "i-NEC-MEC-s0101: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+    "i-NEC-MEC-s0101: no mt_land_descriptor_identity in later restart land blocks",
+    "i-NEC-MEC-s0103: LULCC transition banner count 0 != 1",
+    "i-NEC-MEC-s0103: transition log does not contain \"(MEC)\"",
+    "i-NEC-MEC-s0103: no scheme-specific transition line found",
+    "i-NEC-MEC-s0103: no MT LULCC material audit lines at the transition",
+    "i-NEC-MEC-s0103: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+    "i-NEC-MEC-s0103: no mt_land_descriptor_identity in later restart land blocks",
+    "i-NEC-SAT: LULCC transition banner count 0 != 1",
+    "i-NEC-SAT: transition log does not contain \"(SAT)\"",
+    "i-NEC-SAT: no scheme-specific transition line found",
+    "i-NEC-SAT: no MT LULCC material audit lines at the transition",
+    "i-NEC-SAT: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+    "i-NEC-SAT: no mt_land_descriptor_identity in later restart land blocks",
+    "i-NEC-MEC-noon: LULCC transition banner count 0 != 1",
+    "i-NEC-MEC-noon: transition log does not contain \"(MEC)\"",
+    "i-NEC-MEC-noon: no scheme-specific transition line found",
+    "i-NEC-MEC-noon: no MT LULCC material audit lines at the transition",
+    "i-NEC-MEC-noon: non-zero conservation diagnostics {'TRC_SIG step report': 0, 'TRC_BAL step report': 0, 'residual hard failure': 1, 'TRC_LULCC_BAL': 0, 'ERROR STOP': 0, 'MPI_Abort': 1, 'Water balance violation': 0, 'Energy balance violation': 0}",
+    "i-NEC-MEC-noon: no mt_land_descriptor_identity in later restart land blocks",
+    "i-NEC-MEC: iso_check rc=1",
+    "f-NEC-MEC: iso_check rc=1",
+    "i-AMZ-MEC-cl2e5: iso_check rc=1"
+  ],
+  "limits": [
+    "G5 mask semantics: the dry-lake invalid branch is only exercised if the extra DEF_USE_Dynamic_Lake case really produces zero-count patches; the standard combined runs use the default DEF_USE_Dynamic_Lake=.false., so their counts equal the step count by construction (recorded, not hidden).",
+    "The exact partial-window recompute needs one land block and the landdata patch fractions; it is performed for the NEC IGBP mid-window runs only.",
+    "Comparisons cover NetCDF variables, dimensions, shapes, dtypes and raw bits; file encodings/attributes are not compared (compare.py contract).",
+    "Delta ranges are diagnostics only; no observational accuracy is claimed.",
+    "BGC+LULCC is an upstream-unsupported pair and is outside this acceptance."
+  ],
+  "status": "FAIL",
+  "elapsed_seconds": 135.3
+}
