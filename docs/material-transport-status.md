@@ -82,7 +82,8 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 - [x] 读取 p9r 完整结果并完成同位素无强迫回归验收（终态 succeeded/0，10/10 例 + 10/10 严格比较，`failures: []`，唯一样本差异为允许的 schema 标量迁移；见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)）。
 - [x] 读取 p9s 完整结果并完成同位素长期尾部账本诊断：7 个透明探针 + Decimal50 回放，21 个有效 target×isotope δ 由真实 gross water/有符号质量重建、1 个负 signed ratio 按缺测输出；见[长窗口诊断](material-transport-evidence/20261028/p9s-longwindow-diagnosis.md)。仍不等同于全部超范围值解释或观测准确度。
 - [ ] 最新组合源码（含 frcsat + 强迫同位素 + LULCC + CL + 泥沙/河网）的完整验收：**FAIL**（`codex-2434412927…` failed/1）。该完整组合在 LULC_IGBP/NEC 上触发已记账数值残余硬限（9.0882e-5 > 5.0e-5）而中止；触发项已定位为 flood feedback + 运行时同位素强迫，且 `28478b18` 基线同样复现（既有交互缺陷，非最新提交回归）。**根因修复或残余策略决定仍未做，完整组合验收仍不通过。** 见[组合验收证据](material-transport-evidence/20261028/combined-acceptance.md)。
-- [x] 补 CI 的 `PC+BGC+MT` 与 IGBP/PFT 的 `LULCC+MT`，并修正精确案例名匹配和全参数传递。93 个配置的有效宏检查通过；四项定向 GNU 构建通过，完整 GitHub 编译器/MPI 矩阵未运行。
+- [ ] 完整 hosted CI 编译器/MPI 矩阵：已在个人 fork 用 `workflow_dispatch` 触发（run `40725517808`，head `10e9fbd2`，23 个 job；**不依赖 PR base 触发过滤**）。截至 2026-10-29 03:05 CST：**16/23 success、0 失败、7 个 mpich job 待终态**；mpich 历史单例 3h06–5h48，6h 上限为 06:24 CST。**只有 23/23 全 success 才算完整矩阵通过，当前不写成已通过。** 见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)。
+- [x] 补 CI 的 `PC+BGC+MT` 与 IGBP/PFT 的 `LULCC+MT`，并修正精确案例名匹配和全参数传递。93 个配置的有效宏检查通过；四项定向 GNU 构建通过。
 - [x] 补最新修复的非零 CL 回归：以 `28478b18` 对当前数值版本，NEC 两天 CL-only 与 isotope+CL 的四组实际运行、26 文件和 1,296 变量完整位比较通过；仅明确的缓存 schema `1→2` 例外。此项不替代强迫/LULCC 验证。
 - [ ] 完成甲烷与 fork 的两年全球平场对照（**未启动，等待用户决策**）。候选 1995–1996 输入不闭合：按真实生产时间索引需要 1994 年除 dswrf 外的 7 个末记录文件及 1997 年全部 8 个首记录文件；本轮已实测这些文件存在于 `bd:` 原路径（21.15 GiB，补传需授权），并实测窗口改写 W1（1995-01-01 03:00 → 1996-12-31 18:00）新增外部文件需求为 0（少 9 h）。旧参数与构建宏仍未冻结（旧运行与 HEAD 默认不同）。必须先由用户选择输入路线与参数口径、补/不补数据、短跑估时；没有启动新的全球甲烷模型。NEC/AMZ 三个月区域对照不能替代这一项。
 - [x] 完成湖底碳、土壤 pH 两个 Aggregation 的真实预处理与区域裁剪验收。RegionClip 年份路径、元数据及向量子集修复通过真实数据检查；TOPMODEL 常数模式与合法无 PFT 块两处复审发现已修正，独立复审通过。未扩展至所有可选地表模式或空 MPI worker。
@@ -112,6 +113,7 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 ## 接续验收记录
 
 - **最新组合源码整体验收（`6d995438`/HEAD `10e9fbd2`）：验收结果 FAIL，触发项已定位**（`codex-2434412927a94e38a44ad21db5643a38`，终态 failed/1）。LULC_IGBP/NEC 的六个完整组合案例都在 step 4 / 2005-12-25-05400 触发已记账数值残余硬限（`worst_abs=9.0882e-5 > tol=5.0e-5`，ipatch=213 itrc=1 ptype=0）而中止；G1 构建 PASS，G2–G7 随中止案例 FAIL，验证报告 status=FAIL（89 条 failures）。单因素消融把触发项定位为 `DEF_GridRiverLake_FloodFeedback=.true.` **与运行期 IsoGSM 同位素强迫同时开启**（与 CL/泥沙/levee/bifurcation/reservoir/分馏/LULCC scheme/LULCC 编译开关无关）；用 `28478b18` 与 `c315c849` 两套既有二进制作回归分类，两者同点同值失败 → **该交互缺陷在分支基线已存在，不是最新提交引入的回归**，是旧验收从未覆盖的组合。未放宽阈值、未裁 δ、未做根因修复。frcsat 修复的数值不变性另有真实 120 步 NetCDF/MPI 隔离证据（`c315c849` 对 `6d995438`：history 全部原始位相同；restart 13 文件/767 公共变量相同，仅新增 2 个 mid-window 侧车字段）。详见[组合验收证据](material-transport-evidence/20261028/combined-acceptance.md)。
+- **完整 hosted CI 矩阵已触发（终态前）**：个人 fork `workflow_dispatch`，run `40725517808`，head `10e9fbd2`，实际 23 个 job。截至 2026-10-29 03:05 CST：16/23 success、0 失败、7 个 mpich 仍在运行（历史单例 3h06–5h48，6h 上限 06:24 CST）。CI 内容已核对：`check_defineh.py` PASS 93 个唯一用例、525 字段历史累加量、93 例逐例 `make clean && make all`、5 个 MTON/2 个 LULCCON 宏计数正确。**未到终态，不写成完整通过。** 详见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)。
 - **p9r 同位素/CL 无强迫回归**（DeepSeek 接续，`codex-4ba194bf50074f68aaa3d76178c49830`）：2026-10-29 00:26:59 CST 终态 succeeded/0。旧 `28478b18` 对冻结 `c315c849` 的五种无强迫配置各重跑，10/10 例 END 且步数/最终时间戳精确、描述符身份正确、诊断失败 0；10/10 完整文件集/变量集/原始位比较通过，唯一差异为设计允许的标量 `mt_forcing_cache_schema 1→2`（两侧 count=0、无可靠性向量）；`failures: []`，验证器自测通过。不覆盖 `6d995438` frcsat 诊断字段或最新组合源码。详见[验收记录](material-transport-evidence/20261028/p9r-acceptance.md)。
 - 定向编译 `codex-d479cc7d5bb04bf190119a0427536a24` 终态成功：PC+BGC+MT、IGBP+LULCC+MT、PFT+LULCC+MT 的 `make all`，以及 SinglePoint 的 `colm.x/mkinidata.x`。构建输入为 `3a1c391a` 加 CI 改动；不包含后续运行暴露问题的修复。首轮环境链接失败已保留，重试显式统一 Conda GNU/NetCDF 和编译选项，不改生产构建文件。
 - 非零 CL 验收 `codex-577f4c4aa667427f8b04ceeca34e5946` 终态成功。每例 96 步，签名、质量与硬残差诊断为零；实际 CL 初值 `2e-5`、降水浓度 `3e-6`，每例有 11,742 个正 CL 值。
@@ -121,7 +123,10 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 - 首轮 Vector isotope 首日签名断言关闭 PHS 后仍复现，后定位并修复单桶冠层 donor；继而修复干湖输出有效性，最新限定范围验证见上表。
 - 首轮真实 `mksrfdata` 湖底碳已满足 `580×OM`，随后旧 RegionClip 路径不兼容失败；该问题后已修复并完成预处理/裁剪复核，不能把原失败任务当成成功任务。
 
-本次 Draft PR 只在个人 fork 的冻结留档基线上记录。该基线不匹配现有 GitHub Actions 的 master/colm30 触发过滤，因此上面的定向远程结果不代表托管 CI 矩阵已执行。
+本次 Draft PR 只在个人 fork 的冻结留档基线上记录。该基线不匹配现有 GitHub Actions 的 master/colm30 触发过滤，
+因此不能用 PR 事件触发上游 CI；**2026-10-29 已在个人 fork 用 `workflow_dispatch` 直接触发完整矩阵**
+（run `40725517808`，head `10e9fbd2`，23 job；当前 16/23 success、7 mpich 待终态），不通过向 SYSU 开 PR 或合并
+master/colm30 来触发。只有全部 job 终态成功才算完整矩阵通过，见 [CI 矩阵记录](material-transport-evidence/20261028/ci-matrix.md)。
 
 ## 本次修复及输入边界
 

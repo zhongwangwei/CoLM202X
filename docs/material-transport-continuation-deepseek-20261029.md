@@ -96,6 +96,7 @@
   `check_defineh.py` PASS（93 唯一用例）、525 字段历史累加量检查、93 例逐例 `make clean && make all`、
   5 个 MTON/2 个 LULCCON 宏出现次数正确。mpich 历史上单例 3h06–5h48，可能拖到 6h 单 job 上限（06:24 CST）。
 - 终态判定口径：全部 job success 才算完整矩阵通过；若有 job 被 6h 超时取消或失败，按下述“未完成/缺口”保留。
+- 证据：[ci-matrix.md](material-transport-evidence/20261028/ci-matrix.md)、；本地 API 快照与日志标记在 。
 
 ## 3. 本轮新增 Git 提交（均在个人 fork 分支）
 

@@ -24,6 +24,9 @@
   flood feedback + 运行期同位素强迫，且 `28478b18` 基线同样复现（既有交互缺陷）。frcsat 修复的数值不变性
   另有真实 120 步隔离证据。原始记录为 `combined-report.json`、`combined-job-status.json`、
   `combined-attempts.json`、`combined-EVIDENCE.md`。
+- [完整 hosted CI 矩阵记录](ci-matrix.md)：个人 fork `workflow_dispatch` 触发（run `40725517808`，head `10e9fbd2`，
+  23 job）。记录时 16/23 success、0 失败、7 个 mpich 待终态；**未到终态，不写成完整通过**。
+  `ci-coverage-check.txt` 是独立矩阵展开与 `check_defineh.py` 覆盖核对输出。
 - [甲烷候选输入闭合与运行设计](methane-closure/README.md)：只读调查，结论 `NOT_READY`；15 个缺失边界文件
   权威源已实测存在于 `bd:` 路径（补传需授权），窗口改写 W1 可零新增数据（少 9 h）。仍未运行甲烷模型。
 - `methane-input-audit-summary.json`：只读候选包元数据审计，结论为
