@@ -2,7 +2,7 @@
 
 状态快照：2026-10-28 19:37（北京时间）。本次累计 Draft PR 用于保存实现、历史决定和未完成清单，**不是可合并版本**。
 
-目标为 `CoLM-SYSU/CoLM` 的 `master`，来源分支为 `feature/constituent-transport`。前置河湖流 [PR #512](https://github.com/CoLM-SYSU/CoLM/pull/512) 已合并。整理起点为 `28478b18`，当时相对上游包含 19 个分支提交；下述最新修复尚待完整集成验收。
+本次仅在个人 fork `zhongwangwei/CoLM202X` 留档，来源分支为 `feature/constituent-transport`，草稿基线为 `checkpoint/material-transport-base-20261028`（冻结于 `f9ea408e`）。不合并至 `CoLM-SYSU/CoLM`，也不改动个人 fork 的 `master`。前置河湖流 [PR #512](https://github.com/CoLM-SYSU/CoLM/pull/512) 已合并。整理起点为 `28478b18`，当时相对该基线包含 19 个分支提交；下述最新修复尚待完整集成验收。
 
 原计划将框架与甲烷拆为两个 PR。本次先累计留档，不改变原始决定；正式合并前是否拆分仍待确定。
 
