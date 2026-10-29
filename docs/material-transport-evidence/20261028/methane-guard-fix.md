@@ -57,6 +57,9 @@ dynamic_wtd 0.95 → step36（0.9466，同一 patch/layer）；水稻与不含�
 - [x] 修复后水稻（dynamic_wtd+rice+irrigation）1 天/3 天 PASS：rice 通量非零（积分 −4.63e-4 / −4.45e-4 mol/s，
   冷启动首日为小净汇、sign 已记录；prod_rice/oxid_rice 非零；`codex-683d918f…`）。
 - [ ] 30 天水稻：作业 `codex-923e86aa…` 于 2026-10-29 09:29 启动，**10:03 按用户要求取消** → 未完成。
+  取消前 partial：336/1440 步（7 天），零 fatal/诊断，water balance 1.6e-2–2.3e-2 m³，host-water worst 0.9615
+  （capped、report 行记录），110 条 warning 全为 tolerated host-water；**不构成 30 天验收通过**。见
+  [methane-runs/partial/README.md](methane-runs/partial/README.md)。
 - [ ] 两年完整窗口（用户已批准补 15 文件、hybrid 默认、完整 35,088 步）：**补数据与 Y1/Y2 均未启动**
   （10:03 暂停；W1 少 9h 方案不再采用）。
 - [x] 用实测水量平衡残差证明“不造水”：hybrid/水稻短跑 routing 水量平衡 |残差| ≤0.068 m³（存量 1.9e12 m³）、

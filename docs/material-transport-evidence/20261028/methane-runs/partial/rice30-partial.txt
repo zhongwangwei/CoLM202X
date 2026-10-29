@@ -1,0 +1,26 @@
+job: codex-923e86aad16940228b7def12bae54d4d (cancelled 2026-10-29T10:03+08)
+last steps:
+TIMESTEP = 335 | DATE = 1995-06-07-82800
+TIMESTEP = 336 | DATE = 1995-06-07-84600
+steps:
+336
+diagnostics grep count:
+0
+water balance lines:
+Total water balance :  2.3E-02 m^3
+Total water balance :  4.6E-03 m^3
+Total water balance :  1.6E-02 m^3
+host-water worst lines:
+ methane host-water: worst disagreement over all ranks   0.8843E+00 of pore volume (tolerance   0.5000E-01)
+ methane host-water: worst disagreement over all ranks   0.9466E+00 of pore volume (tolerance   0.5000E-01)
+ methane host-water: worst disagreement over all ranks   0.9615E+00 of pore volume (tolerance   0.5000E-01)
+warning count:
+110
+history files:
+total 223232
+drwxrwxr-x 2 zhwei zhwei      4096 Oct 29 09:34 .
+drwxrwxr-x 4 zhwei zhwei      4096 Oct 29 09:28 ..
+-rw-rw-r-- 1 zhwei zhwei 133908206 Oct 29 10:03 case_hist_1995.nc
+-rw-rw-r-- 1 zhwei zhwei   5456212 Oct 29 10:02 case_hist_material_1995.nc
+restart checkpoints:
+/media/zhwei/data01/compute_runs/codex/codex-923e86aad16940228b7def12bae54d4d/work/pilot/rice30d/case/restart/1995-152-00000
