@@ -108,13 +108,14 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
 - 审计包 `repro_sediment_bidirectional.py`（改为修复后不变量断言）实跑：
   - case 1（粗步 1×10 s，普通路径）：**PASS**，浓度保持 [0.001,0.001,0.001]；
   - case 2（10×1 s 细步对照）：**PASS**，均匀且质量守恒；
-  - case 3（共同 donor scale 粗步，审计用于证明“仅共同缩放不够”的对照）：仍为
-    [0.0005,0.002,0.0005] —— 这是 **BIF/levee/joint 共享初始库存路径**，本修复按设计未改
-    （子步会与宿主一次性 joint reservation/credits 重复计数）；因此：
-    - 普通（非 BIF/levee）生产路径 N01 **已修复**；
-  - BIF/levee 生产路径：已在 provider 层实现整段算子子步（见提交 bed6193b），
-    每子步重算 donor/reservation，dt 项全部按 dt_step 缩放；完整 BIF 数值验证需 7920 集成。
-      demand→joint scale→advection→credits 整体纳入子步，属于未完成项。
+  - case 3（共同 donor scale 粗步，审计用于证明“仅共同缩放不够”的**core 级替代算法对照**）仍为
+    [0.0005,0.002,0.0005]；它直接调用 core 并固定 joint scale，不是生产 provider 路径。
+  - BIF/levee **生产路径**：已在 provider 层（`grid_sediment_calc`）实现整段算子子步：
+    按 `nsub=ceil(rivout_abs*dt_morph/rivsto_donor)`（上限 240）循环
+    `donor 重算 → demand → joint reservation → levee overtopping → advection → BIF credits →
+    levee retreat`，所有 dt 项按 `dt_step=dt_morph/nsub` 缩放，每子步从当前库存重算 reservation。
+    已随 GRID 与 BGC+CROP 两配置全量编译通过（MAKE_RC=0）；完整 BIF 运行的恒浓度/守恒数值验证
+    仍需 7920 集成，列为待完成。
 - 编译坑修正：`calc_sediment_advection` 因自递归需声明 `RECURSIVE`（否则完整构建编译失败），已修。
 - 未做：真实河网/MPI 集成与性能实测（子步上限保证最坏 ~240× 平流计算，需在 7920 记录耗时）；
   床层/推移质在同一子步逻辑内一并推进，未单独改变其参数化。
