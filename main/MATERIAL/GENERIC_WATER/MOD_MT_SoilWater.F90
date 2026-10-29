@@ -1283,9 +1283,8 @@ CONTAINS
 
          ! Rewetting dissolves the numerical surface residue before runoff or
          ! infiltration is partitioned. It remains immobile while no resolved
-         ! carrier water exists. Water isotopes use the same quarantine store
-         ! when their carrier water has vanished (see the collapse branch below).
-         IF ((tracer_is_nonvolatile_solute(itrc) .or. tracer_is_isotope(itrc)) .and. &
+         ! carrier water exists.
+         IF (tracer_is_nonvolatile_solute(itrc) .and. &
              (water_pool_total > trc_water_min_for_ratio .or. &
               mt_has_dissolved_limit(itrc)) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
@@ -1311,16 +1310,10 @@ CONTAINS
             ! near-dry water sliver cannot export a non-physical
             ! tracer/water concentration.
             !
-            ! Waterless carrier: keep the orphaned tracer in the existing
-            ! immobile surface quarantine instead of booking it as a numerical
-            ! sink. The quarantine is a real storage component (conservation,
-            ! history, restart and LULCC remapping all include it) and is
-            ! redissolved into the mixed pool when a resolved carrier returns.
-            ! This is the same rule already used for nonvolatile solutes. It
-            ! removes the surface-collapse path from the numerical-residual
-            ! ledger; the other independently guarded numerical paths in the
-            ! soil column keep their existing residual accounting.
-            IF (tracer_is_nonvolatile_solute(itrc) .or. tracer_is_isotope(itrc)) THEN
+            ! Do not overwrite the snow/soil/throughfall signature
+            ! with precipitation; expose the collapse as an explicit
+            ! numerical residual so the balance report can flag it.
+            IF (tracer_is_nonvolatile_solute(itrc)) THEN
                trc_surface_residue(itrc, ipatch) = trc_surface_residue(itrc, ipatch) + &
                   trc_pool_total
             ELSE
@@ -1369,7 +1362,7 @@ CONTAINS
                ! A dry surface residue may have survived the earlier
                ! ordinary-water pool. Flood-only wetting dissolves it here,
                ! after ordinary runoff, before pond/infiltration partition.
-               IF ((tracer_is_nonvolatile_solute(itrc) .or. tracer_is_isotope(itrc)) .and. &
+               IF (tracer_is_nonvolatile_solute(itrc) .and. &
                    trc_surface_residue(itrc,ipatch) > trc_tiny) THEN
                   late_tracer = late_tracer + trc_surface_residue(itrc,ipatch)
                   trc_surface_residue(itrc,ipatch) = 0._r8
@@ -1381,12 +1374,9 @@ CONTAINS
                ELSEIF (late_tracer > max(trc_tiny, 1.e-10_r8*late_scale, trc_water_min_for_ratio * &
                        tracers(itrc)%ref_ratio*(1._r8 + trc_delta_sanity_max/1000._r8))) THEN
                   CALL CoLM_stop('grid flood material: unresolved dry isotope surface pool')
-               ELSEIF (late_tracer > 0._r8) THEN
-                  ! Same quarantine rule as the ordinary surface collapse:
-                  ! conservative mass without a resolved carrier is kept in the
-                  ! immobile surface residue (a storage component) instead of a
-                  ! numerical sink.
-                  trc_surface_residue(itrc,ipatch) = trc_surface_residue(itrc,ipatch) + late_tracer
+               ELSEIF (late_tracer > 0._r8 .and. allocated(trc_numerical_residual_step)) THEN
+                  trc_numerical_residual_step(itrc, ipatch) = &
+                     trc_numerical_residual_step(itrc, ipatch) - late_tracer
                ENDIF
                late_ratio = 0._r8
                late_tracer = 0._r8
@@ -1797,7 +1787,7 @@ CONTAINS
             late_water = max(wdsrf,0._r8) + late_runoff_water
             late_surface_ratio = 0._r8
             IF (late_water > trc_water_min_for_ratio) THEN
-               IF ((tracer_is_nonvolatile_solute(itrc) .or. tracer_is_isotope(itrc)) .and. &
+               IF (tracer_is_nonvolatile_solute(itrc) .and. &
                    trc_surface_residue(itrc,ipatch) > trc_tiny) THEN
                   pending_surface_tracer = pending_surface_tracer + trc_surface_residue(itrc,ipatch)
                   trc_surface_residue(itrc,ipatch) = 0._r8
@@ -1806,10 +1796,8 @@ CONTAINS
                   trc_surface_solid(itrc,ipatch))
                late_surface_ratio = pending_surface_tracer/late_water
             ELSEIF (pending_surface_tracer > trc_tiny) THEN
-               ! No resolved carrier for the dew/frost-displaced mass: use the
-               ! same immobile quarantine rule (previously a fatal stop for
-               ! isotopes, which this carrierless-but-conservative case does
-               ! not justify). It redissolves when surface water returns.
+               IF (.not. tracer_is_nonvolatile_solute(itrc)) &
+                  CALL CoLM_stop('late surface isotope water has no resolved store')
                trc_surface_residue(itrc,ipatch) = trc_surface_residue(itrc,ipatch) + pending_surface_tracer
             ENDIF
             trc_wdsrf(itrc,ipatch) = max(wdsrf,0._r8)*late_surface_ratio
@@ -3220,7 +3208,7 @@ CONTAINS
             ENDIF
          ENDIF
 
-         IF ((tracer_is_nonvolatile_solute(itrc) .or. tracer_is_isotope(itrc)) .and. &
+         IF (tracer_is_nonvolatile_solute(itrc) .and. &
              (pool_water > trc_water_min_for_ratio .or. &
               mt_has_dissolved_limit(itrc)) .and. &
              trc_surface_residue(itrc, ipatch) > trc_tiny) THEN
@@ -3390,11 +3378,11 @@ CONTAINS
             ELSE
                ! Positive tracer with no physically resolved post-loss
                ! wetland water would reappear as an unbounded concentration
-               ! once routed to rsur/wdsrf/wetwat. Keep the accounting
-               ! conservative instead: solutes and water isotopes alike are
-               ! quarantined in the immobile surface residue, which is a
-               ! storage component and redissolves when carrier water returns.
-               IF (tracer_is_nonvolatile_solute(itrc) .or. tracer_is_isotope(itrc)) THEN
+               ! once routed to rsur/wdsrf/wetwat.  Keep the accounting
+               ! explicit instead: this residual is reported by the
+               ! conservation diagnostics and is subject to the independent
+               ! residual hard cap.
+               IF (tracer_is_nonvolatile_solute(itrc)) THEN
                   trc_surface_residue(itrc, ipatch) = trc_surface_residue(itrc, ipatch) + &
                      pool_tracer
                ELSE

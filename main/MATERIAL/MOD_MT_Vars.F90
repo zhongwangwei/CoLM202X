@@ -29,11 +29,8 @@ MODULE MOD_MT_Vars
    real(r8), allocatable :: trc_aquifer_ref_mass(:,:)
    real(r8), allocatable :: trc_wdsrf      (:,:)
    real(r8), allocatable :: trc_wetwat     (:,:)
-   ! Waterless surface residue for nonvolatile solutes and for water isotopes
-   ! whose resolved carrier water has vanished (dry mixed-pool collapse).
-   ! This is a numerical immobile store, not a precipitated mineral phase; it is
-   ! a conservation/history/restart/LULCC storage component and redissolves into
-   ! the mixed pool when a resolved carrier water returns.
+   ! Waterless surface residue for nonvolatile solutes.
+   ! This is a numerical immobile store, not a precipitated mineral phase.
    real(r8), allocatable :: trc_surface_residue(:,:)
    ! Positive solute orphaned when aquifer water vanishes. It redissolves only
    ! when the aquifer returns, preventing first-rain release at the surface.

@@ -508,12 +508,7 @@ CONTAINS
                   ! Waterless residue is an areal tracer inventory, not a
                   ! concentration. Tie its output to the existing surface-water
                   ! history switch until history namelist gains a dedicated key.
-                  ! Water isotopes can also be quarantined here when their
-                  ! carrier water has vanished (see the collapse branches in
-                  ! MOD_MT_SoilWater), so surface/subsurface residue is published
-                  ! for both families; the dry-layer and solid inventories stay
-                  ! solute-specific because only solutes use those stores.
-                  IF (tracer_is_nonvolatile_solute(itrc_loc) .or. tracer_is_isotope(itrc_loc)) THEN
+                  IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
                      write(trc_varname , '(A,A)') 'f_mt_surface_residue_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'immobile surface material residue (', &
                         trim(tracers(itrc_loc)%name), ')'
@@ -527,9 +522,7 @@ CONTAINS
                      CALL write_history_variable_2d (DEF_hist_vars%wa, &
                         a_trc_subsurface_residue_mass(itrc_loc, :), file_hist, trim(trc_varname), &
                         itime_in_file, sumarea, filter, trim(trc_longname), 'material amount/m2')
-                  ENDIF
 
-                  IF (tracer_is_nonvolatile_solute(itrc_loc)) THEN
                      write(trc_varname , '(A,A)') 'f_mt_layer_dry_inventory_', trim(tracers(itrc_loc)%name)
                      write(trc_longname, '(A,A,A)') 'dry snow/soil layer material inventory (', &
                         trim(tracers(itrc_loc)%name), ')'
