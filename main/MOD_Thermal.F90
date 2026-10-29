@@ -855,9 +855,7 @@ IF (patchtype == 0) THEN
             rootflux_p(:,i)= 0.
             rstfacsun_p(i) = 0.
             rstfacsha_p(i) = 0.
-            etrc_p(i)      = 0.
             fsun_p(i)      = 0.5
-            rstfac_p(i)    = 0.
             dheatl_p(i)    = 0.
          ENDIF
       ENDDO
