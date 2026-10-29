@@ -73,3 +73,25 @@
   `check_sediment_joint_substep.py` case4 记录该单步结果，不再声称 BIF 路径满足 N01 恒浓度）。
 - 性能影响：预期 BIF 路径回到优化前的一次算子开销（未实测完整模型，标记 NOT_MEASURED）。
 - 回退后验证：GRID 与 BGC+CROP 两配置 `make all` 均 MAKE_RC=0；本地回归 0 failure。
+
+## 7. 退回单步后的真实速度测试（2026-10-29）
+
+同源同配置（GRID+USEMPI 5 ranks、JRA 强迫、MT+BIF+levee+sediment+isotope+CL）在 7920 上：
+
+| 项目 | 优化前（provider 全局子步） | 退回单步后 |
+| --- | --- | --- |
+| job | codex-014c8aeb…（3 天 case，timeout 3600 s） | codex-fef2905b…（2 天 case，timeout 1800 s） |
+| 结果 | timed_out：**2 个 TIMESTEP / 3600 s** | **succeeded，exit 0** |
+| 步数 | 2 | **95**（2005-01-01 00:00 → 01-02 23:30，dt=1800 s） |
+| wall time | ≥3600 s（未完成） | **976.5 s**（started_at 1793252759.05 → finished_at 1793253735.55，含构建+mkinidata） |
+| 每步成本 | ≥1800 s/step（未完成，下限） | ≤10.3 s/step（含构建/初始化摊薄，实际模型步更快） |
+| 错误 | — | 无 ERROR STOP / MPI_Abort / residual hard failure；`CoLM Execution Completed`=1 |
+| 加速比 | 1× | **约 175×**（按保守的每步 wall 时间；旧数据未跑完，只能取下限） |
+
+- 结论：退回单步后 BIF/levee 配置回到可用速度，2 天 case 约 **16.3 分钟**跑完（含构建与初始化）；
+  按线性外推 3 天 case 约 **25 分钟**（外推值，非实测）。
+- 注意：两次 case 长度不同（3 天 vs 2 天），但都使用相同域、进程数、物理开关与 dt，每步成本可比。
+- 仍未实测：`prepare_bif_sediment`/advection 分项耗时、MPI wait、内存峰值、不同河网分区与粒级矩阵；
+  这些在单步回退后属于“原单步算法成本”，不再有全局子步放大。
+- 数值验收边界：BIF/levee 恒浓度不再强制（已知限制，见 `check_sediment_joint_substep.py` case4）；
+  本次成功运行证明“无崩溃/无硬失败”，不是完整 BIF 物理验收。
