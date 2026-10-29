@@ -91,7 +91,8 @@ MODULE MOD_MT_RiverLake
 
    ! Flux variables (diagnostic, per routing period)
    real(r8), allocatable :: trc_flux_out  (:,:) ! Tracer outflux [R*m3/s] (ntracers, numucat)
-   real(r8), allocatable :: trc_dry_drain(:,:) ! Internal sink from dry-cell forced drain [R*m3]
+   real(r8), allocatable :: trc_dry_drain(:,:) ! Terminal (mouth) sink from forced drain [R*m3]
+   real(r8), allocatable :: trc_dry_fwd(:,:)   ! Internal drained mass forwarded downstream [R*m3]
    real(r8), allocatable :: trc_decay_source(:,:) ! Net reactive source/sink over routing period
 
    ! Input: tracer amount flux from runoff
@@ -228,6 +229,7 @@ CONTAINS
          allocate (trc_conc     (ntracers, numucat))
          allocate (trc_flux_out (ntracers, numucat))
          allocate (trc_dry_drain(ntracers, numucat))
+         allocate (trc_dry_fwd  (ntracers, numucat))
          allocate (trc_decay_source(ntracers, numucat))
          allocate (acc_trc_inp        (ntracers, numucat))
          allocate (trc_inp_buf        (ntracers, numucat))
@@ -251,6 +253,7 @@ CONTAINS
          trc_conc     = 0._r8
          trc_flux_out  = 0._r8
          trc_dry_drain = 0._r8
+         trc_dry_fwd   = 0._r8
          trc_decay_source = 0._r8
          acc_trc_inp  = 0._r8
          trc_inp_buf  = 0._r8
@@ -697,8 +700,9 @@ CONTAINS
       ucat2resv_in, is_built_resv)
 
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_next, push_ups2ucat
    USE MOD_Grid_RiverLakeLevee,   only: has_levee, levsto
+   USE MOD_WorkerPushData
    USE MOD_MT_Defs, only: trc_tiny
    IMPLICIT NONE
 
@@ -712,10 +716,14 @@ CONTAINS
 
    integer :: i, itrc
    real(r8) :: dt_i, volwater, dry_drain
+   real(r8), allocatable :: fwd_send(:), fwd_recv(:)
+   logical :: internal_receiver
 
       IF (ntracers <= 0) RETURN
       IF (.not. p_is_worker) RETURN
       IF (numucat <= 0) RETURN
+
+      IF (allocated(trc_dry_fwd)) trc_dry_fwd = 0._r8
 
       DO i = 1, numucat
          IF (present(is_built_resv)) THEN
@@ -767,14 +775,27 @@ CONTAINS
                ! cancel it with the correct source signature.
                dry_drain = max(trc_mass(itrc, i), 0._r8) + max(trc_inp_buf(itrc, i), 0._r8)
                IF (dry_drain > trc_tiny) THEN
-                  IF (allocated(trc_dry_drain)) trc_dry_drain(itrc, i) = trc_dry_drain(itrc, i) + dry_drain
-                  ! Keep advective outflux and the internal dry-cell sink
-                  ! separate. CoLMDEBUG books trc_flux_out at river mouths and
-                  ! adds trc_dry_drain globally; folding the sink into both
-                  ! arrays counted a dry mouth twice. Preserve the existing
-                  ! history diagnostic explicitly without contaminating flux.
-                  IF (dt_i > 0._r8 .and. ucatfilter(i)) &
-                     a_trc_out(itrc, i) = a_trc_out(itrc, i) + dry_drain
+                  ! An internal cell that drains completely (host net-outflow
+                  ! timestep, same-step inflow allowed) still holds genuine
+                  ! material: its outflow used the pre-mixing concentration, so
+                  ! the same-step inflow excess was not exported.  That mass
+                  ! belongs to the downstream receiver, not to a numerical
+                  ! sink.  Forward it along the main-channel edge; only a
+                  ! terminal cell (no downstream unit catchment) really
+                  ! discharges to the outside and books trc_dry_drain.
+                  internal_receiver = ucat_next(i) > 0
+                  IF (internal_receiver) THEN
+                     trc_dry_fwd(itrc, i) = trc_dry_fwd(itrc, i) + dry_drain
+                  ELSE
+                     IF (allocated(trc_dry_drain)) trc_dry_drain(itrc, i) = &
+                        trc_dry_drain(itrc, i) + dry_drain
+                     ! Keep advective outflux and the terminal dry-cell sink
+                     ! separate. CoLMDEBUG books trc_flux_out at river mouths
+                     ! and adds trc_dry_drain globally; folding the sink into
+                     ! both arrays counted a dry mouth twice.
+                     IF (dt_i > 0._r8 .and. ucatfilter(i)) &
+                        a_trc_out(itrc, i) = a_trc_out(itrc, i) + dry_drain
+                  ENDIF
                ENDIF
                trc_mass(itrc, i)    = 0._r8
                trc_inp_buf(itrc, i) = min(trc_inp_buf(itrc, i), 0._r8)
@@ -818,6 +839,28 @@ CONTAINS
             a_trc_bifout(itrc, i) = a_trc_bifout(itrc, i) + trc_bif_net_saved(itrc, i) * dt_i
          ENDDO
       ENDDO
+
+      ! Forward the mass of internally drained cells to their downstream
+      ! main-channel receiver (collective push; the receiver's tracer
+      ! inventory grows, so the material stays in the system instead of being
+      ! deleted).  A receiver that is itself dry forwards it again later by the
+      ! same rule, so the chain reaches a real mouth or a wet cell.
+      IF (allocated(trc_dry_fwd) .and. numucat > 0) THEN
+         allocate(fwd_send(numucat), fwd_recv(numucat))
+         DO itrc = 1, ntracers
+            IF (.not. mt_uses_generic_water(itrc)) CYCLE
+            IF (maxval(abs(trc_dry_fwd(itrc, :))) <= trc_tiny) CYCLE
+            fwd_send(:) = trc_dry_fwd(itrc, :)
+            fwd_recv(:) = 0._r8
+            CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv, fillvalue = 0._r8, mode = 'sum')
+            DO i = 1, numucat
+               IF (fwd_recv(i) <= trc_tiny) CYCLE
+               trc_mass(itrc, i) = trc_mass(itrc, i) + fwd_recv(i)
+            ENDDO
+            trc_dry_fwd(itrc, :) = 0._r8
+         ENDDO
+         deallocate(fwd_send, fwd_recv)
+      ENDIF
 
    END SUBROUTINE mt_riverlake_diag_accumulate
 
@@ -3076,6 +3119,7 @@ CONTAINS
       IF (allocated(a_trc_bifout     )) deallocate (a_trc_bifout     )
       IF (allocated(a_trc_acctime    )) deallocate (a_trc_acctime    )
       IF (allocated(trc_dry_drain    )) deallocate (trc_dry_drain    )
+      IF (allocated(trc_dry_fwd      )) deallocate (trc_dry_fwd      )
       IF (allocated(trc_decay_source)) deallocate (trc_decay_source)
       IF (allocated(trc_levsto       )) deallocate (trc_levsto       )
       IF (allocated(trc_solid)) deallocate (trc_solid, trc_levsto_solid)

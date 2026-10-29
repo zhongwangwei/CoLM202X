@@ -1475,6 +1475,20 @@ contains
 		co2_aere_depth_unsat   = 0._r8
 		co2_aere_depth_sat     = 0._r8
 
+		! O2 process diagnostics and the two stress ratios must be aggregated
+		! with the same saturated/unsaturated weighting as the CH4 depth
+		! diagnostics; otherwise they stay at their initial defaults.
+		! o2stress/methane_stress are dimensionless per-layer availability
+		! (available/demanded) ratios, so the patch value is the area-weighted
+		! average over the saturated and unsaturated columns.  Total
+		! ebullition is aggregated per unit ground area the same way (mol/m2/s).
+		o2_decomp_depth = o2_decomp_depth_sat * finundated + o2_decomp_depth_unsat * (1.0_r8 - finundated)
+		o2_oxid_depth   = o2_oxid_depth_sat   * finundated + o2_oxid_depth_unsat   * (1.0_r8 - finundated)
+		o2_aere_depth   = o2_aere_depth_sat   * finundated + o2_aere_depth_unsat   * (1.0_r8 - finundated)
+		o2stress        = o2stress_sat        * finundated + o2stress_unsat        * (1.0_r8 - finundated)
+		methane_stress  = methane_stress_sat  * finundated + methane_stress_unsat  * (1.0_r8 - finundated)
+		methane_ebul_tot = methane_ebul_tot_sat * finundated + methane_ebul_tot_unsat * (1.0_r8 - finundated)
+
 		methane_prod_depth = methane_prod_depth_sat * finundated + methane_prod_depth_unsat * (1.0_r8 - finundated)
 		methane_oxid_depth = methane_oxid_depth_sat * finundated + methane_oxid_depth_unsat * (1.0_r8 - finundated)
 		methane_aere_depth = methane_aere_depth_sat * finundated + methane_aere_depth_unsat * (1.0_r8 - finundated)
@@ -3090,9 +3104,22 @@ contains
 					conc_o2_rel(j)  = conc_o2_gas_porsl(j)
 					! Partition between the liquid and gas phases. The gas phase will drive the diffusion.
 				else ! Below the WT
-					! Below the water table, mobile liquid controls storage/diffusion.
-					epsilon_t(j,1) = max(vol_ch4_storage(j), smallnumber)
-					epsilon_t(j,2) = max(vol_aqu(j), smallnumber)
+					! Below the water table the transport unknown is the
+					! LIQUID-phase concentration.  A nominally saturated
+					! column can still retain gas (host-water cap keeps the
+					! saturated branch under-filled), so the storage capacity
+					! must include the gas phase: for total concentration
+					! Ctot = C_liq*(theta_liq + theta_gas/KH).  Using only
+					! theta_liq here created spurious diffusion out of a
+					! column that was in Henry equilibrium with the
+					! atmosphere.  Both CH4 and O2 are treated the same way.
+					IF (k_h_cc(j,1) > smallnumber .and. k_h_cc(j,2) > smallnumber) THEN
+						epsilon_t(j,1) = max(vol_ch4_storage(j) + vol_gas(j)/k_h_cc(j,1), smallnumber)
+						epsilon_t(j,2) = max(vol_aqu(j) + vol_gas(j)/k_h_cc(j,2), smallnumber)
+					ELSE
+						epsilon_t(j,1) = max(vol_ch4_storage(j), smallnumber)
+						epsilon_t(j,2) = max(vol_aqu(j), smallnumber)
+					ENDIF
 					conc_ch4_rel(j) = conc_methane(j)/epsilon_t(j,1)
 					conc_o2_rel(j)  = conc_o2(j) /epsilon_t(j,2)
 				end if

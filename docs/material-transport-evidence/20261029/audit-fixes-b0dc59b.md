@@ -12,12 +12,12 @@
 | 项 | 最新代码中是否仍存在 | 本轮状态 |
 | --- | --- | --- |
 | F01 湖泊多子步只交付最后子步示踪径流 | 否（已修） | **已修复并本地验证** |
-| F02 非 BIF 内部单元排空 dry cleanup 删除真实质量 | 是（未改） | **未修复**（根因/下一步见下） |
-| F03 甲烷名义饱和列含气相但输送用纯液相容量 | 是（未改） | **未修复**（根因/下一步见下） |
+| F02 非 BIF 内部单元排空 dry cleanup 删除真实质量 | 否（已修） | **已修复并本地验证**（结构与公式不变量；集成待授权） |
+| F03 甲烷名义饱和列含气相但输送用纯液相容量 | 否（已修） | **已修复并本地验证**（容量公式/结构；集成待授权） |
 | F05 NSS 叶水历史项错用当前源水组成 | 否（已修） | **已修复并本地验证** |
 | F06 水汽扩散误用于非挥发溶质 | 否（已修） | **已修复并本地验证** |
 | F07 冻土冰体积按液水密度换算 | 否（已修） | **已修复并本地验证** |
-| F08 甲烷 6 个汇总诊断漏更新 | 是（未改） | **未修复**（根因/下一步见下） |
+| F08 甲烷 6 个汇总诊断漏更新 | 否（已修） | **已修复并本地验证**（结构与加权断言；集成待授权） |
 | F04 CATCHMENT 侧向水同物质输送 | 是 | **按指示不处理** |
 | K01 SinglePoint history 续跑覆盖 | 是 | **按指示不处理** |
 
@@ -44,34 +44,40 @@
 - 局限：未跑 7920 全模型集成（测试暂停）；变流量下的水量积分仍沿用宿主原有 `rnof(last)*deltim`，
   本轮只让**示踪质量**按子步精确累加，不引入隐式水量变化。
 
-## 未修复：F02（已定位，未改动代码）
+## F02：内部排空单元真实质量下传（已修复）
 
-- 位置：`main/MATERIAL/GENERIC_WATER/MOD_MT_RiverLake.F90` 的 `mt_riverlake_diag_accumulate`
-  dry-cell 分支（`volwater <= trc_v_dry_off`）：把 `trc_mass + trc_inp_buf` 正值记入
-  `trc_dry_drain` 并清零；`MOD_MT_RiverLakeCoupling.F90` 再把 `trc_dry_drain` 汇总进 `trc_mass_dis`。
-- 复现条件（按任务描述）：非 BIF 串联单元 `[100,1,100] m3`、比值 `[.002,.0018,.002]`、出流 `[1,2,0] m3/s`、
-  dt=1 s → 中间单元排空，`.0002 R*m3` 被删除、下游少收同样质量。
-- 为什么本轮不改：正确修复要求把内部排空单元的剩余真实质量沿**同一水通量**送到真实下游接收单元，
-  需要与 `mt_riverlake_route_calc`/donor limiter 的拓扑（非 BIF 与 BIF/levee 分支、双向流）统一处理并保证
-  正性/守恒/不重复；在缺少 7920 集成验证（测试暂停）时盲改风险高（可能把质量送错单元或破坏 BIF 路径）。
-- 下一步（需恢复测试授权后）：先加“直接调用生产 transport 例程”的三单元复现单元测试（当前没有文件级
-  Fortran 源码可独立编译 RiverLake 模块），再改 limiter 使同一步入流可被继续输送（pass-through），
-  或把 dry cleanup 剩余质量按 outflux 边界分给下游；验证恒比值保持、异质混合正确、剔除数值 sink 后收支闭合，
-  并记录迭代次数/步数/耗时。F02 目前记为**未修复**。
+- 位置：`main/MATERIAL/GENERIC_WATER/MOD_MT_RiverLake.F90` `mt_riverlake_diag_accumulate`。
+- 修复：dry-cell cleanup 区分“内部下游存在（`ucat_next(i)>0`）”与“终端/河口”：
+  - 内部单元排空后剩余 `trc_mass + max(trc_inp_buf,0)` 不再记入 `trc_dry_drain`，而是累计到新的
+    `trc_dry_fwd(itrc,i)`；本子步清理循环结束后用 `worker_push_data(push_ups2ucat, ..., mode='sum')`
+    沿主河道下游边转发，并加到接收单元 `trc_mass`（若接收单元也干，则后续子步按同一规则继续转发，
+    最终到湿单元或真实河口）；转发是内部转移，不记 `a_trc_out`/`trc_dry_drain`；
+  - 终端单元（无下游 ucat）保留原有“计入 discharge 的 budgeted sink”语义。
+  这样既不重设比值、也不删除真实库存，且不改变宿主水量步长。BIF/levee 路径不改动：转发只走主河道边，
+  protected/levee 池仍按其原 donor-limiter 路径处理。
+- 验证（`tests/material_transport/check_audit_p1_fixes.py`，8 项 F02 检查）：
+  内部 drained mass 被缓冲而非记 sink；终端仍记 sink；转发使用下游 push；接收单元库存增加；
+  buffer 分配/清零与 tracer 状态一致；3 单元链条例子（中间单元残留 .0002）转发后**总量守恒**且到达下游。
+  另有 6 个改动文件 `gfortran -cpp -E` 预处理 rc=0。
+- 兼容性：无 restart 新字段（`trc_dry_fwd` 为瞬时工作状态）；不改变水量/步长；终端 discharge 预算语义保持。
+- 局限：未跑 7920 集成/守恒对比（测试暂停）；BIF/levee 路径的 drained-mass 转发未扩展（主河道修复优先）。
 
-## 未修复：F03 与 F08（甲烷，已定位，未改动代码）
+## F03/F08：甲烷二相容量与 6 个汇总诊断（已修复）
 
-- F03：`MOD_MT_Methane_Physics.F90` 中 `jwt_sat=0` 固定、`split_ch4_o2_phases` 用两相容量
-  `Ctot=Catm*(theta_g+KH*theta_l)` 初始化/相分配，而 below-WT 输送使用 `Crel=Ctot/theta_l`；
-  CH4 和 O2 都要统一为含气相的等效容量（若以液相浓度为未知量则为 `theta_l+theta_g/KH`），并同步矩阵、
-  回写与边界。复现：两个 0.1 m 层、298.15 K、无反应/植物/冰雪，`theta_l=.2, theta_g=.3, jwt=0`
-  基线虚假扩散 `~1.9198e-13 mol/m2/s`；`theta_l=.5, theta_g=0` 为对照。本轮未改。
-- F08：6 个汇总诊断 `o2_decomp_depth`/`o2_oxid_depth`/`o2_aere_depth`/`o2stress`/`methane_stress`/
-  `methane_ebul_tot` 在 sat/unsat 聚合处未更新（总鼓泡只有湖分支另行更新）；需要按变量定义
-  （面积平均 vs 总供给/需求比）在统一聚合点补齐，并检查 soil/rice 再聚合、湖泊路径和输出掩码。
-  本轮未改。
-- 未改原因：两者都需要甲烷模块的完整依赖（BGC 宿主）与集成/最小耦合测试；当前测试暂停且本地无
-  netCDF/MPI 全量构建环境，无法给出满足“质量残差小不能替代相平衡/深度积分验证”的验收证据。
+- F03：`MOD_MT_Methane_Physics.F90` `methane_tran` below-WT 分支在保留气相时改用等效容量
+  `epsilon_t(j,1)=vol_ch4_storage+vol_gas/k_h_cc(j,1)`、`epsilon_t(j,2)=vol_aqu+vol_gas/k_h_cc(j,2)`，
+  相对浓度用该容量（CH4/O2 同步）；无气相时退化为原液相容量。公式不变量：Henry 平衡
+  `Ctot=Cgas*(θg+KH*θl)` 下液相浓度 `=KH*Cgas` 在每层一致 → 零净扩散；旧的纯液相容量会产生伪梯度。
+- F08：在同一聚合点补齐 6 个诊断：
+  `o2_decomp_depth`、`o2_oxid_depth`、`o2_aere_depth` 按 sat/unsat 面积加权；
+  `o2stress`、`methane_stress` 按定义取面积平均（dimensionless 可用/需求比）；
+  `methane_ebul_tot = ebul_sat*f + ebul_unsat*(1-f)`，湖泊分支随后仍覆盖为 lake 值。
+- 验证（`check_audit_p1_fixes.py`）：F03 3 个结构断言 + 2 个数值不变量；F08 6 个聚合模式 + 湖泊覆盖顺序，
+  全部 PASS；6 个改动文件预处理 rc=0。
+- 兼容性：无 restart/history schema 变化；湿层（无气相）数值行为与旧代码一致；干/饱和含气列会改变
+  扩散强度（这是修复目标，物理原因：容量包含气相存储）。
+- 局限：未跑 7920 甲烷集成（相平衡三组对照、sat/unsat 深度积分）——需测试恢复授权后执行；本轮以
+  生产源码结构与公式不变量验证，不宣称集成通过。
 
 ## F05：NSS 叶水历史项（已修复）
 

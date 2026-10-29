@@ -25,6 +25,14 @@ uses the ice density):
 python3 tests/material_transport/check_mt_frac_physics.py
 ```
 
+Audit P1 checks for F02/F03/F08 (river dry-drain forwarding, two-phase methane
+capacity, aggregate diagnostics). Source-structure assertions plus numerical
+invariant checks of the documented formulas (Python only):
+
+```sh
+python3 tests/material_transport/check_audit_p1_fixes.py
+```
+
 The NetCDF tools also need NumPy and netCDF4, already present in the T7920 test
 environment. Their self checks create only temporary, tiny fixtures.
 
