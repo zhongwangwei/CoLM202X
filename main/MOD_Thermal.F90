@@ -650,7 +650,9 @@ ENDIF
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
                             theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
-                            dz_soisno,t_soisno,wliq_soisno,wice_soisno,fsno,qg,rss)
+                            dz_soisno(1:nl_soil),t_soisno(1:nl_soil), &
+                            wliq_soisno(1:nl_soil),wice_soisno(1:nl_soil), &
+                            fsno,qg,rss)
       ELSE
          IF (DEF_RSS_SCHEME == 4) THEN
             rss = 1.        !LP92
@@ -697,7 +699,8 @@ IF ( patchtype==0.and.DEF_USE_LCT .or. patchtype>0 ) THEN
 #ifdef vanGenuchten_Mualem_SOIL_MODEL
             theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
-            psi0,rootfr,dz_soisno,t_soisno,wliq_soisno,rootr,etrc,rstfac)
+            psi0,rootfr,dz_soisno(1:nl_soil),t_soisno(1:nl_soil), &
+            wliq_soisno(1:nl_soil),rootr,etrc,rstfac)
 
          ! fraction of sunlit and shaded leaves of canopy
          fsun = ( 1. - exp(-min(extkb*lai,40.))) / max( min(extkb*lai,40.), 1.e-6 )
@@ -828,7 +831,8 @@ IF (patchtype == 0) THEN
                theta_r, alpha_vgm, n_vgm, L_vgm, sc_vgm, fc_vgm, &
 #endif
                psi0,rootfr_p(:,p),&
-               dz_soisno,t_soisno,wliq_soisno,rootr_p(:,i),etrc_p(i),rstfac_p(i))
+               dz_soisno(1:nl_soil),t_soisno(1:nl_soil),wliq_soisno(1:nl_soil), &
+               rootr_p(:,i),etrc_p(i),rstfac_p(i))
 
             ! fraction of sunlit and shaded leaves of canopy
             fsun_p(i) = ( 1. - exp(-min(extkb_p(i)*lai_p(i),40.))) &
@@ -851,6 +855,7 @@ IF (patchtype == 0) THEN
             rootflux_p(:,i)= 0.
             rstfacsun_p(i) = 0.
             rstfacsha_p(i) = 0.
+            fsun_p(i)      = 0.5
             dheatl_p(i)    = 0.
          ENDIF
       ENDDO
@@ -1023,27 +1028,6 @@ IF ( DEF_USE_PC .and. pn.ge.ps ) THEN
       etrsha_p   (ps:pe) = 0.
       gssun_p    (ps:pe) = 0.
       gssha_p    (ps:pe) = 0.
-
-! ==== FIX 2026-08-16 BEGIN: initialize pft-loop arrays that the PC path skips ====
-! For LULC_IGBP_PC cases, the pft loop above is skipped by CYCLE, so rootflux_p,
-! rootr_p, etrc_p, rstfac_p (and their sun/sha copies) were NEVER assigned before
-! being passed into LeafTemperaturePC -> uninitialized heap memory entered the
-! plant-hydraulics solver, causing run-dependent (case-dependent) tiny differences
-! in canopy fluxes (ulrad/olrg ~1e-5 W/m2). Initialize them explicitly.
-      rootflux_p (:,ps:pe) = 0.
-      rootr_p    (:,ps:pe) = 0.
-      etrc_p       (ps:pe) = 0.
-      rstfac_p     (ps:pe) = 1.
-      rstfacsun_p  (ps:pe) = 1.
-      rstfacsha_p  (ps:pe) = 1.
-      ! fsun_p is normally set in the pft loop (skipped by CYCLE for PC cases);
-      ! without this it enters LeafTemperaturePC as uninitialized heap memory.
-      fsun_p(ps:pe) = (1. - exp(-min(extkb_p(ps:pe)*lai_p(ps:pe),40.))) &
-                    / max(min(extkb_p(ps:pe)*lai_p(ps:pe),40.), 1.e-6)
-      DO i = ps, pe
-         IF (coszen<=0.0 .or. sabv_p(i)<1.) fsun_p(i) = 0.5
-      ENDDO
-! ==== FIX 2026-08-16 END ====
 
       fcover     (ps:pe) = pftfrac(ps:pe) / sum(pftfrac(ps:pe))
       z0m_p      (ps:pe) = (1.-fsno)*zlnd + fsno*zsno
