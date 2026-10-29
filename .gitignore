@@ -14,3 +14,6 @@ lib
 
 # local-only documentation (kept out of GitHub by project decision)
 /docs/
+
+# local-only regression tests (kept out of GitHub by project decision)
+/tests/
