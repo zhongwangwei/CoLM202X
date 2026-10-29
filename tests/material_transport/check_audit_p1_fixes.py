@@ -61,8 +61,8 @@ check('N06 push call sits inside the per-tracer loop (same order every rank)',
 # N07: direction from the actual host flux, reverse/unknown kept pending.
 check('N07 direction uses the timestep face flux, not static topology only',
       'present(hflux_fc_in)' in rl and 'hflux_fc_in(i) >= 0._r8' in rl)
-check('N07 reverse/no-known-flow residual is held pending instead of misrouted',
-      'trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + dry_drain' in rl)
+check('N07 no-known-flow residual is held pending instead of misrouted',
+      'trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + trc_dry_split(itrc, i)' in rl)
 check('N07 pending mass returns to the cell inventory at the next substep',
       'trc_mass(itrc, i) = trc_mass(itrc, i) + trc_dry_pending(itrc, i)' in rl)
 check('N07 pending mass is released before restart (no schema change)',
@@ -257,7 +257,7 @@ check('N07 reverse delivery pushes on the reversed edge (downstream value -> rec
 check('N07 receiver concentration is updated after forwarding',
       rl.count('CALL update_tracer_concentration(itrc, i, vol_j)') >= 2)
 check('N07 receiver history accumulator is updated after forwarding',
-      rl.count('+ rev_recv(i) * dt_j') >= 1 and rl.count('+ fwd_recv(i) * dt_j') >= 1)
+      rl.count('+ rev_share * dt_j') >= 1 and rl.count('+ fwd_recv(i) * dt_j') >= 1)
 check('N07 BIF/levee pathways are gated out of reverse forwarding',
       'allow_reverse_flow = (.not. DEF_USE_BIFURCATION .and. .not. DEF_USE_LEVEE)' in
       (root / 'main/MATERIAL/MOD_MT_RiverLakeCoupling.F90').read_text())
