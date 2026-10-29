@@ -86,6 +86,16 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
   - 本修复给出 nsub=2（2 m3/s×10 s / 10 m3），恒浓度保持 **0.001/0.001/0.001**，
     总质量 0.03 守恒；
   - 结构断言：子步按 gross outflow 触发、上限 240、仅普通路径、每子步重算 donor 浓度。
+- 审计包 `repro_sediment_bidirectional.py`（改为修复后不变量断言）实跑：
+  - case 1（粗步 1×10 s，普通路径）：**PASS**，浓度保持 [0.001,0.001,0.001]；
+  - case 2（10×1 s 细步对照）：**PASS**，均匀且质量守恒；
+  - case 3（共同 donor scale 粗步，审计用于证明“仅共同缩放不够”的对照）：仍为
+    [0.0005,0.002,0.0005] —— 这是 **BIF/levee/joint 共享初始库存路径**，本修复按设计未改
+    （子步会与宿主一次性 joint reservation/credits 重复计数）；因此：
+    - 普通（非 BIF/levee）生产路径 N01 **已修复**；
+    - BIF/levee 生产路径的同一粗时间步缺陷 **仍存在**，需要在 provider 层把
+      demand→joint scale→advection→credits 整体纳入子步，属于未完成项。
+- 编译坑修正：`calc_sediment_advection` 因自递归需声明 `RECURSIVE`（否则完整构建编译失败），已修。
 - 未做：真实河网/MPI 集成与性能实测（子步上限保证最坏 ~240× 平流计算，需在 7920 记录耗时）；
   床层/推移质在同一子步逻辑内一并推进，未单独改变其参数化。
 

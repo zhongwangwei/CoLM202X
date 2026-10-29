@@ -2256,7 +2256,7 @@ CONTAINS
    END SUBROUTINE commit_suspended_period
 
    !-------------------------------------------------------------------------------------
-   SUBROUTINE calc_sediment_advection(dt, rivout_signed, rivout_abs, rivsto_donor, rivsto_end, &
+   RECURSIVE SUBROUTINE calc_sediment_advection(dt, rivout_signed, rivout_abs, rivsto_donor, rivsto_end, &
       initial_conc, initial_bed, joint_sed_scale, joint_bed_scale)
    ! One explicit donor-snapshot transport per morphology interval.  Compute
    ! both directions before changing any cell's suspended or bed inventory.
