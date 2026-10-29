@@ -125,7 +125,7 @@
 #ifdef CaMa_Flood
 #undef CaMa_Flood
 #endif
-#if (!defined CATCHMENT) && (!defined SinglePoint)
+#if (!defined SinglePoint)
 #ifndef GridRiverLakeFlow
 #define GridRiverLakeFlow
 #endif
