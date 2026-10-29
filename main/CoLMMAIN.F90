@@ -889,8 +889,14 @@ SUBROUTINE CoLMMAIN ( &
          ! throughfall = input - qintr_*, so old-canopy release xsc = pg_* - throughfall.
          xsc_rain_out = max(pg_rain - (forc_rain + qflx_irrig_sprinkler - qintr_rain), 0._r8)
          xsc_snow_out = max(pg_snow - (forc_snow - qintr_snow), 0._r8)
-         gross_intr_rain = max(qintr_rain, 0._r8)
-         gross_intr_snow = max(qintr_snow, 0._r8)
+         ! qintr_* are NET interception (input - direct throughfall - drainage);
+         ! mt_precip needs the GROSS interception (input - direct throughfall)
+         ! to split pure-gap throughfall from post-mix canopy drip.  The leaf
+         ! interception call above exposes the real drainage rate for MT builds
+         ! (mt_leaf_qdrp_*); using the net value here lost all old-canopy solute
+         ! flushing (N02).
+         gross_intr_rain = max(max(qintr_rain, 0._r8) + max(mt_leaf_qdrp_rain, 0._r8), 0._r8)
+         gross_intr_snow = max(max(qintr_snow, 0._r8) + max(mt_leaf_qdrp_snow, 0._r8), 0._r8)
          CALL mt_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, &
             ldew_rain_int_trc, ldew_snow_int_trc)
 #ifdef CROP

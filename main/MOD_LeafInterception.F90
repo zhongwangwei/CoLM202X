@@ -47,6 +47,17 @@ MODULE MOD_LeafInterception
    ! Used by check_interception_balance subroutine under CoLMDEBUG
    real(r8), parameter ::  INTERCEPTION_BALANCE_TOL = 1.0e-5_r8
 
+#ifdef MaterialTransport
+   ! Real canopy DRAINAGE rate (tex/deltim, mm/s) of the last interception
+   ! call, exposed only for the material-transport layer.  The host's
+   ! qintr_* outputs are NET interception (input - direct throughfall -
+   ! drainage), so the material routines cannot recover the gross
+   ! interception (= input - direct throughfall) from them.  The host
+   ! interface is unchanged for non-MT builds.
+   real(r8), public :: mt_leaf_qdrp_rain = 0._r8
+   real(r8), public :: mt_leaf_qdrp_snow = 0._r8
+#endif
+
    !----------------------- Dummy argument --------------------------------
    real(r8) :: satcap                     ! maximum allowed water on canopy [mm]
    real(r8) :: satcap_rain                ! maximum allowed rain on canopy [mm]
@@ -416,6 +427,16 @@ CONTAINS
          qintr_rain = prc_rain + prl_rain + qflx_irrig_sprinkler - thru_rain / deltim
          qintr_snow = prc_snow + prl_snow - thru_snow / deltim
 
+#ifdef MaterialTransport
+         IF (deltim > 0._r8) THEN
+            mt_leaf_qdrp_rain = max(tex_rain, 0._r8) / deltim
+            mt_leaf_qdrp_snow = max(tex_snow, 0._r8) / deltim
+         ELSE
+            mt_leaf_qdrp_rain = 0._r8
+            mt_leaf_qdrp_snow = 0._r8
+         ENDIF
+#endif
+
 #if (defined CoLMDEBUG)
          w = w - ldew - (pg_rain+pg_snow)*deltim
          IF (abs(w) > INTERCEPTION_BALANCE_TOL) THEN
@@ -453,6 +474,14 @@ CONTAINS
          qintr      = 0.
          qintr_rain = 0.
          qintr_snow = 0.
+
+#ifdef MaterialTransport
+         ! The whole old canopy store is released here and the caller books it
+         ! as pre-mix xsc; nothing is intercepted and no post-mix drainage is
+         ! produced, so the gross-interception helpers stay zero.
+         mt_leaf_qdrp_rain = 0._r8
+         mt_leaf_qdrp_snow = 0._r8
+#endif
 
       ENDIF
 
@@ -638,6 +667,9 @@ CONTAINS
 #ifdef CROP
    integer  :: irrig_flag  ! 1 if sprinker, 2 if others
 #endif
+#ifdef MaterialTransport
+   real(r8) :: mt_qdrp_rain_sum, mt_qdrp_snow_sum
+#endif
    real(r8) pg_rain_tmp, pg_snow_tmp, qflx_irrig_sprinkler_
 
       pg_rain_tmp = 0.
@@ -651,6 +683,10 @@ CONTAINS
 
       ps = patch_pft_s(ipatch)
       pe = patch_pft_e(ipatch)
+#ifdef MaterialTransport
+      mt_qdrp_rain_sum = 0._r8
+      mt_qdrp_snow_sum = 0._r8
+#endif
 
       IF (DEF_Interception_scheme==1) THEN
          DO i = ps, pe
@@ -660,6 +696,10 @@ CONTAINS
                                                 ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i))
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
+#ifdef MaterialTransport
+            mt_qdrp_rain_sum = mt_qdrp_rain_sum + mt_leaf_qdrp_rain*pftfrac(i)
+            mt_qdrp_snow_sum = mt_qdrp_snow_sum + mt_leaf_qdrp_snow*pftfrac(i)
+#endif
          ENDDO
       ELSEIF (DEF_Interception_scheme==8) THEN
          DO i = ps, pe
@@ -670,6 +710,10 @@ CONTAINS
                                              ldew_p(i),ldew_rain_p(i),ldew_snow_p(i),z0m_p(i),hu,pg_rain,pg_snow,qintr_p(i),qintr_rain_p(i),qintr_snow_p(i))
             pg_rain_tmp = pg_rain_tmp + pg_rain*pftfrac(i)
             pg_snow_tmp = pg_snow_tmp + pg_snow*pftfrac(i)
+#ifdef MaterialTransport
+            mt_qdrp_rain_sum = mt_qdrp_rain_sum + mt_leaf_qdrp_rain*pftfrac(i)
+            mt_qdrp_snow_sum = mt_qdrp_snow_sum + mt_leaf_qdrp_snow*pftfrac(i)
+#endif
          ENDDO
       ELSE
          write(6,*) 'LEAF_interception_pftwrap requires scheme 1 or 8'
@@ -684,6 +728,10 @@ CONTAINS
       qintr   = sum(qintr_p(ps:pe) * pftfrac(ps:pe))
       qintr_rain = sum(qintr_rain_p(ps:pe) * pftfrac(ps:pe))
       qintr_snow = sum(qintr_snow_p(ps:pe) * pftfrac(ps:pe))
+#ifdef MaterialTransport
+      mt_leaf_qdrp_rain = mt_qdrp_rain_sum
+      mt_leaf_qdrp_snow = mt_qdrp_snow_sum
+#endif
 
    END SUBROUTINE LEAF_interception_pftwrap
 #endif
