@@ -340,6 +340,9 @@ MODULE MOD_BGC_CNZeroFluxes
  
        sminn_to_denit_excess_vr             , &
        sminn_leached_vr                     , &
+#ifdef MaterialTransport
+       smin_nh4_leached_vr                  , &
+#endif
        sminn_to_plant_fun_vr                , &
  
        f_nit_vr                             , &
@@ -377,6 +380,9 @@ MODULE MOD_BGC_CNZeroFluxes
        denit                                , &
        f_n2o_nit                            , &
        smin_no3_leached                     , &
+#ifdef MaterialTransport
+       smin_nh4_leached                     , &
+#endif
        smin_no3_runoff                      , &
        sminn_leached                        , &
        som_n_leached                        , &
@@ -759,12 +765,18 @@ CONTAINS
          DO j = 1, nl_soil
             sminn_to_denit_excess_vr(j,i)            = 0._r8
             sminn_leached_vr(j,i)                    = 0._r8
+#ifdef MaterialTransport
+            smin_nh4_leached_vr(j,i)                 = 0._r8
+#endif
             sminn_to_plant_fun_vr(j,i)               = 0._r8
          ENDDO
       ELSE
          DO j = 1, nl_soil
             f_nit_vr(j,i)                            = 0._r8
             f_denit_vr(j,i)                          = 0._r8
+#ifdef MaterialTransport
+            smin_nh4_leached_vr(j,i)                 = 0._r8
+#endif
             smin_no3_leached_vr(j,i)                 = 0._r8
             smin_no3_runoff_vr(j,i)                  = 0._r8
             n2_n2o_ratio_denit_vr(j,i)               = 0._r8
@@ -801,6 +813,9 @@ CONTAINS
       denit(i)                                    = 0._r8
       f_n2o_nit(i)                                = 0._r8
       smin_no3_leached(i)                         = 0._r8
+#ifdef MaterialTransport
+      smin_nh4_leached(i)                         = 0._r8
+#endif
       smin_no3_runoff(i)                          = 0._r8
       sminn_leached(i)                            = 0._r8
       som_n_leached(i)                            = 0._r8

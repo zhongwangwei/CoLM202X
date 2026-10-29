@@ -22,8 +22,9 @@ MODULE MOD_MT_Namelist
 !     /
 !
 !  The group may be left out; every setting then keeps its default and no
-!  material is carried. DEF_USE_SEDIMENT stays in &nl_colm, where
-!  upstream has it; the river sediment then needs GridRiverLakeFlow, and its
+!  material is carried.  DEF_USE_SEDIMENT lives in &nl_colm_material as
+!  well (it is owned by MOD_Namelist so the river code can read it), and
+!  the river sediment needs MaterialTransport plus GridRiverLakeFlow; its
 !  &nl_colm_sediment_parameter (DEF_SEDIMENT_PARAM_FILE, 'null' = code
 !  defaults) is read by MOD_MT_Sediment.
 !
@@ -44,6 +45,12 @@ MODULE MOD_MT_Namelist
    character(len=256) :: DEF_ISOTOPE_SPECIES    = 'H2_18O,HDO'
    character(len=256) :: DEF_ISOTOPE_PARAM_FILE = 'null'
    character(len=256) :: DEF_SOLUTE_NAMES       = ''
+   ! Species-resolved NH4 leaching in BGC (MOD_BGC_Soil_BiogeochemNLeaching).
+   ! 'auto' (default) turns it on exactly when DEF_SOLUTE_NAMES contains NH4;
+   ! 'on'/'off' force the choice.  Only meaningful with BGC.  Off leaves the
+   ! upstream BGC results bit-identical.
+   character(len=16)  :: DEF_NH4_LEACHING_MODE = 'auto'
+   logical            :: DEF_USE_NH4_LEACHING  = .false.
    ! 'NAME:path' entries separated by ',' or ';', or plain paths in the
    ! order of DEF_SOLUTE_NAMES. A solute without a file uses code defaults.
    character(len=2048):: DEF_SOLUTE_PARAM_FILES = 'null'
@@ -80,6 +87,33 @@ MODULE MOD_MT_Namelist
    ! 4.3 / 17.6; above 5e-5 the remembered ratio gets old (NEC Jan bias +4.5,
    ! RMSE 7.2).  Must be >= DEF_MT_FORCING_MIN_PRECIP when phase fill is used.
    real(r8)           :: DEF_MT_FORCING_MEMORY_PRECIP = 2.e-5_r8
+   ! Indirect N2O emission factors for the nitrogen solutes at the land-to-
+   ! river entry [kg N2O-N per kg N entering the river].  0 disables the
+   ! conversion for that species, which leaves every result bit-identical
+   ! to a build without this option.
+   !
+   ! Reference values (IPCC 2019 Refinement, Vol. 4 Ch. 11, Table 11.3):
+   !   EF5g = 0.006  groundwater / surface drainage
+   !   EF5r = 0.0025 rivers
+   !   EF5e = 0.0025 estuaries            total EF5 = 0.011
+   ! The 2006 Guidelines used a single 0.0075 (each component 0.0025).
+   ! Tian, Cai & Akiyama (2019), Environ. Pollut. 245:300-306 (254
+   ! measurements): groundwater/springs 0.0079, surface drainage 0.0040,
+   ! lakes/ponds/reservoirs 0.0012, rivers 0.0030.  Maavara et al. (2019),
+   ! Glob. Change Biol. 25:473-488 model nitrification/denitrification with
+   ! residence time and conclude the IPCC factors may overestimate inland-
+   ! water N2O by up to an order of magnitude; river N2O is mostly
+   ! denitrification-derived while reservoirs/estuaries are nitrification-
+   ! dominated, which a single factor cannot represent.
+   !
+   ! Method caveat: this is the inventory arithmetic (N_leached x EF5)
+   ! applied once at the river entry, not a mechanistic water-body model.
+   ! It does not represent where in the network the emission happens or how
+   ! long the water resides, and it must not be applied again along the
+   ! river.  Suggested use: start with the river component (0.0025) and use
+   ! 0.006 / 0.011 as sensitivity bounds.
+   real(r8)           :: DEF_MT_N2O_EF5_NH4 = 0._r8
+   real(r8)           :: DEF_MT_N2O_EF5_NO3 = 0._r8
    logical            :: DEF_MT_USE_SOIL_INIT   = .false.
    character(len=256) :: DEF_MT_SOIL_INIT_FILE  = 'null'
    character(len=256) :: DEF_MT_SOIL_INIT_VARS  = ''
@@ -120,6 +154,9 @@ CONTAINS
    !  without it the first command-line argument is used, as in CoLM.F90.
    !-----------------------------------------------------------------------
    USE MOD_SPMD_Task
+   ! River-sediment switch: owned by MOD_Namelist (shared with the river
+   ! code) but read here, from &nl_colm_material, not from &nl_colm.
+   USE MOD_Namelist, only: DEF_USE_SEDIMENT
    IMPLICIT NONE
 
    character(len=*), intent(in), optional :: nlfile
@@ -133,7 +170,8 @@ CONTAINS
          DEF_SEDIMENT_PARAM_FILE, DEF_USE_METHANE, DEF_METHANE_PARAM_FILE, &
          DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD, DEF_MT_LULCC_ABORT_NBAD, &
          DEF_MT_AQUIFER_MIXING_WATER_MM, DEF_MT_FORCING_MIN_PRECIP, &
-         DEF_MT_FORCING_MEMORY_PRECIP, DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS
+         DEF_MT_FORCING_MEMORY_PRECIP, DEF_MT_USE_SOIL_INIT, DEF_MT_SOIL_INIT_FILE, DEF_MT_SOIL_INIT_VARS, &
+         DEF_MT_N2O_EF5_NH4, DEF_MT_N2O_EF5_NO3, DEF_USE_SEDIMENT, DEF_NH4_LEACHING_MODE
 
       namelist /nl_colm_isotope_parameter/ DEF_ISO_USE_FRACTIONATION, &
          DEF_ISO_KINETIC_SCHEME, DEF_ISO_ICE_SUPERSAT_SLOPE, DEF_ISO_CG_RELHUM_MAX, &
@@ -183,6 +221,7 @@ CONTAINS
             ENDIF
          ENDIF
 
+         CALL resolve_nh4_leaching ()
          CALL check_settings ()
 
       ENDIF
@@ -194,6 +233,9 @@ CONTAINS
       CALL mpi_bcast (DEF_SOLUTE_NAMES              ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SOLUTE_PARAM_FILES        ,len(DEF_SOLUTE_PARAM_FILES) ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_SEDIMENT_PARAM_FILE       ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_SEDIMENT              ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_USE_NH4_LEACHING          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_NH4_LEACHING_MODE         ,16  ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_USE_METHANE               ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_METHANE_PARAM_FILE        ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_BALANCE_ABORT_NBAD     ,1   ,mpi_integer   ,p_address_master ,p_comm_glb ,p_err)
@@ -202,6 +244,8 @@ CONTAINS
       CALL mpi_bcast (DEF_MT_AQUIFER_MIXING_WATER_MM,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_FORCING_MIN_PRECIP     ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_FORCING_MEMORY_PRECIP  ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_N2O_EF5_NH4            ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
+      CALL mpi_bcast (DEF_MT_N2O_EF5_NO3            ,1   ,mpi_real8     ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_USE_SOIL_INIT          ,1   ,mpi_logical   ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_SOIL_INIT_FILE         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
       CALL mpi_bcast (DEF_MT_SOIL_INIT_VARS         ,256 ,mpi_character ,p_address_master ,p_comm_glb ,p_err)
@@ -234,12 +278,24 @@ CONTAINS
    SUBROUTINE check_settings ()
 
    USE MOD_SPMD_Task, only: CoLM_Stop
+   USE MOD_Namelist, only: DEF_USE_SEDIMENT
    IMPLICIT NONE
+
+      ! The switch is read from &nl_colm_material; it is useless without the
+      ! grid river-lake flow, so fail loudly here rather than silently
+      ! ignoring it.
+#ifndef GridRiverLakeFlow
+      IF (DEF_USE_SEDIMENT) &
+         CALL CoLM_Stop ('DEF_USE_SEDIMENT needs GridRiverLakeFlow in include/define.h.')
+#endif
 
       IF (.not. (DEF_MT_FORCING_MIN_PRECIP >= 0._r8)) &
          CALL CoLM_Stop ('DEF_MT_FORCING_MIN_PRECIP must be >= 0.')
       IF (.not. (DEF_MT_FORCING_MEMORY_PRECIP >= 0._r8)) &
          CALL CoLM_Stop ('DEF_MT_FORCING_MEMORY_PRECIP must be >= 0.')
+      IF (DEF_MT_N2O_EF5_NH4 < 0._r8 .or. DEF_MT_N2O_EF5_NH4 >= 1._r8 .or. &
+          DEF_MT_N2O_EF5_NO3 < 0._r8 .or. DEF_MT_N2O_EF5_NO3 >= 1._r8) &
+         CALL CoLM_Stop ('DEF_MT_N2O_EF5_NH4/NO3 must be in [0,1).')
 
       SELECT CASE (trim(adjustl(DEF_ISO_KINETIC_SCHEME)))
       CASE ('CAPPA2003', 'Cappa2003', 'cappa2003')
@@ -289,6 +345,72 @@ CONTAINS
           DEF_MT_LULCC_ABORT_NBAD < 0) CALL CoLM_Stop ('Invalid DEF_MT_*_ABORT_NBAD.')
 
    END SUBROUTINE check_settings
+
+
+   SUBROUTINE resolve_nh4_leaching ()
+   ! Turn DEF_NH4_LEACHING_MODE into the logical read by BGC.  'auto'
+   ! enables species-resolved NH4 leaching exactly when DEF_SOLUTE_NAMES
+   ! contains a standalone NH4 token; 'on'/'off' force it.  The test is
+   ! case-insensitive and tolerant of spaces around the commas.
+   USE MOD_SPMD_Task, only: CoLM_Stop
+   IMPLICIT NONE
+
+   character(len=256) :: names
+   character(len=16)  :: mode
+   integer :: i, k, pos, n
+   logical :: left_ok, right_ok
+
+      mode = adjustl(DEF_NH4_LEACHING_MODE)
+      CALL mt_lower_case (mode)
+
+      SELECT CASE (trim(mode))
+      CASE ('auto')
+         names = trim(adjustl(DEF_SOLUTE_NAMES))
+         CALL mt_lower_case (names)
+         n = len_trim(names)
+         DEF_USE_NH4_LEACHING = .false.
+         IF (n > 0) THEN
+            pos = 1
+            DO
+               k = index(names(pos:n), 'nh4')
+               IF (k == 0) EXIT
+               k = pos + k - 1
+               left_ok  = (k == 1) .or. (names(k-1:k-1) == ' ') .or. &
+                          (names(k-1:k-1) == ',')
+               right_ok = (k+3 > n) .or. (names(k+3:k+3) == ' ') .or. &
+                          (names(k+3:k+3) == ',')
+               IF (left_ok .and. right_ok) THEN
+                  DEF_USE_NH4_LEACHING = .true.
+                  EXIT
+               ENDIF
+               pos = k + 3
+               IF (pos > n) EXIT
+            ENDDO
+         ENDIF
+      CASE ('on', 'true', 'yes')
+         DEF_USE_NH4_LEACHING = .true.
+      CASE ('off', 'false', 'no')
+         DEF_USE_NH4_LEACHING = .false.
+      CASE DEFAULT
+         CALL CoLM_Stop ('DEF_NH4_LEACHING must be auto, on or off.')
+      END SELECT
+
+   END SUBROUTINE resolve_nh4_leaching
+
+
+   SUBROUTINE mt_lower_case (s)
+   ! ASCII lower-case in place; no locale/ICU dependency.
+   IMPLICIT NONE
+   character(len=*), intent(inout) :: s
+   integer :: i, ic
+
+      DO i = 1, len_trim(s)
+         ic = iachar(s(i:i))
+         IF (ic >= iachar('A') .and. ic <= iachar('Z')) &
+            s(i:i) = achar(ic + 32)
+      ENDDO
+
+   END SUBROUTINE mt_lower_case
 
 
    logical FUNCTION mt_any_enabled ()

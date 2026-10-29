@@ -87,6 +87,10 @@ MODULE MOD_MT_Defs
       ! for backward-compatible species that do not declare a solubility.
       real(r8)          :: max_dissolved_conc = huge(1.0_r8)
       real(r8)          :: decay_rate
+      ! Indirect N2O emission factor at the land-to-river entry
+      ! [kg N2O-N per kg N]; 0 disables it.  Set per solute in its
+      ! &nl_colm_solute_parameter file.
+      real(r8)          :: n2o_ef5 = 0._r8
       ! Ionic charge is registry metadata; no electroneutrality solver exists.
       integer           :: charge = 0
    end type tracer_info_type

@@ -2,10 +2,8 @@
     ! ------------------------------------------------------------------
     ! River sediment (MOD_MT_Sediment), with GridRiverLakeFlow:
     !
-    !   &nl_colm
-    !      DEF_USE_SEDIMENT = .true.
-    !   /
     !   &nl_colm_material
+    !      DEF_USE_SEDIMENT        = .true.
     !      DEF_SEDIMENT_PARAM_FILE = 'run/standard_sediment_parameter.nml'
     !   /
     !

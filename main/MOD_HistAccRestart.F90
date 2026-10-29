@@ -144,12 +144,20 @@ CONTAINS
          RETURN
       ENDIF
 
-      CALL require_var (file, 'hacc_complete', landpatch, 'patch', 1, 0, 0)
+      IF (.not. marker_present (file, 'hacc_complete', landpatch, 'patch')) THEN
+         ! A sidecar left by a run killed between creating the blocks and
+         ! writing the completion marker carries no trustworthy window.
+         ! Ignore it and start a fresh history window instead of refusing to
+         ! restart the model (the split run would otherwise be unusable).
+         IF (p_is_master) write(*,'(A)') 'Warning: incomplete history-accumulator restart ' &
+            //trim(file)//' (no completion marker); ignoring it and restarting the history window.'
+         RETURN
+      ENDIF
       CALL read_marker (file, 'hacc_complete', vmin, vmax)
       IF (vmin /= 1._r8 .or. vmax /= 1._r8) THEN
-         IF (p_is_master) write(*,'(A)') 'ERROR: incomplete history-accumulator restart ' &
-            //trim(file)//' (left by a run that stopped while saving). Delete it to start a new history window.'
-         CALL CoLM_stop ()
+         IF (p_is_master) write(*,'(A)') 'Warning: incomplete history-accumulator restart ' &
+            //trim(file)//' (hacc_complete is not 1); ignoring it and restarting the history window.'
+         RETURN
       ENDIF
 
       CALL require_var (file, 'hacc_freq', landpatch, 'patch', 1, 0, 0)
@@ -1459,5 +1467,45 @@ CONTAINS
       IF (bad(1) /= 0) CALL CoLM_stop ()
 
    END SUBROUTINE require_var
+
+   !-----------------------------------------------------------------------
+   logical FUNCTION marker_present (file, name, pixelset, vecname)
+
+   ! Non-fatal existence check: .true. when every block file of the pixel set
+   ! holds `name`.  Used to detect a sidecar left incomplete by a killed run
+   ! so it can be ignored instead of aborting the restart.
+
+   USE netcdf
+   USE MOD_Block, only: get_filename_block
+   USE MOD_Pixelset, only: pixelset_type
+   IMPLICIT NONE
+
+   character(len=*),    intent(in) :: file, name, vecname
+   type(pixelset_type), intent(in) :: pixelset
+
+   character(len=256) :: fileblock
+   integer :: iblkgrp, iblk, jblk, ncid, varid, bad(1)
+   logical :: ok
+
+      bad = 0
+      IF (p_is_io) THEN
+         DO iblkgrp = 1, pixelset%nblkgrp
+            iblk = pixelset%xblkgrp(iblkgrp)
+            jblk = pixelset%yblkgrp(iblkgrp)
+            CALL get_filename_block (file, iblk, jblk, fileblock)
+            IF (nf90_open (trim(fileblock), NF90_NOWRITE, ncid) /= NF90_NOERR) THEN
+               bad = 1
+               CYCLE
+            ENDIF
+            ok = (nf90_inq_varid (ncid, trim(name), varid) == NF90_NOERR)
+            IF (.not. ok) bad = 1
+            IF (nf90_close (ncid) /= NF90_NOERR) bad = 1
+            IF (bad(1) /= 0) EXIT
+         ENDDO
+      ENDIF
+      CALL global_max (bad)
+      marker_present = (bad(1) == 0)
+
+   END FUNCTION marker_present
 
 END MODULE MOD_HistAccRestart

@@ -66,9 +66,8 @@
    ! baseflow; rerun mksrfdata and mkinidata after switching).
    DEF_GridRiverLake_FloodFeedback = .true.
 
-   ! river sediment, carried by the river-lake flow; parameters in
-   ! DEF_SEDIMENT_PARAM_FILE of &nl_colm_material below
-   DEF_USE_SEDIMENT = .true.
+   ! river sediment is switched on in &nl_colm_material below; its parameters
+   ! come from DEF_SEDIMENT_PARAM_FILE there
 
    ! For water-budget studies use the dynamic lake: the static default books lake
    ! evaporation shortfalls as lake_deficit and never repays them.
@@ -112,7 +111,8 @@
    DEF_SOLUTE_NAMES       = 'CL'
    DEF_SOLUTE_PARAM_FILES = 'CL:/path/to/CoLM/run/standard_chloride_parameter.nml'
 
-   ! ----- river sediment (DEF_USE_SEDIMENT in &nl_colm) -----
+   ! ----- river sediment (switch is part of this group) -----
+   DEF_USE_SEDIMENT        = .true.
    DEF_SEDIMENT_PARAM_FILE = '/path/to/CoLM/run/standard_sediment_parameter.nml'
 
    ! ----- methane: needs BGC with LULC_IGBP_PFT or LULC_IGBP_PC -----

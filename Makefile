@@ -148,6 +148,7 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeHistShard.o   \
 				 MOD_Grid_RiverLakeHistRoute.o   \
 				 MOD_MT_Solute.o                 \
+				 MOD_MT_NitrogenN2O.o            \
 				 MOD_MT_Lifecycle.o              \
 				 MOD_Grid_RiverLakeTimeVars.o    \
 				 MOD_MT_RiverLake.o              \
@@ -188,6 +189,7 @@ OBJS_BASIC =    \
 				 MOD_MT_Precip.o                 \
 				 MOD_MT_Evapo.o                  \
 				 MOD_MT_SoilWater.o              \
+				 MOD_MT_NitrogenLeaching.o       \
 				 MOD_MT_Snow.o                   \
 				 MOD_MT_Rest.o                   \
 				 MOD_LAIEmpirical.o              \
@@ -491,14 +493,18 @@ MOD_MT_Methane_Hist.o: MOD_MT_Hist.o MOD_HistGridded.o MOD_MT_Methane_AccFlux.o 
 MOD_MT_Methane_Impl.o: MOD_MT_Methane_BgcLink.o MOD_MT_Methane_Driver.o MOD_MT_Methane_WetlandBGC.o
 MOD_MT_Methane.o: MOD_MT_Methane_Hist.o MOD_MT_Methane_Impl.o MOD_MT_Methane_AccFlux.o \
 				MOD_MT_Methane_GIEMS.o MOD_MT_Methane_pH.o MOD_MT_Methane_Microbes.o
-MOD_MT_RiverLake.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
+MOD_MT_RiverLake.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_MT_Namelist.o MOD_MT_NitrogenN2O.o MOD_Grid_Reservoir.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeHistState.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Grid_RiverLakeTimeVars.o
 MOD_MT_Sediment.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_Grid_RiverLakeBifurcation.o MOD_Grid_RiverLakeHistRoute.o MOD_Grid_RiverLakeLevee.o MOD_Grid_RiverLakeNetwork.o MOD_Vector_ReadWrite.o
 MOD_MT_RiverLakeCoupling.o: MOD_MT_Defs.o MOD_MT_Lifecycle.o MOD_MT_RiverLake.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_Grid_RiverLakeBifurcation.o
 MOD_MT_Rest.o: MOD_MT_Defs.o MOD_MT_Forcing.o MOD_MT_Lifecycle.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_Vars_TimeInvariants.o
 MOD_MT_Solute.o: MOD_MT_Defs.o MOD_MT_Namelist.o
+MOD_MT_NitrogenN2O.o: MOD_MT_Defs.o MOD_MT_Namelist.o
 MOD_MT_Snow.o: MOD_MT_Defs.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_SoilInit.o: MOD_MT_Defs.o MOD_MT_Isotope_Registry.o MOD_MT_Namelist.o MOD_MT_Providers.o MOD_MT_Vars.o
 MOD_MT_SoilWater.o: MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o MOD_MT_Isotope_SoilFlow.o
+MOD_MT_NitrogenLeaching.o: MOD_MT_Defs.o MOD_MT_Vars.o MOD_BGC_Vars_1DFluxes.o MOD_Vars_Global.o
+MOD_BGC_Soil_BiogeochemNLeaching.o: MOD_MT_Namelist.o
+MOD_BGC_CNNStateUpdate3.o: MOD_MT_Namelist.o
 MOD_MT_SpecialPatches.o: MOD_MT_Conservation.o MOD_MT_Defs.o MOD_MT_EvapLimit.o MOD_MT_Forcing.o MOD_MT_Frac.o MOD_MT_Hist.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Vars.o
 MOD_MT_Vars.o: MOD_MT_Defs.o MOD_MT_Namelist.o MOD_MT_Solute.o MOD_MT_Isotope_Lulcc.o
 MOD_Vars_TimeVariables.o: MOD_MT_Rest.o MOD_MT_RiverLake.o

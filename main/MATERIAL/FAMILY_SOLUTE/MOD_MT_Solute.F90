@@ -29,6 +29,9 @@ MODULE MOD_MT_Solute
       real(r8) :: vapor_default_conc = 0.0_r8
       real(r8) :: max_dissolved_conc = huge(1.0_r8)
       real(r8) :: decay_rate = 0.0_r8
+      ! Indirect N2O emission factor at the land-to-river entry
+      ! [kg N2O-N per kg N].  0 disables the conversion for this solute.
+      real(r8) :: n2o_ef5 = 0.0_r8
       integer  :: charge = 0
    end type solute_parameter_type
 
@@ -80,6 +83,7 @@ CONTAINS
       DEF_SOLUTE%vapor_default_conc  = tracers(imt)%vapor_default_conc
       DEF_SOLUTE%max_dissolved_conc  = tracers(imt)%max_dissolved_conc
       DEF_SOLUTE%decay_rate          = tracers(imt)%decay_rate
+      DEF_SOLUTE%n2o_ef5             = tracers(imt)%n2o_ef5
       DEF_SOLUTE%charge              = tracers(imt)%charge
 
       open(newunit=unit_nml, status='OLD', file=trim(nlfile), form='FORMATTED')
@@ -102,7 +106,14 @@ CONTAINS
       tracers(imt)%vapor_default_conc  = DEF_SOLUTE%vapor_default_conc
       tracers(imt)%max_dissolved_conc  = DEF_SOLUTE%max_dissolved_conc
       tracers(imt)%decay_rate = DEF_SOLUTE%decay_rate
+      tracers(imt)%n2o_ef5            = DEF_SOLUTE%n2o_ef5
       tracers(imt)%charge              = DEF_SOLUTE%charge
+
+      ! The entry-point N2O factor is a fraction of the incoming mass; keep
+      ! it inside [0,1) so a typo cannot create or destroy more nitrogen than
+      ! enters the river.
+      IF (tracers(imt)%n2o_ef5 < 0._r8 .or. tracers(imt)%n2o_ef5 >= 1._r8) &
+         CALL CoLM_stop ('DEF_SOLUTE%n2o_ef5 must be in [0,1).')
    END SUBROUTINE read_solute_parameter_file
 
    logical FUNCTION mt_has_dissolved_limit (imt)

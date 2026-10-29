@@ -97,6 +97,11 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: mt_dry_split(:,:) ! Internal drained mass split by actual outflow flux [R*m3]
    real(r8), allocatable :: mt_dry_pending(:,:) ! Drained mass awaiting a known outflow direction [R*m3]
    real(r8), allocatable :: mt_decay_source(:,:) ! Net reactive source/sink over routing period
+   ! Nitrogen converted to N2O at the land-to-river entry, positive mass
+   ! [kg N] per routing period.  Diagnostic only: the mass is removed from
+   ! the river input before it enters acc_trc_inp, so the river balance stays
+   ! closed without an extra source term.
+   real(r8), allocatable :: mt_n2o_source(:,:)
 
    ! Input: tracer amount flux from runoff
    real(r8), allocatable :: acc_trc_inp  (:,:) ! Accumulated tracer input [R*m3] (nmts, numucat)
@@ -128,6 +133,10 @@ MODULE MOD_MT_RiverLake
    ! host sidecar) instead of losing the first part of the window.
    real(r8), allocatable, save :: histsnap_stor(:,:), histsnap_levsto(:,:)
    real(r8), allocatable, save :: histsnap_out(:,:), histsnap_bifout(:,:)
+   ! N2O converted at the river entry (kg N) must travel with the other
+   ! history accumulators across a restart; otherwise a split run divides a
+   ! window whose N2O numerator restarts from zero.
+   real(r8), allocatable, save :: histsnap_n2o(:,:)
    real(r8), allocatable, save :: histsnap_wstor(:), histsnap_wlevsto(:), histsnap_acctime(:)
    logical, save :: histsnap_valid = .false.
 
@@ -249,6 +258,7 @@ CONTAINS
          allocate (mt_dry_split(nmts, numucat))
          allocate (mt_dry_pending(nmts, numucat))
          allocate (mt_decay_source(nmts, numucat))
+         allocate (mt_n2o_source  (nmts, numucat))
          allocate (acc_trc_inp        (nmts, numucat))
          allocate (mt_inp_buf        (nmts, numucat))
          allocate (acc_rnof_ref       (numucat))
@@ -276,6 +286,7 @@ CONTAINS
          mt_dry_split = 0._r8
          mt_dry_pending = 0._r8
          mt_decay_source = 0._r8
+         mt_n2o_source   = 0._r8
          acc_trc_inp  = 0._r8
          mt_inp_buf  = 0._r8
          acc_rnof_ref = 0._r8
@@ -408,6 +419,7 @@ CONTAINS
       ! every land timestep — wasteful and a divergence hazard (two
       ! parse code paths for the same inputs).
       USE MOD_MT_Defs, only: tracer_init_water_ratio
+      USE MOD_MT_NitrogenN2O, only: mt_n2o_ef5_for
       IMPLICIT NONE
       real(r8), intent(in) :: rnof_uc_depth(:)
       integer,  intent(in) :: numucat_in
@@ -415,6 +427,7 @@ CONTAINS
 
       integer :: i, imt
       real(r8), allocatable :: R_default(:)
+      real(r8) :: mass_in, ef5, n2o_in
 
       ! TRACER may be compiled while the runtime registry intentionally
       ! contains zero tracers (DEF_MT_NUM=0).  In that mode mt_riverlake_init()
@@ -448,10 +461,33 @@ CONTAINS
          DO imt = 1, nmts
             IF (.not. mt_uses_generic_water(imt)) CYCLE
             IF (present(mt_rnof_ext)) THEN
-               acc_trc_inp(imt, i) = acc_trc_inp(imt, i) + mt_rnof_ext(imt, i)
+               mass_in = mt_rnof_ext(imt, i)
             ELSE
-               acc_trc_inp(imt, i) = acc_trc_inp(imt, i) + R_default(imt) * rnof_uc_depth(i)
+               mass_in = R_default(imt) * rnof_uc_depth(i)
             ENDIF
+            ! Indirect N2O (design A): at the land-to-river entry, a
+            ! configured fraction of the dissolved nitrogen is converted to
+            ! N2O and leaves to the atmosphere.  Water is unchanged and only
+            ! the dissolved mass is reduced, so the river mass balance
+            ! closes without a separate source term.  The per-species policy
+            ! (which solutes, and the factor: parameter file or
+            ! &nl_colm_material override) lives in FAMILY_SOLUTE's
+            ! MOD_MT_NitrogenN2O; this generic river code only applies the
+            ! returned fraction.  0 disables the conversion for a species,
+            ! which keeps those configurations bit-identical.
+            ! This is the inventory arithmetic (N_leached x EF5), not a
+            ! mechanistic water-body model: it does not represent where the
+            ! emission occurs or the water residence time, and it must not be
+            ! applied again downstream.  Reference values and sources are in
+            ! MOD_MT_NitrogenN2O and the standard solute parameter files.
+            ef5 = mt_n2o_ef5_for(imt)
+            IF (ef5 > 0._r8 .and. mass_in > 0._r8) THEN
+               n2o_in = mass_in * ef5
+               mass_in = mass_in - n2o_in
+               IF (allocated(mt_n2o_source)) &
+                  mt_n2o_source(imt, i) = mt_n2o_source(imt, i) + n2o_in
+            ENDIF
+            acc_trc_inp(imt, i) = acc_trc_inp(imt, i) + mass_in
          ENDDO
       ENDDO
 
@@ -2199,6 +2235,7 @@ CONTAINS
          IF (allocated(a_trc_out   )) a_trc_out    = 0._r8
          IF (allocated(a_trc_bifout)) a_trc_bifout = 0._r8
          IF (allocated(a_trc_acctime)) a_trc_acctime = 0._r8
+         IF (allocated(mt_n2o_source)) mt_n2o_source = 0._r8
       ENDIF
 
    END SUBROUTINE mt_riverlake_flush_acc
@@ -2441,6 +2478,17 @@ CONTAINS
          CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_out, imt=imt)
          write(varname, '(A,A)') 'mt_hist_bifout_', trim(tracer_names(imt))
          CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_bifout, imt=imt)
+         IF (allocated(mt_n2o_source)) THEN
+            write(varname, '(A,A)') 'mt_hist_n2o_', trim(tracer_names(imt))
+            CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., hist_time_present)
+            IF (hist_time_present) THEN
+               CALL read_mt_hist_acc (file_restart, trim(varname), acc2=mt_n2o_source, imt=imt)
+            ELSE
+               ! Restarts written before the N2O diagnostic carry no numerator;
+               ! start its window at zero instead of failing the reader.
+               mt_n2o_source(imt, :) = 0._r8
+            ENDIF
+         ENDIF
       ENDDO
       CALL read_mt_hist_acc (file_restart, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL read_mt_hist_acc (file_restart, 'mt_hist_levsto_water', acc1=a_levsto_water)
@@ -2585,17 +2633,20 @@ CONTAINS
       IF (numucat > 0) nuc = numucat
 
       IF (allocated(histsnap_stor)) deallocate(histsnap_stor, histsnap_levsto, histsnap_out, &
-         histsnap_bifout, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
+         histsnap_bifout, histsnap_n2o, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
       allocate(histsnap_stor(ntr,nuc), histsnap_levsto(ntr,nuc), histsnap_out(ntr,nuc), &
-         histsnap_bifout(ntr,nuc), histsnap_wstor(nuc), histsnap_wlevsto(nuc), histsnap_acctime(nuc))
+         histsnap_bifout(ntr,nuc), histsnap_n2o(ntr,nuc), histsnap_wstor(nuc), &
+         histsnap_wlevsto(nuc), histsnap_acctime(nuc))
       histsnap_stor = 0._r8; histsnap_levsto = 0._r8; histsnap_out = 0._r8
-      histsnap_bifout = 0._r8; histsnap_wstor = 0._r8; histsnap_wlevsto = 0._r8
+      histsnap_bifout = 0._r8; histsnap_n2o = 0._r8
+      histsnap_wstor = 0._r8; histsnap_wlevsto = 0._r8
       histsnap_acctime = 0._r8
       IF (nuc > 0) THEN
          IF (allocated(a_trc_storage_mass)) histsnap_stor = a_trc_storage_mass
          IF (allocated(a_trc_levsto_mass)) histsnap_levsto = a_trc_levsto_mass
          IF (allocated(a_trc_out)) histsnap_out = a_trc_out
          IF (allocated(a_trc_bifout)) histsnap_bifout = a_trc_bifout
+         IF (allocated(mt_n2o_source)) histsnap_n2o = mt_n2o_source
          IF (allocated(a_water_storage)) histsnap_wstor = a_water_storage
          IF (allocated(a_levsto_water)) histsnap_wlevsto = a_levsto_water
          IF (allocated(a_trc_acctime)) histsnap_acctime = a_trc_acctime
@@ -2621,6 +2672,10 @@ CONTAINS
          CALL write_mt_hist_acc(file, trim(name), acc2=a_trc_out, imt=imt)
          write(name, '(A,A)') 'mt_hist_bifout_', trim(tracer_names(imt))
          CALL write_mt_hist_acc(file, trim(name), acc2=a_trc_bifout, imt=imt)
+         IF (allocated(mt_n2o_source)) THEN
+            write(name, '(A,A)') 'mt_hist_n2o_', trim(tracer_names(imt))
+            CALL write_mt_hist_acc(file, trim(name), acc2=mt_n2o_source, imt=imt)
+         ENDIF
       ENDDO
       CALL write_mt_hist_acc(file, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL write_mt_hist_acc(file, 'mt_hist_levsto_water', acc1=a_levsto_water)
@@ -2660,6 +2715,17 @@ CONTAINS
          CALL read_mt_hist_acc(file, trim(name), acc2=a_trc_out, imt=imt)
          write(name, '(A,A)') 'mt_hist_bifout_', trim(tracer_names(imt))
          CALL read_mt_hist_acc(file, trim(name), acc2=a_trc_bifout, imt=imt)
+         IF (allocated(mt_n2o_source)) THEN
+            write(name, '(A,A)') 'mt_hist_n2o_', trim(tracer_names(imt))
+            CALL probe_riverlake_restart_vector(file, trim(name), .false., present_on_disk)
+            IF (present_on_disk) THEN
+               CALL read_mt_hist_acc(file, trim(name), acc2=mt_n2o_source, imt=imt)
+            ELSE
+               ! Older sidecars predate the N2O diagnostic; start its window
+               ! at zero instead of failing the whole history transaction.
+               mt_n2o_source(imt, :) = 0._r8
+            ENDIF
+         ENDIF
       ENDDO
       CALL read_mt_hist_acc(file, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL read_mt_hist_acc(file, 'mt_hist_levsto_water', acc1=a_levsto_water)
@@ -2682,7 +2748,7 @@ CONTAINS
    integer :: imt
    character(len=64) :: varname
    real(r8), allocatable :: tmpvec(:)
-   real(r8), allocatable :: t2a(:,:), t2b(:,:), t2c(:,:), t2d(:,:)
+   real(r8), allocatable :: t2a(:,:), t2b(:,:), t2c(:,:), t2d(:,:), t2e(:,:)
    real(r8), allocatable :: t1a(:), t1b(:), t1c(:)
    integer, allocatable :: descriptor_identity(:,:)
 
@@ -2808,8 +2874,12 @@ CONTAINS
       IF (histsnap_valid .and. p_is_worker .and. numucat > 0 .and. &
           allocated(histsnap_stor) .and. allocated(a_trc_storage_mass)) THEN
          allocate(t2a(nmts,numucat), t2b(nmts,numucat), t2c(nmts,numucat), &
-            t2d(nmts,numucat), t1a(numucat), t1b(numucat), t1c(numucat))
+            t2d(nmts,numucat), t2e(nmts,numucat), t1a(numucat), t1b(numucat), t1c(numucat))
          t2a = a_trc_storage_mass; t2b = a_trc_levsto_mass; t2c = a_trc_out; t2d = a_trc_bifout
+         IF (allocated(mt_n2o_source)) THEN
+            t2e = mt_n2o_source
+            IF (allocated(histsnap_n2o)) mt_n2o_source = histsnap_n2o
+         ENDIF
          t1a = a_water_storage; t1b = a_levsto_water; t1c = a_trc_acctime
          a_trc_storage_mass = histsnap_stor; a_trc_levsto_mass = histsnap_levsto
          a_trc_out = histsnap_out; a_trc_bifout = histsnap_bifout
@@ -2826,19 +2896,24 @@ CONTAINS
          CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_out, imt=imt)
          write(varname, '(A,A)') 'mt_hist_bifout_', trim(tracer_names(imt))
          CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_bifout, imt=imt)
+         IF (allocated(mt_n2o_source)) THEN
+            write(varname, '(A,A)') 'mt_hist_n2o_', trim(tracer_names(imt))
+            CALL write_mt_hist_acc (file_restart, trim(varname), acc2=mt_n2o_source, imt=imt)
+         ENDIF
       ENDDO
       CALL write_mt_hist_acc (file_restart, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL write_mt_hist_acc (file_restart, 'mt_hist_levsto_water', acc1=a_levsto_water)
       CALL write_mt_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_trc_acctime)
       IF (allocated(t2a)) THEN
          a_trc_storage_mass = t2a; a_trc_levsto_mass = t2b; a_trc_out = t2c; a_trc_bifout = t2d
+         IF (allocated(mt_n2o_source)) mt_n2o_source = t2e
          a_water_storage = t1a; a_levsto_water = t1b; a_trc_acctime = t1c
-         deallocate(t2a, t2b, t2c, t2d, t1a, t1b, t1c)
+         deallocate(t2a, t2b, t2c, t2d, t2e, t1a, t1b, t1c)
       ENDIF
       IF (histsnap_valid) THEN
          histsnap_valid = .false.
          IF (allocated(histsnap_stor)) deallocate(histsnap_stor, histsnap_levsto, histsnap_out, &
-            histsnap_bifout, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
+            histsnap_bifout, histsnap_n2o, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
       ENDIF
 
       ! Commit metadata last. If any state/descriptor write above is interrupted,
@@ -2991,6 +3066,30 @@ CONTAINS
          CALL route_hist_write_ucat (tmpvec, trim(varname), &
             longname = trim(longname), &
             units = trim(flux_units))
+
+         ! --- Nitrogen converted to N2O at the river entry (design A) ---
+         ! Same window denominator as the outflux above; kg N/s.  The row is
+         ! always written (interior values may be zero) so a configured EF5
+         ! is visible in the history rather than silently absent.
+         IF (allocated(mt_n2o_source)) THEN
+            IF (p_is_worker .and. numucat > 0) THEN
+               tmpvec(:) = spval
+               DO i = 1, numucat
+                  IF (i <= size(a_trc_acctime)) THEN
+                     IF (a_trc_acctime(i) > 0._r8) &
+                        tmpvec(i) = mt_n2o_source(imt, i) / a_trc_acctime(i)
+                  ENDIF
+               ENDDO
+               WHERE (abs(tmpvec) < mt_hist_fp_dust) tmpvec = 0._r8
+            ENDIF
+
+            write(varname, '(A,A)') 'f_mt_n2o_flux_', trim(tracer_names(imt))
+            write(longname, '(A,A,A)') 'N2O-N emitted at river entry (', &
+               trim(tracer_names(imt)), ')'
+            CALL route_hist_write_ucat (tmpvec, trim(varname), &
+               longname = trim(longname), &
+               units = 'kg N/s')
+         ENDIF
 
          IF (DEF_USE_LEVEE) THEN
             ! --- Protected-side tracer storage behind levees ---
@@ -3305,6 +3404,7 @@ CONTAINS
       IF (allocated(mt_dry_split    )) deallocate (mt_dry_split    )
       IF (allocated(mt_dry_pending  )) deallocate (mt_dry_pending  )
       IF (allocated(mt_decay_source)) deallocate (mt_decay_source)
+      IF (allocated(mt_n2o_source  )) deallocate (mt_n2o_source  )
       IF (allocated(mt_levsto       )) deallocate (mt_levsto       )
       IF (allocated(mt_solid)) deallocate (mt_solid, mt_levsto_solid)
       CALL release_mt_substep_workspace()

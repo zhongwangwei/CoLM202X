@@ -37,6 +37,10 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_SPMD_Task, only: CoLM_stop
    USE MOD_MT_SpecialPatches, only: mt_waterbody_hist_sample
 #endif
+#if (defined MaterialTransport && defined BGC)
+   ! Reads the BGC leaching flux without changing BGC physics (see module).
+   USE MOD_MT_NitrogenLeaching, only: mt_bgc_n_leaching
+#endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
 #endif
@@ -256,6 +260,12 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 #ifdef MaterialTransport
          CALL mt_wetland_decomp (i, deltim)
          CALL mt_soil_step (istep_local, i, idate, deltim)
+#ifdef BGC
+         ! Book the BGC mineral-N leaching loss as an external solute input.
+         ! BGC physics is untouched; this only reads the flux it already
+         ! removed from sminn/smin_no3 and adds it to the runoff hand-off.
+         CALL mt_bgc_n_leaching (i, patchtype(i), deltim)
+#endif
 #endif
 #endif
 

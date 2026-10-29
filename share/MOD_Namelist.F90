@@ -1379,8 +1379,6 @@ CONTAINS
       DEF_USE_LEVEE,                          &
       DEF_USE_BIFURCATION,                    &
 
-      DEF_USE_SEDIMENT,                       &
-
       DEF_precip_phase_discrimination_scheme, &
 
       DEF_USE_SoilInit,                       &
@@ -1545,20 +1543,9 @@ CONTAINS
 #if !defined GridRiverLakeFlow && !defined CaMa_Flood
          IF (DEF_USE_BIFURCATION) CALL CoLM_Stop ('Bifurcation requires a river routing solver.')
 #endif
-         ! The river sediment is the sediment of the material transport
-         ! (main/MATERIAL/FAMILY_PARTICLE/MOD_MT_Sediment), which is compiled
-         ! only with MaterialTransport and GridRiverLakeFlow.  Without them
-         ! DEF_USE_SEDIMENT = .true. would be ignored without notice, so stop
-         ! and say what to change.  Runs with DEF_USE_SEDIMENT = .false. (the
-         ! default) do not reach the stop and are unchanged.
-#if !defined MaterialTransport || !defined GridRiverLakeFlow
-         IF (DEF_USE_SEDIMENT) THEN
-            write(*,*) 'DEF_USE_SEDIMENT = .true. needs the river sediment of the material transport:'
-            write(*,*) '   define MaterialTransport and GridRiverLakeFlow in include/define.h and rebuild,'
-            write(*,*) '   or set DEF_USE_SEDIMENT = .false.'
-            CALL CoLM_Stop ('River sediment requires MaterialTransport and GridRiverLakeFlow.')
-         ENDIF
-#endif
+         ! The river sediment switch now belongs to &nl_colm_material and is
+         ! read by MOD_MT_Namelist (where its compile-time requirements are
+         ! checked).  It is intentionally not part of &nl_colm anymore.
          IF ((DEF_GridRiverLake_FloodFeedback .or. DEF_CaMa_FloodFeedback) .and. DEF_Runoff_SCHEME /= 0) THEN
             write(*,*) 'Note: DEF_Runoff_SCHEME is set to 0 for two-way river coupling.'
             DEF_Runoff_SCHEME = 0

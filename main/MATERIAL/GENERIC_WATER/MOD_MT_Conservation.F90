@@ -33,6 +33,8 @@ MODULE MOD_MT_Conservation
    ! Per-step accumulator snapshots (saved at start of each timestep)
    real(r8), allocatable, save :: snap_precip(:,:)  ! (nmts, numpatch)
    real(r8), allocatable, save :: snap_vapor_exchange(:,:)
+   ! BGC nitrogen leaching input, kept out of the precipitation-signature check.
+   real(r8), allocatable, save :: snap_bgc_leach(:,:)
    real(r8), allocatable, save :: snap_evap  (:,:)
    real(r8), allocatable, save :: snap_rnof  (:,:)
    real(r8), allocatable, save :: snap_rsur  (:,:)
@@ -104,6 +106,7 @@ CONTAINS
       IMPLICIT NONE
       IF (allocated(snap_precip)) deallocate(snap_precip)
       IF (allocated(snap_vapor_exchange)) deallocate(snap_vapor_exchange)
+      IF (allocated(snap_bgc_leach)) deallocate(snap_bgc_leach)
       IF (allocated(snap_evap  )) deallocate(snap_evap  )
       IF (allocated(snap_rnof  )) deallocate(snap_rnof  )
       IF (allocated(snap_rsur  )) deallocate(snap_rsur  )
@@ -141,6 +144,8 @@ CONTAINS
          allocate(snap_precip(nmts, size(mt_storage_beg,2))); snap_precip = 0._r8
          allocate(snap_vapor_exchange(nmts, size(mt_storage_beg,2)))
          snap_vapor_exchange = 0._r8
+         allocate(snap_bgc_leach(nmts, size(mt_storage_beg,2)))
+         snap_bgc_leach = 0._r8
          allocate(snap_evap  (nmts, size(mt_storage_beg,2))); snap_evap   = 0._r8
          allocate(snap_rnof  (nmts, size(mt_storage_beg,2))); snap_rnof   = 0._r8
          allocate(snap_rsur  (nmts, size(mt_storage_beg,2))); snap_rsur   = 0._r8
@@ -227,6 +232,8 @@ CONTAINS
          snap_precip(imt, ipatch) = a_trc_precip(imt, ipatch)
          IF (allocated(a_trc_vapor_exchange)) &
             snap_vapor_exchange(imt, ipatch) = a_trc_vapor_exchange(imt, ipatch)
+         IF (allocated(a_trc_bgc_leach)) &
+            snap_bgc_leach(imt, ipatch) = a_trc_bgc_leach(imt, ipatch)
          snap_evap  (imt, ipatch) = a_trc_evap  (imt, ipatch)
          snap_rnof  (imt, ipatch) = a_trc_rnof  (imt, ipatch)
          snap_rsur  (imt, ipatch) = a_trc_rsur  (imt, ipatch)
@@ -342,6 +349,7 @@ CONTAINS
       real(r8) :: step_input_check, step_output_check
       real(r8) :: step_rsur, step_rsub, step_qinfl, step_qcharge
       real(r8) :: step_vapor_exchange
+      real(r8) :: step_bgc_leach
       real(r8) :: R_init, water_err, water_err_R, err_minus_water, check_err, booked_host_water
       real(r8) :: decay_source_sink, numerical_source_sink
       real(r8) :: water_dS, water_input, water_output, water_evap, water_rnof
@@ -453,6 +461,19 @@ CONTAINS
                                 - snap_vapor_exchange(imt, ipatch)
          ENDIF
          step_input_check = step_input_check + step_vapor_exchange
+
+         ! Nitrogen leached in BGC enters the material budget as an external
+         ! input (it left the BGC mineral-N pool, not the atmosphere).  The
+         ! injection happens after this step's check (CoLMDRIVER, after BGC),
+         ! so the next step's snapshot already holds it together with the
+         ! matching a_trc_rnof output; the two cancel and the balance stays
+         ! exact.  It is counted in mass conservation but kept out of the
+         ! precipitation signature check for the same reason as the vapour
+         ! exchange above.
+         step_bgc_leach = 0._r8
+         IF (allocated(a_trc_bgc_leach)) &
+            step_bgc_leach = a_trc_bgc_leach(imt, ipatch) - snap_bgc_leach(imt, ipatch)
+         step_input_check = step_input_check + step_bgc_leach
 
          ! Conservation: Δstorage = input - output + source_sink.
          ! Decay and numerical source/sink terms are explicit state mutations

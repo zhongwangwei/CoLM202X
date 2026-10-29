@@ -634,6 +634,17 @@ CONTAINS
          rsub_dp      = drain * w(nlev+2)
       ENDIF
 
+#ifdef MaterialTransport
+      ! Diagnostic for the aquifer-debt investigation: the split treats the
+      ! host wa drop as an aquifer loss, so a host wa driven far below zero
+      ! (or an unexpectedly large drain) shows up here.  Print-only; it does
+      ! not change the split.
+      IF (abs(dwa) > 1.0e3_r8 .or. abs(drain) > 1.0e3_r8) THEN
+         write(*,'(A,6ES16.8)') 'MT_DIAG split_aquifer drain,dwa,ddp,et_left,rsub_wa,share_wa: ', &
+            drain, dwa, ddp, et_left, rsub_wa, share(nlev+1)
+      ENDIF
+#endif
+
    END SUBROUTINE mt_split_aquifer_exchange
 #endif
 

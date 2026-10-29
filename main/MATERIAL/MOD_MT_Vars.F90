@@ -149,6 +149,10 @@ MODULE MOD_MT_Vars
 	   real(r8), allocatable :: a_water_wetland_evap(:,:)
    real(r8), allocatable :: a_trc_rsur     (:,:)
    real(r8), allocatable :: a_trc_rsub     (:,:)
+   ! External nitrogen input from BGC leaching, booked separately so the
+   ! balance check can count it as an input and the fixed-signature check can
+   ! exclude it (it is not precipitation).  kg N m-2 per step.
+   real(r8), allocatable :: a_trc_bgc_leach(:,:)
    real(r8), allocatable :: a_trc_rnof     (:,:)
    real(r8), allocatable :: a_water_rnof   (:,:)
    real(r8), allocatable :: a_trc_qinfl    (:,:)
@@ -228,6 +232,7 @@ MODULE MOD_MT_Vars
    PUBLIC :: a_trc_canopyevap, a_water_canopyevap
    PUBLIC :: a_trc_subl, a_water_subl, a_trc_wetland_evap, a_water_wetland_evap
    PUBLIC :: a_trc_rsur, a_trc_rsub, a_trc_rnof, a_water_rnof, a_trc_qinfl, a_trc_qcharge
+   PUBLIC :: a_trc_bgc_leach
    PUBLIC :: a_trc_ldew_mass, a_water_ldew
    PUBLIC :: a_trc_soil_mass, a_water_soil, a_trc_snow_mass, a_water_snow
    PUBLIC :: a_trc_wa_mass, a_water_wa, a_trc_wa_debt_mass, a_water_wa_debt
@@ -304,6 +309,7 @@ CONTAINS
 		      allocate(a_water_wetland_evap(nmts, numpatch));       a_water_wetland_evap = 0._r8
       allocate(a_trc_rsur      (nmts, numpatch));           a_trc_rsur      = 0._r8
       allocate(a_trc_rsub      (nmts, numpatch));           a_trc_rsub      = 0._r8
+      allocate(a_trc_bgc_leach (nmts, numpatch));           a_trc_bgc_leach = 0._r8
       allocate(a_trc_rnof      (nmts, numpatch));           a_trc_rnof      = 0._r8
       allocate(a_water_rnof    (nmts, numpatch));           a_water_rnof    = 0._r8
       allocate(a_trc_qinfl     (nmts, numpatch));           a_trc_qinfl     = 0._r8
@@ -388,6 +394,7 @@ CONTAINS
 		      IF (allocated(a_water_wetland_evap)) deallocate(a_water_wetland_evap)
       IF (allocated(a_trc_rsur     )) deallocate(a_trc_rsur     )
       IF (allocated(a_trc_rsub     )) deallocate(a_trc_rsub     )
+      IF (allocated(a_trc_bgc_leach)) deallocate(a_trc_bgc_leach)
       IF (allocated(a_trc_rnof     )) deallocate(a_trc_rnof     )
       IF (allocated(a_water_rnof   )) deallocate(a_water_rnof   )
       IF (allocated(a_trc_qinfl    )) deallocate(a_trc_qinfl    )
@@ -1148,6 +1155,7 @@ CONTAINS
 		      IF (allocated(a_water_wetland_evap)) a_water_wetland_evap = 0._r8
       IF (allocated(a_trc_rsur   )) a_trc_rsur    = 0._r8
       IF (allocated(a_trc_rsub   )) a_trc_rsub    = 0._r8
+      IF (allocated(a_trc_bgc_leach)) a_trc_bgc_leach = 0._r8
       IF (allocated(a_trc_rnof   )) a_trc_rnof    = 0._r8
       IF (allocated(a_water_rnof )) a_water_rnof  = 0._r8
       IF (allocated(a_trc_qinfl  )) a_trc_qinfl   = 0._r8
@@ -1237,6 +1245,7 @@ CONTAINS
          IF (allocated(a_water_wetland_evap)) a_water_wetland_evap(imt, :) = 0._r8
          IF (allocated(a_trc_rsur     )) a_trc_rsur     (imt, :) = 0._r8
          IF (allocated(a_trc_rsub     )) a_trc_rsub     (imt, :) = 0._r8
+         IF (allocated(a_trc_bgc_leach)) a_trc_bgc_leach(imt, :) = 0._r8
          IF (allocated(a_trc_rnof     )) a_trc_rnof     (imt, :) = 0._r8
          IF (allocated(a_water_rnof   )) a_water_rnof   (imt, :) = 0._r8
          IF (allocated(a_trc_qinfl    )) a_trc_qinfl    (imt, :) = 0._r8
