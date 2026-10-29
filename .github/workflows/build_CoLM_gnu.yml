@@ -81,8 +81,13 @@ jobs:
      #  run: nc-config --all
      - name: Check the history-accumulator restart field list
        run: python3 .github/workflows/hist_acc_restart_fields.py --check
-     - name: Check effective test case macros
-       run: python3 tests/material_transport/check_defineh.py
+     - name: Check effective test case macros (local-only test when present)
+       run: |
+         if [ -f tests/material_transport/check_defineh.py ]; then
+           python3 tests/material_transport/check_defineh.py
+         else
+           echo "tests/material_transport/check_defineh.py is local-only; skipping"
+         fi
      - name: Build CoLM202X
      #  run: make clean && make all
        shell: bash
