@@ -126,6 +126,34 @@ check('F08 lake branch still overrides methane_ebul_tot after the aggregate',
       mp.index('methane_ebul_tot = methane_ebul_tot_sat') <
       mp.index('methane_ebul_tot = methane_ebul_tot_lake'))
 
+# ---------------- N03: late-pool equilibrium before partition ----------------
+sw = (root / 'main/MATERIAL/GENERIC_WATER/MOD_MT_SoilWater.F90').read_text()
+flood = sw.index('late_tracer = trc_pool_total + trc_soil_upflow')
+ratio = sw.index('late_ratio = max(late_tracer,0._r8)/late_water', flood)
+check('N03 flood branch equilibrates dissolved/solid before partition',
+      'CALL mt_equilibrate_dissolved(itrc, late_water, late_tracer' in sw[flood:ratio])
+# Numeric invariant from the audit examples: clean flood over dry salt and
+# saturated flood after 90% carrier loss.
+cap = 0.218           # kg/kg for CL at this temperature in the audit case
+for water_kgm2, solid0, exp_diss, exp_solid in [
+        (0.1, 0.1, 0.0218, 0.0782),
+        (0.01, 0.0218, 0.00218, 0.01962)]:
+    diss = min(solid0, cap * water_kgm2)
+    check(f'N03 equilibrium split water={water_kgm2} kg/m2',
+          abs(diss - exp_diss) < 1e-12 and abs((solid0 - diss) - exp_solid) < 1e-12)
+check('N03 infiltration concentration respects the solubility cap',
+      abs((0.00218 / 0.01) - cap) < 1e-12)
+
+# ---------------- N04: vanished ice carrier is recovered ----------------
+ev = (root / 'main/MATERIAL/GENERIC_WATER/MOD_MT_Evapo.F90').read_text()
+check('N04 Evapo recovers nonvolatile solute once the ice carrier is empty',
+      'max(wice_soisno(j), 0._r8) <= trc_water_min_for_ratio' in ev and
+      'trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)' in ev)
+check('N04 SoilWater has the same fallback before final equilibration',
+      'trc_solid_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)' in sw)
+check('N04 recovered mass is cleared from the ice inventory exactly once',
+      'trc_wice_soisno(itrc, j, ipatch) = 0._r8' in ev)
+
 print('')
 print(f'{len(fails)} failure(s)')
 sys.exit(1 if fails else 0)

@@ -1381,6 +1381,19 @@ CONTAINS
                   late_tracer = late_tracer + trc_surface_residue(itrc,ipatch)
                   trc_surface_residue(itrc,ipatch) = 0._r8
                ENDIF
+               ! N03: the flood/late water is the first mobile carrier of a
+               ! possibly dry surface pool.  Re-run the same-position
+               ! liquid/solid equilibrium BEFORE computing late_ratio and
+               ! partitioning infiltration/ponding/overflow: a dry surface
+               ! solid must dissolve up to its water-based solubility, and a
+               ! saturated pool must leave the excess in trc_surface_solid
+               ! instead of carrying an unphysical concentration into the
+               ! soil.  Ordinary-pool equilibrium above cannot see this late
+               ! water because it entered after ordinary evaporation/runoff.
+               IF (tracer_is_nonvolatile_solute(itrc) .and. mt_has_dissolved_limit(itrc)) THEN
+                  CALL mt_equilibrate_dissolved(itrc, late_water, late_tracer, &
+                     trc_surface_solid(itrc,ipatch))
+               ENDIF
                late_ratio = max(late_tracer,0._r8)/late_water
             ELSE
                IF (tracer_is_nonvolatile_solute(itrc)) THEN
@@ -2110,7 +2123,26 @@ CONTAINS
             ENDIF
 #endif
 
+            ! N04: a nonvolatile solute is retained in trc_wice while ice
+            ! sublimates (it must not escape with water vapour).  Once the ice
+            ! carrier is gone, that inventory is invisible to the liquid/solid
+            ! equilibrium and can never re-dissolve on rewetting.  Move it to
+            ! the same layer's rewettable liquid/solid inventory, never twice
+            ! (the ice pool is cleared), then equilibrate.
             DO j = lb, nl_soil
+               IF (tracer_is_nonvolatile_solute(itrc) .and. &
+                   trc_wice_soisno(itrc, j, ipatch) > trc_tiny) THEN
+                  IF (max(wice_soisno(j), 0._r8) <= trc_water_min_for_ratio) THEN
+                     IF (max(wliq_soisno(j), 0._r8) > trc_water_min_for_ratio) THEN
+                        trc_wliq_soisno(itrc, j, ipatch) = &
+                           trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+                     ELSE
+                        trc_solid_soisno(itrc, j, ipatch) = &
+                           trc_solid_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+                     ENDIF
+                     trc_wice_soisno(itrc, j, ipatch) = 0._r8
+                  ENDIF
+               ENDIF
                CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
                   trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
             ENDDO

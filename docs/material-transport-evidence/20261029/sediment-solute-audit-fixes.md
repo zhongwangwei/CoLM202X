@@ -2,7 +2,7 @@
 
 - 分支 `feature/constituent-transport`；审计基线 `b100745f`；工作 HEAD 见文末（提交后更新）。
 - 审计包 `CoLM-sediment-solute-audit-b100745.zip` 已解压；7 项确认（N06/N07 为上一轮 F02 转发修复引入）。
-- 本轮修复：**N02、N06**；**N07 部分**；N01/N03/N04/N05 未实施。
+- 本轮修复：**N02、N03、N04、N06**；**N07 部分**；N01/N05 未实施。
 - 未运行真实 MPI / 完整模型 / 真实 NetCDF 集成；以下验证为源码 + 生产例程提取/宿主接口级。
 
 ## N02 冠层净截留误当总截留 —— 已修复并数值验证
@@ -52,7 +52,30 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
   需新增反向拓扑 pushdata 或在 coupling 层按 `ucat_ups`+负通量构造；并做真实 MPI 验证。
   当前实现避免了旧错误方向与删除，但不是最终物理投递，故记为**部分修复**。
 
-## N01 / N03 / N04 / N05 —— 未实施
+## N03 洪水 late pool 先溶解/析出再分配 —— 已修复并数值验证
+
+- `MOD_MT_SoilWater.F90` late flood 分支：在 residue 加入后、`late_ratio`/入渗/积水/溢流分配**之前**，
+  对有限溶解度溶质调用 `mt_equilibrate_dissolved(itrc, late_water, late_tracer, trc_surface_solid)`；
+  干地表固相可随 late 水溶出，饱和洪水多余部分留在同位置固相，浓度不超过上限。
+- 验证（审计包 `repro_solute_land.py` 实际 late 混合/入渗赋值 + 完整平衡例程，修后适配断言）：
+  - 0.1 kg/m² 固态 CL + 0.1 mm 纯洪水：入渗 CL = **0.0218**（=0.218×0.1），残固相 **0.0782**，
+    浓度 **0.218 kg/kg**（上限）；
+  - 饱和洪水 0.0218 kg/m²、90% 载体蒸发剩 0.01 mm：入渗 **0.00218**，残固相 **0.01962**，
+    浓度 **0.218 kg/kg**；与修复前 0 和 2.18 kg/kg 两个反例对照。
+- 未做：河陆边界账/完整耦合运行；durable 测试目前为断言+数值不变量（`check_audit_p1_fixes.py`）。
+
+## N04 冰载体消失后非挥发溶质可回收 —— 已修复并数值验证
+
+- `MOD_MT_Evapo.F90`：每个 nonvolatile solute 在 `mt_evapo` 入口检查各层；`trc_wice>tiny` 且
+  `wice_soisno<=trc_water_min_for_ratio`（冰载体已空）时，按同层液水存在与否转入
+  `trc_wliq_soisno` 或 `trc_solid_soisno`，清空 ice 库存，并立即与当前液水做溶解度平衡；
+  `MOD_MT_SoilWater.F90` 末尾有同一 fallback（防其它路径漏网），ice 库存清空保证不重复转移。
+- 验证（审计包完整 Evapo 例程）：1 mm 土壤冰含 0.001 kg/m² CL，完全升华后连续 5 步湿、无冰状态 →
+  liquid=**0.001**、ice=**0**、solid=0（修复前 ice 一直 0.001、liquid=0）；
+  无液水时转入 solid=0.001（可复湿），ice=0；库存守恒、不重复释放。
+- 未做：雪层/混合相分支的完整集成对照；真实模型验证待授权。
+
+## N01 / N05 —— 未实施
 
 - N01：`MOD_MT_Sediment.F90` 双向粗时间步 donor 限流；需按 gross 出流/donor 水量控制材料子步或
   守恒双向时间积分；`repro_sediment_bidirectional.py` 可直接作为回归（修复后改断言）。

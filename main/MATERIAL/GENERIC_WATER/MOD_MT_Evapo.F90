@@ -131,6 +131,31 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
+
+         ! N04: a nonvolatile solute is retained in trc_wice while its ice
+         ! carrier sublimates (it must not be lost with water vapour).  After
+         ! the carrier is gone that inventory is invisible to the liquid/solid
+         ! equilibrium and never re-dissolves on rewetting.  Move it once to
+         ! the same layer's rewettable inventory as soon as the ice carrier is
+         ! empty, then equilibrate against the current liquid water.
+         IF (tracer_is_nonvolatile_solute(itrc)) THEN
+            DO j = lb, nl_soil
+               IF (trc_wice_soisno(itrc, j, ipatch) > trc_tiny .and. &
+                   max(wice_soisno(j), 0._r8) <= trc_water_min_for_ratio) THEN
+                  IF (max(wliq_soisno(j), 0._r8) > trc_water_min_for_ratio) THEN
+                     trc_wliq_soisno(itrc, j, ipatch) = &
+                        trc_wliq_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+                  ELSE
+                     trc_solid_soisno(itrc, j, ipatch) = &
+                        trc_solid_soisno(itrc, j, ipatch) + trc_wice_soisno(itrc, j, ipatch)
+                  ENDIF
+                  trc_wice_soisno(itrc, j, ipatch) = 0._r8
+               ENDIF
+               CALL mt_equilibrate_dissolved(itrc, max(wliq_soisno(j), 0._r8), &
+                  trc_wliq_soisno(itrc, j, ipatch), trc_solid_soisno(itrc, j, ipatch))
+            ENDDO
+         ENDIF
+
          R_atm = tracer_forcing_vapor_value(itrc, ipatch)
          R_vapor = R_atm
 
