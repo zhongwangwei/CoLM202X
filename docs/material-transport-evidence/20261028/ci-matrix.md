@@ -54,13 +54,15 @@ GitHub 单 job 6h 硬上限（ubuntu-22.04 mpich 组 3h37m–5h52m 都能通过�
 - **口径**：新 run 完整通过分片矩阵；CI 仅验证构建/配置覆盖，不运行模型、不替代物理验收。Run 1 的 20/23
   未通过记录保留为历史，不被新 run 改写。
 
-## Run 3：`40801158901`（head `613e0a49`，最终修复提交）— 在途
+## Run 3：`40801158901`（head `613e0a49`，最终修复提交）— **已按用户要求取消（无终态结论）**
 
 - 目的：在**最终交付 head `613e0a49`**（含同位素最终修复 `3b0af4f6`、CI 分片 `2bc7510a` 等）上重跑完整
   分片矩阵，避免“Run 2 的 head 不是最终代码”。
-- 状态（2026-10-29 10:00 CST）：92 job 已排队运行（40 in_progress / 52 queued）；预计 11:40 CST 前后终态。
-- 终态后：官方 `run.json`/`jobs-final.json`、92 job 日志 marker、失败/取消摘录与 EVIDENCE 写入
-  `ci-matrix/run-fixed-3/`；只有 92/92 success 才记录为最终 head 的完整矩阵通过。
+- 取消：2026-10-29 10:03 CST 用户要求“先停掉手头全部测试（已发现明显 bugs）”，通过 GitHub API 取消；
+  官方终态 `status=completed / conclusion=cancelled`。取消前 92 job 中 **9 个已完成且 success**、40 个
+  in_progress、43 个 queued；**不构成最终 head 的矩阵结论，Run 3 未通过也未被判失败**。
+- 后续：修完用户指出的 bug 后，在修复 head 上重新 dispatch；届时 92/92 success 才记录为最终 head 的
+  完整矩阵通过，证据写 `ci-matrix/run-fixed-3/`。
 
 ## 残余缺口（如实保留）
 

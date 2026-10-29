@@ -197,6 +197,27 @@
 补数据与两年 Y1/Y2 **未启动**。7920 上已无我方模型进程、无新作业。**在用户给出 bug 清单前不再启动任何测试**；
 取消作业的部分结果只作 cancelled 证据保留，不当成通过。当前仓库 head = `de248baf`（本地=远端）。
 
+### 4b. 自审候选问题（静态审查，**尚未确认、尚未修**，等用户 bug 清单对齐）
+
+用户指出“找到一些明显的 bugs”后，在不在 7920 跑任何测试的前提下对本次改动做了静态审查，以下为**候选**
+（不是已确认 bug）：
+
+1. **同位素 late-carrier 分支的浓度上界缺口**：塌陷后保留的 tracer 池进入 flood 分支时，第一条件
+   `late_water > trc_water_min_for_ratio` 对同位素**不检查** `trc_delta_sanity_max` 上界；若 late_water 只是
+   略高于该小量而 tracer 较大，可能得到极端 δ，绕过 ELSE 分支的同位素 bounded-ratio 保护。建议给
+   “来自塌陷（无普通载体水）的 isotope tracer” 做标记，对其也套用 bounded-ratio 条件，否则退回
+   residual/fatal。
+2. **甲烷 guard 改 abort→cap 后的物理边界**：capped allocation 可能把“饱和列”压到接近 0 水，而 finundated
+   仍为 1；需确认 `methane_prod` / `split_ch4_o2_phases` 在 0 水饱和列上不会产生 CH4（当前实测只看了
+   通量有限非零与 balance residual，没有逐 patch 检查该分支）。
+3. **`host_water_warned` 共用标志**：新的 “capped to host-supported saturation (host water conserved)”
+   一次性 WARNING 可能被更早的 tolerated-parosity 警告置位而永远不打印（`methane host-water: worst
+   disagreement` 报告行仍在），诊断可见性有缺口。
+4. **`DEF_METHANE%host_water_tolerance` 语义**：去掉 abort 后该参数仍是“宽容差”，但不再决定 fatal；
+   注释/文档/参数名语义需要更新或增加显式 strict 开关，避免读者误解“调大 tolerance 就能通过”。
+
+以上候选项在没有用户确认前不改代码、不跑测试。
+
 ## 5. 建议的下一步（按优先级）
 
 1. 等 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（组合验收重跑）终态：G1–G7 全 PASS 则更新组合验收结论；
