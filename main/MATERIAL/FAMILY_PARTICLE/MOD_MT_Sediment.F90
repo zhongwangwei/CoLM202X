@@ -2266,10 +2266,44 @@ CONTAINS
    real(r8), allocatable, save :: sed_ups(:,:), bed_ups(:,:), cell_mass_before(:)
    real(r8) :: sedsto_sum, dTmp(nsed), sed_roundoff(nsed), bed_roundoff(nsed)
    integer :: i, ised
+   integer :: isub, nsub
+   real(r8) :: cfl_ratio
 
       IF (.not. p_is_worker) RETURN
       IF (.not. ieee_is_finite(dt) .or. dt <= 0._r8) &
          CALL CoLM_stop('sediment advection interval must be finite and positive')
+
+      ! N01: the ordinary (non-BIF/levee) path previously made one
+      ! donor-snapshot export per morphology interval.  When the interval's
+      ! total gross outflow water exceeds the donor's carrier water (a
+      ! frequent situation under bidirectional, high-turnover flow), the
+      ! donor cannot pass the same-interval inflow through and its flux is
+      ! clipped, which creates a spurious non-uniform concentration even
+      ! though total mass and water are conserved.
+      !
+      ! Split the interval into material substeps so that, per substep,
+      ! gross outflow <= donor carrier water.  Each substep re-evaluates the
+      ! donor concentration from the updated inventories, so a uniform field
+      ! stays uniform.  BIF/levee/joint paths already reserve faces from a
+      ! shared initial stock and are left unchanged here.
+      IF (.not. present(initial_conc) .and. .not. present(joint_sed_scale) .and. &
+          .not. present(joint_bed_scale)) THEN
+         nsub = 1
+         DO i = 1, numucat
+            IF (rivsto_donor(i) > 0._r8) THEN
+               cfl_ratio = rivout_abs(i) * dt / rivsto_donor(i)
+               IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(cfl_ratio)
+            ENDIF
+         ENDDO
+         nsub = min(max(nsub, 1), 240)
+         IF (nsub > 1) THEN
+            DO isub = 1, nsub
+               CALL calc_sediment_advection(dt / real(nsub, r8), rivout_signed, rivout_abs, &
+                  rivsto_donor, rivsto_end)
+            ENDDO
+            RETURN
+         ENDIF
+      ENDIF
       IF (any(.not. ieee_is_finite(rivout_signed)) .or. &
           any(.not. ieee_is_finite(rivout_abs)) .or. &
           any(.not. ieee_is_finite(rivsto_donor)) .or. any(.not. ieee_is_finite(rivsto_end))) &

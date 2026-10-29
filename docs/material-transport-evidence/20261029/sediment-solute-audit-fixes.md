@@ -2,7 +2,7 @@
 
 - 分支 `feature/constituent-transport`；审计基线 `b100745f`；工作 HEAD 见文末（提交后更新）。
 - 审计包 `CoLM-sediment-solute-audit-b100745.zip` 已解压；7 项确认（N06/N07 为上一轮 F02 转发修复引入）。
-- 本轮修复：**N02、N03、N04、N06**；**N07 部分**；N01/N05 未实施。
+- 本轮修复：**N01、N02、N03、N04、N06**；**N07 部分**；N05 未实施。
 - 未运行真实 MPI / 完整模型 / 真实 NetCDF 集成；以下验证为源码 + 生产例程提取/宿主接口级。
 
 ## N02 冠层净截留误当总截留 —— 已修复并数值验证
@@ -75,7 +75,21 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
   无液水时转入 solid=0.001（可复湿），ice=0；库存守恒、不重复释放。
 - 未做：雪层/混合相分支的完整集成对照；真实模型验证待授权。
 
-## N01 / N05 —— 未实施
+## N01 泥沙双向粗时间步破坏恒浓度 —— 已修复
+
+- `MOD_MT_Sediment.F90` `calc_sediment_advection`：普通（非 BIF/levee/joint）路径按
+  donor gross outflow 水量做材料子步：`nsub = ceil(max_i(rivout_abs(i)*dt/rivsto_donor(i)))`，
+  上限 240，随后以 `dt/nsub` 递归调用，每个子步重新计算 donor 浓度；BIF/levee/joint 路径
+  保持原有共享初始库存算法不变。水动力步长、宿主水量、morphology 间隔均未改。
+- 验证（审计三河段反例，10 m3/段、C=0.001、dt=10 s、每界面正/反向各 1 m3/s）：
+  - 单步旧算法复现 [0, 0.002, 0.001]；
+  - 本修复给出 nsub=2（2 m3/s×10 s / 10 m3），恒浓度保持 **0.001/0.001/0.001**，
+    总质量 0.03 守恒；
+  - 结构断言：子步按 gross outflow 触发、上限 240、仅普通路径、每子步重算 donor 浓度。
+- 未做：真实河网/MPI 集成与性能实测（子步上限保证最坏 ~240× 平流计算，需在 7920 记录耗时）；
+  床层/推移质在同一子步逻辑内一并推进，未单独改变其参数化。
+
+## N05 —— 未实施
 
 - N01：`MOD_MT_Sediment.F90` 双向粗时间步 donor 限流；需按 gross 出流/donor 水量控制材料子步或
   守恒双向时间积分；`repro_sediment_bidirectional.py` 可直接作为回归（修复后改断言）。

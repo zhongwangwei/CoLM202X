@@ -154,6 +154,60 @@ check('N04 SoilWater has the same fallback before final equilibration',
 check('N04 recovered mass is cleared from the ice inventory exactly once',
       'trc_wice_soisno(itrc, j, ipatch) = 0._r8' in ev)
 
+# ---------------- N01: sediment material substepping ----------------
+sed = (root / 'main/MATERIAL/FAMILY_PARTICLE/MOD_MT_Sediment.F90').read_text()
+adv = sed.index('SUBROUTINE calc_sediment_advection(')
+adv_end = sed.index('SUBROUTINE calc_sediment_advection_one_direction', adv)
+body = sed[adv:adv_end]
+check('N01 advection splits into material substeps on donor gross outflow',
+      'cfl_ratio = rivout_abs(i) * dt / rivsto_donor(i)' in body)
+check('N01 substep count is bounded (performance guard)', 'min(max(nsub, 1), 240)' in body)
+check('N01 BIF/levee/joint paths keep their reserved shared-stock algorithm',
+      ".not. present(initial_conc) .and. .not. present(joint_sed_scale)" in body)
+check('N01 each substep re-evaluates the donor concentration', 
+      'CALL calc_sediment_advection(dt / real(nsub, r8)' in body)
+
+# Audit case: 3 reaches, 10 m3 each, C=0.001, dt=10 s, each interface carries
+# 1 m3/s forward and 1 m3/s reverse (gross outflow 2 m3/s > 10/10).
+def sediment_step(conc, water, qfwd, qrev, dt_sub):
+    out_f = [0.0] * 3
+    out_r = [0.0] * 3
+    for i in range(3):
+        avail = max(conc[i] * water[i], 0.0)
+        if qfwd[i] > 0:
+            want = conc[i] * qfwd[i] * dt_sub
+            out_f[i] = min(want, avail)
+            avail -= out_f[i]
+        if qrev[i] > 0:
+            want = conc[i] * qrev[i] * dt_sub
+            out_r[i] = min(want, avail)
+    new = [0.0] * 3
+    for i in range(3):
+        new[i] = conc[i] * water[i] - out_f[i] - out_r[i]
+        if i > 0:
+            new[i] += out_f[i - 1]   # forward from upstream
+            new[i] += out_r[i + 1] if i + 1 < 3 else 0.0  # reverse from downstream
+        if i == 0:
+            new[i] += out_r[1]
+    return [max(new[i], 0.0) / water[i] for i in range(3)]
+
+water = [10.0, 10.0, 10.0]
+c0 = [0.001, 0.001, 0.001]
+qfwd = [1.0, 1.0, 0.0]
+qrev = [0.0, 1.0, 1.0]
+coarse = sediment_step(c0, water, qfwd, qrev, 10.0)
+check('N01 coarse one-interval step reproduces the audit defect',
+      abs(coarse[0] - 0.0) < 1e-12 and abs(coarse[1] - 0.002) < 1e-12 and
+      abs(coarse[2] - 0.001) < 1e-12)
+nsub = 2  # ceil(max 20/10)
+sub = c0
+for _ in range(nsub):
+    sub = sediment_step(sub, water, qfwd, qrev, 10.0 / nsub)
+check('N01 material substeps preserve the uniform concentration',
+      max(abs(x - 0.001) for x in sub) < 1e-12)
+check('N01 substeps conserve total sediment mass',
+      abs(sum(sub[i] * water[i] for i in range(3)) - 0.03) < 1e-12)
+
 print('')
 print(f'{len(fails)} failure(s)')
 sys.exit(1 if fails else 0)
