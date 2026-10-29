@@ -93,7 +93,8 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: trc_flux_out  (:,:) ! Tracer outflux [R*m3/s] (ntracers, numucat)
    real(r8), allocatable :: trc_dry_drain(:,:) ! Terminal (mouth) sink from forced drain [R*m3]
    real(r8), allocatable :: trc_dry_fwd(:,:)   ! Internal drained mass forwarded downstream [R*m3]
-   real(r8), allocatable :: trc_dry_rev(:,:)   ! Internal drained mass delivered to a unique reverse receiver [R*m3]
+   real(r8), allocatable :: trc_dry_rev(:,:)   ! (legacy) unique-reverse buffer
+   real(r8), allocatable :: trc_dry_split(:,:) ! Internal drained mass split by actual outflow flux [R*m3]
    real(r8), allocatable :: trc_dry_pending(:,:) ! Drained mass awaiting a known outflow direction [R*m3]
    real(r8), allocatable :: trc_decay_source(:,:) ! Net reactive source/sink over routing period
 
@@ -245,6 +246,7 @@ CONTAINS
          allocate (trc_dry_drain(ntracers, numucat))
          allocate (trc_dry_fwd  (ntracers, numucat))
          allocate (trc_dry_rev  (ntracers, numucat))
+         allocate (trc_dry_split(ntracers, numucat))
          allocate (trc_dry_pending(ntracers, numucat))
          allocate (trc_decay_source(ntracers, numucat))
          allocate (acc_trc_inp        (ntracers, numucat))
@@ -271,6 +273,7 @@ CONTAINS
          trc_dry_drain = 0._r8
          trc_dry_fwd   = 0._r8
          trc_dry_rev   = 0._r8
+         trc_dry_split = 0._r8
          trc_dry_pending = 0._r8
          trc_decay_source = 0._r8
          acc_trc_inp  = 0._r8
@@ -718,7 +721,7 @@ CONTAINS
       ucat2resv_in, is_built_resv, hflux_fc_in, allow_reverse_flow)
 
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_next, ucat_ups, push_ups2ucat, push_next2ucat
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_next, push_ups2ucat, push_next2ucat
    USE MOD_Grid_RiverLakeLevee,   only: has_levee, levsto
    USE MOD_WorkerPushData
    USE MOD_MT_Defs, only: trc_tiny
@@ -737,9 +740,9 @@ CONTAINS
    integer :: i, itrc
    real(r8) :: dt_i, volwater, dry_drain
    real(r8), allocatable :: fwd_send(:), fwd_recv(:), rev_send(:), rev_recv(:)
+   real(r8), allocatable :: out_total(:), up_rev(:), donor_out(:), rev_sum(:)
    logical :: internal_receiver, reverse_allowed
-   integer :: nups_i
-   real(r8) :: vol_j, dt_j
+   real(r8) :: vol_j, dt_j, rev_share
 
       IF (ntracers <= 0) RETURN
       IF (.not. p_is_worker) RETURN
@@ -810,27 +813,19 @@ CONTAINS
                   ! terminal cell (no downstream unit catchment) really
                   ! discharges to the outside and books trc_dry_drain.
                   internal_receiver = ucat_next(i) > 0
-                  nups_i = 0
-                  IF (allocated(ucat_ups)) THEN
-                     IF (i <= size(ucat_ups, 2)) nups_i = count(ucat_ups(:, i) > 0)
-                  ENDIF
                   IF (internal_receiver .and. present(hflux_fc_in)) THEN
                      internal_receiver = hflux_fc_in(i) >= 0._r8
                   ENDIF
-                  IF (internal_receiver) THEN
-                     trc_dry_fwd(itrc, i) = trc_dry_fwd(itrc, i) + dry_drain
-                  ELSEIF (ucat_next(i) > 0 .and. present(hflux_fc_in)) THEN
-                     ! N07: reverse flow drains toward the upstream receiver.
-                     ! A donor with exactly one upstream cell has a unique real
-                     ! receiver, so its mass is delivered there (receiver pulls
-                     ! on the reversed edge below).  With several upstream
-                     ! branches their actual flux split is only known on their
-                     ! owners, so keep the conservative pending state.
-                     IF (reverse_allowed .and. hflux_fc_in(i) < 0._r8 .and. nups_i == 1) THEN
-                        trc_dry_rev(itrc, i) = trc_dry_rev(itrc, i) + dry_drain
-                     ELSE
-                        trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + dry_drain
-                     ENDIF
+                  IF (ucat_next(i) > 0 .and. present(hflux_fc_in) .and. reverse_allowed) THEN
+                     ! N07: hand the drained mass to the split delivery below.
+                     ! It is distributed over EVERY actual outflow edge during
+                     ! this substep, weighted by that edge's water flux:
+                     !   forward share = max(hflux(i),0)/out_total(i)
+                     !   reverse share_j = |hflux(j)|/out_total(i),  next(j)=i
+                     ! with out_total(i) = max(hflux(i),0) + sum_upstream(-hflux).
+                     ! This conserves mass and matches the host flux split also
+                     ! for confluences (several upstream branches).
+                     trc_dry_split(itrc, i) = trc_dry_split(itrc, i) + dry_drain
                   ELSE
                      IF (allocated(trc_dry_drain)) trc_dry_drain(itrc, i) = &
                         trc_dry_drain(itrc, i) + dry_drain
@@ -885,77 +880,78 @@ CONTAINS
          ENDDO
       ENDDO
 
-      ! Forward the mass of internally drained cells to their downstream
-      ! main-channel receiver (collective push; the receiver's tracer
-      ! inventory grows, so the material stays in the system instead of being
-      ! deleted).  A receiver that is itself dry forwards it again later by the
-      ! same rule, so the chain reaches a real mouth or a wet cell.
-      IF (allocated(trc_dry_fwd) .and. numucat > 0) THEN
-         allocate(fwd_send(numucat), fwd_recv(numucat))
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            ! Every worker must execute the same push sequence for every
-            ! generic tracer, whether or not this rank has local mass: the
-            ! point-to-point matching in worker_push_data posts the sender's
-            ! isend when n_to_other>0 and the receiver's irecv when
-            ! n_from_other>0, both fixed by the topology.  Skipping the call
-            ! on a zero-mass rank leaves the peer's irecv unmatched (N06
-            ! deadlock).  Zero vectors are exchanged instead.
-            fwd_send(:) = trc_dry_fwd(itrc, :)
-            fwd_recv(:) = 0._r8
-            CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv, fillvalue = 0._r8, mode = 'sum')
-            DO i = 1, numucat
-               IF (fwd_recv(i) <= trc_tiny) CYCLE
-               IF (present(is_built_resv)) THEN
-                  CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j, is_built_resv(i))
-               ELSE
-                  CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j)
-               ENDIF
-               trc_mass(itrc, i) = trc_mass(itrc, i) + fwd_recv(i)
-               ! N07: the receiver's concentration and history accumulator
-               ! must reflect the forwarded mass in the same substep.
-               CALL update_tracer_concentration(itrc, i, vol_j)
-               dt_j = 0._r8
-               IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_j = dt_all(irivsys(i))
-               IF (vol_j > trc_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
-                  a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) + fwd_recv(i) * dt_j
-            ENDDO
-            trc_dry_fwd(itrc, :) = 0._r8
+      IF (allocated(trc_dry_split) .and. present(hflux_fc_in) .and. numucat > 0 .and. &
+          reverse_allowed) THEN
+         allocate(fwd_send(numucat), fwd_recv(numucat), rev_send(numucat), rev_recv(numucat))
+         allocate(out_total(numucat), up_rev(numucat), donor_out(numucat), rev_sum(numucat))
+         ! reverse-outflow demand of every donor: sum of |negative upstream face
+         ! fluxes|.  `push_ups2ucat` aggregates upstream-cell values at the
+         ! downstream cell, so this is available locally after one push.
+         up_rev(:) = max(-hflux_fc_in(:), 0._r8)
+         rev_sum(:) = 0._r8
+         CALL worker_push_data (push_ups2ucat, up_rev, rev_sum, fillvalue = 0._r8, mode = 'sum')
+         DO i = 1, numucat
+            out_total(i) = max(hflux_fc_in(i), 0._r8) + rev_sum(i)
          ENDDO
-         deallocate(fwd_send, fwd_recv)
-      ENDIF
-
-      ! N07: deliver a reverse-flow drained mass to the donor's unique
-      ! upstream receiver.  `push_next2ucat` gives each cell the value of its
-      ! downstream neighbour, so receiver i (hflux_fc(i)<0: water flows from
-      ! next(i) into i) pulls exactly its donor's residual.  Donor-side
-      ! uniqueness (nups==1) prevents duplication; the call order is
-      ! data-independent for every generic tracer (N06 rule).
-      IF (allocated(trc_dry_rev) .and. present(hflux_fc_in) .and. numucat > 0) THEN
-         allocate(rev_send(numucat), rev_recv(numucat))
+         ! A donor with no actual main-channel outflow has nowhere physical to
+         ! deliver: keep the conservative pending state instead of losing it.
+         DO i = 1, numucat
+            IF (out_total(i) <= trc_tiny) THEN
+               DO itrc = 1, ntracers
+                  IF (trc_dry_split(itrc, i) <= trc_tiny) CYCLE
+                  IF (allocated(trc_dry_pending)) &
+                     trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + trc_dry_split(itrc, i)
+                  trc_dry_split(itrc, i) = 0._r8
+               ENDDO
+            ENDIF
+         ENDDO
+         ! upstream receivers get their donor's total outflow capacity
+         donor_out(:) = 0._r8
+         CALL worker_push_data (push_next2ucat, out_total, donor_out, fillvalue = 0._r8, mode = 'sum')
+         fwd_send(:) = 0._r8   ! per-tracer below
          DO itrc = 1, ntracers
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            rev_send(:) = trc_dry_rev(itrc, :)
+            fwd_recv(:) = 0._r8
             rev_recv(:) = 0._r8
+            DO i = 1, numucat
+               IF (trc_dry_split(itrc, i) <= trc_tiny) CYCLE
+               IF (out_total(i) > trc_tiny) fwd_send(i) = &
+                  trc_dry_split(itrc, i) * max(hflux_fc_in(i), 0._r8) / out_total(i)
+               rev_send(i) = trc_dry_split(itrc, i)
+            ENDDO
+            CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv, fillvalue = 0._r8, mode = 'sum')
             CALL worker_push_data (push_next2ucat, rev_send, rev_recv, fillvalue = 0._r8, mode = 'sum')
             DO i = 1, numucat
-               IF (rev_recv(i) <= trc_tiny) CYCLE
-               IF (hflux_fc_in(i) >= 0._r8) CYCLE
+               IF (fwd_recv(i) <= trc_tiny .and. rev_recv(i) <= trc_tiny) CYCLE
                IF (present(is_built_resv)) THEN
                   CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j, is_built_resv(i))
                ELSE
                   CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j)
                ENDIF
-               trc_mass(itrc, i) = trc_mass(itrc, i) + rev_recv(i)
-               CALL update_tracer_concentration(itrc, i, vol_j)
                dt_j = 0._r8
                IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_j = dt_all(irivsys(i))
-               IF (vol_j > trc_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
-                  a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) + rev_recv(i) * dt_j
+               ! forward mass arrives as an upstream sum
+               IF (fwd_recv(i) > trc_tiny) THEN
+                  trc_mass(itrc, i) = trc_mass(itrc, i) + fwd_recv(i)
+                  CALL update_tracer_concentration(itrc, i, vol_j)
+                  IF (vol_j > trc_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
+                     a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) + fwd_recv(i) * dt_j
+               ENDIF
+               ! reverse share: receiver pulls its donor's drained mass and
+               ! weights it by its own reverse edge flux (known locally)
+               IF (rev_recv(i) > trc_tiny .and. hflux_fc_in(i) < 0._r8 .and. &
+                   donor_out(i) > trc_tiny) THEN
+                  rev_share = rev_recv(i) * abs(hflux_fc_in(i)) / donor_out(i)
+                  trc_mass(itrc, i) = trc_mass(itrc, i) + rev_share
+                  CALL update_tracer_concentration(itrc, i, vol_j)
+                  IF (vol_j > trc_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
+                     a_trc_storage_mass(itrc, i) = a_trc_storage_mass(itrc, i) + rev_share * dt_j
+               ENDIF
             ENDDO
-            trc_dry_rev(itrc, :) = 0._r8
+            trc_dry_split(itrc, :) = 0._r8
          ENDDO
-         deallocate(rev_send, rev_recv)
+         deallocate(fwd_send, fwd_recv, rev_send, rev_recv)
+         deallocate(out_total, up_rev, donor_out, rev_sum)
       ENDIF
 
    END SUBROUTINE mt_riverlake_diag_accumulate
@@ -3299,6 +3295,7 @@ CONTAINS
       IF (allocated(trc_dry_drain    )) deallocate (trc_dry_drain    )
       IF (allocated(trc_dry_fwd      )) deallocate (trc_dry_fwd      )
       IF (allocated(trc_dry_rev      )) deallocate (trc_dry_rev      )
+      IF (allocated(trc_dry_split    )) deallocate (trc_dry_split    )
       IF (allocated(trc_dry_pending  )) deallocate (trc_dry_pending  )
       IF (allocated(trc_decay_source)) deallocate (trc_decay_source)
       IF (allocated(trc_levsto       )) deallocate (trc_levsto       )

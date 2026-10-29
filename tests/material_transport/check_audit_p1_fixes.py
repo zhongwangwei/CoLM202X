@@ -33,7 +33,7 @@ def check(label, cond):
 
 # ---------------- F02: internal drained mass forwarding ----------------
 check('F02 internal drained mass is buffered, not booked as a sink',
-      'trc_dry_fwd(itrc, i) = trc_dry_fwd(itrc, i) + dry_drain' in rl)
+      'trc_dry_split(itrc, i) = trc_dry_split(itrc, i) + dry_drain' in rl)
 check('F02 terminal (no downstream ucat) keeps the budgeted sink',
       'internal_receiver = ucat_next(i) > 0' in rl and 'trc_dry_drain(itrc, i) = &' in rl)
 check('F02 forwarding uses the downstream main-channel push',
@@ -52,7 +52,8 @@ check('F02 forwarding is not mixed into a_trc_out (internal transfer)',
 check('N06 forwarding push is not skipped on zero local mass',
       'maxval(abs(trc_dry_fwd' not in rl)
 check('N06 forwarding still sends zeros for every generic tracer',
-      'fwd_send(:) = trc_dry_fwd(itrc, :)' in rl)
+      'rev_send(i) = trc_dry_split(itrc, i)' in rl and
+      'CALL worker_push_data (push_next2ucat, rev_send, rev_recv' in rl)
 check('N06 push call sits inside the per-tracer loop (same order every rank)',
       rl.index('fwd_send(:) = trc_dry_fwd(itrc, :)') <
       rl.index('CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv'))
@@ -245,8 +246,12 @@ check('N05 restored snapshot reproduces the continuous average',
 # ---------------- N07: direction-correct drained-mass delivery ----------------
 check('N07 reverse delivery buffer exists and is allocated with the tracer state',
       'trc_dry_rev' in rl and 'allocate (trc_dry_rev  (ntracers, numucat))' in rl)
-check('N07 reverse delivery only for a donor with a unique upstream receiver',
-      'nups_i == 1' in rl and 'count(ucat_ups(:, i) > 0)' in rl)
+check('N07 every actual outflow edge gets a flux-weighted share',
+      'out_total(i) = max(hflux_fc_in(i), 0._r8) + rev_sum(i)' in rl and
+      'rev_share = rev_recv(i) * abs(hflux_fc_in(i)) / donor_out(i)' in rl)
+check('N07 reverse-outflow demand is aggregated from upstream face fluxes',
+      'up_rev(:) = max(-hflux_fc_in(:), 0._r8)' in rl and
+      'CALL worker_push_data (push_ups2ucat, up_rev, rev_sum' in rl)
 check('N07 reverse delivery pushes on the reversed edge (downstream value -> receiver)',
       'CALL worker_push_data (push_next2ucat, rev_send, rev_recv' in rl)
 check('N07 receiver concentration is updated after forwarding',
@@ -256,8 +261,16 @@ check('N07 receiver history accumulator is updated after forwarding',
 check('N07 BIF/levee pathways are gated out of reverse forwarding',
       'allow_reverse_flow = (.not. DEF_USE_BIFURCATION .and. .not. DEF_USE_LEVEE)' in
       (root / 'main/MATERIAL/MOD_MT_RiverLakeCoupling.F90').read_text())
-check('N07 multi-upstream donors keep the conservative pending state',
-      'trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + dry_drain' in rl)
+check('N07 a donor without any main-channel outflow keeps the conservative pending state',
+      'trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + trc_dry_split(itrc, i)' in rl)
+# Multi-upstream confluence invariant: donor residual R split over reverse edges
+# with |flux| 1 and 2 (donor_out=3) must give shares R/3 and 2R/3, sum R.
+R = 0.0003
+share1 = R * 1.0 / 3.0
+share2 = R * 2.0 / 3.0
+check('N07 confluence reverse shares follow the actual edge fluxes and conserve mass',
+      abs(share1 - 0.0001) < 1e-15 and abs(share2 - 0.0002) < 1e-15 and
+      abs(share1 + share2 - R) < 1e-15)
 # Audit fixture invariants (values from repro_river_dry_forward.py after the fix):
 # case1 forward receiver C, case2/3 reverse receiver A; residual .0002 R*m3.
 cases = [
