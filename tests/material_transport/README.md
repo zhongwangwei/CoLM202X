@@ -33,6 +33,13 @@ invariant checks of the documented formulas (Python only):
 python3 tests/material_transport/check_audit_p1_fixes.py
 ```
 
+Real 2-rank OpenMPI regression for the production point-to-point push protocol
+(extracts `worker_push_data_uniq_real8`, exchanges non-zero and zero data):
+
+```sh
+python3 tests/material_transport/check_push_mpi.py
+```
+
 The NetCDF tools also need NumPy and netCDF4, already present in the T7920 test
 environment. Their self checks create only temporary, tiny fixtures.
 

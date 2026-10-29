@@ -40,7 +40,12 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
   接收端按拓扑 irecv/isend 匹配；顺序与数据无关。
 - 验证：`tests/material_transport/check_audit_p1_fixes.py` 断言“无数据相关 CYCLE、零值发送、
   push 在每 tracer 循环内” PASS；预处理 rc=0。
-- 未做：真实多 worker/跨进程河系/局部零库存 MPI 死锁测试（需 MPI 运行环境授权）。
+- 真实 MPI 验证（本轮）：本机 OpenMPI 2-rank，`tests/material_transport/check_push_mpi.py` 从
+  `share/MOD_WorkerPushData.F90` 逐字提取生产 `worker_push_data_uniq_real8`（USEMPI 分支）编译运行：
+  - 两 rank 非零值交换：各自收到对端值；
+  - 两 rank **零值交换**（本地库存为空的场景）：调用仍严格匹配、正常完成；
+  - 输出 `PASS: N06 real 2-rank MPI zero-data push exchange completed`。
+- 未做：完整河网跨 worker 河系（多个河系独立子步/异常退出）的 MPI 验证；当前协议级测试覆盖零库存匹配。
 
 ## N07 干河段转发忽略真实流向 —— 已修复（单上游反向路径完整；多上游/BIF 仍保守 pending）
 
