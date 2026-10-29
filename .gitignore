@@ -11,3 +11,6 @@ lib
 *.a
 *.x
 *.log
+
+# local-only documentation (kept out of GitHub by project decision)
+/docs/

@@ -1,5 +1,0 @@
-total=92
-by_conclusion: success=92
-by_status: completed=92
-job_duration_min=11.2 median=24.4 max=101.9
-run_started=2026-10-28T23:05:05Z run_updated=2026-10-29T01:06:43Z

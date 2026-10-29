@@ -1,2 +1,0 @@
-TIMESTEP = 47 | DATE = 2005-12-25-82800
-CoLM Execution Completed.

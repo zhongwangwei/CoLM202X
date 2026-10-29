@@ -1,7 +1,0 @@
-{
-  "passed": true,
-  "checkpoint": "2005-002-00000",
-  "result": "IDENTICAL files=18 vars=750 (variable bits; not attributes)",
-  "original_validator_selected": "const",
-  "claim": "actual dynamic checkpoint after NP5->9 half-day restart, complete file/variable sets and raw bits"
-}

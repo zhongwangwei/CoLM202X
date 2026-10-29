@@ -1,4 +1,0 @@
-total=23
-success=20 cancelled=3
-success_duration_min: min=51.8 median=93.2 max=352.6
-cancelled=['Build-CoLM-gnu (ubuntu-latest, mpich, gcc, 13)', 'Build-CoLM-gnu (ubuntu-latest, mpich, gcc, 14)', 'Build-CoLM-gnu (ubuntu-latest, mpich, gcc, 12)']
