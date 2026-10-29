@@ -226,6 +226,20 @@
   base=`checkpoint/material-transport-base-20261028`；**未合并、未向 SYSU/master 推送**。
 - 未动历史 CI run；Run 3 系自己 dispatch 后按用户要求取消。
 
+### 4d. 目标状态：阻塞等待用户输入（2026-10-29 10:16 CST）
+
+- **阻塞条件（具体）**：用户 2026-10-29 10:03 明确要求“先把手头的测试全停到”，并称已发现明显 bugs；
+  **测试/作业被禁止启动，且 bug 清单尚未提供**。目标剩余项（A 的 combined10 G1–G7 与 p9r 重跑、
+  B 的最终 head CI 矩阵、C 的补数据+30 天水稻+两年 Y1/Y2）**全部需要跑测试**或依赖用户给出的 bug 详情，
+  因此无法在无新输入下继续推进。
+- 已完成的“不跑测试也能做”的工作：静态自审候选问题（§4b）、取消前 partial 证据归档、合规复核（§4c）、
+  恢复计划（`material-transport-resume-plan-20261029.md`）、目标覆盖矩阵
+  （`material-transport-objective-status-20261029.md`）、偏离登记（`material-transport-deviations-20261029.md`）、
+  15 文件补传执行单（`methane-runs/transfer-plan.md` + `transfer-file-list.txt`）；
+  全部已提交并推送到个人 fork（当前 head `1f51187e`，本地=远端）。
+- **恢复所需输入**：① 用户的明显 bug 清单（文件/行号、现象、期望行为）；② CI 口径 A/B 选择
+  （92-job 分片矩阵算通过 vs 23-job 口径记 20/23 + 3 个 6h 超时）；收到后按恢复计划执行。
+
 ## 5. 建议的下一步（按优先级）
 
 1. 等 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（组合验收重跑）终态：G1–G7 全 PASS 则更新组合验收结论；
