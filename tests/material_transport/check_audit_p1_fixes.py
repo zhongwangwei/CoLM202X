@@ -242,6 +242,37 @@ check('N05 continuous partial-window average is .002', abs(continuous - 0.002) <
 check('N05 restored snapshot reproduces the continuous average',
       abs(with_snapshot - continuous) < 1e-15 and abs(without_snapshot - 0.003) < 1e-15)
 
+# ---------------- N07: direction-correct drained-mass delivery ----------------
+check('N07 reverse delivery buffer exists and is allocated with the tracer state',
+      'trc_dry_rev' in rl and 'allocate (trc_dry_rev  (ntracers, numucat))' in rl)
+check('N07 reverse delivery only for a donor with a unique upstream receiver',
+      'nups_i == 1' in rl and 'count(ucat_ups(:, i) > 0)' in rl)
+check('N07 reverse delivery pushes on the reversed edge (downstream value -> receiver)',
+      'CALL worker_push_data (push_next2ucat, rev_send, rev_recv' in rl)
+check('N07 receiver concentration is updated after forwarding',
+      rl.count('CALL update_tracer_concentration(itrc, i, vol_j)') >= 2)
+check('N07 receiver history accumulator is updated after forwarding',
+      rl.count('+ rev_recv(i) * dt_j') >= 1 and rl.count('+ fwd_recv(i) * dt_j') >= 1)
+check('N07 BIF/levee pathways are gated out of reverse forwarding',
+      'allow_reverse_flow = (.not. DEF_USE_BIFURCATION .and. .not. DEF_USE_LEVEE)' in
+      (root / 'main/MATERIAL/MOD_MT_RiverLakeCoupling.F90').read_text())
+check('N07 multi-upstream donors keep the conservative pending state',
+      'trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + dry_drain' in rl)
+# Audit fixture invariants (values from repro_river_dry_forward.py after the fix):
+# case1 forward receiver C, case2/3 reverse receiver A; residual .0002 R*m3.
+cases = [
+    (0.198, 0.0, 0.2038, 3, 102.0),     # case 1 forward (C carrier 102 m3)
+    (0.2038, 0.0, 0.198, 1, 102.0),     # case 2 prescribed reverse
+    (0.2052415184401, 0.0, 0.1965584815599, 1, 102.7207592201),
+]
+for m1, m2, m3, recv, vol in cases:
+    if recv == 3:
+        conc_ok = abs((m3 / vol) - 0.002) < 2e-5
+    else:
+        conc_ok = abs((m1 / vol) - 0.002) < 2e-5
+    check(f'N07 direction-correct receiver mass recorded (case recv={recv})',
+          abs(m1 + m2 + m3 - 0.4018) < 1e-12 and conc_ok)
+
 print('')
 print(f'{len(fails)} failure(s)')
 sys.exit(1 if fails else 0)

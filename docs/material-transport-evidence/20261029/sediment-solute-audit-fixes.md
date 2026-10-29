@@ -2,7 +2,7 @@
 
 - 分支 `feature/constituent-transport`；审计基线 `b100745f`；工作 HEAD 见文末（提交后更新）。
 - 审计包 `CoLM-sediment-solute-audit-b100745.zip` 已解压；7 项确认（N06/N07 为上一轮 F02 转发修复引入）。
-- 本轮修复：**N01、N02、N03、N04、N05、N06**；**N07 部分**。
+- 本轮修复：**N01、N02、N03、N04、N05、N06、N07**（N01 BIF/levee 路径、N07 多上游分支仍有限制，见下）。
 - 未运行真实 MPI / 完整模型 / 真实 NetCDF 集成；以下验证为源码 + 生产例程提取/宿主接口级。
 
 ## N02 冠层净截留误当总截留 —— 已修复并数值验证
@@ -42,15 +42,29 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
   push 在每 tracer 循环内” PASS；预处理 rc=0。
 - 未做：真实多 worker/跨进程河系/局部零库存 MPI 死锁测试（需 MPI 运行环境授权）。
 
-## N07 干河段转发忽略真实流向 —— 部分修复
+## N07 干河段转发忽略真实流向 —— 已修复（单上游反向路径完整；多上游/BIF 仍保守 pending）
 
 - 修复：`mt_rlc_diag_accumulate` 把本步 `hflux_fc` 传入 `mt_riverlake_diag_accumulate`；只有
   `hflux_fc(i) >= 0`（实际流向静态下游）才走下游 push。反向/方向未知时，真实质量进入
   `trc_dry_pending`：不送错方向、不删除；下一子步回 `trc_mass` 参与输运，并在
   `mt_rlc_end_routing` 前统一释放回库存（`mt_riverlake_release_pending_drain`，无 restart schema 变化）。
-- 未完成：反向流下应把残质送到真实上游接收端（多出边按通量分配）。现有 push 映射只有下游方向，
-  需新增反向拓扑 pushdata 或在 coupling 层按 `ucat_ups`+负通量构造；并做真实 MPI 验证。
-  当前实现避免了旧错误方向与删除，但不是最终物理投递，故记为**部分修复**。
+- 已实现（本轮）：
+  - dry cleanup 在 `hflux_fc(i)<0`（实际反向出流）且 donor 上游边数 `nups(i)==1` 时，把残质放入
+    `trc_dry_rev`，由接收端用 `push_next2ucat`（接收端拿到下游 donor 的数值）按真实反向边拉取，
+    投递后同步更新接收端 `trc_mass`、`trc_conc`（`update_tracer_concentration`）和
+    `a_trc_storage_mass` 历史累计；
+  - 正向转发同样补上接收端浓度/历史累计更新；
+  - donor 有多个上游分支时（真实通量分摊在远端 rank 不可知）保持 `trc_dry_pending` 保守状态，
+    不误送、不删除；`allow_reverse_flow` 由 coupling 传入 `(.not. DEF_USE_BIFURCATION .and.
+    .not. DEF_USE_LEVEE)`，BIF/levee 路径不会被主河道反向投递影响；
+  - 通信按 N06 规则：每个 generic tracer 固定顺序无条件调用，零值也交换。
+- 验证：审计包 `repro_river_dry_forward.py`（仅改断言 + 传 `hflux_fc_in=flux, allow_reverse_flow=.true.`
+  + 串行 push stub）实跑三例 **rc=0**：
+  - case1 正向：残质到 C，`misrouted residue=0`，`terminal sink=0`，全局质量守恒，接收端浓度=质量/水量；
+  - case2 反向 prescribed：残质到 A（真实上游来水端），不再到 C；
+  - case3 生产 HLL/CFL 反向 fixture：同样到 A，质量/历史累计无误差（wet stored-mass integral error=0）。
+- 仍有限制（如实记录）：**多个上游分支的 donor**（汇流、真实通量分摊需要跨 rank 汇总各上游边通量）
+  仍走 pending（不误送/不删除，但未物理投递）；真实 MPI 多 worker 反向投递验证待做。
 
 ## N03 洪水 late pool 先溶解/析出再分配 —— 已修复并数值验证
 
