@@ -181,10 +181,19 @@ MODULE MOD_MT_Sediment
    real(r8), allocatable :: a_layer   (:,:)    ! Accumulated layer
    real(r8), allocatable :: a_shearvel(:)      ! Accumulated shearvel
 
+   ! N05 terminal-window snapshot (same role as MOD_MT_RiverLake): keep the
+   ! pre-flush rows for the physical restart after a partial-window stop.
+   real(r8), allocatable, save :: sedhistsnap_con(:,:), sedhistsnap_out(:,:), sedhistsnap_bed(:,:)
+   real(r8), allocatable, save :: sedhistsnap_inp(:,:), sedhistsnap_net(:,:), sedhistsnap_lay(:,:)
+   real(r8), allocatable, save :: sedhistsnap_shear(:)
+   real(r8), save :: sedhistsnap_acctime = 0._r8
+   logical, save :: sedhistsnap_valid = .false.
+
    !-------------------------------------------------------------------------------------
    ! Public Subroutines
    !-------------------------------------------------------------------------------------
    PUBLIC :: register_sediment_tracer_provider
+   PUBLIC :: mt_sediment_snapshot_hist_acc
 
    integer, parameter :: MAX_SED_PARAM_CLASSES = 100
    type :: sediment_parameter_type
@@ -3764,6 +3773,38 @@ CONTAINS
    END SUBROUTINE write_sediment_scalar_meta
 
    !-------------------------------------------------------------------------------------
+   SUBROUTINE mt_sediment_snapshot_hist_acc ()
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+   integer :: nuc
+
+      IF (.not. p_is_worker) RETURN
+      IF (.not. sediment_particle_enabled()) RETURN
+      nuc = 0
+      IF (numucat > 0) nuc = numucat
+      IF (sedhistsnap_valid) RETURN
+      IF (allocated(sedhistsnap_con)) deallocate(sedhistsnap_con, sedhistsnap_out, sedhistsnap_bed, &
+         sedhistsnap_inp, sedhistsnap_net, sedhistsnap_lay, sedhistsnap_shear)
+      allocate(sedhistsnap_con(nsed,nuc), sedhistsnap_out(nsed,nuc), sedhistsnap_bed(nsed,nuc), &
+         sedhistsnap_inp(nsed,nuc), sedhistsnap_net(nsed,nuc), sedhistsnap_lay(nsed,nuc), &
+         sedhistsnap_shear(nuc))
+      sedhistsnap_con = 0._r8; sedhistsnap_out = 0._r8; sedhistsnap_bed = 0._r8
+      sedhistsnap_inp = 0._r8; sedhistsnap_net = 0._r8; sedhistsnap_lay = 0._r8
+      sedhistsnap_shear = 0._r8
+      IF (nuc > 0) THEN
+         IF (allocated(a_sedcon)) sedhistsnap_con = a_sedcon
+         IF (allocated(a_sedout)) sedhistsnap_out = a_sedout
+         IF (allocated(a_bedout)) sedhistsnap_bed = a_bedout
+         IF (allocated(a_sedinp)) sedhistsnap_inp = a_sedinp
+         IF (allocated(a_netflw)) sedhistsnap_net = a_netflw
+         IF (allocated(a_layer)) sedhistsnap_lay = a_layer
+         IF (allocated(a_shearvel)) sedhistsnap_shear = a_shearvel
+      ENDIF
+      sedhistsnap_acctime = sed_hist_acctime
+      sedhistsnap_valid = .true.
+
+   END SUBROUTINE mt_sediment_snapshot_hist_acc
+
    SUBROUTINE write_sediment_restart(file_restart)
    !-------------------------------------------------------------------------------------
    USE MOD_Vector_ReadWrite
@@ -3777,6 +3818,8 @@ CONTAINS
    character(len=16) :: cised, cilyr
    real(r8) :: dummy_sed(1)   ! Dummy for non-worker processes (vlen=0, never accessed)
    real(r8), allocatable :: scalar_vec(:)
+   real(r8), allocatable :: t2a(:,:), t2b(:,:), t2c(:,:), t2d(:,:), t2e(:,:), t2f(:,:), t1a(:)
+   real(r8) :: t_acctime
 
       ! All processes must participate (MPI collective calls inside vector_gather_and_write).
       IF (.not. sediment_particle_enabled()) RETURN
@@ -4076,6 +4119,17 @@ CONTAINS
          file_restart, 'sed_precip_time_vec', 'ucatch')
       IF (allocated(scalar_vec)) deallocate(scalar_vec)
 
+      ! N05: write the pre-flush snapshot after a terminal partial window.
+      IF (sedhistsnap_valid .and. p_is_worker .and. numucat > 0 .and. &
+          allocated(sedhistsnap_con) .and. allocated(a_sedcon)) THEN
+         allocate(t2a(nsed,numucat), t2b(nsed,numucat), t2c(nsed,numucat), &
+            t2d(nsed,numucat), t2e(nsed,numucat), t2f(nsed,numucat), t1a(numucat))
+         t2a = a_sedcon; t2b = a_sedout; t2c = a_bedout; t2d = a_sedinp
+         t2e = a_netflw; t2f = a_layer; t1a = a_shearvel; t_acctime = sed_hist_acctime
+         a_sedcon = sedhistsnap_con; a_sedout = sedhistsnap_out; a_bedout = sedhistsnap_bed
+         a_sedinp = sedhistsnap_inp; a_netflw = sedhistsnap_net; a_layer = sedhistsnap_lay
+         a_shearvel = sedhistsnap_shear; sed_hist_acctime = sedhistsnap_acctime
+      ENDIF
       DO ised = 1, nsed
          WRITE(cised, '(I0)') ised
          IF (allocated(a_sedcon)) THEN
@@ -4124,6 +4178,16 @@ CONTAINS
       CALL vector_gather_and_write(scalar_vec, size(scalar_vec), totalnumucat, ucat_data_address, &
          file_restart, 'sed_hist_acctime_vec', 'ucatch')
       IF (allocated(scalar_vec)) deallocate(scalar_vec)
+      IF (allocated(t2a)) THEN
+         a_sedcon = t2a; a_sedout = t2b; a_bedout = t2c; a_sedinp = t2d
+         a_netflw = t2e; a_layer = t2f; a_shearvel = t1a; sed_hist_acctime = t_acctime
+         deallocate(t2a, t2b, t2c, t2d, t2e, t2f, t1a)
+      ENDIF
+      IF (sedhistsnap_valid) THEN
+         sedhistsnap_valid = .false.
+         IF (allocated(sedhistsnap_con)) deallocate(sedhistsnap_con, sedhistsnap_out, &
+            sedhistsnap_bed, sedhistsnap_inp, sedhistsnap_net, sedhistsnap_lay, sedhistsnap_shear)
+      ENDIF
 
       CALL write_sediment_scalar_meta(file_restart, 'sed_restart_complete_meta', &
          1._r8)

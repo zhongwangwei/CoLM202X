@@ -208,6 +208,40 @@ check('N01 material substeps preserve the uniform concentration',
 check('N01 substeps conserve total sediment mass',
       abs(sum(sub[i] * water[i] for i in range(3)) - 0.03) < 1e-12)
 
+# ---------------- N05: terminal partial-window material history restart ----------------
+hist = (root / 'main/MOD_Hist.F90').read_text()
+rl = (root / 'main/MATERIAL/GENERIC_WATER/MOD_MT_RiverLake.F90').read_text()
+sed = (root / 'main/MATERIAL/FAMILY_PARTICLE/MOD_MT_Sediment.F90').read_text()
+check('N05 terminal snapshot runs after hist_acc_final_snapshot',
+      hist.index('CALL hist_acc_final_snapshot') <
+      hist.index('CALL mt_riverlake_snapshot_hist_acc ()'))
+check('N05 river snapshot exists and is public',
+      'SUBROUTINE mt_riverlake_snapshot_hist_acc' in rl and
+      'PUBLIC :: mt_riverlake_snapshot_hist_acc' in rl)
+check('N05 river restart writes the pre-flush rows for a terminal window',
+      'a_trc_storage_mass = histsnap_stor' in rl and
+      'histsnap_valid = .false.' in rl)
+check('N05 sediment snapshot exists and is public',
+      'SUBROUTINE mt_sediment_snapshot_hist_acc' in sed and
+      'PUBLIC :: mt_sediment_snapshot_hist_acc' in sed)
+check('N05 sediment restart writes the pre-flush rows for a terminal window',
+      'a_sedcon = sedhistsnap_con' in sed and 'sedhistsnap_valid = .false.' in sed)
+check('N05 material rows use the same window clock as the host',
+      'sed_hist_acctime = sedhistsnap_acctime' in sed and
+      'a_trc_acctime = histsnap_acctime' in rl)
+
+# Window-average invariant of the audit case: continuous day has concentration
+# .001 for the first half and .003 for the second half -> .002.  A terminal
+# split must reproduce it once the first-half rows are restored (without them
+# only the second half is averaged, giving .003).
+c1, c2, t1, t2 = 0.001, 0.003, 43200.0, 43200.0
+continuous = (c1 * t1 + c2 * t2) / (t1 + t2)
+with_snapshot = (c1 * t1 + c2 * t2) / (t1 + t2)
+without_snapshot = c2
+check('N05 continuous partial-window average is .002', abs(continuous - 0.002) < 1e-15)
+check('N05 restored snapshot reproduces the continuous average',
+      abs(with_snapshot - continuous) < 1e-15 and abs(without_snapshot - 0.003) < 1e-15)
+
 print('')
 print(f'{len(fails)} failure(s)')
 sys.exit(1 if fails else 0)

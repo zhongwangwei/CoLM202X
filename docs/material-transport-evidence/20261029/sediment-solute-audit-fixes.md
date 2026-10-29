@@ -2,7 +2,7 @@
 
 - 分支 `feature/constituent-transport`；审计基线 `b100745f`；工作 HEAD 见文末（提交后更新）。
 - 审计包 `CoLM-sediment-solute-audit-b100745.zip` 已解压；7 项确认（N06/N07 为上一轮 F02 转发修复引入）。
-- 本轮修复：**N01、N02、N03、N04、N06**；**N07 部分**；N05 未实施。
+- 本轮修复：**N01、N02、N03、N04、N05、N06**；**N07 部分**。
 - 未运行真实 MPI / 完整模型 / 真实 NetCDF 集成；以下验证为源码 + 生产例程提取/宿主接口级。
 
 ## N02 冠层净截留误当总截留 —— 已修复并数值验证
@@ -89,7 +89,31 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
 - 未做：真实河网/MPI 集成与性能实测（子步上限保证最坏 ~240× 平流计算，需在 7920 记录耗时）；
   床层/推移质在同一子步逻辑内一并推进，未单独改变其参数化。
 
-## N05 —— 未实施
+## N05 中途终止/续跑材料历史窗口 —— 已实现（结构+窗口不变量验证；真实 NetCDF 重启待验收）
+
+- 根因链（审计）：`MOD_Hist.F90` 终止非完整窗口时先 `hist_acc_final_snapshot` 再 `hist_out`；
+  `flush_acc_fluxes_riverlake` → `mt_riverlake_flush_acc` 与 `flush_sediment_history` 清零材料累计与时钟；
+  随后 `WRITE_TimeVariables` 写物理 restart 时材料行只能写零，宿主水文累计却能由自身 sidecar 恢复，
+  下一次完整窗口用恢复的宿主 acctime 配零材料累计（半数窗口被当天计满）。
+- 修复：
+  - `MOD_MT_RiverLake.F90`：新增 `mt_riverlake_snapshot_hist_acc`（`a_trc_storage_mass`/`a_trc_levsto_mass`/
+    `a_trc_out`/`a_trc_bifout`/`a_water_storage`/`a_levsto_water`/`a_trc_acctime` 的终止前快照）并 PUBLIC；
+    `mt_riverlake_write_restart` 在写 `mt_hist_*` 行前沿用快照、写完恢复 live 并清 valid；
+    单进程/非 worker/旧 restart（缺行即冷启动窗口）行为不变。
+  - `MOD_MT_Sediment.F90`：新增 `mt_sediment_snapshot_hist_acc`（`a_sedcon/a_sedout/a_bedout/a_sedinp/
+    a_netflw/a_layer/a_shearvel` + `sed_hist_acctime`）；`write_sediment_restart` 同样快照写入、写后恢复；
+    现有 `a_*`/`sed_hist_acctime_vec` restart 字段与读取逻辑不变（无 schema 变更）。
+  - `MOD_Hist.F90`：在 `hist_acc_final_snapshot` 之后、终止输出之前，`#if (MaterialTransport)&&(GridRiverLakeFlow)`
+    调用两个 snapshot 例程（与宿主 sidecar 的“先保存、后清零”顺序一致）。
+  - 普通（非终止）checkpoint 不调用 snapshot，live 累计照常写入，行为与旧版一致。
+- 验证（`tests/material_transport/check_audit_p1_fixes.py`）：
+  - 结构：terminal snapshot 在 `hist_acc_final_snapshot` 之后调用；river/sediment snapshot 公开且 write_restart
+    实际使用快照、写后清 valid；材料与宿主共用窗口时钟；
+  - 窗口不变量：审计例（前半 .001、后半 .003，各 43200 s）连续平均 = .002；恢复快照后 = .002，不恢复 = .003。
+  - 全部本地检查 0 failure。
+- 未做/待验收：真实 NetCDF restart 端到端（连续 vs 半日终止续跑，one/block 两种 history 模式、频率变更 MONTHLY↔DAILY）；
+  需 NetCDF/MPI 运行环境。sediment provider 的 route sidecar 已用现有字段完成，无旧文件不兼容问题。
+
 
 - N01：`MOD_MT_Sediment.F90` 双向粗时间步 donor 限流；需按 gross 出流/donor 水量控制材料子步或
   守恒双向时间积分；`repro_sediment_bidirectional.py` 可直接作为回归（修复后改断言）。

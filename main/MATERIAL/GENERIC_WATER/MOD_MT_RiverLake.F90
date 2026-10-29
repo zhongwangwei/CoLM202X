@@ -119,6 +119,16 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: a_trc_bifout (:,:) ! Accumulated tracer bif net flux [mass/s * s] (ntracers, numucat)
    real(r8), allocatable :: a_trc_acctime(:)   ! Tracer history elapsed time [s]
 
+   ! N05 terminal-window snapshot.  When a run stops inside a history window,
+   ! hist_out writes the partial window and flush_acc then zeroes the live
+   ! accumulators before the physical restart is written.  The snapshot keeps
+   ! the pre-flush rows so the restart continues the same window (matching the
+   ! host sidecar) instead of losing the first part of the window.
+   real(r8), allocatable, save :: histsnap_stor(:,:), histsnap_levsto(:,:)
+   real(r8), allocatable, save :: histsnap_out(:,:), histsnap_bifout(:,:)
+   real(r8), allocatable, save :: histsnap_wstor(:), histsnap_wlevsto(:), histsnap_acctime(:)
+   logical, save :: histsnap_valid = .false.
+
    ! Routing tracer substep workspace. These buffers are reused across the
    ! many adaptive routing substeps to avoid repeated heap allocate/free churn.
    real(r8), allocatable, save :: conc_next(:)
@@ -176,6 +186,7 @@ MODULE MOD_MT_RiverLake
    PUBLIC :: mt_riverlake_read_restart
    PUBLIC :: mt_riverlake_write_restart
    PUBLIC :: mt_riverlake_write_hist_acc_restart, mt_riverlake_read_hist_acc_restart
+   PUBLIC :: mt_riverlake_snapshot_hist_acc
    PUBLIC :: mt_riverlake_write_history
    PUBLIC :: mt_riverlake_final
    PUBLIC :: check_tracer_state
@@ -2504,6 +2515,37 @@ CONTAINS
 
    END SUBROUTINE read_tracer_hist_acc
 
+   SUBROUTINE mt_riverlake_snapshot_hist_acc ()
+   USE MOD_Grid_RiverLakeNetwork, only: numucat
+   IMPLICIT NONE
+   integer :: ntr, nuc
+
+      IF (.not. p_is_worker) RETURN
+      IF (ntracers <= 0) RETURN
+      ntr = ntracers
+      nuc = 0
+      IF (numucat > 0) nuc = numucat
+
+      IF (allocated(histsnap_stor)) deallocate(histsnap_stor, histsnap_levsto, histsnap_out, &
+         histsnap_bifout, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
+      allocate(histsnap_stor(ntr,nuc), histsnap_levsto(ntr,nuc), histsnap_out(ntr,nuc), &
+         histsnap_bifout(ntr,nuc), histsnap_wstor(nuc), histsnap_wlevsto(nuc), histsnap_acctime(nuc))
+      histsnap_stor = 0._r8; histsnap_levsto = 0._r8; histsnap_out = 0._r8
+      histsnap_bifout = 0._r8; histsnap_wstor = 0._r8; histsnap_wlevsto = 0._r8
+      histsnap_acctime = 0._r8
+      IF (nuc > 0) THEN
+         IF (allocated(a_trc_storage_mass)) histsnap_stor = a_trc_storage_mass
+         IF (allocated(a_trc_levsto_mass)) histsnap_levsto = a_trc_levsto_mass
+         IF (allocated(a_trc_out)) histsnap_out = a_trc_out
+         IF (allocated(a_trc_bifout)) histsnap_bifout = a_trc_bifout
+         IF (allocated(a_water_storage)) histsnap_wstor = a_water_storage
+         IF (allocated(a_levsto_water)) histsnap_wlevsto = a_levsto_water
+         IF (allocated(a_trc_acctime)) histsnap_acctime = a_trc_acctime
+      ENDIF
+      histsnap_valid = .true.
+
+   END SUBROUTINE mt_riverlake_snapshot_hist_acc
+
    SUBROUTINE mt_riverlake_write_hist_acc_restart(file)
    IMPLICIT NONE
    character(len=*), intent(in) :: file
@@ -2582,6 +2624,8 @@ CONTAINS
    integer :: itrc
    character(len=64) :: varname
    real(r8), allocatable :: tmpvec(:)
+   real(r8), allocatable :: t2a(:,:), t2b(:,:), t2c(:,:), t2d(:,:)
+   real(r8), allocatable :: t1a(:), t1b(:), t1c(:)
    integer, allocatable :: descriptor_identity(:,:)
 
       ! Guard: tracer module may not be initialised (e.g. mkinidata).
@@ -2701,6 +2745,19 @@ CONTAINS
 
       ! Persist the numerator rows and their tracer-local elapsed time as one
       ! history window. Older files without rows start a post-restart window.
+      ! At a terminal (partial-window) stop the live rows were cleared by the
+      ! history flush; swap the pre-flush snapshot in for these rows only.
+      IF (histsnap_valid .and. p_is_worker .and. numucat > 0 .and. &
+          allocated(histsnap_stor) .and. allocated(a_trc_storage_mass)) THEN
+         allocate(t2a(ntracers,numucat), t2b(ntracers,numucat), t2c(ntracers,numucat), &
+            t2d(ntracers,numucat), t1a(numucat), t1b(numucat), t1c(numucat))
+         t2a = a_trc_storage_mass; t2b = a_trc_levsto_mass; t2c = a_trc_out; t2d = a_trc_bifout
+         t1a = a_water_storage; t1b = a_levsto_water; t1c = a_trc_acctime
+         a_trc_storage_mass = histsnap_stor; a_trc_levsto_mass = histsnap_levsto
+         a_trc_out = histsnap_out; a_trc_bifout = histsnap_bifout
+         a_water_storage = histsnap_wstor; a_levsto_water = histsnap_wlevsto
+         a_trc_acctime = histsnap_acctime
+      ENDIF
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
          write(varname, '(A,A)') 'mt_hist_stor_', trim(tracer_names(itrc))
@@ -2715,6 +2772,16 @@ CONTAINS
       CALL write_tracer_hist_acc (file_restart, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL write_tracer_hist_acc (file_restart, 'mt_hist_levsto_water', acc1=a_levsto_water)
       CALL write_tracer_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_trc_acctime)
+      IF (allocated(t2a)) THEN
+         a_trc_storage_mass = t2a; a_trc_levsto_mass = t2b; a_trc_out = t2c; a_trc_bifout = t2d
+         a_water_storage = t1a; a_levsto_water = t1b; a_trc_acctime = t1c
+         deallocate(t2a, t2b, t2c, t2d, t1a, t1b, t1c)
+      ENDIF
+      IF (histsnap_valid) THEN
+         histsnap_valid = .false.
+         IF (allocated(histsnap_stor)) deallocate(histsnap_stor, histsnap_levsto, histsnap_out, &
+            histsnap_bifout, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
+      ENDIF
 
       ! Commit metadata last. If any state/descriptor write above is interrupted,
       ! complete remains zero and the reader refuses the mixed-generation file.

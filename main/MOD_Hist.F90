@@ -18,6 +18,10 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
+#if (defined MaterialTransport) && (defined GridRiverLakeFlow)
+   USE MOD_MT_RiverLake, only: mt_riverlake_snapshot_hist_acc
+   USE MOD_MT_Sediment, only: mt_sediment_snapshot_hist_acc
+#endif
 #ifdef MaterialTransport
    USE MOD_MT_Vars, only: flush_Tracer_Acc
    USE MOD_MT_Hist, only: mt_hist_out
@@ -263,6 +267,13 @@ CONTAINS
       ! steps; it only writes a file in the restart directory and changes no
       ! model or history variable.
       CALL hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)
+#if (defined MaterialTransport) && (defined GridRiverLakeFlow)
+      ! N05: keep the material history rows of this partial terminal window for
+      ! the physical restart written after the output flush (host side does the
+      ! same for its own accumulators).
+      CALL mt_riverlake_snapshot_hist_acc ()
+      CALL mt_sediment_snapshot_hist_acc ()
+#endif
 
       select CASE (trim(adjustl(DEF_HIST_FREQ)))
       CASE ('TIMESTEP')
