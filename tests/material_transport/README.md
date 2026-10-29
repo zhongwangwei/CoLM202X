@@ -47,6 +47,14 @@ production accumulator/output/flush/restart-payload routines, in-memory IO):
 python3 tests/material_transport/check_terminal_sed_history.py
 ```
 
+Sediment joint/BIF provider-level material substepping: constant concentration
+under a coarse bidirectional-water interval with reservation recomputed per
+substep (production advection core + donor-demand routines):
+
+```sh
+python3 tests/material_transport/check_sediment_joint_substep.py
+```
+
 The NetCDF tools also need NumPy and netCDF4, already present in the T7920 test
 environment. Their self checks create only temporary, tiny fixtures.
 

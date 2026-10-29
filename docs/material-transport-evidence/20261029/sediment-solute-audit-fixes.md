@@ -114,8 +114,13 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
     按 `nsub=ceil(rivout_abs*dt_morph/rivsto_donor)`（上限 240）循环
     `donor 重算 → demand → joint reservation → levee overtopping → advection → BIF credits →
     levee retreat`，所有 dt 项按 `dt_step=dt_morph/nsub` 缩放，每子步从当前库存重算 reservation。
-    已随 GRID 与 BGC+CROP 两配置全量编译通过（MAKE_RC=0）；完整 BIF 运行的恒浓度/守恒数值验证
-    仍需 7920 集成，列为待完成。
+    已随 GRID 与 BGC+CROP 两配置全量编译通过（MAKE_RC=0）。
+  - 数值验证（审计 harness 扩展，生产 advection core + `ordinary_sediment_donor_demand` 提取）：
+    新增 case 4 = provider 子步模拟（nsub=2，每子步重算 donor/demand/reservation）：
+    `C=[1.000e-3, 1.000e-3, 1.000e-3]`、质量守恒 **PASS**；
+    case 3（core 级固定 scale 的替代对照）仍为 [5e-4, 2e-3, 5e-4]，符合“仅固定 scale 不够”的预期。
+    该测试固化为 `tests/material_transport/check_sediment_joint_substep.py`。
+  - 仍待：完整 BIF/levee 配置（真实 pathway/credit/levee 通量）的 7920 数值集成与性能。
 - 编译坑修正：`calc_sediment_advection` 因自递归需声明 `RECURSIVE`（否则完整构建编译失败），已修。
 - 未做：真实河网/MPI 集成与性能实测（子步上限保证最坏 ~240× 平流计算，需在 7920 记录耗时）；
   床层/推移质在同一子步逻辑内一并推进，未单独改变其参数化。
