@@ -55,8 +55,8 @@ check('N06 forwarding still sends zeros for every generic tracer',
       'rev_send(i) = trc_dry_split(itrc, i)' in rl and
       'CALL worker_push_data (push_next2ucat, rev_send, rev_recv' in rl)
 check('N06 push call sits inside the per-tracer loop (same order every rank)',
-      rl.index('fwd_send(:) = trc_dry_fwd(itrc, :)') <
-      rl.index('CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv'))
+      rl.index('rev_send(i) = trc_dry_split(itrc, i)') <
+      rl.index('CALL worker_push_data (push_next2ucat, rev_send, rev_recv'))
 
 # N07: direction from the actual host flux, reverse/unknown kept pending.
 check('N07 direction uses the timestep face flux, not static topology only',
