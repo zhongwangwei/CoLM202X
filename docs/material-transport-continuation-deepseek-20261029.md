@@ -218,6 +218,14 @@
 
 以上候选项在没有用户确认前不改代码、不跑测试。
 
+### 4c. 合规状态复核（2026-10-29 10:12 CST，只读 API）
+
+- 分支 `feature/constituent-transport` head = `00716194…`（本地=远端）；工作树 clean。
+- 检查点分支 `checkpoint/material-transport-base-20261028` 仍存在，sha = `f9ea408e74b3397d49aae10926143e711a3fbbf0`（**未删除**）。
+- 个人 fork PR #29：`state=open`、`draft=true`、`merged=false`、head=`feature/constituent-transport`（当前 sha）、
+  base=`checkpoint/material-transport-base-20261028`；**未合并、未向 SYSU/master 推送**。
+- 未动历史 CI run；Run 3 系自己 dispatch 后按用户要求取消。
+
 ## 5. 建议的下一步（按优先级）
 
 1. 等 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（组合验收重跑）终态：G1–G7 全 PASS 则更新组合验收结论；

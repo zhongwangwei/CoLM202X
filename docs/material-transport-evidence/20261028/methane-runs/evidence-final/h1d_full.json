@@ -1,0 +1,602 @@
+{
+ "tag": "h1d",
+ "tool": "colm",
+ "case": "/media/zhwei/data01/compute_runs/codex/codex-6b46c0ceb804474d8abea8ec7d661a1c/work/pilot/h1d/case",
+ "rc": 0,
+ "log_parse": {
+  "log": "/media/zhwei/data01/compute_runs/codex/codex-6b46c0ceb804474d8abea8ec7d661a1c/work/pilot/h1d/case/log.colm",
+  "exists": true,
+  "steps": 48,
+  "last_timestep": "1995-06-01-84600",
+  "completed": true,
+  "init_completed": false,
+  "log_elapsed_s": 956,
+  "fatal": {},
+  "fatal_samples": [],
+  "host_water_worst": 0.9615,
+  "n_guard_abort": 0,
+  "n_guard_capped_warning": 0,
+  "n_capped_note": 0,
+  "water_balance_n": 24,
+  "water_balance_max_abs_m3": 0.045,
+  "water_balance_last_m3": 0.024,
+  "n_water_balance_violation": 0,
+  "water_balance_accounting_last": [
+   "1.9E+12",
+   "-1.3E+09",
+   "1.9E+12",
+   "-1.3E+09",
+   "1.9E+12",
+   "-1.3E+09"
+  ],
+  "n_warning": 110,
+  "warning_samples": [
+   "WARNING: methane host-water disagreement    1.6116439594471371E-002  of pore volume at patch/layer            1           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    6.2924432976883705E-003  of pore volume at patch/layer            2           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    5.7155812367448971E-003  of pore volume at patch/layer            2           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    9.9630883744880969E-003  of pore volume at patch/layer           24           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    1.0344644667533797E-002  of pore volume at patch/layer           12           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    5.5850353168077939E-003  of pore volume at patch/layer            2           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    7.7082905411787533E-003  of pore volume at patch/layer            2           1  (tolerance    5.0000000000000003E-002 ); tolerated",
+   "WARNING: methane host-water disagreement    8.8631192715674795E-003  of pore volume at patch/layer            2           1  (tolerance    5.0000000000000003E-002 ); tolerated"
+  ],
+  "n_error_lines": 0
+ },
+ "time": {
+  "exists": true,
+  "wall_s": 2014.45,
+  "user_s": 68078.84,
+  "sys_s": 300.12,
+  "maxrss_kb": 1714804,
+  "cpu_pct": "3394",
+  "exit_status": 0
+ },
+ "mem": {
+  "exists": true,
+  "n_samples": 997,
+  "peak_sum_rss_gb": 33.116,
+  "peak_rank_rss_gb": 1.68,
+  "peak_cgroup_mem_gb": 33.416
+ },
+ "inventory": {
+  "history": [
+   {
+    "name": "case_hist_1995.nc",
+    "bytes": 24328944,
+    "n_vars": 368,
+    "landarea": true
+   },
+   {
+    "name": "case_hist_material_1995.nc",
+    "bytes": 1178760,
+    "n_vars": 44
+   },
+   {
+    "name": "case_hist_unitcat_1995.nc",
+    "bytes": 17920316
+   }
+  ],
+  "restart": [
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n10.nc",
+    "bytes": 693000
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n30.nc",
+    "bytes": 912055
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n50.nc",
+    "bytes": 751770
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n70.nc",
+    "bytes": 525386
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s10.nc",
+    "bytes": 761424
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s30.nc",
+    "bytes": 582174
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s50.nc",
+    "bytes": 518993
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s70.nc",
+    "bytes": 499016
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s90.nc",
+    "bytes": 541493
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_n10.nc",
+    "bytes": 724641
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_n30.nc",
+    "bytes": 968833
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_n50.nc",
+    "bytes": 840130
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_n70.nc",
+    "bytes": 541252
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_s10.nc",
+    "bytes": 883842
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_s30.nc",
+    "bytes": 889745
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_s50.nc",
+    "bytes": 566011
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_s70.nc",
+    "bytes": 502426
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e020_s90.nc",
+    "bytes": 539157
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_n10.nc",
+    "bytes": 721573
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_n30.nc",
+    "bytes": 1019287
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_n50.nc",
+    "bytes": 834146
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_n70.nc",
+    "bytes": 546134
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_s10.nc",
+    "bytes": 581219
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_s30.nc",
+    "bytes": 665730
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_s50.nc",
+    "bytes": 503094
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_s70.nc",
+    "bytes": 512657
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e040_s90.nc",
+    "bytes": 533463
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_n10.nc",
+    "bytes": 856779
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_n30.nc",
+    "bytes": 999505
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_n50.nc",
+    "bytes": 813294
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_n70.nc",
+    "bytes": 548522
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_s10.nc",
+    "bytes": 532872
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_s30.nc",
+    "bytes": 499438
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_s50.nc",
+    "bytes": 506350
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_s70.nc",
+    "bytes": 510325
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e060_s90.nc",
+    "bytes": 539129
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_n10.nc",
+    "bytes": 983894
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_n30.nc",
+    "bytes": 871251
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_n50.nc",
+    "bytes": 766709
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_n70.nc",
+    "bytes": 589199
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_s10.nc",
+    "bytes": 583512
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_s30.nc",
+    "bytes": 499896
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_s70.nc",
+    "bytes": 509502
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e080_s90.nc",
+    "bytes": 532846
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_n10.nc",
+    "bytes": 1024036
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_n30.nc",
+    "bytes": 995714
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_n50.nc",
+    "bytes": 727196
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_n70.nc",
+    "bytes": 575714
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_s10.nc",
+    "bytes": 865282
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_s30.nc",
+    "bytes": 538825
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_s50.nc",
+    "bytes": 527676
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_s70.nc",
+    "bytes": 512216
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e100_s90.nc",
+    "bytes": 532846
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_n10.nc",
+    "bytes": 629857
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_n30.nc",
+    "bytes": 943756
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_n50.nc",
+    "bytes": 696070
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_n70.nc",
+    "bytes": 543130
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_s10.nc",
+    "bytes": 746023
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_s30.nc",
+    "bytes": 631789
+   },
+   {
+    "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e120_s50.nc",
+    "bytes": 563116
+   }
+  ],
+  "restart_n": 1430,
+  "restart_bytes": 1627527716
+ },
+ "core_s_per_step": 1424.562,
+ "wall_s_per_step": 41.968,
+ "core_seconds": 68378.95999999999,
+ "projected_core_hours_2yr_35070": 13877.61,
+ "projected_wall_hours_64cpu_2yr": 216.84,
+ "landarea_shape": [
+  90,
+  180
+ ],
+ "landarea_total_m2": 134908764.75343376,
+ "host_water_worst": 0.9615,
+ "n_guard_abort": 0,
+ "n_guard_capped_warning": 0,
+ "water_balance_max_abs_m3": 0.045,
+ "water_balance_last_m3": 0.024,
+ "n_water_balance_violation": 0,
+ "ch4_vars": {
+  "f_methane_surf_flux_tot": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5162,
+   "n_nonzero": 5088,
+   "units": "mol/m2/s",
+   "min": -5.502608216252835e-10,
+   "max": 1.9924470102230622e-05,
+   "mean": 1.6848658942656061e-07
+  },
+  "f_methane_surf_flux_global_total_with_lake": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5162,
+   "n_nonzero": 5088,
+   "units": "mol/m2/s",
+   "min": -5.502608216252835e-10,
+   "max": 1.9924470102230622e-05,
+   "mean": 1.6848658942656061e-07
+  },
+  "f_methane_surf_flux_wetland": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5162,
+   "n_nonzero": 4174,
+   "units": "mol/m2/s",
+   "min": -1.6952268719294679e-12,
+   "max": 1.992447771756033e-05,
+   "mean": 1.6854023549483072e-07
+  },
+  "f_methane_surf_flux_soil": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5162,
+   "n_nonzero": 5069,
+   "units": "mol/m2/s",
+   "min": -5.502608216252835e-10,
+   "max": 7.800822672362523e-11,
+   "mean": -5.2851477158108533e-11
+  },
+  "f_methane_surf_flux_rice": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5162,
+   "n_nonzero": 0,
+   "units": "mol/m2/s",
+   "min": 0.0,
+   "max": 0.0,
+   "mean": 0.0
+  },
+  "f_methane_surf_flux_lake": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5162,
+   "n_nonzero": 4339,
+   "units": "mol/m2/s",
+   "min": -5.4395901165689085e-11,
+   "max": 1.028533400533669e-29,
+   "mean": -7.945911120169294e-13
+  },
+  "f_methane_prod_tot": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 4190,
+   "units": "mol/m2/s",
+   "min": 0.0,
+   "max": 2.843311857269782e-05,
+   "mean": 2.838888531589406e-07
+  },
+  "f_methane_oxid_tot": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 5000,
+   "units": "mol/m2/s",
+   "min": 0.0,
+   "max": 3.5711344677597795e-07,
+   "mean": 5.499707740473524e-09
+  },
+  "f_methane_balance_residual": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 5083,
+   "units": "mol/m2/s",
+   "min": -1.7185240335391444e-21,
+   "max": 1.824996184745465e-21,
+   "mean": 1.5532369767953451e-24
+  },
+  "f_methane_ch4_clip_credit": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 2918,
+   "units": "mol/m2/s",
+   "min": -8.25523360430735e-25,
+   "max": 0.0,
+   "mean": -2.5343567399902213e-28
+  },
+  "f_methane_surf_flux_rice_intensive": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 0,
+   "n_nonzero": 0,
+   "units": "mol/m2/s"
+  },
+  "f_methane_finundated": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 4165,
+   "units": "-",
+   "min": 0.0,
+   "max": 0.9975273768433653,
+   "mean": 0.031081736933174463
+  },
+  "f_methane_soil_finundated": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5069,
+   "n_nonzero": 128,
+   "units": "-",
+   "min": 0.0,
+   "max": 0.6020676140202714,
+   "mean": 0.001021248378938864
+  },
+  "f_methane_soil_zwt": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5069,
+   "n_nonzero": 5069,
+   "units": "m",
+   "min": 0.7438612807009988,
+   "max": 136.07805287547822,
+   "mean": 11.096296718759419
+  },
+  "f_co2_hr_methane": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 5075,
+   "units": "gC/m2/s",
+   "min": 0.0,
+   "max": 0.00310911152474282,
+   "mean": 5.8633501519175085e-05
+  },
+  "f_totcol_methane": {
+   "dims": [
+    "time",
+    "lat",
+    "lon"
+   ],
+   "n_total": 16200,
+   "n_finite": 5083,
+   "n_nonzero": 5083,
+   "units": "mol/m2",
+   "min": 2.340019473337087e-16,
+   "max": 0.1440913567068515,
+   "mean": 0.002492221728447978
+  }
+ },
+ "ch4_integrals": {
+  "f_methane_surf_flux_tot": 3.4499809758433413,
+  "f_methane_surf_flux_global_total_with_lake": 3.4499809758433413,
+  "f_methane_surf_flux_global_phys_with_lake": 3.449980975843341,
+  "f_methane_surf_flux_tot_phys": 3.7819127558599295,
+  "f_methane_surf_flux_active_total_without_lake": 3.450031777813043,
+  "f_methane_surf_flux_wetland": 3.458505641305385,
+  "f_methane_surf_flux_soil": -0.008473863492341643,
+  "f_methane_surf_flux_lake": -5.080196970236982e-05,
+  "f_methane_surf_flux_rice": 0.0,
+  "f_methane_prod_tot": 4.938622097175817,
+  "f_methane_prod_tot_soil": 0.000998668795970029,
+  "f_methane_prod_tot_rice": 0.0,
+  "f_methane_oxid_tot": 0.1646549460186072,
+  "f_methane_oxid_tot_soil": 0.055804715137420066,
+  "f_methane_oxid_tot_rice": 0.0,
+  "f_co2_hr_methane": 3120.4368472147435,
+  "f_methane_balance_residual": 5.719213359016233e-17,
+  "f_methane_ch4_clip_credit": -1.0539743806135377e-20
+ },
+ "balance_residual_absmax": 1.824996184745465e-21,
+ "ch4_clip_credit_absmax": 8.25523360430735e-25,
+ "gates": {
+  "ran": true,
+  "completed": true,
+  "no_fatal": true,
+  "no_guard_abort": true,
+  "no_water_balance_violation": true,
+  "steps_match": true,
+  "last_timestamp_match": true,
+  "material_history_present": true,
+  "ch4_vars_present": true,
+  "ch4_flux_finite": true,
+  "ch4_flux_nonzero": true,
+  "ch4_balance_finite": true,
+  "ch4_global_flux_positive": true,
+  "restart_present": true
+ },
+ "pass": true
+}

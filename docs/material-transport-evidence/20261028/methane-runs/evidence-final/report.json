@@ -1,0 +1,769 @@
+{
+ "runs": {
+  "r1d": {
+   "pass": true,
+   "gates": {
+    "ran": true,
+    "completed": true,
+    "no_fatal": true,
+    "no_guard_abort": true,
+    "no_water_balance_violation": true,
+    "steps_match": true,
+    "last_timestamp_match": true,
+    "material_history_present": true,
+    "ch4_vars_present": true,
+    "ch4_flux_finite": true,
+    "ch4_flux_nonzero": true,
+    "ch4_balance_finite": true,
+    "ch4_global_flux_positive": true,
+    "restart_present": true
+   },
+   "steps": 48,
+   "last_timestep": "1995-06-01-84600",
+   "completed": true,
+   "fatal": {},
+   "wall_s": 1137.62,
+   "core_seconds": 59257.24,
+   "core_s_per_step": 1234.526,
+   "wall_s_per_step": 23.7,
+   "memory": {
+    "exists": true,
+    "n_samples": 565,
+    "peak_sum_rss_gb": 33.193,
+    "peak_rank_rss_gb": 1.688,
+    "peak_cgroup_mem_gb": 32.073
+   },
+   "ch4_integrals_mol_s": {
+    "f_methane_surf_flux_tot": 3.4499804893834227,
+    "f_methane_surf_flux_global_total_with_lake": 3.4499804893834227,
+    "f_methane_surf_flux_global_phys_with_lake": 3.4499804893834227,
+    "f_methane_surf_flux_tot_phys": 3.781905773100715,
+    "f_methane_surf_flux_active_total_without_lake": 3.450031291353125,
+    "f_methane_surf_flux_wetland": 3.458505641305385,
+    "f_methane_surf_flux_soil": -0.008011294440952487,
+    "f_methane_surf_flux_lake": -5.080196970236982e-05,
+    "f_methane_surf_flux_rice": -0.00046305551130784706,
+    "f_methane_prod_tot": 4.938265600226955,
+    "f_methane_prod_tot_soil": 0.000623278102259013,
+    "f_methane_prod_tot_rice": 1.8893744848831105e-05,
+    "f_methane_oxid_tot": 0.16436949325966732,
+    "f_methane_oxid_tot_soil": 0.05452327797285482,
+    "f_methane_oxid_tot_rice": 0.0009959844056253767,
+    "f_co2_hr_methane": 3120.5987361571965,
+    "f_methane_balance_residual": 5.720737916270268e-17,
+    "f_methane_ch4_clip_credit": -9.218428576454152e-21
+   },
+   "ch4_integrals_Tg_yr_equiv": {
+    "f_methane_surf_flux_tot": 0.0017451292987996575,
+    "f_methane_surf_flux_global_total_with_lake": 0.0017451292987996575,
+    "f_methane_surf_flux_global_phys_with_lake": 0.0017451292987996575,
+    "f_methane_surf_flux_tot_phys": 0.0019130295345864865,
+    "f_methane_surf_flux_active_total_without_lake": 0.0017451549963379588,
+    "f_methane_surf_flux_wetland": 0.0017494416398234742,
+    "f_methane_surf_flux_soil": -4.052412671097637e-06,
+    "f_methane_surf_flux_lake": -2.569753830120431e-08,
+    "f_methane_surf_flux_rice": -2.342308144178524e-07,
+    "f_methane_prod_tot": 0.0024979596292588665,
+    "f_methane_prod_tot_soil": 3.1527739965475736e-07,
+    "f_methane_prod_tot_rice": 9.557163526345914e-09,
+    "f_methane_oxid_tot": 8.314424368456736e-05,
+    "f_methane_oxid_tot_soil": 2.757991535019727e-05,
+    "f_methane_oxid_tot_rice": 5.038062020214621e-07,
+    "f_co2_hr_methane": 1.5785156759649916,
+    "f_methane_balance_residual": 2.893763422477086e-20,
+    "f_methane_ch4_clip_credit": -4.6630263119364124e-24
+   },
+   "ch4_var_stats": {
+    "f_methane_surf_flux_tot": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5162,
+     "n_nonzero": 5088,
+     "units": "mol/m2/s",
+     "min": -5.502608216252835e-10,
+     "max": 1.9924470102283155e-05,
+     "mean": 1.684865654057101e-07
+    },
+    "f_methane_surf_flux_global_total_with_lake": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5162,
+     "n_nonzero": 5088,
+     "units": "mol/m2/s",
+     "min": -5.502608216252835e-10,
+     "max": 1.9924470102283155e-05,
+     "mean": 1.684865654057101e-07
+    },
+    "f_methane_surf_flux_wetland": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5162,
+     "n_nonzero": 4174,
+     "units": "mol/m2/s",
+     "min": -1.6952268719294679e-12,
+     "max": 1.992447771756033e-05,
+     "mean": 1.6854023549483072e-07
+    },
+    "f_methane_surf_flux_soil": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5162,
+     "n_nonzero": 5069,
+     "units": "mol/m2/s",
+     "min": -5.502608216252835e-10,
+     "max": 9.488762301207752e-12,
+     "mean": -5.0198792662447257e-11
+    },
+    "f_methane_surf_flux_rice": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5162,
+     "n_nonzero": 842,
+     "units": "mol/m2/s",
+     "min": -3.190441875099326e-10,
+     "max": 0.0,
+     "mean": -2.6767053461773576e-12
+    },
+    "f_methane_surf_flux_lake": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5162,
+     "n_nonzero": 4339,
+     "units": "mol/m2/s",
+     "min": -5.4395901165689085e-11,
+     "max": 1.028533400533669e-29,
+     "mean": -7.945911120169294e-13
+    },
+    "f_methane_prod_tot": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 4190,
+     "units": "mol/m2/s",
+     "min": 0.0,
+     "max": 2.843311862259383e-05,
+     "mean": 2.8388666138041647e-07
+    },
+    "f_methane_oxid_tot": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 5000,
+     "units": "mol/m2/s",
+     "min": 0.0,
+     "max": 3.5711344677597795e-07,
+     "mean": 5.498100373121928e-09
+    },
+    "f_methane_balance_residual": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 5083,
+     "units": "mol/m2/s",
+     "min": -1.7185239200024295e-21,
+     "max": 1.8249969143391615e-21,
+     "mean": 1.5535237437395077e-24
+    },
+    "f_methane_ch4_clip_credit": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 2905,
+     "units": "mol/m2/s",
+     "min": -8.255501119596606e-25,
+     "max": 0.0,
+     "mean": -2.44384127387353e-28
+    },
+    "f_methane_surf_flux_rice_intensive": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 842,
+     "n_nonzero": 842,
+     "units": "mol/m2/s",
+     "min": -5.89400439429889e-10,
+     "max": -1.054002858043065e-12,
+     "mean": -2.602271603401108e-10
+    },
+    "f_methane_finundated": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 4169,
+     "units": "-",
+     "min": 0.0,
+     "max": 0.9975273768433653,
+     "mean": 0.03030026097208432
+    },
+    "f_methane_soil_finundated": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5069,
+     "n_nonzero": 268,
+     "units": "-",
+     "min": 0.0,
+     "max": 0.15934333590423697,
+     "mean": 0.0002796302329103297
+    },
+    "f_methane_soil_zwt": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5069,
+     "n_nonzero": 5069,
+     "units": "m",
+     "min": 0.7438612807009988,
+     "max": 136.07805287547822,
+     "mean": 11.096296750309268
+    },
+    "f_co2_hr_methane": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 5075,
+     "units": "gC/m2/s",
+     "min": 0.0,
+     "max": 0.00310911152474282,
+     "mean": 5.8634569705012564e-05
+    },
+    "f_totcol_methane": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 16200,
+     "n_finite": 5083,
+     "n_nonzero": 5083,
+     "units": "mol/m2",
+     "min": 2.340019473337087e-16,
+     "max": 0.1440913567068515,
+     "mean": 0.002492205284298928
+    }
+   },
+   "balance_residual_absmax": 1.8249969143391615e-21,
+   "host_water_worst": 0.9615,
+   "n_guard_abort": 0,
+   "n_guard_capped_warning": 0,
+   "water_balance_max_abs_m3": 0.044,
+   "water_balance_last_m3": 0.022,
+   "n_water_balance_violation": 0,
+   "n_roundoff_warnings": 110,
+   "history_files": [
+    {
+     "name": "case_hist_1995.nc",
+     "bytes": 24733064,
+     "n_vars": 387,
+     "landarea": true
+    },
+    {
+     "name": "case_hist_material_1995.nc",
+     "bytes": 1205874,
+     "n_vars": 44
+    },
+    {
+     "name": "case_hist_unitcat_1995.nc",
+     "bytes": 17929152
+    }
+   ],
+   "restart_n": 1430,
+   "restart_bytes": 1681062910,
+   "restart_sample": [
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n10.nc",
+     "bytes": 835516
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n30.nc",
+     "bytes": 1099371
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n50.nc",
+     "bytes": 903486
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n70.nc",
+     "bytes": 636302
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s10.nc",
+     "bytes": 917140
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s30.nc",
+     "bytes": 701790
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s50.nc",
+     "bytes": 629109
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s70.nc",
+     "bytes": 605332
+    }
+   ]
+  },
+  "r3d": {
+   "pass": true,
+   "gates": {
+    "ran": true,
+    "completed": true,
+    "no_fatal": true,
+    "no_guard_abort": true,
+    "no_water_balance_violation": true,
+    "steps_match": true,
+    "last_timestamp_match": true,
+    "material_history_present": true,
+    "ch4_vars_present": true,
+    "ch4_flux_finite": true,
+    "ch4_flux_nonzero": true,
+    "ch4_balance_finite": true,
+    "ch4_global_flux_positive": true,
+    "restart_present": true
+   },
+   "steps": 144,
+   "last_timestep": "1995-06-03-84600",
+   "completed": true,
+   "fatal": {},
+   "wall_s": 1533.43,
+   "core_seconds": 79485.8,
+   "core_s_per_step": 551.985,
+   "wall_s_per_step": 10.649,
+   "memory": {
+    "exists": true,
+    "n_samples": 761,
+    "peak_sum_rss_gb": 33.147,
+    "peak_rank_rss_gb": 1.687,
+    "peak_cgroup_mem_gb": 33.863
+   },
+   "ch4_integrals_mol_s": {
+    "f_methane_surf_flux_tot": 3.110726245553072,
+    "f_methane_surf_flux_global_total_with_lake": 3.110726245553072,
+    "f_methane_surf_flux_global_phys_with_lake": 3.1107262455530718,
+    "f_methane_surf_flux_tot_phys": 3.4204926549160244,
+    "f_methane_surf_flux_active_total_without_lake": 3.110776176422795,
+    "f_methane_surf_flux_wetland": 3.1195677092055494,
+    "f_methane_surf_flux_soil": -0.008346971237347312,
+    "f_methane_surf_flux_lake": -4.993086972296747e-05,
+    "f_methane_surf_flux_rice": -0.0004445615454071378,
+    "f_methane_prod_tot": 3.916568981201784,
+    "f_methane_prod_tot_soil": 0.0016650907794779014,
+    "f_methane_prod_tot_rice": 5.335543119957943e-05,
+    "f_methane_oxid_tot": 0.08319680262220562,
+    "f_methane_oxid_tot_soil": 0.02605214596712979,
+    "f_methane_oxid_tot_rice": 0.0006786819820637404,
+    "f_co2_hr_methane": 3051.20822950859,
+    "f_methane_balance_residual": 1.5186131200675592e-16,
+    "f_methane_ch4_clip_credit": -4.785072816864084e-21
+   },
+   "ch4_integrals_Tg_yr_equiv": {
+    "f_methane_surf_flux_tot": 0.0015735218005913773,
+    "f_methane_surf_flux_global_total_with_lake": 0.0015735218005913773,
+    "f_methane_surf_flux_global_phys_with_lake": 0.001573521800591377,
+    "f_methane_surf_flux_tot_phys": 0.001730213248101525,
+    "f_methane_surf_flux_active_total_without_lake": 0.001573547057494695,
+    "f_methane_surf_flux_wetland": 0.0015779941439311995,
+    "f_methane_surf_flux_soil": -4.2222105624533955e-06,
+    "f_methane_surf_flux_lake": -2.5256903317639375e-08,
+    "f_methane_surf_flux_rice": -2.2487587405119033e-07,
+    "f_methane_prod_tot": 0.0019811472270345183,
+    "f_methane_prod_tot_soil": 8.422652572587061e-07,
+    "f_methane_prod_tot_rice": 2.6989174728091387e-08,
+    "f_methane_oxid_tot": 4.2084057654601774e-05,
+    "f_methane_oxid_tot_soil": 1.3178150822519257e-05,
+    "f_methane_oxid_tot_rice": 3.4330275638124837e-07,
+    "f_co2_hr_methane": 1.5434153597215576,
+    "f_methane_balance_residual": 7.681713730053869e-20,
+    "f_methane_ch4_clip_credit": -2.4204689838961164e-24
+   },
+   "ch4_var_stats": {
+    "f_methane_surf_flux_tot": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15486,
+     "n_nonzero": 15264,
+     "units": "mol/m2/s",
+     "min": -5.559630554925842e-10,
+     "max": 2.0443512623465676e-05,
+     "mean": 1.4878913164873448e-07
+    },
+    "f_methane_surf_flux_global_total_with_lake": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15486,
+     "n_nonzero": 15264,
+     "units": "mol/m2/s",
+     "min": -5.559630554925842e-10,
+     "max": 2.0443512623465676e-05,
+     "mean": 1.4878913164873448e-07
+    },
+    "f_methane_surf_flux_wetland": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15486,
+     "n_nonzero": 12522,
+     "units": "mol/m2/s",
+     "min": -4.646184420648684e-12,
+     "max": 2.0443522429910226e-05,
+     "mean": 1.4884498071349157e-07
+    },
+    "f_methane_surf_flux_soil": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15486,
+     "n_nonzero": 15207,
+     "units": "mol/m2/s",
+     "min": -5.559630554925842e-10,
+     "max": 9.488762301207752e-12,
+     "mean": -5.248911035271076e-11
+    },
+    "f_methane_surf_flux_rice": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15486,
+     "n_nonzero": 2526,
+     "units": "mol/m2/s",
+     "min": -3.300597393764911e-10,
+     "max": 0.0,
+     "mean": -2.5567565528149652e-12
+    },
+    "f_methane_surf_flux_lake": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15486,
+     "n_nonzero": 13017,
+     "units": "mol/m2/s",
+     "min": -6.498105032520517e-11,
+     "max": 7.400235032351673e-27,
+     "mean": -8.03197851543539e-13
+    },
+    "f_methane_prod_tot": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 12632,
+     "units": "mol/m2/s",
+     "min": 0.0,
+     "max": 2.843311862259383e-05,
+     "mean": 2.331839444905017e-07
+    },
+    "f_methane_oxid_tot": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 15103,
+     "units": "mol/m2/s",
+     "min": 0.0,
+     "max": 3.5711344677597795e-07,
+     "mean": 2.577324827394806e-09
+    },
+    "f_methane_balance_residual": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 15248,
+     "units": "mol/m2/s",
+     "min": -2.243155390642574e-21,
+     "max": 2.5195954308607265e-21,
+     "mean": 6.38361590633263e-24
+    },
+    "f_methane_ch4_clip_credit": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 3846,
+     "units": "mol/m2/s",
+     "min": -8.255501119596606e-25,
+     "max": 0.0,
+     "mean": -1.0085666303809353e-28
+    },
+    "f_methane_surf_flux_rice_intensive": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 2526,
+     "n_nonzero": 2526,
+     "units": "mol/m2/s",
+     "min": -5.938936809135564e-10,
+     "max": -8.264648981352183e-13,
+     "mean": -2.5779573738902655e-10
+    },
+    "f_methane_finundated": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 12458,
+     "units": "-",
+     "min": 0.0,
+     "max": 0.9975273768433655,
+     "mean": 0.024490972234217555
+    },
+    "f_methane_soil_finundated": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15207,
+     "n_nonzero": 427,
+     "units": "-",
+     "min": 0.0,
+     "max": 0.15934333590423697,
+     "mean": 9.464444214062085e-05
+    },
+    "f_methane_soil_zwt": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15207,
+     "n_nonzero": 15207,
+     "units": "m",
+     "min": 0.7438612807009988,
+     "max": 136.07805287547822,
+     "mean": 11.127977123442768
+    },
+    "f_co2_hr_methane": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 15237,
+     "units": "gC/m2/s",
+     "min": 0.0,
+     "max": 0.0032196470496739364,
+     "mean": 5.766534163859627e-05
+    },
+    "f_totcol_methane": {
+     "dims": [
+      "time",
+      "lat",
+      "lon"
+     ],
+     "n_total": 48600,
+     "n_finite": 15249,
+     "n_nonzero": 15249,
+     "units": "mol/m2",
+     "min": 2.340019473337087e-16,
+     "max": 0.1918383249028807,
+     "mean": 0.0031748136854405137
+    }
+   },
+   "balance_residual_absmax": 2.5195954308607265e-21,
+   "host_water_worst": 0.9615,
+   "n_guard_abort": 0,
+   "n_guard_capped_warning": 0,
+   "water_balance_max_abs_m3": 0.068,
+   "water_balance_last_m3": 0.053,
+   "n_water_balance_violation": 0,
+   "n_roundoff_warnings": 110,
+   "history_files": [
+    {
+     "name": "case_hist_1995.nc",
+     "bytes": 63398406,
+     "n_vars": 387,
+     "landarea": true
+    },
+    {
+     "name": "case_hist_material_1995.nc",
+     "bytes": 2907480,
+     "n_vars": 44
+    },
+    {
+     "name": "case_hist_unitcat_1995.nc",
+     "bytes": 46662455
+    }
+   ],
+   "restart_n": 1430,
+   "restart_bytes": 1681674674,
+   "restart_sample": [
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n10.nc",
+     "bytes": 835516
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n30.nc",
+     "bytes": 1099371
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n50.nc",
+     "bytes": 903486
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_n70.nc",
+     "bytes": 636302
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s10.nc",
+     "bytes": 917140
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s30.nc",
+     "bytes": 701790
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s50.nc",
+     "bytes": 629109
+    },
+    {
+     "path": "1995-152-00000/case_restart_1995-152-00000_lc2005_e000_s70.nc",
+     "bytes": 605332
+    }
+   ]
+  }
+ },
+ "comparisons": {
+  "baseline_rice_flux_should_be_zero": {
+   "f_methane_surf_flux_rice": null,
+   "nonzero_frac_var": null
+  },
+  "rice_on": {
+   "f_methane_surf_flux_rice": null,
+   "f_methane_surf_flux_rice_Tg_yr_equiv": null,
+   "f_methane_surf_flux_rice_intensive_mean": null,
+   "f_methane_soil_finundated_mean": null
+  },
+  "rice_on_wetonly": {
+   "f_methane_surf_flux_rice": null,
+   "f_methane_surf_flux_wetland": null,
+   "f_methane_surf_flux_soil": null,
+   "f_methane_surf_flux_tot": null
+  }
+ },
+ "projection": {
+  "r1d": {
+   "steps": 48,
+   "core_s_per_step": 1234.526,
+   "projected_core_hours_2yr_35070": 12026.34,
+   "projected_wall_hours_64cpu_2yr": 187.91,
+   "peak_sum_rss_gb": 33.193,
+   "peak_rank_rss_gb": 1.688
+  },
+  "r3d": {
+   "steps": 144,
+   "core_s_per_step": 551.985,
+   "projected_core_hours_2yr_35070": 5377.25,
+   "projected_wall_hours_64cpu_2yr": 84.02,
+   "peak_sum_rss_gb": 33.147,
+   "peak_rank_rss_gb": 1.687
+  }
+ },
+ "failures": [],
+ "status": "PASS",
+ "rice_30d": {
+  "present": false,
+  "pass": null,
+  "gates": null
+ }
+}

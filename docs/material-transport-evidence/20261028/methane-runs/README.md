@@ -10,9 +10,9 @@
 | --- | --- | --- |
 | 真实构建 MT+BGC+CROP+LULC_IGBP_PFT+VG+GridRiverLakeFlow | **READY** | `make all` 成功；define.h 与三二进制 SHA256 固定；CROP+BGC+MT 无 CI 覆盖，这是首份真实编译证据 |
 | mkinidata 冷启动 1995-06-01 | **READY** | 4m12s / 15,714 core-s / restart 642MB / `CoLM Initialization Execution Completed` |
-| 交付默认 **hybrid** 全球口径 | **NOT_READY（根因已定位并修复）** | 旧代码 fail-closed 守卫 `methane inundation exceeds host soil water` 全球冷启动 step 2/3 中止；根因：finundated 是独立水位估计，与土壤孔隙水不是同一量；修复 `3778404f` 用 host-supported saturation 封顶分配替代 abort（分配本身守恒、不造水） |
+| 交付默认 **hybrid** 全球口径 | **短跑 PASS（1/3 天）；30 天/两年未完成** | 旧代码 fail-closed 守卫 `methane inundation exceeds host soil water` 全球冷启动 step 2/3 中止；修复 `3778404f` 用 host-supported saturation 封顶分配替代 abort。修复后 hybrid 1/3 天 END、guard abort 0、water-balance violation 0、CH4 残差 ~1e-21、通量有限非零（见 `evidence-final/`） |
 | 替代 **wetwat** 口径 | **READY（有口径变更声明）** | 1 天/3 天/30 天真实运行全部 END；30 天 wall 53m12s、cgroup 峰值 37.1GB、水量平衡 8.7e-3 m³（全球存量 1.9e12 m³）、CH4 balance residual 4.5e-21、通量有限非零 |
-| 水稻甲烷 | **未完成（等待 guard 修复后重跑）** | rice 可启动（irrigation-on restart），但被同一守卫在 step 36 以同一 patch/数值中止；水稻不是触发因素；wetwat 口径下稻田 finundated≡0、rice 通量=0，不能替代水稻验收 |
+| 水稻甲烷 | **短跑 PASS（1/3 天），30 天/最终验收未完成** | guard 修复后 rice（dynamic_wtd+rice+irrigation）1/3 天均 END、通量**非零**（积分 −4.63e-4 / −4.45e-4 mol/s，冷启动首日为小净汇、sign 记录）；30 天作业 09:29 启动、10:03 按用户要求取消（取消前 336/1440 步零 fatal，见 `partial/`） |
 | 两年全球 W1 | **配置+预算 READY，运行待 guard 修复验证** | W1 1995-01-01 03:00 → 1996-12-31 18:00，35,070 步；拆 Y1 17,514 步 / Y2 17,556 步（YEARLY restart），每作业 9.1–11.5h @64 CPU（实测 1.84 s/step、峰值内存 33–37GB），远低于 24h 上限 |
 
 ## 关键实测数字
