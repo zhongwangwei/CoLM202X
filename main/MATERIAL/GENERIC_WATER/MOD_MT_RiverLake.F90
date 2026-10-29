@@ -1882,6 +1882,8 @@ CONTAINS
    ! before a restart/window boundary, so a pending buffer can never be lost
    ! across restart.  Released mass is available to the next transport step.
    SUBROUTINE mt_riverlake_release_pending_drain ()
+      USE MOD_Grid_RiverLakeNetwork, only: numucat
+      USE MOD_MT_Defs, only: trc_tiny
       integer :: i, itrc
       IF (.not. allocated(trc_dry_pending)) RETURN
       DO itrc = 1, ntracers

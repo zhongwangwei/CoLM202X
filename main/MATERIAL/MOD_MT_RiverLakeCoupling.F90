@@ -511,7 +511,7 @@ CONTAINS
 
       IF (allocated(volresv)) volresv_mt = volresv
       CALL mt_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
-         volresv_mt, ucat2resv_mt, is_built_resv, hflux_fc = hflux_fc, &
+         volresv_mt, ucat2resv_mt, is_built_resv, hflux_fc_in = hflux_fc, &
          allow_reverse_flow = (.not. DEF_USE_BIFURCATION .and. .not. DEF_USE_LEVEE))
 
       IF (tracer_lifecycle_has_flood_publisher() .or. tracer_lifecycle_has_levee_flood_publisher()) THEN
@@ -594,7 +594,6 @@ CONTAINS
    ! ---------
    SUBROUTINE mt_rlc_end_routing ()
 
-      CALL mt_riverlake_release_pending_drain ()
    ! End of a routing call, on all processes: CoLMDEBUG material balance,
    ! donor-limiter statistics, reset of the per-call accumulations, and the
    ! provider materials of the call (acctime_rnof is still its length).
@@ -609,6 +608,7 @@ CONTAINS
    real(r8), allocatable :: trc_mass_aft(:), trc_mass_decay(:)
 #endif
 
+      CALL mt_riverlake_release_pending_drain ()
       IF (ntracers <= 0) RETURN
 
 #ifdef CoLMDEBUG

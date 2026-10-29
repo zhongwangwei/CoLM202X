@@ -26,7 +26,8 @@ MODULE MOD_MT_SpecialPatches
       a_trc_rsur, a_trc_rnof, trc_wetwat, trc_waterstorage, trc_storage_beg, &
       trc_surface_residue, trc_subsurface_residue, trc_runtime_forced, &
       trc_solid_soisno, trc_canopy_solid, trc_surface_solid, &
-      trc_subsurface_solid, trc_waterstorage_solid, sync_tracer_patch_ratio
+      trc_subsurface_solid, trc_waterstorage_solid, sync_tracer_patch_ratio, &
+      mt_add_rnof_step
    USE MOD_MT_Vars, only: trc_aquifer_ref_water, trc_leaf_iso_storage, &
       trc_leaf_water_moles, trc_leaf_delta_e, trc_leaf_delta_b, trc_leaf_peclet
 

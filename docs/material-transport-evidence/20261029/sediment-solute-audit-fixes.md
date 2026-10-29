@@ -181,3 +181,16 @@ PATH=/opt/homebrew/bin:$PATH python3 tests/material_transport/check_rnof_handoff
   - `python3 tests/material_transport/check_defineh.py` → 93 unique CI cases PASS。
 - 仍缺：`make all` 多配置完整编译、7920 最小集成/性能（N01 子步上限 240×、N05 IO）、N05 NetCDF 重启对照、
   N01 BIF/levee provider 子步。
+
+## 全量编译验证（本轮，MaterialTransport + GRID + USEMPI + GridRiverLakeFlow）
+
+- 环境：macOS arm64，gfortran 16.1（mpif90/OpenMPI 5）+ Homebrew NetCDF-Fortran，临时副本 `/tmp/colm_build`
+  （`include/define.h` 打开 `MaterialTransport`），`make -j1 all`。
+- 结果：**MAKE_RC=0**，`mksrfdata.x/mkinidata.x/colm.x/postprocess.x` 全部链接成功（“Making all CoLM programs successfully”）。
+- 该编译暴露并已修复的真实缺陷（此前单元测试/预处理未发现）：
+  1. `mt_riverlake_release_pending_drain` 缺 `USE MOD_Grid_RiverLakeNetwork, only: numucat` 与
+     `USE MOD_MT_Defs, only: trc_tiny`；
+  2. `MOD_MT_Evapo` 缺 `trc_water_min_for_ratio` 导入（N04 恢复路径）；
+  3. coupling 调用 `mt_riverlake_diag_accumulate` 用了旧关键字 `hflux_fc=`（应为 `hflux_fc_in=`）；
+  4. `mt_rlc_end_routing` 中 `release_pending_drain` 被插到声明段之前（改为声明后调用）。
+- 说明：这是本机 macOS 全量编译，不是 7920/CI 构建；未运行模型（无强迫数据/完整重启用例）。

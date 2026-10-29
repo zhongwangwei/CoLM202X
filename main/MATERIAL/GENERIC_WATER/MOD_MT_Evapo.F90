@@ -5,7 +5,7 @@ MODULE MOD_MT_Evapo
 
    USE MOD_Precision
    USE MOD_MT_Defs, only: ntracers, trc_tiny, mt_uses_generic_water, tracer_init_water_ratio, &
-      tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max
+      tracer_is_nonvolatile_solute, tracers, trc_delta_sanity_max, trc_water_min_for_ratio
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
    USE MOD_MT_Forcing, only: tracer_forcing_vapor_value
    USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_alpha_kinetic_craig_gordon, &
