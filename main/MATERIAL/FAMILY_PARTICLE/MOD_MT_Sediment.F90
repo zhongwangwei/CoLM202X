@@ -1601,13 +1601,15 @@ CONTAINS
    real(r8), intent(out) :: sed_visible_scale(:,:), sed_protected_scale(:,:), bed_visible_scale(:,:)
    real(r8), intent(out) :: sed_visible_credit(:,:), sed_protected_credit(:,:)
    real(r8), intent(out) :: bed_visible_credit(:,:), bed_protected_credit(:,:)
-   real(r8), allocatable :: available_visible(:), available_protected(:)
-   real(r8), allocatable :: bed_snapshot(:,:)
-   real(r8), allocatable :: rate_visible(:), rate_protected(:), rate_visible_dn(:), rate_protected_dn(:)
-   real(r8), allocatable :: levee_flag(:), levee_flag_dn(:)
-   real(r8), allocatable :: demand_forward(:,:), demand_reverse(:,:)
-   real(r8), allocatable :: path_visible(:), path_protected(:), recv_visible(:), recv_protected(:)
-   real(r8), allocatable :: scale_visible(:), scale_protected(:), scale_visible_dn(:), scale_protected_dn(:)
+   ! Persistent scratch workspace: this routine runs once per sediment substep.
+   ! Reuse allocations across calls; all arrays are fully overwritten before use.
+   real(r8), allocatable, save :: available_visible(:), available_protected(:)
+   real(r8), allocatable, save :: bed_snapshot(:,:)
+   real(r8), allocatable, save :: rate_visible(:), rate_protected(:), rate_visible_dn(:), rate_protected_dn(:)
+   real(r8), allocatable, save :: levee_flag(:), levee_flag_dn(:)
+   real(r8), allocatable, save :: demand_forward(:,:), demand_reverse(:,:)
+   real(r8), allocatable, save :: path_visible(:), path_protected(:), recv_visible(:), recv_protected(:)
+   real(r8), allocatable, save :: scale_visible(:), scale_protected(:), scale_visible_dn(:), scale_protected_dn(:)
    real(r8) :: q_forward, q_reverse, plus_vel, minus_vel, layer_sum, density_ratio
    real(r8) :: budget_before, budget_after, budget_pair(2)
    integer :: kind, ised, i, ipth, ilev
@@ -1617,16 +1619,28 @@ CONTAINS
       bed_visible_credit = 0._r8; bed_protected_credit = 0._r8
       sed_visible_scale = 1._r8; sed_protected_scale = 1._r8; bed_visible_scale = 1._r8
       IF (.not. p_is_worker) RETURN
-      allocate(available_visible(numucat), available_protected(numucat))
-      allocate(bed_snapshot(nsed,numucat))
-      allocate(rate_visible(numucat), rate_protected(numucat))
-      allocate(rate_visible_dn(npthout_local), rate_protected_dn(npthout_local))
-      allocate(levee_flag(numucat), levee_flag_dn(npthout_local))
-      allocate(demand_forward(npthlev_bif,npthout_local), demand_reverse(npthlev_bif,npthout_local))
-      allocate(path_visible(npthout_local), path_protected(npthout_local))
-      allocate(recv_visible(numucat), recv_protected(numucat))
-      allocate(scale_visible(numucat), scale_protected(numucat))
-      allocate(scale_visible_dn(npthout_local), scale_protected_dn(npthout_local))
+      IF (allocated(available_visible)) THEN
+         IF (size(available_visible) /= numucat .or. size(bed_snapshot,1) /= nsed .or. &
+             size(bed_snapshot,2) /= numucat .or. size(rate_visible_dn) /= npthout_local .or. &
+             size(demand_forward,1) /= npthlev_bif .or. size(demand_forward,2) /= npthout_local) THEN
+            deallocate(available_visible, available_protected, bed_snapshot, rate_visible, rate_protected, &
+               rate_visible_dn, rate_protected_dn, levee_flag, levee_flag_dn, demand_forward, demand_reverse, &
+               path_visible, path_protected, recv_visible, recv_protected, scale_visible, scale_protected, &
+               scale_visible_dn, scale_protected_dn)
+         ENDIF
+      ENDIF
+      IF (.not. allocated(available_visible)) THEN
+         allocate(available_visible(numucat), available_protected(numucat))
+         allocate(bed_snapshot(nsed,numucat))
+         allocate(rate_visible(numucat), rate_protected(numucat))
+         allocate(rate_visible_dn(npthout_local), rate_protected_dn(npthout_local))
+         allocate(levee_flag(numucat), levee_flag_dn(npthout_local))
+         allocate(demand_forward(npthlev_bif,npthout_local), demand_reverse(npthlev_bif,npthout_local))
+         allocate(path_visible(npthout_local), path_protected(npthout_local))
+         allocate(recv_visible(numucat), recv_protected(numucat))
+         allocate(scale_visible(numucat), scale_protected(numucat))
+         allocate(scale_visible_dn(npthout_local), scale_protected_dn(npthout_local))
+      ENDIF
       levee_flag = merge(1._r8, 0._r8, DEF_USE_LEVEE .and. has_levee)
       CALL worker_push_data(push_bif_dn2pth, levee_flag, levee_flag_dn, fillvalue=0._r8)
       density_ratio = (psedD - pwatD) / pwatD
@@ -2615,13 +2629,19 @@ CONTAINS
    real(r8), intent(in) :: dt, rivout_signed(:), rivout_abs(:)
    real(r8), intent(in) :: initial_conc(:,:), initial_bed(:,:)
    real(r8), intent(out) :: suspended_demand(:,:), bed_demand(:,:)
-   real(r8), allocatable :: qface(:), reverse_sed(:), reverse_bed(:)
-   real(r8), allocatable :: summed_sed(:), summed_bed(:)
+   ! Reused across BIF/levee substeps; dimensions follow the active river partition.
+   real(r8), allocatable, save :: qface(:), reverse_sed(:), reverse_bed(:)
+   real(r8), allocatable, save :: summed_sed(:), summed_bed(:)
    integer :: ised
 
       IF (.not. p_is_worker) RETURN
-      allocate(qface(numucat), reverse_sed(numucat), reverse_bed(numucat))
-      allocate(summed_sed(numucat), summed_bed(numucat))
+      IF (allocated(qface)) THEN
+         IF (size(qface) /= numucat) deallocate(qface, reverse_sed, reverse_bed, summed_sed, summed_bed)
+      ENDIF
+      IF (.not. allocated(qface)) THEN
+         allocate(qface(numucat), reverse_sed(numucat), reverse_bed(numucat))
+         allocate(summed_sed(numucat), summed_bed(numucat))
+      ENDIF
       qface = max(0._r8, 0.5_r8 * (rivout_abs + rivout_signed))
       CALL calc_sediment_advection_one_direction(dt, qface, rivout_abs, initial_bed, sedsto, &
          (1._r8-lambda)*initial_bed, donor_conc=initial_conc, limit_stock=.false.)
