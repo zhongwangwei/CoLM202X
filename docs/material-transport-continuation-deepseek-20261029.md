@@ -149,10 +149,13 @@
 | `2bc7510a` | **CI 结构修复**：93 例构建分片为 4 shard（92 job），保证单 job <6h |
 | `3778404f` | **生产修复**：甲烷 host-water fail-closed 守卫改为 host-supported 封顶分配（hybrid 根因） |
 | `3b0af4f6` | **生产修复（最终）**：无载体表层同位素 tracer 随 resolved late 载体水输运，不记干残留/不记数值源汇 |
+| `8f74f5c5` | **网格限制**：MT 仅支持 GRID/UNSTRUCTURED；CATCHMENT+MT 配置期拒绝 + define.h `#error` + `MOD_MT_Defs` 兜底；删除 `MOD_MT_Hist` 全部 CATCHMENT 分支 |
 
 生产代码变化仅：`MOD_MT_SoilWater.F90`（最终：late-carrier 同位素修复；`MOD_MT_Hist.F90`/`MOD_MT_Vars.F90`
 的干残留输出已随撤销恢复原状）、`MOD_MT_Methane_Physics.F90`（甲烷守卫修复）、
-`.github/workflows/build_CoLM_gnu.yml`（CI 分片）；其余为 docs/evidence。
+`.github/workflows/build_CoLM_gnu.yml`（CI 分片）、`MOD_MT_Defs.F90` + `MOD_MT_Hist.F90` +
+`.github/workflows/create_defineh.bash` + `main/MATERIAL/README.md`（CATCHMENT 网格限制与清理）；
+其余为 docs/evidence。
 
 ## 4. 未完成 / 未验证 / 延期项（保留，不掩盖）
 
