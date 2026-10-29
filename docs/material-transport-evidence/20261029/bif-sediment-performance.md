@@ -58,3 +58,18 @@
 2. 若仍慢：对 `prepare_bif_sediment` 做静态拓扑/几何缓存与“每子步合并通信”，并评估按单元自适应
    （非全局最大）的子步方案；快速模式需与完整算法并行对照并报告误差。
 3. 完整 BIF/levee 多分支数值验收（本任务第六节矩阵）。
+
+## 6. 决策更新：BIF/levee 子步已按项目决定回退为单步
+
+- 背景：provider 全局子步（commit `bed6193b`）被单个近干涸单元拖垮；7920 实测 3 天 case
+  在 3600 s 内只推进 2 个 TIMESTEP。
+- 决定（2026-10-29）：**BIF/levee 路径退回单步执行**，只保留普通（非 BIF/levee）advection 的
+  材料子步。回退后：
+  - `grid_sediment_calc` 对 BIF/levee 算子每个 morphology interval 只执行一次（原 dt_morph、
+    原 reservation/credits/levee 顺序）；
+  - `calc_sediment_advection` 普通路径子步、N09 普通路径 >240 显式失败、N10 普通路径水量插值保留；
+  - `sed_bif_substep_*` 计数器保留（恒为 1 次/区间），用于确认没有意外的重复调用。
+- 正确性影响：BIF/levee 高周转下的恒浓度不变量**不再强制执行**（已知限制，回归测试
+  `check_sediment_joint_substep.py` case4 记录该单步结果，不再声称 BIF 路径满足 N01 恒浓度）。
+- 性能影响：预期 BIF 路径回到优化前的一次算子开销（未实测完整模型，标记 NOT_MEASURED）。
+- 回退后验证：GRID 与 BGC+CROP 两配置 `make all` 均 MAKE_RC=0；本地回归 0 failure。

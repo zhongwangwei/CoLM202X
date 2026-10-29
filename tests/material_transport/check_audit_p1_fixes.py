@@ -310,11 +310,11 @@ check('N08 the pre-fix shared buffer would have leaked A into B',
 sed = (root / 'main/MATERIAL/FAMILY_PARTICLE/MOD_MT_Sediment.F90').read_text()
 check('N09 ordinary path fails explicitly above the 240 limit',
       'sediment material substep requirement exceeds the 240 limit' in sed)
-check('N09 BIF/levee provider path fails explicitly above the 240 limit',
-      'BIF/levee sediment material substep requirement exceeds the 240 limit' in sed)
-check('N09 cap is no longer a silent min(...,240) truncation',
-      'nsub = min(max(nsub, 1), 240)' not in sed and
-      'nsub_adv = min(max(nsub_adv, 1), 240)' not in sed)
+check('N09 BIF/levee path is single-step after the revert (no provider substep loop)',
+      'nsub_adv' not in sed and
+      'CALL prepare_bif_sediment(dt_morph, deltime, rivsto_donor' in sed)
+check('N09 cap is no longer a silent min(...,240) truncation (ordinary path)',
+      'nsub = min(max(nsub, 1), 240)' not in sed)
 # Example from the review: Q*dt/V = 600 requires 600 substeps > 240 -> explicit
 # unsupported condition, not a 240-step run that still violates the CFL.
 req = 600
@@ -324,12 +324,10 @@ check('N09 review example (600 required) exceeds the supported limit',
 # ---------------- N10: carrier water advances with the material substeps ----------------
 check('N10 core substeps interpolate donor/end water at each substep',
       'w_don(:) = max(rivsto_donor + (rivsto_end - rivsto_donor) * frac_lo, 0._r8)' in sed)
-check('N10 provider substeps interpolate the morphology-interval water',
-      'riv_don_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_lo, 0._r8)' in sed and
-      'riv_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_hi, 0._r8)' in sed)
-check('N10 BIF/levee operators use the per-substep water, not the interval start',
-      'CALL prepare_bif_sediment(dt_step, deltime, riv_don_step' in sed and
-      'apply_bif_sediment_credits(dt_step, riv_step' in sed)
+check('N10 BIF/levee single-step operator uses the interval donor/end water',
+      'CALL prepare_bif_sediment(dt_morph, deltime, rivsto_donor' in sed and
+      'apply_bif_sediment_credits(dt_morph, rivsto' in sed and
+      'riv_don_step' not in sed)
 check('N10 interpolated carrier water is non-negative and bounded by the endpoints',
       # piecewise-linear interpolation between non-negative endpoints stays
       # within [min(donor,end), max(donor,end)] for every substep fraction.

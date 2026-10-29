@@ -667,9 +667,6 @@ CONTAINS
    logical,  allocatable :: es_raw_seen(:), d_raw_seen(:), es_eff_seen(:), d_eff_seen(:)
    real(r8) :: precip_time_local
    integer  :: i, ised, iter_sed, iter_adv
-   integer  :: isub, nsub_adv
-   real(r8) :: dt_adv, dt_step, cfl_adv, frac_lo, frac_hi
-   real(r8), allocatable :: riv_don_step(:), riv_step(:)
    integer  :: clk_total_start, clk_total_end
    ! Phase timing is compiled only under CoLMDEBUG: clk_rate is set there and the
    ! t_* results are only printed there, so the routing loop pays nothing
@@ -947,74 +944,36 @@ CONTAINS
          call_dt_min = min(call_dt_min, dt_morph)
 
          iter_adv = iter_adv + 1
-         ! N01 (BIF/levee path): the joint reservation, levee exchange, main
-         ! advection and BIF credits are one operator dimensioned by the
-         ! morphology dt.  Under high water turnover the start-of-interval
-         ! donor snapshot cannot pass same-interval inflow through.  Substep
-         ! the WHOLE operator (all terms scaled by the substep dt, reservation
-         ! recomputed from the current inventories) so the constant-
-         ! concentration invariant also holds with BIF/levee enabled.
-         IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
-            nsub_adv = 1
-            DO i = 1, numucat
-               ! N01 performance: a near-dry cell with a tiny carrier can have an
-               ! enormous turnover ratio and drive the GLOBAL substep count to
-               ! the limit for every cell (observed: 2 model timesteps/hour on
-               ! the 3-day BIF smoke).  Such a cell carries negligible sediment
-               ! mass and its export is already bounded by the donor limiter in
-               ! the advection core; excluding it from the global CFL count is
-               ! physically justified and does not relax the invariant for any
-               ! resolved carrier. 0.1 m3 is far below a resolved river cell.
-               IF (rivsto_donor(i) > SED_MIN_SUBSTEP_CARRIER) THEN
-                  cfl_adv = rivout_abs(i) * dt_morph / rivsto_donor(i)
-                  IF (cfl_adv > real(nsub_adv, r8)) nsub_adv = ceiling(cfl_adv)
-               ENDIF
-            ENDDO
-            IF (nsub_adv > 240) THEN
-               WRITE(*,*) 'ERROR BIF/levee sediment material substepping requires nsub=', nsub_adv, ' (limit 240)'
-               CALL CoLM_stop('BIF/levee sediment material substep requirement exceeds the 240 limit')
-            ENDIF
-            nsub_adv = max(nsub_adv, 1)
-            dt_adv = dt_morph / real(nsub_adv, r8)
-         ELSE
-            nsub_adv = 1
-            dt_adv = dt_morph
-         ENDIF
-         ALLOCATE(riv_don_step(numucat), riv_step(numucat))
+         ! N01: the BIF/levee joint operator runs ONCE per morphology interval
+         ! (reverted from the provider-level global substep loop per project
+         ! decision: one near-dry cell forced every river cell to the substep
+         ! limit - the 3-day 7920 smoke advanced only 2 model timesteps/hour).
+         ! The ordinary non-BIF path keeps its material substepping inside
+         ! calc_sediment_advection; the BIF/levee path is documented as
+         ! single-step (constant-concentration invariant not enforced there).
          sed_bif_substep_calls = sed_bif_substep_calls + 1
-         sed_bif_substep_sum = sed_bif_substep_sum + nsub_adv
-         sed_bif_substep_max = max(sed_bif_substep_max, nsub_adv)
-         DO isub = 1, nsub_adv
-            IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
-               dt_step = dt_adv
-            ELSE
-               dt_step = dt_morph
-            ENDIF
-            ! N10: advance the carrier water with the substitep.
-            frac_lo = real(isub - 1, r8) / real(nsub_adv, r8)
-            frac_hi = real(isub, r8) / real(nsub_adv, r8)
-            riv_don_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_lo, 0._r8)
-            riv_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_hi, 0._r8)
+         sed_bif_substep_sum = sed_bif_substep_sum + 1
+         sed_bif_substep_max = max(sed_bif_substep_max, 1)
          IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
             donor_visible = sedsto
             donor_protected = sedsto_protected
             donor_bed = layer
             donor_conc = sedcon
-            CALL ordinary_sediment_donor_demand(dt_step, rivout, rivout_abs, &
+            CALL ordinary_sediment_donor_demand(dt_morph, rivout, rivout_abs, &
                donor_conc, donor_bed, main_sed_demand, main_bed_demand)
             levee_to_demand = 0._r8; levee_from_demand = 0._r8
             IF (DEF_USE_LEVEE) THEN
                DO i = 1, numucat
-                  IF (riv_don_step(i) > 0._r8) levee_to_demand(:,i) = &
+                  IF (rivsto_donor(i) > 0._r8) levee_to_demand(:,i) = &
                      donor_visible(:,i) * sed_acc_to_protected(i) * &
-                     dt_step / deltime / riv_don_step(i)
+                     dt_morph / deltime / rivsto_donor(i)
                   IF (protected_start(i) > 0._r8) levee_from_demand(:,i) = &
                      donor_protected(:,i) * sed_acc_from_protected(i) * &
-                     dt_step / deltime / protected_start(i)
+                     dt_morph / deltime / protected_start(i)
                ENDDO
             ENDIF
             IF (DEF_USE_BIFURCATION) THEN
-               CALL prepare_bif_sediment(dt_step, deltime, riv_don_step, protected_start, &
+               CALL prepare_bif_sediment(dt_morph, deltime, rivsto_donor, protected_start, &
                   main_sed_demand, main_bed_demand, levee_to_demand, levee_from_demand, &
                   sed_visible_scale, sed_protected_scale, bed_visible_scale, &
                   bif_credit_sed_visible, bif_credit_sed_protected, &
@@ -1038,26 +997,24 @@ CONTAINS
          ! BIF may debit the old protected stock.  Retreat may export only the
          ! residue, not new overtopping or BIF credits added later this step.
          protected_initial = sedsto_protected
-         IF (DEF_USE_LEVEE) CALL transfer_levee_sediment(dt_step, deltime, &
-            riv_don_step, protected_start, protected_end, protected_initial, .true., &
+         IF (DEF_USE_LEVEE) CALL transfer_levee_sediment(dt_morph, deltime, &
+            rivsto_donor, protected_start, protected_end, protected_initial, .true., &
             donor_visible, donor_protected, sed_visible_scale, sed_protected_scale)
 #ifdef CoLMDEBUG
          CALL system_clock(clk_phase_start)
 #endif
          IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
-            CALL calc_sediment_advection(dt_step, rivout, rivout_abs, riv_don_step, riv_step, &
+            CALL calc_sediment_advection(dt_morph, rivout, rivout_abs, rivsto_donor, rivsto, &
                donor_conc, donor_bed, sed_visible_scale, bed_visible_scale)
          ELSE
-            CALL calc_sediment_advection(dt_step, rivout, rivout_abs, rivsto_donor, rivsto)
+            CALL calc_sediment_advection(dt_morph, rivout, rivout_abs, rivsto_donor, rivsto)
          ENDIF
-         IF (DEF_USE_BIFURCATION) CALL apply_bif_sediment_credits(dt_step, riv_step, &
+         IF (DEF_USE_BIFURCATION) CALL apply_bif_sediment_credits(dt_morph, rivsto, &
             bif_credit_sed_visible, bif_credit_sed_protected, &
             bif_credit_bed_visible, bif_credit_bed_protected)
-         IF (DEF_USE_LEVEE) CALL transfer_levee_sediment(dt_step, deltime, &
-            riv_step, protected_start, protected_end, protected_initial, .false., &
+         IF (DEF_USE_LEVEE) CALL transfer_levee_sediment(dt_morph, deltime, &
+            rivsto, protected_start, protected_end, protected_initial, .false., &
             donor_visible, donor_protected, sed_visible_scale, sed_protected_scale)
-         ENDDO
-         DEALLOCATE(riv_don_step, riv_step)
 #ifdef CoLMDEBUG
          CALL system_clock(clk_phase_end)
          IF (clk_rate > 0) t_adv = t_adv + real(clk_phase_end - clk_phase_start, r8) / real(clk_rate, r8)

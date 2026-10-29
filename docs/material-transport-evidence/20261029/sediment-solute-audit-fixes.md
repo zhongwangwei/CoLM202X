@@ -222,3 +222,11 @@ PATH=/opt/homebrew/bin:$PATH python3 tests/material_transport/check_rnof_handoff
   morphology 区间内的时间表示（线性插值或其他），并构造“水量随时间变化、无额外产沙/沉降”的对照；
   在未验证前不应盲目把插值应用到所有路径。列为下一步工作。
 - 修复后重新全量编译：GRID 与 BGC+CROP 两配置 **MAKE_RC=0**；本地 audit 检查 0 failure。
+
+## 补充决策（2026-10-29）：N01 BIF/levee 路径回退为单步
+
+- 用户决定：BIF/levee 不做 provider 全局子步，退回单步算子。
+- 当前实现：`grid_sediment_calc` BIF/levee 分支一次执行（无 nsub_adv 循环）；
+  普通路径 `calc_sediment_advection` 子步保留（含 N09 显式 240 上限、N10 水量插值）。
+- 状态更新：N01 普通路径 = 已修复；N01 BIF/levee = **单步（已知限制，不再声称恒浓度）**。
+- 回退后 GRID 与 BGC+CROP 全量编译 PASS；本地回归套件 0 failure。
