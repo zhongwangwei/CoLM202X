@@ -226,9 +226,9 @@
 用户要求“物质输送模块不支持流域单元网格。加入限制先。define.h 里面要加好。如果已经有基于流域网格的
 物质输送的相关代码，全部删掉。” 已实现：
 
-- `create_defineh.bash`：`MTON`+`CATCHMENT` 配置期拒绝（exit 1，不写 define.h）；define.h 模板加
-  `#error "MaterialTransport does not support the catchment (unit-catchment) grid ..."`；
-- `MOD_MT_Defs.F90` 顶部同一条 `#error` 兜底（手写 define.h 也 fail-fast）；
+- 仓库跟踪的 `include/define.h` 与 `MOD_MT_Defs.F90` 顶部各加一条
+  `#error "MaterialTransport does not support the catchment (unit-catchment) grid ..."`
+  （`create_defineh.bash` 不属于本仓库维护范围，已按用户指示回退，未修改该脚本）；
 - 删除 `MOD_MT_Hist.F90` 中全部 CATCHMENT 分支（18 个 `#ifdef CATCHMENT ... #else` 块、8 处
   `#if (UNSTRUCTURED || CATCHMENT)` 改为 `#ifdef UNSTRUCTURED`）；`grep CATCHMENT main/MATERIAL/` 只剩限制行，
   `grep MOD_LandHRU|hru_patch|hru_data_address|numhru|hydrounit main/MATERIAL/` 无命中；

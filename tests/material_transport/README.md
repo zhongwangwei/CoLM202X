@@ -15,6 +15,16 @@ and cache remapping, not fractionation physics.
 python3 tests/material_transport/check_forcing_edges.py
 ```
 
+The fractionation/soil-vapour physics check extracts the production routines
+from `MOD_MT_Frac.F90` and always runs (no data needed; requires `gfortran`).
+It covers F05 (NSS leaf-water history uses the stored old bulk delta), F06
+(vapour-equivalent diffusion is isotope-only) and F07 (frozen soil ice volume
+uses the ice density):
+
+```sh
+python3 tests/material_transport/check_mt_frac_physics.py
+```
+
 The NetCDF tools also need NumPy and netCDF4, already present in the T7920 test
 environment. Their self checks create only temporary, tiny fixtures.
 

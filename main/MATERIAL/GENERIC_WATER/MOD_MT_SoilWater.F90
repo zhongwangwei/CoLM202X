@@ -20,8 +20,8 @@ MODULE MOD_MT_SoilWater
       tracer_alpha_kinetic_open_water, tracer_diffusivity_ratio_air, &
       tracer_alpha_kinetic_soil, &
       tracer_soil_effective_diffusivity, tracer_soil_diffusive_transfer, &
-      tracer_soil_vapor_equivalent_diffusivity, &
-      tracer_snow_vapor_equivalent_diffusivity, tracer_alpha_ice_vap, &
+      tracer_isotope_soil_vapor_equivalent_diffusivity, &
+      tracer_isotope_snow_vapor_equivalent_diffusivity, tracer_alpha_ice_vap, &
       tracer_alpha_ice_liq, tracer_equilibration_exchange, &
       tracer_liquid_self_diffusivity, &
       tracer_craig_gordon_evap_ratio, tracer_craig_gordon_evap_affine, tracer_alpha_liq_vap, &
@@ -1584,19 +1584,21 @@ CONTAINS
                      dz_soi_frac(j+1), porsl_frac(j+1), &
                      tracer_liquid_self_diffusivity(itrc, layer_temp(j+1)))
                ENDIF
-               IF (DEF_ISO_SOIL_VAPOR_DIFFUSION .and. present(forc_psrf_frac)) THEN
-                  ! Pass ice as well: it blocks pore air just as liquid does.
-                  d_eff_up = d_eff_up + tracer_soil_vapor_equivalent_diffusivity( &
-                     water_shadow(j), max(wice_soisno(j), 0._r8), &
-                     dz_soi_frac(j), porsl_frac(j), layer_temp(j), &
-                     forc_psrf_frac, tracer_diffusivity_ratio_air(itrc), &
-                     tracer_alpha_liq_vap(itrc, layer_temp(j)))
-                  d_eff_dn = d_eff_dn + tracer_soil_vapor_equivalent_diffusivity( &
-                     water_shadow(j+1), max(wice_soisno(j+1), 0._r8), &
+               IF (DEF_ISO_SOIL_VAPOR_DIFFUSION .and. tracer_is_isotope(itrc) &
+                   .and. present(forc_psrf_frac)) THEN
+                  ! Vapour transport is an isotope mechanism (pore-vapour /
+                  ! liquid equilibrium + light/heavy air diffusivity).  The
+                  ! family-gated helper also rejects nonvolatile solutes, which
+                  ! have no vapour carrier; they must not inherit this path
+                  ! through alpha=1/diff_ratio=1.  Pass ice as well: it blocks
+                  ! pore air just as liquid does.
+                  d_eff_up = d_eff_up + tracer_isotope_soil_vapor_equivalent_diffusivity( &
+                     itrc, water_shadow(j), max(wice_soisno(j), 0._r8), &
+                     dz_soi_frac(j), porsl_frac(j), layer_temp(j), forc_psrf_frac)
+                  d_eff_dn = d_eff_dn + tracer_isotope_soil_vapor_equivalent_diffusivity( &
+                     itrc, water_shadow(j+1), max(wice_soisno(j+1), 0._r8), &
                      dz_soi_frac(j+1), porsl_frac(j+1), &
-                     layer_temp(j+1), forc_psrf_frac, &
-                     tracer_diffusivity_ratio_air(itrc), &
-                     tracer_alpha_liq_vap(itrc, layer_temp(j+1)))
+                     layer_temp(j+1), forc_psrf_frac)
                ENDIF
                IF (d_eff_up <= 0._r8 .or. d_eff_dn <= 0._r8) CYCLE
                ratio_up = trc_wliq_soisno(itrc, j,   ipatch) / water_shadow(j)
@@ -1636,7 +1638,7 @@ CONTAINS
          ! the soil sweep, so no accumulator and no residual.  Implied
          ! timescale is years at seasonal layer thickness, so this matters for
          ! multi-year packs far more than for snow that melts out annually.
-         IF (DEF_ISO_SOIL_VAPOR_DIFFUSION .and. snl < 0 &
+         IF (DEF_ISO_SOIL_VAPOR_DIFFUSION .and. tracer_is_isotope(itrc) .and. snl < 0 &
              .and. present(dz_sno_frac) .and. present(forc_psrf_frac)) THEN
             diff_face = 0._r8
             diff_out = 0._r8
@@ -1645,16 +1647,12 @@ CONTAINS
                IF (dz_sno_frac(j) <= 0._r8 .or. dz_sno_frac(j+1) <= 0._r8) CYCLE
                IF (wice_soisno(j) <= trc_water_min_for_ratio) CYCLE
                IF (wice_soisno(j+1) <= trc_water_min_for_ratio) CYCLE
-               d_eff_up = tracer_snow_vapor_equivalent_diffusivity( &
-                  max(wliq_soisno(j), 0._r8), max(wice_soisno(j), 0._r8), &
-                  dz_sno_frac(j), layer_temp(j), forc_psrf_frac, &
-                  tracer_diffusivity_ratio_air(itrc), &
-                  tracer_alpha_ice_vap(itrc, layer_temp(j)))
-               d_eff_dn = tracer_snow_vapor_equivalent_diffusivity( &
-                  max(wliq_soisno(j+1), 0._r8), max(wice_soisno(j+1), 0._r8), &
-                  dz_sno_frac(j+1), layer_temp(j+1), forc_psrf_frac, &
-                  tracer_diffusivity_ratio_air(itrc), &
-                  tracer_alpha_ice_vap(itrc, layer_temp(j+1)))
+               d_eff_up = tracer_isotope_snow_vapor_equivalent_diffusivity( &
+                  itrc, max(wliq_soisno(j), 0._r8), max(wice_soisno(j), 0._r8), &
+                  dz_sno_frac(j), layer_temp(j), forc_psrf_frac)
+               d_eff_dn = tracer_isotope_snow_vapor_equivalent_diffusivity( &
+                  itrc, max(wliq_soisno(j+1), 0._r8), max(wice_soisno(j+1), 0._r8), &
+                  dz_sno_frac(j+1), layer_temp(j+1), forc_psrf_frac)
                IF (d_eff_up <= 0._r8 .or. d_eff_dn <= 0._r8) CYCLE
                ratio_up = trc_wice_soisno(itrc, j,   ipatch) / wice_soisno(j)
                ratio_dn = trc_wice_soisno(itrc, j+1, ipatch) / wice_soisno(j+1)
@@ -3001,8 +2999,8 @@ CONTAINS
             ! Wetland snowpacks keep the same firn vapour diffusion as the
             ! ordinary soil/snow path; it is an internal ice exchange and must
             ! run before the wetland pool merge strips meltwater out.
-            IF (DEF_ISO_SOIL_VAPOR_DIFFUSION .and. present(dz_sno_frac) &
-                .and. present(forc_psrf_frac)) THEN
+            IF (DEF_ISO_SOIL_VAPOR_DIFFUSION .and. tracer_is_isotope(itrc) &
+                .and. present(dz_sno_frac) .and. present(forc_psrf_frac)) THEN
                diff_face = 0._r8
                diff_out = 0._r8
                diff_scale = 1._r8
@@ -3010,16 +3008,12 @@ CONTAINS
                   IF (dz_sno_frac(j) <= 0._r8 .or. dz_sno_frac(j+1) <= 0._r8) CYCLE
                   IF (wice_soisno(j) <= trc_water_min_for_ratio) CYCLE
                   IF (wice_soisno(j+1) <= trc_water_min_for_ratio) CYCLE
-                  d_eff_up = tracer_snow_vapor_equivalent_diffusivity( &
-                     max(wliq_soisno(j), 0._r8), max(wice_soisno(j), 0._r8), &
-                     dz_sno_frac(j), layer_temp(j), forc_psrf_frac, &
-                     tracer_diffusivity_ratio_air(itrc), &
-                     tracer_alpha_ice_vap(itrc, layer_temp(j)))
-                  d_eff_dn = tracer_snow_vapor_equivalent_diffusivity( &
-                     max(wliq_soisno(j+1), 0._r8), max(wice_soisno(j+1), 0._r8), &
-                     dz_sno_frac(j+1), layer_temp(j+1), forc_psrf_frac, &
-                     tracer_diffusivity_ratio_air(itrc), &
-                     tracer_alpha_ice_vap(itrc, layer_temp(j+1)))
+                  d_eff_up = tracer_isotope_snow_vapor_equivalent_diffusivity( &
+                     itrc, max(wliq_soisno(j), 0._r8), max(wice_soisno(j), 0._r8), &
+                     dz_sno_frac(j), layer_temp(j), forc_psrf_frac)
+                  d_eff_dn = tracer_isotope_snow_vapor_equivalent_diffusivity( &
+                     itrc, max(wliq_soisno(j+1), 0._r8), max(wice_soisno(j+1), 0._r8), &
+                     dz_sno_frac(j+1), layer_temp(j+1), forc_psrf_frac)
                   IF (d_eff_up <= 0._r8 .or. d_eff_dn <= 0._r8) CYCLE
                   ratio_up = trc_wice_soisno(itrc, j,   ipatch) / wice_soisno(j)
                   ratio_dn = trc_wice_soisno(itrc, j+1, ipatch) / wice_soisno(j+1)

@@ -136,11 +136,6 @@ fi
 
 # Argument 8 (optional): MTON / MTOFF, material transport. Default MTOFF.
 if [ "${8:-MTOFF}" = "MTON" ];then
-   if [ "$1" = "CATCHMENT" ];then
-      echo "Error: MaterialTransport (MTON) does not support the CATCHMENT (unit-catchment) grid."
-      echo "       Use GRID or UNSTRUCTURED (vector) instead."
-      exit 1
-   fi
    MT="#define MaterialTransport"
 else
    if [ "${8:-MTOFF}" = "MTOFF" ];then
@@ -237,8 +232,5 @@ $LULCC
 $MT
 #if (defined MaterialTransport && defined Campbell_SOIL_MODEL)
 #error "MaterialTransport requires vanGenuchten_Mualem_SOIL_MODEL"
-#endif
-#if (defined MaterialTransport && defined CATCHMENT)
-#error "MaterialTransport does not support the catchment (unit-catchment) grid (CATCHMENT); use GRID or UNSTRUCTURED (vector)."
 #endif
 EOF

@@ -64,6 +64,8 @@ MODULE MOD_MT_Frac
    PUBLIC :: tracer_soil_effective_diffusivity, tracer_soil_diffusive_transfer
    PUBLIC :: tracer_soil_vapor_equivalent_diffusivity
    PUBLIC :: tracer_snow_vapor_equivalent_diffusivity
+   PUBLIC :: tracer_isotope_soil_vapor_equivalent_diffusivity
+   PUBLIC :: tracer_isotope_snow_vapor_equivalent_diffusivity
    PUBLIC :: tracer_liquid_self_diffusivity
    PUBLIC :: tracer_equilibration_exchange
    PUBLIC :: tracer_alpha_kinetic_craig_gordon
@@ -444,6 +446,7 @@ CONTAINS
       real(r8), parameter :: p_ref = 101325._r8           ! [Pa]
       real(r8), parameter :: rv_water = 461.5_r8          ! vapour gas constant
       real(r8), parameter :: rho_water = 1000._r8         ! [kg/m3]
+      real(r8), parameter :: rho_ice   = 917._r8          ! [kg/m3], same as host denice
       real(r8) :: theta, theta_ice, filled, air_porosity
       real(r8) :: tau_gas, d_vap_air, rho_v_sat, tk
 
@@ -451,11 +454,21 @@ CONTAINS
       IF (dz <= 0._r8 .or. porsl <= 0._r8) RETURN
       IF (psrf <= 0._r8 .or. diff_ratio <= 0._r8 .or. alpha_liq_vap <= 0._r8) RETURN
 
-      theta     = max(water_mm, 0._r8) / (1000._r8 * dz)
-      theta_ice = max(ice_mm,   0._r8) / (1000._r8 * dz)
+      theta     = max(water_mm, 0._r8) / (rho_water * dz)
+      ! ice_mm is kg/m2 (mm water equivalent): its volume fraction must use
+      ! the ice density.  Dividing by 1000 understated theta_ice by ~9% and
+      ! left spurious air porosity (and vapour diffusion) in saturated
+      ! frozen soil.
+      theta_ice = max(ice_mm,   0._r8) / (rho_ice * dz)
       filled = min(theta + theta_ice, porsl)
       air_porosity = porsl - filled
+      ! Treat round-off below 1e-8 volumetric air content as saturated: no
+      ! resolved pore air means no pore-vapour pathway.  Without this, a
+      ! pore-filling liquid+ice column (theta_l=0.10, theta_ice=0.35,
+      ! porsl=0.45) leaves ~1e-17 of round-off air porosity and the steep
+      ! tau_gas = air**(7/3) still returns a tiny but nonzero diffusivity.
       IF (air_porosity <= 0._r8) RETURN
+      IF (air_porosity < 1.e-8_r8) RETURN
 
       tau_gas = air_porosity ** (7._r8 / 3._r8) / (porsl * porsl)
       tk = max(temp_k, 150._r8)
@@ -465,6 +478,43 @@ CONTAINS
       tracer_soil_vapor_equivalent_diffusivity = d_vap_air * tau_gas / diff_ratio &
          * rho_v_sat / (alpha_liq_vap * rho_water)
    END FUNCTION tracer_soil_vapor_equivalent_diffusivity
+
+   !---------------------------------------------------------------
+   ! Family-gated wrappers for the two vapour-equivalent diffusivities.
+   !
+   ! The vapour pathway is an ISOTOPE transport mechanism: it relies on the
+   ! isotopic equilibrium between pore vapour and the local liquid/ice and on
+   ! the light/heavy air diffusivity ratio.  Nonvolatile solutes (CL, solids)
+   ! have no vapour carrier at all; before this guard they inherited
+   ! alpha = 1 and diff_ratio = 1 and so acquired a spurious water-vapour
+   ! diffusion pathway.  A solute needs its own physical diffusion law if it
+   ! is ever to move diffusively; it must not borrow the water-isotope one.
+   !---------------------------------------------------------------
+   real(r8) FUNCTION tracer_isotope_soil_vapor_equivalent_diffusivity (itrc, water_mm, &
+      ice_mm, dz, porsl, temp_k, psrf)
+      integer,  intent(in) :: itrc
+      real(r8), intent(in) :: water_mm, ice_mm, dz, porsl, temp_k, psrf
+
+      tracer_isotope_soil_vapor_equivalent_diffusivity = 0._r8
+      IF (.not. tracer_is_isotope(itrc)) RETURN
+      tracer_isotope_soil_vapor_equivalent_diffusivity = &
+         tracer_soil_vapor_equivalent_diffusivity(water_mm, ice_mm, dz, porsl, &
+            temp_k, psrf, tracer_diffusivity_ratio_air(itrc), &
+            tracer_alpha_liq_vap(itrc, temp_k))
+   END FUNCTION tracer_isotope_soil_vapor_equivalent_diffusivity
+
+   real(r8) FUNCTION tracer_isotope_snow_vapor_equivalent_diffusivity (itrc, wliq_mm, &
+      wice_mm, dz, temp_k, psrf)
+      integer,  intent(in) :: itrc
+      real(r8), intent(in) :: wliq_mm, wice_mm, dz, temp_k, psrf
+
+      tracer_isotope_snow_vapor_equivalent_diffusivity = 0._r8
+      IF (.not. tracer_is_isotope(itrc)) RETURN
+      tracer_isotope_snow_vapor_equivalent_diffusivity = &
+         tracer_snow_vapor_equivalent_diffusivity(wliq_mm, wice_mm, dz, &
+            temp_k, psrf, tracer_diffusivity_ratio_air(itrc), &
+            tracer_alpha_ice_vap(itrc, temp_k))
+   END FUNCTION tracer_isotope_snow_vapor_equivalent_diffusivity
 
    !---------------------------------------------------------------
    ! Vapour-phase isotope diffusion within snow / firn, again expressed as an
@@ -844,7 +894,7 @@ CONTAINS
       real(r8) :: h, one_minus_h, alpha_eq, alpha_k, eps_eq, eps_k
       real(r8) :: delta_x, delta_v, delta_es, delta_t
       real(r8) :: leaf_moles, transp_moles, transp_moles_leaf_s
-      real(r8) :: prev_e, prev_p, prev_w, liquid_diff, peclet_number
+      real(r8) :: prev_w, prev_bulk_delta, liquid_diff, peclet_number
       real(r8) :: relax_b, denom, tk
       real(r8) :: gross_moles, conductance_gross_moles
       real(r8) :: vapor_molar_density_sat, total_resistance
@@ -911,14 +961,19 @@ CONTAINS
       ! froze the tracer storage and put it into the smaller leaf, giving
       ! bulk leaf delta18O of +530 to +1700 permil, and about -650 permil
       ! when LAI grew.
+      ! The history term of the Farquhar-Cernusak non-steady-state solution
+      ! is the stored OLD leaf bulk delta, not the old evaporation end member:
+      !   prev_w * (prev_delta_b - delta_x)
+      ! The former form prev_w * prev_p * (prev_e - delta_x) mixed the two
+      ! different quantities and additionally applied the Péclet factor twice.
+      ! Without NSS memory (fresh leaf / restart without memory) the old bulk
+      ! is initialised to the current source delta, so the memory term is 0.
       IF (prev_leaf_moles > trc_tiny) THEN
          prev_w = leaf_moles
-         prev_e = prev_delta_e
-	         prev_p = min(max(prev_peclet, 0._r8), 1._r8)
+         prev_bulk_delta = prev_delta_b
       ELSE
          prev_w = leaf_moles
-         prev_e = delta_x
-         prev_p = new_peclet
+         prev_bulk_delta = delta_x
       ENDIF
 
 	      ! Farquhar-Cernusak NSS form: the turnover time is controlled by
@@ -943,7 +998,7 @@ CONTAINS
       denom = 1._r8 + relax_b * leaf_moles * new_peclet
       IF (denom > trc_tiny) THEN
          new_delta_e = (delta_es + relax_b * (leaf_moles * new_peclet * delta_x + &
-            prev_w * prev_p * (prev_e - delta_x))) / denom
+            prev_w * (prev_bulk_delta - delta_x))) / denom
       ELSE
          new_delta_e = delta_es
       ENDIF

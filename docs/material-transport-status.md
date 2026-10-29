@@ -97,8 +97,9 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 
 ## 保留的兼容边界
 
-- **物质输送不支持 CATCHMENT（流域单元）网格**：`create_defineh.bash ... CATCHMENT ... MTON` 配置期直接拒绝；
-  手写 define.h 同时定义 `MaterialTransport`+`CATCHMENT` 会在预处理期 `#error` 失败。
+- **物质输送不支持 CATCHMENT（流域单元）网格**：仓库跟踪的 `include/define.h` 与 `MOD_MT_Defs.F90` 顶部
+  均有 `#error` 兜底（`MaterialTransport`+`CATCHMENT` 同时定义时预处理期失败）；`create_defineh.bash` 不属于
+  本仓库维护范围、已按用户指示回退未改。
   `GRID`（gridded）与 `UNSTRUCTURED`（vector）仍支持；`MOD_MT_Hist.F90` 中原有的 CATCHMENT（HRU/`hydrounit`）
   分支已全部删除，vector history writers 仅由 `UNSTRUCTURED` 编译。本机已完成脚本/预处理级验证，
   7920 真实构建与 CI 待恢复测试后确认。见[网格限制证据](material-transport-evidence/20261028/grid-support-restriction.md)。

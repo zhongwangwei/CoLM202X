@@ -17,11 +17,10 @@ Material transport supports the **gridded** (`GRID` -> `GRIDBASED`) and the
 **unstructured/vector** (`UNSTRUCTURED`) spatial structures. The **catchment
 (unit-catchment) grid** (`CATCHMENT`, 流域单元网格) is **not supported**:
 
-- `create_defineh.bash ... CATCHMENT ... MTON` is rejected at configure time
-  (exit 1, no `include/define.h` is written);
-- a hand-written `include/define.h` that defines both `MaterialTransport` and
-  `CATCHMENT` fails the build with
-  `#error "MaterialTransport does not support the catchment (unit-catchment) grid ..."`;
+- a `define.h` that defines both `MaterialTransport` and `CATCHMENT` fails the
+  build with
+  `#error "MaterialTransport does not support the catchment (unit-catchment) grid ..."`
+  (the guard is in the tracked `include/define.h` and in `MOD_MT_Defs.F90`);
 - no catchment-specific material-transport code is compiled or kept: the
   vector history writers in `MOD_MT_Hist` are `UNSTRUCTURED`-only, and the
   former `#ifdef CATCHMENT` branches (HRU/`hydrounit` output) have been removed.

@@ -112,3 +112,6 @@
 #if (defined MaterialTransport && defined Campbell_SOIL_MODEL)
 #error "MaterialTransport requires vanGenuchten_Mualem_SOIL_MODEL"
 #endif
+#if (defined MaterialTransport && defined CATCHMENT)
+#error "MaterialTransport does not support the catchment (unit-catchment) grid (CATCHMENT); use GRID or UNSTRUCTURED (vector)."
+#endif

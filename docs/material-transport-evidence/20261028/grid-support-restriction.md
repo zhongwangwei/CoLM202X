@@ -8,9 +8,12 @@
 
 | 层 | 实现 | 行为 |
 | --- | --- | --- |
-| 配置期 | `.github/workflows/create_defineh.bash`：`MTON` + `CATCHMENT` 直接报错 | `exit 1`，不写 `include/define.h` |
-| `define.h` 模板 | 生成脚本写入：`#if (defined MaterialTransport && defined CATCHMENT)` → `#error "MaterialTransport does not support the catchment (unit-catchment) grid (CATCHMENT); use GRID or UNSTRUCTURED (vector)."` | 任何包含该 `define.h` 的编译都会在预处理期失败 |
-| 源码兜底 | `main/MATERIAL/MOD_MT_Defs.F90` 顶部同一条 `#error` | 手写 `define.h` 也 fail-fast |
+| 受控 `define.h` | `include/define.h`（仓库跟踪的默认头）中的 MaterialTransport 段加入
+`#if (defined MaterialTransport && defined CATCHMENT)` → `#error "MaterialTransport does not support the catchment (unit-catchment) grid (CATCHMENT); use GRID or UNSTRUCTURED (vector)."` | 使用该头的构建在预处理期失败 |
+| 源码兜底 | `main/MATERIAL/MOD_MT_Defs.F90` 顶部同一条 `#error` | 任何手写/生成的 `define.h` 打开两宏都会 fail-fast |
+
+注：`create_defineh.bash` 不属于本仓库维护范围（用户指示“退回修改”）；本轮**未修改**该脚本，
+配置期拒绝仅在 `define.h`/源码层实现。
 
 `GRID`（gridded）与 `UNSTRUCTURED`（vector）仍被允许；`CATCHMENT` 在 **MTOFF** 下不受影响
 （只是不能与 MTON 组合）。
@@ -33,9 +36,8 @@
 
 | 测试 | 命令要点 | 结果 |
 | --- | --- | --- |
-| 配置期拒绝 | `create_defineh.bash CATCHMENT LULC_IGBP URBANOFF vanGenu CaMaOFF BGCOFF CROPOFF MTON` | **rc=1**，输出 `Error: MaterialTransport (MTON) does not support the CATCHMENT (unit-catchment) grid.`，**不生成 define.h** |
-| `CATCHMENT`+MTOFF 仍可用 | 同上但 `MTOFF` | rc=0，`#define CATCHMENT`、`#undef MaterialTransport` |
-| 编译期兜底 | 手工在 CATCHMENT define.h 里打开 `MaterialTransport`，`gfortran -cpp -E` 预处理 `MOD_MT_Defs.F90` | **rc=1**，报出限制消息 |
+| `CATCHMENT`+MTOFF 仍可用 | 临时 define.h：`#define CATCHMENT`、`#undef MaterialTransport` | 预处理通过（允许） |
+| 编译期兜底 | 手工在 CATCHMENT define.h 里打开 `MaterialTransport`（含仓库 `include/define.h` 的同一限制），`gfortran -cpp -E` 预处理 `MOD_MT_Defs.F90` | **rc=1**，报出限制消息 |
 | GRID+MT 正常 | `create_defineh.bash GRID ... MTON` + `gfortran -cpp -E` 预处理 `MOD_MT_Defs.F90` / `MOD_MT_Hist.F90` | rc=0；`MOD_MT_Hist` 中 vector writers **0** 处（gridded 路径） |
 | UNSTRUCTURED+MT 正常 | `create_defineh.bash UNSTRUCTURED ... MTON` + 预处理 `MOD_MT_Hist.F90` | rc=0；vector writers **4** 处（2d/3d/ratio/delta，UNSTRUCTURED 路径保留） |
 | 无流域残留 | `grep -rn "CATCHMENT" main/MATERIAL/`；`grep -rn "MOD_LandHRU\|hru_patch\|hru_data_address\|numhru\|hydrounit" main/MATERIAL/` | 前者只剩 `MOD_MT_Defs.F90` 限制行；后者**无命中** |
