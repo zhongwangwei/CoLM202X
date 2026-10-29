@@ -47,14 +47,20 @@ dynamic_wtd 0.95 → step36（0.9466，同一 patch/layer）；水稻与不含�
 **性质声明**：这是策略修复（把“独立估计不一致 → 中止”改为“按 host 可支撑饱和度封顶 + 记录”），
 不是“调参通过”；正确性依赖封顶分配的面积加权守恒（代码内已有注释证明，需实测水量平衡验证，见下）。
 
-## 验证状态（进行中）
+## 验证状态（部分通过；30 天水稻与两年运行已按用户要求暂停）
 
 - [x] 真实构建 `CROP+BGC+MT+LULC_IGBP_PFT+VG+GridRiverLakeFlow`：PASS（首份该组合真实编译证据）。
 - [x] mkinidata：PASS（4m12s、15,714 core-s、restart 642MB、END banner）。
-- [ ] 修复后 hybrid 1 天/3 天：必须 END、无该守卫 abort、记录 host-water 最大失配、水量平衡与 CH4 平衡残差正常。
-- [ ] 修复后水稻（dynamic_wtd+rice+irrigation）1 天/3 天/30 天：水稻通量非零；其它守卫若触发则保留失败并定位。
-- [ ] 两年全球 W1（hybrid、rice off、YEARLY）：Y1 17,514 步 → Y2 17,556 步（串行），保存 job ID/终态/报告与 CH4 面积分。
-- [ ] 用实测水量平衡残差证明“不造水”（面积加权 host 水守恒；封顶分配不改变 host 状态）。
+- [x] 修复后 hybrid 1 天 PASS（48 步，guard abort 0、water-balance violation 0、host-water worst 0.0383→0.9615
+  由报告行记录、CH4 residual |max| 1.8e-21、通量有限非零 `codex-6b46c0ce…`）。
+- [x] 修复后 hybrid 3 天 PASS（144 步，同 gates；CH4 residual 2.5e-21；`codex-6b46c0ce…`）。
+- [x] 修复后水稻（dynamic_wtd+rice+irrigation）1 天/3 天 PASS：rice 通量非零（积分 −4.63e-4 / −4.45e-4 mol/s，
+  冷启动首日为小净汇、sign 已记录；prod_rice/oxid_rice 非零；`codex-683d918f…`）。
+- [ ] 30 天水稻：作业 `codex-923e86aa…` 于 2026-10-29 09:29 启动，**10:03 按用户要求取消** → 未完成。
+- [ ] 两年完整窗口（用户已批准补 15 文件、hybrid 默认、完整 35,088 步）：**补数据与 Y1/Y2 均未启动**
+  （10:03 暂停；W1 少 9h 方案不再采用）。
+- [x] 用实测水量平衡残差证明“不造水”：hybrid/水稻短跑 routing 水量平衡 |残差| ≤0.068 m³（存量 1.9e12 m³）、
+  violation 0；但**未逐 patch 检查 0 水饱和列**（列为自审候选问题 #2）。
 
 以上由 `methane-pilot` 在 7920 执行（task-5），证据写 `.tmp/ct/methane10/`；结果出来后在
 `methane-runs/README.md` 与状态文档更新。**在终态通过前，不把 hybrid、水稻或两年全球写成已完成。**
