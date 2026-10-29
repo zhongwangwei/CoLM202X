@@ -209,7 +209,11 @@ SUBROUTINE Aggregation_Urban (grid_roof, grid_fgper, grid_pctt, grid_lsai, grid_
       ! a new array with urban type was used for look-up-table
 IF (DEF_URBAN_type_scheme == 1) THEN
       ! only used when urban patch have nan data of building height, building fraction and HL
-      landname = trim(dir_rawdata)//'/urban_physical/NCAR_urban_properties.nc'
+      IF ( is_colm2024_rawdata() ) THEN
+         landname = TRIM(dir_rawdata)//'/urban/NCAR_urban_properties.nc'
+      ELSE
+         landname = TRIM(dir_rawdata)//'/urban_physical/Urban_Physical_Parameter.NCAR.nc'
+      ENDIF
 
       CALL ncio_read_bcast_serial (landname,  "WTLUNIT_ROOF", wtroof_ncar )
       CALL ncio_read_bcast_serial (landname,  "HT_ROOF"     , htroof_ncar )
@@ -238,7 +242,7 @@ ENDIF
 
          dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_roof%dir)
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             fname = trim(DEF_rawdata%urban_roof%fname)//trim(c5year)
 
             IF (index(DEF_rawdata%urban_roof%vname, 'GHSL')>0) THEN
@@ -454,7 +458,7 @@ ENDIF
 
          dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_fveg%dir)
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             fname = trim(DEF_rawdata%urban_fveg%fname)//trim(c5year)
          ELSE
             fname = trim(DEF_rawdata%urban_fveg%fname)//'.'//trim(c5year)
@@ -465,7 +469,7 @@ ENDIF
 
          dir = trim(DEF_dir_rawdata) // trim(DEF_rawdata%urban_htop%dir)
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             fname = trim(DEF_rawdata%urban_fveg%fname)//trim(c5year)
          ELSE
             fname = trim(DEF_rawdata%urban_htop%fname)
@@ -585,7 +589,7 @@ ENDIF
 
          ! allocate and read grided LAI raw data
          dir = trim(dir_rawdata) // trim(DEF_rawdata%urban_lsai%dir)
-         fname = trim(DEF_rawdata%urban_lsai%fname)//'.'//trim(cyear)
+         fname = get_rawdata_fname (DEF_rawdata%urban_lsai%fname, cyear, '_')
 
          ! loop for month
          DO imonth = 1, 12
@@ -677,7 +681,7 @@ ENDIF
 
          ! allocate and read grided SAI raw data
          dir = trim(dir_rawdata) // trim(DEF_rawdata%urban_lsai%dir)
-         fname = trim(DEF_rawdata%urban_lsai%fname)//'.'//trim(cyear)
+         fname = get_rawdata_fname (DEF_rawdata%urban_lsai%fname, cyear, '_')
 
          ! loop for month
          DO imonth = 1, 12
@@ -756,7 +760,7 @@ ENDIF
 
          dir = trim(dir_rawdata) // trim(DEF_rawdata%urban_flake%dir)
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             fname = trim(DEF_rawdata%urban_flake%fname)//trim(c5year)
          ELSE
             fname = trim(DEF_rawdata%urban_flake%fname)//'.'//trim(c5year)
@@ -889,7 +893,7 @@ ENDIF
 
          dir = TRIM(dir_rawdata) // trim(DEF_rawdata%urban_pop%dir)
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
+         IF ( is_colm2024_rawdata() ) THEN
             write(c5year, '(i4.4)') int(lc_year/5)*5
             fname = trim(DEF_rawdata%urban_pop%fname)//trim(c5year)
 
@@ -964,7 +968,11 @@ ENDIF
 
 IF (DEF_URBAN_type_scheme == 1) THEN
       ! look up table of NCAR urban properties (using look-up tables)
-      landname = TRIM(dir_rawdata)//'/urban_physical/NCAR_urban_properties.nc'
+      IF ( is_colm2024_rawdata() ) THEN
+         landname = TRIM(dir_rawdata)//'/urban/NCAR_urban_properties.nc'
+      ELSE
+         landname = TRIM(dir_rawdata)//'/urban_physical/Urban_Physical_Parameter.NCAR.nc'
+      ENDIF
 
       CALL ncio_read_bcast_serial (landname,  "EM_ROOF"       , emroof_ncar )
       CALL ncio_read_bcast_serial (landname,  "EM_WALL"       , emwall_ncar )

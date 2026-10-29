@@ -59,6 +59,7 @@ SUBROUTINE Aggregation_ForestHeight ( &
    character(len=256) :: landdir, lndname, cyear
    integer :: L, ipatch, p
    integer :: wmo_src
+   logical :: fexists
 
    type (block_data_real8_2d) :: tree_height
    real(r8), allocatable :: tree_height_patches(:), tree_height_one(:)
@@ -114,6 +115,8 @@ SUBROUTINE Aggregation_ForestHeight ( &
       ! to check if they can be combined. -done
       lndname = trim(DEF_dir_rawdata) // trim(DEF_rawdata%htop%dir) &
               // '/Forest_Height.nc'
+      INQUIRE (FILE=trim(lndname), EXIST=fexists)
+      IF (.not. fexists) lndname = trim(DEF_dir_rawdata)//'/Forest_Height.nc'
 
       IF (p_is_io) THEN
          CALL allocate_block_data (gland, tree_height)
@@ -179,15 +182,14 @@ SUBROUTINE Aggregation_ForestHeight ( &
 
       IF (p_is_io) THEN
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
-            dir   = trim(dir_rawdata) // trim(DEF_rawdata%pft%dir)
-            fname = trim(DEF_rawdata%pft%fname) //'.'// trim(cyear)
+         dir   = trim(dir_rawdata) // trim(DEF_rawdata%htop%dir)
+         fname = trim(DEF_rawdata%htop%fname)
 
-            CALL read_5x5_data (dir, fname, gland, 'HTOP', htop)
+         lndname = trim(dir) // '/' // trim(fname) // '.nc'
+         INQUIRE (FILE=trim(lndname), EXIST=fexists)
+         IF (fexists) THEN
+            CALL ncio_read_block (lndname, trim(DEF_rawdata%htop%vname), gland, htop)
          ELSE
-            dir   = trim(dir_rawdata) // trim(DEF_rawdata%htop%dir)
-            fname = trim(DEF_rawdata%htop%fname)
-
             CALL read_5x5_data (dir, fname, gland, trim(DEF_rawdata%htop%vname), htop)
          ENDIF
 
@@ -261,18 +263,19 @@ SUBROUTINE Aggregation_ForestHeight ( &
 
       IF (p_is_io) THEN
 
-         IF (DEF_rawdata_namelist == "colm2024.nml") THEN
-            dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-            fname = trim(DEF_rawdata%pft%fname) //'.'// trim(cyear)
-            CALL read_5x5_data (dir, fname, gland, 'HTOP', htop)
+         dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%htop%dir)
+         fname = trim(DEF_rawdata%htop%fname)
+
+         lndname = trim(dir) // '/' // trim(fname) // '.nc'
+         INQUIRE (FILE=trim(lndname), EXIST=fexists)
+         IF (fexists) THEN
+            CALL ncio_read_block (lndname, trim(DEF_rawdata%htop%vname), gland, htop)
          ELSE
-            dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%htop%dir)
-            fname = trim(DEF_rawdata%htop%fname)
             CALL read_5x5_data (dir, fname, gland, trim(DEF_rawdata%htop%vname), htop)
          ENDIF
 
          dir   = trim(DEF_dir_rawdata) // trim(DEF_rawdata%pft%dir)
-         fname = trim(DEF_rawdata%pft%fname) //'.'// trim(cyear)
+         fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
          CALL read_5x5_data_pft (dir, fname, grid_pft, 'PCT_PFT', pftPCT)
 
          IF (DEF_RS_CROWN_STRUCTURE) THEN

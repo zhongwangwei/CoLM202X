@@ -66,7 +66,7 @@ CONTAINS
       IF (p_is_io) THEN
 
          dir = trim(DEF_dir_rawdata)//trim(DEF_rawdata%pft%dir)
-         fname = trim(DEF_rawdata%pft%fname)//'.'//trim(cyear)
+         fname = get_rawdata_fname (DEF_rawdata%pft%fname, cyear, '')
 
          CALL allocate_block_data (grid_patch, pctcrop_xy)
          CALL read_5x5_data (dir, fname, grid_patch, 'PCT_CROP', pctcrop_xy)
