@@ -92,11 +92,11 @@ MODULE MOD_MT_Forcing
 
    real(r8), allocatable :: mt_forc_precip_value(:,:)
    real(r8), allocatable :: mt_forc_vapor_value(:,:)
-   ! Precipitation ratio of the current step, valid where trc_forc_has_precip.
-   ! trc_forc_precip_value is the remembered ratio used when the current
+   ! Precipitation ratio of the current step, valid where mt_forc_has_precip.
+   ! mt_forc_precip_value is the remembered ratio used when the current
    ! record is near-dry (see tracer_forcing_snow_value).
    real(r8), allocatable :: mt_forc_precip_step(:,:)
-   ! 1 where trc_forc_precip_value holds a ratio of a reliable record
+   ! 1 where mt_forc_precip_value holds a ratio of a reliable record
    ! (total precipitation above DEF_MT_FORCING_MEMORY_PRECIP), 0 where it
    ! still holds the vapour-equilibrium estimate.  Kept as real so that it is
    ! restarted and LULCC-remapped like the ratios.

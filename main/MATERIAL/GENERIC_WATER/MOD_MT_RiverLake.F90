@@ -14,7 +14,7 @@ MODULE MOD_MT_RiverLake
 !     - Flux limiter for mass conservation (prevents negative storage)
 !     - Fully-mixed assumption within each unit catchment
 !
-!   Reference: CaMa-Flood tracer module (cmf_ctrl_tracer_mod.F90)
+!   Reference: CaMa-Flood tracer module (cmf_ctrl_mt_mod.F90)
 !
 ! Created by CoLM, Apr 2026
 !-------------------------------------------------------------------------------------
@@ -22,7 +22,7 @@ MODULE MOD_MT_RiverLake
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_Namelist
-   ! Share the single authoritative `ntracers` from MOD_MT_Defs to
+   ! Share the single authoritative `nmts` from MOD_MT_Defs to
    ! avoid the land/river tracer modules holding two independent copies
    ! that could silently diverge on re-init.
    USE MOD_MT_Defs, only: nmts, mt_uses_generic_water, tracer_concentration_units, &
@@ -50,7 +50,7 @@ MODULE MOD_MT_RiverLake
    ! monotone non-decreasing map (rate_new = max(rate_old, feasible)): every
    ! iterate is feasible, so a cell can never export more tracer than it holds.
    ! The loop ends when the largest per-iteration rate increment is at or below
-   ! TRC_LIMITER_RATE_TOL, and is otherwise capped at the 2*N+1 topology bound
+   ! MT_LIMITER_RATE_TOL, and is otherwise capped at the 2*N+1 topology bound
    ! (exhausting the cap is fatal).  The tolerance is ABSOLUTE: rates are
    ! clamped to [0,1], so a relative scale would always be 1.  Loosening it
    ! (e.g. to 1e-9) lets a slowly propagating chain stop early and leave tracer
@@ -60,7 +60,7 @@ MODULE MOD_MT_RiverLake
    ! the 2*N+1 topology bound, so the fixed point is always reached.  A long
    ! river chain legitimately needs one round per edge, and truncating would
    ! under-export tracer that the dry-cell sink can later remove instead of
-   ! delivering it downstream (trc_dry_drain is a budgeted sink, not a delay),
+   ! delivering it downstream (mt_dry_drain is a budgeted sink, not a delay),
    ! so crossing this threshold is only counted and reported.
    integer,  parameter :: MT_LIMITER_SOFT_ITER = 32
    real(r8), parameter :: MT_LIMITER_OUT_TINY = 1.0e-30_r8
@@ -72,25 +72,25 @@ MODULE MOD_MT_RiverLake
    integer, save :: mt_limiter_over_soft = 0
 
    ! State variables (prognostic)
-   ! trc_mass is built from R_default * water_volume, so its units are
+   ! mt_mass is built from R_default * water_volume, so its units are
    ! [R*m3] (isotope ratio times cell water volume), NOT kg of heavy water.
-   ! trc_conc = trc_mass / volwater is therefore a dimensionless ratio [R].
-   real(r8), allocatable :: mt_mass  (:,:)   ! Tracer amount [R*m3] (ntracers, numucat)
-   real(r8), allocatable :: mt_conc  (:,:)   ! Tracer ratio  [R]    (ntracers, numucat)
+   ! mt_conc = mt_mass / volwater is therefore a dimensionless ratio [R].
+   real(r8), allocatable :: mt_mass  (:,:)   ! Tracer amount [R*m3] (nmts, numucat)
+   real(r8), allocatable :: mt_conc  (:,:)   ! Tracer ratio  [R]    (nmts, numucat)
 
    ! Protected-side (behind-levee) tracer pool paired with
    ! `levsto` in MOD_Grid_RiverLakeLevee. Levee repartition moves water
-   ! between visible-side (volwater_ucat, driving trc_mass) and
+   ! between visible-side (volwater_ucat, driving mt_mass) and
    ! protected-side storage; without its own tracer pool the mass would
    ! stay pinned to the visible side while water moves, systematically
    ! inflating visible-side concentration (and orphaning mass when
    ! visible-side goes dry).
-   real(r8), allocatable :: mt_levsto(:,:)   ! Protected-side tracer amount [R*m3] (ntracers, numucat)
+   real(r8), allocatable :: mt_levsto(:,:)   ! Protected-side tracer amount [R*m3] (nmts, numucat)
    ! Only allocated when at least one generic tracer has finite solubility.
    real(r8), allocatable :: mt_solid(:,:), mt_levsto_solid(:,:)
 
    ! Flux variables (diagnostic, per routing period)
-   real(r8), allocatable :: mt_flux_out  (:,:) ! Tracer outflux [R*m3/s] (ntracers, numucat)
+   real(r8), allocatable :: mt_flux_out  (:,:) ! Tracer outflux [R*m3/s] (nmts, numucat)
    real(r8), allocatable :: mt_dry_drain(:,:) ! Terminal (mouth) sink from forced drain [R*m3]
    real(r8), allocatable :: mt_dry_fwd(:,:)   ! Internal drained mass forwarded downstream [R*m3]
    real(r8), allocatable :: mt_dry_rev(:,:)   ! (legacy) unique-reverse buffer
@@ -99,12 +99,12 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: mt_decay_source(:,:) ! Net reactive source/sink over routing period
 
    ! Input: tracer amount flux from runoff
-   real(r8), allocatable :: acc_trc_inp  (:,:) ! Accumulated tracer input [R*m3] (ntracers, numucat)
+   real(r8), allocatable :: acc_trc_inp  (:,:) ! Accumulated tracer input [R*m3] (nmts, numucat)
    real(r8), allocatable :: mt_inp_buf  (:,:) ! Buffered runoff tracer awaiting release [R*m3]
    real(r8), allocatable :: acc_rnof_ref (:)   ! Accumulated runoff water volume paired with acc_trc_inp [m3]
 
    ! Bifurcation net flux (saved from last mt_riverlake_substep for diagnostics)
-   real(r8), allocatable :: mt_bif_net_saved (:,:) ! Per-cell net bif flux [mass/s] (ntracers, numucat)
+   real(r8), allocatable :: mt_bif_net_saved (:,:) ! Per-cell net bif flux [mass/s] (nmts, numucat)
 
    ! Near-dry volume floor used only for transport concentration
    ! stabilization; prognostic tracer mass always remains single-pool.
@@ -117,8 +117,8 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: a_water_storage(:)       ! Accumulated visible water storage [m3*s]
    real(r8), allocatable :: a_trc_levsto_mass(:,:)   ! Accumulated protected storage tracer [R*m3*s]
    real(r8), allocatable :: a_levsto_water(:)        ! Accumulated protected water storage [m3*s]
-   real(r8), allocatable :: a_trc_out    (:,:) ! Accumulated tracer outflux [mass/s * s] (ntracers, numucat)
-   real(r8), allocatable :: a_trc_bifout (:,:) ! Accumulated tracer bif net flux [mass/s * s] (ntracers, numucat)
+   real(r8), allocatable :: a_trc_out    (:,:) ! Accumulated tracer outflux [mass/s * s] (nmts, numucat)
+   real(r8), allocatable :: a_trc_bifout (:,:) ! Accumulated tracer bif net flux [mass/s * s] (nmts, numucat)
    real(r8), allocatable :: a_trc_acctime(:)   ! Tracer history elapsed time [s]
 
    ! N05 terminal-window snapshot.  When a run stops inside a history window,
@@ -303,7 +303,7 @@ CONTAINS
    ! Mirrors the land-side mt_riverlake_init_from_water logic: when no tracer
    ! restart variable is present in the gridriver restart file but the
    ! hydrology restart provides a non-zero wdsrf_ucat/volresv, seed
-   ! trc_mass = volwater * R_init. Without this, any hot-start of water
+   ! mt_mass = volwater * R_init. Without this, any hot-start of water
    ! starts with tracer=0 and bleeds spurious dilution into downstream
    ! concentrations until runoff "re-colours" the reservoir.
    !-------------------------------------------------------------------------------------
@@ -318,10 +318,10 @@ CONTAINS
    real(r8), intent(in) :: volresv_in(:)
    integer,  intent(in) :: ucat2resv_in(:)
    ! Optional per-tracer selector. When present, only tracers with
-   ! missing_mask(itrc) == .true. are re-seeded from the water volume;
+   ! missing_mask(imt) == .true. are re-seeded from the water volume;
    ! this avoids overwriting tracers that loaded successfully from a
    ! partially-complete restart file (e.g. user renamed one tracer or
-   ! added a new tracer to DEF_TRACER_NAMES without re-writing the file).
+   ! added a new tracer to DEF_MT_NAMES without re-writing the file).
    ! Without the mask every tracer is cold-started (equivalent to
    ! passing an all-.true. mask).
    logical,  optional, intent(in) :: missing_mask(:)
@@ -394,10 +394,10 @@ CONTAINS
    ! Called each land-model timestep (before routing accumulation threshold).
    !
    ! rnof_uc_depth(i):           catchment runoff volume [m3] after area-weighted mapping.
-   ! trc_rnof_ext(itrc, i):      (optional) tracer amount from land tracer
+   ! mt_rnof_ext(imt, i):      (optional) tracer amount from land tracer
    !                             in matching [R*m3] units.
    !
-   ! If trc_rnof_ext is present, use it directly (coupled to land tracer system).
+   ! If mt_rnof_ext is present, use it directly (coupled to land tracer system).
    ! Otherwise, compute default heavy-water mass from ref_ratio and init_delta.
    !-------------------------------------------------------------------------------------
    SUBROUTINE mt_riverlake_input_from_runoff (rnof_uc_depth, numucat_in, mt_rnof_ext)
@@ -417,7 +417,7 @@ CONTAINS
       real(r8), allocatable :: R_default(:)
 
       ! TRACER may be compiled while the runtime registry intentionally
-      ! contains zero tracers (DEF_TRACER_NUM=0).  In that mode mt_riverlake_init()
+      ! contains zero tracers (DEF_MT_NUM=0).  In that mode mt_riverlake_init()
       ! returns without allocating the routing buffers, so the input path must
       ! be a no-op instead of touching acc_rnof_ref / acc_trc_inp.
       IF (nmts <= 0) RETURN
@@ -425,7 +425,7 @@ CONTAINS
       IF (.not. allocated(acc_trc_inp)) RETURN
       IF (numucat_in <= 0) RETURN
 
-      ! Cache per-tracer R_default once; absent trc_rnof_ext it is used
+      ! Cache per-tracer R_default once; absent mt_rnof_ext it is used
       ! for every cell and was previously recomputed inside the inner
       ! loop (delta_to_R is pure but costs trig/div per call).
       IF (.not. present(mt_rnof_ext)) THEN
@@ -568,8 +568,8 @@ CONTAINS
 
 
    !-------------------------------------------------------------------------------------
-   ! Repartition tracer mass between visible-side (`trc_mass`)
-   ! and protected-side (`trc_levsto`) pools in lockstep with the water
+   ! Repartition tracer mass between visible-side (`mt_mass`)
+   ! and protected-side (`mt_levsto`) pools in lockstep with the water
    ! redistribution that `levee_fldstg` just performed.
    !
    ! Inputs are the visible-side and protected-side water volumes BEFORE
@@ -591,7 +591,7 @@ CONTAINS
    real(r8), intent(in) :: vis_vol_aft, levsto_aft
    ! Optional pool of period-accumulated runoff tracer that is conceptually on
    ! the visible side (its water has already been folded into vis_vol_bef) but
-   ! has not yet been merged into trc_mass. Caller passes trc_inp_buf(:, icell)
+   ! has not yet been merged into mt_mass. Caller passes mt_inp_buf(:, icell)
    ! at the pre-tracer-substep call site so the visible-side ratio reflects
    ! the post-input state. Without this, the ratio is diluted
    ! (denominator includes runoff water but numerator does not include the
@@ -622,10 +622,10 @@ CONTAINS
                vis_pending = max(pending_trc_pool(imt), 0._r8)
          ENDIF
          IF (d_lev > 0._r8) THEN
-            ! Visible -> protected. Use post-input ratio (trc_mass + pending) /
+            ! Visible -> protected. Use post-input ratio (mt_mass + pending) /
             ! vis_vol_bef so the runoff tracer that already shares vis_vol_bef
             ! contributes to the concentration moved across the levee. Debit
-            ! trc_mass first; if it would underrun zero, spill the residual
+            ! mt_mass first; if it would underrun zero, spill the residual
             ! into pending so the visible-side pool stays non-negative without
             ! double-counting.
             vis_total = mt_mass(imt, icell) + vis_pending
@@ -643,7 +643,7 @@ CONTAINS
             ELSE
                mt_move = max(mt_move, min(vis_total, 0._r8))
             ENDIF
-            ! Apportion the debit: take from trc_mass up to its current value,
+            ! Apportion the debit: take from mt_mass up to its current value,
             ! spill any residual into pending (only if pending is provided).
             IF (mt_move > 0._r8) THEN
                debit_mass    = min(mt_move, max(mt_mass(imt, icell), 0._r8))
@@ -661,7 +661,7 @@ CONTAINS
             ENDIF
          ELSE
             ! Protected -> visible. Protected side has no pending runoff input,
-            ! so the original ratio = trc_levsto / levsto_bef is correct.
+            ! so the original ratio = mt_levsto / levsto_bef is correct.
             IF (levsto_bef > mt_tiny) THEN
                ratio = mt_levsto(imt, icell) / levsto_bef
             ELSE
@@ -693,15 +693,15 @@ CONTAINS
    integer,  intent(in) :: imt, icell
    real(r8), intent(in) :: volwater
 
-      ! Intentionally does NOT clamp trc_mass here, even for tiny
+      ! Intentionally does NOT clamp mt_mass here, even for tiny
       ! negatives (e.g. -1e-15 R*m³). Clamping state silently would
       ! swallow any future transport / flux-limiter bug that drifts
-      ! trc_mass negative progressively — each substep would re-zero
+      ! mt_mass negative progressively — each substep would re-zero
       ! the residual below an absolute threshold and hide the drift.
-      ! Instead, display-side reports (check_tracer_state) dust-clamp
+      ! Instead, display-side reports (check_mt_state) dust-clamp
       ! for log cleanliness, and report a WARNING when magnitudes
       ! exceed the FP-noise floor. See tracer_mass_fp_dust in
-      ! check_tracer_state below for the cosmetic threshold.
+      ! check_mt_state below for the cosmetic threshold.
       IF (volwater <= mt_v_dry_off) THEN
          mt_conc(imt, icell) = 0._r8
       ELSE
@@ -800,7 +800,7 @@ CONTAINS
                ! signed correction tied to future same-cell runoff input, not
                ! a physical negative river outflow.  Dry-cell cleanup drains
                ! only positive orphan mass/pending input and preserves a
-               ! negative trc_inp_buf debt so the next positive runoff can
+               ! negative mt_inp_buf debt so the next positive runoff can
                ! cancel it with the correct source signature.
                dry_drain = max(mt_mass(imt, i), 0._r8) + max(mt_inp_buf(imt, i), 0._r8)
                IF (dry_drain > mt_tiny) THEN
@@ -811,7 +811,7 @@ CONTAINS
                   ! belongs to the downstream receiver, not to a numerical
                   ! sink.  Forward it along the main-channel edge; only a
                   ! terminal cell (no downstream unit catchment) really
-                  ! discharges to the outside and books trc_dry_drain.
+                  ! discharges to the outside and books mt_dry_drain.
                   internal_receiver = ucat_next(i) > 0
                   IF (internal_receiver .and. present(hflux_fc_in)) THEN
                      internal_receiver = hflux_fc_in(i) >= 0._r8
@@ -830,8 +830,8 @@ CONTAINS
                      IF (allocated(mt_dry_drain)) mt_dry_drain(imt, i) = &
                         mt_dry_drain(imt, i) + dry_drain
                      ! Keep advective outflux and the terminal dry-cell sink
-                     ! separate. CoLMDEBUG books trc_flux_out at river mouths
-                     ! and adds trc_dry_drain globally; folding the sink into
+                     ! separate. CoLMDEBUG books mt_flux_out at river mouths
+                     ! and adds mt_dry_drain globally; folding the sink into
                      ! both arrays counted a dry mouth twice.
                      IF (dt_i > 0._r8 .and. ucatfilter(i)) &
                         a_trc_out(imt, i) = a_trc_out(imt, i) + dry_drain
@@ -1146,7 +1146,7 @@ CONTAINS
    integer  :: npth_bif, nlev_bif
 
       ! Initialisation intentionally leaves all river tracer arrays unallocated
-      ! when DEF_TRACER_NUM=0. Skip transport on every rank before workspace or
+      ! when DEF_MT_NUM=0. Skip transport on every rank before workspace or
       ! per-cell state can be touched (including the BIF collective path).
       IF (nmts <= 0) RETURN
 
@@ -1167,10 +1167,10 @@ CONTAINS
       ! sub-unit-rate dependencies propagate only along the ordinary river
       ! forest, so 2*N+1 is a conservative topology-derived cap on the number of
       ! rounds.  The loop exits on convergence
-      ! (TRC_LIMITER_RATE_TOL) and is fatal if the cap is exhausted; it is never
-      ! truncated early, because the dry-cell sink (trc_dry_drain) would then
+      ! (MT_LIMITER_RATE_TOL) and is fatal if the cap is exhausted; it is never
+      ! truncated early, because the dry-cell sink (mt_dry_drain) would then
       ! remove the under-exported tracer instead of delivering it downstream.
-      ! TRC_LIMITER_SOFT_ITER is only a fast-path threshold used to report how
+      ! MT_LIMITER_SOFT_ITER is only a fast-path threshold used to report how
       ! often long chains occur.
       IF (totalnumucat < 0 .or. totalnumucat > (huge(limiter_max_iter) - 1) / 2) &
          CALL CoLM_stop('invalid river topology size for material donor limiter')
@@ -1378,7 +1378,7 @@ CONTAINS
                ENDDO
             ENDDO
 
-            ! Bif scatter to all downstream cells.  trc_pth_* keep the
+            ! Bif scatter to all downstream cells.  mt_pth_* keep the
             ! upstream-sign pathway flux; the downstream cell's net
             ! contribution is therefore subtracted after push.
             CALL worker_push_data (push_bif_influx, mt_pth_1trc, bif_recv, &
@@ -1853,7 +1853,7 @@ CONTAINS
             ENDIF
          ENDDO
 
-      ENDDO  ! itrc
+      ENDDO  ! imt
 
    END SUBROUTINE mt_riverlake_substep
 
@@ -1861,7 +1861,7 @@ CONTAINS
    ! Donor-limiter work statistics (per rank).  calls = limiter invocations
    ! (one per water-transported tracer per substep), iter_sum/iter_peak = Jacobi
    ! iterations actually spent, over_soft = invocations that needed more than
-   ! TRC_LIMITER_SOFT_ITER rounds (long-chain indicator; no truncation happens).
+   ! MT_LIMITER_SOFT_ITER rounds (long-chain indicator; no truncation happens).
    ! Pass reset=.true. to read and clear in one call; callers that print a
    ! global summary must reduce (SUM for calls/iter_sum/over_soft, MAX for peak).
    SUBROUTINE mt_riverlake_limiter_stats (calls, iter_sum, iter_peak, over_soft, reset)
@@ -2461,7 +2461,7 @@ CONTAINS
 
       ! The water restart reader folds protected storage into visible storage
       ! whenever the current configuration has no levee for a cell.  Mirror
-      ! that transfer for tracer mass; simply zeroing trc_levsto would either
+      ! that transfer for tracer mass; simply zeroing mt_levsto would either
       ! strand mass (global LEVEE off) or lose it (per-cell mask change).
       IF (p_is_worker .and. numucat > 0 .and. allocated(mt_mass) &
           .and. allocated(mt_levsto) .and. allocated(has_levee_bf)) THEN
@@ -2689,7 +2689,7 @@ CONTAINS
       ! Guard: tracer module may not be initialised (e.g. mkinidata).
       ! tracer_names is allocated on ALL ranks by mt_riverlake_init (before the
       ! p_is_worker guard), so this check is safe for master/IO.
-      ! Do NOT check allocated(trc_mass) here — trc_mass is worker-only,
+      ! Do NOT check allocated(mt_mass) here — mt_mass is worker-only,
       ! but vector_gather_and_write has mpi_barrier(p_comm_glb) that
       ! requires ALL ranks to participate.
       IF (.not. allocated(tracer_names)) RETURN
@@ -2895,9 +2895,9 @@ CONTAINS
          allocate (tmpvec(0))
       ENDIF
       ! Output-side FP-dust clamp threshold. Same rationale as
-      ! check_tracer_state: trc_mass can carry sub-picomass alternating
+      ! check_mt_state: mt_mass can carry sub-picomass alternating
       ! residue from upwind flux add/subtract, which propagates to
-      ! trc_conc / a_trc_out / a_trc_bifout. The underlying
+      ! mt_conc / a_trc_out / a_trc_bifout. The underlying
       ! state is preserved intact (so transport / limiter regressions
       ! remain visible via the WARNING watchdog); only this display
       ! slice hides the noise floor.
@@ -2920,9 +2920,9 @@ CONTAINS
          ! the delta diagnostic below is built from.  A plain time average of the
          ! per-step ratio would disagree with that delta for the very same field
          ! (for isotopes conc_units is 'R', i.e. they report the same quantity),
-         ! and would fold dry sub-steps -- where trc_conc is forced to zero and
+         ! and would fold dry sub-steps -- where mt_conc is forced to zero and
          ! concentration is undefined, not zero -- into the mean.  Both
-         ! accumulators below are gated on volwater > trc_v_dry_off, so dry time
+         ! accumulators below are gated on volwater > mt_v_dry_off, so dry time
          ! leaves numerator and denominator alike.
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = spval
@@ -3104,7 +3104,7 @@ CONTAINS
    real(r8), parameter :: mt_mass_neg_warn = -1.0e-6_r8
 
       ! Workers that never ran mt_riverlake_init have no data to check.
-      ! Master and IO ranks don't allocate trc_mass but MUST still enter
+      ! Master and IO ranks don't allocate mt_mass but MUST still enter
       ! this routine: master participates in check_vector_data's recv/print
       ! side, and all ranks share the same call count to avoid orphaning
       ! worker-to-master mpi_send messages.
@@ -3121,11 +3121,11 @@ CONTAINS
       ENDIF
 
       ! Display-only thresholds (state itself is never modified here):
-      !   trc_mass_fp_dust: absolute trc_mass below this is FP residue
+      !   mt_mass_fp_dust: absolute mt_mass below this is FP residue
       !       from alternating substep add/subtract (order 1e-15 R*m³);
       !       dust-clamp for log cleanliness only. Well below any
       !       physical input (rnof*R_init is typically >= 1e-9).
-      !   trc_mass_neg_warn: trc_mass below this signed threshold is
+      !   mt_mass_neg_warn: mt_mass below this signed threshold is
       !       NOT noise — indicates transport/limiter drift. Emit a
       !       diagnostic once so the root cause can be traced instead
       !       of silently swallowed by a state-side clamp.
@@ -3173,8 +3173,8 @@ CONTAINS
             ENDIF
             IF (worst_neg_mass < mt_mass_neg_warn) THEN
                write(*,'(A,A,A,I6,A,I8,A,E12.5)') &
-                  ' WARNING check_tracer_state: ', trim(tracer_names(imt)), &
-                  ' trc_mass < -1e-6 in ', nbad, ' cell(s); worst @ucat=', &
+                  ' WARNING check_mt_state: ', trim(tracer_names(imt)), &
+                  ' mt_mass < -1e-6 in ', nbad, ' cell(s); worst @ucat=', &
                   icell_worst, ' mass=', worst_neg_mass
             ENDIF
             ! Cosmetic dust clamp for the min/max line only
@@ -3187,15 +3187,15 @@ CONTAINS
             tmp = mt_conc(imt,:)
             ! Cosmetic dust clamp on the conc display path, keyed on the MASS
             ! that produced each concentration rather than on the
-            ! concentration itself. What this suppresses is a trc_mass of
-            ! FP-residue size propagating into trc_conc, with the sign flipped
-            ! by division -- so the test belongs on trc_mass.
+            ! concentration itself. What this suppresses is a mt_mass of
+            ! FP-residue size propagating into mt_conc, with the sign flipped
+            ! by division -- so the test belongs on mt_mass.
             !
-            ! It used to compare trc_conc against trc_mass_fp_dust directly.
-            ! That threshold is an absolute mass in R*m3; trc_conc is a ratio
+            ! It used to compare mt_conc against mt_mass_fp_dust directly.
+            ! That threshold is an absolute mass in R*m3; mt_conc is a ratio
             ! or a concentration per unit water, so the comparison had no
             ! defined meaning and the cells it caught depended on cell volume.
-            ! Display only either way -- trc_conc itself is never modified.
+            ! Display only either way -- mt_conc itself is never modified.
             WHERE (abs(mt_mass(imt,:)) < mt_mass_fp_dust) tmp = 0._r8
          ENDIF
          write(label,'(5A)') 'mt_conc_', trim(tracer_names(imt)), ' [', trim(mt_conc_units), ']'
@@ -3235,7 +3235,7 @@ CONTAINS
          IF (p_is_worker .and. numucat > 0) THEN
             tmp = mt_flux_out(imt,:)
             ! FP-dust clamp on the flux display path (same rationale
-            ! as trc_mass / trc_conc above). Real flux magnitudes are
+            ! as mt_mass / mt_conc above). Real flux magnitudes are
             ! many orders above the residue so this only hides
             ! the alternating +/- 1e-15 numerical noise.
             WHERE (abs(tmp) < mt_flux_fp_dust) tmp = 0._r8
@@ -3252,7 +3252,7 @@ CONTAINS
          CALL check_vector_data (label, tmp)
 
          ! Surface protected-side pool so the levee-on case has a
-         ! min/max line alongside trc_mass. Same FP-dust clamp rationale.
+         ! min/max line alongside mt_mass. Same FP-dust clamp rationale.
          IF (p_is_worker .and. numucat > 0) THEN
             IF (allocated(mt_levsto)) THEN
                tmp = mt_levsto(imt,:)

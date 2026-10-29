@@ -47,24 +47,24 @@ CONTAINS
 
 #if (defined CoLMDEBUG)
          ! Invariant: when the pre-newsnow state has layered snow
-         ! (snl_old < 0), trc_scv must be zero — pre-layer accumulation
+         ! (snl_old < 0), mt_scv must be zero — pre-layer accumulation
          ! stops once a real snow layer exists, and Cases B/C below will
-         ! unconditionally reset trc_scv. A non-zero residual here means
-         ! somebody else wrote trc_scv while snl_old<0 (a real bug
+         ! unconditionally reset mt_scv. A non-zero residual here means
+         ! somebody else wrote mt_scv while snl_old<0 (a real bug
          ! upstream, not a simple rounding artefact). Flag it once per
 	         ! tracer per occurrence so the root cause can be traced; Cases
 	         ! B/C now fold any residual into the top snow layer before reset.
          IF (snl_old < 0 .and. abs(mt_scv(imt, ipatch)) > mt_tiny) THEN
             write(*,'(A,I8,A,I3,A,E12.5)') &
-               ' WARNING mt_newsnow: trc_scv residual under layered snow ipatch=', &
-               ipatch, ' itrc=', imt, ' trc_scv_pre=', mt_scv(imt, ipatch)
+               ' WARNING mt_newsnow: mt_scv residual under layered snow ipatch=', &
+               ipatch, ' imt=', imt, ' mt_scv_pre=', mt_scv(imt, ipatch)
          ENDIF
 #endif
 
          IF (snl_old == 0 .and. snl < 0) THEN
             ! Case A: First snow layer just created from accumulated scv.
             ! Partition the accumulated snow tracer across the new layer's
-            ! ice/liquid pools.  Do not put all trc_scv into ice and then add
+            ! ice/liquid pools.  Do not put all mt_scv into ice and then add
             ! liquid tracer again; that duplicates tracer mass when the first
             ! layer is born with liquid water.
             total_tracer = mt_scv(imt, ipatch) + mt_pg_snow_ground(imt, ipatch)
@@ -85,7 +85,7 @@ CONTAINS
             IF (ice_water <= mt_tiny .and. liq_water <= mt_tiny) ice_tracer = max(total_tracer, 0._r8)
             mt_wice_soisno(imt, j, ipatch) = ice_tracer
             mt_wliq_soisno(imt, j, ipatch) = liq_tracer
-            ! Clear trc_scv: all transferred to the snow layer
+            ! Clear mt_scv: all transferred to the snow layer
             mt_scv(imt, ipatch) = 0._r8
 
          ELSEIF (snl < 0 .and. snl < snl_old) THEN
@@ -106,7 +106,7 @@ CONTAINS
                IF (abs(wice_soisno(1) - max(pg_snow, 0._r8) * deltim) > 1.e-6_r8) THEN
                   write(*,'(A,I8,A,I3,A,E12.5,A,E12.5)') &
                      ' WARNING mt_newsnow Case B: wice_soisno(1) /= pg_snow*dt ipatch=', &
-                     ipatch, ' itrc=', imt, &
+                     ipatch, ' imt=', imt, &
                      ' wice=', wice_soisno(1), &
                      ' pg_snow*dt=', max(pg_snow, 0._r8) * deltim
                ENDIF
@@ -124,17 +124,17 @@ CONTAINS
 	               mt_wice_soisno(imt, j, ipatch) = mt_wice_soisno(imt, j, ipatch) &
 	                  + mt_scv(imt, ipatch)
 	            ENDIF
-	            ! trc_scv should be 0 when layers already exist
+	            ! mt_scv should be 0 when layers already exist
 	            mt_scv(imt, ipatch) = 0._r8
 
          ELSEIF (snl < 0 .and. snl == snl_old) THEN
             ! Case C: Snow added to existing top layer (no new node).
-            ! Do not route through trc_scv here: once layered snow exists,
+            ! Do not route through mt_scv here: once layered snow exists,
             ! the water-side pg_snow increment goes directly into the top
             ! snow ice layer. A previous scv -> d_wice-gated -> clear path
             ! could silently drop ground-snow tracer if mt_precip's
             ! canopy residual correction and the water increment differed by
-            ! more than trc_tiny.
+            ! more than mt_tiny.
             j = snl + 1
             IF (present(wice_soisno) .and. present(wice_soisno_bef)) THEN
                d_wice = wice_soisno(1) - wice_soisno_bef(1)
@@ -147,9 +147,9 @@ CONTAINS
                    mt_pg_snow_ground(imt, ipatch) > mt_tiny) THEN
                   write(*,'(A,I8,A,I3,A,E12.5,A,E12.5,A,E12.5)') &
                      ' WARNING mt_newsnow Case C: d_wice /= pg_snow*dt ipatch=', &
-                     ipatch, ' itrc=', imt, ' d_wice=', d_wice, &
+                     ipatch, ' imt=', imt, ' d_wice=', d_wice, &
                      ' pg_snow*dt=', snow_mass_step, &
-                     ' trc_pg_snow_ground=', mt_pg_snow_ground(imt, ipatch)
+                     ' mt_pg_snow_ground=', mt_pg_snow_ground(imt, ipatch)
 	               ENDIF
 #endif
 	               IF (abs(mt_scv(imt, ipatch)) > mt_tiny) THEN
@@ -157,11 +157,11 @@ CONTAINS
 	                     + mt_scv(imt, ipatch)
 	               ENDIF
             ENDIF
-            ! trc_scv should be 0 when layers exist
+            ! mt_scv should be 0 when layers exist
             mt_scv(imt, ipatch) = 0._r8
 
          ELSE
-            ! snl == 0: no snow layer yet. Accumulate in trc_scv until
+            ! snl == 0: no snow layer yet. Accumulate in mt_scv until
             ! the first real snow layer is created.
             !
             ! scv sink handling (warm wetland melt, thin-snow melt) is done
@@ -212,7 +212,7 @@ CONTAINS
    ! (total-tracer / total-water share) homogenised the snow column every
    ! time snowlayerscombine / snowlayersdivide fired, erasing vertical
    ! isotope gradients that the model is otherwise supposed to preserve.
-   ! The fix carries trc_wliq / trc_wice / trc_scv through the exact same
+   ! The fix carries mt_wliq / mt_wice / mt_scv through the exact same
    ! per-layer topology as water via the new optional hooks on
    ! MOD_SnowLayersCombineDivide's combine/divide routines.
 

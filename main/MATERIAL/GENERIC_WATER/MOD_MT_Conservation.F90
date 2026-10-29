@@ -31,7 +31,7 @@ MODULE MOD_MT_Conservation
    integer, parameter :: n_flux_diag = 7
 
    ! Per-step accumulator snapshots (saved at start of each timestep)
-   real(r8), allocatable, save :: snap_precip(:,:)  ! (ntracers, numpatch)
+   real(r8), allocatable, save :: snap_precip(:,:)  ! (nmts, numpatch)
    real(r8), allocatable, save :: snap_vapor_exchange(:,:)
    real(r8), allocatable, save :: snap_evap  (:,:)
    real(r8), allocatable, save :: snap_rnof  (:,:)
@@ -42,7 +42,7 @@ MODULE MOD_MT_Conservation
    real(r8), allocatable, save :: snap_storage_comp(:,:,:) ! (component, tracer, patch)
 
    ! Worker-local worst-patch tracker for mt_balance_check. Previously
-   ! the routine only printed when `ipatch <= 1 .and. itrc == 1`, so every
+   ! the routine only printed when `ipatch <= 1 .and. imt == 1`, so every
    ! other failing patch was invisible. These counters accumulate across
    ! patches within a step; caller drains them via tracer_balance_report
    ! at step end.
@@ -67,7 +67,7 @@ MODULE MOD_MT_Conservation
    integer,  save :: signature_worst_itrc   = 0
    integer,  save :: signature_worst_ptype  = -1
    integer,  save :: signature_nbad         = 0
-   ! P1 diagnostic: the per-layer trc_wliq<->wliq_soisno reconciliation
+   ! P1 diagnostic: the per-layer mt_wliq<->wliq_soisno reconciliation
    ! (MOD_MT_SoilWater) injects/removes tracer booked as numerical_source_sink.
    ! This is an explicit solver-closure term, not an unbooked transport leak, so
    ! the hard transport-balance check subtracts it like decay_source_sink.
@@ -118,7 +118,7 @@ CONTAINS
       integer, intent(in) :: ipatch, snl, nl_soil
       ! Optional: patch-level irrigation reservoir (mm of water equivalent).
       ! Present only when DEF_USE_IRRIGATION is on under CROP. When passed,
-      ! trc_waterstorage is re-synced to waterstorage*R_init (Phase-1
+      ! mt_waterstorage is re-synced to waterstorage*R_init (Phase-1
       ! invariant) and included in the storage balance; this mirrors the
       ! water-side convention at CoLMMAIN:806 that treats waterstorage as
       ! part of the column inventory (so irrigation becomes an internal
@@ -153,7 +153,7 @@ CONTAINS
 
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
-            ! trc_rnof_step is the MAIN-STEP river hand-off accumulator: it
+            ! mt_rnof_step is the MAIN-STEP river hand-off accumulator: it
             ! is reset once before CoLMDRIVER, not by the per-substep
             ! conservation snapshot.
             IF (allocated(mt_decay_source_step)) mt_decay_source_step(imt, ipatch) = 0._r8
@@ -241,7 +241,7 @@ CONTAINS
    ! storage/flux budget.  species-owned reacting state (for example CH4's
    ! conc_methane* prognostic pools) must keep its own source/sink accounting
    ! and restart callbacks; it must not be double-booked here through
-   ! trc_decay_source_step.
+   ! mt_decay_source_step.
    SUBROUTINE mt_apply_decay (ipatch, snl, nl_soil, deltim)
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, nl_soil
@@ -325,7 +325,7 @@ CONTAINS
       integer,  intent(in)  :: ipatch, snl, nl_soil
       real(r8), intent(in)  :: deltim
       real(r8), intent(out) :: xerr_tracer
-      ! Optional patchtype passthrough so TRC_BAL report can identify the
+      ! Optional patchtype passthrough so MT_BAL report can identify the
       ! offending branch (0=soil, 1=urban, 2=wetland, 3=glacier, 4=waterbody).
       ! Kept optional so old call sites (if any) still compile.
       integer,  intent(in), optional :: patchtype_in
@@ -680,7 +680,7 @@ CONTAINS
       logical  :: print_me
       real(r8) :: maxima_local(4), maxima_total(4)
       integer  :: counts_local(4), counts_total(4)
-      ! MAXLOC reduction: pair |err| with rank so we can ship ipatch/itrc
+      ! MAXLOC reduction: pair |err| with rank so we can ship ipatch/imt
       ! from the rank that owns the worst patch. Standard MPI_MAXLOC on
       ! real+int works with MPI_2DOUBLE_PRECISION wrapping (rank as real).
       real(r8) :: in_pair(2), out_pair(2)
@@ -827,17 +827,17 @@ CONTAINS
 
       IF (print_me .and. nbad_total > 0) THEN
          ! "nbad_entries" = (patch, tracer) pairs exceeding tol.
-         ! Upper bound on unique patches is nbad_entries / ntracers
-         ! (each patch contributes at most ntracers entries).
+         ! Upper bound on unique patches is nbad_entries / nmts
+         ! (each patch contributes at most nmts entries).
          ! ptype: 0=soil 1=urban 2=wetland 3=glacier 4=waterbody, -1=unknown.
          WRITE(*,'(A,I8,A,E12.5,A,I8,A,I4,A,I3,A,I4,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5)') &
-            'TRC_BAL step report: nbad_entries=', nbad_total, &
+            'MT_BAL step report: nbad_entries=', nbad_total, &
             ' worst_abs_err=', reduced_abs, &
             ' @ipatch=', balance_worst_ipatch, &
-            ' itrc=', balance_worst_itrc, &
+            ' imt=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
             ' owner=', winner_rank, &
             ' err=', balance_worst_diag(1), &
@@ -861,8 +861,8 @@ CONTAINS
             ' rnof_minus_water_R=', balance_worst_diag(19)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
-            'TRC_BAL_DCOMP @ipatch=', balance_worst_ipatch, &
-            ' itrc=', balance_worst_itrc, &
+            'MT_BAL_DCOMP @ipatch=', balance_worst_ipatch, &
+            ' imt=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
             ' d_ldew=', balance_worst_sds(1), &
             ' d_soil_liq=', balance_worst_sds(2), &
@@ -878,8 +878,8 @@ CONTAINS
             ' d_solid=', balance_worst_sds(12)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5)') &
-            'TRC_BAL_FCOMP @ipatch=', balance_worst_ipatch, &
-            ' itrc=', balance_worst_itrc, &
+            'MT_BAL_FCOMP @ipatch=', balance_worst_ipatch, &
+            ' imt=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
             ' precip=', balance_worst_fcomp(1), &
             ' evap=', balance_worst_fcomp(2), &
@@ -890,8 +890,8 @@ CONTAINS
             ' qcharge=', balance_worst_fcomp(7)
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
-            'TRC_BAL_SEND @ipatch=', balance_worst_ipatch, &
-            ' itrc=', balance_worst_itrc, &
+            'MT_BAL_SEND @ipatch=', balance_worst_ipatch, &
+            ' imt=', balance_worst_itrc, &
             ' ptype=', balance_worst_ptype, &
             ' ldew=', balance_worst_send(1), &
             ' soil_liq=', balance_worst_send(2), &
@@ -911,29 +911,29 @@ CONTAINS
          ! Fires independently of nbad_total to identify entries where the
          ! numerical residual was explicitly excluded from hard balance accounting.
          WRITE(*,'(A,I8,A,E12.5)') &
-            'TRC_BAL residual note (excluded from tol check): n_entries=', &
+            'MT_BAL residual note (excluded from tol check): n_entries=', &
             resid_nbad_total, ' worst_abs=', resid_abs_total
       ENDIF
 
       IF (print_me .and. resid_hard_nbad_total > DEF_MT_RESID_ABORT_NBAD) THEN
          WRITE(*,'(A,I8,A,E12.5,A,E12.5,A,I8,A,I4,A,I3,A,I4)') &
-            'TRC_BAL residual hard failure: n_entries=', resid_hard_nbad_total, &
+            'MT_BAL residual hard failure: n_entries=', resid_hard_nbad_total, &
             ' worst_abs=', resid_hard_abs_total, &
             ' tol=', resid_hard_tol_total, &
             ' @ipatch=', resid_hard_ipatch_total, &
-            ' itrc=', resid_hard_itrc_total, &
+            ' imt=', resid_hard_itrc_total, &
             ' ptype=', resid_hard_ptype_total, &
             ' owner=', resid_winner_rank
-         CALL CoLM_stop ('TRC_BAL hard failure: numerical residual exceeds independent threshold')
+         CALL CoLM_stop ('MT_BAL hard failure: numerical residual exceeds independent threshold')
       ENDIF
 
       IF (print_me .and. signature_nbad_total > 0) THEN
          WRITE(*,'(A,I8,A,E12.5,A,E12.5,A,I8,A,I4,A,I3,A,I4,A,E12.5,A,E12.5,A,E12.5)') &
-            'TRC_SIG step report: nbad_entries=', signature_nbad_total, &
+            'MT_SIG step report: nbad_entries=', signature_nbad_total, &
             ' worst_abs=', signature_abs_total, &
             ' tol=', signature_tol_total, &
             ' @ipatch=', signature_ipatch_total, &
-            ' itrc=', signature_itrc_total, &
+            ' imt=', signature_itrc_total, &
             ' ptype=', signature_ptype_total, &
             ' owner=', signature_winner_rank, &
             ' input_minus_water_R=', signature_terms_total(1), &
@@ -942,11 +942,11 @@ CONTAINS
       ENDIF
 
       IF (print_me .and. signature_nbad_total > DEF_MT_BALANCE_ABORT_NBAD) THEN
-         CALL CoLM_stop ('TRC_SIG hard failure: fixed-signature flux differs from water flux times R_init')
+         CALL CoLM_stop ('MT_SIG hard failure: fixed-signature flux differs from water flux times R_init')
       ENDIF
 
       IF (print_me .and. nbad_total > DEF_MT_BALANCE_ABORT_NBAD) THEN
-         CALL CoLM_stop ('TRC_BAL hard failure: material balance error exceeds aggregate threshold')
+         CALL CoLM_stop ('MT_BAL hard failure: material balance error exceeds aggregate threshold')
       ENDIF
 
       balance_worst_err    = 0._r8

@@ -31,15 +31,15 @@ CONTAINS
    !      ldew_frzc_out from ldew_rain to ldew_snow. Tracer mass has to
    !      migrate coherently, otherwise the rain pool loses signal from
    !      the melt event (and vice versa for freeze) and the snow tracer
-   !      gets mis-attributed as drip to trc_pg_snow_ground downstream.
+   !      gets mis-attributed as drip to mt_pg_snow_ground downstream.
    !
    ! Tracer to ground = throughfall*R_precip + drip*R_mixed
-   !   (rain → trc_pg_rain_ground → surface pool via mt_soil_water;
-   !    snow → trc_pg_snow_ground → trc_scv via mt_newsnow)
+   !   (rain → mt_pg_rain_ground → surface pool via mt_soil_water;
+   !    snow → mt_pg_snow_ground → mt_scv via mt_newsnow)
    !
    ! Canopy tracer: migrate phase change first (updates "effective"
    ! pre-interception anchor so the rain/snow stages below see a
-   ! consistent (ldew_*_old, trc_ldew_*) pair), then for each phase
+   ! consistent (ldew_*_old, mt_ldew_*) pair), then for each phase
    ! remove xsc, mix interception with remainder, and finally strip drip.
    !---------------------------------------------------------------
    SUBROUTINE mt_precip (ipatch, deltim, &
@@ -88,12 +88,12 @@ CONTAINS
       ! ldew_smelt_mass is the canopy snow -> rain transfer this step
       ! (melt); ldew_frzc_mass is the canopy rain -> snow transfer
       ! (freeze). Each nonzero value triggers an equal-mass tracer
-      ! migration between trc_ldew_snow and trc_ldew_rain before the
+      ! migration between mt_ldew_snow and mt_ldew_rain before the
       ! rain/snow stages run, and the pre-interception anchors
-      ! (ldew_*_old_eff, trc_ldew_*) are updated so R_canopy_pre in each
+      ! (ldew_*_old_eff, mt_ldew_*) are updated so R_canopy_pre in each
       ! stage reflects the post-migration pool composition. Without this
       ! step the snow-pool tracer would be spuriously classified as drip
-      ! and sent to trc_pg_snow_ground (and the rain pool would
+      ! and sent to mt_pg_snow_ground (and the rain pool would
       ! under-report the melt signal).
       real(r8), intent(in) :: ldew_smelt_mass
       real(r8), intent(in) :: ldew_frzc_mass
@@ -118,7 +118,7 @@ CONTAINS
       ! Effective pre-interception anchors after phase-change migration.
       ! Equal to ldew_*_old when no phase change happened; otherwise
       ! reflect the post-migration pool so R_canopy_pre stays consistent
-      ! with the (migrated) trc_ldew_* values that feed the rain/snow
+      ! with the (migrated) mt_ldew_* values that feed the rain/snow
       ! stages. Clamped to >=0 in case of float noise in the caller.
       real(r8) :: ldew_rain_old_eff
       real(r8) :: ldew_snow_old_eff
@@ -160,7 +160,7 @@ CONTAINS
          ! canopy/ground here via LEAF_INTERCEPTION, but water-side
          ! treats it as an internal transfer from waterstorage (not a
          ! term in forc_prc+forc_prl). Mirror that: debit
-         ! trc_waterstorage for sprinkler and keep a_trc_precip purely
+         ! mt_waterstorage for sprinkler and keep a_trc_precip purely
          ! atmospheric, so the tracer budget's "external input"
          ! matches the water-side definition.
          ! The second term is exactly zero when rain and snow share a ratio,
@@ -208,7 +208,7 @@ CONTAINS
          ! BEFORE touching any new precipitation this step. Without
          ! migrating the tracer mass along with the bulk water, the snow
          ! block below would see d_ldew < 0 (for melt) and falsely
-         ! classify ldew_smelt_mass as drip to trc_pg_snow_ground, while
+         ! classify ldew_smelt_mass as drip to mt_pg_snow_ground, while
          ! the rain pool would silently lose the meltwater's signature.
          ! Clamp each mass to the pool available when that transfer runs;
          ! melt precedes freeze in this aggregate, well-mixed canopy state.
@@ -256,8 +256,8 @@ CONTAINS
          ! phase in which the old water/tracer entered this routine.  Repack the
          ! complete old canopy inventory into that host-selected phase before
          ! the ordinary xsc calculation.  Otherwise old snow released as rain
-         ! remains stranded in trc_ldew_snow (and old rain released as snow is
-         ! precipitated into trc_canopy_solid when the now-empty liquid carrier
+         ! remains stranded in mt_ldew_snow (and old rain released as snow is
+         ! precipitated into mt_canopy_solid when the now-empty liquid carrier
          ! is equilibrated below).
          canopy_old_water = ldew_rain_old_eff + ldew_snow_old_eff
          IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= mt_water_min_for_ratio .and. &
@@ -376,7 +376,7 @@ CONTAINS
 
          ! ---- Snow component (same 2-stage logic) ----
          ! Use ldew_snow_old_eff (post-phase-change effective anchor) and
-         ! the migrated trc_ldew_snow so R_canopy_pre matches the pool
+         ! the migrated mt_ldew_snow so R_canopy_pre matches the pool
          ! that actually feeds the xsc stage.
          xsc_mass = min(max(0._r8, xsc_snow_out) * deltim, ldew_snow_old_eff)
          IF (ldew_snow_old_eff > mt_tiny) THEN
@@ -441,7 +441,7 @@ CONTAINS
             mt_rain_ground, mt_surface_solid(imt, ipatch))
 
         ! Store rain/snow tracer separately: rain feeds the surface mixed
-        ! pool in mt_soil_water; snow feeds trc_scv in mt_newsnow.
+        ! pool in mt_soil_water; snow feeds mt_scv in mt_newsnow.
          mt_pg_rain_ground(imt, ipatch) = mt_rain_ground
          mt_pg_snow_ground(imt, ipatch) = mt_snow_ground
 

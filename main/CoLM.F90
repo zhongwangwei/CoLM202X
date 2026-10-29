@@ -544,7 +544,7 @@ PROGRAM CoLM
          ! ----------------------------------------------------------------------
 #ifdef MaterialTransport
          ! Lake/waterbody substeps of this land step accumulate into
-         ! trc_rnof_step; clear it once per main step, before any land patch
+         ! mt_rnof_step; clear it once per main step, before any land patch
          ! physics and before the river coupling reads it later this step.
          IF (p_is_worker) CALL mt_reset_rnof_step ()
 #endif

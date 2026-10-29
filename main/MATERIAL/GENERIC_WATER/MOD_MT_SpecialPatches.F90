@@ -227,7 +227,7 @@ CONTAINS
                surface_residue_beg = surface_residue_beg - surface_residue_export
                mt_rnof = mt_rnof + surface_residue_export
             ENDIF
-            ! surface_residue_export comes from held mass, not trc_available.
+            ! surface_residue_export comes from held mass, not mt_available.
             mt_final = max(mt_final - mt_rnof + surface_residue_export, 0._r8)
             CALL mt_equilibrate_dissolved(imt, water_end, mt_final, &
                mt_surface_solid(imt, ipatch))
@@ -260,7 +260,7 @@ CONTAINS
          CALL sync_mt_patch_ratio(imt, ipatch, snl_trc, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, 0._r8, wdsrf, scv, R_final)
          IF (tracer_is_isotope(imt)) THEN
-            ! sync has transferred the anomaly included in trc_storage_beg.
+            ! sync has transferred the anomaly included in mt_storage_beg.
             mt_leaf_iso_storage(imt, ipatch) = 0._r8
             mt_leaf_water_moles(imt, ipatch) = 0._r8
             mt_leaf_delta_e(imt, ipatch) = tracers(imt)%init_delta
@@ -504,7 +504,7 @@ CONTAINS
                surface_residue_beg = surface_residue_beg - surface_residue_export
                mt_rnof = mt_rnof + surface_residue_export
             ENDIF
-            ! surface_residue_export comes from held mass, not trc_available.
+            ! surface_residue_export comes from held mass, not mt_available.
             mt_final = max(mt_final - mt_rnof + surface_residue_export, 0._r8)
             CALL mt_equilibrate_dissolved(imt, water_end, mt_final, &
                mt_surface_solid(imt, ipatch))
@@ -537,7 +537,7 @@ CONTAINS
          CALL sync_mt_patch_ratio(imt, ipatch, snl, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, wa, wdsrf, scv, R_final)
          IF (tracer_is_isotope(imt)) THEN
-            ! sync has transferred the anomaly included in trc_storage_beg.
+            ! sync has transferred the anomaly included in mt_storage_beg.
             mt_leaf_iso_storage(imt, ipatch) = 0._r8
             mt_leaf_water_moles(imt, ipatch) = 0._r8
             mt_leaf_delta_e(imt, ipatch) = tracers(imt)%init_delta

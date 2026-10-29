@@ -36,14 +36,14 @@ MODULE MOD_MT_RiverLakeCoupling
    IMPLICIT NONE
 
    ! ----- grid flood feedback -----
-   ! Land side (ntracers, numpatch), read and written in CoLMMAIN:
-   !   flood_tracer_credit_patch : material of the flood water published to the patch
-   !   flood_tracer_evap_patch   : material lost (>0) or gained (<0) by flood evaporation
-   !   flood_tracer_land_patch   : material that entered the soil with flood infiltration
+   ! Land side (nmts, numpatch), read and written in CoLMMAIN:
+   !   flood_mt_credit_patch : material of the flood water published to the patch
+   !   flood_mt_evap_patch   : material lost (>0) or gained (<0) by flood evaporation
+   !   flood_mt_land_patch   : material that entered the soil with flood infiltration
    real(r8), allocatable :: flood_mt_credit_patch(:,:)
    real(r8), allocatable :: flood_mt_evap_patch  (:,:)
    real(r8), allocatable :: flood_mt_land_patch  (:,:)
-   ! River side (ntracers, numucat): material of the published visible and
+   ! River side (nmts, numucat): material of the published visible and
    ! protected (levee) flood water of each unit catchment
    real(r8), allocatable :: flood_visible_mt_uc  (:,:)
    real(r8), allocatable :: flood_protected_mt_uc(:,:)
@@ -858,7 +858,7 @@ CONTAINS
    SUBROUTINE mt_rlc_flood_publish_push (flood_grid_area)
 
    ! Map the published flood material to the patches, as the flood water is
-   ! (unit catchment -> input grid -> patch), into flood_tracer_credit_patch.
+   ! (unit catchment -> input grid -> patch), into flood_mt_credit_patch.
    ! Called on all workers (the pushes are collective).
 
    USE MOD_LandPatch,             only: numpatch
@@ -921,7 +921,7 @@ CONTAINS
 
    ! Material side of debit_flood_feedback (workers, collective): take from
    ! the river pools what the land took with flood evaporation (vapour
-   ! exchange, flood_tracer_evap_patch) and infiltration (flood_tracer_land_patch),
+   ! exchange, flood_mt_evap_patch) and infiltration (flood_mt_land_patch),
    ! and stop if the land-side and river-side totals do not close.
 
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
@@ -1137,7 +1137,7 @@ CONTAINS
    ! ---------
    real(r8) FUNCTION pool_total (imt)
 
-   ! all river pools of material itrc on this worker [R*m^3]
+   ! all river pools of material imt on this worker [R*m^3]
 
    integer, intent(in) :: imt
 

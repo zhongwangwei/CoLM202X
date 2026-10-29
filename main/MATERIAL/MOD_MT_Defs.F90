@@ -96,7 +96,7 @@ MODULE MOD_MT_Defs
 
       real(r8), parameter :: mt_tiny = 1.0e-30_r8
       ! Numerical zero and physical denominator floors are deliberately
-      ! separate.  trc_tiny is only an arithmetic nonzero guard.  Transport
+      ! separate.  mt_tiny is only an arithmetic nonzero guard.  Transport
       ! ratios from finite water pools need a larger physically resolved water
       ! floor, otherwise near-dry pools can export arbitrarily large R =
       ! tracer/water before downstream sanity caps see the problem.
@@ -124,7 +124,7 @@ MODULE MOD_MT_Defs
    ! filtering pure FP dust. Previously 1e-6 (1 nm) was too permissive —
    ! flux deltas (qinfl/qcharge) with water_mass = rate*deltim near the
    ! FP floor produced arbitrarily large ratios that flowed into
-   ! trc_delta_* history / check outputs.
+   ! mt_delta_* history / check outputs.
    real(r8), parameter :: mt_water_min_for_delta = 1.0e-3_r8
    ! Flux isotope deltas need a stricter accumulated-water denominator than
    ! storage deltas. Below this history-window water loss, the flux signature is
@@ -1088,15 +1088,15 @@ CONTAINS
          ! Do not call this on per-step values and then average the returned
          ! delta; aggregate mass and water first, convert last.
          ! abs(water_mass) guard: signed wa (aquifer-debt from wetland deficit)
-      ! and its matching signed trc_wa still produce a well-defined ratio
+      ! and its matching signed mt_wa still produce a well-defined ratio
       ! (both numerator and denominator share sign → R_sample positive).
       ! Physically non-negative pools (wliq/wice/wdsrf/wetwat/scv/ldew/flux)
       ! are unaffected since abs() equals value there.
       IF (abs(water_mass) > mt_tiny .and. ref_ratio > mt_tiny) THEN
          R_sample = mt_mass / water_mass
          IF (R_sample < -mt_tiny) THEN
-            ! Sign mismatch between trc_mass and water_mass: upstream state
-            ! machine is broken (e.g. trc_wa and wa drifted to opposite
+            ! Sign mismatch between mt_mass and water_mass: upstream state
+            ! machine is broken (e.g. mt_wa and wa drifted to opposite
             ! signs). Returning spval rather than silently clamping so
             ! history readers and assert tools can flag the cell instead
             ! of treating a bogus delta as physical.

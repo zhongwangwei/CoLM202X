@@ -1339,7 +1339,7 @@ ENDIF
       file_restart = trim(dir_restart)// '/'//trim(cdate)//'/' // trim(site) //'_restart_gridriver_'//trim(cdate)//'_lc'//trim(cyear)//'.nc'
       CALL WRITE_GridRiverLakeTimeVars (file_restart)
 #ifdef MaterialTransport
-      ! river material pools (trc_* variables) and the state of the materials
+      ! river material pools (mt_* variables) and the state of the materials
       ! with their own river state (sediment) into the same file, before the commit
       CALL mt_riverlake_write_restart (file_restart)
       CALL mt_lifecycle_route_write_restart (file_restart)

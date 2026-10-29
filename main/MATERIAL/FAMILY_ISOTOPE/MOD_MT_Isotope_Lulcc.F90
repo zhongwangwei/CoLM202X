@@ -8,17 +8,17 @@ MODULE MOD_MT_Isotope_Lulcc
 ! With variably saturated flow, every soil and wetland patch carries a
 ! reference aquifer water Vref = DEF_MT_AQUIFER_MIXING_WATER_MM with the
 ! anchor mass Mref = Vref * ref_ratio; the actual aquifer isotope is
-! Mref + trc_wa in Vref + wa (see MOD_MT_Rest cold start). Lake, glacier,
+! Mref + mt_wa in Vref + wa (see MOD_MT_Rest cold start). Lake, glacier,
 ! urban and other special patches carry no reference (Vref = Mref = 0).
 !
-! remap_land_tracer_lulcc_state moves Vref and Mref by area like every
+! remap_land_mt_lulcc_state moves Vref and Mref by area like every
 ! other pool. Two outcomes cannot be valid on the new patches, and the run
 ! used to stop there:
 !
 !  - a special patch received reference water (soil area turned into, for
 !    example, a lake). Its reference carrier is taken out: the isotope it
 !    holds at the patch's actual aquifer ratio leaves, the rest stays in
-!    trc_wa, and Vref = Mref = 0.
+!    mt_wa, and Vref = Mref = 0.
 !
 !  - a soil or wetland patch received no reference water (all its area
 !    came from special patches, or with the SAT scheme no old patch of

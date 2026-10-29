@@ -64,9 +64,9 @@ MODULE MOD_MT_ForcingInput
       character(len=32)  :: input_mode = 'normalized_over_total'
    end type tracer_forcing_spec_type
 
-   integer, allocatable, public :: tracer_forcing_n(:)                 ! (ntracers)
+   integer, allocatable, public :: tracer_forcing_n(:)                 ! (nmts)
    type(tracer_forcing_spec_type), allocatable, public :: &
-        tracer_forcing_specs(:,:)                                      ! (TRACER_FORCING_MAX, ntracers)
+        tracer_forcing_specs(:,:)                                      ! (TRACER_FORCING_MAX, nmts)
 
    PUBLIC :: tracer_forcing_input_load
    PUBLIC :: tracer_forcing_input_final

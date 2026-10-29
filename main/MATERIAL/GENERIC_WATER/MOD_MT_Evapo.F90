@@ -121,7 +121,7 @@ CONTAINS
       ! canopy melt (which moves mass from ldew_snow to ldew_rain) was
       ! misclassified as simultaneous "dew on canopy" + "sublimation from
       ! canopy snow", inflating both a_trc_precip and a_trc_evap and
-      ! polluting trc_ldew_rain with R_atm signature instead of the
+      ! polluting mt_ldew_rain with R_atm signature instead of the
       ! original snow signature R_canopy_snow.
       real(r8) :: ldew_rain_pre_phase, ldew_snow_pre_phase
       real(r8) :: d_rain_external, d_snow_external
@@ -132,7 +132,7 @@ CONTAINS
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
 
-         ! N04: a nonvolatile solute is retained in trc_wice while its ice
+         ! N04: a nonvolatile solute is retained in mt_wice while its ice
          ! carrier sublimates (it must not be lost with water vapour).  After
          ! the carrier is gone that inventory is invisible to the liquid/solid
          ! equilibrium and never re-dissolves on rewetting.  Move it once to
@@ -341,7 +341,7 @@ CONTAINS
                ! the same quantity wliq_post_phase is built from a few lines
                ! below, and the same convention the canopy path uses
                ! (ldew_rain_pre_phase + thaw_amt). The numerator
-               ! trc_wliq_soisno has already been incremented by the thaw flux
+               ! mt_wliq_soisno has already been incremented by the thaw flux
                ! above, so pairing it with the pre-thaw liquid overstated the
                ! ratio by (wliq_bef + thaw)/wliq_bef. Only reachable when
                ! THERMAL reports thaw and freeze for the same layer in one

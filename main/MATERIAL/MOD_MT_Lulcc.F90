@@ -187,7 +187,7 @@ CONTAINS
    END SUBROUTINE mt_lulcc_remap
 
 
-   ! Called by remap_land_tracer_lulcc_state after the pools are remapped.
+   ! Called by remap_land_mt_lulcc_state after the pools are remapped.
    ! The host LULCC re-initialises every patch for the new year and then
    ! copies back only the variables it saved (REST_LulccTimeVariables,
    ! LulccMassEnergyConserve), so

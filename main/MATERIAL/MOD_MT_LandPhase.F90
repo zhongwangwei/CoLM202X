@@ -164,8 +164,8 @@ CONTAINS
       character(len=*), intent(in), optional :: file_restart
       ! Optional: irrigation reservoir from MOD_Vars_TimeVariables.
       ! Passed by CoLM.F90 only under CROP+DEF_USE_IRRIGATION. Used for
-      ! cold-start initialisation of trc_waterstorage; the restart path
-      ! already handles persistence via read_land_tracer_restart.
+      ! cold-start initialisation of mt_waterstorage; the restart path
+      ! already handles persistence via read_land_mt_restart.
       real(r8), intent(in), optional :: waterstorage(numpatch)
       integer,  intent(in), optional :: init_month
       integer, intent(in), optional :: lc_year
@@ -207,7 +207,7 @@ CONTAINS
       ENDIF
 #ifdef USEMPI
       ! The control/master rank does not own vector restart blocks, so
-      ! read_land_tracer_restart can only make a local decision there.
+      ! read_land_mt_restart can only make a local decision there.
       ! Make restart usability global before any cold-start path that
       ! contains MPI collectives, including tracer soil initialisation.
       CALL mpi_allreduce(MPI_IN_PLACE, found_restart, 1, MPI_LOGICAL, &
@@ -243,7 +243,7 @@ CONTAINS
          ENDIF
          IF (scv_missing) THEN
             ! Old-format restart: every other pool loaded from file, only
-            ! trc_scv needs to be rebuilt from the hydrology scv.
+            ! mt_scv needs to be rebuilt from the hydrology scv.
             CALL tracer_init_scv_from_water(numpatch, maxsnl, nl_soil, &
                wliq_soisno, wice_soisno, scv)
          ENDIF

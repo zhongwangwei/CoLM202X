@@ -23,7 +23,7 @@ MODULE MOD_MT_Vars
    real(r8), allocatable :: mt_wliq_soisno(:,:,:)
    real(r8), allocatable :: mt_wice_soisno(:,:,:)
    real(r8), allocatable :: mt_wa         (:,:)
-   ! Fixed isotope-only reference carrier. trc_wa remains a relative mass
+   ! Fixed isotope-only reference carrier. mt_wa remains a relative mass
    ! so its constant reference cancels from existing conservation budgets.
    real(r8), allocatable :: mt_aquifer_ref_water(:)
    real(r8), allocatable :: mt_aquifer_ref_mass(:,:)
@@ -51,36 +51,36 @@ MODULE MOD_MT_Vars
    ! term (forc_prc+forc_prl) does NOT include irrigation. Without a
    ! matching tracer reservoir the tracer side would have to record
    ! irrigation as external input, creating a systematic offset between
-   ! the water and tracer conservation accountings. trc_waterstorage
+   ! the water and tracer conservation accountings. mt_waterstorage
    ! carries the isotope composition of the reservoir and is debited
    ! by exactly the same volume the water side withdraws each step.
-   real(r8), allocatable :: mt_waterstorage(:,:)     ! (ntracers, numpatch)
+   real(r8), allocatable :: mt_waterstorage(:,:)     ! (nmts, numpatch)
 
    ! Snow water equivalent tracer for pre-layer accumulation [kg/m2]
    ! Tracks tracer in scv before a snow layer is created (snl=0).
-   ! When the first snow layer forms, trc_scv is transferred to trc_wice_soisno.
-   real(r8), allocatable :: mt_scv        (:,:)  ! (ntracers, numpatch)
+   ! When the first snow layer forms, mt_scv is transferred to mt_wice_soisno.
+   real(r8), allocatable :: mt_scv        (:,:)  ! (nmts, numpatch)
 
    ! Throughfall tracer reaching ground [kg/m2 per step]
    ! Rain and snow kept separate: rain enters the surface mixed pool via
-   ! mt_soil_water; snow enters trc_scv via mt_newsnow (mirrors
-   ! water side where gwat only carries pg_rain). A previous "trc_pg_to_ground
+   ! mt_soil_water; snow enters mt_scv via mt_newsnow (mirrors
+   ! water side where gwat only carries pg_rain). A previous "mt_pg_to_ground
    ! = rain+snow" combined var double-counted snow tracer when used in the
    ! surface pool — removed to prevent reintroduction.
-   real(r8), allocatable :: mt_pg_rain_ground(:,:)    ! (ntracers, numpatch)
-   real(r8), allocatable :: mt_pg_snow_ground(:,:)    ! (ntracers, numpatch)
-   real(r8), allocatable :: mt_rnof_step(:,:)         ! (ntracers, numpatch), accumulated runoff mass of
+   real(r8), allocatable :: mt_pg_rain_ground(:,:)    ! (nmts, numpatch)
+   real(r8), allocatable :: mt_pg_snow_ground(:,:)    ! (nmts, numpatch)
+   real(r8), allocatable :: mt_rnof_step(:,:)         ! (nmts, numpatch), accumulated runoff mass of
                                                        ! THIS MAIN STEP for the river hand-off. Reset once per
                                                        ! main step (CoLM.F90, before CoLMDRIVER); every lake/
                                                        ! glacier/waterbody substep adds to it. Transient state,
                                                        ! not in restart.
 
    ! Tracer carried by snowmelt sm from thin-snow (snl==0) scv during THERMAL.
-   ! Set in CoLMMAIN after THERMAL based on the actual trc_scv reduction;
+   ! Set in CoLMMAIN after THERMAL based on the actual mt_scv reduction;
    ! consumed by mt_soil_water when snl==0 .and. sm>0. Replaces the old
    ! "sm * R_precip" injection which used a fixed init delta instead of the
    ! real scv ratio.
-   real(r8), allocatable :: mt_sm_carry(:,:)          ! (ntracers, numpatch)
+   real(r8), allocatable :: mt_sm_carry(:,:)          ! (nmts, numpatch)
 
    ! Non-steady-state leaf-water isotope memory for transpiration.
    ! These are diagnostic state variables for the isotope fractionation
@@ -166,9 +166,9 @@ MODULE MOD_MT_Vars
 
    real(r8), allocatable :: a_trc_ldew_mass (:,:)
    real(r8), allocatable :: a_water_ldew    (:)
-   real(r8), allocatable :: a_trc_soil_mass (:,:,:)  ! (ntracers, nl_soil, numpatch)
+   real(r8), allocatable :: a_trc_soil_mass (:,:,:)  ! (nmts, nl_soil, numpatch)
    real(r8), allocatable :: a_water_soil    (:,:)     ! (nl_soil, numpatch)
-   real(r8), allocatable :: a_trc_snow_mass (:,:,:)  ! (ntracers, abs(maxsnl), numpatch) snow layers
+   real(r8), allocatable :: a_trc_snow_mass (:,:,:)  ! (nmts, abs(maxsnl), numpatch) snow layers
    real(r8), allocatable :: a_water_snow    (:,:)     ! (abs(maxsnl), numpatch) snow layers
 
    ! Surface / aquifer / wetland / thin-snow diagnostic accumulators.
@@ -178,7 +178,7 @@ MODULE MOD_MT_Vars
    ! (wetland pool) or scv (pre-layer thin snow). These accumulators let
    ! MOD_Hist emit a per-pool tracer ratio diagnostic alongside the existing
    ! ldew / soisno outputs.
-	   real(r8), allocatable :: a_trc_wa_mass    (:,:)   ! (ntracers, numpatch)
+	   real(r8), allocatable :: a_trc_wa_mass    (:,:)   ! (nmts, numpatch)
 	   real(r8), allocatable :: a_water_wa       (:)     ! (numpatch)
 	   real(r8), allocatable :: a_trc_wa_debt_mass(:,:)  ! signed-debt magnitude diagnostics
 	   real(r8), allocatable :: a_water_wa_debt   (:)    ! aquifer debt magnitude
@@ -763,7 +763,7 @@ CONTAINS
          IF (nbad > DEF_MT_LULCC_ABORT_NBAD) THEN
             IF (p_is_io) THEN
                WRITE(*,'(A,I0,A,E12.5,A,E12.5)') &
-                  'TRC_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
+                  'MT_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
                   ' worst_rel=', rel_err
                IF (worst_itrc > 0) THEN
                   WRITE(*,'(A,I0,3A,2(A,E12.5))') '  material=', worst_itrc, &
@@ -1069,7 +1069,7 @@ CONTAINS
    END SUBROUTINE remap_land_mt_lulcc_state
 
    ! Land-water material mass of one patch per unit area, over the same pools
-   ! as the LULCC mass check (remap_land_tracer_lulcc_state).
+   ! as the LULCC mass check (remap_land_mt_lulcc_state).
    SUBROUTINE mt_patch_land_water_mass (ip, total)
       IMPLICIT NONE
       integer,  intent(in)  :: ip
@@ -1314,7 +1314,7 @@ CONTAINS
    !
    ! Lake/waterbody patches are integrated in sub-steps of 1800 s inside
    ! one land step; each substep computes its own tracer runoff mass
-   ! ``trc_rnof``.  The river coupling reads ``trc_rnof_step`` once per land
+   ! ``mt_rnof``.  The river coupling reads ``mt_rnof_step`` once per land
    ! step, so every substep must ADD its mass here.  The counter is cleared
    ! exactly once per main step (CoLM.F90 before CoLMDRIVER); it must not be
    ! cleared by the per-substep conservation snapshot or by the special-patch

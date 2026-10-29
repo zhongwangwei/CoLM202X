@@ -1342,7 +1342,7 @@ SUBROUTINE CoLMMAIN ( &
 
             IF (DEF_USE_SNICAR) THEN
 #ifdef MaterialTransport
-               ! the trc_* arrays are allocated only when materials are registered
+               ! the mt_* arrays are allocated only when materials are registered
                IF (nmts > 0) THEN
                CALL snowlayerscombine_snicar (lb,snl,&
                             z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&

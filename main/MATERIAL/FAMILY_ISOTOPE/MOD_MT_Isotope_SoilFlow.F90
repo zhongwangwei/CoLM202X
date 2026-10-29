@@ -22,7 +22,7 @@ MODULE MOD_MT_Isotope_SoilFlow
 ! and broke the fixed-signature check for the rest of the day.
 !
 ! For isotopes the stock is therefore accepted when the layer's water is
-! itself below zero by no more than trc_water_min_for_ratio and the
+! itself below zero by no more than mt_water_min_for_ratio and the
 ! isotope deficit is within twice that water deficit at the layer ratio.
 ! The sweep then zeroes it as an explicit numerical source, as it does
 ! for any rounding dust. Other materials keep the original rule.

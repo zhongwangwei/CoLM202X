@@ -167,7 +167,7 @@ CONTAINS
       ! Tracer path uses these instead of raw pre-cascade demand values,
       ! so that a shallow dry layer reports 0 (its demand cascaded to
       ! a deeper layer, which now reports that extra uptake) and the
-      ! aquifer deduction is applied via trc_wa. Without this, dry
+      ! aquifer deduction is applied via mt_wa. Without this, dry
       ! layers would get spurious tracer removal clipped by min() and
       ! deep-cascade / aquifer ET would silently leave tracer behind.
       real(r8), intent(in) :: etroot_actual(1:nl_soil)
@@ -467,7 +467,7 @@ CONTAINS
          !    mm of water actually drawn from layer j after that cascade;
          !    `etroot_aquifer` is the mm absorbed by the aquifer. Using
          !    these — instead of raw pre-cascade demand — matches the
-         !    water side layer-by-layer and lets trc_wa absorb the deep
+         !    water side layer-by-layer and lets mt_wa absorb the deep
          !    ET tracer that would otherwise be silently orphaned.
          !    No-fractionation assumption: ratio_layer stays unchanged
          !    after this step, so section 2's qlayer transfer can still
@@ -534,7 +534,7 @@ CONTAINS
 
          ! Aquifer share of ET (deficit cascade residual). Use SIGNED
          ! wa_bef so a pre-existing aquifer debt (wa_bef<0) still yields
-         ! a well-defined ratio; the min/max clamp prevents trc_wa from
+         ! a well-defined ratio; the min/max clamp prevents mt_wa from
          ! going more negative than its current signed value.
          IF (etroot_aquifer > mt_tiny) THEN
             IF (.not. tracer_is_nonvolatile_solute(imt)) THEN
@@ -887,8 +887,8 @@ CONTAINS
                snow_frost_input = max(qfros_in, 0._r8) * deltim
                snow_subl_output = max(qsubl_in, 0._r8) * deltim
             ENDIF
-            ! Rain tracer was already added to trc_wliq in Step 2 (section 0b).
-            ! Top snow layer starts percolation with trc_qin_snow = 0.
+            ! Rain tracer was already added to mt_wliq in Step 2 (section 0b).
+            ! Top snow layer starts percolation with mt_qin_snow = 0.
             mt_qin_snow = 0._r8
 
             snow_wliq_before_flow = wliq_soisno_bef(lb_snow)
@@ -1138,11 +1138,11 @@ CONTAINS
             ENDIF
          ELSE
             ! Only RAIN throughfall enters the surface mixed pool; snowfall
-            ! throughfall is captured in trc_scv by mt_newsnow (mirroring
+            ! throughfall is captured in mt_scv by mt_newsnow (mirroring
             ! the water side where `gwat = pg_rain + sm - qseva` never
             ! contains pg_snow — see MOD_SoilSnowHydrology.F90:789,809).
-            ! Using trc_pg_to_ground here would double-count pg_snow tracer
-            ! (once in trc_scv, once in trc_pool_total), breaking
+            ! Using mt_pg_to_ground here would double-count pg_snow tracer
+            ! (once in mt_scv, once in mt_pool_total), breaking
             ! conservation on snl==0 patches with simultaneous rain+snow.
             mt_pool_total = mt_wdsrf(imt, ipatch) + mt_pg_rain_ground(imt, ipatch)
          ENDIF
@@ -1154,15 +1154,15 @@ CONTAINS
          ENDIF
 
          ! ---- Remove evaporation tracer from mixed pool ----
-         ! gwat -= eff_qseva, so trc_pool must also be reduced.
-         ! Use the ACTUAL pool ratio: trc_pool / (trc_pool / pool_ratio)
-         ! where pool_ratio = trc_pool / water_pool_before_evap.
-         ! Simplification: evap tracer = evap_water * (trc_pool / water_pool_before_evap)
-         ! water_pool_before_evap ≈ trc_pool / pool_ratio. We don't know the exact
+         ! gwat -= eff_qseva, so mt_pool must also be reduced.
+         ! Use the ACTUAL pool ratio: mt_pool / (mt_pool / pool_ratio)
+         ! where pool_ratio = mt_pool / water_pool_before_evap.
+         ! Simplification: evap tracer = evap_water * (mt_pool / water_pool_before_evap)
+         ! water_pool_before_evap ≈ mt_pool / pool_ratio. We don't know the exact
          ! water pool size at this point, but we can use:
-         !   pool_ratio = trc_pool / water_pool_before_evap
-         !   trc_evap = surface_evap_water * pool_ratio
-         !            = surface_evap_water * trc_pool / water_bef
+         !   pool_ratio = mt_pool / water_pool_before_evap
+         !   mt_evap = surface_evap_water * pool_ratio
+         !            = surface_evap_water * mt_pool / water_bef
          ! water_bef = water_pool_after_evap + surface_evap_water
          ! If qseva exceeds the surface input/ponding supply, WATER_VSF
          ! draws the deficit directly from layer 1 as negative qgtop/qinfl;
@@ -1253,7 +1253,7 @@ CONTAINS
          ! pool — water-side totwb/endwb include waterstorage
          ! (CoLMMAIN:806), so the atmospheric input term does not count
          ! irrigation. The tracer path mirrors this: debit
-         ! trc_waterstorage at its current ratio (Phase-1 invariant
+         ! mt_waterstorage at its current ratio (Phase-1 invariant
          ! keeps it at R_init, so we use R_precip as a proxy) and do
          ! NOT add to a_trc_precip. Without this mirroring the tracer
          ! budget claims more atmospheric input than the water budget.
@@ -1277,7 +1277,7 @@ CONTAINS
          ENDIF
 
          ! Use OUTPUT-side water pool for ratio computation.
-         ! This guarantees: distributed = water_pool * ratio = trc_pool (exact).
+         ! This guarantees: distributed = water_pool * ratio = mt_pool (exact).
          water_pool_total = surface_base_water
          mt_surface_collapse_residual = 0._r8
 
@@ -1297,16 +1297,16 @@ CONTAINS
          ! Compute mixed-pool ratio
          IF (water_pool_total > mt_water_min_for_ratio .and. mt_pool_total > mt_tiny) THEN
             ! The surface mixed-pool concentration is bounded at source: the
-            ! evaporative-loss routine (tracer_evaporative_tracer_loss) caps the
-            ! residual pool R at the physical ceiling, so trc_pool_total can no
+            ! evaporative-loss routine (tracer_evaporative_mt_loss) caps the
+            ! residual pool R at the physical ceiling, so mt_pool_total can no
             ! longer run away near drydown. No export-side clamp is needed here.
             ratio = mt_pool_total / water_pool_total
          ELSEIF (mt_pool_total <= mt_tiny) THEN
             ratio = 0._r8
          ELSE
             ! No physically resolved water destination remains for this
-            ! mixed-pool tracer.  trc_tiny is only a numerical nonzero test;
-            ! the ratio denominator must use trc_water_min_for_ratio so a
+            ! mixed-pool tracer.  mt_tiny is only a numerical nonzero test;
+            ! the ratio denominator must use mt_water_min_for_ratio so a
             ! near-dry water sliver cannot export a non-physical
             ! tracer/water concentration.
             !
@@ -1327,7 +1327,7 @@ CONTAINS
                   mt_pool_total
                mt_pool_total = 0._r8
             ELSEIF (flood_water > 0._r8 .or. late_surface_water > mt_tiny) THEN
-               ! Keep trc_pool_total for the late-pool mixing step below.
+               ! Keep mt_pool_total for the late-pool mixing step below.
                ! ratio stays zero, so no ordinary runoff/infiltration export
                ! claims tracer without its carrier water.
             ELSE
@@ -1386,7 +1386,7 @@ CONTAINS
                ! liquid/solid equilibrium BEFORE computing late_ratio and
                ! partitioning infiltration/ponding/overflow: a dry surface
                ! solid must dissolve up to its water-based solubility, and a
-               ! saturated pool must leave the excess in trc_surface_solid
+               ! saturated pool must leave the excess in mt_surface_solid
                ! instead of carrying an unphysical concentration into the
                ! soil.  Ordinary-pool equilibrium above cannot see this late
                ! water because it entered after ordinary evaporation/runoff.
@@ -1855,7 +1855,7 @@ CONTAINS
          !    THERMAL-phase freeze/thaw is handled in mt_evapo.
          ! ============================================================
          ! Record the actual external wice change on soil layer 1 BEFORE
-         ! mutating trc_wice, so Section 5b can subtract exactly what the
+         ! mutating mt_wice, so Section 5b can subtract exactly what the
          ! water side did (including the max(0,...) clamp). Formula:
          !   imperv_subl_loss is an earlier qgtop<0 ice loss from the same
          !   WATER step, so the qfros/qsubl basis is already reduced by it.
@@ -1877,7 +1877,7 @@ CONTAINS
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + eff_qfros_top * deltim
          ENDIF
          IF (eff_qsubl_top > mt_tiny) THEN
-            ! trc_wice was just updated by frost above, so the right
+            ! mt_wice was just updated by frost above, so the right
             ! denominator is the post-frost ice pool, not wice_soisno_bef(1).
             wice_pre_phase = max(wice_soil1_after_imperv + max(eff_qfros_top, 0._r8) * deltim, 0._r8)
             subl_water = eff_qsubl_top * deltim
@@ -1968,7 +1968,7 @@ CONTAINS
             ENDIF
 
             ! Use the pool size at freeze/thaw time, not pre-WATER. By the time
-            ! we reach this block trc_wliq has been updated by percolation /
+            ! we reach this block mt_wliq has been updated by percolation /
             ! qcharge / rsub / dew, so wliq_soisno_bef no longer matches the
             ! tracer pool that participates in the phase change. Reconstruct
             ! pre-freeze wliq = post-WATER wliq + d_wice (the part that froze
@@ -2069,7 +2069,7 @@ CONTAINS
 
                ! The VSF layer residual is a numerical closure term, not a
                ! physical aquifer / runoff / evaporation flux. Keep it out of
-               ! trc_wa and expose it to the conservation checker as an
+               ! mt_wa and expose it to the conservation checker as an
                ! explicit numerical source/sink.
                   IF (abs(soil_resid_trc) > mt_tiny) THEN
                      IF (allocated(mt_numerical_residual_step)) THEN
@@ -2099,7 +2099,7 @@ CONTAINS
                         ELSEIF (abs(mt_wa(imt, ipatch)) > mt_tiny) THEN
                            ! With exactly zero aquifer water there is no signed
                            ! storage/debt state to mirror. Keep conservation
-                           ! explicit, but do not persist an orphan trc_wa.
+                           ! explicit, but do not persist an orphan mt_wa.
                            IF (allocated(mt_numerical_residual_step)) THEN
                               mt_numerical_residual_step(imt, ipatch) = &
                                  mt_numerical_residual_step(imt, ipatch) &
@@ -2118,12 +2118,12 @@ CONTAINS
             IF (abs(d_wetwat) > mt_tiny) THEN
                write(*,'(A,I8,A,I3,A,E12.5,A,E12.5,A,E12.5)') &
                   ' WARNING mt_soil_water: wetwat changed in standard soil path ipatch=', &
-                  ipatch, ' itrc=', imt, ' d_wetwat=', d_wetwat, &
+                  ipatch, ' imt=', imt, ' d_wetwat=', d_wetwat, &
                   ' wetwat_bef=', wetwat_bef, ' wetwat=', wetwat
             ENDIF
 #endif
 
-            ! N04: a nonvolatile solute is retained in trc_wice while ice
+            ! N04: a nonvolatile solute is retained in mt_wice while ice
             ! sublimates (it must not escape with water vapour).  Once the ice
             ! carrier is gone, that inventory is invisible to the liquid/solid
             ! equilibrium and can never re-dissolve on rewetting.  Move it to
@@ -2706,13 +2706,13 @@ CONTAINS
    ! pool-to-wetwat mass transfer. This routine mirrors the water merge
    ! exactly:
    !   pool_water  = wdsrf_bef + wa_bef + wetwat_bef + wresi + inputs
-   !   pool_tracer = trc_wdsrf + trc_wa + trc_wetwat + trc_wresi + trc_inputs
+   !   pool_tracer = mt_wdsrf + mt_wa + mt_wetwat + mt_wresi + mt_inputs
    !   loss        = (qseva + qsubl + etr)*dt  removed at pool ratio
    !   remaining   = redistributed to post-WATER wdsrf / wa / wetwat / rsur
    !
    ! Snow layers (lb<0) are handled up front with the same top-layer flux +
    ! percolation logic as mt_soil_water sections 0b/0c, producing
-   ! trc_gwat_snow which joins the wetland pool instead of the surface pool.
+   ! mt_gwat_snow which joins the wetland pool instead of the surface pool.
    !---------------------------------------------------------------
    SUBROUTINE mt_wetland (ipatch, deltim, snl, nl_soil, &
       rsur, &
@@ -2779,7 +2779,7 @@ CONTAINS
       ! Water mass (mm) leaving the snow bottom during percolation — the
       ! hydrology side feeds this into wetwat via `gwat*deltim`. Tracer
       ! pool_water must mirror it so the mixed-pool ratio stays consistent
-      ! with the water balance (otherwise trc_gwat_snow_local inflates
+      ! with the water balance (otherwise mt_gwat_snow_local inflates
       ! pool_tracer without a matching pool_water contribution).
       real(r8) :: gwat_snow_local
       real(r8) :: eff_qseva_snow, eff_qsdew_snow, eff_qsubl_snow, eff_qfros_snow
@@ -2830,7 +2830,7 @@ CONTAINS
          CALL check_isotope_aquifer(imt, ipatch, wa_bef, mt_wa(imt, ipatch), 'wetland start')
 
          !--------------------------------------------------------
-         ! 1) Snow-top external fluxes + percolation → trc_gwat_snow
+         ! 1) Snow-top external fluxes + percolation → mt_gwat_snow
          !    (mirror of mt_soil_water sections 0b / 0c)
          !--------------------------------------------------------
          mt_gwat_snow_local = 0._r8
@@ -2941,7 +2941,7 @@ CONTAINS
                ENDIF
             ENDIF
 
-            ! Snow percolation → trc_gwat_snow_local
+            ! Snow percolation → mt_gwat_snow_local
             IF (split_soilsnow) THEN
                snow_rain_input  = max(pg_rain * fsno, 0._r8) * deltim
                snow_dew_input   = max(qsdew_snow, 0._r8) * deltim
@@ -3129,7 +3129,7 @@ CONTAINS
                q_evap_out = 0._r8
                q_subl_out = 0._r8
             ENDIF
-            q_sm_in = 0._r8   ! snowmelt contributes via trc_gwat_snow_local
+            q_sm_in = 0._r8   ! snowmelt contributes via mt_gwat_snow_local
          ELSE
             IF (split_soilsnow) THEN
                q_rain_in  = max(pg_rain, 0._r8) * deltim
@@ -3181,7 +3181,7 @@ CONTAINS
          ! from the per-patch waterstorage reservoir (CoLMMAIN:806
          ! includes waterstorage in totwb/endwb), so the atmospheric
          ! input term ignores it. The tracer path mirrors that — debit
-         ! trc_waterstorage at R_atm (Phase-1 invariant), add the
+         ! mt_waterstorage at R_atm (Phase-1 invariant), add the
          ! matching mass to the wetland pool, and do NOT increment
          ! a_trc_precip. See MOD_MT_SoilWater.F90 main
          ! mt_soil_water branch for the symmetric treatment.
@@ -3212,12 +3212,12 @@ CONTAINS
                pool_tracer = pool_tracer + mt_pg_rain_ground(imt, ipatch) * (1._r8 - fsno)
             ENDIF
             pool_tracer = pool_tracer + mt_gwat_snow_local
-            ! Mirror trc_gwat_snow_local with its water mass so
+            ! Mirror mt_gwat_snow_local with its water mass so
             ! pool_ratio = pool_tracer / pool_water stays consistent.
             ! Water side: wetwat += gwat*dt with gwat including the
             ! snow-bottom outflow (snowwater's qout at layer 0). Without
             ! this companion term, pool_water is systematically low and
-            ! pool_ratio is overstated, over-draining trc_loss for snowy
+            ! pool_ratio is overstated, over-draining mt_loss for snowy
             ! wetland patches (non-split mode is the worst case — no
             ! atmospheric term enters pool_water otherwise).
             pool_water  = pool_water  + gwat_snow_local
@@ -3259,7 +3259,7 @@ CONTAINS
             mt_surface_solid(imt, ipatch))
 
          ! The mixed pool already includes the fixed aquifer reference once.
-         ! The guard takes relative (wa, trc_wa), so remove that reference
+         ! The guard takes relative (wa, mt_wa), so remove that reference
          ! before validating rather than counting it twice.
          CALL check_isotope_aquifer(imt, ipatch, pool_water-aquifer_ref_water, &
             pool_tracer-aquifer_ref_mass, 'wetland mixed pool')
@@ -3267,8 +3267,8 @@ CONTAINS
          !--------------------------------------------------------
          ! 4) Remove evap/subl at atmospheric-exchange signatures and
          !    transpiration at mixed pool ratio.
-         !    trc_loss is UNCAPPED — over-drawn losses push pool_tracer
-         !    negative, which becomes tracer debt assigned to trc_wa at
+         !    mt_loss is UNCAPPED — over-drawn losses push pool_tracer
+         !    negative, which becomes tracer debt assigned to mt_wa at
          !    step 5 (matching the water-side debt wa<0). Capping here
          !    would break conservation across the deficit→recovery cycle.
          !--------------------------------------------------------
@@ -3367,7 +3367,7 @@ CONTAINS
             transp_output_tracer = mt_etr_loss
          ENDIF
          ! Book signed components independently. Atmospheric isotope uptake
-         ! can cancel a positive transpiration source in trc_loss; gating both
+         ! can cancel a positive transpiration source in mt_loss; gating both
          ! diagnostics on that net would hide real fluxes and break the NSS
          ! storage/output ledger.
          IF (q_evap_out + q_subl_out > mt_tiny .or. &
@@ -3408,7 +3408,7 @@ CONTAINS
          ELSE
             IF (pool_water > mt_water_min_for_ratio) THEN
                ! Wetland pool R is bounded at source by the evaporative-loss
-               ! cap (tracer_evaporative_tracer_loss r_max), so pool_ratio can
+               ! cap (tracer_evaporative_mt_loss r_max), so pool_ratio can
                ! no longer run away near drydown.  Use the physical
                ! denominator floor here as a second guard before exporting to
                ! wetland runoff or redistributing storage.

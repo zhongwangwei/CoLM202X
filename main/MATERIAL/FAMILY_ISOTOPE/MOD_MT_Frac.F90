@@ -783,7 +783,7 @@ CONTAINS
    ! the same expression as tracer_craig_gordon_ratio_core, without its
    ! +-craig_gordon_max_ratio_amplification bound. A finite pool that
    ! evaporates integrates this ratio over its water loss
-   ! (tracer_evaporative_tracer_loss); near saturation slope is of order
+   ! (tracer_evaporative_mt_loss); near saturation slope is of order
    ! 1/(1-h) (100 at h = 0.99), so the pool ratio relaxes to its limit within
    ! a small fraction of the loss and the integration has to be exact, not
    ! stepped. h = 1 leaves only equilibrium (slope = 1/alpha_eq, offset = 0),

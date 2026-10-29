@@ -119,7 +119,7 @@ CONTAINS
 
             ! Aquifer: positive storage and signed debt are different diagnostics.
             ! wa<=0 is a wetland/aquifer debt state, not a physical concentration.
-            ! Keep trc_wa state synchronized with wa, but filter sub-mm debt
+            ! Keep mt_wa state synchronized with wa, but filter sub-mm debt
             ! from concentration diagnostics to avoid tiny-denominator deltas.
             IF (wa > 1._r8) a_water_wa(ipatch) = a_water_wa(ipatch) + wa
             IF (wa < -1._r8) a_water_wa_debt(ipatch) = a_water_wa_debt(ipatch) - wa
@@ -132,8 +132,8 @@ CONTAINS
          a_water_wdsrf (ipatch) = a_water_wdsrf (ipatch) + wdsrf
          a_water_wetwat(ipatch) = a_water_wetwat(ipatch) + wetwat
          ! CoLM's `scv` is total snow water equivalent even after layered
-         ! snow exists, but `trc_scv` only mirrors the pre-layer thin-snow
-         ! pool. Once snl<0, tracer mass lives in trc_wliq/trc_wice snow
+         ! snow exists, but `mt_scv` only mirrors the pre-layer thin-snow
+         ! pool. Once snl<0, tracer mass lives in mt_wliq/mt_wice snow
          ! layers and is diagnosed via f_mt_conc_soisno_*; do not pair
          ! that total scv water with the thin-snow tracer denominator.
          IF (snl == 0 .and. scv > mt_tiny) THEN
@@ -209,11 +209,11 @@ CONTAINS
             ! Per-patch (pseudo_mass, pseudo_water) pair for the
             ! leaf-water-weighted bulk delta. pseudo_water = leaf
             ! water moles, pseudo_mass = R_b * moles. Feeding these
-            ! to write_history_tracer_delta_2d makes the gridded
+            ! to write_history_mt_delta_2d makes the gridded
             ! result mass_to_delta(sum(area * R_b * moles),
             ! sum(area * moles)) -- a true leaf-water-weighted mean
             ! that obeys the sum-then-divide invariant. Reusing
-            ! trc_delta_flux for this would mix two different units
+            ! mt_delta_flux for this would mix two different units
             ! across the same buffer.
             real(r8), allocatable :: leaf_mass_pat   (:)
             real(r8), allocatable :: leaf_water_pat  (:)
@@ -315,7 +315,7 @@ CONTAINS
                      ! Pair a_trc_evap with gross evaporative water so the
                      ! denominator never goes near zero from dew/frost
                      ! cancellation (a_fevpa is the net flux; not valid as a
-                     ! delta denominator). write_history_tracer_delta_2d
+                     ! delta denominator). write_history_mt_delta_2d
                      ! maps mass and water separately to the grid and divides
                      ! once at the end -- preserving the
                      ! mass_to_delta(sum(mass), sum(water)) invariant
@@ -373,7 +373,7 @@ CONTAINS
                            water_min_override = mt_flux_water_min_for_delta)
 
                      ! --- Transpiration-only flux delta ---
-                     ! write_history_tracer_delta_2d does sum-then-divide on
+                     ! write_history_mt_delta_2d does sum-then-divide on
                      ! the grid; no per-patch delta needed here.
                      write(mt_varname , '(A,A)')   'f_mt_delta_transp_', trim(tracers(itrc_loc)%name)
                      write(mt_longname, '(A,A,A)') 'transpiration material delta (', &
@@ -421,16 +421,16 @@ CONTAINS
                      sumarea, filter, trim(mt_longname), 'permil', acc_num = ones_arr)
 
                   ! b-site: bulk leaf water has a matching per-patch
-                  ! mass scale (trc_leaf_water_moles, mol/m^2). Build
+                  ! mass scale (mt_leaf_water_moles, mol/m^2). Build
                   ! pseudo (mass, water) = (R_b * moles, moles) and
-                  ! route through write_history_tracer_delta_2d so the
+                  ! route through write_history_mt_delta_2d so the
                   ! grid result is mass_to_delta(sum(area*R_b*moles),
                   ! sum(area*moles)) -- a leaf-water-weighted bulk
                   ! delta consistent with the sum-then-divide
                   ! invariant. Patches with delta_b == spval, out-of-
                   ! sanity, or zero leaf water are spval'd in mass
                   ! and 0'd in water so the downstream filter at
-                  ! water > trc_water_min_for_delta drops them.
+                  ! water > mt_water_min_for_delta drops them.
                   IF (p_is_worker) THEN
                      DO ip_loc = 1, numpatch
                         delta_loc = mt_leaf_delta_b(itrc_loc, ip_loc)
@@ -685,7 +685,7 @@ CONTAINS
                   ! Only meaningful when snl==0 (accumulated snow below
                   ! layer-creation threshold). CoLM's water-side scv remains
                   ! total SWE after layered snow exists, but tracer mass then
-                  ! lives in trc_wliq/trc_wice snow layers; the accumulator
+                  ! lives in mt_wliq/mt_wice snow layers; the accumulator
                   ! therefore filters out snl<0 states so this ratio cannot
                   ! divide thin-snow tracer by total layered-snow SWE.
                   write(mt_varname , '(A,A)')   'f_mt_conc_scv_', trim(tracers(itrc_loc)%name)
@@ -717,8 +717,8 @@ CONTAINS
 
 #ifdef MaterialTransport
    ! Ratio writers (2d, 3d and their vector forms) drop a patch whose
-   ! accumulated water is at most trc_water_min_for_delta, as the delta
-   ! writers do. With trc_tiny they wrote the ratio of rounding dust: a
+   ! accumulated water is at most mt_water_min_for_delta, as the delta
+   ! writers do. With mt_tiny they wrote the ratio of rounding dust: a
    ! NEC January IsoGSM run gave f_mt_conc_wdsrf = 0 (delta -1000) where
    ! the accumulated surface water was 1e-17..1e-14 mm.
    SUBROUTINE write_history_mt_ratio_2d ( is_hist, &

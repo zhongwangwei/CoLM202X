@@ -683,7 +683,7 @@ CONTAINS
 
       ! [nonfinite physical amount, significantly negative physical amount,
       !  nonfinite signed/diagnostic value, Peclet outside [0,1],
-      !  missing state allocation, invalid isotope aquifer state, reference]. trc_wa is
+      !  missing state allocation, invalid isotope aquifer state, reference]. mt_wa is
       ! deliberately signed because the wetland correction debt is prognostic;
       ! leaf isotope storage is likewise a signed NSS anomaly.
       invalid_counts = 0
@@ -839,7 +839,7 @@ CONTAINS
       real(r8), intent(in) :: scv(numpatch)
       ! Optional: per-patch irrigation reservoir from
       ! MOD_Vars_TimeVariables. Present when DEF_USE_IRRIGATION is on
-      ! under CROP. When passed, trc_waterstorage is cold-started to
+      ! under CROP. When passed, mt_waterstorage is cold-started to
       ! waterstorage*R_init so the first mt_save_storage sees a
       ! correct starting inventory; without this the pool would be 0
       ! and the first step's balance check would under-count the
@@ -893,9 +893,9 @@ CONTAINS
             ! wa uses the SIGNED water value so a hydrology restart with an
             ! aquifer-debt state (wa<0, recorded by the wetland branch at
             ! MOD_SoilSnowHydrology.F90:1200-1203) starts with a matching
-            ! trc_wa<0. Without this the first wetland recovery step after a
+            ! mt_wa<0. Without this the first wetland recovery step after a
             ! cold tracer-start would see pool_water = wa_bef + inputs but
-            ! pool_tracer = 0 + inputs*R_atm (trc_wa_bef was clamped to 0),
+            ! pool_tracer = 0 + inputs*R_atm (mt_wa_bef was clamped to 0),
             ! producing a 2× over-concentration in the recovered wetwat.
             ! wdsrf/wetwat stay with max(.,0) since WATER_VSF never leaves
             ! them negative by construction (overflow case L1196-1207).
@@ -942,10 +942,10 @@ CONTAINS
                   EXIT
                ENDIF
             ENDDO
-            ! trc_scv holds the pre-layer snow tracer pool. It is only
+            ! mt_scv holds the pre-layer snow tracer pool. It is only
             ! populated when snl==0 (thin snow, no layer yet); once a
-            ! snow layer is created, tracer lives in trc_wice/wliq and
-            ! trc_scv stays zero.
+            ! snow layer is created, tracer lives in mt_wice/wliq and
+            ! mt_scv stays zero.
             IF (snl_local == 0) THEN
                mt_scv(imt, ip) = max(scv(ip), 0._r8) * R_init
             ELSE
@@ -1111,11 +1111,11 @@ CONTAINS
    END SUBROUTINE read_land_mt_restart
 
    !-------------------------------------------------------------------
-   ! Rebuild only trc_scv from the current scv state, leaving every
-   ! other tracer pool as-is. Used after read_land_tracer_restart when
-   ! the restart file was otherwise complete but lacked trc_scv (old
+   ! Rebuild only mt_scv from the current scv state, leaving every
+   ! other tracer pool as-is. Used after read_land_mt_restart when
+   ! the restart file was otherwise complete but lacked mt_scv (old
    ! format). Uses the same snl-from-water heuristic as
-   ! mt_init_from_water to decide when trc_scv is meaningful.
+   ! mt_init_from_water to decide when mt_scv is meaningful.
    !-------------------------------------------------------------------
    SUBROUTINE tracer_init_scv_from_water (numpatch, maxsnl, nl_soil, &
       wliq_soisno, wice_soisno, scv)
@@ -1296,7 +1296,7 @@ CONTAINS
       ! marker. A crash after marker=0 can never masquerade as a committed load.
       CALL validate_land_mt_restart_state(wa)
       CALL write_land_mt_transaction_marker(file_restart, 0)
-      ! The packed vectors use trc_land_transport as a NetCDF dimension.
+      ! The packed vectors use mt_land_transport as a NetCDF dimension.
       ! Define their descriptor/dimension before the first vector write.
       CALL write_land_mt_descriptor_metadata(file_restart)
 
