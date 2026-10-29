@@ -1310,20 +1310,34 @@ CONTAINS
             ! near-dry water sliver cannot export a non-physical
             ! tracer/water concentration.
             !
-            ! Do not overwrite the snow/soil/throughfall signature
-            ! with precipitation; expose the collapse as an explicit
-            ! numerical residual so the balance report can flag it.
+            ! Do not overwrite the snow/soil/throughfall signature with
+            ! precipitation. A water isotope has no immobile phase of its own,
+            ! so it must not be parked in a dry residue: when a resolved
+            ! surface carrier water exists (flood infiltration water and/or
+            ! the post-solver dew/frost late pool), the ordinary mixed-pool
+            ! tracer stays in the pool and is mixed into that carrier below -
+            ! the surface water body is one well-mixed pond, so the tracer
+            ! follows the water that is actually resolved. Only a genuinely
+            ! carrierless collapse (no flood water and no late surface water)
+            ! is booked as a numerical residual, which the balance report
+            ! exposes; that case is a real inconsistency, not this fix's
+            ! target.
             IF (tracer_is_nonvolatile_solute(itrc)) THEN
                trc_surface_residue(itrc, ipatch) = trc_surface_residue(itrc, ipatch) + &
                   trc_pool_total
+               trc_pool_total = 0._r8
+            ELSEIF (flood_water > 0._r8 .or. late_surface_water > trc_tiny) THEN
+               ! Keep trc_pool_total for the late-pool mixing step below.
+               ! ratio stays zero, so no ordinary runoff/infiltration export
+               ! claims tracer without its carrier water.
             ELSE
                trc_surface_collapse_residual = trc_pool_total
                IF (allocated(trc_numerical_residual_step)) THEN
                   trc_numerical_residual_step(itrc, ipatch) = &
                      trc_numerical_residual_step(itrc, ipatch) - trc_surface_collapse_residual
                ENDIF
+               trc_pool_total = 0._r8
             ENDIF
-            trc_pool_total = 0._r8
             ratio = 0._r8
          ENDIF
 
