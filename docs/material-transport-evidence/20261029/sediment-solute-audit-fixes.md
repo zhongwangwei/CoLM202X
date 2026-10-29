@@ -159,3 +159,14 @@ PATH=/opt/homebrew/bin:$PATH python3 tests/material_transport/check_mt_frac_phys
 PATH=/opt/homebrew/bin:$PATH python3 tests/material_transport/check_rnof_handoff.py      # PASS
 # gfortran -cpp -E（define.h 打开 MaterialTransport）对全部改动文件 rc=0
 ```
+
+## 最终验收状态快照（HEAD 见 git log）
+
+- 已完成并有本地数值/真实 MPI 证据：N02、N03、N04、N06、N07（正/反向、单/多出边按通量分摊、接收端浓度/历史更新）。
+- N01：普通路径已修复（审计 case1/2 实跑 PASS）；BIF/levee/joint 路径未修（provider 层整体子步未做，case3 复现仍在）。
+- N05：已实现 terminal snapshot + restart 行恢复（窗口不变量 PASS）；真实 NetCDF 端到端重启验收未做。
+- 既有 CI 一致性检查通过：
+  - `python3 .github/workflows/hist_acc_restart_fields.py --check` → 525 fields match；
+  - `python3 tests/material_transport/check_defineh.py` → 93 unique CI cases PASS。
+- 仍缺：`make all` 多配置完整编译、7920 最小集成/性能（N01 子步上限 240×、N05 IO）、N05 NetCDF 重启对照、
+  N01 BIF/levee provider 子步。
