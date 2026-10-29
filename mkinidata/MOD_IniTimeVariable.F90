@@ -132,7 +132,7 @@ CONTAINS
          reflectance    ( 0:15, 211, 2 )     ,&
          transmittance  ( 0:15, 211, 2 )     ,&
          soil_alb       ( 211 ), kw(211), nw(211)
-   
+
    real(r8), intent(in) ::       &!
          patchlatr,              &! patch latitude
          patchlonr                ! patch longitude
@@ -1363,7 +1363,7 @@ CONTAINS
             zi = 0.
             DO i = 0, snl+1, -1
                z_soisno(i) = zi - dz_soisno(i)/2.
-               zi = -zi-dz_soisno(i)
+               zi = zi - dz_soisno(i)
             ENDDO
          ENDIF
 
