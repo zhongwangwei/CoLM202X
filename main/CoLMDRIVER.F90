@@ -33,7 +33,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 #ifdef MaterialTransport
    USE MOD_MT_LandPhase, only: mt_resolve_step, mt_lake_step, &
       mt_wetland_decomp, mt_soil_step, mt_report
-   USE MOD_MT_Defs, only: ntracers
+   USE MOD_MT_Defs, only: nmts
    USE MOD_SPMD_Task, only: CoLM_stop
    USE MOD_MT_SpecialPatches, only: mt_waterbody_hist_sample
 #endif

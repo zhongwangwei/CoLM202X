@@ -11,17 +11,17 @@ SUBROUTINE mt_register_providers ()
 !  BGC soil modules there.
 !-----------------------------------------------------------------------
 #ifdef GridRiverLakeFlow
-   USE MOD_MT_Sediment, only: register_sediment_tracer_provider
+   USE MOD_MT_Sediment, only: register_sediment_mt_provider
 #endif
 #ifdef BGC
-   USE MOD_MT_Methane, only: ch4_register_tracer_provider
+   USE MOD_MT_Methane, only: ch4_register_mt_provider
 #endif
    IMPLICIT NONE
 #ifdef GridRiverLakeFlow
-   CALL register_sediment_tracer_provider ()
+   CALL register_sediment_mt_provider ()
 #endif
 #ifdef BGC
-   CALL ch4_register_tracer_provider ()
+   CALL ch4_register_mt_provider ()
 #endif
 END SUBROUTINE mt_register_providers
 #endif

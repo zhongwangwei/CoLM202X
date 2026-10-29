@@ -14,7 +14,7 @@ MODULE MOD_MT_Methane
 #endif
    USE MOD_MT_Defs, only: tracer_param_file_for_index, tracer_lower, &
       FAMILY_GAS, STATE_OWNER_PROVIDER, REACTION_PROVIDER
-   USE MOD_MT_Lifecycle, only: tracer_lifecycle_hooks_type, register_tracer_provider
+   USE MOD_MT_Lifecycle, only: tracer_lifecycle_hooks_type, register_mt_provider
    USE MOD_MT_Methane_Const, only: DEF_file_GIEMS, DEF_wetland_finundation_scheme
    USE MOD_Vars_TimeInvariants, only: patchtype, patchlatr, patchlonr
    USE MOD_MT_Methane_Registry, only: igas_ch4
@@ -64,11 +64,11 @@ MODULE MOD_MT_Methane
    PUBLIC :: ch4_reactive_save_lulcc_state, ch4_reactive_remap_lulcc_state
    PUBLIC :: ch4_reactive_reload_lulcc_inputs
    PUBLIC :: ch4_reactive_publish_levee_flood, ch4_reactive_publish_flood
-   PUBLIC :: ch4_register_tracer_provider
+   PUBLIC :: ch4_register_mt_provider
 
 CONTAINS
 
-   SUBROUTINE ch4_register_tracer_provider ()
+   SUBROUTINE ch4_register_mt_provider ()
 
       IMPLICIT NONE
       type(tracer_lifecycle_hooks_type) :: hooks
@@ -93,10 +93,10 @@ CONTAINS
       hooks%publish_flood        => ch4_reactive_publish_flood
       hooks%land_final           => ch4_reactive_final
 
-      CALL register_tracer_provider ('CH4', 'METHANE', 'methane', &
+      CALL register_mt_provider ('CH4', 'METHANE', 'methane', &
          FAMILY_GAS, STATE_OWNER_PROVIDER, REACTION_PROVIDER, hooks, igas_ch4)
 
-   END SUBROUTINE ch4_register_tracer_provider
+   END SUBROUTINE ch4_register_mt_provider
 
    logical FUNCTION ch4_reactive_has ()
 

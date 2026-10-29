@@ -111,7 +111,7 @@ PROGRAM CoLM
    USE MOD_MT_Defs, only: mt_defs_final
    USE MOD_MT_HostFixes, only: mt_bgc_data_init_year
 #ifdef CaMa_Flood
-   USE MOD_MT_Defs, only: ntracers, mt_uses_generic_water
+   USE MOD_MT_Defs, only: nmts, mt_uses_generic_water
 #endif
 #endif
 #ifdef MaterialTransport

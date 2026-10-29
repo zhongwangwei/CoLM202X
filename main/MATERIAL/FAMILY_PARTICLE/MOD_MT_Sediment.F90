@@ -199,7 +199,7 @@ MODULE MOD_MT_Sediment
    !-------------------------------------------------------------------------------------
    ! Public Subroutines
    !-------------------------------------------------------------------------------------
-   PUBLIC :: register_sediment_tracer_provider
+   PUBLIC :: register_sediment_mt_provider
    PUBLIC :: mt_sediment_substep_stats
    PUBLIC :: mt_sediment_snapshot_hist_acc
 
@@ -236,18 +236,18 @@ CONTAINS
    END FUNCTION sediment_particle_enabled
 
    !-------------------------------------------------------------------------------------
-   integer FUNCTION sediment_tracer_index()
+   integer FUNCTION sediment_mt_index()
    !-------------------------------------------------------------------------------------
    IMPLICIT NONE
-      sediment_tracer_index = sediment_itrc
+      sediment_mt_index = sediment_itrc
 
-   END FUNCTION sediment_tracer_index
+   END FUNCTION sediment_mt_index
 
    !-------------------------------------------------------------------------------------
-   SUBROUTINE register_sediment_tracer_provider()
+   SUBROUTINE register_sediment_mt_provider()
    !-------------------------------------------------------------------------------------
       USE MOD_MT_Defs, only: FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE
-      USE MOD_MT_Lifecycle, only: tracer_lifecycle_hooks_type, register_tracer_provider
+      USE MOD_MT_Lifecycle, only: tracer_lifecycle_hooks_type, register_mt_provider
       IMPLICIT NONE
       type(tracer_lifecycle_hooks_type) :: hooks
 
@@ -264,10 +264,10 @@ CONTAINS
       hooks%route_write_restart   => write_sediment_restart
       hooks%route_final           => grid_sediment_final
 
-      CALL register_tracer_provider('SEDIMENT', 'SED', 'sediment', &
+      CALL register_mt_provider('SEDIMENT', 'SED', 'sediment', &
          FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE, hooks, sediment_itrc)
 
-   END SUBROUTINE register_sediment_tracer_provider
+   END SUBROUTINE register_sediment_mt_provider
 
    !-------------------------------------------------------------------------------------
    SUBROUTINE grid_sediment_init()
@@ -373,7 +373,7 @@ CONTAINS
    character(len=512) :: iomsg
    namelist /nl_colm_sediment_parameter/ DEF_SEDIMENT
 
-      IF (sediment_itrc <= 0) sediment_itrc = sediment_tracer_index()
+      IF (sediment_itrc <= 0) sediment_itrc = sediment_mt_index()
       CALL tracer_param_file_for_index(sediment_itrc, 'SEDIMENT,SED', file_param, found)
       IF (.not. found) THEN
          IF (p_is_io) WRITE(*,'(A)') 'Sediment parameters: code defaults (no DEF_SEDIMENT_PARAM_FILE).'
@@ -3102,7 +3102,7 @@ CONTAINS
    character(len=16) :: cised, cilyr
    character(len=64) :: vname
       logical :: file_ok, has_schema, has_complete, has_canonical_mass
-      logical :: has_river_tracer_commit
+      logical :: has_river_mt_commit
       logical :: has_any_sediment, legacy_nonzero
       logical :: legacy_state_nonzero
       integer :: nread
@@ -3119,7 +3119,7 @@ CONTAINS
       has_complete = .false.
       has_canonical_mass = .false.
       has_any_sediment = .false.
-      has_river_tracer_commit = .false.
+      has_river_mt_commit = .false.
       schema_version = 0
       IF (p_is_master) THEN
          inquire(file=trim(file_restart), exist=file_ok)
@@ -3137,7 +3137,7 @@ CONTAINS
                      ENDIF
                   ENDIF
                ENDIF
-               has_river_tracer_commit = &
+               has_river_mt_commit = &
                   (nf90_inq_varid(ncid, 'mt_river_restart_complete', varid) == NF90_NOERR)
                has_complete = (nf90_inq_varid(ncid, 'sed_restart_complete_meta', varid) == NF90_NOERR)
                has_canonical_mass = (nf90_inq_varid(ncid, 'sedsto_1', varid) == NF90_NOERR)
@@ -3167,14 +3167,14 @@ CONTAINS
       CALL mpi_bcast(has_complete, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
       CALL mpi_bcast(has_canonical_mass, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
       CALL mpi_bcast(schema_version, 1, MPI_INTEGER, p_address_master, p_comm_glb, p_err)
-      CALL mpi_bcast(has_river_tracer_commit, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
+      CALL mpi_bcast(has_river_mt_commit, 1, MPI_LOGICAL, p_address_master, p_comm_glb, p_err)
 #endif
 
       IF (.not. file_ok) THEN
          ! A pre-tracer initial checkpoint has neither river-tracer commit nor
          ! sediment fields.  Mirror the river-tracer cold-start contract; a
          ! committed tracer checkpoint missing sediment is incomplete instead.
-         IF ((DEF_USE_LEVEE .or. DEF_USE_BIFURCATION) .and. has_river_tracer_commit) THEN
+         IF ((DEF_USE_LEVEE .or. DEF_USE_BIFURCATION) .and. has_river_mt_commit) THEN
             IF (p_is_io) WRITE(*,'(A)') &
                'ERROR: levee/bifurcation sediment restart requires a complete sediment transaction.'
             CALL CoLM_stop()

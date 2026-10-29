@@ -41,31 +41,31 @@ MODULE MOD_MT_Isotope_Lulcc
 CONTAINS
 
    SUBROUTINE mt_isotope_lulcc_aquifer_reference (patchclass_new, wa_new, &
-         ref_water, ref_mass, trc_wa, patch_area, carrier_change)
+         ref_water, ref_mass, mt_wa, patch_area, carrier_change)
 
       USE MOD_SPMD_Task,   only: CoLM_stop, p_iam_glb
       USE MOD_Const_LC,    only: patchtypes
       USE MOD_Namelist,    only: DEF_USE_VariablySaturatedFlow
       USE MOD_MT_Namelist, only: DEF_MT_AQUIFER_MIXING_WATER_MM
-      USE MOD_MT_Defs,     only: ntracers, tracers, mt_uses_generic_water, tracer_is_isotope, &
+      USE MOD_MT_Defs,     only: nmts, tracers, mt_uses_generic_water, tracer_is_isotope, &
                                  tracer_init_water_ratio, tracer_aquifer_isotope_ratio
 
       integer,  intent(in)    :: patchclass_new(:)
       real(r8), intent(in)    :: wa_new(:)         ! host aquifer water on the new patches [mm]
       real(r8), intent(inout) :: ref_water(:)      ! Vref [mm]
       real(r8), intent(inout) :: ref_mass(:,:)     ! Mref (material, patch)
-      real(r8), intent(inout) :: trc_wa(:,:)       ! relative aquifer mass (material, patch)
+      real(r8), intent(inout) :: mt_wa(:,:)       ! relative aquifer mass (material, patch)
       real(r8), intent(in),    optional :: patch_area(:)
       real(r8), intent(inout), optional :: carrier_change(:)  ! mass entered - left, per material
 
-      integer  :: np, itrc, ptype, ncreated, nremoved
+      integer  :: np, imt, ptype, ncreated, nremoved
       real(r8) :: R_actual, area
       logical  :: has_isotope
 
       IF (.not. DEF_USE_VariablySaturatedFlow .or. DEF_MT_AQUIFER_MIXING_WATER_MM <= 0._r8) RETURN
       has_isotope = .false.
-      DO itrc = 1, ntracers
-         IF (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc)) has_isotope = .true.
+      DO imt = 1, nmts
+         IF (mt_uses_generic_water(imt) .and. tracer_is_isotope(imt)) has_isotope = .true.
       ENDDO
       IF (.not. has_isotope) RETURN
 
@@ -82,14 +82,14 @@ CONTAINS
 
          IF (ptype /= 0 .and. ptype /= 2 .and. ref_water(np) > 0._r8) THEN
             ! Special patch: take the reference carrier out at the actual ratio.
-            DO itrc = 1, ntracers
-               IF (.not. (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc))) CYCLE
-               R_actual = tracer_aquifer_isotope_ratio(wa_new(np), trc_wa(itrc,np), &
-                  ref_water(np), ref_mass(itrc,np), ref_mass(itrc,np) / ref_water(np))
-               trc_wa(itrc,np) = trc_wa(itrc,np) + ref_mass(itrc,np) - ref_water(np) * R_actual
+            DO imt = 1, nmts
+               IF (.not. (mt_uses_generic_water(imt) .and. tracer_is_isotope(imt))) CYCLE
+               R_actual = tracer_aquifer_isotope_ratio(wa_new(np), mt_wa(imt,np), &
+                  ref_water(np), ref_mass(imt,np), ref_mass(imt,np) / ref_water(np))
+               mt_wa(imt,np) = mt_wa(imt,np) + ref_mass(imt,np) - ref_water(np) * R_actual
                IF (present(carrier_change)) &
-                  carrier_change(itrc) = carrier_change(itrc) - ref_water(np) * R_actual * area
-               ref_mass(itrc,np) = 0._r8
+                  carrier_change(imt) = carrier_change(imt) - ref_water(np) * R_actual * area
+               ref_mass(imt,np) = 0._r8
             ENDDO
             ref_water(np) = 0._r8
             nremoved = nremoved + 1
@@ -97,15 +97,15 @@ CONTAINS
          ELSEIF ((ptype == 0 .or. ptype == 2) .and. ref_water(np) <= 0._r8) THEN
             ! Soil or wetland patch without reference: cold-start carrier at the
             ! patch's own actual aquifer ratio.
-            DO itrc = 1, ntracers
-               IF (.not. (mt_uses_generic_water(itrc) .and. tracer_is_isotope(itrc))) CYCLE
-               R_actual = tracer_aquifer_isotope_ratio(wa_new(np), trc_wa(itrc,np) + ref_mass(itrc,np), &
-                  0._r8, 0._r8, tracer_init_water_ratio(itrc))
-               trc_wa(itrc,np) = trc_wa(itrc,np) + ref_mass(itrc,np) &
-                  + DEF_MT_AQUIFER_MIXING_WATER_MM * (R_actual - tracers(itrc)%ref_ratio)
-               ref_mass(itrc,np) = DEF_MT_AQUIFER_MIXING_WATER_MM * tracers(itrc)%ref_ratio
+            DO imt = 1, nmts
+               IF (.not. (mt_uses_generic_water(imt) .and. tracer_is_isotope(imt))) CYCLE
+               R_actual = tracer_aquifer_isotope_ratio(wa_new(np), mt_wa(imt,np) + ref_mass(imt,np), &
+                  0._r8, 0._r8, tracer_init_water_ratio(imt))
+               mt_wa(imt,np) = mt_wa(imt,np) + ref_mass(imt,np) &
+                  + DEF_MT_AQUIFER_MIXING_WATER_MM * (R_actual - tracers(imt)%ref_ratio)
+               ref_mass(imt,np) = DEF_MT_AQUIFER_MIXING_WATER_MM * tracers(imt)%ref_ratio
                IF (present(carrier_change)) &
-                  carrier_change(itrc) = carrier_change(itrc) &
+                  carrier_change(imt) = carrier_change(imt) &
                      + DEF_MT_AQUIFER_MIXING_WATER_MM * R_actual * area
             ENDDO
             ref_water(np) = DEF_MT_AQUIFER_MIXING_WATER_MM

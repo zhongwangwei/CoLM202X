@@ -15,7 +15,7 @@ CONTAINS
    SUBROUTINE methane_reactive_history (file_hist, itime_in_file, sumarea, filter, &
       nl_soil, forcing_has_missing_value, forcmask_pch)
    USE MOD_MT_Hist, only: HistForm, write_history_variable_2d, write_history_variable_3d, &
-      write_history_tracer_ratio_2d
+      write_history_mt_ratio_2d
    USE MOD_MT_Defs, only: tracer_lower
    USE MOD_HistGridded
    USE MOD_DataType
@@ -1090,7 +1090,7 @@ CONTAINS
 	                  ! therefore remains paddy-area intensive when that fraction
 	                  ! changes during a history interval.
 	                  IF (need_rice_intensive) THEN
-	                     CALL write_history_tracer_ratio_2d (.true., &
+	                     CALL write_history_mt_ratio_2d (.true., &
 	                        hist_ch4_rice_flux_mean, hist_ch4_rice_area_frac, file_hist, &
 	                        'f_methane_surf_flux_rice_intensive', itime_in_file, filter, &
 	                        'rice-paddy CH4 surface flux; paddy-area intensive', 'mol/m2/s')

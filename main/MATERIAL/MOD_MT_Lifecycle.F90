@@ -10,7 +10,7 @@ MODULE MOD_MT_Lifecycle
    USE MOD_Precision
    USE MOD_DataType, only: block_data_real8_2d
    USE MOD_SPMD_Task, only: CoLM_stop, p_is_master
-   USE MOD_MT_Defs, only: ntracers, tracers, tracer_upper, tracer_index_for_name, &
+   USE MOD_MT_Defs, only: nmts, tracers, tracer_upper, tracer_index_for_name, &
       FAMILY_UNRESOLVED, FAMILY_ISOTOPE, FAMILY_SOLUTE, &
       FAMILY_PARTICLE, FAMILY_GAS, STATE_OWNER_UNKNOWN, &
       STATE_OWNER_GENERIC_WATER, STATE_OWNER_PROVIDER, &
@@ -171,7 +171,7 @@ MODULE MOD_MT_Lifecycle
 
    PUBLIC :: tracer_lifecycle_init, tracer_lifecycle_validate, mt_lifecycle_reset
    PUBLIC :: tracer_lifecycle_report_registry
-   PUBLIC :: register_tracer_provider
+   PUBLIC :: register_mt_provider
    PUBLIC :: tracer_lifecycle_size, tracer_lifecycle_has_provider, tracer_lifecycle_provider
    PUBLIC :: tracer_lifecycle_land_init, tracer_lifecycle_land_final
    PUBLIC :: tracer_lifecycle_lake_step, tracer_lifecycle_wetland_decomp, tracer_lifecycle_soil_step
@@ -196,9 +196,9 @@ CONTAINS
    SUBROUTINE tracer_lifecycle_init (register_providers)
       procedure(lifecycle_noarg_if) :: register_providers
       IF (allocated(lifecycle)) RETURN
-      IF (ntracers > 0 .and. .not. allocated(tracers)) &
+      IF (nmts > 0 .and. .not. allocated(tracers)) &
          CALL lifecycle_error ('descriptor table is not initialized')
-      allocate(lifecycle(ntracers), provider_name(ntracers))
+      allocate(lifecycle(nmts), provider_name(nmts))
       provider_name = ''
       CALL register_providers ()
       CALL tracer_lifecycle_validate ()
@@ -210,16 +210,16 @@ CONTAINS
       IF (allocated(provider_name)) deallocate(provider_name)
    END SUBROUTINE mt_lifecycle_reset
 
-   SUBROUTINE register_tracer_provider (name, aliases, provider, declared_family, &
-      declared_owner, declared_reaction, hooks, itrc)
+   SUBROUTINE register_mt_provider (name, aliases, provider, declared_family, &
+      declared_owner, declared_reaction, hooks, imt)
       character(len=*), intent(in) :: name, aliases, provider
       integer, intent(in) :: declared_family, declared_owner, declared_reaction
       type(tracer_lifecycle_hooks_type), intent(in) :: hooks
-      integer, intent(out) :: itrc
+      integer, intent(out) :: imt
 
       integer :: i
 
-      itrc = 0
+      imt = 0
       IF (.not. allocated(lifecycle) .or. .not. allocated(provider_name)) &
          CALL lifecycle_error ('provider registration requires tracer_lifecycle_init')
       CALL validate_provider_declaration (name, aliases, provider, declared_family, &
@@ -227,48 +227,48 @@ CONTAINS
       IF (.not. lifecycle_hooks_present(hooks)) &
          CALL lifecycle_error ('compiled provider has no lifecycle hooks')
 
-      itrc = tracer_index_for_name(name, aliases)
-      IF (itrc == 0) RETURN
-      IF (len_trim(provider_name(itrc)) > 0) &
+      imt = tracer_index_for_name(name, aliases)
+      IF (imt == 0) RETURN
+      IF (len_trim(provider_name(imt)) > 0) &
          CALL lifecycle_error ('duplicate provider attachment for configured material')
 
-      DO i = 1, ntracers
+      DO i = 1, nmts
          IF (len_trim(provider_name(i)) > 0 .and. &
              trim(tracer_upper(provider_name(i))) == trim(tracer_upper(provider))) THEN
             CALL lifecycle_error ('duplicate provider identity')
          ENDIF
       ENDDO
 
-      IF (tracers(itrc)%family_id == FAMILY_UNRESOLVED) THEN
-         tracers(itrc)%family_id = declared_family
-      ELSEIF (tracers(itrc)%family_id /= declared_family) THEN
+      IF (tracers(imt)%family_id == FAMILY_UNRESOLVED) THEN
+         tracers(imt)%family_id = declared_family
+      ELSEIF (tracers(imt)%family_id /= declared_family) THEN
          CALL lifecycle_error ('provider family does not match configured material family')
       ENDIF
 
-      tracers(itrc)%state_owner = declared_owner
-      tracers(itrc)%reaction_mode = declared_reaction
-      tracers(itrc)%category = family_label(declared_family)
+      tracers(imt)%state_owner = declared_owner
+      tracers(imt)%reaction_mode = declared_reaction
+      tracers(imt)%category = family_label(declared_family)
       IF (declared_owner == STATE_OWNER_PROVIDER .and. declared_family /= FAMILY_PARTICLE) &
-         tracers(itrc)%unit_kind = 'species_owned'
+         tracers(imt)%unit_kind = 'species_owned'
       IF (declared_owner == STATE_OWNER_GENERIC_WATER .and. &
-          trim(tracers(itrc)%unit_kind) == 'species_owned') &
-         tracers(itrc)%unit_kind = 'tracer_per_water'
+          trim(tracers(imt)%unit_kind) == 'species_owned') &
+         tracers(imt)%unit_kind = 'tracer_per_water'
 
-      provider_name(itrc) = trim(provider)
-      lifecycle(itrc) = hooks
-   END SUBROUTINE register_tracer_provider
+      provider_name(imt) = trim(provider)
+      lifecycle(imt) = hooks
+   END SUBROUTINE register_mt_provider
 
    SUBROUTINE tracer_lifecycle_validate ()
       integer :: i
 
       IF (.not. allocated(lifecycle) .or. .not. allocated(provider_name)) &
          CALL lifecycle_error ('lifecycle registry is not initialized')
-      IF (size(lifecycle) /= ntracers .or. size(provider_name) /= ntracers) &
+      IF (size(lifecycle) /= nmts .or. size(provider_name) /= nmts) &
          CALL lifecycle_error ('lifecycle registry size does not match descriptor table')
-      IF (ntracers > 0 .and. .not. allocated(tracers)) &
+      IF (nmts > 0 .and. .not. allocated(tracers)) &
          CALL lifecycle_error ('descriptor table is not initialized')
 
-      DO i = 1, ntracers
+      DO i = 1, nmts
          IF ((trim(tracer_upper(tracers(i)%name)) == 'CH4' .or. &
               trim(tracer_upper(tracers(i)%name)) == 'METHANE') .and. &
              len_trim(provider_name(i)) == 0) THEN
@@ -316,8 +316,8 @@ CONTAINS
       IF (.not. p_is_master) RETURN
       IF (.not. allocated(lifecycle) .or. .not. allocated(provider_name)) RETURN
 
-      WRITE (*,'(A,I0)') 'MT lifecycle registry: count=', ntracers
-      DO i = 1, ntracers
+      WRITE (*,'(A,I0)') 'MT lifecycle registry: count=', nmts
+      DO i = 1, nmts
          provider = '-'
          IF (len_trim(provider_name(i)) > 0) provider = trim(provider_name(i))
          hook_groups = lifecycle_hook_groups(lifecycle(i))
@@ -335,16 +335,16 @@ CONTAINS
       IF (allocated(lifecycle)) tracer_lifecycle_size = size(lifecycle)
    END FUNCTION tracer_lifecycle_size
 
-   logical FUNCTION tracer_lifecycle_has_provider (itrc)
-      integer, intent(in) :: itrc
-      tracer_lifecycle_has_provider = lifecycle_row_registered(itrc)
+   logical FUNCTION tracer_lifecycle_has_provider (imt)
+      integer, intent(in) :: imt
+      tracer_lifecycle_has_provider = lifecycle_row_registered(imt)
    END FUNCTION tracer_lifecycle_has_provider
 
-   FUNCTION tracer_lifecycle_provider (itrc) RESULT(provider)
-      integer, intent(in) :: itrc
+   FUNCTION tracer_lifecycle_provider (imt) RESULT(provider)
+      integer, intent(in) :: imt
       character(len=32) :: provider
       provider = ''
-      IF (lifecycle_row_registered(itrc)) provider = provider_name(itrc)
+      IF (lifecycle_row_registered(imt)) provider = provider_name(imt)
    END FUNCTION tracer_lifecycle_provider
 
    SUBROUTINE tracer_lifecycle_land_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
@@ -688,11 +688,11 @@ CONTAINS
       visible_after, protected_after)
       integer, intent(in) :: i
       real(r8), intent(in) :: visible_before, protected_before, visible_after, protected_after
-      integer :: itrc
+      integer :: imt
       IF (.not. allocated(lifecycle)) RETURN
-      DO itrc = 1, size(lifecycle)
-         IF (lifecycle_row_registered(itrc) .and. associated(lifecycle(itrc)%route_sediment_levee)) &
-            CALL lifecycle(itrc)%route_sediment_levee(i, visible_before, protected_before, &
+      DO imt = 1, size(lifecycle)
+         IF (lifecycle_row_registered(imt) .and. associated(lifecycle(imt)%route_sediment_levee)) &
+            CALL lifecycle(imt)%route_sediment_levee(i, visible_before, protected_before, &
                visible_after, protected_after)
       ENDDO
    END SUBROUTINE mt_lifecycle_route_sediment_levee_repartition
@@ -736,12 +736,12 @@ CONTAINS
       ENDDO
    END SUBROUTINE mt_lifecycle_route_final
 
-   logical FUNCTION lifecycle_row_registered (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION lifecycle_row_registered (imt)
+      integer, intent(in) :: imt
       lifecycle_row_registered = .false.
       IF (.not. allocated(provider_name)) RETURN
-      IF (itrc < 1 .or. itrc > size(provider_name)) RETURN
-      lifecycle_row_registered = len_trim(provider_name(itrc)) > 0
+      IF (imt < 1 .or. imt > size(provider_name)) RETURN
+      lifecycle_row_registered = len_trim(provider_name(imt)) > 0
    END FUNCTION lifecycle_row_registered
 
    logical FUNCTION lifecycle_hooks_present (hooks)

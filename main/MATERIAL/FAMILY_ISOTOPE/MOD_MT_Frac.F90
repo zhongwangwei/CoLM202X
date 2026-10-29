@@ -7,7 +7,7 @@ MODULE MOD_MT_Frac
    USE MOD_MT_Namelist, only: DEF_ISO_USE_FRACTIONATION, DEF_ISO_NSS_LEAF_WATER_PER_LAI, DEF_ISO_NSS_LEAF_PATH_LENGTH, &
       DEF_ISO_NSS_LEAF_RB, DEF_ISO_ICE_SUPERSAT_SLOPE, DEF_ISO_CG_RELHUM_MAX, &
       DEF_ISO_OPEN_WATER_KINETIC
-   USE MOD_MT_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny
+   USE MOD_MT_Defs, only: tracers, nmts, tracer_is_isotope, mt_tiny
    USE MOD_MT_Isotope_Registry, only: isotope_fractionation_registered, &
       isotope_alpha_liq_vap, isotope_alpha_ice_vap, isotope_diffusivity_ratio_air, &
       isotope_leaf_liquid_diffusivity, isotope_mj79_relative_factor
@@ -78,45 +78,45 @@ MODULE MOD_MT_Frac
 
 CONTAINS
 
-   logical FUNCTION tracer_fractionation_active (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_fractionation_active (imt)
+      integer, intent(in) :: imt
 
       tracer_fractionation_active = .false.
       IF (.not. DEF_ISO_USE_FRACTIONATION) RETURN
-      IF (.not. tracer_is_isotope(itrc)) RETURN
+      IF (.not. tracer_is_isotope(imt)) RETURN
       CALL ensure_isotope_physics_registered ()
-      tracer_fractionation_active = isotope_fractionation_registered(itrc)
+      tracer_fractionation_active = isotope_fractionation_registered(imt)
    END FUNCTION tracer_fractionation_active
 
-   real(r8) FUNCTION tracer_alpha_liq_vap (itrc, temp_k)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_liq_vap (imt, temp_k)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: temp_k
 
       CALL ensure_isotope_physics_registered ()
-      tracer_alpha_liq_vap = isotope_alpha_liq_vap(itrc, temp_k)
+      tracer_alpha_liq_vap = isotope_alpha_liq_vap(imt, temp_k)
    END FUNCTION tracer_alpha_liq_vap
 
-   real(r8) FUNCTION tracer_alpha_ice_vap (itrc, temp_k)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_ice_vap (imt, temp_k)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: temp_k
 
       CALL ensure_isotope_physics_registered ()
-      tracer_alpha_ice_vap = isotope_alpha_ice_vap(itrc, temp_k)
+      tracer_alpha_ice_vap = isotope_alpha_ice_vap(imt, temp_k)
    END FUNCTION tracer_alpha_ice_vap
 
-   real(r8) FUNCTION tracer_alpha_ice_liq (itrc, temp_k)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_ice_liq (imt, temp_k)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: temp_k
 
       ! alpha = R_ice / R_liquid, derived from the existing equilibrium
       ! vapor references so phase-change and vapor processes stay consistent.
-      tracer_alpha_ice_liq = tracer_alpha_ice_vap(itrc, temp_k) / &
-         max(tracer_alpha_liq_vap(itrc, temp_k), trc_tiny)
+      tracer_alpha_ice_liq = tracer_alpha_ice_vap(imt, temp_k) / &
+         max(tracer_alpha_liq_vap(imt, temp_k), mt_tiny)
    END FUNCTION tracer_alpha_ice_liq
 
-   real(r8) FUNCTION tracer_rayleigh_freezing_loss (itrc, pool_trc, pool_water, &
+   real(r8) FUNCTION tracer_rayleigh_freezing_loss (imt, pool_trc, pool_water, &
       freeze_water, temp_k)
-      integer,  intent(in) :: itrc
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: pool_trc
       real(r8), intent(in) :: pool_water
       real(r8), intent(in) :: freeze_water
@@ -126,8 +126,8 @@ CONTAINS
       real(r8) :: source_ratio, remaining_ratio, remaining_trc
 
       tracer_rayleigh_freezing_loss = 0._r8
-      IF (pool_water <= trc_tiny .or. freeze_water <= trc_tiny) RETURN
-      IF (pool_trc <= trc_tiny) RETURN
+      IF (pool_water <= mt_tiny .or. freeze_water <= mt_tiny) RETURN
+      IF (pool_trc <= mt_tiny) RETURN
 
       IF (freeze_water >= pool_water * (1._r8 - 1.e-12_r8)) THEN
          tracer_rayleigh_freezing_loss = max(pool_trc, 0._r8)
@@ -135,13 +135,13 @@ CONTAINS
       ENDIF
 
       source_ratio = max(pool_trc, 0._r8) / pool_water
-      IF (.not. tracer_fractionation_active(itrc)) THEN
+      IF (.not. tracer_fractionation_active(imt)) THEN
          tracer_rayleigh_freezing_loss = min(freeze_water * source_ratio, max(pool_trc, 0._r8))
          RETURN
       ENDIF
 
-      alpha_il = tracer_alpha_ice_liq(itrc, temp_k)
-      IF (alpha_il <= trc_tiny .or. alpha_il /= alpha_il) THEN
+      alpha_il = tracer_alpha_ice_liq(imt, temp_k)
+      IF (alpha_il <= mt_tiny .or. alpha_il /= alpha_il) THEN
          tracer_rayleigh_freezing_loss = min(freeze_water * source_ratio, max(pool_trc, 0._r8))
          RETURN
       ENDIF
@@ -150,18 +150,18 @@ CONTAINS
       ! R_liq = R0 * f**(alpha_ice_liq - 1), with f = remaining liquid fraction.
       ! The tracer transferred to ice is the mass removed from the liquid pool.
       remaining_water = pool_water - freeze_water
-      liquid_fraction = max(remaining_water / pool_water, trc_tiny)
+      liquid_fraction = max(remaining_water / pool_water, mt_tiny)
       remaining_ratio = source_ratio * liquid_fraction ** (alpha_il - 1._r8)
       remaining_trc = remaining_water * remaining_ratio
       tracer_rayleigh_freezing_loss = min(max(pool_trc - remaining_trc, 0._r8), &
          max(pool_trc, 0._r8))
    END FUNCTION tracer_rayleigh_freezing_loss
 
-   real(r8) FUNCTION tracer_diffusivity_ratio_air (itrc)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION tracer_diffusivity_ratio_air (imt)
+      integer, intent(in) :: imt
 
       CALL ensure_isotope_physics_registered ()
-      tracer_diffusivity_ratio_air = isotope_diffusivity_ratio_air(itrc)
+      tracer_diffusivity_ratio_air = isotope_diffusivity_ratio_air(imt)
    END FUNCTION tracer_diffusivity_ratio_air
 
    !---------------------------------------------------------------
@@ -228,27 +228,27 @@ CONTAINS
          + alpha_cold * (tfrz - temp_k)) / span
    END FUNCTION tracer_ice_deposition_alpha
 
-   real(r8) FUNCTION tracer_alpha_ice_vap_deposition (itrc, temp_k)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_ice_vap_deposition (imt, temp_k)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: temp_k
 
       tracer_alpha_ice_vap_deposition = tracer_ice_deposition_alpha(temp_k, &
-         DEF_ISO_ICE_SUPERSAT_SLOPE, tracer_diffusivity_ratio_air(itrc), &
-         tracer_alpha_ice_vap(itrc, temp_k), &
-         tracer_alpha_ice_vap(itrc, tfrz), &
-         tracer_alpha_ice_vap(itrc, jm84_full_kinetic_temp))
+         DEF_ISO_ICE_SUPERSAT_SLOPE, tracer_diffusivity_ratio_air(imt), &
+         tracer_alpha_ice_vap(imt, temp_k), &
+         tracer_alpha_ice_vap(imt, tfrz), &
+         tracer_alpha_ice_vap(imt, jm84_full_kinetic_temp))
    END FUNCTION tracer_alpha_ice_vap_deposition
 
-   real(r8) FUNCTION tracer_alpha_kinetic_craig_gordon (itrc, from_ice)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_kinetic_craig_gordon (imt, from_ice)
+      integer, intent(in) :: imt
       logical, intent(in) :: from_ice
 
       IF (from_ice) THEN
          tracer_alpha_kinetic_craig_gordon = &
-            tracer_diffusivity_ratio_air(itrc) ** craig_gordon_kinetic_exponent_ice
+            tracer_diffusivity_ratio_air(imt) ** craig_gordon_kinetic_exponent_ice
       ELSE
          tracer_alpha_kinetic_craig_gordon = &
-            tracer_diffusivity_ratio_air(itrc) ** craig_gordon_kinetic_exponent_liquid
+            tracer_diffusivity_ratio_air(imt) ** craig_gordon_kinetic_exponent_liquid
       ENDIF
    END FUNCTION tracer_alpha_kinetic_craig_gordon
 
@@ -289,22 +289,22 @@ CONTAINS
    ! Defaults to Merlivat & Jouzel (1979); 'EXPONENT' restores the previous
    ! behaviour for sensitivity experiments.
    !---------------------------------------------------------------
-   real(r8) FUNCTION tracer_alpha_kinetic_open_water (itrc, wind)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_kinetic_open_water (imt, wind)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: wind
 
       IF (trim(DEF_ISO_OPEN_WATER_KINETIC) == 'EXPONENT') THEN
-         tracer_alpha_kinetic_open_water = tracer_alpha_kinetic_craig_gordon(itrc, .false.)
+         tracer_alpha_kinetic_open_water = tracer_alpha_kinetic_craig_gordon(imt, .false.)
          RETURN
       ENDIF
 
       CALL ensure_isotope_physics_registered ()
       tracer_alpha_kinetic_open_water = tracer_mj79_kinetic_alpha(wind, &
-         isotope_mj79_relative_factor(itrc))
+         isotope_mj79_relative_factor(imt))
    END FUNCTION tracer_alpha_kinetic_open_water
 
-   real(r8) FUNCTION tracer_alpha_kinetic_leaf (itrc, ra, rb, rc)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_kinetic_leaf (imt, ra, rb, rc)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: ra, rb, rc
       real(r8) :: ra1, rb1, rc1, denom, diff_ratio
 
@@ -313,9 +313,9 @@ CONTAINS
       rc1 = max(rc, 0._r8)
       denom = ra1 + rb1 + rc1
       tracer_alpha_kinetic_leaf = 1._r8
-      IF (denom <= trc_tiny) RETURN
+      IF (denom <= mt_tiny) RETURN
 
-      diff_ratio = tracer_diffusivity_ratio_air(itrc)
+      diff_ratio = tracer_diffusivity_ratio_air(imt)
       tracer_alpha_kinetic_leaf = (ra1 + rb1 * diff_ratio ** (2._r8 / 3._r8) + &
          rc1 * diff_ratio) / denom
    END FUNCTION tracer_alpha_kinetic_leaf
@@ -490,30 +490,30 @@ CONTAINS
    ! diffusion pathway.  A solute needs its own physical diffusion law if it
    ! is ever to move diffusively; it must not borrow the water-isotope one.
    !---------------------------------------------------------------
-   real(r8) FUNCTION tracer_isotope_soil_vapor_equivalent_diffusivity (itrc, water_mm, &
+   real(r8) FUNCTION tracer_isotope_soil_vapor_equivalent_diffusivity (imt, water_mm, &
       ice_mm, dz, porsl, temp_k, psrf)
-      integer,  intent(in) :: itrc
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: water_mm, ice_mm, dz, porsl, temp_k, psrf
 
       tracer_isotope_soil_vapor_equivalent_diffusivity = 0._r8
-      IF (.not. tracer_is_isotope(itrc)) RETURN
+      IF (.not. tracer_is_isotope(imt)) RETURN
       tracer_isotope_soil_vapor_equivalent_diffusivity = &
          tracer_soil_vapor_equivalent_diffusivity(water_mm, ice_mm, dz, porsl, &
-            temp_k, psrf, tracer_diffusivity_ratio_air(itrc), &
-            tracer_alpha_liq_vap(itrc, temp_k))
+            temp_k, psrf, tracer_diffusivity_ratio_air(imt), &
+            tracer_alpha_liq_vap(imt, temp_k))
    END FUNCTION tracer_isotope_soil_vapor_equivalent_diffusivity
 
-   real(r8) FUNCTION tracer_isotope_snow_vapor_equivalent_diffusivity (itrc, wliq_mm, &
+   real(r8) FUNCTION tracer_isotope_snow_vapor_equivalent_diffusivity (imt, wliq_mm, &
       wice_mm, dz, temp_k, psrf)
-      integer,  intent(in) :: itrc
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: wliq_mm, wice_mm, dz, temp_k, psrf
 
       tracer_isotope_snow_vapor_equivalent_diffusivity = 0._r8
-      IF (.not. tracer_is_isotope(itrc)) RETURN
+      IF (.not. tracer_is_isotope(imt)) RETURN
       tracer_isotope_snow_vapor_equivalent_diffusivity = &
          tracer_snow_vapor_equivalent_diffusivity(wliq_mm, wice_mm, dz, &
-            temp_k, psrf, tracer_diffusivity_ratio_air(itrc), &
-            tracer_alpha_ice_vap(itrc, temp_k))
+            temp_k, psrf, tracer_diffusivity_ratio_air(imt), &
+            tracer_alpha_ice_vap(imt, temp_k))
    END FUNCTION tracer_isotope_snow_vapor_equivalent_diffusivity
 
    !---------------------------------------------------------------
@@ -676,12 +676,12 @@ CONTAINS
       ENDIF
    END FUNCTION tracer_equilibration_exchange
 
-   real(r8) FUNCTION tracer_alpha_kinetic_soil (itrc, ra, rs)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_alpha_kinetic_soil (imt, ra, rs)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: ra, rs
 
       tracer_alpha_kinetic_soil = tracer_soil_kinetic_alpha_core(ra, rs, &
-         tracer_diffusivity_ratio_air(itrc))
+         tracer_diffusivity_ratio_air(imt))
    END FUNCTION tracer_alpha_kinetic_soil
 
    !---------------------------------------------------------------
@@ -735,9 +735,9 @@ CONTAINS
          min(max(tracer_craig_gordon_ratio_core, -bound), bound)
    END FUNCTION tracer_craig_gordon_ratio_core
 
-   real(r8) FUNCTION tracer_craig_gordon_evap_ratio (itrc, source_ratio, vapor_ratio, &
+   real(r8) FUNCTION tracer_craig_gordon_evap_ratio (imt, source_ratio, vapor_ratio, &
       temp_k, relhum, alpha_k, from_ice)
-      integer,  intent(in) :: itrc
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: source_ratio
       real(r8), intent(in) :: vapor_ratio
       real(r8), intent(in) :: temp_k
@@ -748,7 +748,7 @@ CONTAINS
       real(r8) :: alpha_eq
 
       tracer_craig_gordon_evap_ratio = source_ratio
-      IF (.not. tracer_fractionation_active(itrc)) RETURN
+      IF (.not. tracer_fractionation_active(imt)) RETURN
 
       ! Sublimation (ice -> vapour) does not fractionate: the vapour leaves
       ! at the ratio of the ice it comes from. Self-diffusion in ice is far
@@ -763,11 +763,11 @@ CONTAINS
       ! soil ice, glacier, frozen lake) comes through here.
       IF (from_ice) RETURN
 
-      alpha_eq = tracer_alpha_liq_vap(itrc, temp_k)
-      IF (alpha_eq <= trc_tiny .or. alpha_eq /= alpha_eq) RETURN
+      alpha_eq = tracer_alpha_liq_vap(imt, temp_k)
+      IF (alpha_eq <= mt_tiny .or. alpha_eq /= alpha_eq) RETURN
 
       tracer_craig_gordon_evap_ratio = tracer_craig_gordon_ratio_core(source_ratio, &
-         vapor_ratio, alpha_eq, max(alpha_k, trc_tiny), relhum, DEF_ISO_CG_RELHUM_MAX)
+         vapor_ratio, alpha_eq, max(alpha_k, mt_tiny), relhum, DEF_ISO_CG_RELHUM_MAX)
       IF (tracer_craig_gordon_evap_ratio /= tracer_craig_gordon_evap_ratio) THEN
          tracer_craig_gordon_evap_ratio = source_ratio
       ENDIF
@@ -815,9 +815,9 @@ CONTAINS
 
    ! Affine form of tracer_craig_gordon_evap_ratio: slope = 1, offset = 0
    ! wherever that function returns the source ratio (no fractionation, ice).
-   SUBROUTINE tracer_craig_gordon_evap_affine (itrc, vapor_ratio, temp_k, relhum, &
+   SUBROUTINE tracer_craig_gordon_evap_affine (imt, vapor_ratio, temp_k, relhum, &
       alpha_k, from_ice, slope, offset)
-      integer,  intent(in)  :: itrc
+      integer,  intent(in)  :: imt
       real(r8), intent(in)  :: vapor_ratio
       real(r8), intent(in)  :: temp_k
       real(r8), intent(in)  :: relhum
@@ -829,14 +829,14 @@ CONTAINS
 
       slope  = 1._r8
       offset = 0._r8
-      IF (.not. tracer_fractionation_active(itrc)) RETURN
+      IF (.not. tracer_fractionation_active(imt)) RETURN
       ! Sublimation does not fractionate (see tracer_craig_gordon_evap_ratio).
       IF (from_ice) RETURN
 
-      alpha_eq = tracer_alpha_liq_vap(itrc, temp_k)
-      IF (alpha_eq <= trc_tiny .or. alpha_eq /= alpha_eq) RETURN
+      alpha_eq = tracer_alpha_liq_vap(imt, temp_k)
+      IF (alpha_eq <= mt_tiny .or. alpha_eq /= alpha_eq) RETURN
 
-      CALL tracer_craig_gordon_affine_core(vapor_ratio, alpha_eq, max(alpha_k, trc_tiny), &
+      CALL tracer_craig_gordon_affine_core(vapor_ratio, alpha_eq, max(alpha_k, mt_tiny), &
          relhum, DEF_ISO_CG_RELHUM_MAX, slope, offset)
       IF (slope /= slope .or. offset /= offset) THEN
          slope  = 1._r8
@@ -844,14 +844,14 @@ CONTAINS
       ENDIF
    END SUBROUTINE tracer_craig_gordon_evap_affine
 
-   real(r8) FUNCTION tracer_equilibrium_deposition_ratio (itrc, vapor_ratio, temp_k, from_ice)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_equilibrium_deposition_ratio (imt, vapor_ratio, temp_k, from_ice)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: vapor_ratio
       real(r8), intent(in) :: temp_k
       logical,  intent(in) :: from_ice
 
       tracer_equilibrium_deposition_ratio = vapor_ratio
-      IF (.not. tracer_fractionation_active(itrc)) RETURN
+      IF (.not. tracer_fractionation_active(imt)) RETURN
 
       IF (from_ice) THEN
          ! Vapour -> ice is not a pure equilibrium transfer below 0 C: the
@@ -859,18 +859,18 @@ CONTAINS
          ! effective alpha (reduces to alpha_eq at/above freezing and when
          ! DEF_ISO_ICE_SUPERSAT_SLOPE = 0).
          tracer_equilibrium_deposition_ratio = &
-            tracer_alpha_ice_vap_deposition(itrc, temp_k) * vapor_ratio
+            tracer_alpha_ice_vap_deposition(imt, temp_k) * vapor_ratio
       ELSE
-         tracer_equilibrium_deposition_ratio = tracer_alpha_liq_vap(itrc, temp_k) * vapor_ratio
+         tracer_equilibrium_deposition_ratio = tracer_alpha_liq_vap(imt, temp_k) * vapor_ratio
       ENDIF
    END FUNCTION tracer_equilibrium_deposition_ratio
 
-   SUBROUTINE tracer_transpiration_nss_ratio (itrc, source_ratio, vapor_ratio, &
+   SUBROUTINE tracer_transpiration_nss_ratio (imt, source_ratio, vapor_ratio, &
       temp_k, relhum, psrf, transp_water, deltim, leaf_area, aerodynamic_resistance, &
       stomatal_resistance, &
       prev_delta_e, prev_delta_b, prev_peclet, prev_leaf_moles, &
       trans_ratio, new_delta_e, new_delta_b, new_peclet, new_leaf_moles)
-      integer,  intent(in) :: itrc
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: source_ratio
       real(r8), intent(in) :: vapor_ratio
       real(r8), intent(in) :: temp_k
@@ -899,25 +899,25 @@ CONTAINS
       real(r8) :: gross_moles, conductance_gross_moles
       real(r8) :: vapor_molar_density_sat, total_resistance
 	      real(r8) :: prev_leaf_water, new_leaf_water, prev_bulk_ratio, new_bulk_ratio
-	      real(r8) :: storage_tracer_change, storage_tracer_change_used
+	      real(r8) :: storage_mt_change, storage_mt_change_used
 	      real(r8) :: storage_scale, storage_bound, target_leaf_storage
 	      real(r8), parameter :: max_storage_jump_for_fallback = 10._r8
 	      real(r8), parameter :: max_storage_tendency_fraction = 0.95_r8
 
       trans_ratio = source_ratio
-      new_delta_e = tracer_ratio_to_delta(itrc, source_ratio)
+      new_delta_e = tracer_ratio_to_delta(imt, source_ratio)
       new_delta_b = new_delta_e
       new_peclet = 1._r8
       new_leaf_moles = 0._r8
 
-      IF (.not. tracer_fractionation_active(itrc)) RETURN
-      IF (source_ratio <= trc_tiny .or. vapor_ratio <= trc_tiny) RETURN
-      IF (transp_water <= trc_tiny .or. deltim <= trc_tiny) RETURN
+      IF (.not. tracer_fractionation_active(imt)) RETURN
+      IF (source_ratio <= mt_tiny .or. vapor_ratio <= mt_tiny) RETURN
+      IF (transp_water <= mt_tiny .or. deltim <= mt_tiny) RETURN
 
       leaf_moles = max(leaf_area, 0._r8) * max(DEF_ISO_NSS_LEAF_WATER_PER_LAI, 0._r8) &
          * water_moles_per_mm
       new_leaf_moles = leaf_moles
-      IF (leaf_moles <= trc_tiny) RETURN
+      IF (leaf_moles <= mt_tiny) RETURN
 
       tk = max(temp_k, 150._r8)
       ! Share the Craig-Gordon humidity cap.  delta_es below is LINEAR in h,
@@ -926,22 +926,22 @@ CONTAINS
       ! the leaf and surface closures disagree about the same air.
       h = min(max(relhum, 0._r8), max(min(DEF_ISO_CG_RELHUM_MAX, 0.999999_r8), 0._r8))
       one_minus_h = max(1._r8 - h, 1.e-6_r8)
-      alpha_eq = tracer_alpha_liq_vap(itrc, tk)
+      alpha_eq = tracer_alpha_liq_vap(imt, tk)
       eps_eq = (alpha_eq - 1._r8) * 1000._r8
-      alpha_k = tracer_alpha_kinetic_leaf(itrc, aerodynamic_resistance, &
-         DEF_ISO_NSS_LEAF_RB / max(leaf_area, trc_tiny), stomatal_resistance)
+      alpha_k = tracer_alpha_kinetic_leaf(imt, aerodynamic_resistance, &
+         DEF_ISO_NSS_LEAF_RB / max(leaf_area, mt_tiny), stomatal_resistance)
       eps_k = (alpha_k - 1._r8) * 1000._r8
 
-      delta_x = tracer_ratio_to_delta(itrc, source_ratio)
-      delta_v = tracer_ratio_to_delta(itrc, vapor_ratio)
+      delta_x = tracer_ratio_to_delta(imt, source_ratio)
+      delta_v = tracer_ratio_to_delta(imt, vapor_ratio)
       delta_es = delta_x + eps_k + eps_eq + h * (delta_v - eps_k - delta_x)
 
       transp_moles = transp_water * water_moles_per_mm
       ! Péclet transport is defined per unit leaf area, whereas
       ! transp_water is supplied per unit ground area.
-      transp_moles_leaf_s = transp_moles / (deltim * max(leaf_area, trc_tiny))
-      liquid_diff = tracer_leaf_liquid_diffusivity(itrc, tk)
-      IF (liquid_diff > trc_tiny .and. DEF_ISO_NSS_LEAF_PATH_LENGTH > 0._r8) THEN
+      transp_moles_leaf_s = transp_moles / (deltim * max(leaf_area, mt_tiny))
+      liquid_diff = tracer_leaf_liquid_diffusivity(imt, tk)
+      IF (liquid_diff > mt_tiny .and. DEF_ISO_NSS_LEAF_PATH_LENGTH > 0._r8) THEN
          peclet_number = transp_moles_leaf_s * DEF_ISO_NSS_LEAF_PATH_LENGTH / &
             (liquid_water_molar_density * liquid_diff)
          IF (peclet_number > 1.e-8_r8) THEN
@@ -968,7 +968,7 @@ CONTAINS
       ! different quantities and additionally applied the Péclet factor twice.
       ! Without NSS memory (fresh leaf / restart without memory) the old bulk
       ! is initialised to the current source delta, so the memory term is 0.
-      IF (prev_leaf_moles > trc_tiny) THEN
+      IF (prev_leaf_moles > mt_tiny) THEN
          prev_w = leaf_moles
          prev_bulk_delta = prev_delta_b
       ELSE
@@ -987,16 +987,16 @@ CONTAINS
 	      ! only that term to the same ground-area basis before adding them.
 	      total_resistance = max(aerodynamic_resistance, 0._r8) + &
 	         max(stomatal_resistance, 0._r8) + &
-	         max(DEF_ISO_NSS_LEAF_RB, 0._r8) / max(leaf_area, trc_tiny)
-	      IF (total_resistance > trc_tiny .and. psrf > trc_tiny) THEN
+	         max(DEF_ISO_NSS_LEAF_RB, 0._r8) / max(leaf_area, mt_tiny)
+	      IF (total_resistance > mt_tiny .and. psrf > mt_tiny) THEN
 	         vapor_molar_density_sat = tracer_saturation_vapor_pressure(tk, .false.) / &
 	            (universal_gas_constant * tk)
 	         conductance_gross_moles = deltim * vapor_molar_density_sat / total_resistance
 	      ENDIF
 	      gross_moles = max(gross_moles, conductance_gross_moles)
-	      relax_b = alpha_k * alpha_eq / max(gross_moles, trc_tiny)
+	      relax_b = alpha_k * alpha_eq / max(gross_moles, mt_tiny)
       denom = 1._r8 + relax_b * leaf_moles * new_peclet
-      IF (denom > trc_tiny) THEN
+      IF (denom > mt_tiny) THEN
          new_delta_e = (delta_es + relax_b * (leaf_moles * new_peclet * delta_x + &
             prev_w * (prev_bulk_delta - delta_x))) / denom
       ELSE
@@ -1011,46 +1011,46 @@ CONTAINS
       ! This keeps daily transpiration close to source water whenever
       ! leaf water storage is approximately cyclic; any departure is then
       ! the explicit net storage tendency rather than a hidden flux bias.
-      IF (prev_leaf_moles > trc_tiny) THEN
+      IF (prev_leaf_moles > mt_tiny) THEN
          prev_leaf_water = prev_w / water_moles_per_mm
-         prev_bulk_ratio = tracer_delta_to_ratio(itrc, prev_delta_b)
+         prev_bulk_ratio = tracer_delta_to_ratio(imt, prev_delta_b)
       ELSE
          prev_leaf_water = leaf_moles / water_moles_per_mm
          prev_bulk_ratio = source_ratio
       ENDIF
       new_leaf_water = leaf_moles / water_moles_per_mm
-      new_bulk_ratio = tracer_delta_to_ratio(itrc, new_delta_b)
-	      storage_tracer_change = new_leaf_water * new_bulk_ratio - prev_leaf_water * prev_bulk_ratio
-	      storage_tracer_change_used = storage_tracer_change
-	      storage_scale = max(transp_water * source_ratio, trc_tiny)
+      new_bulk_ratio = tracer_delta_to_ratio(imt, new_delta_b)
+	      storage_mt_change = new_leaf_water * new_bulk_ratio - prev_leaf_water * prev_bulk_ratio
+	      storage_mt_change_used = storage_mt_change
+	      storage_scale = max(transp_water * source_ratio, mt_tiny)
 	      storage_bound = max_storage_tendency_fraction * storage_scale
-	      IF (abs(storage_tracer_change) > max_storage_jump_for_fallback * storage_scale) THEN
+	      IF (abs(storage_mt_change) > max_storage_jump_for_fallback * storage_scale) THEN
 	         ! A tiny transpiration step cannot physically determine a large
 	         ! leaf-storage isotope tendency (usually LAI/restart/NSS memory
 	         ! mismatch). Freeze the budget tendency for this step and adjust
 	         ! the diagnostic bulk leaf delta to the same storage state.
-	         storage_tracer_change_used = 0._r8
+	         storage_mt_change_used = 0._r8
 	      ELSE
-	         storage_tracer_change_used = min(max(storage_tracer_change_used, -storage_bound), &
+	         storage_mt_change_used = min(max(storage_mt_change_used, -storage_bound), &
 	            storage_bound)
 	      ENDIF
-	      IF (abs(storage_tracer_change_used - storage_tracer_change) > trc_tiny) THEN
-	         target_leaf_storage = prev_leaf_water * prev_bulk_ratio + storage_tracer_change_used
-	         IF (new_leaf_water > trc_tiny .and. target_leaf_storage > trc_tiny) THEN
+	      IF (abs(storage_mt_change_used - storage_mt_change) > mt_tiny) THEN
+	         target_leaf_storage = prev_leaf_water * prev_bulk_ratio + storage_mt_change_used
+	         IF (new_leaf_water > mt_tiny .and. target_leaf_storage > mt_tiny) THEN
 	            new_bulk_ratio = target_leaf_storage / new_leaf_water
-	            new_delta_b = tracer_ratio_to_delta(itrc, new_bulk_ratio)
+	            new_delta_b = tracer_ratio_to_delta(imt, new_bulk_ratio)
 	            IF (new_peclet > 1.e-6_r8) THEN
 	               new_delta_e = delta_x + (new_delta_b - delta_x) / new_peclet
 	            ELSE
 	               new_delta_e = new_delta_b
 	            ENDIF
 	         ELSE
-	            storage_tracer_change_used = 0._r8
+	            storage_mt_change_used = 0._r8
 	            new_delta_e = delta_x
 	            new_delta_b = delta_x
 	         ENDIF
 	      ENDIF
-	      trans_ratio = (transp_water * source_ratio - storage_tracer_change_used) / transp_water
+	      trans_ratio = (transp_water * source_ratio - storage_mt_change_used) / transp_water
 	      IF (trans_ratio /= trans_ratio .or. trans_ratio <= 0._r8) THEN
 	         trans_ratio = source_ratio
 	         new_delta_e = prev_delta_e
@@ -1070,7 +1070,7 @@ CONTAINS
       psafe = max(psrf, 1._r8)
       eair = qsafe * psafe / (0.622_r8 + 0.378_r8 * qsafe)
       esat = tracer_saturation_vapor_pressure(temp_k, over_ice)
-      IF (esat > trc_tiny) THEN
+      IF (esat > mt_tiny) THEN
          tracer_surface_relhum = min(max(eair / esat, 0._r8), 0.999999_r8)
       ELSE
          tracer_surface_relhum = 0._r8
@@ -1096,41 +1096,41 @@ CONTAINS
    ! registered per-species function; named separately because soil diffusion
    ! is not a leaf process.  Returns 0 for tracers with no registered
    ! isotope physics, which makes callers no-ops for them.
-   real(r8) FUNCTION tracer_liquid_self_diffusivity (itrc, temp_k)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_liquid_self_diffusivity (imt, temp_k)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: temp_k
 
-      tracer_liquid_self_diffusivity = tracer_leaf_liquid_diffusivity(itrc, temp_k)
+      tracer_liquid_self_diffusivity = tracer_leaf_liquid_diffusivity(imt, temp_k)
    END FUNCTION tracer_liquid_self_diffusivity
 
-   real(r8) FUNCTION tracer_leaf_liquid_diffusivity (itrc, temp_k)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_leaf_liquid_diffusivity (imt, temp_k)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: temp_k
 
       CALL ensure_isotope_physics_registered ()
-      tracer_leaf_liquid_diffusivity = isotope_leaf_liquid_diffusivity(itrc, temp_k)
+      tracer_leaf_liquid_diffusivity = isotope_leaf_liquid_diffusivity(imt, temp_k)
    END FUNCTION tracer_leaf_liquid_diffusivity
 
-   real(r8) FUNCTION tracer_ratio_to_delta (itrc, ratio)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_ratio_to_delta (imt, ratio)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: ratio
       real(r8) :: ref_ratio
 
       tracer_ratio_to_delta = 0._r8
       ref_ratio = 0._r8
-      IF (itrc >= 1 .and. itrc <= ntracers .and. allocated(tracers)) ref_ratio = tracers(itrc)%ref_ratio
-      IF (ref_ratio > trc_tiny) tracer_ratio_to_delta = (ratio / ref_ratio - 1._r8) * 1000._r8
+      IF (imt >= 1 .and. imt <= nmts .and. allocated(tracers)) ref_ratio = tracers(imt)%ref_ratio
+      IF (ref_ratio > mt_tiny) tracer_ratio_to_delta = (ratio / ref_ratio - 1._r8) * 1000._r8
    END FUNCTION tracer_ratio_to_delta
 
-   real(r8) FUNCTION tracer_delta_to_ratio (itrc, delta)
-      integer,  intent(in) :: itrc
+   real(r8) FUNCTION tracer_delta_to_ratio (imt, delta)
+      integer,  intent(in) :: imt
       real(r8), intent(in) :: delta
       real(r8) :: ref_ratio
 
       tracer_delta_to_ratio = 0._r8
       ref_ratio = 0._r8
-      IF (itrc >= 1 .and. itrc <= ntracers .and. allocated(tracers)) ref_ratio = tracers(itrc)%ref_ratio
-      IF (ref_ratio > trc_tiny) tracer_delta_to_ratio = ref_ratio * (1._r8 + delta / 1000._r8)
+      IF (imt >= 1 .and. imt <= nmts .and. allocated(tracers)) ref_ratio = tracers(imt)%ref_ratio
+      IF (ref_ratio > mt_tiny) tracer_delta_to_ratio = ref_ratio * (1._r8 + delta / 1000._r8)
    END FUNCTION tracer_delta_to_ratio
 
 

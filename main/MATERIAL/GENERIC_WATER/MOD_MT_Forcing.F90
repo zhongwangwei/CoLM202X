@@ -24,14 +24,14 @@ MODULE MOD_MT_Forcing
    USE MOD_TimeManager
    USE MOD_UserSpecifiedForcing, only: metfilename
    USE MOD_MT_Namelist, only: DEF_MT_FORCING_MIN_PRECIP, DEF_MT_FORCING_MEMORY_PRECIP
-   USE MOD_MT_Defs, only: ntracers, tracers, tracer_precip_default_ratio, &
+   USE MOD_MT_Defs, only: nmts, tracers, tracer_precip_default_ratio, &
       tracer_vapor_default_ratio, &
-      tracer_is_isotope, delta_to_R, trc_tiny, trc_delta_sanity_max, &
+      tracer_is_isotope, delta_to_R, mt_tiny, mt_delta_sanity_max, &
       mt_uses_generic_water, tracer_lower
    USE MOD_MT_Frac, only: tracer_fractionation_active, tracer_alpha_liq_vap, &
       tracer_alpha_ice_vap_deposition
    USE MOD_Vars_1DForcing, only: forc_t
-   USE MOD_MT_Vars, only: trc_runtime_forced
+   USE MOD_MT_Vars, only: mt_runtime_forced
    USE MOD_MT_Providers, only: ensure_isotope_physics_registered
    USE MOD_MT_ForcingInput, only: tracer_forcing_spec_type, tracer_forcing_input_load, &
       tracer_forcing_input_get, tracer_forcing_input_find, tracer_forcing_input_final
@@ -56,55 +56,55 @@ MODULE MOD_MT_Forcing
    ! Heavy/total precipitation ratios are numerically unreliable for
    ! near-dry records; the threshold is DEF_MT_FORCING_MIN_PRECIP (see
    ! MOD_MT_Namelist for the IsoGSM evidence behind its default).
-   real(r8), parameter :: trc_forc_min_q    = 1.0e-12_r8
-   real(r8), parameter :: trc_forc_max_abs  = 1.0e10_r8
+   real(r8), parameter :: mt_forc_min_q    = 1.0e-12_r8
+   real(r8), parameter :: mt_forc_max_abs  = 1.0e10_r8
    ! Schema 2 adds mt_forcing_precip_reliable.  A schema-1 restart is still
    ! read: its remembered ratio was the last valid one, so it counts as reliable.
-   integer, parameter :: TRC_FORC_CACHE_SCHEMA = 2
-   integer, parameter :: TRC_FORC_ID_WIDTH = 8 + 6*256
+   integer, parameter :: MT_FORC_CACHE_SCHEMA = 2
+   integer, parameter :: MT_FORC_ID_WIDTH = 8 + 6*256
 
-   logical :: trc_runtime_forcing_enabled = .false.
-   integer :: trc_forcing_log_count = 0
+   logical :: mt_runtime_forcing_enabled = .false.
+   integer :: mt_forcing_log_count = 0
    integer :: n_trc_forc_vars = 0
    integer :: idx_total_precip = 0
    integer :: idx_total_vapor = 0
 
-   integer, allocatable :: trc_var_stream(:)
-   integer, allocatable :: trc_var_itrc(:)
-   integer, allocatable :: trc_var_mode(:)
-   integer, allocatable :: trc_var_total(:)
-   integer, allocatable :: trc_var_dtime(:)
-   integer, allocatable :: trc_var_offset(:)
-   character(len=256), allocatable :: trc_var_fprefix(:)
-   character(len=256), allocatable :: trc_var_vname(:)
-   character(len=256), allocatable :: trc_var_tintalgo(:)
-   character(len=256), allocatable :: trc_var_timelog(:)
-   type(timestamp), allocatable :: trc_tstamp_LB(:)
-   type(timestamp), allocatable :: trc_tstamp_UB(:)
+   integer, allocatable :: mt_var_stream(:)
+   integer, allocatable :: mt_var_itrc(:)
+   integer, allocatable :: mt_var_mode(:)
+   integer, allocatable :: mt_var_total(:)
+   integer, allocatable :: mt_var_dtime(:)
+   integer, allocatable :: mt_var_offset(:)
+   character(len=256), allocatable :: mt_var_fprefix(:)
+   character(len=256), allocatable :: mt_var_vname(:)
+   character(len=256), allocatable :: mt_var_tintalgo(:)
+   character(len=256), allocatable :: mt_var_timelog(:)
+   type(timestamp), allocatable :: mt_tstamp_LB(:)
+   type(timestamp), allocatable :: mt_tstamp_UB(:)
 
-   type(spatial_mapping_type) :: trc_mg2p_forc
-   type(grid_type) :: trc_gforc
-   type(block_data_real8_2d) :: trc_metdata
-   type(block_data_real8_2d), allocatable :: trc_forcn(:)
-   type(block_data_real8_2d), allocatable :: trc_forcn_LB(:)
-   type(block_data_real8_2d), allocatable :: trc_forcn_UB(:)
-   real(r8), allocatable :: trc_forc_patch(:,:)
+   type(spatial_mapping_type) :: mt_mg2p_forc
+   type(grid_type) :: mt_gforc
+   type(block_data_real8_2d) :: mt_metdata
+   type(block_data_real8_2d), allocatable :: mt_forcn(:)
+   type(block_data_real8_2d), allocatable :: mt_forcn_LB(:)
+   type(block_data_real8_2d), allocatable :: mt_forcn_UB(:)
+   real(r8), allocatable :: mt_forc_patch(:,:)
 
-   real(r8), allocatable :: trc_forc_precip_value(:,:)
-   real(r8), allocatable :: trc_forc_vapor_value(:,:)
+   real(r8), allocatable :: mt_forc_precip_value(:,:)
+   real(r8), allocatable :: mt_forc_vapor_value(:,:)
    ! Precipitation ratio of the current step, valid where trc_forc_has_precip.
    ! trc_forc_precip_value is the remembered ratio used when the current
    ! record is near-dry (see tracer_forcing_snow_value).
-   real(r8), allocatable :: trc_forc_precip_step(:,:)
+   real(r8), allocatable :: mt_forc_precip_step(:,:)
    ! 1 where trc_forc_precip_value holds a ratio of a reliable record
    ! (total precipitation above DEF_MT_FORCING_MEMORY_PRECIP), 0 where it
    ! still holds the vapour-equilibrium estimate.  Kept as real so that it is
    ! restarted and LULCC-remapped like the ratios.
-   real(r8), allocatable :: trc_forc_precip_reliable(:,:)
+   real(r8), allocatable :: mt_forc_precip_reliable(:,:)
    ! Species whose below-threshold precipitation ratio is filled by phase
    ! (rain from the vapour equilibrium, snow from the remembered ratio):
    ! isotopes with both a precipitation and a vapour forcing.
-   logical,  allocatable :: trc_forc_phase_fill(:)
+   logical,  allocatable :: mt_forc_phase_fill(:)
    ! Last-valid compositions survive the annual patch rebuild; they are
    ! intensive forcing state, not tracer mass.
    real(r8), allocatable :: lulcc_precip_old(:,:), lulcc_vapor_old(:,:)
@@ -112,14 +112,14 @@ MODULE MOD_MT_Forcing
    real(r8), allocatable :: lulcc_reliable_old(:,:), lulcc_reliable_new(:,:)
    real(r8), allocatable :: lulcc_old_patch_area(:)
    logical, allocatable :: lulcc_phase_fill(:)
-   logical,  allocatable :: trc_forc_has_precip(:,:)
-   logical,  allocatable :: trc_forc_has_vapor(:,:)
-   integer,  allocatable :: trc_forc_precip_status(:,:)
-   integer,  allocatable :: trc_forc_vapor_status(:,:)
-   logical,  allocatable :: trc_forc_precip_warned_dry(:)
-   logical,  allocatable :: trc_forc_precip_warned_invalid(:)
-   logical,  allocatable :: trc_forc_vapor_warned_dry(:)
-   logical,  allocatable :: trc_forc_vapor_warned_invalid(:)
+   logical,  allocatable :: mt_forc_has_precip(:,:)
+   logical,  allocatable :: mt_forc_has_vapor(:,:)
+   integer,  allocatable :: mt_forc_precip_status(:,:)
+   integer,  allocatable :: mt_forc_vapor_status(:,:)
+   logical,  allocatable :: mt_forc_precip_warned_dry(:)
+   logical,  allocatable :: mt_forc_precip_warned_invalid(:)
+   logical,  allocatable :: mt_forc_vapor_warned_dry(:)
+   logical,  allocatable :: mt_forc_vapor_warned_invalid(:)
 
    PUBLIC :: mt_forcing_init
    PUBLIC :: mt_read_forcing
@@ -145,11 +145,11 @@ CONTAINS
       integer :: iv
 
       CALL mt_forcing_final()
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
       CALL tracer_forcing_configure()
       CALL tracer_forcing_allocate_state(numpatch)
-      IF (.not. trc_runtime_forcing_enabled) RETURN
+      IF (.not. mt_runtime_forcing_enabled) RETURN
       IF (trim(DEF_forcing%dataset) == 'POINT') THEN
          IF (p_is_master) THEN
             WRITE(*,'(A)') 'ERROR material runtime forcing does not support DEF_forcing%dataset=POINT.'
@@ -158,31 +158,31 @@ CONTAINS
          CALL CoLM_stop()
       ENDIF
 
-      CALL trc_gforc%define_by_copy(gforc)
+      CALL mt_gforc%define_by_copy(gforc)
       IF (trim(DEF_Forcing_Interp_Method) == 'arealweight') THEN
-         CALL trc_mg2p_forc%build_arealweighted(trc_gforc, landpatch)
+         CALL mt_mg2p_forc%build_arealweighted(mt_gforc, landpatch)
       ELSEIF (trim(DEF_Forcing_Interp_Method) == 'bilinear') THEN
-         CALL trc_mg2p_forc%build_bilinear(trc_gforc, landpatch)
+         CALL mt_mg2p_forc%build_bilinear(mt_gforc, landpatch)
       ELSE
          IF (p_is_master) WRITE(*,'(2A)') 'ERROR material forcing unsupported interp method: ', &
             trim(DEF_Forcing_Interp_Method)
          CALL CoLM_stop()
       ENDIF
 
-      allocate(trc_forcn(n_trc_forc_vars))
+      allocate(mt_forcn(n_trc_forc_vars))
       IF (p_is_io) THEN
-         allocate(trc_forcn_LB(n_trc_forc_vars))
-         allocate(trc_forcn_UB(n_trc_forc_vars))
+         allocate(mt_forcn_LB(n_trc_forc_vars))
+         allocate(mt_forcn_UB(n_trc_forc_vars))
          DO iv = 1, n_trc_forc_vars
-            CALL allocate_block_data(trc_gforc, trc_forcn(iv))
-            CALL allocate_block_data(trc_gforc, trc_forcn_LB(iv))
-            CALL allocate_block_data(trc_gforc, trc_forcn_UB(iv))
+            CALL allocate_block_data(mt_gforc, mt_forcn(iv))
+            CALL allocate_block_data(mt_gforc, mt_forcn_LB(iv))
+            CALL allocate_block_data(mt_gforc, mt_forcn_UB(iv))
          ENDDO
-         CALL allocate_block_data(trc_gforc, trc_metdata)
+         CALL allocate_block_data(mt_gforc, mt_metdata)
       ENDIF
 
-      allocate(trc_forc_patch(numpatch, n_trc_forc_vars))
-      trc_forc_patch(:,:) = 0._r8
+      allocate(mt_forc_patch(numpatch, n_trc_forc_vars))
+      mt_forc_patch(:,:) = 0._r8
 
       IF (p_is_master) THEN
          WRITE(*,'(A,I0,A)') 'Material runtime forcing enabled: ', n_trc_forc_vars, &
@@ -197,7 +197,7 @@ CONTAINS
       integer :: iv
 
       CALL tracer_forcing_prepare_step()
-      IF (.not. trc_runtime_forcing_enabled) RETURN
+      IF (.not. mt_runtime_forcing_enabled) RETURN
 
       CALL tracer_forcing_read_LBUB(idate, dir_forcing)
 
@@ -208,7 +208,7 @@ CONTAINS
       ENDIF
 
       DO iv = 1, n_trc_forc_vars
-         CALL trc_mg2p_forc%grid2pset(trc_forcn(iv), trc_forc_patch(:, iv))
+         CALL mt_mg2p_forc%grid2pset(mt_forcn(iv), mt_forc_patch(:, iv))
       ENDDO
 
       CALL tracer_forcing_update_values()
@@ -218,45 +218,45 @@ CONTAINS
    SUBROUTINE mt_forcing_reset ()
       IMPLICIT NONE
 
-      IF (allocated(trc_tstamp_LB)) trc_tstamp_LB(:) = timestamp(-1, -1, -1)
-      IF (allocated(trc_tstamp_UB)) trc_tstamp_UB(:) = timestamp(-1, -1, -1)
-      trc_forcing_log_count = 0
+      IF (allocated(mt_tstamp_LB)) mt_tstamp_LB(:) = timestamp(-1, -1, -1)
+      IF (allocated(mt_tstamp_UB)) mt_tstamp_UB(:) = timestamp(-1, -1, -1)
+      mt_forcing_log_count = 0
    END SUBROUTINE mt_forcing_reset
 
    SUBROUTINE mt_forcing_final ()
       IMPLICIT NONE
 
-      CALL trc_mg2p_forc%forc_free_mem()
-      IF (allocated(trc_forcn)) deallocate(trc_forcn)
-      IF (allocated(trc_forcn_LB)) deallocate(trc_forcn_LB)
-      IF (allocated(trc_forcn_UB)) deallocate(trc_forcn_UB)
-      IF (allocated(trc_forc_patch)) deallocate(trc_forc_patch)
+      CALL mt_mg2p_forc%forc_free_mem()
+      IF (allocated(mt_forcn)) deallocate(mt_forcn)
+      IF (allocated(mt_forcn_LB)) deallocate(mt_forcn_LB)
+      IF (allocated(mt_forcn_UB)) deallocate(mt_forcn_UB)
+      IF (allocated(mt_forc_patch)) deallocate(mt_forc_patch)
       CALL tracer_forcing_deallocate_config()
       CALL tracer_forcing_deallocate_state()
       CALL tracer_forcing_input_final()
 
-      IF (allocated(trc_runtime_forced)) trc_runtime_forced(:) = .false.
-      trc_runtime_forcing_enabled = .false.
-      trc_forcing_log_count = 0
+      IF (allocated(mt_runtime_forced)) mt_runtime_forced(:) = .false.
+      mt_runtime_forcing_enabled = .false.
+      mt_forcing_log_count = 0
       n_trc_forc_vars = 0
       idx_total_precip = 0
       idx_total_vapor = 0
    END SUBROUTINE mt_forcing_final
 
    SUBROUTINE mt_forcing_lulcc_save ()
-      IF (.not. p_is_worker .or. .not. trc_runtime_forcing_enabled) RETURN
-      IF (.not. allocated(trc_forc_precip_value) .or. allocated(lulcc_precip_old)) &
+      IF (.not. p_is_worker .or. .not. mt_runtime_forcing_enabled) RETURN
+      IF (.not. allocated(mt_forc_precip_value) .or. allocated(lulcc_precip_old)) &
          CALL CoLM_stop('material forcing LULCC snapshot is unavailable or already active')
-      IF (size(trc_forc_precip_value,2) == 0) RETURN
+      IF (size(mt_forc_precip_value,2) == 0) RETURN
       IF (.not. allocated(elm_patch%subfrc)) &
          CALL CoLM_stop('material forcing LULCC requires old element-patch area fractions')
-      IF (size(elm_patch%subfrc) /= size(trc_forc_precip_value,2)) &
+      IF (size(elm_patch%subfrc) /= size(mt_forc_precip_value,2)) &
          CALL CoLM_stop('material forcing LULCC old element-patch area shape mismatch')
       lulcc_old_patch_area = elm_patch%subfrc
-      CALL move_alloc(trc_forc_precip_value, lulcc_precip_old)
-      CALL move_alloc(trc_forc_vapor_value, lulcc_vapor_old)
-      CALL move_alloc(trc_forc_precip_reliable, lulcc_reliable_old)
-      CALL move_alloc(trc_forc_phase_fill, lulcc_phase_fill)
+      CALL move_alloc(mt_forc_precip_value, lulcc_precip_old)
+      CALL move_alloc(mt_forc_vapor_value, lulcc_vapor_old)
+      CALL move_alloc(mt_forc_precip_reliable, lulcc_reliable_old)
+      CALL move_alloc(mt_forc_phase_fill, lulcc_phase_fill)
    END SUBROUTINE mt_forcing_lulcc_save
 
    ! Called while LulccDriver still holds both patch maps and the transfer
@@ -266,20 +266,20 @@ CONTAINS
       integer, intent(in) :: patchclass_new(:), patchclass_old(:)
       integer*8, intent(in) :: eindex_new(:), eindex_old(:)
       real(r8), intent(in), optional :: lccpct_patches(:,0:)
-      integer :: itrc, unsupported, ignored
+      integer :: imt, unsupported, ignored
       integer :: raw, source_class(0:N_land_classification)
 
       IF (.not. p_is_worker .or. .not. allocated(lulcc_precip_old)) RETURN
       IF (allocated(lulcc_precip_new)) CALL CoLM_stop('material forcing LULCC remap repeated')
-      allocate(lulcc_precip_new(ntracers, size(patchclass_new)))
-      allocate(lulcc_vapor_new(ntracers, size(patchclass_new)))
+      allocate(lulcc_precip_new(nmts, size(patchclass_new)))
+      allocate(lulcc_vapor_new(nmts, size(patchclass_new)))
       ! A patch without a source starts unreliable: its remembered ratio is
       ! replaced by the vapour-equilibrium estimate at the next forcing update.
-      allocate(lulcc_reliable_new(ntracers, size(patchclass_new)))
+      allocate(lulcc_reliable_new(nmts, size(patchclass_new)))
       lulcc_reliable_new(:,:) = 0._r8
-      DO itrc = 1, ntracers
-         lulcc_precip_new(itrc,:) = tracer_precip_default_ratio(itrc)
-         lulcc_vapor_new(itrc,:) = tracer_vapor_default_ratio(itrc)
+      DO imt = 1, nmts
+         lulcc_precip_new(imt,:) = tracer_precip_default_ratio(imt)
+         lulcc_vapor_new(imt,:) = tracer_vapor_default_ratio(imt)
       ENDDO
       source_class = [(raw, raw=0,N_land_classification)]
       IF ((DEF_USE_PFT .and. .not. DEF_SOLO_PFT) .or. DEF_FAST_PC) THEN
@@ -291,9 +291,9 @@ CONTAINS
          ENDDO
       ENDIF
       ! Only reliable records contribute to the inherited snow memory.
-      DO itrc = 1, ntracers
-         IF (lulcc_phase_fill(itrc)) &
-            lulcc_precip_old(itrc,:) = lulcc_precip_old(itrc,:) * lulcc_reliable_old(itrc,:)
+      DO imt = 1, nmts
+         IF (lulcc_phase_fill(imt)) &
+            lulcc_precip_old(imt,:) = lulcc_precip_old(imt,:) * lulcc_reliable_old(imt,:)
       ENDDO
       CALL tracer_forcing_lulcc_map(lulcc_precip_old, lulcc_precip_new, &
          patchclass_new, eindex_new, patchclass_old, eindex_old, unsupported, &
@@ -305,13 +305,13 @@ CONTAINS
       CALL tracer_forcing_lulcc_map(lulcc_reliable_old, lulcc_reliable_new, &
          patchclass_new, eindex_new, patchclass_old, eindex_old, ignored, &
          lccpct_patches, lulcc_old_patch_area, source_class)
-      DO itrc = 1, ntracers
-         IF (.not. lulcc_phase_fill(itrc)) CYCLE
-         WHERE (lulcc_reliable_new(itrc,:) > 0._r8)
-            lulcc_precip_new(itrc,:) = lulcc_precip_new(itrc,:) / lulcc_reliable_new(itrc,:)
-            lulcc_reliable_new(itrc,:) = 1._r8
+      DO imt = 1, nmts
+         IF (.not. lulcc_phase_fill(imt)) CYCLE
+         WHERE (lulcc_reliable_new(imt,:) > 0._r8)
+            lulcc_precip_new(imt,:) = lulcc_precip_new(imt,:) / lulcc_reliable_new(imt,:)
+            lulcc_reliable_new(imt,:) = 1._r8
          ELSEWHERE
-            lulcc_precip_new(itrc,:) = tracer_precip_default_ratio(itrc)
+            lulcc_precip_new(imt,:) = tracer_precip_default_ratio(imt)
          END WHERE
       ENDDO
       lulcc_reliable_new = merge(1._r8, 0._r8, lulcc_reliable_new >= 0.5_r8)
@@ -323,22 +323,22 @@ CONTAINS
    SUBROUTINE mt_forcing_lulcc_restore ()
       IF (.not. p_is_worker) RETURN
       IF (allocated(lulcc_precip_old)) THEN
-         IF (.not. allocated(trc_forc_precip_value)) &
+         IF (.not. allocated(mt_forc_precip_value)) &
             CALL CoLM_stop('material forcing LULCC restore precedes forcing init')
-         IF (size(trc_forc_precip_value,2) > 0) &
+         IF (size(mt_forc_precip_value,2) > 0) &
             CALL CoLM_stop('material forcing LULCC remap missing for rebuilt patches')
          deallocate(lulcc_precip_old, lulcc_vapor_old, lulcc_reliable_old, lulcc_old_patch_area, lulcc_phase_fill)
       ENDIF
       IF (.not. allocated(lulcc_precip_new)) RETURN
-      IF (.not. allocated(trc_forc_precip_value)) &
+      IF (.not. allocated(mt_forc_precip_value)) &
          CALL CoLM_stop('material forcing LULCC restore precedes forcing init')
-      IF (any(shape(trc_forc_precip_value) /= shape(lulcc_precip_new)) .or. &
-          any(shape(trc_forc_vapor_value) /= shape(lulcc_vapor_new)) .or. &
-          any(shape(trc_forc_precip_reliable) /= shape(lulcc_reliable_new))) &
+      IF (any(shape(mt_forc_precip_value) /= shape(lulcc_precip_new)) .or. &
+          any(shape(mt_forc_vapor_value) /= shape(lulcc_vapor_new)) .or. &
+          any(shape(mt_forc_precip_reliable) /= shape(lulcc_reliable_new))) &
          CALL CoLM_stop('material forcing LULCC patch/species count changed after remap')
-      CALL move_alloc(lulcc_precip_new, trc_forc_precip_value)
-      CALL move_alloc(lulcc_vapor_new, trc_forc_vapor_value)
-      CALL move_alloc(lulcc_reliable_new, trc_forc_precip_reliable)
+      CALL move_alloc(lulcc_precip_new, mt_forc_precip_value)
+      CALL move_alloc(lulcc_vapor_new, mt_forc_vapor_value)
+      CALL move_alloc(lulcc_reliable_new, mt_forc_precip_reliable)
    END SUBROUTINE mt_forcing_lulcc_restore
 
    SUBROUTINE tracer_forcing_lulcc_map (old, mapped, patchclass_new, eindex_new, &
@@ -510,9 +510,9 @@ CONTAINS
       integer, allocatable, intent(out) :: identity(:,:)
       integer :: iv
 
-      allocate(identity(TRC_FORC_ID_WIDTH, n_trc_forc_vars+1))
+      allocate(identity(MT_FORC_ID_WIDTH, n_trc_forc_vars+1))
       identity = 0
-      identity(1:8,1) = [n_trc_forc_vars, ntracers, DEF_forcing%startyr, &
+      identity(1:8,1) = [n_trc_forc_vars, nmts, DEF_forcing%startyr, &
          DEF_forcing%startmo, merge(1,0,DEF_forcing%leapyear), idx_total_precip, &
          idx_total_vapor, 0]
       CALL forcing_identity_put(identity, 1, 1, DEF_forcing%dataset)
@@ -522,12 +522,12 @@ CONTAINS
       CALL forcing_identity_put(identity, 1, 5, DEF_forcing%fprefix(4))
       CALL forcing_identity_put(identity, 1, 6, DEF_dir_forcing)
       DO iv = 1, n_trc_forc_vars
-         identity(1:8,iv+1) = [trc_var_stream(iv), trc_var_itrc(iv), trc_var_mode(iv), &
-            trc_var_total(iv), trc_var_dtime(iv), trc_var_offset(iv), 0, 0]
-         CALL forcing_identity_put(identity, iv+1, 1, trc_var_fprefix(iv))
-         CALL forcing_identity_put(identity, iv+1, 2, trc_var_vname(iv))
-         CALL forcing_identity_put(identity, iv+1, 3, trc_var_tintalgo(iv))
-         CALL forcing_identity_put(identity, iv+1, 4, trc_var_timelog(iv))
+         identity(1:8,iv+1) = [mt_var_stream(iv), mt_var_itrc(iv), mt_var_mode(iv), &
+            mt_var_total(iv), mt_var_dtime(iv), mt_var_offset(iv), 0, 0]
+         CALL forcing_identity_put(identity, iv+1, 1, mt_var_fprefix(iv))
+         CALL forcing_identity_put(identity, iv+1, 2, mt_var_vname(iv))
+         CALL forcing_identity_put(identity, iv+1, 3, mt_var_tintalgo(iv))
+         CALL forcing_identity_put(identity, iv+1, 4, mt_var_timelog(iv))
       ENDDO
    END SUBROUTINE tracer_forcing_identity
 
@@ -563,16 +563,16 @@ CONTAINS
       integer :: iblkgrp, iblk, jblk
       character(len=256) :: fileblock
 
-      IF (ntracers <= 0) RETURN
-      IF (n_trc_forc_vars > 0 .and. .not. allocated(trc_forc_precip_value)) &
+      IF (nmts <= 0) RETURN
+      IF (n_trc_forc_vars > 0 .and. .not. allocated(mt_forc_precip_value)) &
          CALL CoLM_stop('material forcing cache is not allocated at restart write')
       IF (n_trc_forc_vars > 0 .and. p_is_worker) THEN
-         IF (size(trc_forc_precip_value,1) /= ntracers .or. &
-             size(trc_forc_precip_value,2) /= landpatch%nset .or. &
-             any(shape(trc_forc_vapor_value) /= shape(trc_forc_precip_value))) &
+         IF (size(mt_forc_precip_value,1) /= nmts .or. &
+             size(mt_forc_precip_value,2) /= landpatch%nset .or. &
+             any(shape(mt_forc_vapor_value) /= shape(mt_forc_precip_value))) &
             CALL CoLM_stop('material forcing cache shape mismatch at restart write')
-         IF (any(.not. ieee_is_finite(trc_forc_precip_value)) .or. &
-             any(.not. ieee_is_finite(trc_forc_vapor_value))) &
+         IF (any(.not. ieee_is_finite(mt_forc_precip_value)) .or. &
+             any(.not. ieee_is_finite(mt_forc_vapor_value))) &
             CALL CoLM_stop('non-finite material forcing cache at restart write')
       ENDIF
       IF (p_is_io) THEN
@@ -580,7 +580,7 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_schema', TRC_FORC_CACHE_SCHEMA)
+            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_schema', MT_FORC_CACHE_SCHEMA)
             CALL ncio_write_serial(fileblock, 'mt_forcing_cache_count', n_trc_forc_vars)
          ENDDO
       ENDIF
@@ -591,20 +591,20 @@ CONTAINS
             iblk = landpatch%xblkgrp(iblkgrp)
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
-            CALL ncio_define_dimension(fileblock, 'mt_forcing_id_field', TRC_FORC_ID_WIDTH)
+            CALL ncio_define_dimension(fileblock, 'mt_forcing_id_field', MT_FORC_ID_WIDTH)
             CALL ncio_define_dimension(fileblock, 'mt_forcing_id_var', n_trc_forc_vars+1)
-            CALL ncio_define_dimension(fileblock, 'mt_forcing_species', ntracers)
+            CALL ncio_define_dimension(fileblock, 'mt_forcing_species', nmts)
             CALL ncio_write_serial(fileblock, 'mt_forcing_cache_identity', identity, &
                'mt_forcing_id_field', 'mt_forcing_id_var', DEF_REST_CompressLevel)
          ENDDO
       ENDIF
       deallocate(identity)
-      CALL ncio_write_vector(file_restart, 'mt_forcing_precip_last', 'mt_forcing_species', ntracers, &
-         'patch', landpatch, trc_forc_precip_value, DEF_REST_CompressLevel)
-      CALL ncio_write_vector(file_restart, 'mt_forcing_vapor_last', 'mt_forcing_species', ntracers, &
-         'patch', landpatch, trc_forc_vapor_value, DEF_REST_CompressLevel)
-      CALL ncio_write_vector(file_restart, 'mt_forcing_precip_reliable', 'mt_forcing_species', ntracers, &
-         'patch', landpatch, trc_forc_precip_reliable, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'mt_forcing_precip_last', 'mt_forcing_species', nmts, &
+         'patch', landpatch, mt_forc_precip_value, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'mt_forcing_vapor_last', 'mt_forcing_species', nmts, &
+         'patch', landpatch, mt_forc_vapor_value, DEF_REST_CompressLevel)
+      CALL ncio_write_vector(file_restart, 'mt_forcing_precip_reliable', 'mt_forcing_species', nmts, &
+         'patch', landpatch, mt_forc_precip_reliable, DEF_REST_CompressLevel)
    END SUBROUTINE tracer_forcing_write_restart
 
    ! Restore only after mt_forcing_init has created its patch-local arrays.
@@ -617,11 +617,11 @@ CONTAINS
       logical, intent(in) :: loaded_restart
       integer, allocatable :: expected(:,:), ondisk(:,:), varsize(:)
       real(r8), allocatable :: precip(:,:), vapor(:,:), reliable(:,:)
-      integer :: iblkgrp, iblk, jblk, schema, nvars, counts(6), itrc
+      integer :: iblkgrp, iblk, jblk, schema, nvars, counts(6), imt
       logical :: have_schema, have_count, block_ok
       character(len=256) :: fileblock
 
-      IF (.not. loaded_restart .or. ntracers <= 0) RETURN
+      IF (.not. loaded_restart .or. nmts <= 0) RETURN
       IF (n_trc_forc_vars > 0) CALL tracer_forcing_identity(expected)
       counts = 0
       IF (p_is_io) THEN
@@ -657,7 +657,7 @@ CONTAINS
             ENDIF
             CALL ncio_read_serial(fileblock, 'mt_forcing_cache_schema', schema)
             CALL ncio_read_serial(fileblock, 'mt_forcing_cache_count', nvars)
-            IF ((schema /= TRC_FORC_CACHE_SCHEMA .and. schema /= 1) .or. &
+            IF ((schema /= MT_FORC_CACHE_SCHEMA .and. schema /= 1) .or. &
                 nvars /= n_trc_forc_vars) THEN
                counts(3) = counts(3) + 1
                CYCLE
@@ -675,7 +675,7 @@ CONTAINS
                   block_ok = allocated(varsize)
                   IF (block_ok) THEN
                      block_ok = size(varsize) == 2
-                     IF (block_ok) block_ok = varsize(1) == ntracers .and. &
+                     IF (block_ok) block_ok = varsize(1) == nmts .and. &
                         varsize(2) == landpatch%vecgs%vlen(iblk,jblk)
                      deallocate(varsize)
                   ENDIF
@@ -704,7 +704,7 @@ CONTAINS
             block_ok = block_ok .and. allocated(varsize)
             IF (allocated(varsize)) THEN
                IF (size(varsize) == 2) THEN
-                  block_ok = block_ok .and. varsize(1) == ntracers .and. &
+                  block_ok = block_ok .and. varsize(1) == nmts .and. &
                      varsize(2) == landpatch%vecgs%vlen(iblk,jblk)
                ELSE
                   block_ok = .false.
@@ -715,7 +715,7 @@ CONTAINS
             block_ok = block_ok .and. allocated(varsize)
             IF (allocated(varsize)) THEN
                IF (size(varsize) == 2) THEN
-                  block_ok = block_ok .and. varsize(1) == ntracers .and. &
+                  block_ok = block_ok .and. varsize(1) == nmts .and. &
                      varsize(2) == landpatch%vecgs%vlen(iblk,jblk)
                ELSE
                   block_ok = .false.
@@ -744,42 +744,42 @@ CONTAINS
          CALL CoLM_stop('mixed legacy/current material forcing cache blocks')
       IF (counts(5) > 0 .and. counts(6) > 0) &
          CALL CoLM_stop('mixed schema-1/schema-2 material forcing cache blocks')
-      schema = TRC_FORC_CACHE_SCHEMA
+      schema = MT_FORC_CACHE_SCHEMA
       IF (counts(5) > 0) schema = 1
       IF (counts(1) > 0 .and. n_trc_forc_vars > 0) &
          CALL CoLM_stop('old material restart lacks last-valid forcing cache; cannot reconstruct it')
       IF (counts(2) > 0) CALL CoLM_stop('incomplete or malformed material forcing cache restart')
       IF (counts(3) > 0) CALL CoLM_stop('material forcing cache configuration differs from restart')
       IF (n_trc_forc_vars <= 0) RETURN
-      CALL ncio_read_vector(file_restart, 'mt_forcing_precip_last', ntracers, landpatch, &
+      CALL ncio_read_vector(file_restart, 'mt_forcing_precip_last', nmts, landpatch, &
          precip)
-      CALL ncio_read_vector(file_restart, 'mt_forcing_vapor_last', ntracers, landpatch, &
+      CALL ncio_read_vector(file_restart, 'mt_forcing_vapor_last', nmts, landpatch, &
          vapor)
-      IF (schema /= 1) CALL ncio_read_vector(file_restart, 'mt_forcing_precip_reliable', ntracers, &
+      IF (schema /= 1) CALL ncio_read_vector(file_restart, 'mt_forcing_precip_reliable', nmts, &
          landpatch, reliable)
       counts = 0
       IF (p_is_worker) THEN
-         IF (size(trc_forc_precip_value,2) > 0 .and. &
+         IF (size(mt_forc_precip_value,2) > 0 .and. &
              (.not. allocated(precip) .or. .not. allocated(vapor))) counts(2) = counts(2) + 1
          IF (allocated(precip) .and. allocated(vapor)) THEN
             IF (any(.not. ieee_is_finite(precip)) .or. any(.not. ieee_is_finite(vapor))) THEN
                counts(2) = counts(2) + 1
             ELSE
-               IF (any(abs(precip) >= trc_forc_max_abs) .or. &
-                   any(abs(vapor) >= trc_forc_max_abs)) counts(2) = counts(2) + 1
-               DO itrc = 1, ntracers
-                  IF (.not. mt_uses_generic_water(itrc)) CYCLE
-                  IF (tracer_is_isotope(itrc)) THEN
-                     IF (any(precip(itrc,:) <= trc_tiny) .or. any(vapor(itrc,:) <= trc_tiny)) &
+               IF (any(abs(precip) >= mt_forc_max_abs) .or. &
+                   any(abs(vapor) >= mt_forc_max_abs)) counts(2) = counts(2) + 1
+               DO imt = 1, nmts
+                  IF (.not. mt_uses_generic_water(imt)) CYCLE
+                  IF (tracer_is_isotope(imt)) THEN
+                     IF (any(precip(imt,:) <= mt_tiny) .or. any(vapor(imt,:) <= mt_tiny)) &
                         counts(2) = counts(2) + 1
                   ELSE
-                     IF (any(precip(itrc,:) < 0._r8) .or. any(vapor(itrc,:) < 0._r8)) &
+                     IF (any(precip(imt,:) < 0._r8) .or. any(vapor(imt,:) < 0._r8)) &
                         counts(2) = counts(2) + 1
                   ENDIF
                ENDDO
             ENDIF
          ENDIF
-         IF (schema /= 1 .and. size(trc_forc_precip_value,2) > 0) THEN
+         IF (schema /= 1 .and. size(mt_forc_precip_value,2) > 0) THEN
             IF (.not. allocated(reliable)) THEN
                counts(2) = counts(2) + 1
             ELSEIF (any(reliable /= 0._r8 .and. reliable /= 1._r8)) THEN
@@ -791,21 +791,21 @@ CONTAINS
       CALL mpi_allreduce(MPI_IN_PLACE, counts, 6, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
       IF (counts(2) > 0) CALL CoLM_stop('non-finite or invalid material forcing cache restart')
-      IF (p_is_worker .and. allocated(precip)) trc_forc_precip_value = precip
-      IF (p_is_worker .and. allocated(vapor)) trc_forc_vapor_value = vapor
+      IF (p_is_worker .and. allocated(precip)) mt_forc_precip_value = precip
+      IF (p_is_worker .and. allocated(vapor)) mt_forc_vapor_value = vapor
       ! A schema-1 cache remembered every valid record: take it as reliable.
       IF (p_is_worker) THEN
          IF (schema == 1) THEN
-            trc_forc_precip_reliable(:,:) = 1._r8
+            mt_forc_precip_reliable(:,:) = 1._r8
          ELSEIF (allocated(reliable)) THEN
-            trc_forc_precip_reliable = reliable
+            mt_forc_precip_reliable = reliable
          ENDIF
       ENDIF
    END SUBROUTINE mt_forcing_read_restart
 
    SUBROUTINE tracer_forcing_configure ()
       IMPLICIT NONE
-      integer :: itrc, mode, dtime, offset, nold, k
+      integer :: imt, mode, dtime, offset, nold, k
       character(len=256) :: fprefix, vname, tintalgo, token
       logical, allocatable :: has_precip(:), has_vapor(:)
       type(tracer_forcing_spec_type) :: spec
@@ -815,70 +815,70 @@ CONTAINS
       ! DEF_forcing%tracer_* / legacy DEF_forcing%precipitation_O18_* path.
       CALL tracer_forcing_input_load()
       CALL tracer_forcing_deallocate_config()
-      allocate(trc_var_stream(2*ntracers + 6))
-      allocate(trc_var_itrc(2*ntracers + 6))
-      allocate(trc_var_mode(2*ntracers + 6))
-      allocate(trc_var_total(2*ntracers + 6))
-      allocate(trc_var_dtime(2*ntracers + 6))
-      allocate(trc_var_offset(2*ntracers + 6))
-      allocate(trc_var_fprefix(2*ntracers + 6))
-      allocate(trc_var_vname(2*ntracers + 6))
-      allocate(trc_var_tintalgo(2*ntracers + 6))
-      allocate(trc_var_timelog(2*ntracers + 6))
-      allocate(trc_tstamp_LB(2*ntracers + 6))
-      allocate(trc_tstamp_UB(2*ntracers + 6))
-      allocate(has_precip(ntracers), has_vapor(ntracers))
+      allocate(mt_var_stream(2*nmts + 6))
+      allocate(mt_var_itrc(2*nmts + 6))
+      allocate(mt_var_mode(2*nmts + 6))
+      allocate(mt_var_total(2*nmts + 6))
+      allocate(mt_var_dtime(2*nmts + 6))
+      allocate(mt_var_offset(2*nmts + 6))
+      allocate(mt_var_fprefix(2*nmts + 6))
+      allocate(mt_var_vname(2*nmts + 6))
+      allocate(mt_var_tintalgo(2*nmts + 6))
+      allocate(mt_var_timelog(2*nmts + 6))
+      allocate(mt_tstamp_LB(2*nmts + 6))
+      allocate(mt_tstamp_UB(2*nmts + 6))
+      allocate(has_precip(nmts), has_vapor(nmts))
 
       n_trc_forc_vars = 0
       idx_total_precip = 0
       idx_total_vapor = 0
       has_precip(:) = .false.
       has_vapor(:) = .false.
-      trc_tstamp_LB(:) = timestamp(-1, -1, -1)
-      trc_tstamp_UB(:) = timestamp(-1, -1, -1)
-      trc_var_timelog(:) = 'instant'
+      mt_tstamp_LB(:) = timestamp(-1, -1, -1)
+      mt_tstamp_UB(:) = timestamp(-1, -1, -1)
+      mt_var_timelog(:) = 'instant'
 
       ! Per-species forcing: each tracer declares its own precip/vapor inputs
       ! in &nl_colm_mt_forcing (loaded above by MOD_MT_ForcingInput).
       ! These two find() calls are the ONLY consumers of a forcing role in the
       ! whole model, and this loop skips provider-owned species. Anything else
       ! is refused by tracer_forcing_role_valid rather than stored and ignored.
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         k = tracer_forcing_input_find(itrc, 'precip')
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         k = tracer_forcing_input_find(imt, 'precip')
          IF (k > 0) THEN
-            spec = tracer_forcing_input_get(itrc, k)
+            spec = tracer_forcing_input_get(imt, k)
             mode = tracer_forcing_parse_mode(spec%input_mode)
             nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_PRECIP, itrc, mode, &
+            CALL tracer_forcing_add_var(STREAM_PRECIP, imt, mode, &
                spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
-            has_precip(itrc) = n_trc_forc_vars > nold
+            has_precip(imt) = n_trc_forc_vars > nold
          ENDIF
 
-         k = tracer_forcing_input_find(itrc, 'vapor')
+         k = tracer_forcing_input_find(imt, 'vapor')
          IF (k > 0) THEN
-            spec = tracer_forcing_input_get(itrc, k)
+            spec = tracer_forcing_input_get(imt, k)
             mode = tracer_forcing_parse_mode(spec%input_mode)
             nold = n_trc_forc_vars
-            CALL tracer_forcing_add_var(STREAM_VAPOR, itrc, mode, &
+            CALL tracer_forcing_add_var(STREAM_VAPOR, imt, mode, &
                spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
-            has_vapor(itrc) = n_trc_forc_vars > nold
+            has_vapor(imt) = n_trc_forc_vars > nold
          ENDIF
 
-         IF (tracer_fractionation_active(itrc) .and. .not. has_vapor(itrc)) THEN
+         IF (tracer_fractionation_active(imt) .and. .not. has_vapor(imt)) THEN
             IF (p_is_master) THEN
                WRITE(*,'(A,I0,3A)') &
-                  'ERROR tracer_forcing_configure: fractionating material ', itrc, &
-                  ' (', trim(tracers(itrc)%name), &
+                  'ERROR tracer_forcing_configure: fractionating material ', imt, &
+                  ' (', trim(tracers(imt)%name), &
                   ') must define vapor forcing with role=''vapor'' in &nl_colm_mt_forcing.'
             ENDIF
             CALL CoLM_stop()
          ENDIF
       ENDDO
 
-      trc_runtime_forcing_enabled = n_trc_forc_vars > 0
-      IF (allocated(trc_runtime_forced)) THEN
-         trc_runtime_forced(:) = has_precip(:) .or. has_vapor(:)
+      mt_runtime_forcing_enabled = n_trc_forc_vars > 0
+      IF (allocated(mt_runtime_forced)) THEN
+         mt_runtime_forced(:) = has_precip(:) .or. has_vapor(:)
       ENDIF
       deallocate(has_precip, has_vapor)
    END SUBROUTINE tracer_forcing_configure
@@ -886,29 +886,29 @@ CONTAINS
    SUBROUTINE tracer_forcing_deallocate_config ()
       IMPLICIT NONE
 
-      IF (allocated(trc_var_stream)) deallocate(trc_var_stream)
-      IF (allocated(trc_var_itrc)) deallocate(trc_var_itrc)
-      IF (allocated(trc_var_mode)) deallocate(trc_var_mode)
-      IF (allocated(trc_var_total)) deallocate(trc_var_total)
-      IF (allocated(trc_var_dtime)) deallocate(trc_var_dtime)
-      IF (allocated(trc_var_offset)) deallocate(trc_var_offset)
-      IF (allocated(trc_var_fprefix)) deallocate(trc_var_fprefix)
-      IF (allocated(trc_var_vname)) deallocate(trc_var_vname)
-      IF (allocated(trc_var_tintalgo)) deallocate(trc_var_tintalgo)
-      IF (allocated(trc_var_timelog)) deallocate(trc_var_timelog)
-      IF (allocated(trc_tstamp_LB)) deallocate(trc_tstamp_LB)
-      IF (allocated(trc_tstamp_UB)) deallocate(trc_tstamp_UB)
+      IF (allocated(mt_var_stream)) deallocate(mt_var_stream)
+      IF (allocated(mt_var_itrc)) deallocate(mt_var_itrc)
+      IF (allocated(mt_var_mode)) deallocate(mt_var_mode)
+      IF (allocated(mt_var_total)) deallocate(mt_var_total)
+      IF (allocated(mt_var_dtime)) deallocate(mt_var_dtime)
+      IF (allocated(mt_var_offset)) deallocate(mt_var_offset)
+      IF (allocated(mt_var_fprefix)) deallocate(mt_var_fprefix)
+      IF (allocated(mt_var_vname)) deallocate(mt_var_vname)
+      IF (allocated(mt_var_tintalgo)) deallocate(mt_var_tintalgo)
+      IF (allocated(mt_var_timelog)) deallocate(mt_var_timelog)
+      IF (allocated(mt_tstamp_LB)) deallocate(mt_tstamp_LB)
+      IF (allocated(mt_tstamp_UB)) deallocate(mt_tstamp_UB)
    END SUBROUTINE tracer_forcing_deallocate_config
 
-   SUBROUTINE tracer_forcing_add_var (stream, itrc, mode, fprefix, vname, tintalgo, dtime, offset)
+   SUBROUTINE tracer_forcing_add_var (stream, imt, mode, fprefix, vname, tintalgo, dtime, offset)
       IMPLICIT NONE
-      integer, intent(in) :: stream, itrc, mode, dtime, offset
+      integer, intent(in) :: stream, imt, mode, dtime, offset
       character(len=*), intent(in) :: fprefix, vname, tintalgo
       integer :: total_idx
 
       IF (dtime <= 0) THEN
          IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') &
-            'ERROR tracer_forcing_add_var: forcing dtime for material ', itrc, ' must be > 0, got ', dtime, '.'
+            'ERROR tracer_forcing_add_var: forcing dtime for material ', imt, ' must be > 0, got ', dtime, '.'
          CALL CoLM_stop()
       ENDIF
       IF (.not. tracer_forcing_token_present(fprefix)) RETURN
@@ -917,27 +917,27 @@ CONTAINS
       total_idx = 0
       IF (mode == MODE_HEAVY_OVER_TOTAL .or. mode == MODE_NORMALIZED_OVER_TOTAL) THEN
          total_idx = tracer_forcing_ensure_total(stream)
-         IF (dtime /= trc_var_dtime(total_idx) .or. offset /= trc_var_offset(total_idx) .or. &
-             trim(tracer_lower(tintalgo)) /= trim(trc_var_tintalgo(total_idx))) THEN
+         IF (dtime /= mt_var_dtime(total_idx) .or. offset /= mt_var_offset(total_idx) .or. &
+             trim(tracer_lower(tintalgo)) /= trim(mt_var_tintalgo(total_idx))) THEN
             IF (p_is_master) WRITE(*,'(A,I0,A)') &
                'ERROR tracer_forcing_add_var: raw/total forcing temporal config mismatch for material ', &
-               itrc, '.'
+               imt, '.'
             CALL CoLM_stop()
          ENDIF
       ENDIF
 
       n_trc_forc_vars = n_trc_forc_vars + 1
-      trc_var_stream(n_trc_forc_vars) = stream
-      trc_var_itrc(n_trc_forc_vars) = itrc
-      trc_var_mode(n_trc_forc_vars) = mode
-      trc_var_total(n_trc_forc_vars) = total_idx
-      trc_var_fprefix(n_trc_forc_vars) = trim(fprefix)
-      trc_var_vname(n_trc_forc_vars) = trim(vname)
-      trc_var_tintalgo(n_trc_forc_vars) = trim(tintalgo)
-      trc_var_timelog(n_trc_forc_vars) = 'instant'
-      IF (total_idx > 0) trc_var_timelog(n_trc_forc_vars) = trc_var_timelog(total_idx)
-      trc_var_dtime(n_trc_forc_vars) = dtime
-      trc_var_offset(n_trc_forc_vars) = offset
+      mt_var_stream(n_trc_forc_vars) = stream
+      mt_var_itrc(n_trc_forc_vars) = imt
+      mt_var_mode(n_trc_forc_vars) = mode
+      mt_var_total(n_trc_forc_vars) = total_idx
+      mt_var_fprefix(n_trc_forc_vars) = trim(fprefix)
+      mt_var_vname(n_trc_forc_vars) = trim(vname)
+      mt_var_tintalgo(n_trc_forc_vars) = trim(tintalgo)
+      mt_var_timelog(n_trc_forc_vars) = 'instant'
+      IF (total_idx > 0) mt_var_timelog(n_trc_forc_vars) = mt_var_timelog(total_idx)
+      mt_var_dtime(n_trc_forc_vars) = dtime
+      mt_var_offset(n_trc_forc_vars) = offset
    END SUBROUTINE tracer_forcing_add_var
 
    integer FUNCTION tracer_forcing_ensure_total (stream)
@@ -954,16 +954,16 @@ CONTAINS
             ENDIF
             n_trc_forc_vars = n_trc_forc_vars + 1
             idx_total_precip = n_trc_forc_vars
-            trc_var_stream(idx_total_precip) = STREAM_TOTAL_PRECIP
-            trc_var_itrc(idx_total_precip) = 0
-            trc_var_mode(idx_total_precip) = MODE_VALUE
-            trc_var_total(idx_total_precip) = 0
-            trc_var_fprefix(idx_total_precip) = trim(DEF_forcing%fprefix(4))
-            trc_var_vname(idx_total_precip) = trim(DEF_forcing%vname(4))
-            trc_var_tintalgo(idx_total_precip) = trim(tracer_lower(DEF_forcing%tintalgo(4)))
-            trc_var_timelog(idx_total_precip) = trim(tracer_lower(DEF_forcing%timelog(4)))
-            trc_var_dtime(idx_total_precip) = DEF_forcing%dtime(4)
-            trc_var_offset(idx_total_precip) = DEF_forcing%offset(4)
+            mt_var_stream(idx_total_precip) = STREAM_TOTAL_PRECIP
+            mt_var_itrc(idx_total_precip) = 0
+            mt_var_mode(idx_total_precip) = MODE_VALUE
+            mt_var_total(idx_total_precip) = 0
+            mt_var_fprefix(idx_total_precip) = trim(DEF_forcing%fprefix(4))
+            mt_var_vname(idx_total_precip) = trim(DEF_forcing%vname(4))
+            mt_var_tintalgo(idx_total_precip) = trim(tracer_lower(DEF_forcing%tintalgo(4)))
+            mt_var_timelog(idx_total_precip) = trim(tracer_lower(DEF_forcing%timelog(4)))
+            mt_var_dtime(idx_total_precip) = DEF_forcing%dtime(4)
+            mt_var_offset(idx_total_precip) = DEF_forcing%offset(4)
          ENDIF
          tracer_forcing_ensure_total = idx_total_precip
       ELSE
@@ -976,16 +976,16 @@ CONTAINS
             ENDIF
             n_trc_forc_vars = n_trc_forc_vars + 1
             idx_total_vapor = n_trc_forc_vars
-            trc_var_stream(idx_total_vapor) = STREAM_TOTAL_VAPOR
-            trc_var_itrc(idx_total_vapor) = 0
-            trc_var_mode(idx_total_vapor) = MODE_VALUE
-            trc_var_total(idx_total_vapor) = 0
-            trc_var_fprefix(idx_total_vapor) = trim(DEF_forcing%fprefix(2))
-            trc_var_vname(idx_total_vapor) = trim(DEF_forcing%vname(2))
-            trc_var_tintalgo(idx_total_vapor) = trim(tracer_lower(DEF_forcing%tintalgo(2)))
-            trc_var_timelog(idx_total_vapor) = trim(tracer_lower(DEF_forcing%timelog(2)))
-            trc_var_dtime(idx_total_vapor) = DEF_forcing%dtime(2)
-            trc_var_offset(idx_total_vapor) = DEF_forcing%offset(2)
+            mt_var_stream(idx_total_vapor) = STREAM_TOTAL_VAPOR
+            mt_var_itrc(idx_total_vapor) = 0
+            mt_var_mode(idx_total_vapor) = MODE_VALUE
+            mt_var_total(idx_total_vapor) = 0
+            mt_var_fprefix(idx_total_vapor) = trim(DEF_forcing%fprefix(2))
+            mt_var_vname(idx_total_vapor) = trim(DEF_forcing%vname(2))
+            mt_var_tintalgo(idx_total_vapor) = trim(tracer_lower(DEF_forcing%tintalgo(2)))
+            mt_var_timelog(idx_total_vapor) = trim(tracer_lower(DEF_forcing%timelog(2)))
+            mt_var_dtime(idx_total_vapor) = DEF_forcing%dtime(2)
+            mt_var_offset(idx_total_vapor) = DEF_forcing%offset(2)
          ENDIF
          tracer_forcing_ensure_total = idx_total_vapor
       ENDIF
@@ -994,67 +994,67 @@ CONTAINS
    SUBROUTINE tracer_forcing_allocate_state (numpatch)
       IMPLICIT NONE
       integer, intent(in) :: numpatch
-      integer :: itrc
+      integer :: imt
 
       CALL tracer_forcing_deallocate_state()
-      allocate(trc_forc_precip_value(ntracers, numpatch))
-      allocate(trc_forc_vapor_value(ntracers, numpatch))
-      allocate(trc_forc_precip_step(ntracers, numpatch))
-      allocate(trc_forc_precip_reliable(ntracers, numpatch))
-      allocate(trc_forc_phase_fill(ntracers))
-      allocate(trc_forc_has_precip(ntracers, numpatch))
-      allocate(trc_forc_has_vapor(ntracers, numpatch))
-      allocate(trc_forc_precip_status(ntracers, numpatch))
-      allocate(trc_forc_vapor_status(ntracers, numpatch))
-      allocate(trc_forc_precip_warned_dry(ntracers))
-      allocate(trc_forc_precip_warned_invalid(ntracers))
-      allocate(trc_forc_vapor_warned_dry(ntracers))
-      allocate(trc_forc_vapor_warned_invalid(ntracers))
-      trc_forc_precip_warned_dry(:) = .false.
-      trc_forc_precip_warned_invalid(:) = .false.
-      trc_forc_vapor_warned_dry(:) = .false.
-      trc_forc_vapor_warned_invalid(:) = .false.
-      DO itrc = 1, ntracers
-         trc_forc_precip_value(itrc, :) = tracer_precip_default_ratio(itrc)
-         trc_forc_vapor_value(itrc, :) = tracer_vapor_default_ratio(itrc)
-         trc_forc_precip_step(itrc, :) = tracer_precip_default_ratio(itrc)
-         trc_forc_phase_fill(itrc) = tracer_is_isotope(itrc) .and. &
-            tracer_forcing_precip_configured(itrc) .and. tracer_forcing_vapor_configured(itrc)
+      allocate(mt_forc_precip_value(nmts, numpatch))
+      allocate(mt_forc_vapor_value(nmts, numpatch))
+      allocate(mt_forc_precip_step(nmts, numpatch))
+      allocate(mt_forc_precip_reliable(nmts, numpatch))
+      allocate(mt_forc_phase_fill(nmts))
+      allocate(mt_forc_has_precip(nmts, numpatch))
+      allocate(mt_forc_has_vapor(nmts, numpatch))
+      allocate(mt_forc_precip_status(nmts, numpatch))
+      allocate(mt_forc_vapor_status(nmts, numpatch))
+      allocate(mt_forc_precip_warned_dry(nmts))
+      allocate(mt_forc_precip_warned_invalid(nmts))
+      allocate(mt_forc_vapor_warned_dry(nmts))
+      allocate(mt_forc_vapor_warned_invalid(nmts))
+      mt_forc_precip_warned_dry(:) = .false.
+      mt_forc_precip_warned_invalid(:) = .false.
+      mt_forc_vapor_warned_dry(:) = .false.
+      mt_forc_vapor_warned_invalid(:) = .false.
+      DO imt = 1, nmts
+         mt_forc_precip_value(imt, :) = tracer_precip_default_ratio(imt)
+         mt_forc_vapor_value(imt, :) = tracer_vapor_default_ratio(imt)
+         mt_forc_precip_step(imt, :) = tracer_precip_default_ratio(imt)
+         mt_forc_phase_fill(imt) = tracer_is_isotope(imt) .and. &
+            tracer_forcing_precip_configured(imt) .and. tracer_forcing_vapor_configured(imt)
       ENDDO
-      IF (any(trc_forc_phase_fill) .and. &
+      IF (any(mt_forc_phase_fill) .and. &
           .not. (DEF_MT_FORCING_MEMORY_PRECIP >= DEF_MT_FORCING_MIN_PRECIP)) &
          CALL CoLM_stop('DEF_MT_FORCING_MEMORY_PRECIP must be >= DEF_MT_FORCING_MIN_PRECIP for phase fill.')
-      trc_forc_precip_reliable(:,:) = 0._r8
+      mt_forc_precip_reliable(:,:) = 0._r8
       CALL tracer_forcing_prepare_step()
    END SUBROUTINE tracer_forcing_allocate_state
 
    SUBROUTINE tracer_forcing_deallocate_state ()
       IMPLICIT NONE
 
-      IF (allocated(trc_forc_precip_value)) deallocate(trc_forc_precip_value)
-      IF (allocated(trc_forc_vapor_value)) deallocate(trc_forc_vapor_value)
-      IF (allocated(trc_forc_precip_step)) deallocate(trc_forc_precip_step)
-      IF (allocated(trc_forc_precip_reliable)) deallocate(trc_forc_precip_reliable)
-      IF (allocated(trc_forc_phase_fill)) deallocate(trc_forc_phase_fill)
-      IF (allocated(trc_forc_has_precip)) deallocate(trc_forc_has_precip)
-      IF (allocated(trc_forc_has_vapor)) deallocate(trc_forc_has_vapor)
-      IF (allocated(trc_forc_precip_status)) deallocate(trc_forc_precip_status)
-      IF (allocated(trc_forc_vapor_status)) deallocate(trc_forc_vapor_status)
-      IF (allocated(trc_forc_precip_warned_dry)) deallocate(trc_forc_precip_warned_dry)
-      IF (allocated(trc_forc_precip_warned_invalid)) deallocate(trc_forc_precip_warned_invalid)
-      IF (allocated(trc_forc_vapor_warned_dry)) deallocate(trc_forc_vapor_warned_dry)
-      IF (allocated(trc_forc_vapor_warned_invalid)) deallocate(trc_forc_vapor_warned_invalid)
+      IF (allocated(mt_forc_precip_value)) deallocate(mt_forc_precip_value)
+      IF (allocated(mt_forc_vapor_value)) deallocate(mt_forc_vapor_value)
+      IF (allocated(mt_forc_precip_step)) deallocate(mt_forc_precip_step)
+      IF (allocated(mt_forc_precip_reliable)) deallocate(mt_forc_precip_reliable)
+      IF (allocated(mt_forc_phase_fill)) deallocate(mt_forc_phase_fill)
+      IF (allocated(mt_forc_has_precip)) deallocate(mt_forc_has_precip)
+      IF (allocated(mt_forc_has_vapor)) deallocate(mt_forc_has_vapor)
+      IF (allocated(mt_forc_precip_status)) deallocate(mt_forc_precip_status)
+      IF (allocated(mt_forc_vapor_status)) deallocate(mt_forc_vapor_status)
+      IF (allocated(mt_forc_precip_warned_dry)) deallocate(mt_forc_precip_warned_dry)
+      IF (allocated(mt_forc_precip_warned_invalid)) deallocate(mt_forc_precip_warned_invalid)
+      IF (allocated(mt_forc_vapor_warned_dry)) deallocate(mt_forc_vapor_warned_dry)
+      IF (allocated(mt_forc_vapor_warned_invalid)) deallocate(mt_forc_vapor_warned_invalid)
    END SUBROUTINE tracer_forcing_deallocate_state
 
    SUBROUTINE tracer_forcing_prepare_step ()
       IMPLICIT NONE
 
-      IF (.not. allocated(trc_forc_precip_value)) RETURN
+      IF (.not. allocated(mt_forc_precip_value)) RETURN
 
-      trc_forc_has_precip(:,:) = .false.
-      trc_forc_has_vapor(:,:) = .false.
-      trc_forc_precip_status(:,:) = DECODE_INVALID
-      trc_forc_vapor_status(:,:) = DECODE_INVALID
+      mt_forc_has_precip(:,:) = .false.
+      mt_forc_has_vapor(:,:) = .false.
+      mt_forc_precip_status(:,:) = DECODE_INVALID
+      mt_forc_vapor_status(:,:) = DECODE_INVALID
    END SUBROUTINE tracer_forcing_prepare_step
 
    SUBROUTINE tracer_forcing_read_LBUB (idate, dir_forcing)
@@ -1068,28 +1068,28 @@ CONTAINS
       mtstamp = idate
 
       DO iv = 1, n_trc_forc_vars
-         IF (.not.(trc_tstamp_LB(iv) == 'NULL') .and. .not.(trc_tstamp_UB(iv) == 'NULL') .and. &
-             trc_tstamp_LB(iv) <= mtstamp .and. mtstamp < trc_tstamp_UB(iv)) CYCLE
+         IF (.not.(mt_tstamp_LB(iv) == 'NULL') .and. .not.(mt_tstamp_UB(iv) == 'NULL') .and. &
+             mt_tstamp_LB(iv) <= mtstamp .and. mtstamp < mt_tstamp_UB(iv)) CYCLE
 
-         IF (trc_tstamp_LB(iv) == 'NULL') THEN
+         IF (mt_tstamp_LB(iv) == 'NULL') THEN
             CALL tracer_forcing_setstamp_LB(mtstamp, iv, year, month, day, time_i)
             filename = trim(dir_forcing)//trim(tracer_forcing_filename(year, month, day, iv))
             IF (p_is_io) THEN
-               CALL ncio_read_block_time(filename, trim(trc_var_vname(iv)), trc_gforc, time_i, trc_metdata)
-               CALL block_data_copy(trc_metdata, trc_forcn_LB(iv))
+               CALL ncio_read_block_time(filename, trim(mt_var_vname(iv)), mt_gforc, time_i, mt_metdata)
+               CALL block_data_copy(mt_metdata, mt_forcn_LB(iv))
             ENDIF
          ENDIF
 
-         DO WHILE (trc_tstamp_UB(iv) == 'NULL' .or. trc_tstamp_UB(iv) <= mtstamp)
-            IF (.not. (trc_tstamp_UB(iv) == 'NULL')) THEN
-               IF (p_is_io) CALL block_data_copy(trc_forcn_UB(iv), trc_forcn_LB(iv))
+         DO WHILE (mt_tstamp_UB(iv) == 'NULL' .or. mt_tstamp_UB(iv) <= mtstamp)
+            IF (.not. (mt_tstamp_UB(iv) == 'NULL')) THEN
+               IF (p_is_io) CALL block_data_copy(mt_forcn_UB(iv), mt_forcn_LB(iv))
             ENDIF
 
             CALL tracer_forcing_setstamp_UB(iv, year, month, day, time_i)
             filename = trim(dir_forcing)//trim(tracer_forcing_filename(year, month, day, iv))
             IF (p_is_io) THEN
-               CALL ncio_read_block_time(filename, trim(trc_var_vname(iv)), trc_gforc, time_i, trc_metdata)
-               CALL block_data_copy(trc_metdata, trc_forcn_UB(iv))
+               CALL ncio_read_block_time(filename, trim(mt_var_vname(iv)), mt_gforc, time_i, mt_metdata)
+               CALL block_data_copy(mt_metdata, mt_forcn_UB(iv))
             ENDIF
          ENDDO
       ENDDO
@@ -1102,74 +1102,74 @@ CONTAINS
       integer :: dtLB, dtUB
 
       mtstamp = idate
-      IF ((mtstamp < trc_tstamp_LB(iv)) .or. (trc_tstamp_UB(iv) < mtstamp)) THEN
+      IF ((mtstamp < mt_tstamp_LB(iv)) .or. (mt_tstamp_UB(iv) < mtstamp)) THEN
          WRITE(6, *) 'material forcing data required is out of range! STOP!'
          CALL CoLM_stop()
       ENDIF
 
-      dtLB = mtstamp - trc_tstamp_LB(iv)
-      dtUB = trc_tstamp_UB(iv) - mtstamp
+      dtLB = mtstamp - mt_tstamp_LB(iv)
+      dtUB = mt_tstamp_UB(iv) - mtstamp
 
-      IF (trim(trc_var_tintalgo(iv)) == 'linear') THEN
+      IF (trim(mt_var_tintalgo(iv)) == 'linear') THEN
          IF ((dtLB + dtUB) > 0) THEN
             CALL block_data_linear_interp( &
-               trc_forcn_LB(iv), real(dtUB, r8) / real(dtLB + dtUB, r8), &
-               trc_forcn_UB(iv), real(dtLB, r8) / real(dtLB + dtUB, r8), &
-               trc_forcn(iv))
+               mt_forcn_LB(iv), real(dtUB, r8) / real(dtLB + dtUB, r8), &
+               mt_forcn_UB(iv), real(dtLB, r8) / real(dtLB + dtUB, r8), &
+               mt_forcn(iv))
          ELSE
-            CALL block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))
+            CALL block_data_copy(mt_forcn_LB(iv), mt_forcn(iv))
          ENDIF
-      ELSEIF (trim(trc_var_tintalgo(iv)) == 'nearest') THEN
+      ELSEIF (trim(mt_var_tintalgo(iv)) == 'nearest') THEN
          IF (dtLB <= dtUB) THEN
-            CALL block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))
+            CALL block_data_copy(mt_forcn_LB(iv), mt_forcn(iv))
          ELSE
-            CALL block_data_copy(trc_forcn_UB(iv), trc_forcn(iv))
+            CALL block_data_copy(mt_forcn_UB(iv), mt_forcn(iv))
          ENDIF
-      ELSEIF (trim(trc_var_tintalgo(iv)) == 'uniform') THEN
+      ELSEIF (trim(mt_var_tintalgo(iv)) == 'uniform') THEN
          ! Match MOD_Forcing exactly: interval means logged forward belong
          ! to the lower timestamp; backward (and other non-forward logs)
          ! belong to the upper timestamp.
-         IF (trim(trc_var_timelog(iv)) == 'forward') THEN
-            CALL block_data_copy(trc_forcn_LB(iv), trc_forcn(iv))
+         IF (trim(mt_var_timelog(iv)) == 'forward') THEN
+            CALL block_data_copy(mt_forcn_LB(iv), mt_forcn(iv))
          ELSE
-            CALL block_data_copy(trc_forcn_UB(iv), trc_forcn(iv))
+            CALL block_data_copy(mt_forcn_UB(iv), mt_forcn(iv))
          ENDIF
       ELSE
          IF (p_is_master) WRITE(*,'(A,I0,3A)') &
             'ERROR tracer_forcing_interpolate_var: variable ', iv, &
-            ' has invalid interpolation mode "', trim(trc_var_tintalgo(iv)), '".'
+            ' has invalid interpolation mode "', trim(mt_var_tintalgo(iv)), '".'
          CALL CoLM_stop()
       ENDIF
    END SUBROUTINE tracer_forcing_interpolate_var
 
    SUBROUTINE tracer_forcing_update_values ()
       IMPLICIT NONE
-      integer :: iv, ip, itrc, decode_status
+      integer :: iv, ip, imt, decode_status
       real(r8) :: value
       logical :: value_valid
 
       IF (.not. p_is_worker) RETURN
-      IF (.not. allocated(trc_forc_patch)) RETURN
-      IF (.not. allocated(trc_forc_precip_value)) RETURN
+      IF (.not. allocated(mt_forc_patch)) RETURN
+      IF (.not. allocated(mt_forc_precip_value)) RETURN
 
       DO iv = 1, n_trc_forc_vars
-         itrc = trc_var_itrc(iv)
-         IF (itrc < 1 .or. itrc > ntracers) CYCLE
-         DO ip = 1, size(trc_forc_patch, 1)
+         imt = mt_var_itrc(iv)
+         IF (imt < 1 .or. imt > nmts) CYCLE
+         DO ip = 1, size(mt_forc_patch, 1)
             CALL tracer_forcing_decode_value(iv, ip, value, value_valid, decode_status)
-            IF (trc_var_stream(iv) == STREAM_PRECIP) trc_forc_precip_status(itrc, ip) = decode_status
-            IF (trc_var_stream(iv) == STREAM_VAPOR) trc_forc_vapor_status(itrc, ip) = decode_status
+            IF (mt_var_stream(iv) == STREAM_PRECIP) mt_forc_precip_status(imt, ip) = decode_status
+            IF (mt_var_stream(iv) == STREAM_VAPOR) mt_forc_vapor_status(imt, ip) = decode_status
             IF (.not. value_valid) CYCLE
-            IF (trc_var_stream(iv) == STREAM_PRECIP) THEN
-               trc_forc_precip_step(itrc, ip) = value
-               trc_forc_has_precip(itrc, ip) = .true.
+            IF (mt_var_stream(iv) == STREAM_PRECIP) THEN
+               mt_forc_precip_step(imt, ip) = value
+               mt_forc_has_precip(imt, ip) = .true.
                IF (tracer_forcing_reliable_record(iv, ip)) THEN
-                  trc_forc_precip_value(itrc, ip) = value
-                  trc_forc_precip_reliable(itrc, ip) = 1._r8
+                  mt_forc_precip_value(imt, ip) = value
+                  mt_forc_precip_reliable(imt, ip) = 1._r8
                ENDIF
-            ELSEIF (trc_var_stream(iv) == STREAM_VAPOR) THEN
-               trc_forc_vapor_value(itrc, ip) = value
-               trc_forc_has_vapor(itrc, ip) = .true.
+            ELSEIF (mt_var_stream(iv) == STREAM_VAPOR) THEN
+               mt_forc_vapor_value(imt, ip) = value
+               mt_forc_has_vapor(imt, ip) = .true.
             ENDIF
          ENDDO
       ENDDO
@@ -1178,13 +1178,13 @@ CONTAINS
       ! after LULCC), its remembered snow ratio is the ratio of ice deposited
       ! from the forcing vapour (Jouzel-Merlivat effective alpha at the air
       ! temperature), updated each step, instead of the fixed default ratio.
-      DO itrc = 1, ntracers
-         IF (.not. trc_forc_phase_fill(itrc)) CYCLE
-         DO ip = 1, size(trc_forc_precip_value, 2)
-            IF (trc_forc_precip_reliable(itrc, ip) > 0.5_r8) CYCLE
-            value = tracer_alpha_ice_vap_deposition(itrc, forc_t(ip)) * trc_forc_vapor_value(itrc, ip)
-            IF (tracer_forcing_valid_value(value) .and. value > trc_tiny) &
-               trc_forc_precip_value(itrc, ip) = value
+      DO imt = 1, nmts
+         IF (.not. mt_forc_phase_fill(imt)) CYCLE
+         DO ip = 1, size(mt_forc_precip_value, 2)
+            IF (mt_forc_precip_reliable(imt, ip) > 0.5_r8) CYCLE
+            value = tracer_alpha_ice_vap_deposition(imt, forc_t(ip)) * mt_forc_vapor_value(imt, ip)
+            IF (tracer_forcing_valid_value(value) .and. value > mt_tiny) &
+               mt_forc_precip_value(imt, ip) = value
          ENDDO
       ENDDO
    END SUBROUTINE tracer_forcing_update_values
@@ -1197,16 +1197,16 @@ CONTAINS
    logical FUNCTION tracer_forcing_reliable_record (iv, ip)
       IMPLICIT NONE
       integer, intent(in) :: iv, ip
-      integer :: itrc
+      integer :: imt
 
       tracer_forcing_reliable_record = .true.
-      itrc = trc_var_itrc(iv)
-      IF (.not. trc_forc_phase_fill(itrc)) RETURN
-      IF (trc_var_mode(iv) /= MODE_HEAVY_OVER_TOTAL .and. &
-          trc_var_mode(iv) /= MODE_NORMALIZED_OVER_TOTAL) RETURN
-      IF (trc_var_total(iv) <= 0) RETURN
+      imt = mt_var_itrc(iv)
+      IF (.not. mt_forc_phase_fill(imt)) RETURN
+      IF (mt_var_mode(iv) /= MODE_HEAVY_OVER_TOTAL .and. &
+          mt_var_mode(iv) /= MODE_NORMALIZED_OVER_TOTAL) RETURN
+      IF (mt_var_total(iv) <= 0) RETURN
       tracer_forcing_reliable_record = &
-         trc_forc_patch(ip, trc_var_total(iv)) > DEF_MT_FORCING_MEMORY_PRECIP
+         mt_forc_patch(ip, mt_var_total(iv)) > DEF_MT_FORCING_MEMORY_PRECIP
    END FUNCTION tracer_forcing_reliable_record
 
    SUBROUTINE tracer_forcing_decode_value (iv, ip, value, valid, status)
@@ -1215,29 +1215,29 @@ CONTAINS
       real(r8), intent(out) :: value
       logical, intent(out) :: valid
       integer, intent(out), optional :: status
-      integer :: itrc, total_idx, decode_status
+      integer :: imt, total_idx, decode_status
       real(r8) :: raw, total, min_total, delta
 
       value = 0._r8
       valid = .false.
       decode_status = DECODE_INVALID
-      raw = trc_forc_patch(ip, iv)
+      raw = mt_forc_patch(ip, iv)
 
-      itrc = trc_var_itrc(iv)
-      SELECT CASE (trc_var_mode(iv))
+      imt = mt_var_itrc(iv)
+      SELECT CASE (mt_var_mode(iv))
       CASE (MODE_HEAVY_OVER_TOTAL, MODE_NORMALIZED_OVER_TOTAL)
-         total_idx = trc_var_total(iv)
+         total_idx = mt_var_total(iv)
          IF (total_idx <= 0) THEN
             IF (present(status)) status = decode_status
             RETURN
          ENDIF
-         total = trc_forc_patch(ip, total_idx)
+         total = mt_forc_patch(ip, total_idx)
          IF (.not. tracer_forcing_valid_value(total)) THEN
             IF (present(status)) status = decode_status
             RETURN
          ENDIF
-         min_total = trc_forc_min_q
-         IF (trc_var_stream(iv) == STREAM_PRECIP) min_total = DEF_MT_FORCING_MIN_PRECIP
+         min_total = mt_forc_min_q
+         IF (mt_var_stream(iv) == STREAM_PRECIP) min_total = DEF_MT_FORCING_MIN_PRECIP
          IF (total <= min_total) THEN
             decode_status = DECODE_NEAR_DRY
             IF (present(status)) status = decode_status
@@ -1252,7 +1252,7 @@ CONTAINS
             RETURN
          ENDIF
          value = raw / total
-         IF (trc_var_mode(iv) == MODE_NORMALIZED_OVER_TOTAL) THEN
+         IF (mt_var_mode(iv) == MODE_NORMALIZED_OVER_TOTAL) THEN
             ! `normalized_over_total` means the heavy/total stream is
             ! normalized by the tracer reference value. This is not limited
             ! to category=isotope: a no-fractionation HDO test
@@ -1260,15 +1260,15 @@ CONTAINS
             ! stored concentration per unit water. For solutes
             ! the default ref_ratio=1 keeps this identical to
             ! heavy_over_total.
-            value = value * tracers(itrc)%ref_ratio
+            value = value * tracers(imt)%ref_ratio
          ENDIF
       CASE (MODE_DELTA)
          IF (.not. tracer_forcing_valid_value(raw)) THEN
             IF (present(status)) status = decode_status
             RETURN
          ENDIF
-         IF (tracer_is_isotope(itrc)) THEN
-            value = delta_to_R(raw, tracers(itrc)%ref_ratio)
+         IF (tracer_is_isotope(imt)) THEN
+            value = delta_to_R(raw, tracers(imt)%ref_ratio)
          ELSE
             value = raw
          ENDIF
@@ -1280,13 +1280,13 @@ CONTAINS
          value = raw
       END SELECT
 
-      IF (tracer_is_isotope(itrc)) THEN
-         IF (value <= trc_tiny) THEN
+      IF (tracer_is_isotope(imt)) THEN
+         IF (value <= mt_tiny) THEN
             IF (present(status)) status = decode_status
             RETURN
          ENDIF
-         delta = tracer_forcing_ratio_to_delta(value, tracers(itrc)%ref_ratio)
-         IF (abs(delta) > trc_delta_sanity_max) THEN
+         delta = tracer_forcing_ratio_to_delta(value, tracers(imt)%ref_ratio)
+         IF (abs(delta) > mt_delta_sanity_max) THEN
             IF (present(status)) status = decode_status
             RETURN
          ENDIF
@@ -1307,7 +1307,7 @@ CONTAINS
       IMPLICIT NONE
       real(r8), intent(in) :: x
 
-      tracer_forcing_valid_value = abs(x) < trc_forc_max_abs
+      tracer_forcing_valid_value = abs(x) < mt_forc_max_abs
    END FUNCTION tracer_forcing_valid_value
 
    SUBROUTINE tracer_forcing_setstamp_LB (mtstamp, iv, year, month, mday, time_i)
@@ -1324,31 +1324,31 @@ CONTAINS
       day = mtstamp%day
       sec = mtstamp%sec
 
-      trc_tstamp_LB(iv)%year = year
-      trc_tstamp_LB(iv)%day = day
+      mt_tstamp_LB(iv)%year = year
+      mt_tstamp_LB(iv)%day = day
 
       IF (trim(DEF_forcing%groupby) == 'year') THEN
          sec_file = 86400 * (day - 1) + sec
-         time_i = floor((sec_file - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
-         sec = (time_i - 1) * trc_var_dtime(iv) + trc_var_offset(iv) - 86400 * (day - 1)
-         trc_tstamp_LB(iv)%sec = sec
+         time_i = floor((sec_file - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
+         sec = (time_i - 1) * mt_var_dtime(iv) + mt_var_offset(iv) - 86400 * (day - 1)
+         mt_tstamp_LB(iv)%sec = sec
 
          IF (sec < 0) THEN
-            trc_tstamp_LB(iv)%sec = 86400 + sec
-            trc_tstamp_LB(iv)%day = day - 1
-            IF (trc_tstamp_LB(iv)%day == 0) THEN
-               trc_tstamp_LB(iv)%year = year - 1
-               IF (isleapyear(trc_tstamp_LB(iv)%year)) THEN
-                  trc_tstamp_LB(iv)%day = 366
+            mt_tstamp_LB(iv)%sec = 86400 + sec
+            mt_tstamp_LB(iv)%day = day - 1
+            IF (mt_tstamp_LB(iv)%day == 0) THEN
+               mt_tstamp_LB(iv)%year = year - 1
+               IF (isleapyear(mt_tstamp_LB(iv)%year)) THEN
+                  mt_tstamp_LB(iv)%day = 366
                ELSE
-                  trc_tstamp_LB(iv)%day = 365
+                  mt_tstamp_LB(iv)%day = 365
                ENDIF
             ENDIF
          ENDIF
 
-         IF (sec < 0 .or. (sec == 0 .and. trc_var_offset(iv) /= 0)) THEN
+         IF (sec < 0 .or. (sec == 0 .and. mt_var_offset(iv) /= 0)) THEN
             IF (year == DEF_forcing%startyr .and. DEF_forcing%startmo == 1 .and. day == 1) THEN
-               sec = trc_var_offset(iv)
+               sec = mt_var_offset(iv)
             ELSE
                sec = 86400 + sec
                day = day - 1
@@ -1366,7 +1366,7 @@ CONTAINS
          IF (.not. DEF_forcing%leapyear .and. isleapyear(year) .and. day > 59) day = day - 1
 
          sec_file = 86400 * (day - 1) + sec
-         time_i = floor((sec_file - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
+         time_i = floor((sec_file - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
          CALL julian2monthday(year, day, month, mday)
 
       ELSEIF (trim(DEF_forcing%groupby) == 'month') THEN
@@ -1378,26 +1378,26 @@ CONTAINS
 
          CALL julian2monthday(year, day, month, mday)
          sec_file = 86400 * (mday - 1) + sec
-         time_i = floor((sec_file - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
-         sec = (time_i - 1) * trc_var_dtime(iv) + trc_var_offset(iv) - 86400 * (mday - 1)
-         trc_tstamp_LB(iv)%sec = sec
+         time_i = floor((sec_file - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
+         sec = (time_i - 1) * mt_var_dtime(iv) + mt_var_offset(iv) - 86400 * (mday - 1)
+         mt_tstamp_LB(iv)%sec = sec
 
          IF (sec < 0) THEN
-            trc_tstamp_LB(iv)%sec = 86400 + sec
-            trc_tstamp_LB(iv)%day = day - 1
-            IF (trc_tstamp_LB(iv)%day == 0) THEN
-               trc_tstamp_LB(iv)%year = year - 1
-               IF (isleapyear(trc_tstamp_LB(iv)%year)) THEN
-                  trc_tstamp_LB(iv)%day = 366
+            mt_tstamp_LB(iv)%sec = 86400 + sec
+            mt_tstamp_LB(iv)%day = day - 1
+            IF (mt_tstamp_LB(iv)%day == 0) THEN
+               mt_tstamp_LB(iv)%year = year - 1
+               IF (isleapyear(mt_tstamp_LB(iv)%year)) THEN
+                  mt_tstamp_LB(iv)%day = 366
                ELSE
-                  trc_tstamp_LB(iv)%day = 365
+                  mt_tstamp_LB(iv)%day = 365
                ENDIF
             ENDIF
          ENDIF
 
-         IF (sec < 0 .or. (sec == 0 .and. trc_var_offset(iv) /= 0)) THEN
+         IF (sec < 0 .or. (sec == 0 .and. mt_var_offset(iv) /= 0)) THEN
             IF (year == DEF_forcing%startyr .and. month == DEF_forcing%startmo .and. mday == 1) THEN
-               sec = trc_var_offset(iv)
+               sec = mt_var_offset(iv)
             ELSE
                sec = 86400 + sec
                mday = mday - 1
@@ -1417,37 +1417,37 @@ CONTAINS
          IF (.not. DEF_forcing%leapyear .and. isleapyear(year) .and. month == 2 .and. mday == 29) mday = 28
 
          sec_file = 86400 * (mday - 1) + sec
-         time_i = floor((sec_file - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
+         time_i = floor((sec_file - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
 
       ELSEIF (trim(DEF_forcing%groupby) == 'day') THEN
          CALL julian2monthday(year, day, month, mday)
-         time_i = floor((sec - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
-         sec = (time_i - 1) * trc_var_dtime(iv) + trc_var_offset(iv)
-         trc_tstamp_LB(iv)%sec = sec
+         time_i = floor((sec - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
+         sec = (time_i - 1) * mt_var_dtime(iv) + mt_var_offset(iv)
+         mt_tstamp_LB(iv)%sec = sec
 
          IF (sec < 0) THEN
-            trc_tstamp_LB(iv)%sec = 86400 + sec
-            trc_tstamp_LB(iv)%day = day - 1
-            IF (trc_tstamp_LB(iv)%day == 0) THEN
-               trc_tstamp_LB(iv)%year = year - 1
-               IF (isleapyear(trc_tstamp_LB(iv)%year)) THEN
-                  trc_tstamp_LB(iv)%day = 366
+            mt_tstamp_LB(iv)%sec = 86400 + sec
+            mt_tstamp_LB(iv)%day = day - 1
+            IF (mt_tstamp_LB(iv)%day == 0) THEN
+               mt_tstamp_LB(iv)%year = year - 1
+               IF (isleapyear(mt_tstamp_LB(iv)%year)) THEN
+                  mt_tstamp_LB(iv)%day = 366
                ELSE
-                  trc_tstamp_LB(iv)%day = 365
+                  mt_tstamp_LB(iv)%day = 365
                ENDIF
             ENDIF
 
             IF (year == DEF_forcing%startyr .and. month == DEF_forcing%startmo .and. mday == 1) THEN
-               sec = trc_var_offset(iv)
+               sec = mt_var_offset(iv)
             ELSE
                sec = 86400 + sec
-               year = trc_tstamp_LB(iv)%year
-               CALL julian2monthday(trc_tstamp_LB(iv)%year, trc_tstamp_LB(iv)%day, month, mday)
+               year = mt_tstamp_LB(iv)%year
+               CALL julian2monthday(mt_tstamp_LB(iv)%year, mt_tstamp_LB(iv)%day, month, mday)
             ENDIF
          ENDIF
 
          IF (.not. DEF_forcing%leapyear .and. isleapyear(year) .and. month == 2 .and. mday == 29) mday = 28
-         time_i = floor((sec - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
+         time_i = floor((sec - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
 
       ELSE
          IF (p_is_master) WRITE(*,'(2A)') 'ERROR material forcing unsupported groupby: ', trim(DEF_forcing%groupby)
@@ -1469,19 +1469,19 @@ CONTAINS
 
       CALL tracer_forcing_validate_var_dtime(iv)
 
-      IF (trc_tstamp_UB(iv) == 'NULL') THEN
-         trc_tstamp_UB(iv) = trc_tstamp_LB(iv) + trc_var_dtime(iv)
+      IF (mt_tstamp_UB(iv) == 'NULL') THEN
+         mt_tstamp_UB(iv) = mt_tstamp_LB(iv) + mt_var_dtime(iv)
       ELSE
-         trc_tstamp_LB(iv) = trc_tstamp_UB(iv)
-         trc_tstamp_UB(iv) = trc_tstamp_UB(iv) + trc_var_dtime(iv)
+         mt_tstamp_LB(iv) = mt_tstamp_UB(iv)
+         mt_tstamp_UB(iv) = mt_tstamp_UB(iv) + mt_var_dtime(iv)
       ENDIF
 
-      year = trc_tstamp_UB(iv)%year
-      day = trc_tstamp_UB(iv)%day
-      sec = trc_tstamp_UB(iv)%sec
+      year = mt_tstamp_UB(iv)%year
+      day = mt_tstamp_UB(iv)%day
+      sec = mt_tstamp_UB(iv)%sec
 
       IF (trim(DEF_forcing%groupby) == 'year') THEN
-         IF (sec == 86400 .and. trc_var_offset(iv) == 0) THEN
+         IF (sec == 86400 .and. mt_var_offset(iv) == 0) THEN
             sec = 0
             day = day + 1
             IF (isleapyear(year) .and. day == 367) THEN
@@ -1497,7 +1497,7 @@ CONTAINS
          IF (.not. DEF_forcing%leapyear .and. isleapyear(year) .and. day > 59) day = day - 1
 
          sec_file = 86400 * (day - 1) + sec
-         time_i = floor((sec_file - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
+         time_i = floor((sec_file - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
          CALL julian2monthday(year, day, month, mday)
 
       ELSEIF (trim(DEF_forcing%groupby) == 'month') THEN
@@ -1509,7 +1509,7 @@ CONTAINS
 
          CALL julian2monthday(year, day, month, mday)
 
-         IF (sec == 86400 .and. trc_var_offset(iv) == 0) THEN
+         IF (sec == 86400 .and. mt_var_offset(iv) == 0) THEN
             sec = 0
             mday = mday + 1
             IF (mday > (months(month) - months(month - 1))) THEN
@@ -1526,7 +1526,7 @@ CONTAINS
          IF (.not. DEF_forcing%leapyear .and. isleapyear(year) .and. month == 2 .and. mday == 29) mday = 28
 
          sec_file = 86400 * (mday - 1) + sec
-         time_i = floor((sec_file - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
+         time_i = floor((sec_file - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
 
       ELSEIF (trim(DEF_forcing%groupby) == 'day') THEN
          IF (isleapyear(year)) THEN
@@ -1537,7 +1537,7 @@ CONTAINS
 
          CALL julian2monthday(year, day, month, mday)
 
-         IF (sec == 86400 .and. trc_var_offset(iv) == 0) THEN
+         IF (sec == 86400 .and. mt_var_offset(iv) == 0) THEN
             sec = 0
             mday = mday + 1
             IF (mday > (months(month) - months(month - 1))) THEN
@@ -1552,7 +1552,7 @@ CONTAINS
          ENDIF
 
          IF (.not. DEF_forcing%leapyear .and. isleapyear(year) .and. month == 2 .and. mday == 29) mday = 28
-         time_i = floor((sec - trc_var_offset(iv)) * 1.0_r8 / trc_var_dtime(iv)) + 1
+         time_i = floor((sec - mt_var_offset(iv)) * 1.0_r8 / mt_var_dtime(iv)) + 1
 
       ELSE
          IF (p_is_master) WRITE(*,'(2A)') 'ERROR material forcing unsupported groupby: ', trim(DEF_forcing%groupby)
@@ -1569,7 +1569,7 @@ CONTAINS
       IMPLICIT NONE
       integer, intent(in) :: iv
 
-      IF (.not. allocated(trc_var_dtime)) THEN
+      IF (.not. allocated(mt_var_dtime)) THEN
          IF (p_is_master) WRITE(*,'(A)') 'ERROR material forcing dtime is not configured.'
          CALL CoLM_stop()
       ENDIF
@@ -1577,9 +1577,9 @@ CONTAINS
          IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR material forcing variable index ', iv, ' is out of range.'
          CALL CoLM_stop()
       ENDIF
-      IF (trc_var_dtime(iv) <= 0) THEN
+      IF (mt_var_dtime(iv) <= 0) THEN
          IF (p_is_master) WRITE(*,'(A,I0,A,I0,A)') 'ERROR material forcing dtime for variable ', iv, &
-            ' must be > 0, got ', trc_var_dtime(iv), '.'
+            ' must be > 0, got ', mt_var_dtime(iv), '.'
          CALL CoLM_stop()
       ENDIF
    END SUBROUTINE tracer_forcing_validate_var_dtime
@@ -1591,7 +1591,7 @@ CONTAINS
       character(len=16) :: yearstr, monthstr, daystr
 
       main_var = tracer_forcing_main_var_index(iv)
-      IF (main_var > 0 .and. trim(trc_var_fprefix(iv)) == trim(DEF_forcing%fprefix(main_var))) THEN
+      IF (main_var > 0 .and. trim(mt_var_fprefix(iv)) == trim(DEF_forcing%fprefix(main_var))) THEN
          tracer_forcing_filename = metfilename(year, month, day, main_var)
          RETURN
       ENDIF
@@ -1601,14 +1601,14 @@ CONTAINS
       write(daystr, '(I2.2)') day
 
       IF (trim(DEF_forcing%groupby) == 'year') THEN
-         tracer_forcing_filename = '/'//trim(trc_var_fprefix(iv))//'_'//trim(yearstr)//'.nc'
+         tracer_forcing_filename = '/'//trim(mt_var_fprefix(iv))//'_'//trim(yearstr)//'.nc'
       ELSEIF (trim(DEF_forcing%groupby) == 'month') THEN
-         tracer_forcing_filename = '/'//trim(trc_var_fprefix(iv))//'_'//trim(yearstr)//'_'//trim(monthstr)//'.nc'
+         tracer_forcing_filename = '/'//trim(mt_var_fprefix(iv))//'_'//trim(yearstr)//'_'//trim(monthstr)//'.nc'
       ELSEIF (trim(DEF_forcing%groupby) == 'day') THEN
-         tracer_forcing_filename = '/'//trim(trc_var_fprefix(iv))//'_'//trim(yearstr)//'_'//trim(monthstr)// &
+         tracer_forcing_filename = '/'//trim(mt_var_fprefix(iv))//'_'//trim(yearstr)//'_'//trim(monthstr)// &
             '_'//trim(daystr)//'.nc'
       ELSE
-         tracer_forcing_filename = '/'//trim(trc_var_fprefix(iv))//'_'//trim(yearstr)//'.nc'
+         tracer_forcing_filename = '/'//trim(mt_var_fprefix(iv))//'_'//trim(yearstr)//'.nc'
       ENDIF
    END FUNCTION tracer_forcing_filename
 
@@ -1617,7 +1617,7 @@ CONTAINS
       integer, intent(in) :: iv
 
       tracer_forcing_main_var_index = 0
-      SELECT CASE (trc_var_stream(iv))
+      SELECT CASE (mt_var_stream(iv))
       CASE (STREAM_PRECIP, STREAM_TOTAL_PRECIP)
          tracer_forcing_main_var_index = 4
       CASE (STREAM_VAPOR, STREAM_TOTAL_VAPOR)
@@ -1625,15 +1625,15 @@ CONTAINS
       END SELECT
    END FUNCTION tracer_forcing_main_var_index
 
-   real(r8) FUNCTION tracer_forcing_precip_value (itrc, ipatch)
+   real(r8) FUNCTION tracer_forcing_precip_value (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
 
-      tracer_forcing_precip_value = tracer_precip_default_ratio(itrc)
-      IF (.not. allocated(trc_forc_precip_value)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (ipatch < 1 .or. ipatch > size(trc_forc_precip_value, 2)) RETURN
-      tracer_forcing_precip_value = trc_forc_precip_value(itrc, ipatch)
+      tracer_forcing_precip_value = tracer_precip_default_ratio(imt)
+      IF (.not. allocated(mt_forc_precip_value)) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
+      IF (ipatch < 1 .or. ipatch > size(mt_forc_precip_value, 2)) RETURN
+      tracer_forcing_precip_value = mt_forc_precip_value(imt, ipatch)
    END FUNCTION tracer_forcing_precip_value
 
    !---------------------------------------------------------------
@@ -1662,113 +1662,113 @@ CONTAINS
    ! The alphas describe the atmosphere that made the forcing, so they do not
    ! depend on DEF_ISO_USE_FRACTIONATION.
    !---------------------------------------------------------------
-   real(r8) FUNCTION tracer_forcing_rain_value (itrc, ipatch)
+   real(r8) FUNCTION tracer_forcing_rain_value (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
       real(r8) :: value
 
-      tracer_forcing_rain_value = tracer_forcing_precip_value(itrc, ipatch)
-      IF (.not. tracer_forcing_phase_fill_at(itrc, ipatch)) RETURN
-      IF (trc_forc_has_precip(itrc, ipatch)) THEN
-         tracer_forcing_rain_value = trc_forc_precip_step(itrc, ipatch)
-      ELSEIF (trc_forc_precip_status(itrc, ipatch) == DECODE_NEAR_DRY) THEN
-         value = tracer_alpha_liq_vap(itrc, forc_t(ipatch)) * trc_forc_vapor_value(itrc, ipatch)
-         IF (tracer_forcing_valid_value(value) .and. value > trc_tiny) &
+      tracer_forcing_rain_value = tracer_forcing_precip_value(imt, ipatch)
+      IF (.not. tracer_forcing_phase_fill_at(imt, ipatch)) RETURN
+      IF (mt_forc_has_precip(imt, ipatch)) THEN
+         tracer_forcing_rain_value = mt_forc_precip_step(imt, ipatch)
+      ELSEIF (mt_forc_precip_status(imt, ipatch) == DECODE_NEAR_DRY) THEN
+         value = tracer_alpha_liq_vap(imt, forc_t(ipatch)) * mt_forc_vapor_value(imt, ipatch)
+         IF (tracer_forcing_valid_value(value) .and. value > mt_tiny) &
             tracer_forcing_rain_value = value
       ENDIF
    END FUNCTION tracer_forcing_rain_value
 
-   real(r8) FUNCTION tracer_forcing_snow_value (itrc, ipatch)
+   real(r8) FUNCTION tracer_forcing_snow_value (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
 
-      tracer_forcing_snow_value = tracer_forcing_precip_value(itrc, ipatch)
-      IF (.not. tracer_forcing_phase_fill_at(itrc, ipatch)) RETURN
-      IF (trc_forc_has_precip(itrc, ipatch)) &
-         tracer_forcing_snow_value = trc_forc_precip_step(itrc, ipatch)
+      tracer_forcing_snow_value = tracer_forcing_precip_value(imt, ipatch)
+      IF (.not. tracer_forcing_phase_fill_at(imt, ipatch)) RETURN
+      IF (mt_forc_has_precip(imt, ipatch)) &
+         tracer_forcing_snow_value = mt_forc_precip_step(imt, ipatch)
    END FUNCTION tracer_forcing_snow_value
 
-   logical FUNCTION tracer_forcing_phase_fill_at (itrc, ipatch)
+   logical FUNCTION tracer_forcing_phase_fill_at (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
 
       tracer_forcing_phase_fill_at = .false.
-      IF (.not. allocated(trc_forc_phase_fill)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (ipatch < 1 .or. ipatch > size(trc_forc_precip_value, 2)) RETURN
-      tracer_forcing_phase_fill_at = trc_forc_phase_fill(itrc)
+      IF (.not. allocated(mt_forc_phase_fill)) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
+      IF (ipatch < 1 .or. ipatch > size(mt_forc_precip_value, 2)) RETURN
+      tracer_forcing_phase_fill_at = mt_forc_phase_fill(imt)
    END FUNCTION tracer_forcing_phase_fill_at
 
-   real(r8) FUNCTION tracer_forcing_vapor_value (itrc, ipatch)
+   real(r8) FUNCTION tracer_forcing_vapor_value (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
 
-      tracer_forcing_vapor_value = tracer_vapor_default_ratio(itrc)
-      IF (.not. allocated(trc_forc_vapor_value)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (ipatch < 1 .or. ipatch > size(trc_forc_vapor_value, 2)) RETURN
-      tracer_forcing_vapor_value = trc_forc_vapor_value(itrc, ipatch)
+      tracer_forcing_vapor_value = tracer_vapor_default_ratio(imt)
+      IF (.not. allocated(mt_forc_vapor_value)) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
+      IF (ipatch < 1 .or. ipatch > size(mt_forc_vapor_value, 2)) RETURN
+      tracer_forcing_vapor_value = mt_forc_vapor_value(imt, ipatch)
    END FUNCTION tracer_forcing_vapor_value
 
-   real(r8) FUNCTION tracer_forcing_precip_ratio (itrc, ipatch)
+   real(r8) FUNCTION tracer_forcing_precip_ratio (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
-      tracer_forcing_precip_ratio = tracer_forcing_precip_value(itrc, ipatch)
+      integer, intent(in) :: imt, ipatch
+      tracer_forcing_precip_ratio = tracer_forcing_precip_value(imt, ipatch)
    END FUNCTION tracer_forcing_precip_ratio
 
-   real(r8) FUNCTION tracer_forcing_vapor_ratio (itrc, ipatch)
+   real(r8) FUNCTION tracer_forcing_vapor_ratio (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
-      tracer_forcing_vapor_ratio = tracer_forcing_vapor_value(itrc, ipatch)
+      integer, intent(in) :: imt, ipatch
+      tracer_forcing_vapor_ratio = tracer_forcing_vapor_value(imt, ipatch)
    END FUNCTION tracer_forcing_vapor_ratio
 
-   logical FUNCTION tracer_forcing_has_precip (itrc, ipatch)
+   logical FUNCTION tracer_forcing_has_precip (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
 
       tracer_forcing_has_precip = .false.
-      IF (.not. allocated(trc_forc_has_precip)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (ipatch < 1 .or. ipatch > size(trc_forc_has_precip, 2)) RETURN
-      tracer_forcing_has_precip = trc_forc_has_precip(itrc, ipatch) .or. &
-         tracer_forcing_precip_configured(itrc)
+      IF (.not. allocated(mt_forc_has_precip)) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
+      IF (ipatch < 1 .or. ipatch > size(mt_forc_has_precip, 2)) RETURN
+      tracer_forcing_has_precip = mt_forc_has_precip(imt, ipatch) .or. &
+         tracer_forcing_precip_configured(imt)
    END FUNCTION tracer_forcing_has_precip
 
-   logical FUNCTION tracer_forcing_has_vapor (itrc, ipatch)
+   logical FUNCTION tracer_forcing_has_vapor (imt, ipatch)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, ipatch
+      integer, intent(in) :: imt, ipatch
 
       tracer_forcing_has_vapor = .false.
-      IF (.not. allocated(trc_forc_has_vapor)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      IF (ipatch < 1 .or. ipatch > size(trc_forc_has_vapor, 2)) RETURN
-      tracer_forcing_has_vapor = trc_forc_has_vapor(itrc, ipatch) .or. &
-         tracer_forcing_vapor_configured(itrc)
+      IF (.not. allocated(mt_forc_has_vapor)) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
+      IF (ipatch < 1 .or. ipatch > size(mt_forc_has_vapor, 2)) RETURN
+      tracer_forcing_has_vapor = mt_forc_has_vapor(imt, ipatch) .or. &
+         tracer_forcing_vapor_configured(imt)
    END FUNCTION tracer_forcing_has_vapor
 
 
-   logical FUNCTION tracer_forcing_precip_configured (itrc)
+   logical FUNCTION tracer_forcing_precip_configured (imt)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       integer :: iv
 
       tracer_forcing_precip_configured = .false.
       DO iv = 1, n_trc_forc_vars
-         IF (trc_var_stream(iv) == STREAM_PRECIP .and. trc_var_itrc(iv) == itrc) THEN
+         IF (mt_var_stream(iv) == STREAM_PRECIP .and. mt_var_itrc(iv) == imt) THEN
             tracer_forcing_precip_configured = .true.
             RETURN
          ENDIF
       ENDDO
    END FUNCTION tracer_forcing_precip_configured
 
-   logical FUNCTION tracer_forcing_vapor_configured (itrc)
+   logical FUNCTION tracer_forcing_vapor_configured (imt)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       integer :: iv
 
       tracer_forcing_vapor_configured = .false.
       DO iv = 1, n_trc_forc_vars
-         IF (trc_var_stream(iv) == STREAM_VAPOR .and. trc_var_itrc(iv) == itrc) THEN
+         IF (mt_var_stream(iv) == STREAM_VAPOR .and. mt_var_itrc(iv) == imt) THEN
             tracer_forcing_vapor_configured = .true.
             RETURN
          ENDIF
@@ -1779,7 +1779,7 @@ CONTAINS
       IMPLICIT NONE
       real(r8), intent(in) :: ratio, ref_ratio
 
-      IF (ratio > trc_tiny .and. ref_ratio > trc_tiny) THEN
+      IF (ratio > mt_tiny .and. ref_ratio > mt_tiny) THEN
          tracer_forcing_ratio_to_delta = (ratio / ref_ratio - 1._r8) * 1000._r8
       ELSE
          tracer_forcing_ratio_to_delta = 0._r8
@@ -1789,16 +1789,16 @@ CONTAINS
    SUBROUTINE tracer_forcing_log_ranges (idate)
       IMPLICIT NONE
       integer, intent(in) :: idate(3)
-      integer :: itrc, ip
+      integer :: imt, ip
       real(r8), allocatable :: pmin(:), pmax(:), vmin(:), vmax(:)
       integer, allocatable :: pcnt(:), vcnt(:), pmiss(:), pdry(:), vmiss(:), vdry(:)
       real(r8) :: outval
       logical :: emit_header
 
-      IF (.not. allocated(trc_forc_precip_value)) RETURN
+      IF (.not. allocated(mt_forc_precip_value)) RETURN
 
-      allocate(pmin(ntracers), pmax(ntracers), vmin(ntracers), vmax(ntracers))
-      allocate(pcnt(ntracers), vcnt(ntracers), pmiss(ntracers), pdry(ntracers), vmiss(ntracers), vdry(ntracers))
+      allocate(pmin(nmts), pmax(nmts), vmin(nmts), vmax(nmts))
+      allocate(pcnt(nmts), vcnt(nmts), pmiss(nmts), pdry(nmts), vmiss(nmts), vdry(nmts))
       pmin(:) = huge(1._r8)
       vmin(:) = huge(1._r8)
       pmax(:) = -huge(1._r8)
@@ -1811,33 +1811,33 @@ CONTAINS
       vdry(:) = 0
 
       IF (p_is_worker) THEN
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            DO ip = 1, size(trc_forc_precip_value, 2)
-               IF (trc_forc_has_precip(itrc, ip)) THEN
-                  outval = tracer_forcing_diag_value(itrc, trc_forc_precip_step(itrc, ip))
-                  pmin(itrc) = min(pmin(itrc), outval)
-                  pmax(itrc) = max(pmax(itrc), outval)
-                  pcnt(itrc) = pcnt(itrc) + 1
-               ELSEIF (tracer_is_isotope(itrc) .and. tracer_forcing_precip_configured(itrc)) THEN
-                  IF (allocated(trc_forc_precip_status) .and. &
-                      trc_forc_precip_status(itrc, ip) == DECODE_NEAR_DRY) THEN
-                     pdry(itrc) = pdry(itrc) + 1
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            DO ip = 1, size(mt_forc_precip_value, 2)
+               IF (mt_forc_has_precip(imt, ip)) THEN
+                  outval = tracer_forcing_diag_value(imt, mt_forc_precip_step(imt, ip))
+                  pmin(imt) = min(pmin(imt), outval)
+                  pmax(imt) = max(pmax(imt), outval)
+                  pcnt(imt) = pcnt(imt) + 1
+               ELSEIF (tracer_is_isotope(imt) .and. tracer_forcing_precip_configured(imt)) THEN
+                  IF (allocated(mt_forc_precip_status) .and. &
+                      mt_forc_precip_status(imt, ip) == DECODE_NEAR_DRY) THEN
+                     pdry(imt) = pdry(imt) + 1
                   ELSE
-                     pmiss(itrc) = pmiss(itrc) + 1
+                     pmiss(imt) = pmiss(imt) + 1
                   ENDIF
                ENDIF
-               IF (trc_forc_has_vapor(itrc, ip)) THEN
-                  outval = tracer_forcing_diag_value(itrc, trc_forc_vapor_value(itrc, ip))
-                  vmin(itrc) = min(vmin(itrc), outval)
-                  vmax(itrc) = max(vmax(itrc), outval)
-                  vcnt(itrc) = vcnt(itrc) + 1
-               ELSEIF (tracer_fractionation_active(itrc)) THEN
-                  IF (allocated(trc_forc_vapor_status) .and. &
-                      trc_forc_vapor_status(itrc, ip) == DECODE_NEAR_DRY) THEN
-                     vdry(itrc) = vdry(itrc) + 1
+               IF (mt_forc_has_vapor(imt, ip)) THEN
+                  outval = tracer_forcing_diag_value(imt, mt_forc_vapor_value(imt, ip))
+                  vmin(imt) = min(vmin(imt), outval)
+                  vmax(imt) = max(vmax(imt), outval)
+                  vcnt(imt) = vcnt(imt) + 1
+               ELSEIF (tracer_fractionation_active(imt)) THEN
+                  IF (allocated(mt_forc_vapor_status) .and. &
+                      mt_forc_vapor_status(imt, ip) == DECODE_NEAR_DRY) THEN
+                     vdry(imt) = vdry(imt) + 1
                   ELSE
-                     vmiss(itrc) = vmiss(itrc) + 1
+                     vmiss(imt) = vmiss(imt) + 1
                   ENDIF
                ENDIF
             ENDDO
@@ -1845,95 +1845,95 @@ CONTAINS
       ENDIF
 
 #ifdef USEMPI
-      CALL mpi_allreduce(MPI_IN_PLACE, pmin, ntracers, MPI_REAL8, MPI_MIN, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, pmax, ntracers, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, vmin, ntracers, MPI_REAL8, MPI_MIN, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, vmax, ntracers, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, pcnt, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, vcnt, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, pmiss, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, pdry, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, vmiss, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce(MPI_IN_PLACE, vdry, ntracers, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pmin, nmts, MPI_REAL8, MPI_MIN, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pmax, nmts, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vmin, nmts, MPI_REAL8, MPI_MIN, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vmax, nmts, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pcnt, nmts, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vcnt, nmts, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pmiss, nmts, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, pdry, nmts, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vmiss, nmts, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce(MPI_IN_PLACE, vdry, nmts, MPI_INTEGER, MPI_SUM, p_comm_glb, p_err)
 #endif
 
       IF (p_is_master) THEN
-         emit_header = trc_forcing_log_count < 3
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            IF (pdry(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_dry(itrc))) &
+         emit_header = mt_forcing_log_count < 3
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            IF (pdry(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_precip_warned_dry(imt))) &
                emit_header = .true.
-            IF (pmiss(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_invalid(itrc))) &
+            IF (pmiss(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_precip_warned_invalid(imt))) &
                emit_header = .true.
-            IF (vdry(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_dry(itrc))) &
+            IF (vdry(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_vapor_warned_dry(imt))) &
                emit_header = .true.
-            IF (vmiss(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_invalid(itrc))) &
+            IF (vmiss(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_vapor_warned_invalid(imt))) &
                emit_header = .true.
          ENDDO
          IF (emit_header) WRITE(*,'(/,A,I4.4,A,I3.3,A,I5.5)') &
             'Checking material forcing at ', idate(1), '-', idate(2), '-', idate(3)
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            IF (trc_forcing_log_count < 3 .and. pcnt(itrc) > 0) THEN
-               WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  precip ', trim(tracers(itrc)%name), &
-                  ' n=', pcnt(itrc), ' min=', pmin(itrc), ' max=', pmax(itrc)
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            IF (mt_forcing_log_count < 3 .and. pcnt(imt) > 0) THEN
+               WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  precip ', trim(tracers(imt)%name), &
+                  ' n=', pcnt(imt), ' min=', pmin(imt), ' max=', pmax(imt)
             ENDIF
-            IF (trc_forcing_log_count < 3 .and. vcnt(itrc) > 0) THEN
-               WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  vapor   ', trim(tracers(itrc)%name), &
-                  ' n=', vcnt(itrc), ' min=', vmin(itrc), ' max=', vmax(itrc)
+            IF (mt_forcing_log_count < 3 .and. vcnt(imt) > 0) THEN
+               WRITE(*,'(3A,I0,A,F12.5,A,F12.5)') '  vapor   ', trim(tracers(imt)%name), &
+                  ' n=', vcnt(imt), ' min=', vmin(imt), ' max=', vmax(imt)
             ENDIF
-            IF (pdry(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_dry(itrc))) THEN
-               IF (trc_forc_phase_fill(itrc)) THEN
-                  WRITE(*,'(3A,I0,A)') '  NOTE precip ', trim(tracers(itrc)%name), &
-                     ' near-dry patches=', pdry(itrc), &
+            IF (pdry(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_precip_warned_dry(imt))) THEN
+               IF (mt_forc_phase_fill(imt)) THEN
+                  WRITE(*,'(3A,I0,A)') '  NOTE precip ', trim(tracers(imt)%name), &
+                     ' near-dry patches=', pdry(imt), &
                      ' (rain: vapour equilibrium; snow: last reliable precip ratio)'
                ELSE
-                  WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(itrc)%name), &
-                     ' near-dry fallback patches=', pdry(itrc), &
+                  WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(imt)%name), &
+                     ' near-dry fallback patches=', pdry(imt), &
                      ' (retaining the previous valid/default precip ratio)'
                ENDIF
-               trc_forc_precip_warned_dry(itrc) = .true.
+               mt_forc_precip_warned_dry(imt) = .true.
             ENDIF
-            IF (pmiss(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_precip_warned_invalid(itrc))) THEN
-               WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(itrc)%name), &
-                  ' invalid/missing wet fallback patches=', pmiss(itrc), &
+            IF (pmiss(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_precip_warned_invalid(imt))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING precip ', trim(tracers(imt)%name), &
+                  ' invalid/missing wet fallback patches=', pmiss(imt), &
                   ' (retaining the previous valid/default precip ratio)'
-               trc_forc_precip_warned_invalid(itrc) = .true.
+               mt_forc_precip_warned_invalid(imt) = .true.
             ENDIF
-            IF (vdry(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_dry(itrc))) THEN
-               WRITE(*,'(3A,I0,A)') '  WARNING vapor ', trim(tracers(itrc)%name), &
-                  ' near-dry fallback patches=', vdry(itrc), &
+            IF (vdry(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_vapor_warned_dry(imt))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING vapor ', trim(tracers(imt)%name), &
+                  ' near-dry fallback patches=', vdry(imt), &
                   ' (retaining the previous valid/default vapor ratio)'
-               trc_forc_vapor_warned_dry(itrc) = .true.
+               mt_forc_vapor_warned_dry(imt) = .true.
             ENDIF
-            IF (vmiss(itrc) > 0 .and. &
-                (trc_forcing_log_count < 3 .or. .not. trc_forc_vapor_warned_invalid(itrc))) THEN
-               WRITE(*,'(3A,I0,A)') '  WARNING vapor ', trim(tracers(itrc)%name), &
-                  ' invalid/missing wet fallback patches=', vmiss(itrc), &
+            IF (vmiss(imt) > 0 .and. &
+                (mt_forcing_log_count < 3 .or. .not. mt_forc_vapor_warned_invalid(imt))) THEN
+               WRITE(*,'(3A,I0,A)') '  WARNING vapor ', trim(tracers(imt)%name), &
+                  ' invalid/missing wet fallback patches=', vmiss(imt), &
                   ' (retaining the previous valid/default vapor ratio)'
-               trc_forc_vapor_warned_invalid(itrc) = .true.
+               mt_forc_vapor_warned_invalid(imt) = .true.
             ENDIF
          ENDDO
       ENDIF
 
-      trc_forcing_log_count = trc_forcing_log_count + 1
+      mt_forcing_log_count = mt_forcing_log_count + 1
       deallocate(pmin, pmax, vmin, vmax, pcnt, vcnt, pmiss, pdry, vmiss, vdry)
    END SUBROUTINE tracer_forcing_log_ranges
 
-   real(r8) FUNCTION tracer_forcing_diag_value (itrc, value)
+   real(r8) FUNCTION tracer_forcing_diag_value (imt, value)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       real(r8), intent(in) :: value
 
-      IF (tracer_is_isotope(itrc)) THEN
-         tracer_forcing_diag_value = tracer_forcing_ratio_to_delta(value, tracers(itrc)%ref_ratio)
+      IF (tracer_is_isotope(imt)) THEN
+         tracer_forcing_diag_value = tracer_forcing_ratio_to_delta(value, tracers(imt)%ref_ratio)
       ELSE
          tracer_forcing_diag_value = value
       ENDIF

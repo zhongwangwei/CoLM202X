@@ -4,12 +4,12 @@
 MODULE MOD_MT_Precip
 
    USE MOD_Precision
-   USE MOD_MT_Defs, only: ntracers, trc_tiny, trc_water_min_for_ratio, mt_uses_generic_water
+   USE MOD_MT_Defs, only: nmts, mt_tiny, mt_water_min_for_ratio, mt_uses_generic_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
    USE MOD_MT_Forcing, only: tracer_forcing_rain_value, tracer_forcing_snow_value
-   USE MOD_MT_Vars, only: trc_ldew_rain, trc_ldew_snow, a_trc_precip, &
-      trc_pg_rain_ground, trc_pg_snow_ground, trc_waterstorage, &
-      trc_canopy_solid, trc_surface_solid, trc_waterstorage_solid
+   USE MOD_MT_Vars, only: mt_ldew_rain, mt_ldew_snow, a_trc_precip, &
+      mt_pg_rain_ground, mt_pg_snow_ground, mt_waterstorage, &
+      mt_canopy_solid, mt_surface_solid, mt_waterstorage_solid
    USE MOD_Const_Physical, only: tfrz
    USE MOD_Namelist, only: DEF_VEG_SNOW
 
@@ -101,17 +101,17 @@ CONTAINS
       ! routine has already debited waterstorage by the time this routine runs.
       real(r8), intent(in), optional :: waterstorage_before
 
-      integer  :: itrc
+      integer  :: imt
       real(r8) :: R_snow_input, R_rain_atm, storage_ratio, R_rain_input
       real(r8) :: intercepted, drip, throughfall
-      real(r8) :: trc_mixed, water_mixed, R_mixed
-      real(r8) :: trc_throughfall, trc_drip
-      real(r8) :: trc_rain_ground, trc_snow_ground
+      real(r8) :: mt_mixed, water_mixed, R_mixed
+      real(r8) :: mt_throughfall, mt_drip
+      real(r8) :: mt_rain_ground, mt_snow_ground
       real(r8) :: rain_total           ! forc_rain + sprinkler [mm/s]
       real(r8) :: sprinkler_rate       ! non-negative sprinkler water input [mm/s]
       real(r8) :: sprinkler_water      ! sprinkler water transferred this step [mm]
       real(r8) :: xsc_mass             ! pre-mix release in this step [mm]
-      real(r8) :: trc_xsc              ! pre-mix release tracer mass
+      real(r8) :: mt_xsc              ! pre-mix release tracer mass
       real(r8) :: R_canopy_pre         ! canopy signature BEFORE mix
       real(r8) :: ldew_rain_pre_mix    ! post-xsc, pre-mix storage [mm]
       real(r8) :: ldew_snow_pre_mix
@@ -124,14 +124,14 @@ CONTAINS
       real(r8) :: ldew_snow_old_eff
       real(r8) :: smelt_mass, frzc_mass ! effective phase-change masses
       real(r8) :: R_snow_pre, R_rain_pre
-      real(r8) :: trc_smelt, trc_frzc   ! tracer mass migrated this step
+      real(r8) :: mt_smelt, mt_frzc   ! tracer mass migrated this step
       real(r8) :: canopy_trc_beg, canopy_trc_end, canopy_input_trc
       real(r8) :: canopy_resid, ground_trc_total, desired_ground_total
       real(r8) :: sprinkler_trc
       real(r8) :: canopy_old_water, canopy_release_trc
       real(r8) :: release_rain, release_snow, release_total
 
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
       ! Interception / pg_rain / ldew already see the sprinkler-boosted
       ! rain stream from LEAF_INTERCEPTION. Use the boosted total here
@@ -142,18 +142,18 @@ CONTAINS
       sprinkler_water = sprinkler_rate * deltim
       rain_total = max(forc_rain, 0._r8) + sprinkler_rate
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
          ! Rain and snow take their own forcing ratio: they differ only where
          ! the forcing record is near-dry (see tracer_forcing_rain_value in
          ! MOD_MT_Forcing); elsewhere both are the same value as before.
-         R_rain_atm   = tracer_forcing_rain_value(itrc, ipatch)
-         R_snow_input = tracer_forcing_snow_value(itrc, ipatch)
+         R_rain_atm   = tracer_forcing_rain_value(imt, ipatch)
+         R_snow_input = tracer_forcing_snow_value(imt, ipatch)
          storage_ratio = R_rain_atm
-         CALL mt_equilibrate_dissolved(itrc, max(ldew_rain_old, 0._r8), &
-            trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
-         canopy_trc_beg = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
-            + trc_canopy_solid(itrc, ipatch)
+         CALL mt_equilibrate_dissolved(imt, max(ldew_rain_old, 0._r8), &
+            mt_ldew_rain(imt, ipatch), mt_canopy_solid(imt, ipatch))
+         canopy_trc_beg = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch) &
+            + mt_canopy_solid(imt, ipatch)
 
          ! Atmospheric precipitation is external input; count into the
          ! precip accumulator. Sprinkler irrigation also reaches the
@@ -165,41 +165,41 @@ CONTAINS
          ! matches the water-side definition.
          ! The second term is exactly zero when rain and snow share a ratio,
          ! which keeps this sum bit-identical to the single-ratio form.
-         a_trc_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch) &
+         a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) &
             + (forc_rain + forc_snow) * R_snow_input * deltim &
             + forc_rain * (R_rain_atm - R_snow_input) * deltim
 
-         IF (qflx_irrig_sprinkler > trc_tiny .and. allocated(trc_waterstorage)) THEN
+         IF (qflx_irrig_sprinkler > mt_tiny .and. allocated(mt_waterstorage)) THEN
             IF (present(waterstorage_before)) THEN
-               CALL mt_equilibrate_dissolved(itrc, max(waterstorage_before, 0._r8), &
-                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
-               IF (waterstorage_before > trc_water_min_for_ratio) THEN
-                  storage_ratio = trc_waterstorage(itrc, ipatch) / waterstorage_before
+               CALL mt_equilibrate_dissolved(imt, max(waterstorage_before, 0._r8), &
+                  mt_waterstorage(imt, ipatch), mt_waterstorage_solid(imt, ipatch))
+               IF (waterstorage_before > mt_water_min_for_ratio) THEN
+                  storage_ratio = mt_waterstorage(imt, ipatch) / waterstorage_before
                ENDIF
             ENDIF
             sprinkler_trc = sprinkler_water * storage_ratio
-            sprinkler_trc = min(max(sprinkler_trc, 0._r8), max(trc_waterstorage(itrc, ipatch), 0._r8))
-            trc_waterstorage(itrc, ipatch) = trc_waterstorage(itrc, ipatch) &
+            sprinkler_trc = min(max(sprinkler_trc, 0._r8), max(mt_waterstorage(imt, ipatch), 0._r8))
+            mt_waterstorage(imt, ipatch) = mt_waterstorage(imt, ipatch) &
                - sprinkler_trc
             ! The canopy must receive exactly the tracer actually removed,
             ! including near-dry and dissolved-inventory-limited withdrawals.
-            IF (sprinkler_water > trc_tiny) storage_ratio = sprinkler_trc / sprinkler_water
+            IF (sprinkler_water > mt_tiny) storage_ratio = sprinkler_trc / sprinkler_water
             IF (present(waterstorage_before)) THEN
-               CALL mt_equilibrate_dissolved(itrc, &
+               CALL mt_equilibrate_dissolved(imt, &
                   max(waterstorage_before - sprinkler_water, 0._r8), &
-                  trc_waterstorage(itrc, ipatch), trc_waterstorage_solid(itrc, ipatch))
+                  mt_waterstorage(imt, ipatch), mt_waterstorage_solid(imt, ipatch))
             ENDIF
          ELSE
             sprinkler_trc = sprinkler_water * storage_ratio
          ENDIF
 
          R_rain_input = R_rain_atm
-         IF (rain_total > trc_tiny) THEN
+         IF (rain_total > mt_tiny) THEN
             R_rain_input = (max(forc_rain, 0._r8) * R_rain_atm + sprinkler_rate * storage_ratio) / rain_total
          ENDIF
 
-         trc_rain_ground = 0._r8
-         trc_snow_ground = 0._r8
+         mt_rain_ground = 0._r8
+         mt_snow_ground = 0._r8
 
          ! ---- Stage 0: canopy phase-change migration ----
          ! NoahMP/MATSIRO/VIC/JULES may have melted part of the canopy
@@ -218,15 +218,15 @@ CONTAINS
          frzc_mass  = max(0._r8, ldew_frzc_mass)
 
          IF (smelt_mass > 0._r8) THEN
-            IF (ldew_snow_old_eff > trc_tiny) THEN
-               R_snow_pre = trc_ldew_snow(itrc, ipatch) / ldew_snow_old_eff
+            IF (ldew_snow_old_eff > mt_tiny) THEN
+               R_snow_pre = mt_ldew_snow(imt, ipatch) / ldew_snow_old_eff
             ELSE
                R_snow_pre = R_snow_input
             ENDIF
-            trc_smelt = smelt_mass * R_snow_pre
-            trc_ldew_snow(itrc, ipatch) = max(0._r8, &
-               trc_ldew_snow(itrc, ipatch) - trc_smelt)
-            trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_smelt
+            mt_smelt = smelt_mass * R_snow_pre
+            mt_ldew_snow(imt, ipatch) = max(0._r8, &
+               mt_ldew_snow(imt, ipatch) - mt_smelt)
+            mt_ldew_rain(imt, ipatch) = mt_ldew_rain(imt, ipatch) + mt_smelt
             ldew_snow_old_eff = ldew_snow_old_eff - smelt_mass
             ldew_rain_old_eff = ldew_rain_old_eff + smelt_mass
          ENDIF
@@ -236,15 +236,15 @@ CONTAINS
             ! ponytail: interception exposes aggregate phase mass but no
             ! freeze-event temperature (and PFTs can differ); keep this
             ! transfer conservative until temperature-weighted diagnostics exist.
-            IF (ldew_rain_old_eff > trc_tiny) THEN
-               R_rain_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
+            IF (ldew_rain_old_eff > mt_tiny) THEN
+               R_rain_pre = mt_ldew_rain(imt, ipatch) / ldew_rain_old_eff
             ELSE
                R_rain_pre = R_rain_atm
             ENDIF
-            trc_frzc = frzc_mass * R_rain_pre
-            trc_ldew_rain(itrc, ipatch) = max(0._r8, &
-               trc_ldew_rain(itrc, ipatch) - trc_frzc)
-            trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_frzc
+            mt_frzc = frzc_mass * R_rain_pre
+            mt_ldew_rain(imt, ipatch) = max(0._r8, &
+               mt_ldew_rain(imt, ipatch) - mt_frzc)
+            mt_ldew_snow(imt, ipatch) = mt_ldew_snow(imt, ipatch) + mt_frzc
             ldew_rain_old_eff = ldew_rain_old_eff - frzc_mass
             ldew_snow_old_eff = ldew_snow_old_eff + frzc_mass
          ENDIF
@@ -260,25 +260,25 @@ CONTAINS
          ! precipitated into trc_canopy_solid when the now-empty liquid carrier
          ! is equilibrated below).
          canopy_old_water = ldew_rain_old_eff + ldew_snow_old_eff
-         IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= trc_water_min_for_ratio .and. &
-             canopy_old_water > trc_water_min_for_ratio .and. &
-             (((max(xsc_rain_out, 0._r8) * deltim > trc_water_min_for_ratio) .and. &
-                (max(xsc_snow_out, 0._r8) * deltim <= trc_water_min_for_ratio)) .or. &
-              ((max(xsc_snow_out, 0._r8) * deltim > trc_water_min_for_ratio) .and. &
-                (max(xsc_rain_out, 0._r8) * deltim <= trc_water_min_for_ratio))) .and. &
+         IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= mt_water_min_for_ratio .and. &
+             canopy_old_water > mt_water_min_for_ratio .and. &
+             (((max(xsc_rain_out, 0._r8) * deltim > mt_water_min_for_ratio) .and. &
+                (max(xsc_snow_out, 0._r8) * deltim <= mt_water_min_for_ratio)) .or. &
+              ((max(xsc_snow_out, 0._r8) * deltim > mt_water_min_for_ratio) .and. &
+                (max(xsc_rain_out, 0._r8) * deltim <= mt_water_min_for_ratio))) .and. &
              (max(xsc_rain_out, 0._r8) + max(xsc_snow_out, 0._r8)) * deltim &
-                >= canopy_old_water - trc_water_min_for_ratio) THEN
-            canopy_release_trc = trc_ldew_rain(itrc, ipatch) + &
-               trc_ldew_snow(itrc, ipatch) + trc_canopy_solid(itrc, ipatch)
-            trc_canopy_solid(itrc, ipatch) = 0._r8
-            IF (max(xsc_rain_out, 0._r8) * deltim > trc_water_min_for_ratio) THEN
-               trc_ldew_rain(itrc, ipatch) = canopy_release_trc
-               trc_ldew_snow(itrc, ipatch) = 0._r8
+                >= canopy_old_water - mt_water_min_for_ratio) THEN
+            canopy_release_trc = mt_ldew_rain(imt, ipatch) + &
+               mt_ldew_snow(imt, ipatch) + mt_canopy_solid(imt, ipatch)
+            mt_canopy_solid(imt, ipatch) = 0._r8
+            IF (max(xsc_rain_out, 0._r8) * deltim > mt_water_min_for_ratio) THEN
+               mt_ldew_rain(imt, ipatch) = canopy_release_trc
+               mt_ldew_snow(imt, ipatch) = 0._r8
                ldew_rain_old_eff = canopy_old_water
                ldew_snow_old_eff = 0._r8
             ELSE
-               trc_ldew_rain(itrc, ipatch) = 0._r8
-               trc_ldew_snow(itrc, ipatch) = canopy_release_trc
+               mt_ldew_rain(imt, ipatch) = 0._r8
+               mt_ldew_snow(imt, ipatch) = canopy_release_trc
                ldew_rain_old_eff = 0._r8
                ldew_snow_old_eff = canopy_old_water
             ENDIF
@@ -292,20 +292,20 @@ CONTAINS
          ! donors untouched (including the homogeneous IGBP path).
          release_rain = max(xsc_rain_out, 0._r8) * deltim
          release_snow = max(xsc_snow_out, 0._r8) * deltim
-         IF (.not. DEF_VEG_SNOW .and. canopy_old_water > trc_tiny .and. &
+         IF (.not. DEF_VEG_SNOW .and. canopy_old_water > mt_tiny .and. &
              (release_rain > ldew_rain_old_eff .or. release_snow > ldew_snow_old_eff)) THEN
             release_total = release_rain + release_snow
             IF (release_total > canopy_old_water) THEN
                release_rain = canopy_old_water * (release_rain / release_total)
                release_snow = canopy_old_water - release_rain
             ENDIF
-            canopy_release_trc = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+            canopy_release_trc = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
             ! Retain the established empty-canopy flush of solid inventory,
             ! also when the complete release has BOTH phases.
-            IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= trc_water_min_for_ratio .and. &
-                release_total >= canopy_old_water - trc_water_min_for_ratio) THEN
-               canopy_release_trc = canopy_release_trc + trc_canopy_solid(itrc, ipatch)
-               trc_canopy_solid(itrc, ipatch) = 0._r8
+            IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= mt_water_min_for_ratio .and. &
+                release_total >= canopy_old_water - mt_water_min_for_ratio) THEN
+               canopy_release_trc = canopy_release_trc + mt_canopy_solid(imt, ipatch)
+               mt_canopy_solid(imt, ipatch) = 0._r8
             ENDIF
             IF (release_snow > ldew_snow_old_eff) THEN
                ldew_snow_old_eff = release_snow
@@ -317,11 +317,11 @@ CONTAINS
             ! Compute the smaller share directly, avoiding cancellation for
             ! tiny releases from a much larger canopy reservoir.
             IF (ldew_rain_old_eff <= ldew_snow_old_eff) THEN
-               trc_ldew_rain(itrc, ipatch) = canopy_release_trc * (ldew_rain_old_eff / canopy_old_water)
-               trc_ldew_snow(itrc, ipatch) = canopy_release_trc - trc_ldew_rain(itrc, ipatch)
+               mt_ldew_rain(imt, ipatch) = canopy_release_trc * (ldew_rain_old_eff / canopy_old_water)
+               mt_ldew_snow(imt, ipatch) = canopy_release_trc - mt_ldew_rain(imt, ipatch)
             ELSE
-               trc_ldew_snow(itrc, ipatch) = canopy_release_trc * (ldew_snow_old_eff / canopy_old_water)
-               trc_ldew_rain(itrc, ipatch) = canopy_release_trc - trc_ldew_snow(itrc, ipatch)
+               mt_ldew_snow(imt, ipatch) = canopy_release_trc * (ldew_snow_old_eff / canopy_old_water)
+               mt_ldew_rain(imt, ipatch) = canopy_release_trc - mt_ldew_snow(imt, ipatch)
             ENDIF
          ENDIF
 
@@ -334,22 +334,22 @@ CONTAINS
          ! Use the post-phase-change effective old-pool so R_canopy_pre
          ! reflects the actual pool entering the xsc stage.
          xsc_mass = min(max(0._r8, xsc_rain_out) * deltim, ldew_rain_old_eff)
-         IF (ldew_rain_old_eff > trc_tiny) THEN
-            R_canopy_pre = trc_ldew_rain(itrc, ipatch) / ldew_rain_old_eff
+         IF (ldew_rain_old_eff > mt_tiny) THEN
+            R_canopy_pre = mt_ldew_rain(imt, ipatch) / ldew_rain_old_eff
          ELSE
             R_canopy_pre = R_rain_input
          ENDIF
-         trc_xsc = xsc_mass * R_canopy_pre
+         mt_xsc = xsc_mass * R_canopy_pre
          ldew_rain_pre_mix = ldew_rain_old_eff - xsc_mass
 
          ! Stage 2: gross rain enters the (post-release) canopy pool at
          ! the mixed atmospheric+sprinkler rain signature. Blend to obtain R_mixed.
          intercepted = max(0._r8, gross_intr_rain) * deltim
          water_mixed = ldew_rain_pre_mix + intercepted
-         trc_mixed = (trc_ldew_rain(itrc, ipatch) - trc_xsc) &
+         mt_mixed = (mt_ldew_rain(imt, ipatch) - mt_xsc) &
                    + intercepted * R_rain_input
-         IF (water_mixed > trc_tiny) THEN
-            R_mixed = trc_mixed / water_mixed
+         IF (water_mixed > mt_tiny) THEN
+            R_mixed = mt_mixed / water_mixed
          ELSE
             R_mixed = R_rain_input
          ENDIF
@@ -366,33 +366,33 @@ CONTAINS
 
          ! Rain tracer reaching the ground: pure-gap throughfall keeps the
          ! input rain signature, while drip carries the mixed canopy ratio.
-         trc_throughfall = throughfall * R_rain_input
-         trc_drip = drip * R_mixed
+         mt_throughfall = throughfall * R_rain_input
+         mt_drip = drip * R_mixed
 
          ! Canopy tracer: blended pool minus drip
-         trc_ldew_rain(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
+         mt_ldew_rain(imt, ipatch) = max(mt_mixed - drip * R_mixed, 0._r8)
 
-         trc_rain_ground = trc_throughfall + trc_xsc + trc_drip
+         mt_rain_ground = mt_throughfall + mt_xsc + mt_drip
 
          ! ---- Snow component (same 2-stage logic) ----
          ! Use ldew_snow_old_eff (post-phase-change effective anchor) and
          ! the migrated trc_ldew_snow so R_canopy_pre matches the pool
          ! that actually feeds the xsc stage.
          xsc_mass = min(max(0._r8, xsc_snow_out) * deltim, ldew_snow_old_eff)
-         IF (ldew_snow_old_eff > trc_tiny) THEN
-            R_canopy_pre = trc_ldew_snow(itrc, ipatch) / ldew_snow_old_eff
+         IF (ldew_snow_old_eff > mt_tiny) THEN
+            R_canopy_pre = mt_ldew_snow(imt, ipatch) / ldew_snow_old_eff
          ELSE
             R_canopy_pre = R_snow_input
          ENDIF
-         trc_xsc = xsc_mass * R_canopy_pre
+         mt_xsc = xsc_mass * R_canopy_pre
          ldew_snow_pre_mix = ldew_snow_old_eff - xsc_mass
 
          intercepted = max(0._r8, gross_intr_snow) * deltim
          water_mixed = ldew_snow_pre_mix + intercepted
-         trc_mixed = (trc_ldew_snow(itrc, ipatch) - trc_xsc) &
+         mt_mixed = (mt_ldew_snow(imt, ipatch) - mt_xsc) &
                    + intercepted * R_snow_input
-         IF (water_mixed > trc_tiny) THEN
-            R_mixed = trc_mixed / water_mixed
+         IF (water_mixed > mt_tiny) THEN
+            R_mixed = mt_mixed / water_mixed
          ELSE
             R_mixed = R_snow_input
          ENDIF
@@ -401,9 +401,9 @@ CONTAINS
          drip = max(max(pg_snow, 0._r8) * deltim - xsc_mass - throughfall, 0._r8)
          drip = min(drip, max(water_mixed, 0._r8))
 
-         trc_ldew_snow(itrc, ipatch) = max(trc_mixed - drip * R_mixed, 0._r8)
+         mt_ldew_snow(imt, ipatch) = max(mt_mixed - drip * R_mixed, 0._r8)
 
-         trc_snow_ground = throughfall * R_snow_input + trc_xsc + drip * R_mixed
+         mt_snow_ground = throughfall * R_snow_input + mt_xsc + drip * R_mixed
 
          ! Close the combined canopy interception budget exactly:
          !   Δ(canopy tracer) = rain/snow input tracer - ground tracer.
@@ -414,36 +414,36 @@ CONTAINS
          ! Preserve the prognostic canopy pools and put the tiny correction
          ! on the internal ground flux consumed by mt_soil_water /
          ! mt_wetland; atmospheric a_trc_precip remains unchanged.
-         CALL mt_equilibrate_dissolved(itrc, max(ldew_rain, 0._r8), &
-            trc_ldew_rain(itrc, ipatch), trc_canopy_solid(itrc, ipatch))
-         canopy_trc_end = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch) &
-            + trc_canopy_solid(itrc, ipatch)
+         CALL mt_equilibrate_dissolved(imt, max(ldew_rain, 0._r8), &
+            mt_ldew_rain(imt, ipatch), mt_canopy_solid(imt, ipatch))
+         canopy_trc_end = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch) &
+            + mt_canopy_solid(imt, ipatch)
          canopy_input_trc = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_snow_input
          canopy_resid = canopy_trc_end - canopy_trc_beg - canopy_input_trc &
-                      + trc_rain_ground + trc_snow_ground
-         IF (abs(canopy_resid) > trc_tiny) THEN
-            ground_trc_total = trc_rain_ground + trc_snow_ground
+                      + mt_rain_ground + mt_snow_ground
+         IF (abs(canopy_resid) > mt_tiny) THEN
+            ground_trc_total = mt_rain_ground + mt_snow_ground
             desired_ground_total = max(ground_trc_total - canopy_resid, 0._r8)
-            IF (ground_trc_total > trc_tiny) THEN
-               trc_rain_ground = trc_rain_ground * desired_ground_total / ground_trc_total
-               trc_snow_ground = trc_snow_ground * desired_ground_total / ground_trc_total
-            ELSEIF (rain_total > trc_tiny) THEN
-               trc_rain_ground = desired_ground_total
+            IF (ground_trc_total > mt_tiny) THEN
+               mt_rain_ground = mt_rain_ground * desired_ground_total / ground_trc_total
+               mt_snow_ground = mt_snow_ground * desired_ground_total / ground_trc_total
+            ELSEIF (rain_total > mt_tiny) THEN
+               mt_rain_ground = desired_ground_total
             ELSE
-               trc_snow_ground = desired_ground_total
+               mt_snow_ground = desired_ground_total
             ENDIF
          ENDIF
 
          ! Ground rain is a liquid mobile pool. Excess solute precipitates
          ! directly into the surface solid inventory; existing surface solid
          ! may redissolve only up to the rainwater capacity.
-         CALL mt_equilibrate_dissolved(itrc, max(pg_rain, 0._r8) * deltim, &
-            trc_rain_ground, trc_surface_solid(itrc, ipatch))
+         CALL mt_equilibrate_dissolved(imt, max(pg_rain, 0._r8) * deltim, &
+            mt_rain_ground, mt_surface_solid(imt, ipatch))
 
         ! Store rain/snow tracer separately: rain feeds the surface mixed
         ! pool in mt_soil_water; snow feeds trc_scv in mt_newsnow.
-         trc_pg_rain_ground(itrc, ipatch) = trc_rain_ground
-         trc_pg_snow_ground(itrc, ipatch) = trc_snow_ground
+         mt_pg_rain_ground(imt, ipatch) = mt_rain_ground
+         mt_pg_snow_ground(imt, ipatch) = mt_snow_ground
 
       ENDDO
 
@@ -471,7 +471,7 @@ CONTAINS
       real(r8), intent(in)  :: ldew, ldew_rain, ldew_snow, tleaf
       real(r8), intent(out) :: rain_eff, snow_eff
 
-      integer :: itrc
+      integer :: imt
 
          IF (DEF_VEG_SNOW) THEN
             rain_eff = ldew_rain
@@ -487,14 +487,14 @@ CONTAINS
             snow_eff = ldew
          ENDIF
 
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
             IF (tleaf > tfrz) THEN
-               trc_ldew_rain(itrc, ipatch) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
-               trc_ldew_snow(itrc, ipatch) = 0._r8
+               mt_ldew_rain(imt, ipatch) = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
+               mt_ldew_snow(imt, ipatch) = 0._r8
             ELSE
-               trc_ldew_snow(itrc, ipatch) = trc_ldew_snow(itrc, ipatch) + trc_ldew_rain(itrc, ipatch)
-               trc_ldew_rain(itrc, ipatch) = 0._r8
+               mt_ldew_snow(imt, ipatch) = mt_ldew_snow(imt, ipatch) + mt_ldew_rain(imt, ipatch)
+               mt_ldew_rain(imt, ipatch) = 0._r8
             ENDIF
          ENDDO
 
@@ -507,18 +507,18 @@ CONTAINS
       real(r8), intent(in)  :: ldew, ldew_rain, ldew_snow, tleaf
       real(r8), intent(out) :: rain_eff, snow_eff
 
-      integer  :: itrc
+      integer  :: imt
       real(r8) :: total
 
          CALL mt_canopy_parts (ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
          IF (DEF_VEG_SNOW) RETURN
 
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            total = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            total = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
             IF (ldew > 0._r8) THEN
-               trc_ldew_rain(itrc, ipatch) = total * (rain_eff / ldew)
-               trc_ldew_snow(itrc, ipatch) = total - trc_ldew_rain(itrc, ipatch)
+               mt_ldew_rain(imt, ipatch) = total * (rain_eff / ldew)
+               mt_ldew_snow(imt, ipatch) = total - mt_ldew_rain(imt, ipatch)
             ENDIF
          ENDDO
 

@@ -49,16 +49,16 @@ CONTAINS
    USE MOD_SPMD_Task
    USE MOD_Namelist,  only: DEF_LULCC_SCHEME
    USE MOD_LandPatch, only: landpatch, numpatch
-   USE MOD_MT_Defs,   only: ntracers
-   USE MOD_MT_Vars,   only: save_land_tracer_lulcc_state
+   USE MOD_MT_Defs,   only: nmts
+   USE MOD_MT_Vars,   only: save_land_mt_lulcc_state
    USE MOD_MT_Lifecycle, only: mt_lifecycle_land_save_lulcc_state
    IMPLICIT NONE
 
-      CALL save_land_tracer_lulcc_state ()
+      CALL save_land_mt_lulcc_state ()
       CALL mt_lifecycle_land_save_lulcc_state ()
 
       IF (allocated(old_patch_area)) deallocate(old_patch_area)
-      inventory_active = p_is_worker .and. ntracers > 0 .and. DEF_LULCC_SCHEME == 2
+      inventory_active = p_is_worker .and. nmts > 0 .and. DEF_LULCC_SCHEME == 2
       IF (inventory_active) THEN
          IF (numpatch > 0) THEN
             IF (.not. allocated(landpatch%eindex)) &
@@ -85,10 +85,10 @@ CONTAINS
    USE MOD_Vars_Global, only: maxsnl, nl_soil
    USE MOD_Lulcc_Vars_TimeVariables, only: ldew_, ldew_rain_, ldew_snow_, scv_, wdsrf_, &
                                            wliq_soisno_, wice_soisno_
-   USE MOD_MT_Vars,   only: remap_land_tracer_lulcc_state
+   USE MOD_MT_Vars,   only: remap_land_mt_lulcc_state
    USE MOD_MT_Lifecycle, only: mt_lifecycle_land_remap_lulcc_state, &
                                mt_lifecycle_land_reload_lulcc_inputs
-   USE MOD_MT_Conservation, only: deallocate_tracer_conservation
+   USE MOD_MT_Conservation, only: deallocate_mt_conservation
    USE MOD_MT_Forcing, only: mt_forcing_lulcc_remap
    IMPLICIT NONE
 
@@ -136,7 +136,7 @@ CONTAINS
       ENDIF
       IF (p_is_worker .and. allocated(patchclass) .and. allocated(patchclass_) .and. &
           allocated(landpatch%eindex) .and. allocated(landpatch_%eindex)) THEN
-         CALL deallocate_tracer_conservation ()
+         CALL deallocate_mt_conservation ()
          ! Old host water by compartment (see HW_* and mt_lulcc_host_sync);
          ! the host keeps the old arrays until LulccDriver frees them after
          ! this call.
@@ -158,7 +158,7 @@ CONTAINS
             host_water_old_3d(2, :, :) = wice_soisno_(:, 1:nold)
          ENDIF
          IF (inventory_active) THEN
-            CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
+            CALL remap_land_mt_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, wa, host_water_old_2d, host_water_old_3d, &
                mt_lulcc_host_sync, inventory_trace, new_patch_area, old_patch_area)
             CALL mt_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
@@ -166,7 +166,7 @@ CONTAINS
             CALL mt_forcing_lulcc_remap (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, lccpct_patches)
          ELSE
-            CALL remap_land_tracer_lulcc_state (patchclass, landpatch%eindex, &
+            CALL remap_land_mt_lulcc_state (patchclass, landpatch%eindex, &
                patchclass_, landpatch_%eindex, wa, host_water_old_2d, host_water_old_3d, &
                mt_lulcc_host_sync)
             CALL mt_lifecycle_land_remap_lulcc_state (patchclass, landpatch%eindex, &
@@ -219,11 +219,11 @@ CONTAINS
    USE MOD_Vars_Global, only: maxsnl, nl_soil
    USE MOD_Vars_TimeVariables, only: ldew, ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
                                      wa, wdsrf, wetwat, scv
-   USE MOD_MT_Defs,   only: ntracers, mt_uses_generic_water, tracer_init_water_ratio, &
-                            trc_water_min_for_ratio
-   USE MOD_MT_Vars,   only: trc_wetwat, trc_surface_solid, mt_patch_land_water_mass, &
-                            trc_ldew_rain, trc_ldew_snow, trc_wliq_soisno, trc_wice_soisno, &
-                            trc_scv, trc_wdsrf, trc_solid_soisno
+   USE MOD_MT_Defs,   only: nmts, mt_uses_generic_water, tracer_init_water_ratio, &
+                            mt_water_min_for_ratio
+   USE MOD_MT_Vars,   only: mt_wetwat, mt_surface_solid, mt_patch_land_water_mass, &
+                            mt_ldew_rain, mt_ldew_snow, mt_wliq_soisno, mt_wice_soisno, &
+                            mt_scv, mt_wdsrf, mt_solid_soisno
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
    USE MOD_MT_Rest,   only: mt_init_from_water
    IMPLICIT NONE
@@ -235,13 +235,13 @@ CONTAINS
    real(r8), intent(in)    :: src_water_3d(:,:,:)  ! (liquid/ice, maxsnl+1:nl_soil, patch)
 
    real(r8), allocatable :: before(:,:)
-   real(r8) :: after(ntracers), R_init
-   integer  :: ip, itrc, ncold, nfollow
+   real(r8) :: after(nmts), R_init
+   integer  :: ip, imt, ncold, nfollow
    logical  :: followed
 
-      IF (numpatch <= 0 .or. ntracers <= 0) RETURN
+      IF (numpatch <= 0 .or. nmts <= 0) RETURN
 
-      allocate(before(ntracers, numpatch))
+      allocate(before(nmts, numpatch))
       DO ip = 1, numpatch
          CALL mt_patch_land_water_mass (ip, before(:,ip))
       ENDDO
@@ -258,13 +258,13 @@ CONTAINS
          IF (no_source(ip)) CYCLE
          IF (ip > size(src_water_2d,2) .or. ip > size(src_water_3d,3)) CYCLE
          followed = .false.
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            R_init = tracer_init_water_ratio(itrc)
-            trc_wetwat(itrc,ip) = max(wetwat(ip), 0._r8) * R_init
-            CALL mt_equilibrate_dissolved (itrc, max(wetwat(ip), 0._r8), &
-               trc_wetwat(itrc,ip), trc_surface_solid(itrc,ip))
-            CALL follow_host_water (itrc, ip, R_init, followed)
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            R_init = tracer_init_water_ratio(imt)
+            mt_wetwat(imt,ip) = max(wetwat(ip), 0._r8) * R_init
+            CALL mt_equilibrate_dissolved (imt, max(wetwat(ip), 0._r8), &
+               mt_wetwat(imt,ip), mt_surface_solid(imt,ip))
+            CALL follow_host_water (imt, ip, R_init, followed)
          ENDDO
          IF (followed) nfollow = nfollow + 1
       ENDDO
@@ -284,7 +284,7 @@ CONTAINS
 
       logical FUNCTION water_differs (a, b)
          real(r8), intent(in) :: a, b
-         water_differs = abs(a - b) > trc_water_min_for_ratio + 1.e-12_r8 * max(abs(a), abs(b))
+         water_differs = abs(a - b) > mt_water_min_for_ratio + 1.e-12_r8 * max(abs(a), abs(b))
       END FUNCTION water_differs
 
       ! Material of one compartment at its own ratio, now on the host water.
@@ -293,7 +293,7 @@ CONTAINS
          real(r8), intent(in)    :: w_src, w_new, R_init
          logical,  intent(inout) :: followed
          IF (.not. water_differs(w_src, w_new)) RETURN
-         IF (w_src > trc_water_min_for_ratio) THEN
+         IF (w_src > mt_water_min_for_ratio) THEN
             pool = pool / w_src * max(w_new, 0._r8)
          ELSE
             pool = R_init * max(w_new, 0._r8)
@@ -301,8 +301,8 @@ CONTAINS
          followed = .true.
       END SUBROUTINE follow_pool
 
-      SUBROUTINE follow_host_water (itrc, ip, R_init, followed)
-         integer,  intent(in)    :: itrc, ip
+      SUBROUTINE follow_host_water (imt, ip, R_init, followed)
+         integer,  intent(in)    :: imt, ip
          real(r8), intent(in)    :: R_init
          logical,  intent(inout) :: followed
          integer  :: j, k
@@ -313,19 +313,19 @@ CONTAINS
          ! ldew into its rain and snow pools itself (MOD_MT_Precip), so
          ! the total is what must match.
          IF (DEF_VEG_SNOW) THEN
-            CALL follow_pool (trc_ldew_rain(itrc,ip), src_water_2d(HW_LDEW_RAIN,ip), &
+            CALL follow_pool (mt_ldew_rain(imt,ip), src_water_2d(HW_LDEW_RAIN,ip), &
                ldew_rain(ip), R_init, followed)
-            CALL follow_pool (trc_ldew_snow(itrc,ip), src_water_2d(HW_LDEW_SNOW,ip), &
+            CALL follow_pool (mt_ldew_snow(imt,ip), src_water_2d(HW_LDEW_SNOW,ip), &
                ldew_snow(ip), R_init, followed)
          ELSE
             w_src = src_water_2d(HW_LDEW,ip)
             IF (water_differs(w_src, ldew(ip))) THEN
-               IF (w_src > trc_water_min_for_ratio) THEN
-                  trc_ldew_rain(itrc,ip) = trc_ldew_rain(itrc,ip) / w_src * max(ldew(ip), 0._r8)
-                  trc_ldew_snow(itrc,ip) = trc_ldew_snow(itrc,ip) / w_src * max(ldew(ip), 0._r8)
+               IF (w_src > mt_water_min_for_ratio) THEN
+                  mt_ldew_rain(imt,ip) = mt_ldew_rain(imt,ip) / w_src * max(ldew(ip), 0._r8)
+                  mt_ldew_snow(imt,ip) = mt_ldew_snow(imt,ip) / w_src * max(ldew(ip), 0._r8)
                ELSE
-                  trc_ldew_rain(itrc,ip) = R_init * max(ldew(ip), 0._r8)
-                  trc_ldew_snow(itrc,ip) = 0._r8
+                  mt_ldew_rain(imt,ip) = R_init * max(ldew(ip), 0._r8)
+                  mt_ldew_snow(imt,ip) = 0._r8
                ENDIF
                followed = .true.
             ENDIF
@@ -343,30 +343,30 @@ CONTAINS
          ENDDO
          IF (snow_differs) THEN
             w_src = src_water_2d(HW_THIN_SNOW,ip) + sum(src_water_3d(:,1:-maxsnl,ip))
-            IF (w_src > trc_water_min_for_ratio) THEN
-               ratio = (trc_scv(itrc,ip) + sum(trc_wliq_soisno(itrc,maxsnl+1:0,ip)) &
-                  + sum(trc_wice_soisno(itrc,maxsnl+1:0,ip))) / w_src
+            IF (w_src > mt_water_min_for_ratio) THEN
+               ratio = (mt_scv(imt,ip) + sum(mt_wliq_soisno(imt,maxsnl+1:0,ip)) &
+                  + sum(mt_wice_soisno(imt,maxsnl+1:0,ip))) / w_src
             ELSE
                ratio = R_init
             ENDIF
-            trc_scv(itrc,ip) = ratio * max(thin_new, 0._r8)
+            mt_scv(imt,ip) = ratio * max(thin_new, 0._r8)
             DO j = maxsnl+1, 0
-               trc_wliq_soisno(itrc,j,ip) = ratio * max(wliq_soisno(j,ip), 0._r8)
-               trc_wice_soisno(itrc,j,ip) = ratio * max(wice_soisno(j,ip), 0._r8)
+               mt_wliq_soisno(imt,j,ip) = ratio * max(wliq_soisno(j,ip), 0._r8)
+               mt_wice_soisno(imt,j,ip) = ratio * max(wice_soisno(j,ip), 0._r8)
             ENDDO
             ! Undissolved material of the snow layers goes with the new snow
             ! layers, or to the top soil layer when no snow layer is left.
-            solid = sum(trc_solid_soisno(itrc,maxsnl+1:0,ip))
+            solid = sum(mt_solid_soisno(imt,maxsnl+1:0,ip))
             wsnow = sum(max(wliq_soisno(maxsnl+1:0,ip), 0._r8) + max(wice_soisno(maxsnl+1:0,ip), 0._r8))
             IF (solid /= 0._r8) THEN
                IF (wsnow > 0._r8) THEN
                   DO j = maxsnl+1, 0
-                     trc_solid_soisno(itrc,j,ip) = solid * (max(wliq_soisno(j,ip), 0._r8) &
+                     mt_solid_soisno(imt,j,ip) = solid * (max(wliq_soisno(j,ip), 0._r8) &
                         + max(wice_soisno(j,ip), 0._r8)) / wsnow
                   ENDDO
                ELSE
-                  trc_solid_soisno(itrc,maxsnl+1:0,ip) = 0._r8
-                  trc_solid_soisno(itrc,1,ip) = trc_solid_soisno(itrc,1,ip) + solid
+                  mt_solid_soisno(imt,maxsnl+1:0,ip) = 0._r8
+                  mt_solid_soisno(imt,1,ip) = mt_solid_soisno(imt,1,ip) + solid
                ENDIF
             ENDIF
             followed = .true.
@@ -375,17 +375,17 @@ CONTAINS
          ! Soil layers, each phase on its own.
          DO j = 1, nl_soil
             k = j - maxsnl
-            CALL follow_pool (trc_wliq_soisno(itrc,j,ip), src_water_3d(1,k,ip), &
+            CALL follow_pool (mt_wliq_soisno(imt,j,ip), src_water_3d(1,k,ip), &
                wliq_soisno(j,ip), R_init, followed)
-            CALL follow_pool (trc_wice_soisno(itrc,j,ip), src_water_3d(2,k,ip), &
+            CALL follow_pool (mt_wice_soisno(imt,j,ip), src_water_3d(2,k,ip), &
                wice_soisno(j,ip), R_init, followed)
          ENDDO
 
          ! Surface water.
-         pool_before = trc_wdsrf(itrc,ip)
-         CALL follow_pool (trc_wdsrf(itrc,ip), src_water_2d(HW_WDSRF,ip), wdsrf(ip), R_init, followed)
-         IF (trc_wdsrf(itrc,ip) /= pool_before) CALL mt_equilibrate_dissolved (itrc, &
-            max(wdsrf(ip), 0._r8), trc_wdsrf(itrc,ip), trc_surface_solid(itrc,ip))
+         pool_before = mt_wdsrf(imt,ip)
+         CALL follow_pool (mt_wdsrf(imt,ip), src_water_2d(HW_WDSRF,ip), wdsrf(ip), R_init, followed)
+         IF (mt_wdsrf(imt,ip) /= pool_before) CALL mt_equilibrate_dissolved (imt, &
+            max(wdsrf(ip), 0._r8), mt_wdsrf(imt,ip), mt_surface_solid(imt,ip))
       END SUBROUTINE follow_host_water
 
    END SUBROUTINE mt_lulcc_host_sync

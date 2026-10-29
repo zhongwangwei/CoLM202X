@@ -4,7 +4,7 @@
 MODULE MOD_MT_Isotope_Registry
 
    USE MOD_Precision
-   USE MOD_MT_Defs, only: tracers, ntracers, tracer_is_isotope, trc_tiny, tracer_lower
+   USE MOD_MT_Defs, only: tracers, nmts, tracer_is_isotope, mt_tiny, tracer_lower
    USE MOD_SPMD_Task, only: CoLM_stop
 
    IMPLICIT NONE
@@ -136,18 +136,18 @@ CONTAINS
       ENDDO
    END FUNCTION find_registered_isotope_by_name
 
-   integer FUNCTION find_isotope_physics (itrc)
-      integer, intent(in) :: itrc
+   integer FUNCTION find_isotope_physics (imt)
+      integer, intent(in) :: imt
       character(len=32) :: lname
       integer :: i
 
       find_isotope_physics = 0
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
       IF (.not. allocated(tracers)) RETURN
-      IF (.not. tracer_is_isotope(itrc)) RETURN
+      IF (.not. tracer_is_isotope(imt)) RETURN
       IF (.not. allocated(isotope_physics)) RETURN
 
-      lname = tracer_lower(trim(tracers(itrc)%name))
+      lname = tracer_lower(trim(tracers(imt)%name))
       DO i = 1, n_isotope_physics
          IF (isotope_name_matches(lname, isotope_physics(i)%name_patterns)) THEN
             find_isotope_physics = i
@@ -155,10 +155,10 @@ CONTAINS
          ENDIF
       ENDDO
 
-      IF (tracers(itrc)%ref_ratio > 0._r8) THEN
+      IF (tracers(imt)%ref_ratio > 0._r8) THEN
          DO i = 1, n_isotope_physics
-            IF (isotope_physics(i)%ref_ratio_hint <= trc_tiny) CYCLE
-            IF (abs(tracers(itrc)%ref_ratio - isotope_physics(i)%ref_ratio_hint) / &
+            IF (isotope_physics(i)%ref_ratio_hint <= mt_tiny) CYCLE
+            IF (abs(tracers(imt)%ref_ratio - isotope_physics(i)%ref_ratio_hint) / &
                 isotope_physics(i)%ref_ratio_hint < isotope_physics(i)%ref_ratio_tolerance) THEN
                find_isotope_physics = i
                RETURN
@@ -167,75 +167,75 @@ CONTAINS
       ENDIF
    END FUNCTION find_isotope_physics
 
-   logical FUNCTION isotope_fractionation_registered (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION isotope_fractionation_registered (imt)
+      integer, intent(in) :: imt
 
-      isotope_fractionation_registered = find_isotope_physics(itrc) > 0
+      isotope_fractionation_registered = find_isotope_physics(imt) > 0
    END FUNCTION isotope_fractionation_registered
 
-   real(r8) FUNCTION isotope_alpha_liq_vap (itrc, temp_k)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION isotope_alpha_liq_vap (imt, temp_k)
+      integer, intent(in) :: imt
       real(r8), intent(in) :: temp_k
       integer :: idx
 
       isotope_alpha_liq_vap = 1._r8
-      idx = find_isotope_physics(itrc)
+      idx = find_isotope_physics(imt)
       IF (idx <= 0) RETURN
       IF (associated(isotope_physics(idx)%alpha_liq_vap)) &
          isotope_alpha_liq_vap = isotope_physics(idx)%alpha_liq_vap(temp_k)
    END FUNCTION isotope_alpha_liq_vap
 
-   real(r8) FUNCTION isotope_alpha_ice_vap (itrc, temp_k)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION isotope_alpha_ice_vap (imt, temp_k)
+      integer, intent(in) :: imt
       real(r8), intent(in) :: temp_k
       integer :: idx
 
       isotope_alpha_ice_vap = 1._r8
-      idx = find_isotope_physics(itrc)
+      idx = find_isotope_physics(imt)
       IF (idx <= 0) RETURN
       IF (associated(isotope_physics(idx)%alpha_ice_vap)) &
          isotope_alpha_ice_vap = isotope_physics(idx)%alpha_ice_vap(temp_k)
    END FUNCTION isotope_alpha_ice_vap
 
-   real(r8) FUNCTION isotope_diffusivity_ratio_air (itrc)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION isotope_diffusivity_ratio_air (imt)
+      integer, intent(in) :: imt
       integer :: idx
 
       isotope_diffusivity_ratio_air = 1._r8
-      idx = find_isotope_physics(itrc)
+      idx = find_isotope_physics(imt)
       IF (idx <= 0) RETURN
       IF (associated(isotope_physics(idx)%diffusivity_ratio_air)) &
          isotope_diffusivity_ratio_air = isotope_physics(idx)%diffusivity_ratio_air()
    END FUNCTION isotope_diffusivity_ratio_air
 
-   real(r8) FUNCTION isotope_mj79_relative_factor (itrc)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION isotope_mj79_relative_factor (imt)
+      integer, intent(in) :: imt
       integer :: idx
 
       isotope_mj79_relative_factor = 1._r8
-      idx = find_isotope_physics(itrc)
+      idx = find_isotope_physics(imt)
       IF (idx > 0) isotope_mj79_relative_factor = isotope_physics(idx)%mj79_relative_factor
    END FUNCTION isotope_mj79_relative_factor
 
-   real(r8) FUNCTION isotope_leaf_liquid_diffusivity (itrc, temp_k)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION isotope_leaf_liquid_diffusivity (imt, temp_k)
+      integer, intent(in) :: imt
       real(r8), intent(in) :: temp_k
       integer :: idx
 
       isotope_leaf_liquid_diffusivity = 0._r8
-      idx = find_isotope_physics(itrc)
+      idx = find_isotope_physics(imt)
       IF (idx <= 0) RETURN
       IF (associated(isotope_physics(idx)%leaf_liquid_diffusivity)) &
          isotope_leaf_liquid_diffusivity = isotope_physics(idx)%leaf_liquid_diffusivity(temp_k)
    END FUNCTION isotope_leaf_liquid_diffusivity
 
-   SUBROUTINE isotope_default_soil_init_varname (itrc, varname)
-      integer, intent(in) :: itrc
+   SUBROUTINE isotope_default_soil_init_varname (imt, varname)
+      integer, intent(in) :: imt
       character(len=*), intent(out) :: varname
       integer :: idx
 
       varname = 'null'
-      idx = find_isotope_physics(itrc)
+      idx = find_isotope_physics(imt)
       IF (idx > 0) varname = trim(isotope_physics(idx)%default_soil_init_varname)
    END SUBROUTINE isotope_default_soil_init_varname
 

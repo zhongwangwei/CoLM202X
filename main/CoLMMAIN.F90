@@ -216,10 +216,10 @@ SUBROUTINE CoLMMAIN ( &
    ! water state and fluxes and update the material pools; no host
    ! variable is changed, so the host solution is the same as without them.
    USE MOD_Namelist, only: DEF_SPLIT_SOILSNOW, DEF_USE_Dynamic_Wetland
-   USE MOD_MT_LandPhase, only: ntracers, trc_tiny, mt_uses_generic_water, &
+   USE MOD_MT_LandPhase, only: nmts, mt_tiny, mt_uses_generic_water, &
       mt_precip, mt_evapo, mt_soil_water, mt_wetland, &
       mt_newsnow, mt_save_storage, mt_balance_check, mt_apply_decay, &
-      trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv, trc_sm_carry
+      mt_wliq_soisno, mt_wice_soisno, mt_solid_soisno, mt_scv, mt_sm_carry
    USE MOD_MT_Precip, only: mt_canopy_lump, mt_canopy_split, mt_canopy_parts
    USE MOD_MT_Hist, only: mt_hist_accumulate
    USE MOD_MT_Namelist, only: mt_any_enabled
@@ -229,8 +229,8 @@ SUBROUTINE CoLMMAIN ( &
    ! material of the grid flood credit published by the river
    ! (MOD_MT_RiverLakeCoupling); flood_credit_patch is only read
    USE MOD_Grid_RiverLakeFlow, only: flood_credit_patch
-   USE MOD_MT_RiverLakeCoupling, only: flood_tracer_credit_patch, flood_tracer_evap_patch, &
-      flood_tracer_land_patch
+   USE MOD_MT_RiverLakeCoupling, only: flood_mt_credit_patch, flood_mt_evap_patch, &
+      flood_mt_land_patch
    USE MOD_MT_LandPhase, only: mt_flood_evap_loss
    USE MOD_MT_Defs, only: tracers
    USE MOD_MT_Solute, only: mt_has_dissolved_limit
@@ -705,7 +705,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: raw_trc
    real(r8) :: fevpa_trc, flood_input_trc
 #ifdef GridRiverLakeFlow
-   real(r8) :: flood_input_tracer(ntracers)   ! material of the flood infiltration
+   real(r8) :: flood_input_tracer(nmts)   ! material of the flood infiltration
    real(r8) :: flood_evap_temp_trc            ! temperature of the flood water [K]
 #endif
    integer  :: itrc_loc
@@ -1050,8 +1050,8 @@ SUBROUTINE CoLMMAIN ( &
 #if (defined CaMa_Flood)
          ! CaMa-Flood exchanges no materials with the land; stop instead of
          ! booking flood water without composition.
-         IF (LWINFILT .and. patchtype == 0 .and. ntracers > 0) THEN
-            DO itrc_loc = 1, ntracers
+         IF (LWINFILT .and. patchtype == 0 .and. nmts > 0) THEN
+            DO itrc_loc = 1, nmts
                IF (.not. mt_uses_generic_water(itrc_loc)) CYCLE
                CALL CoLM_stop('Material transport: CaMa flood feedback (LWINFILT) is not supported.')
             ENDDO
@@ -1059,12 +1059,12 @@ SUBROUTINE CoLMMAIN ( &
 #elif (defined GridRiverLakeFlow)
          ! Vapour exchange of the flood evaporation, debited from the river
          ! material pools at the next routing call (mt_rlc_flood_debit).
-         IF (allocated(flood_tracer_evap_patch)) THEN
-            flood_tracer_evap_patch(:,ipatch) = 0._r8
+         IF (allocated(flood_mt_evap_patch)) THEN
+            flood_mt_evap_patch(:,ipatch) = 0._r8
             IF (LWINFILT .and. patchtype == 0 .and. fevpg_fld > 0._r8) &
                CALL mt_flood_evap_loss(ipatch, flood_credit_patch(ipatch)*1000._r8, &
-                  flood_tracer_credit_patch(:,ipatch), fevpg_fld*deltim, flood_evap_temp_trc, &
-                  forc_q, forc_psrf, forc_us, forc_vs, flood_tracer_evap_patch(:,ipatch))
+                  flood_mt_credit_patch(:,ipatch), fevpg_fld*deltim, flood_evap_temp_trc, &
+                  forc_q, forc_psrf, forc_us, forc_vs, flood_mt_evap_patch(:,ipatch))
          ENDIF
 #endif
          ! canopy pools after the energy balance, split by the same rule
@@ -1085,30 +1085,30 @@ SUBROUTINE CoLMMAIN ( &
 
          ! snow melt carried from a vanishing or shrinking no-layer snow pack
          IF (snl == 0) THEN
-            IF (scv < trc_tiny) THEN
-               DO itrc_loc = 1, ntracers
+            IF (scv < mt_tiny) THEN
+               DO itrc_loc = 1, nmts
                   IF (.not. mt_uses_generic_water(itrc_loc)) CYCLE
-                  trc_sm_carry(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch)
-                  trc_scv(itrc_loc, ipatch) = 0._r8
+                  mt_sm_carry(itrc_loc, ipatch) = mt_scv(itrc_loc, ipatch)
+                  mt_scv(itrc_loc, ipatch) = 0._r8
                ENDDO
-            ELSEIF (scv < scv_bef_trc - trc_tiny) THEN
-               ratio_loc = scv / max(scv_bef_trc, trc_tiny)
+            ELSEIF (scv < scv_bef_trc - mt_tiny) THEN
+               ratio_loc = scv / max(scv_bef_trc, mt_tiny)
                ratio_loc = max(min(ratio_loc, 1._r8), 0._r8)
-               DO itrc_loc = 1, ntracers
+               DO itrc_loc = 1, nmts
                   IF (.not. mt_uses_generic_water(itrc_loc)) CYCLE
-                  trc_sm_carry(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * (1._r8 - ratio_loc)
-                  trc_scv(itrc_loc, ipatch) = trc_scv(itrc_loc, ipatch) * ratio_loc
+                  mt_sm_carry(itrc_loc, ipatch) = mt_scv(itrc_loc, ipatch) * (1._r8 - ratio_loc)
+                  mt_scv(itrc_loc, ipatch) = mt_scv(itrc_loc, ipatch) * ratio_loc
                ENDDO
             ELSE
-               DO itrc_loc = 1, ntracers
+               DO itrc_loc = 1, nmts
                   IF (.not. mt_uses_generic_water(itrc_loc)) CYCLE
-                  trc_sm_carry(itrc_loc, ipatch) = 0._r8
+                  mt_sm_carry(itrc_loc, ipatch) = 0._r8
                ENDDO
             ENDIF
          ELSE
-            DO itrc_loc = 1, ntracers
+            DO itrc_loc = 1, nmts
                IF (.not. mt_uses_generic_water(itrc_loc)) CYCLE
-               trc_sm_carry(itrc_loc, ipatch) = 0._r8
+               mt_sm_carry(itrc_loc, ipatch) = 0._r8
             ENDDO
          ENDIF
 
@@ -1227,7 +1227,7 @@ SUBROUTINE CoLMMAIN ( &
          ! Water recharging the aquifer, consistent with the root and baseflow
          ! parts taken from it.
          qcharge_trc = (wa - wa_old_trc + etroot_aquifer_trc + &
-            max(rsub_source_aquifer_trc, 0._r8)) / max(deltim, trc_tiny)
+            max(rsub_source_aquifer_trc, 0._r8)) / max(deltim, mt_tiny)
          ! The host qinfl also counts the ponding water that the aquifer
          ! exchange took for roots and baseflow; those parts are booked by
          ! etroot_surface and rsub_source_surface, so leave them out here.
@@ -1239,15 +1239,15 @@ SUBROUTINE CoLMMAIN ( &
          ! infiltrated; solutes with a solubility limit carry at most that limit.
          flood_input_tracer = 0._r8
          IF (LWINFILT .and. patchtype == 0 .and. qinfl_fld > 0._r8 .and. &
-             allocated(flood_tracer_credit_patch)) THEN
+             allocated(flood_mt_credit_patch)) THEN
             IF (flood_credit_patch(ipatch)*1000._r8 <= fevpg_fld*deltim) THEN
                IF (qinfl_fld*deltim > 1.e-12_r8*max(flood_credit_patch(ipatch)*1000._r8, 1._r8)) &
                   CALL CoLM_stop('grid flood feedback: infiltration without published tracer credit')
             ELSE
-               flood_input_tracer = (flood_tracer_credit_patch(:,ipatch) - &
-                  flood_tracer_evap_patch(:,ipatch)) * &
+               flood_input_tracer = (flood_mt_credit_patch(:,ipatch) - &
+                  flood_mt_evap_patch(:,ipatch)) * &
                   (qinfl_fld*deltim/(flood_credit_patch(ipatch)*1000._r8-fevpg_fld*deltim))
-               DO itrc_loc = 1, ntracers
+               DO itrc_loc = 1, nmts
                   IF (.not. mt_has_dissolved_limit(itrc_loc)) CYCLE
                   flood_input_tracer(itrc_loc) = min(max(flood_input_tracer(itrc_loc),0._r8), &
                      tracers(itrc_loc)%max_dissolved_conc*qinfl_fld*deltim)
@@ -1317,13 +1317,13 @@ SUBROUTINE CoLMMAIN ( &
                dz_sno_frac = dz_soisno(lbsn:0), &
                permeable_soil = permeable_soil_trc &
 #ifdef GridRiverLakeFlow
-               , flood_tracer_input = flood_input_tracer, flood_infil_water = qinfl_fld*deltim &
+               , flood_mt_input = flood_input_tracer, flood_infil_water = qinfl_fld*deltim &
 #endif
                )
 #ifdef GridRiverLakeFlow
             ! what entered the soil, for the river-side ledger
-            IF (allocated(flood_tracer_land_patch)) &
-               flood_tracer_land_patch(:,ipatch) = flood_input_tracer
+            IF (allocated(flood_mt_land_patch)) &
+               flood_mt_land_patch(:,ipatch) = flood_input_tracer
 #endif
          ENDIF
 #endif
@@ -1343,16 +1343,16 @@ SUBROUTINE CoLMMAIN ( &
             IF (DEF_USE_SNICAR) THEN
 #ifdef MaterialTransport
                ! the trc_* arrays are allocated only when materials are registered
-               IF (ntracers > 0) THEN
+               IF (nmts > 0) THEN
                CALL snowlayerscombine_snicar (lb,snl,&
                             z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
                             wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp,&
                             mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
                             mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0), &
-                            trc_wliq = trc_wliq_soisno(:, lb:1, ipatch), &
-                            trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
-                            trc_solid = trc_solid_soisno(:, lb:1, ipatch), &
-                            trc_scv  = trc_scv(:, ipatch))
+                            mt_wliq = mt_wliq_soisno(:, lb:1, ipatch), &
+                            mt_wice = mt_wice_soisno(:, lb:1, ipatch), &
+                            mt_solid = mt_solid_soisno(:, lb:1, ipatch), &
+                            mt_scv  = mt_scv(:, ipatch))
                ELSE
 #endif
                CALL snowlayerscombine_snicar (lb,snl,&
@@ -1365,14 +1365,14 @@ SUBROUTINE CoLMMAIN ( &
 #endif
             ELSE
 #ifdef MaterialTransport
-               IF (ntracers > 0) THEN
+               IF (nmts > 0) THEN
                CALL snowlayerscombine (lb,snl,&
                             z_soisno(lb:1),dz_soisno(lb:1),zi_soisno(lb-1:1),&
                             wliq_soisno(lb:1),wice_soisno(lb:1),t_soisno(lb:1),scv,snowdp, &
-                            trc_wliq = trc_wliq_soisno(:, lb:1, ipatch), &
-                            trc_wice = trc_wice_soisno(:, lb:1, ipatch), &
-                            trc_solid = trc_solid_soisno(:, lb:1, ipatch), &
-                            trc_scv  = trc_scv(:, ipatch))
+                            mt_wliq = mt_wliq_soisno(:, lb:1, ipatch), &
+                            mt_wice = mt_wice_soisno(:, lb:1, ipatch), &
+                            mt_solid = mt_solid_soisno(:, lb:1, ipatch), &
+                            mt_scv  = mt_scv(:, ipatch))
                ELSE
 #endif
                CALL snowlayerscombine (lb,snl,&
@@ -1387,15 +1387,15 @@ SUBROUTINE CoLMMAIN ( &
             IF(snl<0) THEN
                IF (DEF_USE_SNICAR) THEN
 #ifdef MaterialTransport
-                  IF (ntracers > 0) THEN
+                  IF (nmts > 0) THEN
                   CALL snowlayersdivide_snicar (lb,snl,&
                             z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
                             wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0),&
                             mss_bcpho(lb:0),mss_bcphi(lb:0),mss_ocpho(lb:0),mss_ocphi(lb:0),&
                             mss_dst1(lb:0),mss_dst2(lb:0),mss_dst3(lb:0),mss_dst4(lb:0), &
-                            trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
-                            trc_wice = trc_wice_soisno(:, lb:0, ipatch), &
-                            trc_solid = trc_solid_soisno(:, lb:0, ipatch))
+                            mt_wliq = mt_wliq_soisno(:, lb:0, ipatch), &
+                            mt_wice = mt_wice_soisno(:, lb:0, ipatch), &
+                            mt_solid = mt_solid_soisno(:, lb:0, ipatch))
                   ELSE
 #endif
                   CALL snowlayersdivide_snicar (lb,snl,&
@@ -1408,13 +1408,13 @@ SUBROUTINE CoLMMAIN ( &
 #endif
                ELSE
 #ifdef MaterialTransport
-                  IF (ntracers > 0) THEN
+                  IF (nmts > 0) THEN
                   CALL snowlayersdivide (lb,snl,&
                             z_soisno(lb:0),dz_soisno(lb:0),zi_soisno(lb-1:0),&
                             wliq_soisno(lb:0),wice_soisno(lb:0),t_soisno(lb:0), &
-                            trc_wliq = trc_wliq_soisno(:, lb:0, ipatch), &
-                            trc_wice = trc_wice_soisno(:, lb:0, ipatch), &
-                            trc_solid = trc_solid_soisno(:, lb:0, ipatch))
+                            mt_wliq = mt_wliq_soisno(:, lb:0, ipatch), &
+                            mt_wice = mt_wice_soisno(:, lb:0, ipatch), &
+                            mt_solid = mt_solid_soisno(:, lb:0, ipatch))
                   ELSE
 #endif
                   CALL snowlayersdivide (lb,snl,&

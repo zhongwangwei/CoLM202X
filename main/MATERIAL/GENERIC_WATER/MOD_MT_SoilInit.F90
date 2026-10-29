@@ -13,9 +13,9 @@ MODULE MOD_MT_SoilInit
    USE MOD_LandPatch
    USE MOD_NetCDFSerial, only: ncio_read_bcast_serial, ncio_var_exist
    USE MOD_NetCDFBlock, only: ncio_read_block_time
-   USE MOD_MT_Defs, only: ntracers, tracers, delta_to_R, tracer_is_isotope, &
-      trc_delta_sanity_max, mt_uses_generic_water
-   USE MOD_MT_Vars, only: trc_wliq_soisno, trc_wice_soisno
+   USE MOD_MT_Defs, only: nmts, tracers, delta_to_R, tracer_is_isotope, &
+      mt_delta_sanity_max, mt_uses_generic_water
+   USE MOD_MT_Vars, only: mt_wliq_soisno, mt_wice_soisno
    USE MOD_MT_Isotope_Registry, only: isotope_default_soil_init_varname
    USE MOD_MT_Providers, only: ensure_isotope_physics_registered
 
@@ -41,11 +41,11 @@ CONTAINS
       character(len=256) :: soil_file, varname
       logical :: file_ok, has_soildepth, has_var
       integer :: month, nl_soil_ini, ncopy
-      integer :: itrc, ip, k
+      integer :: imt, ip, k
       real(r8) :: delta_layer, R_layer
 
       IF (.not. DEF_MT_USE_SOIL_INIT) RETURN
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
       ! This routine contains MPI collectives inside NetCDF/grid mapping.
       ! IO/master ranks may not own patch tracer arrays, but they must
       ! still participate; only the worker-side storage overwrite is gated.
@@ -104,13 +104,13 @@ CONTAINS
             month, ' from ', trim(soil_file)
       ENDIF
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         CALL tracer_soil_init_varname(itrc, varname)
-         IF (.not. tracer_is_isotope(itrc)) THEN
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         CALL tracer_soil_init_varname(imt, varname)
+         IF (.not. tracer_is_isotope(imt)) THEN
             IF (len_trim(varname) > 0 .and. trim(varname) /= 'null' .and. p_is_master) THEN
                WRITE(*,'(A,I0,3A)') 'WARNING material soil init ignores non-isotope material ', &
-                  itrc, ' variable ', trim(varname), '.'
+                  imt, ' variable ', trim(varname), '.'
             ENDIF
             CYCLE
          ENDIF
@@ -133,14 +133,14 @@ CONTAINS
             nl_soil_ini, month, delta_grid)
          CALL msoil2p%grid2pset(delta_grid, nl_soil_ini, delta_patch)
 
-         IF (p_is_worker .and. numpatch > 0 .and. allocated(trc_wliq_soisno)) THEN
+         IF (p_is_worker .and. numpatch > 0 .and. allocated(mt_wliq_soisno)) THEN
             DO ip = 1, numpatch
                DO k = 1, ncopy
                   delta_layer = delta_patch(k, ip)
                   IF (tracer_soil_init_valid_delta(delta_layer)) THEN
-                     R_layer = delta_to_R(delta_layer, tracers(itrc)%ref_ratio)
-                     trc_wliq_soisno(itrc, k, ip) = max(wliq_soisno(k, ip), 0._r8) * R_layer
-                     trc_wice_soisno(itrc, k, ip) = max(wice_soisno(k, ip), 0._r8) * R_layer
+                     R_layer = delta_to_R(delta_layer, tracers(imt)%ref_ratio)
+                     mt_wliq_soisno(imt, k, ip) = max(wliq_soisno(k, ip), 0._r8) * R_layer
+                     mt_wice_soisno(imt, k, ip) = max(wice_soisno(k, ip), 0._r8) * R_layer
                   ENDIF
                ENDDO
             ENDDO
@@ -152,21 +152,21 @@ CONTAINS
 
    END SUBROUTINE tracer_soil_init_from_file
 
-   SUBROUTINE tracer_soil_init_varname (itrc, varname)
+   SUBROUTINE tracer_soil_init_varname (imt, varname)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       character(len=*), intent(out) :: varname
       character(len=256) :: token
 
       varname = 'null'
-      CALL tracer_soil_init_csv_token(DEF_MT_SOIL_INIT_VARS, itrc, token)
+      CALL tracer_soil_init_csv_token(DEF_MT_SOIL_INIT_VARS, imt, token)
       IF (len_trim(token) > 0 .and. trim(token) /= 'null') THEN
          varname = trim(token)
          RETURN
       ENDIF
 
       CALL ensure_isotope_physics_registered ()
-      CALL isotope_default_soil_init_varname(itrc, varname)
+      CALL isotope_default_soil_init_varname(imt, varname)
    END SUBROUTINE tracer_soil_init_varname
 
    SUBROUTINE tracer_soil_init_csv_token (csv, idx, token)
@@ -200,7 +200,7 @@ CONTAINS
       real(r8), intent(in) :: delta
 
       tracer_soil_init_valid_delta = (delta == delta) .and. &
-         abs(delta) <= trc_delta_sanity_max .and. abs(delta) < huge(1._r8)
+         abs(delta) <= mt_delta_sanity_max .and. abs(delta) < huge(1._r8)
    END FUNCTION tracer_soil_init_valid_delta
 
 END MODULE MOD_MT_SoilInit

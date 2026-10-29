@@ -23,7 +23,7 @@ MODULE MOD_MT_RiverLakeCoupling
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_Namelist
-   USE MOD_MT_Defs, only: ntracers, mt_uses_generic_water, tracer_is_nonvolatile_solute
+   USE MOD_MT_Defs, only: nmts, mt_uses_generic_water, tracer_is_nonvolatile_solute
    USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
    USE MOD_MT_RiverLake
    USE MOD_MT_Lifecycle, only: mt_lifecycle_route_has_active, mt_lifecycle_route_init, &
@@ -40,14 +40,14 @@ MODULE MOD_MT_RiverLakeCoupling
    !   flood_tracer_credit_patch : material of the flood water published to the patch
    !   flood_tracer_evap_patch   : material lost (>0) or gained (<0) by flood evaporation
    !   flood_tracer_land_patch   : material that entered the soil with flood infiltration
-   real(r8), allocatable :: flood_tracer_credit_patch(:,:)
-   real(r8), allocatable :: flood_tracer_evap_patch  (:,:)
-   real(r8), allocatable :: flood_tracer_land_patch  (:,:)
+   real(r8), allocatable :: flood_mt_credit_patch(:,:)
+   real(r8), allocatable :: flood_mt_evap_patch  (:,:)
+   real(r8), allocatable :: flood_mt_land_patch  (:,:)
    ! River side (ntracers, numucat): material of the published visible and
    ! protected (levee) flood water of each unit catchment
-   real(r8), allocatable :: flood_visible_tracer_uc  (:,:)
-   real(r8), allocatable :: flood_protected_tracer_uc(:,:)
-   integer, save :: flood_tracer_ledger_reports = 0
+   real(r8), allocatable :: flood_visible_mt_uc  (:,:)
+   real(r8), allocatable :: flood_protected_mt_uc(:,:)
+   integer, save :: flood_mt_ledger_reports = 0
 
    ! reservoir state passed to the transport (empty when there are no reservoirs)
    real(r8), allocatable :: volresv_mt  (:)
@@ -75,10 +75,10 @@ MODULE MOD_MT_RiverLakeCoupling
 
 #ifdef CoLMDEBUG
    ! material balance of one routing call (cf. the water balance printed there)
-   real(r8), allocatable :: trc_mass_bef(:), trc_mass_inp(:), trc_mass_dis(:)
+   real(r8), allocatable :: mt_mass_bef(:), mt_mass_inp(:), mt_mass_dis(:)
 #endif
 
-   PUBLIC :: flood_tracer_credit_patch, flood_tracer_evap_patch, flood_tracer_land_patch
+   PUBLIC :: flood_mt_credit_patch, flood_mt_evap_patch, flood_mt_land_patch
 
 CONTAINS
 
@@ -98,25 +98,25 @@ CONTAINS
    character(len=*), intent(in) :: restart_file
 
    integer :: i, irsv
-   logical :: trc_restart_found
-   logical,  allocatable :: trc_missing(:), is_built_resv_init(:)
+   logical :: mt_restart_found
+   logical,  allocatable :: mt_missing(:), is_built_resv_init(:)
    real(r8), allocatable :: wdsrf_safe(:), volresv_safe(:)
    integer,  allocatable :: ucat2resv_safe(:)
 
       CALL mt_riverlake_init ()
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
       CALL mt_lifecycle_route_init ()
       IF (len_trim(restart_file) > 0) CALL mt_lifecycle_route_read_restart (restart_file)
 
-      allocate (trc_missing(ntracers))
-      trc_missing = .true.
-      trc_restart_found = .false.
+      allocate (mt_missing(nmts))
+      mt_missing = .true.
+      mt_restart_found = .false.
       IF (len_trim(restart_file) > 0) THEN
-         CALL mt_riverlake_read_restart (restart_file, trc_restart_found, trc_missing)
+         CALL mt_riverlake_read_restart (restart_file, mt_restart_found, mt_missing)
       ENDIF
 
-      IF (any(trc_missing)) THEN
+      IF (any(mt_missing)) THEN
          IF (allocated(wdsrf_ucat)) THEN
             allocate (wdsrf_safe(size(wdsrf_ucat)));    wdsrf_safe = wdsrf_ucat
          ELSE
@@ -144,11 +144,11 @@ CONTAINS
             ENDDO
          ENDIF
          CALL mt_riverlake_init_from_water (wdsrf_safe, volresv_safe, ucat2resv_safe, &
-            trc_missing, is_built_resv_init)
+            mt_missing, is_built_resv_init)
          deallocate (wdsrf_safe, volresv_safe, ucat2resv_safe, is_built_resv_init)
       ENDIF
 
-      deallocate (trc_missing)
+      deallocate (mt_missing)
 
    END SUBROUTINE mt_rlc_init
 
@@ -165,43 +165,43 @@ CONTAINS
    USE MOD_Grid_RiverLakeNetwork, only: numinpm, numucat, remap_patch2inpm, &
       push_inpm2ucat, push_ucat2inpm
    USE MOD_WorkerPushData
-   USE MOD_MT_Vars,               only: trc_rnof_step
+   USE MOD_MT_Vars,               only: mt_rnof_step
    IMPLICIT NONE
 
    logical,  intent(in) :: filter_rnof(:)   ! patches whose runoff enters the rivers
    real(r8), intent(in) :: rnof_uc(:)       ! runoff water [mm/s] per unit catchment
    real(r8), intent(in) :: deltime          ! land time step [s]
 
-   integer :: itrc
-   real(r8), allocatable :: trc_rnof_gd(:,:), trc_rnof_uc(:,:)
+   integer :: imt
+   real(r8), allocatable :: mt_rnof_gd(:,:), mt_rnof_uc(:,:)
 
       IF (.not. p_is_worker) RETURN
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
-      allocate (trc_rnof_gd (ntracers, numinpm))
-      allocate (trc_rnof_uc (ntracers, numucat))
-      trc_rnof_gd = 0._r8
-      trc_rnof_uc = 0._r8
+      allocate (mt_rnof_gd (nmts, numinpm))
+      allocate (mt_rnof_uc (nmts, numucat))
+      mt_rnof_gd = 0._r8
+      mt_rnof_uc = 0._r8
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
          IF (numpatch > 0) &
-            CALL worker_remap_data_pset2grid (remap_patch2inpm, trc_rnof_step(itrc,:), &
-               trc_rnof_gd(itrc,:), fillvalue = 0._r8, filter = filter_rnof)
+            CALL worker_remap_data_pset2grid (remap_patch2inpm, mt_rnof_step(imt,:), &
+               mt_rnof_gd(imt,:), fillvalue = 0._r8, filter = filter_rnof)
          IF (numinpm > 0) THEN
             WHERE (push_ucat2inpm%sum_area > 0._r8)
-               trc_rnof_gd(itrc,:) = trc_rnof_gd(itrc,:) / push_ucat2inpm%sum_area
+               mt_rnof_gd(imt,:) = mt_rnof_gd(imt,:) / push_ucat2inpm%sum_area
             END WHERE
          ENDIF
-         CALL worker_push_data (push_inpm2ucat, trc_rnof_gd(itrc,:), trc_rnof_uc(itrc,:), &
+         CALL worker_push_data (push_inpm2ucat, mt_rnof_gd(imt,:), mt_rnof_uc(imt,:), &
             fillvalue = 0._r8, mode = 'sum')
       ENDDO
 
       ! water reference [m^3] as acc_rnof_uc; material [R*mm*m^2 -> R*m^3]
       IF (numucat > 0) &
-         CALL mt_riverlake_input_from_runoff (rnof_uc*1.e-3*deltime, numucat, trc_rnof_uc*1.e-3)
+         CALL mt_riverlake_input_from_runoff (rnof_uc*1.e-3*deltime, numucat, mt_rnof_uc*1.e-3)
 
-      deallocate (trc_rnof_gd, trc_rnof_uc)
+      deallocate (mt_rnof_gd, mt_rnof_uc)
 
       IF (mt_lifecycle_route_has_active()) CALL provider_precip_input (filter_rnof, deltime)
 
@@ -297,10 +297,10 @@ CONTAINS
    USE MOD_Grid_Reservoir,         only: ucat2resv
    IMPLICIT NONE
 
-   integer :: itrc
+   integer :: imt
 
       IF (.not. p_is_worker) RETURN
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
       IF (allocated(volresv_mt)) deallocate (volresv_mt)
       IF (allocated(ucat2resv_mt)) deallocate (ucat2resv_mt)
@@ -317,24 +317,24 @@ CONTAINS
          allocate (ucat2resv_mt(0))
       ENDIF
 
-      IF (allocated(trc_decay_source)) trc_decay_source = 0._r8
+      IF (allocated(mt_decay_source)) mt_decay_source = 0._r8
 
 #ifdef CoLMDEBUG
       CALL ensure_debug_arrays ()
       IF (numucat > 0) THEN
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            trc_mass_bef(itrc) = pool_total(itrc)
-            trc_mass_inp(itrc) = sum(acc_trc_inp(itrc,:))
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            mt_mass_bef(imt) = pool_total(imt)
+            mt_mass_inp(imt) = sum(acc_trc_inp(imt,:))
          ENDDO
       ENDIF
 #endif
 
       IF (numucat > 0) THEN
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            trc_inp_buf(itrc,:) = trc_inp_buf(itrc,:) + acc_trc_inp(itrc,:)
-            acc_trc_inp(itrc,:) = 0._r8
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            mt_inp_buf(imt,:) = mt_inp_buf(imt,:) + acc_trc_inp(imt,:)
+            acc_trc_inp(imt,:) = 0._r8
          ENDDO
       ENDIF
 
@@ -353,12 +353,12 @@ CONTAINS
    real(r8), intent(in) :: vis_bef, lev_bef, vis_aft, lev_aft   ! [m^3]
    logical,  intent(in), optional :: with_input
 
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
       CALL mt_lifecycle_route_sediment_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft)
       IF (present(with_input)) THEN
          IF (with_input) THEN
             CALL mt_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, &
-               pending_trc_pool = trc_inp_buf(:,i))
+               pending_trc_pool = mt_inp_buf(:,i))
             RETURN
          ENDIF
       ENDIF
@@ -380,7 +380,7 @@ CONTAINS
 
    real(r8) :: protected
 
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
       protected = 0._r8
       IF (with_levee) protected = levsto(i)
       CALL mt_riverlake_equilibrate_cell (i, visible, protected)
@@ -412,7 +412,7 @@ CONTAINS
    real(r8) :: volwater
 
       IF (.not. p_is_worker) RETURN
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
       IF (DEF_USE_BIFURCATION) &
          CALL mt_lifecycle_route_sediment_bif_accumulate (dt_all, irivsys, ucatfilter, bif_hflux_lev)
@@ -464,22 +464,22 @@ CONTAINS
    real(r8), intent(in) :: volmax     ! water kept [m^3]
    real(r8), intent(in) :: dt         ! substep [s]
 
-   integer  :: itrc
-   real(r8) :: frac_remove, trc_removed
+   integer  :: imt
+   real(r8) :: frac_remove, mt_removed
 
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
       IF (volwater <= 1.e-6_r8) RETURN
 
       frac_remove = (volwater - volmax) / volwater
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         IF (allocated(trc_solid)) THEN
-            IF (mt_has_dissolved_limit(itrc)) &
-               CALL mt_equilibrate_dissolved (itrc, volwater, trc_mass(itrc,i), trc_solid(itrc,i))
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         IF (allocated(mt_solid)) THEN
+            IF (mt_has_dissolved_limit(imt)) &
+               CALL mt_equilibrate_dissolved (imt, volwater, mt_mass(imt,i), mt_solid(imt,i))
          ENDIF
-         trc_removed = trc_mass(itrc,i) * frac_remove
-         trc_mass(itrc,i) = trc_mass(itrc,i) - trc_removed
-         trc_flux_out(itrc,i) = trc_removed / dt
+         mt_removed = mt_mass(imt,i) * frac_remove
+         mt_mass(imt,i) = mt_mass(imt,i) - mt_removed
+         mt_flux_out(imt,i) = mt_removed / dt
       ENDDO
 
    END SUBROUTINE mt_rlc_inland_depression
@@ -507,7 +507,7 @@ CONTAINS
    logical  :: leveed
 
       IF (.not. p_is_worker) RETURN
-      IF (ntracers <= 0 .or. numucat <= 0) RETURN
+      IF (nmts <= 0 .or. numucat <= 0) RETURN
 
       IF (allocated(volresv)) volresv_mt = volresv
       CALL mt_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
@@ -579,13 +579,13 @@ CONTAINS
    integer,  intent(in) :: i
    real(r8), intent(in) :: dt
 #ifdef CoLMDEBUG
-   integer :: itrc
+   integer :: imt
 
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
       CALL ensure_debug_arrays ()
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         trc_mass_dis(itrc) = trc_mass_dis(itrc) + trc_flux_out(itrc,i) * dt
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         mt_mass_dis(imt) = mt_mass_dis(imt) + mt_flux_out(imt,i) * dt
       ENDDO
 #endif
 
@@ -604,54 +604,54 @@ CONTAINS
 
    integer :: lim_calls, lim_iter_sum, lim_iter_peak, lim_over_soft
 #ifdef CoLMDEBUG
-   integer :: itrc
-   real(r8), allocatable :: trc_mass_aft(:), trc_mass_decay(:)
+   integer :: imt
+   real(r8), allocatable :: mt_mass_aft(:), mt_mass_decay(:)
 #endif
 
       CALL mt_riverlake_release_pending_drain ()
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
 #ifdef CoLMDEBUG
       CALL ensure_debug_arrays ()
-      allocate (trc_mass_aft(ntracers), trc_mass_decay(ntracers))
-      trc_mass_aft = 0._r8
-      trc_mass_decay = 0._r8
+      allocate (mt_mass_aft(nmts), mt_mass_decay(nmts))
+      mt_mass_aft = 0._r8
+      mt_mass_decay = 0._r8
       IF (p_is_worker .and. numucat > 0) THEN
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            trc_mass_aft(itrc) = pool_total(itrc)
-            trc_mass_dis(itrc) = trc_mass_dis(itrc) + sum(trc_dry_drain(itrc,:))
-            IF (allocated(trc_decay_source)) trc_mass_decay(itrc) = sum(trc_decay_source(itrc,:))
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            mt_mass_aft(imt) = pool_total(imt)
+            mt_mass_dis(imt) = mt_mass_dis(imt) + sum(mt_dry_drain(imt,:))
+            IF (allocated(mt_decay_source)) mt_mass_decay(imt) = sum(mt_decay_source(imt,:))
          ENDDO
       ELSE
-         trc_mass_bef = 0._r8
-         trc_mass_inp = 0._r8
-         trc_mass_dis = 0._r8
+         mt_mass_bef = 0._r8
+         mt_mass_inp = 0._r8
+         mt_mass_dis = 0._r8
       ENDIF
 #ifdef USEMPI
-      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_bef,   ntracers, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_aft,   ntracers, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_inp,   ntracers, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_dis,   ntracers, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
-      CALL mpi_allreduce (MPI_IN_PLACE, trc_mass_decay, ntracers, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, mt_mass_bef,   nmts, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, mt_mass_aft,   nmts, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, mt_mass_inp,   nmts, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, mt_mass_dis,   nmts, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+      CALL mpi_allreduce (MPI_IN_PLACE, mt_mass_decay, nmts, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
 #endif
       IF (p_is_master) THEN
-         DO itrc = 1, ntracers
-            IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass before  : ', trc_mass_bef(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass input   : ', trc_mass_inp(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass discharge: ', trc_mass_dis(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass decay   : ', trc_mass_decay(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass after   : ', trc_mass_aft(itrc), ' R*m3'
-            write(*,'(A,I0,A,ES12.4,A)') 'Material(', itrc, ') mass balance : ', &
-               trc_mass_aft(itrc) - trc_mass_bef(itrc) - trc_mass_inp(itrc) + trc_mass_dis(itrc) &
-               - trc_mass_decay(itrc), ' R*m3'
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', imt, ') mass before  : ', mt_mass_bef(imt), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', imt, ') mass input   : ', mt_mass_inp(imt), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', imt, ') mass discharge: ', mt_mass_dis(imt), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', imt, ') mass decay   : ', mt_mass_decay(imt), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', imt, ') mass after   : ', mt_mass_aft(imt), ' R*m3'
+            write(*,'(A,I0,A,ES12.4,A)') 'Material(', imt, ') mass balance : ', &
+               mt_mass_aft(imt) - mt_mass_bef(imt) - mt_mass_inp(imt) + mt_mass_dis(imt) &
+               - mt_mass_decay(imt), ' R*m3'
          ENDDO
       ENDIF
-      trc_mass_bef = 0._r8
-      trc_mass_inp = 0._r8
-      trc_mass_dis = 0._r8
-      deallocate (trc_mass_aft, trc_mass_decay)
+      mt_mass_bef = 0._r8
+      mt_mass_inp = 0._r8
+      mt_mass_dis = 0._r8
+      deallocate (mt_mass_aft, mt_mass_decay)
 #endif
 
       IF (p_is_worker) THEN
@@ -675,7 +675,7 @@ CONTAINS
          IF (numucat > 0) THEN
             IF (allocated(acc_trc_inp))   acc_trc_inp   = 0._r8
             IF (allocated(acc_rnof_ref))  acc_rnof_ref  = 0._r8
-            IF (allocated(trc_dry_drain)) trc_dry_drain = 0._r8
+            IF (allocated(mt_dry_drain)) mt_dry_drain = 0._r8
          ENDIF
 
          ! provider materials (sediment) over the whole routing call
@@ -783,29 +783,29 @@ CONTAINS
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
 
-   integer :: itrc
+   integer :: imt
    logical :: has_flood_tracer
 
       IF (.not. p_is_worker) RETURN
 
-      IF (allocated(flood_tracer_credit_patch)) deallocate (flood_tracer_credit_patch, &
-         flood_tracer_evap_patch, flood_tracer_land_patch, &
-         flood_visible_tracer_uc, flood_protected_tracer_uc)
+      IF (allocated(flood_mt_credit_patch)) deallocate (flood_mt_credit_patch, &
+         flood_mt_evap_patch, flood_mt_land_patch, &
+         flood_visible_mt_uc, flood_protected_mt_uc)
 
       has_flood_tracer = .false.
-      DO itrc = 1, ntracers
-         IF (mt_uses_generic_water(itrc)) has_flood_tracer = .true.
+      DO imt = 1, nmts
+         IF (mt_uses_generic_water(imt)) has_flood_tracer = .true.
       ENDDO
       IF (.not. has_flood_tracer) RETURN
 
-      allocate (flood_tracer_credit_patch(ntracers,numpatch), flood_tracer_evap_patch(ntracers,numpatch), &
-         flood_tracer_land_patch(ntracers,numpatch), &
-         flood_visible_tracer_uc(ntracers,numucat), flood_protected_tracer_uc(ntracers,numucat))
-      flood_tracer_credit_patch = 0._r8
-      flood_tracer_evap_patch   = 0._r8
-      flood_tracer_land_patch   = 0._r8
-      flood_visible_tracer_uc   = 0._r8
-      flood_protected_tracer_uc = 0._r8
+      allocate (flood_mt_credit_patch(nmts,numpatch), flood_mt_evap_patch(nmts,numpatch), &
+         flood_mt_land_patch(nmts,numpatch), &
+         flood_visible_mt_uc(nmts,numucat), flood_protected_mt_uc(nmts,numucat))
+      flood_mt_credit_patch = 0._r8
+      flood_mt_evap_patch   = 0._r8
+      flood_mt_land_patch   = 0._r8
+      flood_visible_mt_uc   = 0._r8
+      flood_protected_mt_uc = 0._r8
 
    END SUBROUTINE mt_rlc_flood_init
 
@@ -815,7 +815,7 @@ CONTAINS
    ! No flood is published to the land: no material either.
 
       IF (.not. p_is_worker) RETURN
-      IF (allocated(flood_tracer_credit_patch)) flood_tracer_credit_patch = 0._r8
+      IF (allocated(flood_mt_credit_patch)) flood_mt_credit_patch = 0._r8
 
    END SUBROUTINE mt_rlc_flood_withhold
 
@@ -825,12 +825,12 @@ CONTAINS
    ! Start of publish_flood_feedback: a new flood state replaces the old one.
 
       IF (.not. p_is_worker) RETURN
-      IF (.not. allocated(flood_visible_tracer_uc)) RETURN
-      flood_visible_tracer_uc   = 0._r8
-      flood_protected_tracer_uc = 0._r8
-      flood_tracer_credit_patch = 0._r8
-      flood_tracer_evap_patch   = 0._r8
-      flood_tracer_land_patch   = 0._r8
+      IF (.not. allocated(flood_visible_mt_uc)) RETURN
+      flood_visible_mt_uc   = 0._r8
+      flood_protected_mt_uc = 0._r8
+      flood_mt_credit_patch = 0._r8
+      flood_mt_evap_patch   = 0._r8
+      flood_mt_land_patch   = 0._r8
 
    END SUBROUTINE mt_rlc_flood_publish_reset
 
@@ -847,10 +847,10 @@ CONTAINS
    real(r8), intent(in) :: protected      ! protected water [m^3]
    real(r8), intent(in) :: visible_flood  ! published visible flood water [m^3]
 
-      IF (.not. allocated(flood_visible_tracer_uc)) RETURN
-      IF (visible > 0._r8) flood_visible_tracer_uc(:,i) = &
-         max(trc_mass(:,i), 0._r8) * (visible_flood / visible)
-      IF (protected > 0._r8) flood_protected_tracer_uc(:,i) = max(trc_levsto(:,i), 0._r8)
+      IF (.not. allocated(flood_visible_mt_uc)) RETURN
+      IF (visible > 0._r8) flood_visible_mt_uc(:,i) = &
+         max(mt_mass(:,i), 0._r8) * (visible_flood / visible)
+      IF (protected > 0._r8) flood_protected_mt_uc(:,i) = max(mt_levsto(:,i), 0._r8)
 
    END SUBROUTINE mt_rlc_flood_publish_cell
 
@@ -870,25 +870,25 @@ CONTAINS
    real(r8), intent(in) :: flood_grid_area(:)   ! land area of each input grid cell
 
    real(r8), parameter :: MISSING = -1.e30_r8
-   integer :: itrc, iside
+   integer :: imt, iside
    real(r8), allocatable :: density(:), grid_tracer(:), patch_tracer(:)
 
       IF (.not. p_is_worker) RETURN
-      IF (.not. allocated(flood_visible_tracer_uc)) RETURN
+      IF (.not. allocated(flood_visible_mt_uc)) RETURN
 
       allocate (density(numucat), grid_tracer(numinpm), patch_tracer(numpatch))
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
          DO iside = 1, 2
             ! sum_area is allocated only on workers with requests (numucat > 0)
             density = 0._r8
             IF (numucat > 0) THEN
                IF (iside == 1) THEN
                   WHERE (push_inpm2ucat%sum_area > 0._r8) &
-                     density = flood_visible_tracer_uc(itrc,:) / max(push_inpm2ucat%sum_area, tiny(1._r8))
+                     density = flood_visible_mt_uc(imt,:) / max(push_inpm2ucat%sum_area, tiny(1._r8))
                ELSE
                   WHERE (push_inpm2ucat%sum_area > 0._r8) &
-                     density = flood_protected_tracer_uc(itrc,:) / max(push_inpm2ucat%sum_area, tiny(1._r8))
+                     density = flood_protected_mt_uc(imt,:) / max(push_inpm2ucat%sum_area, tiny(1._r8))
                ENDIF
             ENDIF
             CALL worker_push_data (push_ucat2inpm, density, grid_tracer, fillvalue=0._r8, mode='sum')
@@ -902,11 +902,11 @@ CONTAINS
                   patch_tracer, fillvalue=MISSING, mode='average')
                WHERE (patch_tracer == MISSING) patch_tracer = 0._r8
                IF (iside == 1) THEN
-                  flood_tracer_credit_patch(itrc,:) = patch_tracer
+                  flood_mt_credit_patch(imt,:) = patch_tracer
                ELSE
                   ! [m] -> [mm], as flood_credit_patch*1000 is the water credit [mm]
-                  flood_tracer_credit_patch(itrc,:) = 1000._r8 * &
-                     (flood_tracer_credit_patch(itrc,:) + patch_tracer)
+                  flood_mt_credit_patch(imt,:) = 1000._r8 * &
+                     (flood_mt_credit_patch(imt,:) + patch_tracer)
                ENDIF
             ENDIF
          ENDDO
@@ -937,7 +937,7 @@ CONTAINS
    real(r8), intent(in) :: flood_visible_uc(:)     ! published visible flood water [m^3]
    real(r8), intent(in) :: flood_protected_uc(:)   ! published protected flood water [m^3]
 
-   integer  :: i, j, itrc
+   integer  :: i, j, imt
    real(r8) :: patch_area, tracer_cell_debit, ledger_tol
    real(r8) :: water_credit, tracer_credit, vapor_loss, positive_loss, vapor_gain
    real(r8) :: infiltrated_fraction, evaporated_fraction, tracer_after
@@ -946,22 +946,22 @@ CONTAINS
    real(r8), allocatable :: tracer_exchange_ledger(:,:)   ! (land, vapour, river donor)
 
       IF (.not. p_is_worker) RETURN
-      IF (.not. allocated(flood_visible_tracer_uc)) RETURN
+      IF (.not. allocated(flood_visible_mt_uc)) RETURN
 
       allocate (ratio_patch(numpatch), ratio_grid(numinpm), ratio_uc(numucat))
       allocate (gain_patch(numpatch), coefficient_uc(numucat), gain_uc(numucat))
-      allocate (tracer_exchange_ledger(3,ntracers))
+      allocate (tracer_exchange_ledger(3,nmts))
       tracer_exchange_ledger = 0._r8
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
          ratio_patch = 0._r8
          gain_patch = 0._r8
          DO i = 1, numpatch
             water_credit = flood_credit_patch(i)*1000._r8
             IF (water_credit <= 0._r8) CYCLE
-            tracer_credit = flood_tracer_credit_patch(itrc,i)
-            vapor_loss = flood_tracer_evap_patch(itrc,i)
+            tracer_credit = flood_mt_credit_patch(imt,i)
+            vapor_loss = flood_mt_evap_patch(imt,i)
             IF (.not. ieee_is_finite(vapor_loss)) &
                CALL CoLM_stop('grid flood feedback: nonfinite isotope vapor exchange')
             positive_loss = max(vapor_loss,0._r8)
@@ -984,24 +984,24 @@ CONTAINS
                CALL CoLM_stop('grid flood feedback: material infiltration overdraft')
             infiltrated_fraction = min(1._r8,max(0._r8,infiltrated_fraction))
             ratio_patch(i) = evaporated_fraction + (1._r8-evaporated_fraction)*infiltrated_fraction
-            IF (mt_has_dissolved_limit(itrc) .and. tracer_credit > 0._r8) &
-               ratio_patch(i) = min(1._r8,max(0._r8,flood_tracer_land_patch(itrc,i)/tracer_credit))
+            IF (mt_has_dissolved_limit(imt) .and. tracer_credit > 0._r8) &
+               ratio_patch(i) = min(1._r8,max(0._r8,flood_mt_land_patch(imt,i)/tracer_credit))
             gain_patch(i) = vapor_gain*(1._r8-infiltrated_fraction)/water_credit
             patch_area = sum(remap_patch2inpm%areapart(i)%val)*1.e-3_r8
-            IF (mt_has_dissolved_limit(itrc)) THEN
-               IF (flood_tracer_land_patch(itrc,i) < -ledger_tol .or. &
-                   flood_tracer_land_patch(itrc,i) > &
+            IF (mt_has_dissolved_limit(imt)) THEN
+               IF (flood_mt_land_patch(imt,i) < -ledger_tol .or. &
+                   flood_mt_land_patch(imt,i) > &
                    (tracer_credit-vapor_loss)*infiltrated_fraction + ledger_tol) &
                   CALL CoLM_stop('grid flood feedback: finite solute input exceeds donor exchange')
             ELSE
-               IF (abs(flood_tracer_land_patch(itrc,i) - &
+               IF (abs(flood_mt_land_patch(imt,i) - &
                    (tracer_credit-vapor_loss)*infiltrated_fraction) > &
-                   max(1.e-12_r8,1.e-10_r8*max(abs(tracer_credit),abs(flood_tracer_land_patch(itrc,i))))) &
+                   max(1.e-12_r8,1.e-10_r8*max(abs(tracer_credit),abs(flood_mt_land_patch(imt,i))))) &
                   CALL CoLM_stop('grid flood feedback: land material input differs from donor exchange')
             ENDIF
-            tracer_exchange_ledger(1,itrc) = tracer_exchange_ledger(1,itrc) + &
-               flood_tracer_land_patch(itrc,i)*patch_area
-            tracer_exchange_ledger(2,itrc) = tracer_exchange_ledger(2,itrc) + vapor_loss*patch_area
+            tracer_exchange_ledger(1,imt) = tracer_exchange_ledger(1,imt) + &
+               flood_mt_land_patch(imt,i)*patch_area
+            tracer_exchange_ledger(2,imt) = tracer_exchange_ledger(2,imt) + vapor_loss*patch_area
          ENDDO
 
          ! fraction of the published material taken, per unit catchment
@@ -1022,7 +1022,7 @@ CONTAINS
 
          ! vapour gained by the flood water still in the river (isotopes only)
          gain_uc = 0._r8
-         IF (.not. tracer_is_nonvolatile_solute(itrc)) THEN
+         IF (.not. tracer_is_nonvolatile_solute(imt)) THEN
             ratio_grid = 0._r8
             IF (numpatch > 0) CALL worker_remap_data_pset2grid (remap_patch2inpm, gain_patch, ratio_grid, &
                fillvalue=0._r8, filter=flood_credit_patch>0._r8)
@@ -1038,41 +1038,41 @@ CONTAINS
          ENDIF
 
          DO j = 1, numucat
-            tracer_after = trc_mass(itrc,j) - coefficient_uc(j)*flood_visible_tracer_uc(itrc,j) &
+            tracer_after = mt_mass(imt,j) - coefficient_uc(j)*flood_visible_mt_uc(imt,j) &
                + gain_uc(j)*flood_visible_uc(j)
-            IF (tracer_after < -1.e-10_r8*max(1._r8,trc_mass(itrc,j))) &
+            IF (tracer_after < -1.e-10_r8*max(1._r8,mt_mass(imt,j))) &
                CALL CoLM_stop('grid flood feedback: negative visible material')
-            tracer_cell_debit = coefficient_uc(j)*flood_visible_tracer_uc(itrc,j) &
+            tracer_cell_debit = coefficient_uc(j)*flood_visible_mt_uc(imt,j) &
                - gain_uc(j)*flood_visible_uc(j) + min(tracer_after,0._r8)
-            trc_mass(itrc,j) = max(0._r8,tracer_after)
-            tracer_after = trc_levsto(itrc,j) - coefficient_uc(j)*flood_protected_tracer_uc(itrc,j) &
+            mt_mass(imt,j) = max(0._r8,tracer_after)
+            tracer_after = mt_levsto(imt,j) - coefficient_uc(j)*flood_protected_mt_uc(imt,j) &
                + gain_uc(j)*flood_protected_uc(j)
-            IF (tracer_after < -1.e-10_r8*max(1._r8,trc_levsto(itrc,j))) &
+            IF (tracer_after < -1.e-10_r8*max(1._r8,mt_levsto(imt,j))) &
                CALL CoLM_stop('grid flood feedback: negative protected material')
-            tracer_cell_debit = tracer_cell_debit + coefficient_uc(j)*flood_protected_tracer_uc(itrc,j) &
+            tracer_cell_debit = tracer_cell_debit + coefficient_uc(j)*flood_protected_mt_uc(imt,j) &
                - gain_uc(j)*flood_protected_uc(j) + min(tracer_after,0._r8)
-            trc_levsto(itrc,j) = max(0._r8,tracer_after)
-            tracer_exchange_ledger(3,itrc) = tracer_exchange_ledger(3,itrc) + tracer_cell_debit
+            mt_levsto(imt,j) = max(0._r8,tracer_after)
+            tracer_exchange_ledger(3,imt) = tracer_exchange_ledger(3,imt) + tracer_cell_debit
          ENDDO
       ENDDO
 
 #ifdef USEMPI
-      CALL mpi_allreduce (MPI_IN_PLACE, tracer_exchange_ledger, 3*ntracers, MPI_REAL8, &
+      CALL mpi_allreduce (MPI_IN_PLACE, tracer_exchange_ledger, 3*nmts, MPI_REAL8, &
          MPI_SUM, p_comm_worker, p_err)
 #endif
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         ledger_tol = max(1.e-8_r8, 1.e-10_r8*maxval(abs(tracer_exchange_ledger(:,itrc))))
-         IF (abs(tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc) - &
-                tracer_exchange_ledger(3,itrc)) > ledger_tol) &
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         ledger_tol = max(1.e-8_r8, 1.e-10_r8*maxval(abs(tracer_exchange_ledger(:,imt))))
+         IF (abs(tracer_exchange_ledger(1,imt)+tracer_exchange_ledger(2,imt) - &
+                tracer_exchange_ledger(3,imt)) > ledger_tol) &
             CALL CoLM_stop('grid flood feedback: land/river material exchange ledger mismatch')
-         IF (p_iam_worker == p_root .and. flood_tracer_ledger_reports < 5 .and. &
-             tracer_exchange_ledger(1,itrc) > 0._r8) THEN
-            write(*,'(A,I0,4(1X,ES16.8))') 'Grid flood material land/vapor/donor/residual:', itrc, &
-               tracer_exchange_ledger(1,itrc), tracer_exchange_ledger(2,itrc), &
-               tracer_exchange_ledger(3,itrc), &
-               tracer_exchange_ledger(1,itrc)+tracer_exchange_ledger(2,itrc)-tracer_exchange_ledger(3,itrc)
-            flood_tracer_ledger_reports = flood_tracer_ledger_reports + 1
+         IF (p_iam_worker == p_root .and. flood_mt_ledger_reports < 5 .and. &
+             tracer_exchange_ledger(1,imt) > 0._r8) THEN
+            write(*,'(A,I0,4(1X,ES16.8))') 'Grid flood material land/vapor/donor/residual:', imt, &
+               tracer_exchange_ledger(1,imt), tracer_exchange_ledger(2,imt), &
+               tracer_exchange_ledger(3,imt), &
+               tracer_exchange_ledger(1,imt)+tracer_exchange_ledger(2,imt)-tracer_exchange_ledger(3,imt)
+            flood_mt_ledger_reports = flood_mt_ledger_reports + 1
          ENDIF
       ENDDO
 
@@ -1087,16 +1087,16 @@ CONTAINS
       CALL mt_lifecycle_route_final ()
       CALL mt_riverlake_final ()
 
-      IF (allocated(flood_tracer_credit_patch)) deallocate (flood_tracer_credit_patch, &
-         flood_tracer_evap_patch, flood_tracer_land_patch, &
-         flood_visible_tracer_uc, flood_protected_tracer_uc)
+      IF (allocated(flood_mt_credit_patch)) deallocate (flood_mt_credit_patch, &
+         flood_mt_evap_patch, flood_mt_land_patch, &
+         flood_visible_mt_uc, flood_protected_mt_uc)
       IF (allocated(volresv_mt))   deallocate (volresv_mt)
       IF (allocated(ucat2resv_mt)) deallocate (ucat2resv_mt)
       IF (allocated(prov_storage_start)) deallocate (prov_storage_start, prov_protected_start, &
          prov_storage_end, prov_protected_end, prov_floodarea, prov_protected_area)
       IF (allocated(pub_floodarea)) deallocate (pub_floodarea, pub_flooddepth, pub_leveearea)
 #ifdef CoLMDEBUG
-      IF (allocated(trc_mass_bef)) deallocate (trc_mass_bef, trc_mass_inp, trc_mass_dis)
+      IF (allocated(mt_mass_bef)) deallocate (mt_mass_bef, mt_mass_inp, mt_mass_dis)
 #endif
 
    END SUBROUTINE mt_rlc_final
@@ -1126,25 +1126,25 @@ CONTAINS
    ! ---------
    SUBROUTINE ensure_debug_arrays ()
 
-      IF (allocated(trc_mass_bef)) RETURN
-      allocate (trc_mass_bef(ntracers), trc_mass_inp(ntracers), trc_mass_dis(ntracers))
-      trc_mass_bef = 0._r8
-      trc_mass_inp = 0._r8
-      trc_mass_dis = 0._r8
+      IF (allocated(mt_mass_bef)) RETURN
+      allocate (mt_mass_bef(nmts), mt_mass_inp(nmts), mt_mass_dis(nmts))
+      mt_mass_bef = 0._r8
+      mt_mass_inp = 0._r8
+      mt_mass_dis = 0._r8
 
    END SUBROUTINE ensure_debug_arrays
 
    ! ---------
-   real(r8) FUNCTION pool_total (itrc)
+   real(r8) FUNCTION pool_total (imt)
 
    ! all river pools of material itrc on this worker [R*m^3]
 
-   integer, intent(in) :: itrc
+   integer, intent(in) :: imt
 
-      pool_total = sum(trc_mass(itrc,:)) + sum(trc_inp_buf(itrc,:))
-      IF (allocated(trc_levsto)) pool_total = pool_total + sum(trc_levsto(itrc,:))
-      IF (allocated(trc_solid))  pool_total = pool_total + sum(trc_solid(itrc,:)) &
-         + sum(trc_levsto_solid(itrc,:))
+      pool_total = sum(mt_mass(imt,:)) + sum(mt_inp_buf(imt,:))
+      IF (allocated(mt_levsto)) pool_total = pool_total + sum(mt_levsto(imt,:))
+      IF (allocated(mt_solid))  pool_total = pool_total + sum(mt_solid(imt,:)) &
+         + sum(mt_levsto_solid(imt,:))
 
    END FUNCTION pool_total
 #endif

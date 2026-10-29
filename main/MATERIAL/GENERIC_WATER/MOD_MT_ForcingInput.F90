@@ -45,7 +45,7 @@ MODULE MOD_MT_ForcingInput
    ! ------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_MT_Defs, only: ntracers, tracers, tracer_param_file_for_index, tracer_lower, &
+   USE MOD_MT_Defs, only: nmts, tracers, tracer_param_file_for_index, tracer_lower, &
                              mt_uses_generic_water, tracer_is_isotope
 
    IMPLICIT NONE
@@ -79,7 +79,7 @@ CONTAINS
    SUBROUTINE tracer_forcing_input_load ()
       USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
       IMPLICIT NONE
-      integer :: itrc, k, kdup, nf, ierr, unit_nml
+      integer :: imt, k, kdup, nf, ierr, unit_nml
       logical :: found, fexists
       character(len=256) :: nlfile
       character(len=256) :: role_hint
@@ -99,13 +99,13 @@ CONTAINS
       namelist /nl_colm_mt_forcing/ forcing_species, forcing_num, forcing_role, forcing_fprefix, &
          forcing_vname, forcing_tintalgo, forcing_dtime, forcing_offset, forcing_input_mode
 
-      IF (ntracers <= 0) RETURN
-      IF (.not. allocated(tracer_forcing_n))     allocate(tracer_forcing_n(ntracers))
-      IF (.not. allocated(tracer_forcing_specs)) allocate(tracer_forcing_specs(TRACER_FORCING_MAX, ntracers))
+      IF (nmts <= 0) RETURN
+      IF (.not. allocated(tracer_forcing_n))     allocate(tracer_forcing_n(nmts))
+      IF (.not. allocated(tracer_forcing_specs)) allocate(tracer_forcing_specs(TRACER_FORCING_MAX, nmts))
       tracer_forcing_n(:) = 0
 
-      DO itrc = 1, ntracers
-         CALL tracer_param_file_for_index (itrc, '', nlfile, found)
+      DO imt = 1, nmts
+         CALL tracer_param_file_for_index (imt, '', nlfile, found)
          IF (.not. found) CYCLE
          INQUIRE (file=trim(nlfile), exist=fexists)
          IF (.not. fexists) CYCLE
@@ -131,9 +131,9 @@ CONTAINS
                   CALL CoLM_stop()
                ENDIF
                IF (len_trim(forcing_species) == 0) THEN
-                  IF (tracer_is_isotope(itrc)) CALL CoLM_stop ( &
+                  IF (tracer_is_isotope(imt)) CALL CoLM_stop ( &
                      'forcing_species must be set in each &nl_colm_mt_forcing of '//trim(nlfile))
-               ELSEIF (trim(tracer_lower(forcing_species)) /= trim(tracer_lower(tracers(itrc)%name))) THEN
+               ELSEIF (trim(tracer_lower(forcing_species)) /= trim(tracer_lower(tracers(imt)%name))) THEN
                   CYCLE
                ENDIF
                IF (ipass == 2) EXIT
@@ -143,7 +143,7 @@ CONTAINS
          ENDDO
          IF (nmatch == 0) CYCLE
          IF (nmatch > 1) CALL CoLM_stop ('More than one &nl_colm_mt_forcing group for '// &
-            trim(tracers(itrc)%name)//' in '//trim(nlfile))
+            trim(tracers(imt)%name)//' in '//trim(nlfile))
 
          IF (forcing_num < 0 .or. forcing_num > TRACER_FORCING_MAX) THEN
             IF (p_is_master) THEN
@@ -153,12 +153,12 @@ CONTAINS
             CALL CoLM_stop()
          ENDIF
          nf = forcing_num
-         tracer_forcing_n(itrc) = nf
+         tracer_forcing_n(imt) = nf
          DO k = 1, nf
             IF (forcing_dtime(k) <= 0) THEN
                IF (p_is_master) THEN
                   write(*,'(A,I0,A,A,A,I0,A)') 'ERROR tracer_forcing_input_load: forcing_dtime(', k, &
-                     ') for material "', trim(tracers(itrc)%name), '" must be > 0, got ', forcing_dtime(k), '.'
+                     ') for material "', trim(tracers(imt)%name), '" must be > 0, got ', forcing_dtime(k), '.'
                ENDIF
                CALL CoLM_stop()
             ENDIF
@@ -168,7 +168,7 @@ CONTAINS
             CASE DEFAULT
                IF (p_is_master) WRITE(*,'(A,I0,5A)') &
                   'ERROR tracer_forcing_input_load: forcing_tintalgo(', k, ') for material "', &
-                  trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_tintalgo(k)), '".'
+                  trim(tracers(imt)%name), '" has invalid value "', trim(forcing_tintalgo(k)), '".'
                CALL CoLM_stop()
             END SELECT
             forcing_input_mode(k) = tracer_lower(adjustl(forcing_input_mode(k)))
@@ -179,16 +179,16 @@ CONTAINS
             CASE DEFAULT
                IF (p_is_master) WRITE(*,'(A,I0,5A)') &
                   'ERROR tracer_forcing_input_load: forcing_input_mode(', k, ') for material "', &
-                  trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_input_mode(k)), '".'
+                  trim(tracers(imt)%name), '" has invalid value "', trim(forcing_input_mode(k)), '".'
                CALL CoLM_stop()
             END SELECT
             forcing_role(k) = tracer_lower(adjustl(forcing_role(k)))
-            IF (.not. tracer_forcing_role_valid(itrc, forcing_role(k))) THEN
-               role_hint = tracer_forcing_role_hint (itrc, forcing_role(k))
+            IF (.not. tracer_forcing_role_valid(imt, forcing_role(k))) THEN
+               role_hint = tracer_forcing_role_hint (imt, forcing_role(k))
                IF (p_is_master) THEN
                   WRITE(*,'(A,I0,5A)') &
                      'ERROR tracer_forcing_input_load: forcing_role(', k, ') for material "', &
-                     trim(tracers(itrc)%name), '" has invalid value "', trim(forcing_role(k)), '".'
+                     trim(tracers(imt)%name), '" has invalid value "', trim(forcing_role(k)), '".'
                   IF (len_trim(role_hint) > 0) THEN
                      ! Accepting it and reading nothing is what this replaces.
                      WRITE(*,'(2A)') '       no consumer reads this role: ', trim(role_hint)
@@ -209,7 +209,7 @@ CONTAINS
                   IF (p_is_master) THEN
                      WRITE(*,'(A,I0,A,I0,4A)') &
                         'ERROR tracer_forcing_input_load: forcing_role(', kdup, ') and (', k, &
-                        ') for material "', trim(tracers(itrc)%name), '" are both "', &
+                        ') for material "', trim(tracers(imt)%name), '" are both "', &
                         trim(forcing_role(k))//'".'
                      WRITE(*,'(A)') '       only the first would ever be read; each role may appear once.'
                   ENDIF
@@ -217,17 +217,17 @@ CONTAINS
                ENDIF
             ENDDO
 
-            tracer_forcing_specs(k,itrc)%role       = adjustl(forcing_role(k))
-            tracer_forcing_specs(k,itrc)%fprefix    = adjustl(forcing_fprefix(k))
-            tracer_forcing_specs(k,itrc)%vname      = adjustl(forcing_vname(k))
-            tracer_forcing_specs(k,itrc)%tintalgo   = forcing_tintalgo(k)
-            tracer_forcing_specs(k,itrc)%dtime      = forcing_dtime(k)
-            tracer_forcing_specs(k,itrc)%offset     = forcing_offset(k)
-            tracer_forcing_specs(k,itrc)%input_mode = forcing_input_mode(k)
+            tracer_forcing_specs(k,imt)%role       = adjustl(forcing_role(k))
+            tracer_forcing_specs(k,imt)%fprefix    = adjustl(forcing_fprefix(k))
+            tracer_forcing_specs(k,imt)%vname      = adjustl(forcing_vname(k))
+            tracer_forcing_specs(k,imt)%tintalgo   = forcing_tintalgo(k)
+            tracer_forcing_specs(k,imt)%dtime      = forcing_dtime(k)
+            tracer_forcing_specs(k,imt)%offset     = forcing_offset(k)
+            tracer_forcing_specs(k,imt)%input_mode = forcing_input_mode(k)
          ENDDO
 
          IF (p_is_master) write(*,'(A,I0,A,A,A,I0,A)') &
-            ' [material-forcing] material ', itrc, ' (', trim(tracers(itrc)%name), '): ', nf, ' forcing input(s)'
+            ' [material-forcing] material ', imt, ' (', trim(tracers(imt)%name), '): ', nf, ' forcing input(s)'
       ENDDO
    CONTAINS
 
@@ -245,36 +245,36 @@ CONTAINS
 
    END SUBROUTINE tracer_forcing_input_load
 
-   integer FUNCTION tracer_forcing_input_count (itrc)
+   integer FUNCTION tracer_forcing_input_count (imt)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       tracer_forcing_input_count = 0
       IF (.not. allocated(tracer_forcing_n)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_forcing_input_count = tracer_forcing_n(itrc)
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_forcing_input_count = tracer_forcing_n(imt)
    END FUNCTION tracer_forcing_input_count
 
-   FUNCTION tracer_forcing_input_get (itrc, k) RESULT(spec)
+   FUNCTION tracer_forcing_input_get (imt, k) RESULT(spec)
       IMPLICIT NONE
-      integer, intent(in) :: itrc, k
+      integer, intent(in) :: imt, k
       type(tracer_forcing_spec_type) :: spec
       ! defaults from the type definition apply if out of range
       IF (.not. allocated(tracer_forcing_specs)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
       IF (k < 1 .or. k > TRACER_FORCING_MAX) RETURN
-      spec = tracer_forcing_specs(k,itrc)
+      spec = tracer_forcing_specs(k,imt)
    END FUNCTION tracer_forcing_input_get
 
-   integer FUNCTION tracer_forcing_input_find (itrc, role)
+   integer FUNCTION tracer_forcing_input_find (imt, role)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       character(len=*), intent(in) :: role
       integer :: k
       tracer_forcing_input_find = 0
       IF (.not. allocated(tracer_forcing_n)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      DO k = 1, tracer_forcing_n(itrc)
-         IF (tracer_forcing_role_equal(tracer_forcing_specs(k,itrc)%role, role)) THEN
+      IF (imt < 1 .or. imt > nmts) RETURN
+      DO k = 1, tracer_forcing_n(imt)
+         IF (tracer_forcing_role_equal(tracer_forcing_specs(k,imt)%role, role)) THEN
             tracer_forcing_input_find = k
             RETURN
          ENDIF
@@ -287,9 +287,9 @@ CONTAINS
       tracer_forcing_role_equal = (tracer_lower(a) == tracer_lower(b))
    END FUNCTION tracer_forcing_role_equal
 
-   logical FUNCTION tracer_forcing_role_valid (itrc, role)
+   logical FUNCTION tracer_forcing_role_valid (imt, role)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       character(len=*), intent(in) :: role
 
       ! Validity means "some code reads this", not "this name is spelled
@@ -300,16 +300,16 @@ CONTAINS
       ! alone cannot tell them apart.
       tracer_forcing_role_valid = &
          (trim(role) == 'precip' .or. trim(role) == 'vapor') .and. &
-         mt_uses_generic_water (itrc)
+         mt_uses_generic_water (imt)
 
    END FUNCTION tracer_forcing_role_valid
 
    !> Explains a role that names a real field but has no consumer here, so the
    !! error can point at the mechanism that does supply it. Empty when the role
    !! is simply unrecognised -- that is a typo, not a misdirected configuration.
-   FUNCTION tracer_forcing_role_hint (itrc, role) RESULT (hint)
+   FUNCTION tracer_forcing_role_hint (imt, role) RESULT (hint)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       character(len=*), intent(in) :: role
       character(len=256) :: hint
 
@@ -317,7 +317,7 @@ CONTAINS
       ! right and the file would load, but MOD_MT_Forcing never reaches
       ! this tracer, so the data would go nowhere.
       IF ((trim(role) == 'precip' .or. trim(role) == 'vapor') .and. &
-          .not. mt_uses_generic_water (itrc)) THEN
+          .not. mt_uses_generic_water (imt)) THEN
          hint = 'this species is provider-owned and is skipped by the ' // &
                 'precip/vapor loop in MOD_MT_Forcing'
          RETURN

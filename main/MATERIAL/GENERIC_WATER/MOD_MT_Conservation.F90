@@ -5,7 +5,7 @@ MODULE MOD_MT_Conservation
 
    USE MOD_Precision
    USE MOD_MT_Namelist, only: DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD
-   USE MOD_MT_Defs, only: ntracers, trc_tiny, tracer_init_water_ratio, &
+   USE MOD_MT_Defs, only: nmts, mt_tiny, tracer_init_water_ratio, &
       tracer_can_use_fixed_signature, mt_uses_generic_water
    USE MOD_MT_Solute, only: tracer_decay_fraction, mt_has_dissolved_limit
    USE MOD_MT_Frac, only: tracer_fractionation_active
@@ -25,8 +25,8 @@ MODULE MOD_MT_Conservation
    ! Urban simple patches use the same threshold as ordinary land patches;
    ! their impermeable qgtop<0 evaporation branch is mirrored explicitly in
    ! MOD_MT_SoilWater instead of hidden behind a local tolerance waiver.
-   real(r8), parameter :: trc_balance_abs_tol = 1.0e-12_r8
-   real(r8), parameter :: trc_balance_rel_tol = 1.0e-10_r8
+   real(r8), parameter :: mt_balance_abs_tol = 1.0e-12_r8
+   real(r8), parameter :: mt_balance_rel_tol = 1.0e-10_r8
    integer, parameter :: n_storage_diag = 12
    integer, parameter :: n_flux_diag = 7
 
@@ -73,9 +73,9 @@ MODULE MOD_MT_Conservation
    ! the hard transport-balance check subtracts it like decay_source_sink.
    ! It still has its own independent hard cap below; otherwise a large
    ! near-dry collapse could be "balanced" by the residual account forever.
-   real(r8), parameter :: trc_resid_warn_frac = 1.0e-6_r8
-   real(r8), parameter :: trc_resid_abs_tol   = 5.0e-5_r8
-   real(r8), parameter :: trc_resid_rel_tol   = 1.0e-6_r8
+   real(r8), parameter :: mt_resid_warn_frac = 1.0e-6_r8
+   real(r8), parameter :: mt_resid_abs_tol   = 5.0e-5_r8
+   real(r8), parameter :: mt_resid_rel_tol   = 1.0e-6_r8
    real(r8), save :: resid_worst_abs      = 0._r8
    real(r8), save :: resid_hard_worst_abs = 0._r8
    real(r8), save :: resid_hard_worst_tol = 0._r8
@@ -85,7 +85,7 @@ MODULE MOD_MT_Conservation
    integer,  save :: resid_nbad           = 0
    integer,  save :: resid_hard_nbad      = 0
 
-   PUBLIC :: deallocate_tracer_conservation
+   PUBLIC :: deallocate_mt_conservation
    PUBLIC :: mt_apply_decay
    PUBLIC :: tracer_balance_report
 
@@ -100,7 +100,7 @@ CONTAINS
    ! only fires on the first call ever, so without this deallocate
    ! a changed numpatch would either truncate or overrun snap_*.
    !---------------------------------------------------------------
-   SUBROUTINE deallocate_tracer_conservation ()
+   SUBROUTINE deallocate_mt_conservation ()
       IMPLICIT NONE
       IF (allocated(snap_precip)) deallocate(snap_precip)
       IF (allocated(snap_vapor_exchange)) deallocate(snap_vapor_exchange)
@@ -111,7 +111,7 @@ CONTAINS
       IF (allocated(snap_qinfl )) deallocate(snap_qinfl )
       IF (allocated(snap_qcharge)) deallocate(snap_qcharge)
       IF (allocated(snap_storage_comp)) deallocate(snap_storage_comp)
-   END SUBROUTINE deallocate_tracer_conservation
+   END SUBROUTINE deallocate_mt_conservation
 
    SUBROUTINE mt_save_storage (ipatch, snl, nl_soil, waterstorage)
       IMPLICIT NONE
@@ -124,56 +124,56 @@ CONTAINS
       ! part of the column inventory (so irrigation becomes an internal
       ! transfer instead of an external atmospheric input).
       real(r8), intent(in), optional :: waterstorage
-         integer :: itrc, j, lb_store
+         integer :: imt, j, lb_store
       real(r8) :: R_init
       real(r8) :: storage_comp(n_storage_diag)
       logical  :: fixed_signature_storage
 
-         IF (ntracers <= 0) RETURN
+         IF (nmts <= 0) RETURN
 #ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
-         IF (any(trc_wliq_soisno(:,1:nl_soil,ipatch) < 0._r8)) &
+         IF (any(mt_wliq_soisno(:,1:nl_soil,ipatch) < 0._r8)) &
             CALL CoLM_stop('signed soil debt: rejected full timestep; direct-kernel experiment only')
 #endif
-         lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
+         lb_store = max(lbound(mt_wliq_soisno, 2), snl + 1)
 
       ! Allocate snapshots on first call
       IF (.not. allocated(snap_precip)) THEN
-         allocate(snap_precip(ntracers, size(trc_storage_beg,2))); snap_precip = 0._r8
-         allocate(snap_vapor_exchange(ntracers, size(trc_storage_beg,2)))
+         allocate(snap_precip(nmts, size(mt_storage_beg,2))); snap_precip = 0._r8
+         allocate(snap_vapor_exchange(nmts, size(mt_storage_beg,2)))
          snap_vapor_exchange = 0._r8
-         allocate(snap_evap  (ntracers, size(trc_storage_beg,2))); snap_evap   = 0._r8
-         allocate(snap_rnof  (ntracers, size(trc_storage_beg,2))); snap_rnof   = 0._r8
-         allocate(snap_rsur  (ntracers, size(trc_storage_beg,2))); snap_rsur   = 0._r8
-         allocate(snap_rsub  (ntracers, size(trc_storage_beg,2))); snap_rsub   = 0._r8
-         allocate(snap_qinfl (ntracers, size(trc_storage_beg,2))); snap_qinfl  = 0._r8
-         allocate(snap_qcharge(ntracers, size(trc_storage_beg,2))); snap_qcharge = 0._r8
-         allocate(snap_storage_comp(n_storage_diag, ntracers, size(trc_storage_beg,2)))
+         allocate(snap_evap  (nmts, size(mt_storage_beg,2))); snap_evap   = 0._r8
+         allocate(snap_rnof  (nmts, size(mt_storage_beg,2))); snap_rnof   = 0._r8
+         allocate(snap_rsur  (nmts, size(mt_storage_beg,2))); snap_rsur   = 0._r8
+         allocate(snap_rsub  (nmts, size(mt_storage_beg,2))); snap_rsub   = 0._r8
+         allocate(snap_qinfl (nmts, size(mt_storage_beg,2))); snap_qinfl  = 0._r8
+         allocate(snap_qcharge(nmts, size(mt_storage_beg,2))); snap_qcharge = 0._r8
+         allocate(snap_storage_comp(n_storage_diag, nmts, size(mt_storage_beg,2)))
          snap_storage_comp = 0._r8
       ENDIF
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
             ! trc_rnof_step is the MAIN-STEP river hand-off accumulator: it
             ! is reset once before CoLMDRIVER, not by the per-substep
             ! conservation snapshot.
-            IF (allocated(trc_decay_source_step)) trc_decay_source_step(itrc, ipatch) = 0._r8
-            IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
-            IF (allocated(trc_numerical_water_step)) trc_numerical_water_step(itrc, ipatch) = 0._r8
+            IF (allocated(mt_decay_source_step)) mt_decay_source_step(imt, ipatch) = 0._r8
+            IF (allocated(mt_numerical_residual_step)) mt_numerical_residual_step(imt, ipatch) = 0._r8
+            IF (allocated(mt_numerical_water_step)) mt_numerical_water_step(imt, ipatch) = 0._r8
 
          ! Phase-1 re-sync of the irrigation reservoir tracer to current
          ! waterstorage. Under no-fractionation tests all refills arrive at
          ! R_init so the ratio is constant. When fractionation is active, do
          ! not overwrite the reservoir isotope state with the initial delta.
-         fixed_signature_storage = tracer_can_use_fixed_signature(itrc) .and. &
-            .not. tracer_fractionation_active(itrc) .and. &
-            .not. mt_has_dissolved_limit(itrc)
-         IF (allocated(trc_runtime_forced)) THEN
-            fixed_signature_storage = fixed_signature_storage .and. .not. trc_runtime_forced(itrc)
+         fixed_signature_storage = tracer_can_use_fixed_signature(imt) .and. &
+            .not. tracer_fractionation_active(imt) .and. &
+            .not. mt_has_dissolved_limit(imt)
+         IF (allocated(mt_runtime_forced)) THEN
+            fixed_signature_storage = fixed_signature_storage .and. .not. mt_runtime_forced(imt)
          ENDIF
-         IF (present(waterstorage) .and. allocated(trc_waterstorage) .and. &
+         IF (present(waterstorage) .and. allocated(mt_waterstorage) .and. &
              fixed_signature_storage) THEN
-            R_init = tracer_init_water_ratio(itrc)
-            trc_waterstorage(itrc, ipatch) = max(waterstorage, 0._r8) * R_init
+            R_init = tracer_init_water_ratio(imt)
+            mt_waterstorage(imt, ipatch) = max(waterstorage, 0._r8) * R_init
          ENDIF
 
          ! Save current storage split by component:
@@ -183,56 +183,56 @@ CONTAINS
          ! so stale inactive snow slots left by snow layer topology changes
          ! are not double-counted after they have been merged into soil.
          storage_comp = 0._r8
-         storage_comp(1) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+         storage_comp(1) = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
             DO j = lb_store, nl_soil
-               storage_comp(2) = storage_comp(2) + trc_wliq_soisno(itrc, j, ipatch)
-               storage_comp(3) = storage_comp(3) + trc_wice_soisno(itrc, j, ipatch)
+               storage_comp(2) = storage_comp(2) + mt_wliq_soisno(imt, j, ipatch)
+               storage_comp(3) = storage_comp(3) + mt_wice_soisno(imt, j, ipatch)
             ENDDO
          ! The aquifer reference isotope mass is fixed for this patch. Keep
          ! the relative component here: Mref cancels from the step's delta,
          ! matching hydrology's wa-only budget (the fixed Vref also cancels).
-         storage_comp(4) = trc_wa(itrc, ipatch)
-         storage_comp(5) = trc_wdsrf(itrc, ipatch)
-         storage_comp(6) = trc_wetwat(itrc, ipatch)
-         storage_comp(7) = trc_scv(itrc, ipatch)
-         IF (allocated(trc_waterstorage)) THEN
-            storage_comp(8) = trc_waterstorage(itrc, ipatch)
+         storage_comp(4) = mt_wa(imt, ipatch)
+         storage_comp(5) = mt_wdsrf(imt, ipatch)
+         storage_comp(6) = mt_wetwat(imt, ipatch)
+         storage_comp(7) = mt_scv(imt, ipatch)
+         IF (allocated(mt_waterstorage)) THEN
+            storage_comp(8) = mt_waterstorage(imt, ipatch)
          ENDIF
-         IF (allocated(trc_leaf_iso_storage)) THEN
-            storage_comp(9) = trc_leaf_iso_storage(itrc, ipatch)
+         IF (allocated(mt_leaf_iso_storage)) THEN
+            storage_comp(9) = mt_leaf_iso_storage(imt, ipatch)
          ENDIF
-         IF (allocated(trc_surface_residue)) THEN
-            storage_comp(10) = trc_surface_residue(itrc, ipatch)
+         IF (allocated(mt_surface_residue)) THEN
+            storage_comp(10) = mt_surface_residue(imt, ipatch)
          ENDIF
-         IF (allocated(trc_subsurface_residue)) THEN
-            storage_comp(11) = trc_subsurface_residue(itrc, ipatch)
+         IF (allocated(mt_subsurface_residue)) THEN
+            storage_comp(11) = mt_subsurface_residue(imt, ipatch)
          ENDIF
-         IF (allocated(trc_solid_soisno)) THEN
+         IF (allocated(mt_solid_soisno)) THEN
             DO j = lb_store, nl_soil
-               storage_comp(12) = storage_comp(12) + trc_solid_soisno(itrc, j, ipatch)
+               storage_comp(12) = storage_comp(12) + mt_solid_soisno(imt, j, ipatch)
             ENDDO
          ENDIF
-         IF (allocated(trc_canopy_solid)) &
-            storage_comp(12) = storage_comp(12) + trc_canopy_solid(itrc, ipatch)
-         IF (allocated(trc_surface_solid)) &
-            storage_comp(12) = storage_comp(12) + trc_surface_solid(itrc, ipatch)
-         IF (allocated(trc_subsurface_solid)) &
-            storage_comp(12) = storage_comp(12) + trc_subsurface_solid(itrc, ipatch)
-         IF (allocated(trc_waterstorage_solid)) &
-            storage_comp(12) = storage_comp(12) + trc_waterstorage_solid(itrc, ipatch)
-         snap_storage_comp(:, itrc, ipatch) = storage_comp
-         trc_storage_beg(itrc, ipatch) = sum(storage_comp)
+         IF (allocated(mt_canopy_solid)) &
+            storage_comp(12) = storage_comp(12) + mt_canopy_solid(imt, ipatch)
+         IF (allocated(mt_surface_solid)) &
+            storage_comp(12) = storage_comp(12) + mt_surface_solid(imt, ipatch)
+         IF (allocated(mt_subsurface_solid)) &
+            storage_comp(12) = storage_comp(12) + mt_subsurface_solid(imt, ipatch)
+         IF (allocated(mt_waterstorage_solid)) &
+            storage_comp(12) = storage_comp(12) + mt_waterstorage_solid(imt, ipatch)
+         snap_storage_comp(:, imt, ipatch) = storage_comp
+         mt_storage_beg(imt, ipatch) = sum(storage_comp)
 
          ! Snapshot accumulators at start of this step
-         snap_precip(itrc, ipatch) = a_trc_precip(itrc, ipatch)
+         snap_precip(imt, ipatch) = a_trc_precip(imt, ipatch)
          IF (allocated(a_trc_vapor_exchange)) &
-            snap_vapor_exchange(itrc, ipatch) = a_trc_vapor_exchange(itrc, ipatch)
-         snap_evap  (itrc, ipatch) = a_trc_evap  (itrc, ipatch)
-         snap_rnof  (itrc, ipatch) = a_trc_rnof  (itrc, ipatch)
-         snap_rsur  (itrc, ipatch) = a_trc_rsur  (itrc, ipatch)
-         snap_rsub  (itrc, ipatch) = a_trc_rsub  (itrc, ipatch)
-         snap_qinfl (itrc, ipatch) = a_trc_qinfl (itrc, ipatch)
-         snap_qcharge(itrc, ipatch) = a_trc_qcharge(itrc, ipatch)
+            snap_vapor_exchange(imt, ipatch) = a_trc_vapor_exchange(imt, ipatch)
+         snap_evap  (imt, ipatch) = a_trc_evap  (imt, ipatch)
+         snap_rnof  (imt, ipatch) = a_trc_rnof  (imt, ipatch)
+         snap_rsur  (imt, ipatch) = a_trc_rsur  (imt, ipatch)
+         snap_rsub  (imt, ipatch) = a_trc_rsub  (imt, ipatch)
+         snap_qinfl (imt, ipatch) = a_trc_qinfl (imt, ipatch)
+         snap_qcharge(imt, ipatch) = a_trc_qcharge(imt, ipatch)
       ENDDO
    END SUBROUTINE mt_save_storage
 
@@ -246,56 +246,56 @@ CONTAINS
       IMPLICIT NONE
       integer,  intent(in) :: ipatch, snl, nl_soil
       real(r8), intent(in) :: deltim
-         integer :: itrc, j, lb_store
+         integer :: imt, j, lb_store
       real(r8) :: decay_fraction, source_sink
 
-         IF (ntracers <= 0) RETURN
-         IF (.not. allocated(trc_decay_source_step)) RETURN
-         lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
+         IF (nmts <= 0) RETURN
+         IF (.not. allocated(mt_decay_source_step)) RETURN
+         lb_store = max(lbound(mt_wliq_soisno, 2), snl + 1)
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         decay_fraction = tracer_decay_fraction(itrc, deltim)
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         decay_fraction = tracer_decay_fraction(imt, deltim)
          IF (decay_fraction <= 0._r8) CYCLE
 
          source_sink = 0._r8
-         CALL decay_pool(trc_ldew_rain(itrc, ipatch), decay_fraction, source_sink)
-         CALL decay_pool(trc_ldew_snow(itrc, ipatch), decay_fraction, source_sink)
+         CALL decay_pool(mt_ldew_rain(imt, ipatch), decay_fraction, source_sink)
+         CALL decay_pool(mt_ldew_snow(imt, ipatch), decay_fraction, source_sink)
             DO j = lb_store, nl_soil
-               CALL decay_pool(trc_wliq_soisno(itrc, j, ipatch), decay_fraction, source_sink)
-               CALL decay_pool(trc_wice_soisno(itrc, j, ipatch), decay_fraction, source_sink)
+               CALL decay_pool(mt_wliq_soisno(imt, j, ipatch), decay_fraction, source_sink)
+               CALL decay_pool(mt_wice_soisno(imt, j, ipatch), decay_fraction, source_sink)
             ENDDO
-         CALL decay_pool(trc_wa(itrc, ipatch), decay_fraction, source_sink)
-         CALL decay_pool(trc_wdsrf(itrc, ipatch), decay_fraction, source_sink)
-         CALL decay_pool(trc_wetwat(itrc, ipatch), decay_fraction, source_sink)
-         CALL decay_pool(trc_scv(itrc, ipatch), decay_fraction, source_sink)
-         IF (allocated(trc_waterstorage)) THEN
-            CALL decay_pool(trc_waterstorage(itrc, ipatch), decay_fraction, source_sink)
+         CALL decay_pool(mt_wa(imt, ipatch), decay_fraction, source_sink)
+         CALL decay_pool(mt_wdsrf(imt, ipatch), decay_fraction, source_sink)
+         CALL decay_pool(mt_wetwat(imt, ipatch), decay_fraction, source_sink)
+         CALL decay_pool(mt_scv(imt, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_waterstorage)) THEN
+            CALL decay_pool(mt_waterstorage(imt, ipatch), decay_fraction, source_sink)
          ENDIF
-         IF (allocated(trc_leaf_iso_storage)) THEN
-            CALL decay_pool(trc_leaf_iso_storage(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_leaf_iso_storage)) THEN
+            CALL decay_pool(mt_leaf_iso_storage(imt, ipatch), decay_fraction, source_sink)
          ENDIF
-         IF (allocated(trc_surface_residue)) THEN
-            CALL decay_pool(trc_surface_residue(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_surface_residue)) THEN
+            CALL decay_pool(mt_surface_residue(imt, ipatch), decay_fraction, source_sink)
          ENDIF
-         IF (allocated(trc_subsurface_residue)) THEN
-            CALL decay_pool(trc_subsurface_residue(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_subsurface_residue)) THEN
+            CALL decay_pool(mt_subsurface_residue(imt, ipatch), decay_fraction, source_sink)
          ENDIF
-         IF (allocated(trc_solid_soisno)) THEN
+         IF (allocated(mt_solid_soisno)) THEN
             DO j = lb_store, nl_soil
-               CALL decay_pool(trc_solid_soisno(itrc, j, ipatch), decay_fraction, source_sink)
+               CALL decay_pool(mt_solid_soisno(imt, j, ipatch), decay_fraction, source_sink)
             ENDDO
          ENDIF
-         IF (allocated(trc_canopy_solid)) &
-            CALL decay_pool(trc_canopy_solid(itrc, ipatch), decay_fraction, source_sink)
-         IF (allocated(trc_surface_solid)) &
-            CALL decay_pool(trc_surface_solid(itrc, ipatch), decay_fraction, source_sink)
-         IF (allocated(trc_subsurface_solid)) &
-            CALL decay_pool(trc_subsurface_solid(itrc, ipatch), decay_fraction, source_sink)
-         IF (allocated(trc_waterstorage_solid)) &
-            CALL decay_pool(trc_waterstorage_solid(itrc, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_canopy_solid)) &
+            CALL decay_pool(mt_canopy_solid(imt, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_surface_solid)) &
+            CALL decay_pool(mt_surface_solid(imt, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_subsurface_solid)) &
+            CALL decay_pool(mt_subsurface_solid(imt, ipatch), decay_fraction, source_sink)
+         IF (allocated(mt_waterstorage_solid)) &
+            CALL decay_pool(mt_waterstorage_solid(imt, ipatch), decay_fraction, source_sink)
 
-         trc_decay_source_step(itrc, ipatch) = trc_decay_source_step(itrc, ipatch) &
+         mt_decay_source_step(imt, ipatch) = mt_decay_source_step(imt, ipatch) &
             + source_sink
       ENDDO
 
@@ -309,7 +309,7 @@ CONTAINS
 
          ! Negative tracer pools can occur only in signed water-debt states
          ! such as wa. Do not turn those numerical debts into chemical source.
-         IF (pool <= trc_tiny) RETURN
+         IF (pool <= mt_tiny) RETURN
          before = pool
          pool = pool * (1._r8 - fraction)
          source_sink = source_sink + pool - before
@@ -337,7 +337,7 @@ CONTAINS
       real(r8), intent(in), optional :: water_rnof_in
       logical, intent(in), optional :: flood_heterogeneous_in
 
-      integer  :: itrc, j, lb_store
+      integer  :: imt, j, lb_store
       real(r8) :: storage_end, step_input, step_evap, step_rnof, step_output, err
       real(r8) :: step_input_check, step_output_check
       real(r8) :: step_rsur, step_rsub, step_qinfl, step_qcharge
@@ -355,57 +355,57 @@ CONTAINS
       logical  :: fixed_signature_step, water_corrected_check
 
       xerr_tracer = 0._r8
-      IF (ntracers <= 0) RETURN
-      lb_store = max(lbound(trc_wliq_soisno, 2), snl + 1)
+      IF (nmts <= 0) RETURN
+      lb_store = max(lbound(mt_wliq_soisno, 2), snl + 1)
 
-      DO itrc = 1, ntracers
-         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
          ! Current storage split by component; keep this in the same
          ! component order as mt_save_storage.
          storage_comp_end = 0._r8
-         storage_comp_end(1) = trc_ldew_rain(itrc, ipatch) + trc_ldew_snow(itrc, ipatch)
+         storage_comp_end(1) = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
          DO j = lb_store, nl_soil
-            storage_comp_end(2) = storage_comp_end(2) + trc_wliq_soisno(itrc, j, ipatch)
-            storage_comp_end(3) = storage_comp_end(3) + trc_wice_soisno(itrc, j, ipatch)
+            storage_comp_end(2) = storage_comp_end(2) + mt_wliq_soisno(imt, j, ipatch)
+            storage_comp_end(3) = storage_comp_end(3) + mt_wice_soisno(imt, j, ipatch)
          ENDDO
-         storage_comp_end(4) = trc_wa(itrc, ipatch)
-         storage_comp_end(5) = trc_wdsrf(itrc, ipatch)
-         storage_comp_end(6) = trc_wetwat(itrc, ipatch)
-         storage_comp_end(7) = trc_scv(itrc, ipatch)
-         IF (allocated(trc_waterstorage)) THEN
-            storage_comp_end(8) = trc_waterstorage(itrc, ipatch)
+         storage_comp_end(4) = mt_wa(imt, ipatch)
+         storage_comp_end(5) = mt_wdsrf(imt, ipatch)
+         storage_comp_end(6) = mt_wetwat(imt, ipatch)
+         storage_comp_end(7) = mt_scv(imt, ipatch)
+         IF (allocated(mt_waterstorage)) THEN
+            storage_comp_end(8) = mt_waterstorage(imt, ipatch)
          ENDIF
-         IF (allocated(trc_leaf_iso_storage)) THEN
-            storage_comp_end(9) = trc_leaf_iso_storage(itrc, ipatch)
+         IF (allocated(mt_leaf_iso_storage)) THEN
+            storage_comp_end(9) = mt_leaf_iso_storage(imt, ipatch)
          ENDIF
-         IF (allocated(trc_surface_residue)) THEN
-            storage_comp_end(10) = trc_surface_residue(itrc, ipatch)
+         IF (allocated(mt_surface_residue)) THEN
+            storage_comp_end(10) = mt_surface_residue(imt, ipatch)
          ENDIF
-         IF (allocated(trc_subsurface_residue)) THEN
-            storage_comp_end(11) = trc_subsurface_residue(itrc, ipatch)
+         IF (allocated(mt_subsurface_residue)) THEN
+            storage_comp_end(11) = mt_subsurface_residue(imt, ipatch)
          ENDIF
-         IF (allocated(trc_solid_soisno)) THEN
+         IF (allocated(mt_solid_soisno)) THEN
             DO j = lb_store, nl_soil
-               storage_comp_end(12) = storage_comp_end(12) + trc_solid_soisno(itrc, j, ipatch)
+               storage_comp_end(12) = storage_comp_end(12) + mt_solid_soisno(imt, j, ipatch)
             ENDDO
          ENDIF
-         IF (allocated(trc_canopy_solid)) &
-            storage_comp_end(12) = storage_comp_end(12) + trc_canopy_solid(itrc, ipatch)
-         IF (allocated(trc_surface_solid)) &
-            storage_comp_end(12) = storage_comp_end(12) + trc_surface_solid(itrc, ipatch)
-         IF (allocated(trc_subsurface_solid)) &
-            storage_comp_end(12) = storage_comp_end(12) + trc_subsurface_solid(itrc, ipatch)
-         IF (allocated(trc_waterstorage_solid)) &
-            storage_comp_end(12) = storage_comp_end(12) + trc_waterstorage_solid(itrc, ipatch)
+         IF (allocated(mt_canopy_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + mt_canopy_solid(imt, ipatch)
+         IF (allocated(mt_surface_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + mt_surface_solid(imt, ipatch)
+         IF (allocated(mt_subsurface_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + mt_subsurface_solid(imt, ipatch)
+         IF (allocated(mt_waterstorage_solid)) &
+            storage_comp_end(12) = storage_comp_end(12) + mt_waterstorage_solid(imt, ipatch)
          storage_end = sum(storage_comp_end)
-         storage_comp_beg = snap_storage_comp(:, itrc, ipatch)
+         storage_comp_beg = snap_storage_comp(:, imt, ipatch)
          storage_comp_dS = storage_comp_end - storage_comp_beg
 
-         R_init = tracer_init_water_ratio(itrc)
-         water_corrected_check = tracer_can_use_fixed_signature(itrc)
-         fixed_signature_step = water_corrected_check .and. .not. tracer_fractionation_active(itrc)
-         IF (allocated(trc_runtime_forced)) THEN
-            fixed_signature_step = fixed_signature_step .and. .not. trc_runtime_forced(itrc)
+         R_init = tracer_init_water_ratio(imt)
+         water_corrected_check = tracer_can_use_fixed_signature(imt)
+         fixed_signature_step = water_corrected_check .and. .not. tracer_fractionation_active(imt)
+         IF (allocated(mt_runtime_forced)) THEN
+            fixed_signature_step = fixed_signature_step .and. .not. mt_runtime_forced(imt)
          ENDIF
          ! Floodwater can carry a river signature different from R_init even
          ! when precipitation is fixed-signature. That signature persists in
@@ -428,16 +428,16 @@ CONTAINS
          ! signature agreement with water_flux*R_init is checked independently
          ! below; substituting theoretical values here would hide accounting
          ! errors in precipitation or evaporation.
-         step_input  = a_trc_precip(itrc, ipatch) - snap_precip(itrc, ipatch)
-         step_evap   = a_trc_evap(itrc, ipatch) - snap_evap(itrc, ipatch)
-         step_rsur   = a_trc_rsur(itrc, ipatch) - snap_rsur(itrc, ipatch)
-         step_rsub   = a_trc_rsub(itrc, ipatch) - snap_rsub(itrc, ipatch)
-         step_qinfl  = a_trc_qinfl(itrc, ipatch) - snap_qinfl(itrc, ipatch)
-         step_qcharge = a_trc_qcharge(itrc, ipatch) - snap_qcharge(itrc, ipatch)
+         step_input  = a_trc_precip(imt, ipatch) - snap_precip(imt, ipatch)
+         step_evap   = a_trc_evap(imt, ipatch) - snap_evap(imt, ipatch)
+         step_rsur   = a_trc_rsur(imt, ipatch) - snap_rsur(imt, ipatch)
+         step_rsub   = a_trc_rsub(imt, ipatch) - snap_rsub(imt, ipatch)
+         step_qinfl  = a_trc_qinfl(imt, ipatch) - snap_qinfl(imt, ipatch)
+         step_qcharge = a_trc_qcharge(imt, ipatch) - snap_qcharge(imt, ipatch)
          step_rnof   = 0._r8
          step_output = step_evap
 #ifndef CatchLateralFlow
-         step_rnof   = a_trc_rnof(itrc, ipatch) - snap_rnof(itrc, ipatch)
+         step_rnof   = a_trc_rnof(imt, ipatch) - snap_rnof(imt, ipatch)
          step_output = step_output + step_rnof
 #endif
          step_input_check = step_input
@@ -449,8 +449,8 @@ CONTAINS
          ! fixed-signature check. Signed: positive = net uptake.
          step_vapor_exchange = 0._r8
          IF (allocated(a_trc_vapor_exchange)) THEN
-            step_vapor_exchange = a_trc_vapor_exchange(itrc, ipatch) &
-                                - snap_vapor_exchange(itrc, ipatch)
+            step_vapor_exchange = a_trc_vapor_exchange(imt, ipatch) &
+                                - snap_vapor_exchange(imt, ipatch)
          ENDIF
          step_input_check = step_input_check + step_vapor_exchange
 
@@ -460,25 +460,25 @@ CONTAINS
          ! so solver-closure residuals are reported separately instead of being
          ! misclassified as unbooked transport leaks.
          decay_source_sink = 0._r8
-         IF (allocated(trc_decay_source_step)) THEN
-            decay_source_sink = trc_decay_source_step(itrc, ipatch)
+         IF (allocated(mt_decay_source_step)) THEN
+            decay_source_sink = mt_decay_source_step(imt, ipatch)
          ENDIF
          numerical_source_sink = 0._r8
-         IF (allocated(trc_numerical_residual_step)) THEN
-            numerical_source_sink = trc_numerical_residual_step(itrc, ipatch)
+         IF (allocated(mt_numerical_residual_step)) THEN
+            numerical_source_sink = mt_numerical_residual_step(imt, ipatch)
          ENDIF
-         err = storage_end - trc_storage_beg(itrc, ipatch) - step_input_check + step_output_check
-         trc_balance_err(itrc, ipatch) = err - decay_source_sink - numerical_source_sink
+         err = storage_end - mt_storage_beg(imt, ipatch) - step_input_check + step_output_check
+         mt_balance_err(imt, ipatch) = err - decay_source_sink - numerical_source_sink
          IF (present(water_err_in)) THEN
             water_err = water_err_in
          ELSE
             water_err = 0._r8
          ENDIF
          booked_host_water = 0._r8
-         IF (allocated(trc_numerical_water_step)) THEN
-            IF (water_err * trc_numerical_water_step(itrc, ipatch) > 0._r8) &
+         IF (allocated(mt_numerical_water_step)) THEN
+            IF (water_err * mt_numerical_water_step(imt, ipatch) > 0._r8) &
                booked_host_water = sign(min(abs(water_err), &
-                  abs(trc_numerical_water_step(itrc, ipatch))), water_err)
+                  abs(mt_numerical_water_step(imt, ipatch))), water_err)
          ENDIF
          water_err_R = (water_err - booked_host_water) * R_init
          err_minus_water = err - water_err_R
@@ -519,22 +519,22 @@ CONTAINS
          ELSE
             water_rnof = 0._r8
          ENDIF
-         a_water_precip(itrc, ipatch) = a_water_precip(itrc, ipatch) + max(water_input, 0._r8)
-         a_water_rnof(itrc, ipatch) = a_water_rnof(itrc, ipatch) + max(water_rnof, 0._r8)
-         dS_minus_water_R  = (storage_end - trc_storage_beg(itrc, ipatch)) &
+         a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + max(water_input, 0._r8)
+         a_water_rnof(imt, ipatch) = a_water_rnof(imt, ipatch) + max(water_rnof, 0._r8)
+         dS_minus_water_R  = (storage_end - mt_storage_beg(imt, ipatch)) &
                            - water_dS * R_init
          in_minus_water_R  = step_input  - water_input  * R_init
          out_minus_water_R = step_output - water_output * R_init
          evap_minus_water_R = step_evap - water_evap * R_init
          rnof_minus_water_R = step_rnof - water_rnof * R_init
 
-         balance_scale = max(abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
+         balance_scale = max(abs(storage_end), abs(mt_storage_beg(imt, ipatch)), &
             abs(step_input_check), abs(step_output_check), &
             abs(decay_source_sink), abs(numerical_source_sink))
-         balance_tol = trc_balance_abs_tol + trc_balance_rel_tol * balance_scale
-         resid_scale = max(1._r8, abs(storage_end), abs(trc_storage_beg(itrc, ipatch)), &
+         balance_tol = mt_balance_abs_tol + mt_balance_rel_tol * balance_scale
+         resid_scale = max(1._r8, abs(storage_end), abs(mt_storage_beg(imt, ipatch)), &
             abs(step_input_check), abs(step_output_check), abs(decay_source_sink))
-         resid_tol = max(trc_resid_abs_tol, trc_resid_rel_tol * resid_scale)
+         resid_tol = max(mt_resid_abs_tol, mt_resid_rel_tol * resid_scale)
 
          signature_error = 0._r8
          signature_scale = 0._r8
@@ -551,7 +551,7 @@ CONTAINS
             ENDIF
 #endif
          ENDIF
-         signature_tol = trc_balance_abs_tol + trc_balance_rel_tol * signature_scale
+         signature_tol = mt_balance_abs_tol + mt_balance_rel_tol * signature_scale
          IF (fixed_signature_step .and. signature_error > signature_tol) THEN
             signature_nbad = signature_nbad + 1
             IF (signature_error > signature_worst_abs) THEN
@@ -559,7 +559,7 @@ CONTAINS
                signature_worst_tol = signature_tol
                signature_worst_terms = (/ in_minus_water_R, evap_minus_water_R, rnof_minus_water_R /)
                signature_worst_ipatch = ipatch
-               signature_worst_itrc = itrc
+               signature_worst_itrc = imt
                IF (present(patchtype_in)) THEN
                   signature_worst_ptype = patchtype_in
                ELSE
@@ -574,7 +574,7 @@ CONTAINS
             IF (abs(check_err) > abs(balance_worst_err)) THEN
                balance_worst_err    = check_err
                balance_worst_diag(1) = err
-               balance_worst_diag(2) = storage_end - trc_storage_beg(itrc, ipatch)
+               balance_worst_diag(2) = storage_end - mt_storage_beg(imt, ipatch)
                balance_worst_diag(3) = step_input
                balance_worst_diag(4) = step_output
                balance_worst_diag(5) = water_err
@@ -598,7 +598,7 @@ CONTAINS
                balance_worst_fcomp = (/ step_input, step_evap, step_rsur, step_rsub, &
                   step_rnof, step_qinfl, step_qcharge /)
                balance_worst_ipatch = ipatch
-               balance_worst_itrc   = itrc
+               balance_worst_itrc   = imt
                IF (present(patchtype_in)) THEN
                   balance_worst_ptype = patchtype_in
                ELSE
@@ -610,8 +610,8 @@ CONTAINS
 
          ! P1: surface a non-trivial numerical residual. This is context only;
          ! the residual is explicitly booked and excluded from the hard tol.
-         IF (abs(numerical_source_sink) > trc_resid_warn_frac * &
-                max(abs(storage_end), abs(trc_storage_beg(itrc, ipatch)))) THEN
+         IF (abs(numerical_source_sink) > mt_resid_warn_frac * &
+                max(abs(storage_end), abs(mt_storage_beg(imt, ipatch)))) THEN
             resid_nbad = resid_nbad + 1
             resid_worst_abs = max(resid_worst_abs, abs(numerical_source_sink))
          ENDIF
@@ -621,7 +621,7 @@ CONTAINS
                resid_hard_worst_abs = abs(numerical_source_sink)
                resid_hard_worst_tol = resid_tol
                resid_hard_worst_ipatch = ipatch
-               resid_hard_worst_itrc   = itrc
+               resid_hard_worst_itrc   = imt
                IF (present(patchtype_in)) THEN
                   resid_hard_worst_ptype = patchtype_in
                ELSE
@@ -688,7 +688,7 @@ CONTAINS
       include 'mpif.h'
 #endif
 
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
 
       worst_abs = abs(balance_worst_err)
       nbad_total  = balance_nbad

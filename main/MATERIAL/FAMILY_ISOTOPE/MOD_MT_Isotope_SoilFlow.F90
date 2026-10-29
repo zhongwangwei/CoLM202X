@@ -41,7 +41,7 @@ MODULE MOD_MT_Isotope_SoilFlow
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
-   USE MOD_MT_Defs, only: trc_water_min_for_ratio
+   USE MOD_MT_Defs, only: mt_water_min_for_ratio
    IMPLICIT NONE
    PRIVATE
 
@@ -56,7 +56,7 @@ CONTAINS
       real(r8), intent(in) :: ratio   ! isotope/water ratio the layer passed on
 
       isotope_sweep_deficit_from_host_water = water < 0._r8 .and. &
-         water >= -trc_water_min_for_ratio .and. &
+         water >= -mt_water_min_for_ratio .and. &
          stock >= 2._r8 * water * max(ratio, 0._r8)
    END FUNCTION isotope_sweep_deficit_from_host_water
 

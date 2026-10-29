@@ -45,13 +45,13 @@ MODULE MOD_MT_LandPhase
 
    ! -- Column phase: per-patch soil-water/precip/evap/snow transport,
    !    called inside the CoLMMAIN patch loop (per ipatch, snl, nl_soil) --
-   PUBLIC :: ntracers, trc_tiny, mt_uses_generic_water
+   PUBLIC :: nmts, mt_tiny, mt_uses_generic_water
    PUBLIC :: mt_precip, mt_evapo, mt_soil_water, mt_wetland
    PUBLIC :: mt_flood_evap_loss
    PUBLIC :: mt_newsnow, mt_save_storage, mt_balance_check
    PUBLIC :: mt_apply_decay
-   PUBLIC :: trc_wliq_soisno, trc_wice_soisno, trc_solid_soisno, trc_scv
-   PUBLIC :: trc_ldew_rain, trc_ldew_snow, trc_sm_carry
+   PUBLIC :: mt_wliq_soisno, mt_wice_soisno, mt_solid_soisno, mt_scv
+   PUBLIC :: mt_ldew_rain, mt_ldew_snow, mt_sm_carry
 
    ! -- Element phase: per-step orchestration, called from CoLMDRIVER;
    !    these delegate to the methane family ------------------
@@ -186,7 +186,7 @@ CONTAINS
       ! numpatch and then misalign with the new tracer arrays.
       CALL tracer_lifecycle_land_final ()
       CALL deallocate_Tracer_Vars()
-      CALL deallocate_tracer_conservation()
+      CALL deallocate_mt_conservation()
       CALL tracer_defs_init()
       CALL mt_solute_read_parameters()
       CALL tracer_defs_validate()
@@ -196,13 +196,13 @@ CONTAINS
           present(dir_restart) .and. present(dir_landdata)) THEN
          CALL tracer_lifecycle_land_init (numpatch, lc_year, jdate, casename, dir_restart, dir_landdata, file_restart)
       ENDIF
-      IF (ntracers <= 0) RETURN
+      IF (nmts <= 0) RETURN
       CALL allocate_Tracer_Vars(numpatch, maxsnl, nl_soil)
       found_restart = .false.
       scv_missing   = .false.
       waterstorage_missing = .false.
       IF (present(file_restart)) THEN
-         CALL read_land_tracer_restart(file_restart, maxsnl, nl_soil, &
+         CALL read_land_mt_restart(file_restart, maxsnl, nl_soil, &
             found_restart, scv_missing, waterstorage_missing, wa)
       ENDIF
 #ifdef USEMPI
@@ -220,7 +220,7 @@ CONTAINS
       waterstorage_missing = waterstorage_missing .and. found_restart
 #endif
       IF (present(loaded_restart)) loaded_restart = found_restart
-      mt_land_restart_loaded = found_restart .and. ntracers > 0
+      mt_land_restart_loaded = found_restart .and. nmts > 0
       IF (.not. found_restart) THEN
          soil_init_month = 1
          IF (present(init_month)) soil_init_month = init_month
@@ -341,7 +341,7 @@ CONTAINS
    SUBROUTINE mt_land_final ()
       CALL tracer_lifecycle_land_final ()
       CALL deallocate_Tracer_Vars()
-      CALL deallocate_tracer_conservation()
+      CALL deallocate_mt_conservation()
    END SUBROUTINE mt_land_final
 
 END MODULE MOD_MT_LandPhase

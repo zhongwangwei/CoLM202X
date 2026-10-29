@@ -91,17 +91,17 @@ MODULE MOD_MT_Defs
       integer           :: charge = 0
    end type tracer_info_type
 
-   integer :: ntracers = 0
+   integer :: nmts = 0
    type(tracer_info_type), allocatable :: tracers(:)
 
-      real(r8), parameter :: trc_tiny = 1.0e-30_r8
+      real(r8), parameter :: mt_tiny = 1.0e-30_r8
       ! Numerical zero and physical denominator floors are deliberately
       ! separate.  trc_tiny is only an arithmetic nonzero guard.  Transport
       ! ratios from finite water pools need a larger physically resolved water
       ! floor, otherwise near-dry pools can export arbitrarily large R =
       ! tracer/water before downstream sanity caps see the problem.
       ! Units follow land water storage conventions (kg/m2 ~= mm).
-      real(r8), parameter :: trc_water_min_for_ratio = 1.0e-12_r8
+      real(r8), parameter :: mt_water_min_for_ratio = 1.0e-12_r8
       ! ------------------------------------------------------------------
       ! DELTA DIAGNOSTIC INVARIANT
       !
@@ -125,11 +125,11 @@ MODULE MOD_MT_Defs
    ! flux deltas (qinfl/qcharge) with water_mass = rate*deltim near the
    ! FP floor produced arbitrarily large ratios that flowed into
    ! trc_delta_* history / check outputs.
-   real(r8), parameter :: trc_water_min_for_delta = 1.0e-3_r8
+   real(r8), parameter :: mt_water_min_for_delta = 1.0e-3_r8
    ! Flux isotope deltas need a stricter accumulated-water denominator than
    ! storage deltas. Below this history-window water loss, the flux signature is
    ! dominated by NSS/storage tendency or round-off rather than a resolved flux.
-   real(r8), parameter :: trc_flux_water_min_for_delta = 1.0e-1_r8
+   real(r8), parameter :: mt_flux_water_min_for_delta = 1.0e-1_r8
    ! Hard sanity cap on |delta| (permil). Even extreme Rayleigh
    ! depletion in snowpack or evap residuals rarely exceeds a few
    ! hundred permil for meteoric isotope ratios; anything past this is
@@ -137,7 +137,7 @@ MODULE MOD_MT_Defs
    ! by delta diagnostics to clamp to spval so non-physical spikes do
    ! not poison min/max reports or downstream post-processing. 2000 ‰
    ! gives comfortable headroom for strongly fractionated pools.
-   real(r8), parameter :: trc_delta_sanity_max = 2.0e3_r8
+   real(r8), parameter :: mt_delta_sanity_max = 2.0e3_r8
 
    PUBLIC :: tracer_defs_init, tracer_defs_validate, mt_defs_final
    PUBLIC :: mass_to_delta, delta_to_R, R_to_mass
@@ -153,15 +153,15 @@ MODULE MOD_MT_Defs
    PUBLIC :: tracer_param_file_for_index, tracer_index_for_name
    PUBLIC :: tracer_build_descriptor_identity
    PUBLIC :: tracer_lower, tracer_upper
-   PUBLIC :: ntracers, tracers
+   PUBLIC :: nmts, tracers
    PUBLIC :: tracer_info_type
    PUBLIC :: FAMILY_UNRESOLVED, FAMILY_ISOTOPE, FAMILY_SOLUTE, FAMILY_PARTICLE, FAMILY_GAS
    PUBLIC :: STATE_OWNER_UNKNOWN, STATE_OWNER_GENERIC_WATER, STATE_OWNER_PROVIDER
    PUBLIC :: REACTION_NONE, REACTION_FIRST_ORDER, REACTION_PROVIDER
    PUBLIC :: TRACER_DESCRIPTOR_IDENTITY_WIDTH
-      PUBLIC :: trc_tiny, trc_water_min_for_ratio, &
-                trc_water_min_for_delta, trc_flux_water_min_for_delta, &
-                trc_delta_sanity_max
+      PUBLIC :: mt_tiny, mt_water_min_for_ratio, &
+                mt_water_min_for_delta, mt_flux_water_min_for_delta, &
+                mt_delta_sanity_max
 
 CONTAINS
 
@@ -182,7 +182,7 @@ CONTAINS
 
       actual_water = tracer_aquifer_actual_water(wa, reference_water)
       tracer_aquifer_isotope_ratio = fallback
-      IF (abs(actual_water) > trc_water_min_for_ratio) &
+      IF (abs(actual_water) > mt_water_min_for_ratio) &
          tracer_aquifer_isotope_ratio = &
             tracer_aquifer_actual_mass(relative_mass, reference_mass) / actual_water
    END FUNCTION tracer_aquifer_isotope_ratio
@@ -209,10 +209,10 @@ CONTAINS
       ! Below the resolved water floor there is no aquifer carrier.  Allow
       ! only isotope mass at the corresponding round-off scale, not a
       ! material orphan that would otherwise be cleared as a residual.
-      dust_mass = max(trc_water_min_for_ratio * ref_ratio, &
+      dust_mass = max(mt_water_min_for_ratio * ref_ratio, &
                       16._r8 * epsilon(1._r8) * max(abs(isotope_mass), ref_mass))
-      IF (abs(actual_water) <= trc_water_min_for_ratio) THEN
-         tracer_aquifer_isotope_state_valid = abs(actual_water) <= trc_water_min_for_ratio &
+      IF (abs(actual_water) <= mt_water_min_for_ratio) THEN
+         tracer_aquifer_isotope_state_valid = abs(actual_water) <= mt_water_min_for_ratio &
             .and. abs(actual_mass) <= dust_mass
       ELSE
          ! R=0 is the admissible isotope-free (delta=-1000 permil) limit.
@@ -233,7 +233,7 @@ CONTAINS
       integer, allocatable, intent(out) :: identity(:,:)
       logical, intent(in), optional :: transport_only
 
-      integer :: itrc, k, nidentity, iidentity
+      integer :: imt, k, nidentity, iidentity
       logical :: only_transport
       character(len=TRACER_DESCRIPTOR_IDENTITY_WIDTH) :: descriptor
 
@@ -241,27 +241,27 @@ CONTAINS
       IF (present(transport_only)) only_transport = transport_only
 
       nidentity = 0
-      DO itrc = 1, ntracers
-         IF (only_transport .and. .not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (only_transport .and. .not. mt_uses_generic_water(imt)) CYCLE
          nidentity = nidentity + 1
       ENDDO
       allocate(identity(TRACER_DESCRIPTOR_IDENTITY_WIDTH, nidentity))
       identity = 0
 
       iidentity = 0
-      DO itrc = 1, ntracers
-         IF (only_transport .and. .not. mt_uses_generic_water(itrc)) CYCLE
+      DO imt = 1, nmts
+         IF (only_transport .and. .not. mt_uses_generic_water(imt)) CYCLE
          iidentity = iidentity + 1
          descriptor = ''
          WRITE(descriptor, '(A,"|",A,"|",A,"|",4(I0,"|"),8(ES24.16E3,"|"))') &
-            trim(tracers(itrc)%name), trim(tracers(itrc)%category), &
-            trim(tracers(itrc)%unit_kind), tracers(itrc)%family_id, &
-            tracers(itrc)%state_owner, tracers(itrc)%reaction_mode, &
-            tracers(itrc)%charge, tracers(itrc)%mol_weight, &
-            tracers(itrc)%ref_ratio, tracers(itrc)%init_delta, &
-            tracers(itrc)%init_conc, tracers(itrc)%precip_default_conc, &
-            tracers(itrc)%vapor_default_conc, tracers(itrc)%max_dissolved_conc, &
-            tracers(itrc)%decay_rate
+            trim(tracers(imt)%name), trim(tracers(imt)%category), &
+            trim(tracers(imt)%unit_kind), tracers(imt)%family_id, &
+            tracers(imt)%state_owner, tracers(imt)%reaction_mode, &
+            tracers(imt)%charge, tracers(imt)%mol_weight, &
+            tracers(imt)%ref_ratio, tracers(imt)%init_delta, &
+            tracers(imt)%init_conc, tracers(imt)%precip_default_conc, &
+            tracers(imt)%vapor_default_conc, tracers(imt)%max_dissolved_conc, &
+            tracers(imt)%decay_rate
          DO k = 1, len(descriptor)
             identity(k, iidentity) = iachar(descriptor(k:k))
          ENDDO
@@ -310,9 +310,9 @@ CONTAINS
 #endif
       ENDIF
 
-      ntracers = niso + nsol + nsed + ngas
-      IF (ntracers == 0) RETURN
-      allocate(tracers(ntracers))
+      nmts = niso + nsol + nsed + ngas
+      IF (nmts == 0) RETURN
+      allocate(tracers(nmts))
 
       DO i = 1, niso
          SELECT CASE (trim(tracer_upper(iso_tokens(i))))
@@ -331,7 +331,7 @@ CONTAINS
                '" in DEF_ISOTOPE_SPECIES; available: H2_18O, HDO.')
          END SELECT
          tracers(i)%category = 'isotope'
-         CALL set_tracer_category_defaults (i)
+         CALL set_mt_category_defaults (i)
          ! Isotopes start from and fall back to init_delta; the
          ! concentration fields only enter the descriptor identity.
          tracers(i)%init_conc           = tracers(i)%init_delta
@@ -344,7 +344,7 @@ CONTAINS
          i = niso + j
          tracers(i)%name = sanitize_ncname (sol_tokens(j))
          tracers(i)%category = 'solute'
-         CALL set_tracer_category_defaults (i)
+         CALL set_mt_category_defaults (i)
          tracers(i)%mol_weight          = 0._r8
          tracers(i)%ref_ratio           = 1._r8
          tracers(i)%init_delta          = 0._r8
@@ -360,7 +360,7 @@ CONTAINS
          i = niso + nsol + 1
          tracers(i)%name = 'SEDIMENT'
          tracers(i)%category = 'particle'
-         CALL set_tracer_category_defaults (i)
+         CALL set_mt_category_defaults (i)
          tracers(i)%mol_weight          = 1._r8
          tracers(i)%ref_ratio           = 1._r8
          tracers(i)%init_delta          = 0._r8
@@ -376,7 +376,7 @@ CONTAINS
          i = niso + nsol + nsed + 1
          tracers(i)%name = 'CH4'
          tracers(i)%category = 'gas'
-         CALL set_tracer_category_defaults (i)
+         CALL set_mt_category_defaults (i)
          tracers(i)%mol_weight          = 16.04_r8
          tracers(i)%ref_ratio           = 1._r8
          tracers(i)%init_delta          = 0._r8
@@ -387,7 +387,7 @@ CONTAINS
       ENDIF
 
       ! Names become NetCDF variable names in land and river files.
-      DO i = 2, ntracers
+      DO i = 2, nmts
          DO j = 1, i - 1
             IF (tracer_param_equal(tracers(i)%name, tracers(j)%name)) &
                CALL CoLM_stop ('Material name "'//trim(tracers(i)%name)//'" is used twice.')
@@ -413,14 +413,14 @@ CONTAINS
             'precipitation/evaporation, phase change, transpiration, wetland, glacier, and waterbody approximations.'
       ENDIF
 
-      DO i = 1, ntracers
+      DO i = 1, nmts
          IF (.not. ieee_is_finite(tracers(i)%decay_rate)) THEN
             CALL CoLM_stop ('Non-finite decay_rate for '//trim(tracers(i)%name)//'.')
          ELSEIF (tracers(i)%decay_rate < 0._r8) THEN
             CALL CoLM_stop ('Negative decay_rate for '//trim(tracers(i)%name)//'.')
          ENDIF
-         CALL derive_tracer_taxonomy (i)
-         CALL validate_tracer_descriptor (i)
+         CALL derive_mt_taxonomy (i)
+         CALL validate_mt_descriptor (i)
          IF (DEF_USE_VariablySaturatedFlow .and. tracer_is_isotope(i)) THEN
             IF (.not. ieee_is_finite(DEF_MT_AQUIFER_MIXING_WATER_MM) .or. &
                 DEF_MT_AQUIFER_MIXING_WATER_MM <= 0._r8) THEN
@@ -469,7 +469,7 @@ CONTAINS
    END SUBROUTINE split_names
 
 
-   SUBROUTINE tracer_param_file_for_index (itrc, aliases, file_param, found)
+   SUBROUTINE tracer_param_file_for_index (imt, aliases, file_param, found)
    !-----------------------------------------------------------------------
    !  Parameter file of one material: DEF_ISOTOPE_PARAM_FILE for every
    !  isotope, the DEF_SOLUTE_PARAM_FILES entry for a solute ('NAME:path',
@@ -478,7 +478,7 @@ CONTAINS
    !-----------------------------------------------------------------------
       USE MOD_SPMD_Task, only: CoLM_stop
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       character(len=*), intent(in) :: aliases
       character(len=*), intent(out) :: file_param
       logical, intent(out) :: found
@@ -490,28 +490,28 @@ CONTAINS
       file_param = ''
       found = .false.
       matched = .false.
-      IF (itrc < 1 .or. .not. allocated(tracers) .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. .not. allocated(tracers) .or. imt > nmts) RETURN
 
-      IF (tracer_is_isotope(itrc)) THEN
+      IF (tracer_is_isotope(imt)) THEN
          file_param = DEF_ISOTOPE_PARAM_FILE
          found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
          RETURN
       ENDIF
-      IF (tracer_is_particle(itrc)) THEN
+      IF (tracer_is_particle(imt)) THEN
          file_param = DEF_SEDIMENT_PARAM_FILE
          found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
          RETURN
       ENDIF
-      IF (tracer_is_gas(itrc)) THEN
+      IF (tracer_is_gas(imt)) THEN
          file_param = DEF_METHANE_PARAM_FILE
          found = len_trim(file_param) > 0 .and. trim(tracer_lower(file_param)) /= 'null'
          RETURN
       ENDIF
-      IF (.not. tracer_is_solute(itrc)) RETURN
+      IF (.not. tracer_is_solute(imt)) RETURN
 
       ! Position of this solute among the solutes.
       isol = 0
-      DO i = 1, itrc
+      DO i = 1, imt
          IF (tracer_is_solute(i)) isol = isol + 1
       ENDDO
 
@@ -535,7 +535,7 @@ CONTAINS
                IF (len_trim(value) > len(file_param)) THEN
                   CALL CoLM_stop('MOD_MT_Defs: solute parameter file path exceeds supported length')
                ENDIF
-               IF (.not. matched .and. tracer_param_key_matches(itrc, key, aliases)) THEN
+               IF (.not. matched .and. tracer_param_key_matches(imt, key, aliases)) THEN
                   file_param = trim(value)
                   found = trim(tracer_lower(file_param)) /= 'null'
                   matched = .true.
@@ -560,16 +560,16 @@ CONTAINS
       USE MOD_SPMD_Task, only: CoLM_stop
       IMPLICIT NONE
       character(len=*), intent(in) :: name, aliases
-      integer :: itrc, matches
+      integer :: imt, matches
 
       tracer_index_for_name = 0
       matches = 0
       IF (.not. allocated(tracers)) RETURN
 
-      DO itrc = 1, ntracers
-         IF (tracer_name_matches(tracers(itrc)%name, name, aliases)) THEN
+      DO imt = 1, nmts
+         IF (tracer_name_matches(tracers(imt)%name, name, aliases)) THEN
             matches = matches + 1
-            tracer_index_for_name = itrc
+            tracer_index_for_name = imt
          ENDIF
       ENDDO
       IF (matches > 1) &
@@ -598,17 +598,17 @@ CONTAINS
       ENDDO
    END FUNCTION tracer_name_matches
 
-   logical FUNCTION tracer_param_key_matches (itrc, raw_key, aliases)
+   logical FUNCTION tracer_param_key_matches (imt, raw_key, aliases)
       IMPLICIT NONE
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       character(len=*), intent(in) :: raw_key, aliases
 
       integer :: start_pos, end_pos, list_len
       character(len=128) :: one_alias
 
       tracer_param_key_matches = .false.
-      IF (itrc < 1 .or. .not. allocated(tracers) .or. itrc > ntracers) RETURN
-      IF (tracer_param_equal(raw_key, tracers(itrc)%name)) THEN
+      IF (imt < 1 .or. .not. allocated(tracers) .or. imt > nmts) RETURN
+      IF (tracer_param_equal(raw_key, tracers(imt)%name)) THEN
          tracer_param_key_matches = .true.
          RETURN
       ENDIF
@@ -679,7 +679,7 @@ CONTAINS
 
    SUBROUTINE mt_defs_final ()
       IF (allocated(tracers)) deallocate(tracers)
-      ntracers = 0
+      nmts = 0
    END SUBROUTINE mt_defs_final
 
    !-------------------------------------------------------------------
@@ -690,198 +690,198 @@ CONTAINS
    ! for solutes it is concentration per unit water.
    !-------------------------------------------------------------------
 
-   SUBROUTINE set_tracer_category_defaults (itrc)
-      integer, intent(in) :: itrc
+   SUBROUTINE set_mt_category_defaults (imt)
+      integer, intent(in) :: imt
 
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      tracers(itrc)%unit_kind = 'tracer_per_water'
-      tracers(itrc)%charge = 0
-      tracers(itrc)%max_dissolved_conc = huge(1.0_r8)
-      tracers(itrc)%family_id = FAMILY_UNRESOLVED
-      tracers(itrc)%state_owner = STATE_OWNER_UNKNOWN
-      tracers(itrc)%reaction_mode = REACTION_NONE
+      tracers(imt)%unit_kind = 'tracer_per_water'
+      tracers(imt)%charge = 0
+      tracers(imt)%max_dissolved_conc = huge(1.0_r8)
+      tracers(imt)%family_id = FAMILY_UNRESOLVED
+      tracers(imt)%state_owner = STATE_OWNER_UNKNOWN
+      tracers(imt)%reaction_mode = REACTION_NONE
 
-      SELECT CASE (trim(tracers(itrc)%category))
+      SELECT CASE (trim(tracers(imt)%category))
       CASE ('isotope')
-         tracers(itrc)%unit_kind = 'ratio'
-         tracers(itrc)%family_id = FAMILY_ISOTOPE
-         tracers(itrc)%state_owner = STATE_OWNER_GENERIC_WATER
+         tracers(imt)%unit_kind = 'ratio'
+         tracers(imt)%family_id = FAMILY_ISOTOPE
+         tracers(imt)%state_owner = STATE_OWNER_GENERIC_WATER
       CASE ('solute')
-         tracers(itrc)%family_id = FAMILY_SOLUTE
-         tracers(itrc)%state_owner = STATE_OWNER_GENERIC_WATER
+         tracers(imt)%family_id = FAMILY_SOLUTE
+         tracers(imt)%state_owner = STATE_OWNER_GENERIC_WATER
       CASE ('particle')
-         tracers(itrc)%unit_kind = 'volume_fraction'
-         tracers(itrc)%family_id = FAMILY_PARTICLE
-         tracers(itrc)%state_owner = STATE_OWNER_PROVIDER
+         tracers(imt)%unit_kind = 'volume_fraction'
+         tracers(imt)%family_id = FAMILY_PARTICLE
+         tracers(imt)%state_owner = STATE_OWNER_PROVIDER
       CASE ('gas')
-         tracers(itrc)%unit_kind = 'species_owned'
-         tracers(itrc)%family_id = FAMILY_GAS
-         tracers(itrc)%state_owner = STATE_OWNER_PROVIDER
+         tracers(imt)%unit_kind = 'species_owned'
+         tracers(imt)%family_id = FAMILY_GAS
+         tracers(imt)%state_owner = STATE_OWNER_PROVIDER
       END SELECT
-   END SUBROUTINE set_tracer_category_defaults
+   END SUBROUTINE set_mt_category_defaults
 
-   SUBROUTINE derive_tracer_taxonomy (itrc)
-      integer, intent(in) :: itrc
+   SUBROUTINE derive_mt_taxonomy (imt)
+      integer, intent(in) :: imt
 
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      SELECT CASE (trim(tracers(itrc)%category))
+      SELECT CASE (trim(tracers(imt)%category))
       CASE ('isotope')
-         tracers(itrc)%family_id = FAMILY_ISOTOPE
+         tracers(imt)%family_id = FAMILY_ISOTOPE
       CASE ('solute')
-         tracers(itrc)%family_id = FAMILY_SOLUTE
+         tracers(imt)%family_id = FAMILY_SOLUTE
       CASE ('particle')
-         tracers(itrc)%family_id = FAMILY_PARTICLE
+         tracers(imt)%family_id = FAMILY_PARTICLE
       CASE ('gas')
-         tracers(itrc)%family_id = FAMILY_GAS
+         tracers(imt)%family_id = FAMILY_GAS
       CASE DEFAULT
-         tracers(itrc)%family_id = FAMILY_UNRESOLVED
+         tracers(imt)%family_id = FAMILY_UNRESOLVED
       END SELECT
 
-      SELECT CASE (tracers(itrc)%family_id)
+      SELECT CASE (tracers(imt)%family_id)
       CASE (FAMILY_ISOTOPE, FAMILY_SOLUTE)
-         tracers(itrc)%state_owner = STATE_OWNER_GENERIC_WATER
+         tracers(imt)%state_owner = STATE_OWNER_GENERIC_WATER
       CASE (FAMILY_PARTICLE, FAMILY_GAS)
-         tracers(itrc)%state_owner = STATE_OWNER_PROVIDER
+         tracers(imt)%state_owner = STATE_OWNER_PROVIDER
       CASE DEFAULT
-         tracers(itrc)%state_owner = STATE_OWNER_UNKNOWN
+         tracers(imt)%state_owner = STATE_OWNER_UNKNOWN
       END SELECT
 
-      IF (tracers(itrc)%family_id == FAMILY_SOLUTE .and. &
-          tracers(itrc)%decay_rate > 0._r8) THEN
-         tracers(itrc)%reaction_mode = REACTION_FIRST_ORDER
+      IF (tracers(imt)%family_id == FAMILY_SOLUTE .and. &
+          tracers(imt)%decay_rate > 0._r8) THEN
+         tracers(imt)%reaction_mode = REACTION_FIRST_ORDER
       ELSE
-         tracers(itrc)%reaction_mode = REACTION_NONE
+         tracers(imt)%reaction_mode = REACTION_NONE
       ENDIF
-   END SUBROUTINE derive_tracer_taxonomy
+   END SUBROUTINE derive_mt_taxonomy
 
-   SUBROUTINE validate_tracer_descriptor (itrc)
+   SUBROUTINE validate_mt_descriptor (imt)
       USE MOD_SPMD_Task, only: p_is_master, CoLM_stop
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       logical :: supported_unit
 
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      tracers(itrc)%unit_kind = tracer_lower(tracers(itrc)%unit_kind)
-      SELECT CASE (tracers(itrc)%family_id)
+      tracers(imt)%unit_kind = tracer_lower(tracers(imt)%unit_kind)
+      SELECT CASE (tracers(imt)%family_id)
       CASE (FAMILY_ISOTOPE, FAMILY_SOLUTE, FAMILY_PARTICLE, FAMILY_GAS)
          CONTINUE
       CASE DEFAULT
-         CALL tracer_descriptor_error(itrc, 'family_id', 'unsupported material family')
+         CALL tracer_descriptor_error(imt, 'family_id', 'unsupported material family')
       END SELECT
-      IF (tracers(itrc)%state_owner /= STATE_OWNER_GENERIC_WATER .and. &
-          tracers(itrc)%state_owner /= STATE_OWNER_PROVIDER) THEN
-         CALL tracer_descriptor_error(itrc, 'state_owner', 'must resolve before transport initialization')
+      IF (tracers(imt)%state_owner /= STATE_OWNER_GENERIC_WATER .and. &
+          tracers(imt)%state_owner /= STATE_OWNER_PROVIDER) THEN
+         CALL tracer_descriptor_error(imt, 'state_owner', 'must resolve before transport initialization')
       ENDIF
-      IF (tracers(itrc)%reaction_mode < REACTION_NONE .or. &
-          tracers(itrc)%reaction_mode > REACTION_PROVIDER) THEN
-         CALL tracer_descriptor_error(itrc, 'reaction_mode', 'unsupported reaction capability')
+      IF (tracers(imt)%reaction_mode < REACTION_NONE .or. &
+          tracers(imt)%reaction_mode > REACTION_PROVIDER) THEN
+         CALL tracer_descriptor_error(imt, 'reaction_mode', 'unsupported reaction capability')
       ENDIF
-      IF ((tracer_is_isotope(itrc) .or. tracer_is_particle(itrc)) .and. &
-          tracers(itrc)%reaction_mode /= REACTION_NONE) THEN
-         CALL tracer_descriptor_error(itrc, 'reaction_mode', &
+      IF ((tracer_is_isotope(imt) .or. tracer_is_particle(imt)) .and. &
+          tracers(imt)%reaction_mode /= REACTION_NONE) THEN
+         CALL tracer_descriptor_error(imt, 'reaction_mode', &
             'isotope and particle families do not use the generic reaction capability')
       ENDIF
-      supported_unit = trim(tracers(itrc)%unit_kind) == 'ratio' .or. &
-         trim(tracers(itrc)%unit_kind) == 'tracer_per_water' .or. &
-         trim(tracers(itrc)%unit_kind) == 'mass_fraction' .or. &
-         trim(tracers(itrc)%unit_kind) == 'volume_fraction' .or. &
-         trim(tracers(itrc)%unit_kind) == 'species_owned'
+      supported_unit = trim(tracers(imt)%unit_kind) == 'ratio' .or. &
+         trim(tracers(imt)%unit_kind) == 'tracer_per_water' .or. &
+         trim(tracers(imt)%unit_kind) == 'mass_fraction' .or. &
+         trim(tracers(imt)%unit_kind) == 'volume_fraction' .or. &
+         trim(tracers(imt)%unit_kind) == 'species_owned'
       IF (.not. supported_unit) THEN
-         CALL tracer_descriptor_error(itrc, 'unit_kind', 'unsupported unit convention')
+         CALL tracer_descriptor_error(imt, 'unit_kind', 'unsupported unit convention')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%mol_weight)) THEN
-         CALL tracer_descriptor_error(itrc, 'mol_weight', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%mol_weight)) THEN
+         CALL tracer_descriptor_error(imt, 'mol_weight', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%ref_ratio)) THEN
-         CALL tracer_descriptor_error(itrc, 'ref_ratio', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%ref_ratio)) THEN
+         CALL tracer_descriptor_error(imt, 'ref_ratio', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%init_delta)) THEN
-         CALL tracer_descriptor_error(itrc, 'init_delta', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%init_delta)) THEN
+         CALL tracer_descriptor_error(imt, 'init_delta', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%init_conc)) THEN
-         CALL tracer_descriptor_error(itrc, 'init_conc', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%init_conc)) THEN
+         CALL tracer_descriptor_error(imt, 'init_conc', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%precip_default_conc)) THEN
-         CALL tracer_descriptor_error(itrc, 'precip_default_conc', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%precip_default_conc)) THEN
+         CALL tracer_descriptor_error(imt, 'precip_default_conc', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%vapor_default_conc)) THEN
-         CALL tracer_descriptor_error(itrc, 'vapor_default_conc', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%vapor_default_conc)) THEN
+         CALL tracer_descriptor_error(imt, 'vapor_default_conc', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%max_dissolved_conc)) THEN
-         CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%max_dissolved_conc)) THEN
+         CALL tracer_descriptor_error(imt, 'max_dissolved_conc', 'must be finite')
       ENDIF
-      IF (.not. ieee_is_finite(tracers(itrc)%decay_rate)) THEN
-         CALL tracer_descriptor_error(itrc, 'decay_rate', 'must be finite')
+      IF (.not. ieee_is_finite(tracers(imt)%decay_rate)) THEN
+         CALL tracer_descriptor_error(imt, 'decay_rate', 'must be finite')
       ENDIF
-      IF (tracers(itrc)%mol_weight < 0._r8) THEN
-         CALL tracer_descriptor_error(itrc, 'mol_weight', 'must be non-negative')
+      IF (tracers(imt)%mol_weight < 0._r8) THEN
+         CALL tracer_descriptor_error(imt, 'mol_weight', 'must be non-negative')
       ENDIF
-      IF (tracers(itrc)%ref_ratio <= 0._r8) THEN
-         CALL tracer_descriptor_error(itrc, 'ref_ratio', 'must be positive')
+      IF (tracers(imt)%ref_ratio <= 0._r8) THEN
+         CALL tracer_descriptor_error(imt, 'ref_ratio', 'must be positive')
       ENDIF
-      IF (tracer_is_isotope(itrc)) THEN
-         IF (tracers(itrc)%init_delta < -1000._r8) THEN
-            CALL tracer_descriptor_error(itrc, 'init_delta', 'must be at least -1000 permil')
+      IF (tracer_is_isotope(imt)) THEN
+         IF (tracers(imt)%init_delta < -1000._r8) THEN
+            CALL tracer_descriptor_error(imt, 'init_delta', 'must be at least -1000 permil')
          ENDIF
       ELSE
-         IF (tracers(itrc)%init_conc < 0._r8) THEN
-            CALL tracer_descriptor_error(itrc, 'init_conc', 'must be non-negative')
+         IF (tracers(imt)%init_conc < 0._r8) THEN
+            CALL tracer_descriptor_error(imt, 'init_conc', 'must be non-negative')
          ENDIF
-         IF (tracers(itrc)%precip_default_conc < 0._r8) THEN
-            CALL tracer_descriptor_error(itrc, 'precip_default_conc', 'must be non-negative')
+         IF (tracers(imt)%precip_default_conc < 0._r8) THEN
+            CALL tracer_descriptor_error(imt, 'precip_default_conc', 'must be non-negative')
          ENDIF
-         IF (tracers(itrc)%vapor_default_conc < 0._r8) THEN
-            CALL tracer_descriptor_error(itrc, 'vapor_default_conc', 'must be non-negative')
+         IF (tracers(imt)%vapor_default_conc < 0._r8) THEN
+            CALL tracer_descriptor_error(imt, 'vapor_default_conc', 'must be non-negative')
          ENDIF
       ENDIF
-      IF (tracers(itrc)%max_dissolved_conc <= 0._r8) THEN
-         CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', 'must be positive')
+      IF (tracers(imt)%max_dissolved_conc <= 0._r8) THEN
+         CALL tracer_descriptor_error(imt, 'max_dissolved_conc', 'must be positive')
       ENDIF
-      IF (tracer_is_isotope(itrc) .and. trim(tracers(itrc)%unit_kind) /= 'ratio') THEN
-         CALL tracer_descriptor_error(itrc, 'unit_kind', 'isotope materials require ratio')
+      IF (tracer_is_isotope(imt) .and. trim(tracers(imt)%unit_kind) /= 'ratio') THEN
+         CALL tracer_descriptor_error(imt, 'unit_kind', 'isotope materials require ratio')
       ENDIF
-      IF (tracers(itrc)%charge /= 0 .and. .not. tracer_is_solute(itrc)) THEN
-         CALL tracer_descriptor_error(itrc, 'charge', &
+      IF (tracers(imt)%charge /= 0 .and. .not. tracer_is_solute(imt)) THEN
+         CALL tracer_descriptor_error(imt, 'charge', &
             'non-zero ionic charge is valid only for solute materials')
       ENDIF
-      IF ((tracer_is_isotope(itrc) .or. tracer_is_solute(itrc)) .and. &
-          tracers(itrc)%state_owner /= STATE_OWNER_GENERIC_WATER) THEN
-         CALL tracer_descriptor_error(itrc, 'state_owner', &
+      IF ((tracer_is_isotope(imt) .or. tracer_is_solute(imt)) .and. &
+          tracers(imt)%state_owner /= STATE_OWNER_GENERIC_WATER) THEN
+         CALL tracer_descriptor_error(imt, 'state_owner', &
             'isotope and solute materials require generic land-water transport')
       ENDIF
-      IF ((tracer_is_particle(itrc) .or. tracer_is_gas(itrc)) .and. &
-          tracers(itrc)%state_owner /= STATE_OWNER_PROVIDER) THEN
-         CALL tracer_descriptor_error(itrc, 'state_owner', &
+      IF ((tracer_is_particle(imt) .or. tracer_is_gas(imt)) .and. &
+          tracers(imt)%state_owner /= STATE_OWNER_PROVIDER) THEN
+         CALL tracer_descriptor_error(imt, 'state_owner', &
             'particle and gas materials require provider-owned state')
       ENDIF
-      IF (tracers(itrc)%max_dissolved_conc < huge(1.0_r8) .and. &
-          .not. tracer_is_solute(itrc)) THEN
-         CALL tracer_descriptor_error(itrc, 'max_dissolved_conc', &
+      IF (tracers(imt)%max_dissolved_conc < huge(1.0_r8) .and. &
+          .not. tracer_is_solute(imt)) THEN
+         CALL tracer_descriptor_error(imt, 'max_dissolved_conc', &
             'is valid only for solute materials')
       ENDIF
-      IF (tracers(itrc)%decay_rate > 0._r8 .and. &
-          .not. tracer_is_solute(itrc)) THEN
-         CALL tracer_descriptor_error(itrc, 'decay_rate', &
+      IF (tracers(imt)%decay_rate > 0._r8 .and. &
+          .not. tracer_is_solute(imt)) THEN
+         CALL tracer_descriptor_error(imt, 'decay_rate', &
             'first-order decay is supported only by solute materials')
       ENDIF
 
-      IF (tracers(itrc)%state_owner == STATE_OWNER_PROVIDER .and. &
-          .not. tracer_is_particle(itrc) .and. &
-          trim(tracers(itrc)%unit_kind) /= 'species_owned') THEN
-         CALL tracer_descriptor_error(itrc, 'unit_kind', &
+      IF (tracers(imt)%state_owner == STATE_OWNER_PROVIDER .and. &
+          .not. tracer_is_particle(imt) .and. &
+          trim(tracers(imt)%unit_kind) /= 'species_owned') THEN
+         CALL tracer_descriptor_error(imt, 'unit_kind', &
             'species-owned state requires unit_kind=species_owned')
       ENDIF
 
 #ifndef BGC
-      IF ((trim(tracer_upper(tracers(itrc)%name)) == 'CH4' .or. &
-           trim(tracer_upper(tracers(itrc)%name)) == 'METHANE') .and. &
-          tracers(itrc)%state_owner == STATE_OWNER_PROVIDER) THEN
-         CALL tracer_descriptor_error(itrc, 'unit_kind', &
+      IF ((trim(tracer_upper(tracers(imt)%name)) == 'CH4' .or. &
+           trim(tracer_upper(tracers(imt)%name)) == 'METHANE') .and. &
+          tracers(imt)%state_owner == STATE_OWNER_PROVIDER) THEN
+         CALL tracer_descriptor_error(imt, 'unit_kind', &
             'species-owned CH4 requires compiling with BGC; full soil/wetland/rice CH4 requires '// &
             'LULC_IGBP_PFT or LULC_IGBP_PC with real carbon, NPP, and root-respiration states')
       ENDIF
@@ -900,130 +900,130 @@ CONTAINS
          CALL CoLM_stop()
       END SUBROUTINE tracer_descriptor_error
 
-   END SUBROUTINE validate_tracer_descriptor
+   END SUBROUTINE validate_mt_descriptor
 
-   integer FUNCTION tracer_get_family (itrc)
-      integer, intent(in) :: itrc
+   integer FUNCTION tracer_get_family (imt)
+      integer, intent(in) :: imt
       tracer_get_family = FAMILY_UNRESOLVED
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_get_family = tracers(itrc)%family_id
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_get_family = tracers(imt)%family_id
    END FUNCTION tracer_get_family
 
-   integer FUNCTION tracer_get_state_owner (itrc)
-      integer, intent(in) :: itrc
+   integer FUNCTION tracer_get_state_owner (imt)
+      integer, intent(in) :: imt
       tracer_get_state_owner = STATE_OWNER_UNKNOWN
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_get_state_owner = tracers(itrc)%state_owner
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_get_state_owner = tracers(imt)%state_owner
    END FUNCTION tracer_get_state_owner
 
-   integer FUNCTION tracer_get_reaction_mode (itrc)
-      integer, intent(in) :: itrc
+   integer FUNCTION tracer_get_reaction_mode (imt)
+      integer, intent(in) :: imt
       tracer_get_reaction_mode = REACTION_NONE
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_get_reaction_mode = tracers(itrc)%reaction_mode
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_get_reaction_mode = tracers(imt)%reaction_mode
    END FUNCTION tracer_get_reaction_mode
 
-   logical FUNCTION tracer_is_isotope (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_is_isotope (imt)
+      integer, intent(in) :: imt
       tracer_is_isotope = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_is_isotope = tracers(itrc)%family_id == FAMILY_ISOTOPE
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_is_isotope = tracers(imt)%family_id == FAMILY_ISOTOPE
    END FUNCTION tracer_is_isotope
 
-   logical FUNCTION tracer_is_solute (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_is_solute (imt)
+      integer, intent(in) :: imt
       tracer_is_solute = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_is_solute = tracers(itrc)%family_id == FAMILY_SOLUTE
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_is_solute = tracers(imt)%family_id == FAMILY_SOLUTE
    END FUNCTION tracer_is_solute
 
-   logical FUNCTION tracer_has_decay (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_has_decay (imt)
+      integer, intent(in) :: imt
       tracer_has_decay = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_has_decay = tracers(itrc)%reaction_mode /= REACTION_NONE
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_has_decay = tracers(imt)%reaction_mode /= REACTION_NONE
    END FUNCTION tracer_has_decay
 
-   logical FUNCTION tracer_is_nonvolatile_solute (itrc)
+   logical FUNCTION tracer_is_nonvolatile_solute (imt)
       ! Nonvolatile solutes (decaying or not) are dissolved material,
       ! not water isotopologues. They move with liquid runoff/infiltration but
       ! atmospheric phase changes remove/add water only; evap/subl/transp
       ! leave solute behind and dew/frost do not import it unless a separate
       ! deposition source is provided.
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       tracer_is_nonvolatile_solute = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_is_nonvolatile_solute = tracer_is_solute(itrc) .and. &
-         mt_uses_generic_water(itrc)
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_is_nonvolatile_solute = tracer_is_solute(imt) .and. &
+         mt_uses_generic_water(imt)
    END FUNCTION tracer_is_nonvolatile_solute
 
-   logical FUNCTION tracer_is_particle (itrc)
+   logical FUNCTION tracer_is_particle (imt)
       ! Particle tracers (e.g. suspended sediment) carry concentration per
       ! unit water like solutes, but additionally settle and
       ! exchange mass with a non-water bed pool. Diagnostics are concentration
       ! / bed-change, never delta, so they share the non-isotope branches of
       ! tracer_uses_delta_diagnostics / tracer_can_use_fixed_signature.
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       tracer_is_particle = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_is_particle = tracers(itrc)%family_id == FAMILY_PARTICLE
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_is_particle = tracers(imt)%family_id == FAMILY_PARTICLE
    END FUNCTION tracer_is_particle
 
-   logical FUNCTION tracer_is_gas (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_is_gas (imt)
+      integer, intent(in) :: imt
       tracer_is_gas = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      tracer_is_gas = tracers(itrc)%family_id == FAMILY_GAS
+      IF (imt < 1 .or. imt > nmts) RETURN
+      tracer_is_gas = tracers(imt)%family_id == FAMILY_GAS
    END FUNCTION tracer_is_gas
 
-   logical FUNCTION mt_uses_generic_water (itrc)
+   logical FUNCTION mt_uses_generic_water (imt)
       ! Generic land-water tracer modules transport scalar signatures tied to
       ! canopy/soil/snow/aquifer water pools. Provider-owned particle and gas
       ! tracers keep species-specific state and must not be initialized,
       ! transported, diagnosed, or restarted through those generic pools.
-      integer, intent(in) :: itrc
+      integer, intent(in) :: imt
       mt_uses_generic_water = .false.
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
-      mt_uses_generic_water = tracers(itrc)%state_owner == STATE_OWNER_GENERIC_WATER
+      IF (imt < 1 .or. imt > nmts) RETURN
+      mt_uses_generic_water = tracers(imt)%state_owner == STATE_OWNER_GENERIC_WATER
    END FUNCTION mt_uses_generic_water
 
-   logical FUNCTION tracer_uses_delta_diagnostics (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_uses_delta_diagnostics (imt)
+      integer, intent(in) :: imt
       ! Delta/NSS diagnostics are isotope-specific. Solutes
       ! store concentration per unit water and must not be converted
       ! with ref_ratio.
-      tracer_uses_delta_diagnostics = tracer_is_isotope(itrc)
+      tracer_uses_delta_diagnostics = tracer_is_isotope(imt)
    END FUNCTION tracer_uses_delta_diagnostics
 
-   logical FUNCTION tracer_can_use_fixed_signature (itrc)
-      integer, intent(in) :: itrc
+   logical FUNCTION tracer_can_use_fixed_signature (imt)
+      integer, intent(in) :: imt
       ! Fixed-signature resync/snap is a Phase-1 shortcut for isotope
       ! tracers with inactive fractionation and no runtime forcing. Solutes
       ! may carry spatial gradients, restart
       ! memory, or source/sink history, so they must preserve the current
       ! pool-mixed concentration instead of being snapped to init_delta.
-      tracer_can_use_fixed_signature = tracer_is_isotope(itrc)
+      tracer_can_use_fixed_signature = tracer_is_isotope(imt)
    END FUNCTION tracer_can_use_fixed_signature
 
-   FUNCTION tracer_concentration_units (itrc) RESULT(units)
-      integer, intent(in) :: itrc
+   FUNCTION tracer_concentration_units (imt) RESULT(units)
+      integer, intent(in) :: imt
       character(len=32) :: units
 
       units = 'material/water'
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      SELECT CASE (trim(tracers(itrc)%unit_kind))
+      SELECT CASE (trim(tracers(imt)%unit_kind))
       CASE ('ratio')
          units = 'R'
       CASE ('mass_fraction')
@@ -1037,51 +1037,51 @@ CONTAINS
       END SELECT
    END FUNCTION tracer_concentration_units
 
-   real(r8) FUNCTION tracer_init_water_ratio (itrc)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION tracer_init_water_ratio (imt)
+      integer, intent(in) :: imt
 
       tracer_init_water_ratio = 0._r8
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      IF (tracer_is_isotope(itrc)) THEN
-         tracer_init_water_ratio = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
+      IF (tracer_is_isotope(imt)) THEN
+         tracer_init_water_ratio = delta_to_R(tracers(imt)%init_delta, tracers(imt)%ref_ratio)
       ELSE
-         tracer_init_water_ratio = tracers(itrc)%init_conc
+         tracer_init_water_ratio = tracers(imt)%init_conc
       ENDIF
    END FUNCTION tracer_init_water_ratio
 
-   real(r8) FUNCTION tracer_precip_default_ratio (itrc)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION tracer_precip_default_ratio (imt)
+      integer, intent(in) :: imt
 
       tracer_precip_default_ratio = 0._r8
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      IF (tracer_is_isotope(itrc)) THEN
-         tracer_precip_default_ratio = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
+      IF (tracer_is_isotope(imt)) THEN
+         tracer_precip_default_ratio = delta_to_R(tracers(imt)%init_delta, tracers(imt)%ref_ratio)
       ELSE
-         tracer_precip_default_ratio = tracers(itrc)%precip_default_conc
+         tracer_precip_default_ratio = tracers(imt)%precip_default_conc
       ENDIF
    END FUNCTION tracer_precip_default_ratio
 
-   real(r8) FUNCTION tracer_vapor_default_ratio (itrc)
-      integer, intent(in) :: itrc
+   real(r8) FUNCTION tracer_vapor_default_ratio (imt)
+      integer, intent(in) :: imt
 
       tracer_vapor_default_ratio = 0._r8
       IF (.not. allocated(tracers)) RETURN
-      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (imt < 1 .or. imt > nmts) RETURN
 
-      IF (tracer_is_isotope(itrc)) THEN
-         tracer_vapor_default_ratio = delta_to_R(tracers(itrc)%init_delta, tracers(itrc)%ref_ratio)
+      IF (tracer_is_isotope(imt)) THEN
+         tracer_vapor_default_ratio = delta_to_R(tracers(imt)%init_delta, tracers(imt)%ref_ratio)
       ELSE
-         tracer_vapor_default_ratio = tracers(itrc)%vapor_default_conc
+         tracer_vapor_default_ratio = tracers(imt)%vapor_default_conc
       ENDIF
    END FUNCTION tracer_vapor_default_ratio
 
-      real(r8) FUNCTION mass_to_delta (trc_mass, water_mass, ref_ratio)
+      real(r8) FUNCTION mass_to_delta (mt_mass, water_mass, ref_ratio)
          USE MOD_Vars_Global, only: spval
-         real(r8), intent(in) :: trc_mass, water_mass, ref_ratio
+         real(r8), intent(in) :: mt_mass, water_mass, ref_ratio
          real(r8) :: R_sample
          ! Public delta conversion point. Callers should pass already-aggregated
          ! tracer and water amounts for the requested history/check window.
@@ -1092,9 +1092,9 @@ CONTAINS
       ! (both numerator and denominator share sign → R_sample positive).
       ! Physically non-negative pools (wliq/wice/wdsrf/wetwat/scv/ldew/flux)
       ! are unaffected since abs() equals value there.
-      IF (abs(water_mass) > trc_tiny .and. ref_ratio > trc_tiny) THEN
-         R_sample = trc_mass / water_mass
-         IF (R_sample < -trc_tiny) THEN
+      IF (abs(water_mass) > mt_tiny .and. ref_ratio > mt_tiny) THEN
+         R_sample = mt_mass / water_mass
+         IF (R_sample < -mt_tiny) THEN
             ! Sign mismatch between trc_mass and water_mass: upstream state
             ! machine is broken (e.g. trc_wa and wa drifted to opposite
             ! signs). Returning spval rather than silently clamping so
@@ -1102,7 +1102,7 @@ CONTAINS
             ! of treating a bogus delta as physical.
 #if (defined CoLMDEBUG)
             write(*,'(A,E12.5,A,E12.5)') &
-               ' WARNING mass_to_delta: R_sample<0 trc=', trc_mass, ' water=', water_mass
+               ' WARNING mass_to_delta: R_sample<0 trc=', mt_mass, ' water=', water_mass
 #endif
             mass_to_delta = spval
          ELSE
