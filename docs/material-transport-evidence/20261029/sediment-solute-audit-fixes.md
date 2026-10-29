@@ -193,4 +193,9 @@ PATH=/opt/homebrew/bin:$PATH python3 tests/material_transport/check_rnof_handoff
   2. `MOD_MT_Evapo` 缺 `trc_water_min_for_ratio` 导入（N04 恢复路径）；
   3. coupling 调用 `mt_riverlake_diag_accumulate` 用了旧关键字 `hflux_fc=`（应为 `hflux_fc_in=`）；
   4. `mt_rlc_end_routing` 中 `release_pending_drain` 被插到声明段之前（改为声明后调用）。
-- 说明：这是本机 macOS 全量编译，不是 7920/CI 构建；未运行模型（无强迫数据/完整重启用例）。
+- 追加配置编译（同一环境）：
+  - **GRID + USEMPI + GridRiverLakeFlow + MaterialTransport**：MAKE_RC=0；
+  - **BGC + CROP + LULC_IGBP_PFT + USEMPI + MaterialTransport**（真实甲烷/灌溉宿主配置）：MAKE_RC=0，
+    验证 F03/F08 甲烷模块与 N02 CROP 灌溉接口可完整编译；
+  - **UNSTRUCTURED + USEMPI + MaterialTransport**：MAKE_RC=0。
+- 说明：以上是本机 macOS 全量编译，不是 7920/CI 构建；未运行模型（无强迫数据/完整重启用例）。
