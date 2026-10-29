@@ -112,7 +112,8 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
     [0.0005,0.002,0.0005] —— 这是 **BIF/levee/joint 共享初始库存路径**，本修复按设计未改
     （子步会与宿主一次性 joint reservation/credits 重复计数）；因此：
     - 普通（非 BIF/levee）生产路径 N01 **已修复**；
-    - BIF/levee 生产路径的同一粗时间步缺陷 **仍存在**，需要在 provider 层把
+  - BIF/levee 生产路径：已在 provider 层实现整段算子子步（见提交 bed6193b），
+    每子步重算 donor/reservation，dt 项全部按 dt_step 缩放；完整 BIF 数值验证需 7920 集成。
       demand→joint scale→advection→credits 整体纳入子步，属于未完成项。
 - 编译坑修正：`calc_sediment_advection` 因自递归需声明 `RECURSIVE`（否则完整构建编译失败），已修。
 - 未做：真实河网/MPI 集成与性能实测（子步上限保证最坏 ~240× 平流计算，需在 7920 记录耗时）；
