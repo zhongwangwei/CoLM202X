@@ -953,7 +953,11 @@ CONTAINS
                   IF (cfl_adv > real(nsub_adv, r8)) nsub_adv = ceiling(cfl_adv)
                ENDIF
             ENDDO
-            nsub_adv = min(max(nsub_adv, 1), 240)
+            IF (nsub_adv > 240) THEN
+               WRITE(*,*) 'ERROR BIF/levee sediment material substepping requires nsub=', nsub_adv, ' (limit 240)'
+               CALL CoLM_stop('BIF/levee sediment material substep requirement exceeds the 240 limit')
+            ENDIF
+            nsub_adv = max(nsub_adv, 1)
             dt_adv = dt_morph / real(nsub_adv, r8)
          ELSE
             nsub_adv = 1
@@ -2334,7 +2338,13 @@ CONTAINS
                IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(cfl_ratio)
             ENDIF
          ENDDO
-         nsub = min(max(nsub, 1), 240)
+         ! N09: never silently truncate a required material CFL count:
+         ! capping violates the gross-outflow<=donor-water invariant.
+         IF (nsub > 240) THEN
+            WRITE(*,*) 'ERROR sediment material substepping requires nsub=', nsub, ' (limit 240)'
+            CALL CoLM_stop('sediment material substep requirement exceeds the 240 limit')
+         ENDIF
+         nsub = max(nsub, 1)
          IF (nsub > 1) THEN
             DO isub = 1, nsub
                CALL calc_sediment_advection(dt / real(nsub, r8), rivout_signed, rivout_abs, &

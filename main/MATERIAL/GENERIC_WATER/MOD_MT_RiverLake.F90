@@ -908,9 +908,14 @@ CONTAINS
          ! upstream receivers get their donor's total outflow capacity
          donor_out(:) = 0._r8
          CALL worker_push_data (push_next2ucat, out_total, donor_out, fillvalue = 0._r8, mode = 'sum')
-         fwd_send(:) = 0._r8   ! per-tracer below
          DO itrc = 1, ntracers
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
+            ! N08: reset BOTH send buffers for every species.  A position
+            ! where this species has no drained mass is skipped below, so a
+            ! stale value from the previous species would otherwise be sent
+            ! as this species' mass (cross-species contamination).
+            fwd_send(:) = 0._r8
+            rev_send(:) = 0._r8
             fwd_recv(:) = 0._r8
             rev_recv(:) = 0._r8
             DO i = 1, numucat

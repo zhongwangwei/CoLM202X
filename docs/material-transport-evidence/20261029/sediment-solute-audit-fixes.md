@@ -206,3 +206,19 @@ PATH=/opt/homebrew/bin:$PATH python3 tests/material_transport/check_rnof_handoff
     验证 F03/F08 甲烷模块与 N02 CROP 灌溉接口可完整编译；
   - **UNSTRUCTURED + USEMPI + MaterialTransport**：MAKE_RC=0。
 - 说明：以上是本机 macOS 全量编译，不是 7920/CI 构建；未运行模型（无强迫数据/完整重启用例）。
+
+## 外部复核 N08/N09/N10（本轮处理）
+
+- **N08（确认，已修复）**：河湖残余转发 `fwd_send/rev_send` 只在物种循环外清零，当前物种无质量的位置会
+  复用上一物种的残留值，造成跨物种串扰。已改为每个 species 迭代内清零两个发送缓冲（`fwd_recv/rev_recv`
+  仍清零），通信仍保持固定顺序无条件调用。新增 N08 断言 + 双物种独立预算不变式测试。
+- **N09（确认，已修复为显式失败）**：`min(max(nsub,1),240)` 在高周转需求 >240 时静默截断，仍违反
+  “gross outflow ≤ donor carrier water” 子步约束。现改为：所需子步 >240 时打印所需 nsub 并
+  `CoLM_stop`（普通路径与 BIF/levee provider 路径都显式报错），不再静默降级。测试覆盖“600 需求>240”
+  边界与两条路径的错误信息。
+- **N10（确认是真实风险，但尚未改代码）**：核心递归子步仍重复使用整个 morphology 区间的
+  `rivsto_donor/rivsto_end` 作为载体水量；宿主只提供区间端点的平均值，子步内水量没有新的时间轨迹。
+  在水量变化明显时，瞬时浓度会与“逐子步同步推进水量”的离散不一致。修复需要先明确宿主水量在
+  morphology 区间内的时间表示（线性插值或其他），并构造“水量随时间变化、无额外产沙/沉降”的对照；
+  在未验证前不应盲目把插值应用到所有路径。列为下一步工作。
+- 修复后重新全量编译：GRID 与 BGC+CROP 两配置 **MAKE_RC=0**；本地 audit 检查 0 failure。

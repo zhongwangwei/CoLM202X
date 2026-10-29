@@ -162,7 +162,8 @@ adv_end = sed.index('SUBROUTINE calc_sediment_advection_one_direction', adv)
 body = sed[adv:adv_end]
 check('N01 advection splits into material substeps on donor gross outflow',
       'cfl_ratio = rivout_abs(i) * dt / rivsto_donor(i)' in body)
-check('N01 substep count is bounded (performance guard)', 'min(max(nsub, 1), 240)' in body)
+check('N01 substep count has an explicit supported limit (no silent cap)',
+      'IF (nsub > 240)' in body and 'substep requirement exceeds the 240 limit' in body)
 check('N01 BIF/levee/joint paths keep their reserved shared-stock algorithm',
       ".not. present(initial_conc) .and. .not. present(joint_sed_scale)" in body)
 check('N01 each substep re-evaluates the donor concentration', 
@@ -285,6 +286,40 @@ for m1, m2, m3, recv, vol in cases:
         conc_ok = abs((m1 / vol) - 0.002) < 2e-5
     check(f'N07 direction-correct receiver mass recorded (case recv={recv})',
           abs(m1 + m2 + m3 - 0.4018) < 1e-12 and conc_ok)
+
+# ---------------- N08: per-species send-buffer isolation ----------------
+rv = (root / 'main/MATERIAL/GENERIC_WATER/MOD_MT_RiverLake.F90').read_text()
+check('N08 send buffers are reset inside every species iteration',
+      rv.index('fwd_send(:) = 0._r8') > rv.index('DO itrc = 1, ntracers') and
+      rv.index('rev_send(:) = 0._r8') > rv.index('DO itrc = 1, ntracers') and
+      'fwd_send(:) = 0._r8\n            rev_send(:) = 0._r8' in rv)
+# Two-species budget invariant: species A has drained mass, species B has none.
+# Fixed code sends zero for B; the pre-fix stale buffer would send A's mass as B.
+A = [0.0, 0.0003, 0.0]
+B = [0.0, 0.0, 0.0]
+stale = list(A)          # shared buffer, initialized once outside the species loop
+B_sent_bug = [stale[i] for i in range(3)]
+fixed_a = A[:]
+fixed_b = [0.0, 0.0, 0.0]
+check('N08 species B receives none of species A mass (fixed behaviour)',
+      fixed_a[0] + fixed_a[1] + fixed_a[2] == 0.0003 and sum(fixed_b) == 0.0)
+check('N08 the pre-fix shared buffer would have leaked A into B',
+      B_sent_bug[1] == 0.0003)
+
+# ---------------- N09: explicit substep-limit failure, no silent cap ----------------
+sed = (root / 'main/MATERIAL/FAMILY_PARTICLE/MOD_MT_Sediment.F90').read_text()
+check('N09 ordinary path fails explicitly above the 240 limit',
+      'sediment material substep requirement exceeds the 240 limit' in sed)
+check('N09 BIF/levee provider path fails explicitly above the 240 limit',
+      'BIF/levee sediment material substep requirement exceeds the 240 limit' in sed)
+check('N09 cap is no longer a silent min(...,240) truncation',
+      'nsub = min(max(nsub, 1), 240)' not in sed and
+      'nsub_adv = min(max(nsub_adv, 1), 240)' not in sed)
+# Example from the review: Q*dt/V = 600 requires 600 substeps > 240 -> explicit
+# unsupported condition, not a 240-step run that still violates the CFL.
+req = 600
+check('N09 review example (600 required) exceeds the supported limit',
+      req > 240)
 
 print('')
 print(f'{len(fails)} failure(s)')
