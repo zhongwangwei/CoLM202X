@@ -73,6 +73,17 @@ late 池混合后的浓度是合理的（(9.0765e-5+0.025973)/10 ≈ 2.6e-3）�
 回归对照的预期：宿主水/能量/网格状态逐位相同；差异只可能出现在塌陷路径触发时的 tracer 池
 （新方案把质量留在池中而非记 residual），需按实测值逐项核对后写结论。
 
+## 取消前 partial 证据（**不是验收通过**）
+
+用户 2026-10-29 10:03 要求停止全部测试后，只用**已有文件**做了只读比对（详见
+[partial/README.md](late-carrier-fix/partial/README.md)）：
+
+- 回归对照 partial：B(iso) 3 天 history **逐位相同**（3 文件/225 变量）、最终 restart **逐位相同**
+  （3 文件/311 变量）；A(all) 只跑完 1 天，restart 仅 3 个 tracer 变量差 ≤3.5e-18 kg/m²（1–8/26415 点），
+  gridriver/hist restart **0 差异**（宿主/网格不变）。
+- 组合验收 partial：10 案例跑到 step 64–70，均**零** `TRC_BAL/TRC_SIG/residual/abort/stop`（原缺陷 step 4
+  已越过），但 **G1–G7 未运行，组合验收仍未通过、结论未定**。
+
 ## 边界与未覆盖
 
 - 本修复只处理“普通表层池水重建为 0、但存在 resolved late 载体水”的同位素情形；真正无载体的塌陷仍记数值
