@@ -48,6 +48,27 @@ check('F02 forwarding is not mixed into a_trc_out (internal transfer)',
       rl.index('trc_dry_drain(itrc, i) = &') < rl.index('a_trc_out(itrc, i) = a_trc_out(itrc, i) + dry_drain') or
       'a_trc_out(itrc, i) = a_trc_out(itrc, i) + dry_drain' not in rl.split('trc_dry_fwd(itrc, i) = trc_dry_fwd(itrc, i) + dry_drain')[0])
 
+# N06: the forwarding communication must be data-independent and fixed order.
+check('N06 forwarding push is not skipped on zero local mass',
+      'maxval(abs(trc_dry_fwd' not in rl)
+check('N06 forwarding still sends zeros for every generic tracer',
+      'fwd_send(:) = trc_dry_fwd(itrc, :)' in rl)
+check('N06 push call sits inside the per-tracer loop (same order every rank)',
+      rl.index('fwd_send(:) = trc_dry_fwd(itrc, :)') <
+      rl.index('CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv'))
+
+# N07: direction from the actual host flux, reverse/unknown kept pending.
+check('N07 direction uses the timestep face flux, not static topology only',
+      'present(hflux_fc_in)' in rl and 'hflux_fc_in(i) >= 0._r8' in rl)
+check('N07 reverse/no-known-flow residual is held pending instead of misrouted',
+      'trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + dry_drain' in rl)
+check('N07 pending mass returns to the cell inventory at the next substep',
+      'trc_mass(itrc, i) = trc_mass(itrc, i) + trc_dry_pending(itrc, i)' in rl)
+check('N07 pending mass is released before restart (no schema change)',
+      'mt_riverlake_release_pending_drain' in rl and
+      'CALL mt_riverlake_release_pending_drain ()' in
+      (root / 'main/MATERIAL/MOD_MT_RiverLakeCoupling.F90').read_text())
+
 # Numeric invariant: 3-cell chain, middle cell drained with .0002 residual.
 # Forwarding map: 1->2, 2->3, 3->mouth(terminal sink).  Total must be conserved
 # inside the river; only terminal outflux leaves.

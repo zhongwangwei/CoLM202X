@@ -511,7 +511,7 @@ CONTAINS
 
       IF (allocated(volresv)) volresv_mt = volresv
       CALL mt_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf_ucat, &
-         volresv_mt, ucat2resv_mt, is_built_resv)
+         volresv_mt, ucat2resv_mt, is_built_resv, hflux_fc = hflux_fc)
 
       IF (tracer_lifecycle_has_flood_publisher() .or. tracer_lifecycle_has_levee_flood_publisher()) THEN
          ! CoLM202X total_floodarea / total_flooddepth / levee_floodarea of
@@ -593,6 +593,7 @@ CONTAINS
    ! ---------
    SUBROUTINE mt_rlc_end_routing ()
 
+      CALL mt_riverlake_release_pending_drain ()
    ! End of a routing call, on all processes: CoLMDEBUG material balance,
    ! donor-limiter statistics, reset of the per-call accumulations, and the
    ! provider materials of the call (acctime_rnof is still its length).

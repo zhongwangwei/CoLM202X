@@ -93,6 +93,7 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: trc_flux_out  (:,:) ! Tracer outflux [R*m3/s] (ntracers, numucat)
    real(r8), allocatable :: trc_dry_drain(:,:) ! Terminal (mouth) sink from forced drain [R*m3]
    real(r8), allocatable :: trc_dry_fwd(:,:)   ! Internal drained mass forwarded downstream [R*m3]
+   real(r8), allocatable :: trc_dry_pending(:,:) ! Drained mass awaiting a known outflow direction [R*m3]
    real(r8), allocatable :: trc_decay_source(:,:) ! Net reactive source/sink over routing period
 
    ! Input: tracer amount flux from runoff
@@ -191,6 +192,7 @@ MODULE MOD_MT_RiverLake
    PUBLIC :: trc_levsto
    PUBLIC :: trc_solid, trc_levsto_solid, mt_riverlake_equilibrate_cell
    PUBLIC :: trc_dry_drain
+   PUBLIC :: mt_riverlake_release_pending_drain
    PUBLIC :: trc_decay_source
    PUBLIC :: mt_riverlake_levee_repartition
 
@@ -230,6 +232,7 @@ CONTAINS
          allocate (trc_flux_out (ntracers, numucat))
          allocate (trc_dry_drain(ntracers, numucat))
          allocate (trc_dry_fwd  (ntracers, numucat))
+         allocate (trc_dry_pending(ntracers, numucat))
          allocate (trc_decay_source(ntracers, numucat))
          allocate (acc_trc_inp        (ntracers, numucat))
          allocate (trc_inp_buf        (ntracers, numucat))
@@ -254,6 +257,7 @@ CONTAINS
          trc_flux_out  = 0._r8
          trc_dry_drain = 0._r8
          trc_dry_fwd   = 0._r8
+         trc_dry_pending = 0._r8
          trc_decay_source = 0._r8
          acc_trc_inp  = 0._r8
          trc_inp_buf  = 0._r8
@@ -697,7 +701,7 @@ CONTAINS
    ! by the flow solver (for example inland-depression overflow adjustments).
    !-------------------------------------------------------------------------------------
    SUBROUTINE mt_riverlake_diag_accumulate (dt_all, irivsys, ucatfilter, wdsrf, volresv_in, &
-      ucat2resv_in, is_built_resv)
+      ucat2resv_in, is_built_resv, hflux_fc_in)
 
    USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, ucat_next, push_ups2ucat
@@ -713,6 +717,7 @@ CONTAINS
    real(r8), intent(in) :: volresv_in(:)
    integer,  intent(in) :: ucat2resv_in(:)
    logical,  intent(in), optional :: is_built_resv(:)
+   real(r8), intent(in), optional :: hflux_fc_in(:)  ! downstream face flux [m3/s]
 
    integer :: i, itrc
    real(r8) :: dt_i, volwater, dry_drain
@@ -784,8 +789,27 @@ CONTAINS
                   ! terminal cell (no downstream unit catchment) really
                   ! discharges to the outside and books trc_dry_drain.
                   internal_receiver = ucat_next(i) > 0
+                  ! N07: the static topology says who is downstream, but the
+                  ! host flow of this timestep decides the actual direction.
+                  ! Only forward the residual along the ACTUAL outflow.  With
+                  ! hflux>=0 the edge carries water toward ucat_next(i) and the
+                  ! forward push below is correct.  For reverse flow the real
+                  ! receivers are the upstream neighbours, which cannot be
+                  ! addressed by the existing downstream push maps; keeping the
+                  ! mass pending in the same cell (never sending it the wrong
+                  ! way, never deleting it) is the conservative interim.
+                  IF (internal_receiver .and. present(hflux_fc_in)) THEN
+                     internal_receiver = hflux_fc_in(i) >= 0._r8
+                  ENDIF
                   IF (internal_receiver) THEN
                      trc_dry_fwd(itrc, i) = trc_dry_fwd(itrc, i) + dry_drain
+                  ELSEIF (ucat_next(i) > 0) THEN
+                     ! Internal cell but the timestep flow is reversed (or no
+                     ! direction supplied): hold the genuine mass in a pending
+                     ! buffer instead of sending it to the wrong end or
+                     ! deleting it.  Released to trc_mass at the next substep,
+                     ! when the host water (and hence a real receiver) exists.
+                     trc_dry_pending(itrc, i) = trc_dry_pending(itrc, i) + dry_drain
                   ELSE
                      IF (allocated(trc_dry_drain)) trc_dry_drain(itrc, i) = &
                         trc_dry_drain(itrc, i) + dry_drain
@@ -849,7 +873,13 @@ CONTAINS
          allocate(fwd_send(numucat), fwd_recv(numucat))
          DO itrc = 1, ntracers
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            IF (maxval(abs(trc_dry_fwd(itrc, :))) <= trc_tiny) CYCLE
+            ! Every worker must execute the same push sequence for every
+            ! generic tracer, whether or not this rank has local mass: the
+            ! point-to-point matching in worker_push_data posts the sender's
+            ! isend when n_to_other>0 and the receiver's irecv when
+            ! n_from_other>0, both fixed by the topology.  Skipping the call
+            ! on a zero-mass rank leaves the peer's irecv unmatched (N06
+            ! deadlock).  Zero vectors are exchanged instead.
             fwd_send(:) = trc_dry_fwd(itrc, :)
             fwd_recv(:) = 0._r8
             CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv, fillvalue = 0._r8, mode = 'sum')
@@ -1146,6 +1176,15 @@ CONTAINS
             release = max(trc_inp_buf(itrc, i), 0._r8)
             trc_inp_buf(itrc, i) = trc_inp_buf(itrc, i) - release
             trc_mass(itrc, i) = trc_mass(itrc, i) + release
+            ! Pending mass from a reverse-flow dry cleanup: put it back in
+            ! the cell inventory so it is transported once the host water
+            ! returns; never deleted, never sent against the flow.
+            IF (allocated(trc_dry_pending)) THEN
+               IF (trc_dry_pending(itrc, i) > trc_tiny) THEN
+                  trc_mass(itrc, i) = trc_mass(itrc, i) + trc_dry_pending(itrc, i)
+                  trc_dry_pending(itrc, i) = 0._r8
+               ENDIF
+            ENDIF
             IF (allocated(trc_solid)) THEN
                IF (mt_has_dissolved_limit(itrc)) THEN
                   CALL mt_equilibrate_dissolved(itrc, volwater, trc_mass(itrc, i), trc_solid(itrc, i))
@@ -1776,6 +1815,23 @@ CONTAINS
          ENDIF
       ENDIF
    END SUBROUTINE mt_riverlake_limiter_stats
+
+   ! Move any direction-pending dry-cleanup mass back into the cell inventory
+   ! before a restart/window boundary, so a pending buffer can never be lost
+   ! across restart.  Released mass is available to the next transport step.
+   SUBROUTINE mt_riverlake_release_pending_drain ()
+      integer :: i, itrc
+      IF (.not. allocated(trc_dry_pending)) RETURN
+      DO itrc = 1, ntracers
+         IF (.not. mt_uses_generic_water(itrc)) CYCLE
+         DO i = 1, numucat
+            IF (trc_dry_pending(itrc, i) > trc_tiny) THEN
+               trc_mass(itrc, i) = trc_mass(itrc, i) + trc_dry_pending(itrc, i)
+               trc_dry_pending(itrc, i) = 0._r8
+            ENDIF
+         ENDDO
+      ENDDO
+   END SUBROUTINE mt_riverlake_release_pending_drain
 
    SUBROUTINE decay_river_pool (pool, fraction, source_sink)
       USE MOD_MT_Defs, only: trc_tiny
@@ -3120,6 +3176,7 @@ CONTAINS
       IF (allocated(a_trc_acctime    )) deallocate (a_trc_acctime    )
       IF (allocated(trc_dry_drain    )) deallocate (trc_dry_drain    )
       IF (allocated(trc_dry_fwd      )) deallocate (trc_dry_fwd      )
+      IF (allocated(trc_dry_pending  )) deallocate (trc_dry_pending  )
       IF (allocated(trc_decay_source)) deallocate (trc_decay_source)
       IF (allocated(trc_levsto       )) deallocate (trc_levsto       )
       IF (allocated(trc_solid)) deallocate (trc_solid, trc_levsto_solid)
