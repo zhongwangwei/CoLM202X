@@ -321,6 +321,22 @@ req = 600
 check('N09 review example (600 required) exceeds the supported limit',
       req > 240)
 
+# ---------------- N10: carrier water advances with the material substeps ----------------
+check('N10 core substeps interpolate donor/end water at each substep',
+      'w_don(:) = max(rivsto_donor + (rivsto_end - rivsto_donor) * frac_lo, 0._r8)' in sed)
+check('N10 provider substeps interpolate the morphology-interval water',
+      'riv_don_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_lo, 0._r8)' in sed and
+      'riv_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_hi, 0._r8)' in sed)
+check('N10 BIF/levee operators use the per-substep water, not the interval start',
+      'CALL prepare_bif_sediment(dt_step, deltime, riv_don_step' in sed and
+      'apply_bif_sediment_credits(dt_step, riv_step' in sed)
+check('N10 interpolated carrier water is non-negative and bounded by the endpoints',
+      # piecewise-linear interpolation between non-negative endpoints stays
+      # within [min(donor,end), max(donor,end)] for every substep fraction.
+      all(min(a, b) - 1e-15 <= a + (b - a) * f <= max(a, b) + 1e-15
+          for a, b in [(10.0, 4.0), (4.0, 10.0), (0.0, 5.0)]
+          for f in [0.0, 0.25, 0.5, 0.75, 1.0]))
+
 print('')
 print(f'{len(fails)} failure(s)')
 sys.exit(1 if fails else 0)

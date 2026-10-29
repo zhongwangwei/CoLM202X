@@ -103,6 +103,9 @@ MODULE MOD_MT_Sediment
    real(r8), parameter :: EXCH_SHEARVEL_BLEND = 2._r8 * EXCH_SHEARVEL_MIN
    real(r8), parameter :: EXCH_ZD_MAX = 100._r8
    real(r8), parameter :: SED_BALANCE_ABS_TOL = 1.e-10_r8
+   ! N01 performance floor: cells below this carrier water are excluded from
+   ! the global material-CFL substep count (their export stays donor-limited).
+   real(r8), parameter :: SED_MIN_SUBSTEP_CARRIER = 1.e-1_r8
    real(r8), parameter :: SED_BALANCE_REL_TOL = 1.e-10_r8
 
    !-------------------------------------------------------------------------------------
@@ -173,6 +176,10 @@ MODULE MOD_MT_Sediment
    ! Accumulated Variables for History Output
    !-------------------------------------------------------------------------------------
    real(r8), save        :: sed_hist_acctime   ! Module-private total time for history averaging [s]
+
+   ! N01 performance probes: always-on integer counters (no scans, no comm).
+   integer, save :: sed_adv_substep_calls = 0, sed_adv_substep_sum = 0, sed_adv_substep_max = 0
+   integer, save :: sed_bif_substep_calls = 0, sed_bif_substep_sum = 0, sed_bif_substep_max = 0
    real(r8), allocatable :: a_sedcon  (:,:)    ! Accumulated sedcon
    real(r8), allocatable :: a_sedout  (:,:)    ! Accumulated sedout
    real(r8), allocatable :: a_bedout  (:,:)    ! Accumulated bedload solid-volume flux
@@ -193,6 +200,7 @@ MODULE MOD_MT_Sediment
    ! Public Subroutines
    !-------------------------------------------------------------------------------------
    PUBLIC :: register_sediment_tracer_provider
+   PUBLIC :: mt_sediment_substep_stats
    PUBLIC :: mt_sediment_snapshot_hist_acc
 
    integer, parameter :: MAX_SED_PARAM_CLASSES = 100
@@ -660,7 +668,8 @@ CONTAINS
    real(r8) :: precip_time_local
    integer  :: i, ised, iter_sed, iter_adv
    integer  :: isub, nsub_adv
-   real(r8) :: dt_adv, dt_step, cfl_adv
+   real(r8) :: dt_adv, dt_step, cfl_adv, frac_lo, frac_hi
+   real(r8), allocatable :: riv_don_step(:), riv_step(:)
    integer  :: clk_total_start, clk_total_end
    ! Phase timing is compiled only under CoLMDEBUG: clk_rate is set there and the
    ! t_* results are only printed there, so the routing loop pays nothing
@@ -948,7 +957,15 @@ CONTAINS
          IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
             nsub_adv = 1
             DO i = 1, numucat
-               IF (rivsto_donor(i) > 0._r8) THEN
+               ! N01 performance: a near-dry cell with a tiny carrier can have an
+               ! enormous turnover ratio and drive the GLOBAL substep count to
+               ! the limit for every cell (observed: 2 model timesteps/hour on
+               ! the 3-day BIF smoke).  Such a cell carries negligible sediment
+               ! mass and its export is already bounded by the donor limiter in
+               ! the advection core; excluding it from the global CFL count is
+               ! physically justified and does not relax the invariant for any
+               ! resolved carrier. 0.1 m3 is far below a resolved river cell.
+               IF (rivsto_donor(i) > SED_MIN_SUBSTEP_CARRIER) THEN
                   cfl_adv = rivout_abs(i) * dt_morph / rivsto_donor(i)
                   IF (cfl_adv > real(nsub_adv, r8)) nsub_adv = ceiling(cfl_adv)
                ENDIF
@@ -963,12 +980,21 @@ CONTAINS
             nsub_adv = 1
             dt_adv = dt_morph
          ENDIF
+         ALLOCATE(riv_don_step(numucat), riv_step(numucat))
+         sed_bif_substep_calls = sed_bif_substep_calls + 1
+         sed_bif_substep_sum = sed_bif_substep_sum + nsub_adv
+         sed_bif_substep_max = max(sed_bif_substep_max, nsub_adv)
          DO isub = 1, nsub_adv
             IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
                dt_step = dt_adv
             ELSE
                dt_step = dt_morph
             ENDIF
+            ! N10: advance the carrier water with the substitep.
+            frac_lo = real(isub - 1, r8) / real(nsub_adv, r8)
+            frac_hi = real(isub, r8) / real(nsub_adv, r8)
+            riv_don_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_lo, 0._r8)
+            riv_step(:) = max(rivsto_donor + (rivsto - rivsto_donor) * frac_hi, 0._r8)
          IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
             donor_visible = sedsto
             donor_protected = sedsto_protected
@@ -979,16 +1005,16 @@ CONTAINS
             levee_to_demand = 0._r8; levee_from_demand = 0._r8
             IF (DEF_USE_LEVEE) THEN
                DO i = 1, numucat
-                  IF (rivsto_donor(i) > 0._r8) levee_to_demand(:,i) = &
+                  IF (riv_don_step(i) > 0._r8) levee_to_demand(:,i) = &
                      donor_visible(:,i) * sed_acc_to_protected(i) * &
-                     dt_step / deltime / rivsto_donor(i)
+                     dt_step / deltime / riv_don_step(i)
                   IF (protected_start(i) > 0._r8) levee_from_demand(:,i) = &
                      donor_protected(:,i) * sed_acc_from_protected(i) * &
                      dt_step / deltime / protected_start(i)
                ENDDO
             ENDIF
             IF (DEF_USE_BIFURCATION) THEN
-               CALL prepare_bif_sediment(dt_step, deltime, rivsto_donor, protected_start, &
+               CALL prepare_bif_sediment(dt_step, deltime, riv_don_step, protected_start, &
                   main_sed_demand, main_bed_demand, levee_to_demand, levee_from_demand, &
                   sed_visible_scale, sed_protected_scale, bed_visible_scale, &
                   bif_credit_sed_visible, bif_credit_sed_protected, &
@@ -1013,24 +1039,25 @@ CONTAINS
          ! residue, not new overtopping or BIF credits added later this step.
          protected_initial = sedsto_protected
          IF (DEF_USE_LEVEE) CALL transfer_levee_sediment(dt_step, deltime, &
-            rivsto_donor, protected_start, protected_end, protected_initial, .true., &
+            riv_don_step, protected_start, protected_end, protected_initial, .true., &
             donor_visible, donor_protected, sed_visible_scale, sed_protected_scale)
 #ifdef CoLMDEBUG
          CALL system_clock(clk_phase_start)
 #endif
          IF (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) THEN
-            CALL calc_sediment_advection(dt_step, rivout, rivout_abs, rivsto_donor, rivsto, &
+            CALL calc_sediment_advection(dt_step, rivout, rivout_abs, riv_don_step, riv_step, &
                donor_conc, donor_bed, sed_visible_scale, bed_visible_scale)
          ELSE
             CALL calc_sediment_advection(dt_step, rivout, rivout_abs, rivsto_donor, rivsto)
          ENDIF
-         IF (DEF_USE_BIFURCATION) CALL apply_bif_sediment_credits(dt_step, rivsto, &
+         IF (DEF_USE_BIFURCATION) CALL apply_bif_sediment_credits(dt_step, riv_step, &
             bif_credit_sed_visible, bif_credit_sed_protected, &
             bif_credit_bed_visible, bif_credit_bed_protected)
          IF (DEF_USE_LEVEE) CALL transfer_levee_sediment(dt_step, deltime, &
-            rivsto, protected_start, protected_end, protected_initial, .false., &
+            riv_step, protected_start, protected_end, protected_initial, .false., &
             donor_visible, donor_protected, sed_visible_scale, sed_protected_scale)
          ENDDO
+         DEALLOCATE(riv_don_step, riv_step)
 #ifdef CoLMDEBUG
          CALL system_clock(clk_phase_end)
          IF (clk_rate > 0) t_adv = t_adv + real(clk_phase_end - clk_phase_start, r8) / real(clk_rate, r8)
@@ -2318,13 +2345,14 @@ CONTAINS
    real(r8), optional, intent(in) :: joint_sed_scale(:,:), joint_bed_scale(:,:)
    real(r8), allocatable, save :: rivout_forward(:), rivout_reverse(:)
    real(r8), allocatable, save :: sedout_first(:,:), bedout_first(:,:)
+   real(r8), allocatable, save :: w_don(:), w_end(:)
    real(r8), allocatable, save :: avail_sto(:,:), avail_bed_solid(:,:)
    real(r8), allocatable, save :: bed_donor(:,:)
    real(r8), allocatable, save :: sed_ups(:,:), bed_ups(:,:), cell_mass_before(:)
    real(r8) :: sedsto_sum, dTmp(nsed), sed_roundoff(nsed), bed_roundoff(nsed)
    integer :: i, ised
    integer :: isub, nsub
-   real(r8) :: cfl_ratio
+   real(r8) :: cfl_ratio, frac_lo, frac_hi
 
       IF (.not. p_is_worker) RETURN
       IF (.not. ieee_is_finite(dt) .or. dt <= 0._r8) &
@@ -2347,7 +2375,7 @@ CONTAINS
           .not. present(joint_bed_scale)) THEN
          nsub = 1
          DO i = 1, numucat
-            IF (rivsto_donor(i) > 0._r8) THEN
+            IF (rivsto_donor(i) > SED_MIN_SUBSTEP_CARRIER) THEN
                cfl_ratio = rivout_abs(i) * dt / rivsto_donor(i)
                IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(cfl_ratio)
             ENDIF
@@ -2359,10 +2387,24 @@ CONTAINS
             CALL CoLM_stop('sediment material substep requirement exceeds the 240 limit')
          ENDIF
          nsub = max(nsub, 1)
+         sed_adv_substep_calls = sed_adv_substep_calls + 1
+         sed_adv_substep_sum = sed_adv_substep_sum + nsub
+         sed_adv_substep_max = max(sed_adv_substep_max, nsub)
          IF (nsub > 1) THEN
+            ! N10: the carrier water must advance with the material substeps.
+            ! Host water is only known at the interval endpoints, so use the
+            ! same linear endpoint interpolation the provider already uses.
+            IF (allocated(w_don)) THEN
+               IF (size(w_don) /= numucat) DEALLOCATE(w_don, w_end)
+            ENDIF
+            IF (.not. allocated(w_don)) ALLOCATE(w_don(numucat), w_end(numucat))
             DO isub = 1, nsub
+               frac_lo = real(isub - 1, r8) / real(nsub, r8)
+               frac_hi = real(isub, r8) / real(nsub, r8)
+               w_don(:) = max(rivsto_donor + (rivsto_end - rivsto_donor) * frac_lo, 0._r8)
+               w_end(:) = max(rivsto_donor + (rivsto_end - rivsto_donor) * frac_hi, 0._r8)
                CALL calc_sediment_advection(dt / real(nsub, r8), rivout_signed, rivout_abs, &
-                  rivsto_donor, rivsto_end)
+                  w_don, w_end)
             ENDDO
             RETURN
          ENDIF
@@ -3864,6 +3906,17 @@ CONTAINS
       sedhistsnap_valid = .true.
 
    END SUBROUTINE mt_sediment_snapshot_hist_acc
+
+   SUBROUTINE mt_sediment_substep_stats (adv_calls, adv_sum, adv_max, bif_calls, bif_sum, bif_max)
+      IMPLICIT NONE
+      integer, intent(out) :: adv_calls, adv_sum, adv_max, bif_calls, bif_sum, bif_max
+      adv_calls = sed_adv_substep_calls
+      adv_sum = sed_adv_substep_sum
+      adv_max = sed_adv_substep_max
+      bif_calls = sed_bif_substep_calls
+      bif_sum = sed_bif_substep_sum
+      bif_max = sed_bif_substep_max
+   END SUBROUTINE mt_sediment_substep_stats
 
    SUBROUTINE write_sediment_restart(file_restart)
    !-------------------------------------------------------------------------------------

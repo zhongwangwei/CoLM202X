@@ -1,0 +1,60 @@
+# N01 BIF 泥沙子步化性能记录（2026-10-29）
+
+- 分支：`feature/constituent-transport`
+- 基线：`87c0435b`（优化前）；优化提交见文末 HEAD
+- 环境：本机 macOS（gfortran 16 + OpenMPI + NetCDF-Fortran）用于编译/回归；性能实跑在 7920。
+
+## 1. 已获得的真实运行测量（优化前）
+
+7920 short smoke（job `codex-014c8aeb…`）：
+- 配置：GRID + USEMPI(5 ranks) + MaterialTransport，JRA 强迫，2005-01-01…01-03（3 天，dt=1800 s），
+  开启 isotope + CL + sediment + GridRiverLakeFlow + BIF + levee + flood feedback；
+- 结果：**job 在 3600 s timeout 时只输出 2 条 TIMESTEP 记录**（`state=timed_out`），
+  日志尾部仍停留在首个/第二个时间步的材料诊断。构建与 mkinidata 均 PASS。
+- 结论：BIF 路径的子步化在该配置下不可接受地慢（或停滞），必须优化后才能用于验收。
+
+## 2. 已实施的低风险优化
+
+1. **超小载水单元不再驱动全局子步数**（本次关键修复）
+   - 位置：`grid_sediment_calc` 与 `calc_sediment_advection` 的 CFL 循环；
+   - 规则：`rivsto_donor > SED_MIN_SUBSTEP_CARRIER (=0.1 m³)` 才参与全局 `nsub` 取最大；
+   - 依据：近干涸/微小载水单元的周转比可趋于无穷，会把所有单元的 BIF 子步数拉到上限；
+     这类单元的泥沙库存近零，其出流已被 advection core 的 donor limiter 限制，不构成
+     “已解析载水单元”的恒浓度约束；
+   - 不变量：对 `V > 0.1 m³` 的单元仍严格执行 gross-outflow ≤ donor-water 的子步；
+     仍无静默截断（N09 的 >240 显式报错保留）。
+2. **工作区复用**：核心子步的 `w_don/w_end` 改为持久分配（仅维度变化时重分配）；
+   provider 的 `riv_don_step/riv_step` 仍是每次 `grid_sediment_calc` 分配一次、子步内复用。
+3. **低开销探针**（无扫描、无通信）：模块级整数计数器
+   `sed_adv_substep_calls/sum/max`、`sed_bif_substep_calls/sum/max`，通过
+   `mt_sediment_substep_stats()` 读取，供后续性能对照。
+
+## 3. 性能对照表（按任务要求，未实测项标 NOT_MEASURED）
+
+| 指标 | 优化前 | 优化后 | 改善 |
+|---|---:|---:|---:|
+| BIF 总耗时 | NOT_MEASURED（仅有 timeout 证据） | NOT_MEASURED | — |
+| prepare_bif_sediment 耗时 | NOT_MEASURED | NOT_MEASURED | — |
+| 平流耗时 | NOT_MEASURED | NOT_MEASURED | — |
+| 平均子步数 | NOT_MEASURED | NOT_MEASURED | — |
+| MPI 等待 | NOT_MEASURED | NOT_MEASURED | — |
+| 总运行时间 | 3 天 case >3600 s 超时（2 步） | NOT_MEASURED | — |
+| 最大质量预算误差 | NOT_MEASURED | 本地回归 0 failure | — |
+| 最大浓度相对误差 | NOT_MEASURED | 本地回归 0 failure | — |
+
+说明：本轮没有可用的优化后完整模型运行数据，绝不把理论估算当性能结果。
+
+## 4. 正确性回归（本轮后）
+
+- `python3 tests/material_transport/check_audit_p1_fixes.py` → 0 failure；
+- `check_sediment_joint_substep.py`、`check_terminal_sed_history.py`、`check_push_mpi.py`（真实 2-rank MPI）继续通过；
+- GRID 与 BGC+CROP 两配置 `make all` → MAKE_RC=0；
+- N10 水量随子步推进已验证编译与结构/不变量检查（完整模型恒浓度验证仍待 7920）。
+
+## 5. 未完成/下一步
+
+1. 用新 HEAD 重跑同一 7920 smoke，记录：实际 wall time、TIMESTEP 数、`mt_sediment_substep_stats` 的
+   平均/最大子步数、`t_adv` 计时与 MPI 等待；这是验证“性能确有下降”的必需证据。
+2. 若仍慢：对 `prepare_bif_sediment` 做静态拓扑/几何缓存与“每子步合并通信”，并评估按单元自适应
+   （非全局最大）的子步方案；快速模式需与完整算法并行对照并报告误差。
+3. 完整 BIF/levee 多分支数值验收（本任务第六节矩阵）。
