@@ -140,8 +140,19 @@ retained old canopy CL             = 6.707884002157E-05 kg/m2
     实际使用快照、写后清 valid；材料与宿主共用窗口时钟；
   - 窗口不变量：审计例（前半 .001、后半 .003，各 43200 s）连续平均 = .002；恢复快照后 = .002，不恢复 = .003。
   - 全部本地检查 0 failure。
-- 未做/待验收：真实 NetCDF restart 端到端（连续 vs 半日终止续跑，one/block 两种 history 模式、频率变更 MONTHLY↔DAILY）；
-  需 NetCDF/MPI 运行环境。sediment provider 的 route sidecar 已用现有字段完成，无旧文件不兼容问题。
+- 数值验证（本轮，审计包 `repro_terminal_sed_history.py` 的生产累计/output/flush/restart 载荷例程 +
+  内存 IO stub，改为修复后断言并固化为仓库测试 `tests/material_transport/check_terminal_sed_history.py`）：
+
+```
+continuous day  concentration= 2.00000000E-03 flux= 2.0000
+regular checkpoint concentration= 2.00000000E-03 flux= 2.0000
+terminal  split   concentration= 2.00000000E-03 flux= 2.0000   (restored seconds=43200)
+N05 PASS: terminal partial-window restart matches continuous history window
+```
+
+  修复前 terminal split 为 0.003/3（前半窗丢失）；现在与连续运行一致。
+- 未做/待验收：真实 NetCDF restart 端到端（one/block 两种 history 模式、频率变更 MONTHLY↔DAILY）；
+  当前为生产例程提取 + 内存 IO，不是完整模型 NetCDF 运行。sediment provider 的 route sidecar 用现有字段完成，无旧文件不兼容问题。
 
 
 - N01：`MOD_MT_Sediment.F90` 双向粗时间步 donor 限流；需按 gross 出流/donor 水量控制材料子步或

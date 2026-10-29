@@ -40,6 +40,13 @@ Real 2-rank OpenMPI regression for the production point-to-point push protocol
 python3 tests/material_transport/check_push_mpi.py
 ```
 
+Terminal partial-window / restart sediment history regression (extracts the
+production accumulator/output/flush/restart-payload routines, in-memory IO):
+
+```sh
+python3 tests/material_transport/check_terminal_sed_history.py
+```
+
 The NetCDF tools also need NumPy and netCDF4, already present in the T7920 test
 environment. Their self checks create only temporary, tiny fixtures.
 
