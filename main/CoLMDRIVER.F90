@@ -53,10 +53,6 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
       finfg_fld => flood_infil_patch
 #endif
 
-#if (defined MaterialTransport) && (defined OPENMP)
-   ! the material step counters and balance accumulators are not thread safe
-#error "MaterialTransport does not support OPENMP in CoLMDRIVER"
-#endif
    IMPLICIT NONE
 
    integer,  intent(in) :: idate(3) ! model calendar for next time step (year, julian day, seconds)
@@ -105,12 +101,6 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
 
          m = patchclass(i)
 
-#if (defined URBAN_MODEL) && (defined MaterialTransport)
-         IF (DEF_URBAN_RUN .and. m.eq.URBAN .and. ntracers > 0) THEN
-            CALL CoLM_stop ('Material transport does not support full urban patches yet: ' // &
-               'CoLMMAIN_Urban has no material sub-surface state or runoff update.')
-         ENDIF
-#endif
          steps_in_one_deltim = 1
          ! deltim need to be within 1800s for water body with snow in order to avoid large
          ! temperature fluctuations due to rapid snow heat conductance

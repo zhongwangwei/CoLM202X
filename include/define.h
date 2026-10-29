@@ -115,3 +115,19 @@
 #if (defined MaterialTransport && defined CATCHMENT)
 #error "MaterialTransport does not support the catchment (unit-catchment) grid (CATCHMENT); use GRID or UNSTRUCTURED (vector)."
 #endif
+!    Material transport is only meaningful with river-lake routing: enable it
+!    automatically and drop the CaMa-Flood alternative (which does not route
+!    land runoff tracers). URBAN_MODEL is not supported together with it.
+#if (defined MaterialTransport && defined URBAN_MODEL)
+#error "MaterialTransport does not support URBAN_MODEL; disable URBAN_MODEL to build material transport."
+#endif
+#ifdef MaterialTransport
+#ifdef CaMa_Flood
+#undef CaMa_Flood
+#endif
+#if (!defined CATCHMENT) && (!defined SinglePoint)
+#ifndef GridRiverLakeFlow
+#define GridRiverLakeFlow
+#endif
+#endif
+#endif

@@ -1,6 +1,3 @@
-! define.h is included only so that the MaterialTransport hooks in this
-! file can see the macro; no other preprocessor symbol is used here, so
-! the compiled code is unchanged when MaterialTransport is undefined.
 #include <define.h>
 
 MODULE MOD_GroundFluxes

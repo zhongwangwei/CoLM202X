@@ -84,9 +84,6 @@ OBJS_MT_CONFIG = \
 				  MOD_MT_Methane_Preprocessing.o   \
 				  MOD_MT_Methane_PHMapping.o
 
-MOD_MT_Defs.o: MOD_MT_Namelist.o
-MOD_MT_Methane_Const.o: MOD_MT_Defs.o
-MOD_MT_Methane_Preprocessing.o: MOD_MT_Defs.o MOD_MT_Methane_Const.o MOD_MT_Methane_Registry.o
 
 ${OBJS_MT_CONFIG} : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
