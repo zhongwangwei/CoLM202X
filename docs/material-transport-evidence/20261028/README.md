@@ -44,4 +44,8 @@
   `NOT_READY / UNVERIFIED_CANDIDATE`。传输一致不代表来源唯一、输入闭合或科学正确；
   完整原报告仍在审计任务结果目录。
 
+- [物质输送不支持 CATCHMENT（流域单元）网格](grid-support-restriction.md)：配置期拒绝 + define.h `#error`
+  + `MOD_MT_Defs` 兜底；已删除 `MOD_MT_Hist` 的全部 CATCHMENT 分支；本机脚本/预处理级验证通过
+  （GRID+MT、UNSTRUCTURED+MT 正常，CATCHMENT+MT fail-fast），7920 构建/CI 待恢复测试后确认。
+
 原始位结论不比较 NetCDF 属性或文件编码；数值一致不等于观测准确性或全部配置验收通过。

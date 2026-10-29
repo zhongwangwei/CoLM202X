@@ -97,6 +97,11 @@ IsoGSM 2005–2006 的 12 个文件（约 25.4 GB）已传至 7920，供 p9m 使
 
 ## 保留的兼容边界
 
+- **物质输送不支持 CATCHMENT（流域单元）网格**：`create_defineh.bash ... CATCHMENT ... MTON` 配置期直接拒绝；
+  手写 define.h 同时定义 `MaterialTransport`+`CATCHMENT` 会在预处理期 `#error` 失败。
+  `GRID`（gridded）与 `UNSTRUCTURED`（vector）仍支持；`MOD_MT_Hist.F90` 中原有的 CATCHMENT（HRU/`hydrounit`）
+  分支已全部删除，vector history writers 仅由 `UNSTRUCTURED` 编译。本机已完成脚本/预处理级验证，
+  7920 真实构建与 CI 待恢复测试后确认。见[网格限制证据](material-transport-evidence/20261028/grid-support-restriction.md)。
 - schema-1 缓存按既定策略全部视为可靠。这是迁移约定，不能证明旧缓存满足新记忆阈值；旧文件无法恢复这一来源信息。
 - restart 的 forcing identity 不包含两个降水阈值。改阈值后续跑会沿用历史可靠标记，不会按新阈值重新判定；本轮未改变这一行为。
 - 旧部分 history 窗口缺少新增的 `frcsat` 有效样本计数时，保留旧累计量及全部物理状态并警告；只将该窗口的 `f_frcsat` 输出为缺测，正常清零后恢复。不能从旧累计和反推干湖无效步数，亦不应为此拒绝整条旧物理续跑。

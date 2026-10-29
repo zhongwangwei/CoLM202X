@@ -218,6 +218,23 @@
 
 以上候选项在没有用户确认前不改代码、不跑测试。
 
+### 4b-2. 网格支持限制（2026-10-29，用户指令）
+
+用户要求“物质输送模块不支持流域单元网格。加入限制先。define.h 里面要加好。如果已经有基于流域网格的
+物质输送的相关代码，全部删掉。” 已实现：
+
+- `create_defineh.bash`：`MTON`+`CATCHMENT` 配置期拒绝（exit 1，不写 define.h）；define.h 模板加
+  `#error "MaterialTransport does not support the catchment (unit-catchment) grid ..."`；
+- `MOD_MT_Defs.F90` 顶部同一条 `#error` 兜底（手写 define.h 也 fail-fast）；
+- 删除 `MOD_MT_Hist.F90` 中全部 CATCHMENT 分支（18 个 `#ifdef CATCHMENT ... #else` 块、8 处
+  `#if (UNSTRUCTURED || CATCHMENT)` 改为 `#ifdef UNSTRUCTURED`）；`grep CATCHMENT main/MATERIAL/` 只剩限制行，
+  `grep MOD_LandHRU|hru_patch|hru_data_address|numhru|hydrounit main/MATERIAL/` 无命中；
+- 本机验证（gfortran `-E` 预处理 + create_defineh 演练）：CATCHMENT+MT 两类入口均 fail-fast；
+  GRID+MT 与 UNSTRUCTURED+MT 预处理通过（后者保留 4 个 vector writers）；
+- **未做**：7920 真实构建/CI 验证（测试仍按用户要求暂停）；恢复后需验证 GRID+MT、UNSTRUCTURED+MT 仍编译，
+  CATCHMENT+MT 不可进入编译。
+- 证据：[grid-support-restriction.md](material-transport-evidence/20261028/grid-support-restriction.md)。
+
 ### 4c. 合规状态复核（2026-10-29 10:12 CST，只读 API）
 
 - 分支 `feature/constituent-transport` head = `00716194…`（本地=远端）；工作树 clean。

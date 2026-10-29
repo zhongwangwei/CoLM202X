@@ -7,7 +7,7 @@ MODULE MOD_MT_Hist
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
    USE MOD_HistGridded
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
    USE MOD_HistVector
 #endif
 #ifdef SinglePoint
@@ -768,7 +768,7 @@ CONTAINS
          RETURN
       ENDIF
 #endif
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
       IF (HistForm == 'Vector') THEN
          CALL write_history_tracer_ratio_vector_2d (tracer_mass_acc, water_acc, &
             file_hist, varname, itime_in_file, filter, longname, units)
@@ -889,7 +889,7 @@ CONTAINS
          RETURN
       ENDIF
 #endif
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
       IF (HistForm == 'Vector') THEN
          CALL write_history_tracer_ratio_vector_3d (tracer_mass_acc, water_acc, &
             file_hist, varname, itime_in_file, dim1name, lb1, ndim1, filter, &
@@ -1014,7 +1014,7 @@ CONTAINS
          RETURN
       ENDIF
 #endif
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
       IF (HistForm == 'Vector') THEN
          CALL write_history_tracer_delta_vector_2d (tracer_mass_acc, water_acc, ref_ratio, &
             file_hist, varname, itime_in_file, filter, longname, units, water_min)
@@ -1081,7 +1081,7 @@ CONTAINS
 
    END SUBROUTINE write_history_tracer_delta_2d
 
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
    SUBROUTINE write_history_tracer_ratio_vector_2d (tracer_mass_acc, water_acc, &
       file_hist, varname, itime_in_file, filter, longname, units)
 
@@ -1125,14 +1125,9 @@ CONTAINS
 
       USE MOD_SPMD_Task
       USE MOD_Namelist, only: DEF_HIST_CompressLevel
-#ifdef CATCHMENT
-      USE MOD_LandHRU
-      USE MOD_HRUVector
-#else
       USE MOD_LandElm
       USE MOD_ElmVector
       USE MOD_LandPatch, only: elm_patch
-#endif
       IMPLICIT NONE
 
       real(r8), intent(in) :: tracer_mass_acc(:)
@@ -1157,24 +1152,15 @@ CONTAINS
       real(r8) :: delta_loc
 
       IF (p_is_worker) THEN
-#ifdef CATCHMENT
-         numset = numhru
-#else
          numset = numelm
-#endif
          IF (numset > 0) THEN
             allocate(trc_local(numset), water_local(numset))
             trc_local = 0._r8
             water_local = 0._r8
 
             DO iset = 1, numset
-#ifdef CATCHMENT
-               istt = hru_patch%substt(iset)
-               iend = hru_patch%subend(iset)
-#else
                istt = elm_patch%substt(iset)
                iend = elm_patch%subend(iset)
-#endif
                IF ((istt > 0) .and. (iend >= istt)) THEN
                   allocate(mask(istt:iend), frac(istt:iend))
                   IF (write_delta) THEN
@@ -1185,11 +1171,7 @@ CONTAINS
                         (tracer_mass_acc(istt:iend) /= spval) .and. filter(istt:iend)
                   ENDIF
                   IF (any(mask)) THEN
-#ifdef CATCHMENT
-                     frac = hru_patch%subfrc(istt:iend)
-#else
                      frac = elm_patch%subfrc(istt:iend)
-#endif
                      trc_local(iset) = sum(frac * tracer_mass_acc(istt:iend), mask = mask)
                      water_local(iset) = sum(frac * water_acc(istt:iend), mask = mask)
                   ENDIF
@@ -1213,11 +1195,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_master) THEN
-#ifdef CATCHMENT
-         totalnumset = totalnumhru
-#else
          totalnumset = totalnumelm
-#endif
          allocate(out_vec(totalnumset), trc_global(totalnumset), water_global(totalnumset))
          out_vec = spval
          trc_global = 0._r8
@@ -1233,28 +1211,16 @@ CONTAINS
                allocate(recv_pair(2, ndata))
                CALL mpi_recv (recv_pair, 2*ndata, MPI_REAL8, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
-#ifdef CATCHMENT
-               trc_global(hru_data_address(p_itis_worker(isrc))%val) = recv_pair(1, :)
-               water_global(hru_data_address(p_itis_worker(isrc))%val) = recv_pair(2, :)
-#else
                trc_global(elm_data_address(p_itis_worker(isrc))%val) = recv_pair(1, :)
                water_global(elm_data_address(p_itis_worker(isrc))%val) = recv_pair(2, :)
-#endif
                deallocate(recv_pair)
             ENDIF
          ENDDO
-#else
-#ifdef CATCHMENT
-         IF (allocated(trc_local)) THEN
-            trc_global(hru_data_address(0)%val) = trc_local
-            water_global(hru_data_address(0)%val) = water_local
-         ENDIF
 #else
          IF (allocated(trc_local)) THEN
             trc_global(elm_data_address(0)%val) = trc_local
             water_global(elm_data_address(0)%val) = water_local
          ENDIF
-#endif
 #endif
 
          DO iset = 1, totalnumset
@@ -1272,19 +1238,10 @@ CONTAINS
 
          compress = DEF_HIST_CompressLevel
          IF (itime_in_file >= 1) THEN
-#ifdef CATCHMENT
-            CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
-               'hydrounit', 'time', compress)
-#else
             CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
                'element', 'time', compress)
-#endif
          ELSE
-#ifdef CATCHMENT
-            CALL ncio_write_serial (file_hist, varname, out_vec, 'hydrounit', compress)
-#else
             CALL ncio_write_serial (file_hist, varname, out_vec, 'element', compress)
-#endif
          ENDIF
          IF (itime_in_file <= 1) THEN
             CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
@@ -1312,14 +1269,9 @@ CONTAINS
 
       USE MOD_SPMD_Task
       USE MOD_Namelist, only: DEF_HIST_CompressLevel
-#ifdef CATCHMENT
-      USE MOD_LandHRU
-      USE MOD_HRUVector
-#else
       USE MOD_LandElm
       USE MOD_ElmVector
       USE MOD_LandPatch, only: elm_patch
-#endif
       IMPLICIT NONE
 
       real(r8), intent(in) :: tracer_mass_acc(lb1:,:)
@@ -1343,30 +1295,17 @@ CONTAINS
 
       ub1 = lb1 + ndim1 - 1
       IF (p_is_worker) THEN
-#ifdef CATCHMENT
-         numset = numhru
-#else
          numset = numelm
-#endif
          IF (numset > 0) THEN
             allocate(trc_local(ndim1, numset), water_local(ndim1, numset))
             trc_local = 0._r8
             water_local = 0._r8
             DO iset = 1, numset
-#ifdef CATCHMENT
-               istt = hru_patch%substt(iset)
-               iend = hru_patch%subend(iset)
-#else
                istt = elm_patch%substt(iset)
                iend = elm_patch%subend(iset)
-#endif
                IF ((istt > 0) .and. (iend >= istt)) THEN
                   allocate(mask(istt:iend), frac(istt:iend))
-#ifdef CATCHMENT
-                  frac = hru_patch%subfrc(istt:iend)
-#else
                   frac = elm_patch%subfrc(istt:iend)
-#endif
                   DO i1 = lb1, ub1
                      k = i1 - lb1 + 1
                      mask = (abs(water_acc(i1, istt:iend)) > trc_water_min_for_delta) .and. &
@@ -1396,11 +1335,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_master) THEN
-#ifdef CATCHMENT
-         totalnumset = totalnumhru
-#else
          totalnumset = totalnumelm
-#endif
          allocate(out_vec(ndim1, totalnumset), trc_global(ndim1, totalnumset), &
             water_global(ndim1, totalnumset))
          out_vec = spval
@@ -1418,29 +1353,17 @@ CONTAINS
                CALL mpi_recv (recv_pair, 2*ndim1*ndata, MPI_REAL8, isrc, &
                   mpi_tag_data, p_comm_glb, p_stat, p_err)
                DO k = 1, ndim1
-#ifdef CATCHMENT
-                  trc_global(k, hru_data_address(p_itis_worker(isrc))%val) = recv_pair(1, k, :)
-                  water_global(k, hru_data_address(p_itis_worker(isrc))%val) = recv_pair(2, k, :)
-#else
                   trc_global(k, elm_data_address(p_itis_worker(isrc))%val) = recv_pair(1, k, :)
                   water_global(k, elm_data_address(p_itis_worker(isrc))%val) = recv_pair(2, k, :)
-#endif
                ENDDO
                deallocate(recv_pair)
             ENDIF
          ENDDO
 #else
-#ifdef CATCHMENT
-         IF (allocated(trc_local)) THEN
-            trc_global(:, hru_data_address(0)%val) = trc_local
-            water_global(:, hru_data_address(0)%val) = water_local
-         ENDIF
-#else
          IF (allocated(trc_local)) THEN
             trc_global(:, elm_data_address(0)%val) = trc_local
             water_global(:, elm_data_address(0)%val) = water_local
          ENDIF
-#endif
 #endif
 
          DO iset = 1, totalnumset
@@ -1454,19 +1377,10 @@ CONTAINS
          CALL ncio_define_dimension (file_hist, dim1name, ndim1)
          compress = DEF_HIST_CompressLevel
          IF (itime_in_file >= 1) THEN
-#ifdef CATCHMENT
-            CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
-               dim1name, 'hydrounit', 'time', compress)
-#else
             CALL ncio_write_serial_time (file_hist, varname, itime_in_file, out_vec, &
                dim1name, 'element', 'time', compress)
-#endif
          ELSE
-#ifdef CATCHMENT
-            CALL ncio_write_serial (file_hist, varname, out_vec, dim1name, 'hydrounit', compress)
-#else
             CALL ncio_write_serial (file_hist, varname, out_vec, dim1name, 'element', compress)
-#endif
          ENDIF
          IF (itime_in_file <= 1) THEN
             CALL ncio_put_attr (file_hist, varname, 'long_name', longname)
@@ -1549,7 +1463,7 @@ CONTAINS
             CALL flux_map_and_write_2d ( &
                acc_vec, file_hist, varname, itime_in_file, sumarea, filter, longname, units)
          ENDIF
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
       CASE ('Vector')
          IF (present(input_mode)) THEN
             CALL aggregate_to_vector_and_write_2d ( &
@@ -1594,7 +1508,7 @@ CONTAINS
       CASE ('Gridded')
          CALL flux_map_and_write_urb_2d ( &
             acc_vec, file_hist, varname, itime_in_file, sumarea, filter, longname, units)
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
       CASE ('Vector')
          !TODO: currently, it is not applicable to urban variables
          CALL aggregate_to_vector_and_write_2d ( &
@@ -1672,7 +1586,7 @@ CONTAINS
          CALL flux_map_and_write_3d ( &
             acc_vec, file_hist, varname, itime_in_file, dim1name, lb1, ndim1, &
             sumarea, filter, longname, units)
-#if (defined UNSTRUCTURED || defined CATCHMENT)
+#ifdef UNSTRUCTURED
       CASE ('Vector')
          CALL aggregate_to_vector_and_write_3d ( &
             acc_vec, file_hist, varname, itime_in_file, dim1name, lb1, ndim1, &
