@@ -11,7 +11,7 @@
 
 | 项 | 最新代码中是否仍存在 | 本轮状态 |
 | --- | --- | --- |
-| F01 湖泊多子步只交付最后子步示踪径流 | 是（未改） | **未修复**（下一步） |
+| F01 湖泊多子步只交付最后子步示踪径流 | 否（已修） | **已修复并本地验证** |
 | F02 非 BIF 内部单元排空 dry cleanup 删除真实质量 | 是（未改） | **未修复**（下一步） |
 | F03 甲烷名义饱和列含气相但输送用纯液相容量 | 是（未改） | **未修复**（下一步） |
 | F05 NSS 叶水历史项错用当前源水组成 | 否（已修） | **已修复并本地验证** |
@@ -20,6 +20,29 @@
 | F08 甲烷 6 个汇总诊断漏更新 | 是（未改） | **未修复**（下一步） |
 | F04 CATCHMENT 侧向水同物质输送 | 是 | **按指示不处理** |
 | K01 SinglePoint history 续跑覆盖 | 是 | **按指示不处理** |
+
+## F01：湖泊/水体子步示踪径流交接（已修复）
+
+- 位置：`main/MATERIAL/GENERIC_WATER/MOD_MT_SpecialPatches.F90`（`mt_glacier_patch`/`mt_waterbody_patch`）、
+  `MOD_MT_Conservation.F90`、`MOD_MT_Vars.F90`、`main/CoLM.F90`。
+- 根因：每个 1800 s 子步的 `mt_save_storage`/`mt_waterbody_patch` 清零 `trc_rnof_step`，末尾又覆盖为
+  最后子步的 `trc_rnof`；`MOD_MT_Conservation` 的守恒快照也每步清零。河网 hand-off 只读一次，
+  于是只收到最后子步质量。
+- 修复：
+  - `MOD_MT_Vars` 新增 `mt_add_rnof_step`（子步累加，忽略非 generic-water 与越界/负值）和
+    `mt_reset_rnof_step`（只清 generic-water）；`trc_rnof_step` 语义改为“本主步累计 hand-off 量”，
+    瞬时状态、不进 restart；
+  - 特殊斑块子步改为 `CALL mt_add_rnof_step`，删除两处子步清零；
+  - `MOD_MT_Conservation` 删除每次守恒快照的清零；
+  - `CoLM.F90` 在 `CoLMDRIVER` 之前**每主步一次** `CALL mt_reset_rnof_step()`（在 land 物理与
+    river coupling 读取之前）。
+- 验证（`tests/material_transport/check_rnof_handoff.py`，生产例程逐字提取 + gfortran）：
+  1/2/3 子步恒流、变流量、最后子步为零：`river_received == land_accumulated`；
+  provider-owned 材料不受影响；负值/越界被忽略；reset 语义正确；另有 5 项源码结构断言
+  （无子步清零、两处 `mt_add_rnof_step`、CoLM.F90 主步 reset 顺序等）。本地 **14/14 PASS**。
+- 兼容性：宿主水量、能量、BGC 未改；`trc_rnof_step` 非 restart 状态；provider-owned（甲烷）路径未涉及。
+- 局限：未跑 7920 全模型集成（测试暂停）；变流量下的水量积分仍沿用宿主原有 `rnof(last)*deltim`，
+  本轮只让**示踪质量**按子步精确累加，不引入隐式水量变化。
 
 ## F05：NSS 叶水历史项（已修复）
 
@@ -79,8 +102,7 @@ gfortran -cpp -E -I <tmp>/grid main/MATERIAL/MOD_MT_Defs.F90  # rc=0
 
 ## 尚未完成（下一轮）
 
-- F01、F02、F03、F08：代码未改；已定位入口（F01：`MOD_MT_SpecialPatches` 子步清零/赋值、
-  `CoLMDRIVER` 湖泊子步；F02：`MOD_MT_RiverLake`/`MOD_MT_RiverLakeCoupling` 的 `trc_dry_drain`；
+- F02、F03、F08：代码未改；已定位入口（F02：`MOD_MT_RiverLake`/`MOD_MT_RiverLakeCoupling` 的 `trc_dry_drain`；
   F03：`MOD_MT_Methane_Physics` `jwt_sat=0`/`Crel=Ctot/theta_l`；F08：6 个汇总诊断的 sat/unsat 聚合）。
 - 全量构建/CI/模型集成验证：需测试恢复授权后执行（本轮只做本地纯函数/片段测试）。
 - 7920 侧尚未运行任何新作业。

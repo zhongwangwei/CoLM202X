@@ -105,6 +105,7 @@ PROGRAM CoLM
 #ifdef MaterialTransport
    USE MOD_MT_LandPhase, only: mt_land_init, mt_land_final
    USE MOD_MT_Lifecycle, only: mt_lifecycle_reset
+   USE MOD_MT_Vars, only: mt_reset_rnof_step
    USE MOD_MT_Defs, only: mt_defs_final
    USE MOD_MT_HostFixes, only: mt_bgc_data_init_year
 #ifdef CaMa_Flood
@@ -549,6 +550,12 @@ PROGRAM CoLM
 
          ! Call CoLM driver
          ! ----------------------------------------------------------------------
+#ifdef MaterialTransport
+         ! Lake/waterbody substeps of this land step accumulate into
+         ! trc_rnof_step; clear it once per main step, before any land patch
+         ! physics and before the river coupling reads it later this step.
+         IF (p_is_worker) CALL mt_reset_rnof_step ()
+#endif
          IF (p_is_worker) THEN
 #ifdef MaterialTransport
             CALL CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oroflag,istep)

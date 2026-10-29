@@ -69,7 +69,11 @@ MODULE MOD_MT_Vars
    ! surface pool — removed to prevent reintroduction.
    real(r8), allocatable :: trc_pg_rain_ground(:,:)    ! (ntracers, numpatch)
    real(r8), allocatable :: trc_pg_snow_ground(:,:)    ! (ntracers, numpatch)
-   real(r8), allocatable :: trc_rnof_step(:,:)         ! (ntracers, numpatch), this land step only
+   real(r8), allocatable :: trc_rnof_step(:,:)         ! (ntracers, numpatch), accumulated runoff mass of
+                                                       ! THIS MAIN STEP for the river hand-off. Reset once per
+                                                       ! main step (CoLM.F90, before CoLMDRIVER); every lake/
+                                                       ! glacier/waterbody substep adds to it. Transient state,
+                                                       ! not in restart.
 
    ! Tracer carried by snowmelt sm from thin-snow (snl==0) scv during THERMAL.
    ! Set in CoLMMAIN after THERMAL based on the actual trc_scv reduction;
@@ -199,6 +203,7 @@ MODULE MOD_MT_Vars
    PUBLIC :: mt_patch_land_water_mass
    PUBLIC :: zero_provider_owned_land_tracer_state, sync_tracer_patch_ratio
    PUBLIC :: tracer_book_evap_loss
+   PUBLIC :: mt_add_rnof_step, mt_reset_rnof_step
 
    PUBLIC :: trc_ldew_rain, trc_ldew_snow
    PUBLIC :: trc_wliq_soisno, trc_wice_soisno
@@ -1303,6 +1308,41 @@ CONTAINS
 	            a_water_wetland_evap(itrc, ipatch) + max(water_mass, 0._r8)
 	      END SELECT
 	   END SUBROUTINE tracer_book_evap_loss
+
+   !---------------------------------------------------------------
+   ! Main-step runoff hand-off to the river routing.
+   !
+   ! Lake/waterbody patches are integrated in sub-steps of 1800 s inside
+   ! one land step; each substep computes its own tracer runoff mass
+   ! ``trc_rnof``.  The river coupling reads ``trc_rnof_step`` once per land
+   ! step, so every substep must ADD its mass here.  The counter is cleared
+   ! exactly once per main step (CoLM.F90 before CoLMDRIVER); it must not be
+   ! cleared by the per-substep conservation snapshot or by the special-patch
+   ! save/reconstruct routines.
+   !---------------------------------------------------------------
+   SUBROUTINE mt_add_rnof_step (itrc, ipatch, trc_rnof)
+      IMPLICIT NONE
+      integer,  intent(in) :: itrc, ipatch
+      real(r8), intent(in) :: trc_rnof
+
+      IF (ntracers <= 0) RETURN
+      IF (.not. allocated(trc_rnof_step)) RETURN
+      IF (itrc < 1 .or. itrc > ntracers) RETURN
+      IF (.not. mt_uses_generic_water(itrc)) RETURN
+      IF (ipatch < 1 .or. ipatch > size(trc_rnof_step, 2)) RETURN
+      trc_rnof_step(itrc, ipatch) = trc_rnof_step(itrc, ipatch) + max(trc_rnof, 0._r8)
+   END SUBROUTINE mt_add_rnof_step
+
+   SUBROUTINE mt_reset_rnof_step ()
+      IMPLICIT NONE
+      integer :: itrc
+
+      IF (ntracers <= 0) RETURN
+      IF (.not. allocated(trc_rnof_step)) RETURN
+      DO itrc = 1, ntracers
+         IF (mt_uses_generic_water(itrc)) trc_rnof_step(itrc, :) = 0._r8
+      ENDDO
+   END SUBROUTINE mt_reset_rnof_step
 
    !---------------------------------------------------------------
    ! Rebuild one tracer's prognostic storage from a caller-owned

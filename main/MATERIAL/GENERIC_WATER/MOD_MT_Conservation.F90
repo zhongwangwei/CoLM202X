@@ -153,7 +153,9 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
-            trc_rnof_step(itrc, ipatch) = 0._r8
+            ! trc_rnof_step is the MAIN-STEP river hand-off accumulator: it
+            ! is reset once before CoLMDRIVER, not by the per-substep
+            ! conservation snapshot.
             IF (allocated(trc_decay_source_step)) trc_decay_source_step(itrc, ipatch) = 0._r8
             IF (allocated(trc_numerical_residual_step)) trc_numerical_residual_step(itrc, ipatch) = 0._r8
             IF (allocated(trc_numerical_water_step)) trc_numerical_water_step(itrc, ipatch) = 0._r8

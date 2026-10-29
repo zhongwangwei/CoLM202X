@@ -142,7 +142,8 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         trc_rnof_step(itrc, ipatch) = 0._r8
+         ! No per-substep reset: the lake/waterbody substeps all feed the
+         ! same main-step river hand-off (mt_add_rnof_step below).
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
          nonvolatile_solute = tracer_is_nonvolatile_solute(itrc)
@@ -251,7 +252,7 @@ CONTAINS
          CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_liq, evap_liq_mass, TRC_EVAP_KIND_SOILEVAP)
          CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_ice, evap_ice_mass, TRC_EVAP_KIND_SUBL)
          IF (trc_rnof > 0._r8) THEN
-            trc_rnof_step(itrc, ipatch) = trc_rnof
+            CALL mt_add_rnof_step (itrc, ipatch, trc_rnof)
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_rnof
             a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + trc_rnof
          ENDIF
@@ -412,7 +413,8 @@ CONTAINS
 
       DO itrc = 1, ntracers
          IF (.not. mt_uses_generic_water(itrc)) CYCLE
-         trc_rnof_step(itrc, ipatch) = 0._r8
+         ! No per-substep reset: the lake/waterbody substeps all feed the
+         ! same main-step river hand-off (mt_add_rnof_step below).
          R_init = tracer_init_water_ratio(itrc)
          frac_active = tracer_fractionation_active(itrc)
          nonvolatile_solute = tracer_is_nonvolatile_solute(itrc)
@@ -527,7 +529,7 @@ CONTAINS
          CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_liq, evap_liq_mass, TRC_EVAP_KIND_SOILEVAP)
          CALL tracer_book_evap_loss(itrc, ipatch, trc_evap_ice, evap_ice_mass, TRC_EVAP_KIND_SUBL)
          IF (trc_rnof > 0._r8) THEN
-            trc_rnof_step(itrc, ipatch) = trc_rnof
+            CALL mt_add_rnof_step (itrc, ipatch, trc_rnof)
             a_trc_rsur(itrc, ipatch) = a_trc_rsur(itrc, ipatch) + trc_rnof
             a_trc_rnof(itrc, ipatch) = a_trc_rnof(itrc, ipatch) + trc_rnof
          ENDIF
