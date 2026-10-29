@@ -907,7 +907,7 @@ CONTAINS
          ENDDO
          ! upstream receivers get their donor's total outflow capacity
          donor_out(:) = 0._r8
-         CALL worker_push_data (push_next2ucat, out_total, donor_out, fillvalue = 0._r8, mode = 'sum')
+         CALL worker_push_data (push_next2ucat, out_total, donor_out, fillvalue = 0._r8)
          DO itrc = 1, ntracers
             IF (.not. mt_uses_generic_water(itrc)) CYCLE
             ! N08: reset BOTH send buffers for every species.  A position
@@ -925,7 +925,7 @@ CONTAINS
                rev_send(i) = trc_dry_split(itrc, i)
             ENDDO
             CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv, fillvalue = 0._r8, mode = 'sum')
-            CALL worker_push_data (push_next2ucat, rev_send, rev_recv, fillvalue = 0._r8, mode = 'sum')
+            CALL worker_push_data (push_next2ucat, rev_send, rev_recv, fillvalue = 0._r8)
             DO i = 1, numucat
                IF (fwd_recv(i) <= trc_tiny .and. rev_recv(i) <= trc_tiny) CYCLE
                IF (present(is_built_resv)) THEN
