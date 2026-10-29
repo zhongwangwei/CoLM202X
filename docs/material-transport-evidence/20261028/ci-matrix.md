@@ -37,30 +37,40 @@ CI 内容与覆盖核对（已完成）：
 **根因**：不是宏/语法错误，而是 `ubuntu-latest`(24.04)+mpich 组合下 93 例串行 `make clean && make all` 的累计耗时超过
 GitHub 单 job 6h 硬上限（ubuntu-22.04 mpich 组 3h37m–5h52m 都能通过；openmpi/intelmpi 组约 0.9–1.8h）。
 
-## CI 结构修复（提交 `2bc7510a`）与 Run 2：`40784782071`（head `2bc7510a`）— 进行中
+## CI 结构修复（提交 `2bc7510a`）与 Run 2：`40784782071`（head `2bc7510a`）— **92/92 通过**
 
 - 修复：`.github/workflows/build_CoLM_gnu.yml` 增加 `matrix.shard: [0,1,2,3]`，把 93 例构建**分片**到 4 个 job
   （`index % 4 == shard`），每个 os/mpi/toolchain 组合仍完整覆盖 93 例；`check_defineh.py` 仍在每个 job 全量执行。
   **不减少覆盖、不改触发过滤**，只把每个 job 的工作量压到 6h 以内。矩阵变为 23×4 = **92 job**。
-- Run 2：`40784782071`，head `2bc7510a2f9bddcf294b4a8999f98540086d4316`，event=workflow_dispatch，
-  2026-10-28T23:05:05Z 创建；首次核对为 92 job（40 in_progress / 52 queued）。
-- **Run 2 终态尚未取得**：在 92/92 job 终态之前，仍不能声称完整矩阵通过。终态、逐 job 结论与失败/取消摘录
-  写入 `ci-matrix/`（由 `ci-matrix` 子任务持续跟进；`run-fixed` 证据目录）。
+- 官方 REST 终态：`status=completed`、**`conclusion=success`**；created 2026-10-28T23:05:05Z →
+  updated 2026-10-29T01:06:43Z，**墙钟 2h01m38s**。
+- **92/92 job success（0 failure / 0 cancelled / 0 timeout）**；job 耗时 min 11.2m / median 24.4m / max 101.9m，
+  远低于 6h 上限（分片修复直接消除了 Run 1 的 3 个超时）。
+- 分片矩阵核对：144 组合 − 52 exclude = **92**；job 名集合与 API 完全相等；`TestCaseLists` 分片
+  **24/23/23/23 例，并集 93、无重无漏**；23 个 cell 各 4 个 shard 全部 success（每 cell 93 例完整覆盖）。
+- 92/92 job 日志行级 marker 通过：每 job `hist 525` + `check_defineh.py` PASS（**全量 93 例清单，不是子集**）
+  + 按 shard 精确的用例数 / MTON（2/1/1/1）/ LULCCON（1/0/0/1）+ `All 93 cases are covered across the four
+  shards` 声明；error=0，无 failure-excerpts。工具链分布与 exclude 后矩阵一致（gcc 版本、mpif90 实现均核对）。
+- **口径**：新 run 完整通过分片矩阵；CI 仅验证构建/配置覆盖，不运行模型、不替代物理验收。Run 1 的 20/23
+  未通过记录保留为历史，不被新 run 改写。
 
 ## 残余缺口（如实保留）
 
 1. Run 1 的 3 个 cancelled job 无完整日志（cancelled 步骤未产出）；已保存步骤级记录与官方终态，缺口为“这 3 个
-   组合在该 run 中未完成构建”，不得用其它 20 个 job 推断其通过。
-2. Run 2 需要 92 job 全部终态；若仍有 job 因 6h/基础设施失败，按“未通过/未完成”记录并考虑进一步分片或拆分 job。
-3. CI 只验证构建与配置（93 例宏/编译），不运行模型、不覆盖真实数据物理验收。
-4. 新 run 的 dispatch 与本机网络：本机代理故障期间使用本机 SSH SOCKS 中继（`ssh -f -N -D 11080 7920l`）恢复
+   组合在该 run 中未完成构建”，不得用其它 20 个 job 推断其通过。**Run 2 已用分片修复让这 3 个组合在各自
+   os/mpi/toolchain cell 内完整构建通过（每 cell 4 shard 合并覆盖 93 例）**，但 Run 1 本身仍记未通过。
+2. CI 只验证构建与配置（93 例宏/编译），不运行模型、不覆盖真实数据物理验收。
+3. 新 run 的 dispatch 与本机网络：本机代理故障期间使用本机 SSH SOCKS 中继（`ssh -f -N -D 11080 7920l`）恢复
    GitHub 访问；未修改系统代理、未把 token 传到任何远端。
 
 ## 证据
 
 - `ci-matrix/run.json`、`ci-matrix/jobs-final.json`：Run 1 官方 REST 终态快照（23 job：20 success + 3 cancelled）。
-- `ci-matrix/job-summary.tsv`、`job-stats.txt`：逐 job 结论与耗时。
-- `ci-matrix/EVIDENCE-run-40725517808.md`：子任务终态报告（含 web 页面证据、逐 job 表、缺口与自动补齐机制）。
-- `ci-matrix/web-terminal.json`、`job-summary-web.tsv`、`job-stats-web.txt`：web 页面终态推断与对照。
-- `ci-matrix/failure-excerpts/`：cancelled/失败 job 摘录（含 `PENDING-cancelled-jobs.md`）。
+- `ci-matrix/job-summary.tsv`、`job-stats.txt`：Run 1 逐 job 结论与耗时。
+- `ci-matrix/EVIDENCE-run-40725517808.md`：Run 1 子任务终态报告（含 web 页面证据、逐 job 表、缺口）。
+- `ci-matrix/web-terminal.json`、`job-summary-web.tsv`、`job-stats-web.txt`：Run 1 web 页面终态推断与对照。
+- `ci-matrix/failure-excerpts/`：Run 1 cancelled/失败 job 摘录（含 `PENDING-cancelled-jobs.md`）。
+- `ci-matrix/run-fixed/`：**Run 2（分片矩阵）终态证据**——`run.json`、`jobs-final.json`（92 job）、
+  `job-summary.tsv`、`job-stats.txt`、`cells-summary.json`、`log-markers.tsv`（92 行）、`log-markers/`、
+  `coverage-check.txt`、`source-snapshots/`（`2bc7510a` 的 5 个 CI 文件 blob）、`EVIDENCE.md`、`collected.ok`。
 - `ci-coverage-check.txt`：独立矩阵展开与 `check_defineh.py` 覆盖核对。

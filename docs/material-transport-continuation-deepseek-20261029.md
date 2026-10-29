@@ -71,24 +71,28 @@
 - 证据：[combined-acceptance.md](material-transport-evidence/20261028/combined-acceptance.md)、
   `combined-report.json`、`combined-EVIDENCE.md`、`combined-attempts.json`。
 
-#### 2.3.1 根因修复（2026-10-29，提交 `9f7c9a52`）
+#### 2.3.1 根因修复（2026-10-29，最终提交 `3b0af4f6`；第一次尝试 `9f7c9a52` 已撤销）
 
-- **根因**（两个 7920 诊断作业逐点打印定位）：`MOD_MT_SoilWater.F90` 表层混合池“无载体塌陷”分支
-  在 `surface_base_water=0` 时把整块同位素库存（patch 213 为 `9.0765e-05 kg/m²`）记成
-  `trc_numerical_residual_step`（数值源汇），超过 `trc_resid_abs_tol=5.0e-05` 而 fatal。
-  该路径对非挥发溶质已有“隔离到 `trc_surface_residue`、复水再溶解”的正确处置，同位素被排除。
-- **修复**：把同一隔离规则推广到水同位素——表层塌陷、洪水 late-pool 残余、dew/frost late surface
-  （原 fatal）、湿地塌陷四处；4 处复水入口扩展溶解条件；history 增加
-  `f_mt_surface_residue_<species>` / `f_mt_subsurface_residue_<species>` 输出。
-  复用既有 storage 组件，**不新增 restart 字段、不放松阈值、不裁 δ、不改水/能量物理**；
-  其它数值残余路径保持原记账。
-- **组件级验证**（`codex-6696730ffec34c518f011b395657e983`）：无 LULCC 与 LULCC 两种构建均 PASS；
-  触发案例（IsoGSM+flood feedback，NEC，47 步）两种构建都 `CoLM Execution Completed.`，
-  零 `TRC_SIG/TRC_BAL/residual hard/residual note/STOP/abort`；restart/history 中同位素隔离库有限非负；
-  仓库 9 项自检全 PASS。
-- **进行中**：完整组合验收重跑 `codex-d48a500ecf994f2fb89a6e2856a1cc6a`（G1–G7 全门禁，源码 `9f7c9a52`）；
-  修复 vs `6d995438` 回归对照 `codex-2608f8979c3449e8bb3cef74e9aba087`。**终态前不写组合验收通过。**
-- 证据：[residual-fix.md](material-transport-evidence/20261028/residual-fix.md)、`residual-fix/`。
+- **诊断**（逐点透明打印作业 `codex-01984a85605e40fb90f24a7bd1d18ffe`）：patch 213 在 step 4 的“普通混合池”
+  按 `wdsrf + rsur·dt + qinfl·dt − flood` 重建为 0 水（旧薄层水已蒸发/入渗；最终 10 mm 塘水全部来自土壤
+  exfiltration+flood 的 late 池），但同位素质量 9.0765e-05 kg/m² 仍属于**同一个物理表层水体**；
+  旧代码把普通池 tracer 清零并记数值源汇，`late_tracer = trc_pool_total + trc_soil_upflow` 因此丢掉它，
+  超过 `trc_resid_abs_tol=5.0e-05` 而 fatal。late 池混合浓度 (9.0765e-05+0.025973)/10 ≈ 2.6e-3，完全合理。
+- **最终修复（示踪随水）**：在普通池“水 0 / tracer 非 0”塌陷分支，非挥发溶质保持“隔离库+复水再溶解”；
+  **水同位素若存在 resolved late 载体水（flood water 或 post-solver dew/frost late surface water），
+  则保留 tracer 池（ratio=0，不输出无载体普通 runoff/infiltration），由既有 late-pool 混合把 tracer 与
+  该步真实的表层水一起输运**；只有真正无载体（无 flood、无 late surface water）才保留显式数值 residual
+  （fail-closed 可见性）。**不用干残留、不放松阈值、不裁 δ、不新增 restart/history 字段、不改水/能量物理。**
+- **撤销的第一次尝试**：`9f7c9a52` 曾把无载体同位素质量存入 `trc_surface_residue` 并复水再溶解；
+  水同位素无此物理机制，已提交 `198da79` 撤销，记录保留在
+  [residual-fix.md](material-transport-evidence/20261028/residual-fix.md)（含其组件验证与回归差异，作为反证）。
+- **组件级验证**（`codex-fc0e28c1093d4a968a5f36df4cdc6849`）：构建 PASS（`colm.x=589b0fc3…`）；
+  12 步 IsoGSM+flood-feedback 触发案例 `CoLM Execution Completed.`、零
+  `TRC_SIG/TRC_BAL/residual hard/residual note/STOP/abort`；restart 中同位素
+  `mt_surface_residue`/`mt_subsurface_residue` **全为 0**（确认未用干残留）；仓库 9 项自检全 PASS。
+- **最终验收进行中**：combined10 全量重跑 `codex-64f6cca13a0d487ba438bab454d6d413`（G1–G7，源码 `3b0af4f6`）；
+  修复 vs `6d995438` 回归对照 `codex-8ff87f9ecf494c0a9754cc9333553f11`。**终态前不写组合验收通过。**
+- 证据：[late-carrier-fix.md](material-transport-evidence/20261028/late-carrier-fix.md)、`residual-fix/v2/`。
 
 ### 2.4 甲烷：真实构建/mkinidata 通过；交付默认 hybrid 守卫已根因修复；水稻与两年 W1 运行中
 
@@ -139,13 +143,16 @@
 | `3daa60e8` | 记录 p9s 长窗口三个完整窗口完成与 `report.json` 极值定位 |
 | `83d1d6c0` | 7 个透明探针 + Decimal50 回放：解释 p9s 长窗口极值（含工具归档与证据 JSON） |
 | `894720da` | 记录最新组合源码验收 FAIL、触发项定位、既有缺陷分类、frcsat 隔离、甲烷只读调查证据 |
-| `9f7c9a52` | **生产修复**：无载体干池同位素质量隔离到 `trc_surface_residue`（组合验收 abort 根因） |
-| `d6347f6c` | 记录该修复、组件级验证与回归差异（本轮文档/证据） |
+| `9f7c9a52` | 第一次尝试（已撤销）：无载体干池同位素质量隔离到 `trc_surface_residue` |
+| `d6347f6c` / `f4a08142` | 记录被撤销尝试的验证、CI 终态/分片与甲烷守卫修复（文档/证据） |
+| `198da79` | **撤销** `9f7c9a52`：水同位素无干残留物理机制（用户指出，重新诊断） |
 | `2bc7510a` | **CI 结构修复**：93 例构建分片为 4 shard（92 job），保证单 job <6h |
 | `3778404f` | **生产修复**：甲烷 host-water fail-closed 守卫改为 host-supported 封顶分配（hybrid 根因） |
+| `3b0af4f6` | **生产修复（最终）**：无载体表层同位素 tracer 随 resolved late 载体水输运，不记干残留/不记数值源汇 |
 
-生产代码变化仅：`MOD_MT_SoilWater.F90`/`MOD_MT_Hist.F90`/`MOD_MT_Vars.F90`（同位素隔离修复）、
-`MOD_MT_Methane_Physics.F90`（甲烷守卫修复）、`.github/workflows/build_CoLM_gnu.yml`（CI 分片）；其余为 docs/evidence。
+生产代码变化仅：`MOD_MT_SoilWater.F90`（最终：late-carrier 同位素修复；`MOD_MT_Hist.F90`/`MOD_MT_Vars.F90`
+的干残留输出已随撤销恢复原状）、`MOD_MT_Methane_Physics.F90`（甲烷守卫修复）、
+`.github/workflows/build_CoLM_gnu.yml`（CI 分片）；其余为 docs/evidence。
 
 ## 4. 未完成 / 未验证 / 延期项（保留，不掩盖）
 

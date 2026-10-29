@@ -24,10 +24,12 @@
   flood feedback + 运行期同位素强迫，且 `28478b18` 基线同样复现（既有交互缺陷）。frcsat 修复的数值不变性
   另有真实 120 步隔离证据。原始记录为 `combined-report.json`、`combined-job-status.json`、
   `combined-attempts.json`、`combined-EVIDENCE.md`。
-- [组合验收缺陷的根因修复](residual-fix.md)：把“无载体干池质量隔离”从非挥发溶质推广到水同位素
-  （`trc_surface_residue`，不放松阈值、不裁 δ）；组件级验证：两种构建触发案例均 END、零 TRC 诊断、
-  仓库 9 项自检 PASS。完整组合验收重跑与修复-vs-基线回归对照的作业编号见该文；**在它们终态前不写成组合通过**。
-  原始记录为 `residual-fix/validation.json`、`residual-fix/*-log-markers.txt`、`residual-fix/define-*.h`。
+- [组合验收缺陷的最终根因修复（示踪随水）](late-carrier-fix.md)：无载体时表层同位素 tracer 不再记成数值源汇、
+  也不存入干残留，而是保留在池中随 resolved 的 late 载体水（洪水/露霜 late 池）混合输运；只有真正无载体塌陷
+  保留显式 residual。逐点打印诊断、12 步触发案例 END/零诊断/同位素 residue 全 0、9 项自检 PASS 均记录。
+  **第一次“隔离库+复水再溶解”尝试 `9f7c9a52` 已撤销（`198da79`，水同位素无此机理），其记录保留在
+  [residual-fix.md](residual-fix.md) 作为反证。** 最终组合验收 `codex-64f6cca1…` 与回归对照 `codex-8ff87f9e…`
+  终态前不写成组合通过；证据在 `residual-fix/v2/`。
 - [完整 hosted CI 矩阵记录](ci-matrix.md)：两次 run。Run 1（`40725517808`，head `10e9fbd2`）官方终态
   **cancelled = 20 success + 3 cancelled（6h 上限）**，完整矩阵未通过；随后提交 `2bc7510a` 把 93 例构建分片
   （23×4=92 job，覆盖不变）并触发 Run 2（`40784782071`，head `2bc7510a`），**Run 2 终态前不写成完整通过**。

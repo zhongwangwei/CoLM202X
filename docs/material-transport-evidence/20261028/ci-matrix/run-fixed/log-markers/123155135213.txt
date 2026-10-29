@@ -1,0 +1,12 @@
+JOB 123155135213 Build-CoLM-gnu (ubuntu-22.04, mpich, gcc, 11, 3)
+conclusion=success log_bytes=709266 from_cache=True
+markers: hist=1 check_defineh=1 cases=23/23unique starts=23 define13=23 mt_define=1 lulcc_define=1 banner=0 errors=0 mt_cases=1 lulcc_cases=1 started_not_completed=0
+toolchain: mpif90=/usr/bin/mpif90 gfortran=11
+2026-10-28T23:06:30.6752873Z PASS: optional arguments and effective macros for 93 unique CI cases
+2026-10-28T23:06:29.0988098Z main/MOD_HistAccRestart.F90: 525 fields match main/MOD_Vars_1DAccFluxes.F90
+2026-10-29T00:26:21.6297129Z #define MaterialTransport
+2026-10-29T00:26:21.6296597Z #define LULCC
+MT/LULCC cases: GRID_IGBP_URBANOFF_vanGen_CAMAOFF_BGCOFF_MTON_LULCCON_CROPOFF
+2026-10-29T00:29:53.1053927Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-29T00:29:53.1544845Z Cleaning up orphan processes
+2026-10-29T00:29:53.1926464Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

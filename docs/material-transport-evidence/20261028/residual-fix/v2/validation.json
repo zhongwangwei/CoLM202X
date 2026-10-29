@@ -1,0 +1,112 @@
+{
+  "runs": {
+    "plain": {
+      "end": true,
+      "steps": 12,
+      "last": [
+        "12",
+        "2005-12-25-19800"
+      ],
+      "bad": [],
+      "restart_residue_fields": {
+        "a_trc_surface_residue_mass": {
+          "shape": [
+            587,
+            2
+          ],
+          "max_abs": 0.0,
+          "nonzero": 0
+        },
+        "a_trc_subsurface_residue_mass": {
+          "shape": [
+            587,
+            2
+          ],
+          "max_abs": 0.0,
+          "nonzero": 0
+        },
+        "mt_surface_residue": {
+          "shape": [
+            587,
+            2
+          ],
+          "max_abs": 0.0,
+          "nonzero": 0
+        },
+        "mt_subsurface_residue": {
+          "shape": [
+            587,
+            2
+          ],
+          "max_abs": 0.0,
+          "nonzero": 0
+        }
+      },
+      "history_residue_fields": {}
+    }
+  },
+  "self_checks": {
+    "compare": {
+      "rc": 0,
+      "tail": [
+        "compare self-test PASS (empty, equal, signed zero, missing variable/file)"
+      ]
+    },
+    "iso_check": {
+      "rc": 0,
+      "tail": [
+        "iso_check self-test PASS (joint masks, unmasked NaN)"
+      ]
+    },
+    "forcing_cache": {
+      "rc": 0,
+      "tail": [
+        "PASS forcing cache self-test: 17 positive/negative behaviors"
+      ]
+    },
+    "forcing_edges": {
+      "rc": 0,
+      "tail": [
+        "Material forcing LULCC: 1 patch(es) have no eligible transfer source; using configured forcing defaults.",
+        "Material forcing LULCC: 1 patch(es) have no eligible transfer source; using configured forcing defaults.",
+        " PASS: forcing fallback, threshold compatibility, LULCC reliable-source remap"
+      ]
+    },
+    "singlebucket": {
+      "rc": 0,
+      "tail": [
+        "finite capacity partial snow with solid 4030000000000000 0000000000000000 4000000000000000 0000000000000000 4010000000000000 0000000000000000",
+        "finite capacity full mixed with solid 0000000000000000 0000000000000000 0000000000000000 4020000000000000 402A666666666666 3FE99999999999A0",
+        " PASS single-bucket precipitation regression"
+      ]
+    },
+    "orphan_leaf": {
+      "rc": 0,
+      "tail": [
+        "PASS 24 production-block cases + signed area-weighted production LULCC audits",
+        "UNAFFECTED closed-pool states SHA256 fe219edeb2778b7ec5317bf6f3dc82f8e1766a0e1118c363d4e1a93ae9bc87fb"
+      ]
+    },
+    "frcsat": {
+      "rc": 0,
+      "tail": [
+        "PASS production sidecar rejection: -O2 mixed_nan_marker",
+        "PASS production sidecar rejection: -O2 inf_marker",
+        "PASS production sidecar rejection: -O2 orphan_count"
+      ]
+    },
+    "regionclip": {
+      "rc": 0,
+      "tail": [
+        "PASS RegionClip year/layout/mask structural contracts"
+      ]
+    },
+    "defineh": {
+      "rc": 0,
+      "tail": [
+        "PASS: optional arguments and effective macros for 93 unique CI cases"
+      ]
+    }
+  },
+  "failures": []
+}

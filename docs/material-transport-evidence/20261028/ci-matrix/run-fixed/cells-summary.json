@@ -1,0 +1,600 @@
+[
+ {
+  "cell": "ubuntu-22.04 | intelmpi | gcc | 10",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1340,
+    "id": 123155142327
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 752,
+    "id": 123155142158
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1520,
+    "id": 123155142464
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 733,
+    "id": 123155142197
+   }
+  },
+  "total_duration": 4345
+ },
+ {
+  "cell": "ubuntu-22.04 | intelmpi | gcc | 11",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1702,
+    "id": 123155142086
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1119,
+    "id": 123155142174
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 901,
+    "id": 123155142093
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1009,
+    "id": 123155142336
+   }
+  },
+  "total_duration": 4731
+ },
+ {
+  "cell": "ubuntu-22.04 | intelmpi | gcc | 12",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1500,
+    "id": 123155142339
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1357,
+    "id": 123155142055
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1799,
+    "id": 123155142023
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 750,
+    "id": 123155142351
+   }
+  },
+  "total_duration": 5406
+ },
+ {
+  "cell": "ubuntu-22.04 | intelmpi | gcc | 13",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1713,
+    "id": 123155142391
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1304,
+    "id": 123155142240
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1630,
+    "id": 123155142027
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 730,
+    "id": 123155142278
+   }
+  },
+  "total_duration": 5377
+ },
+ {
+  "cell": "ubuntu-22.04 | intelmpi | gcc | 9",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1480,
+    "id": 123155142113
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1100,
+    "id": 123155142190
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1326,
+    "id": 123155142206
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 670,
+    "id": 123155142267
+   }
+  },
+  "total_duration": 4576
+ },
+ {
+  "cell": "ubuntu-22.04 | mpich | gcc | 10",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 5463,
+    "id": 123155135232
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 5330,
+    "id": 123155135353
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 5439,
+    "id": 123155135317
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 4153,
+    "id": 123155135460
+   }
+  },
+  "total_duration": 20385
+ },
+ {
+  "cell": "ubuntu-22.04 | mpich | gcc | 11",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 4761,
+    "id": 123155135259
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 5217,
+    "id": 123155135271
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 4895,
+    "id": 123155135247
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 5087,
+    "id": 123155135213
+   }
+  },
+  "total_duration": 19960
+ },
+ {
+  "cell": "ubuntu-22.04 | mpich | gcc | 12",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 3707,
+    "id": 123155135355
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 4929,
+    "id": 123155135426
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 4889,
+    "id": 123155135261
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 5427,
+    "id": 123155135211
+   }
+  },
+  "total_duration": 18952
+ },
+ {
+  "cell": "ubuntu-22.04 | mpich | gcc | 13",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 3221,
+    "id": 123155135199
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 6101,
+    "id": 123155135215
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 6071,
+    "id": 123155135080
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 3211,
+    "id": 123155135127
+   }
+  },
+  "total_duration": 18604
+ },
+ {
+  "cell": "ubuntu-22.04 | openmpi | gcc | 10",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1639,
+    "id": 123155142131
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 717,
+    "id": 123155142034
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1600,
+    "id": 123155142275
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1080,
+    "id": 123155142073
+   }
+  },
+  "total_duration": 5036
+ },
+ {
+  "cell": "ubuntu-22.04 | openmpi | gcc | 11",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1675,
+    "id": 123155135323
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1362,
+    "id": 123155135621
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1730,
+    "id": 123155135452
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1094,
+    "id": 123155135019
+   }
+  },
+  "total_duration": 5861
+ },
+ {
+  "cell": "ubuntu-22.04 | openmpi | gcc | 12",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1887,
+    "id": 123155135234
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1194,
+    "id": 123155135427
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1115,
+    "id": 123155135415
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1191,
+    "id": 123155135250
+   }
+  },
+  "total_duration": 5387
+ },
+ {
+  "cell": "ubuntu-22.04 | openmpi | gcc | 13",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1444,
+    "id": 123155135340
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1392,
+    "id": 123155135335
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1955,
+    "id": 123155135633
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1190,
+    "id": 123155135327
+   }
+  },
+  "total_duration": 5981
+ },
+ {
+  "cell": "ubuntu-22.04 | openmpi | gcc | 9",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1418,
+    "id": 123155142062
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1162,
+    "id": 123155142124
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1566,
+    "id": 123155142012
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1182,
+    "id": 123155142083
+   }
+  },
+  "total_duration": 5328
+ },
+ {
+  "cell": "ubuntu-latest | intelmpi | gcc | 12",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1462,
+    "id": 123155134846
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1302,
+    "id": 123155135189
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1141,
+    "id": 123155135326
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1336,
+    "id": 123155135081
+   }
+  },
+  "total_duration": 5241
+ },
+ {
+  "cell": "ubuntu-latest | intelmpi | gcc | 13",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1383,
+    "id": 123155135431
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 908,
+    "id": 123155135193
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1290,
+    "id": 123155135066
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1231,
+    "id": 123155134983
+   }
+  },
+  "total_duration": 4812
+ },
+ {
+  "cell": "ubuntu-latest | intelmpi | gcc | 14",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1413,
+    "id": 123155135004
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1227,
+    "id": 123155135025
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1038,
+    "id": 123155135041
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1256,
+    "id": 123155135217
+   }
+  },
+  "total_duration": 4934
+ },
+ {
+  "cell": "ubuntu-latest | mpich | gcc | 12",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 4891,
+    "id": 123155135074
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 3781,
+    "id": 123155134944
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 6113,
+    "id": 123155135030
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 5699,
+    "id": 123155135035
+   }
+  },
+  "total_duration": 20484
+ },
+ {
+  "cell": "ubuntu-latest | mpich | gcc | 13",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 5909,
+    "id": 123155134784
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 5570,
+    "id": 123155135058
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 3485,
+    "id": 123155134862
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 5521,
+    "id": 123155134828
+   }
+  },
+  "total_duration": 20485
+ },
+ {
+  "cell": "ubuntu-latest | mpich | gcc | 14",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 4693,
+    "id": 123155135172
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 5866,
+    "id": 123155134565
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 4191,
+    "id": 123155134880
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 5437,
+    "id": 123155134810
+   }
+  },
+  "total_duration": 20187
+ },
+ {
+  "cell": "ubuntu-latest | openmpi | gcc | 12",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1432,
+    "id": 123155135043
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1093,
+    "id": 123155135022
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1048,
+    "id": 123155135065
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1477,
+    "id": 123155135179
+   }
+  },
+  "total_duration": 5050
+ },
+ {
+  "cell": "ubuntu-latest | openmpi | gcc | 13",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1115,
+    "id": 123155134911
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1300,
+    "id": 123155135090
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1513,
+    "id": 123155134962
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1314,
+    "id": 123155135227
+   }
+  },
+  "total_duration": 5242
+ },
+ {
+  "cell": "ubuntu-latest | openmpi | gcc | 14",
+  "shards": {
+   "0": {
+    "conclusion": "success",
+    "duration": 1657,
+    "id": 123155135073
+   },
+   "1": {
+    "conclusion": "success",
+    "duration": 1054,
+    "id": 123155134957
+   },
+   "2": {
+    "conclusion": "success",
+    "duration": 1040,
+    "id": 123155134941
+   },
+   "3": {
+    "conclusion": "success",
+    "duration": 1355,
+    "id": 123155135029
+   }
+  },
+  "total_duration": 5106
+ }
+]
