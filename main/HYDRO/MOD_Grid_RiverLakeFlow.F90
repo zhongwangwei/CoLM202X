@@ -586,6 +586,7 @@ CONTAINS
                ENDIF
             ELSE
                volresv(ucat2resv(i)) = volwater
+               wdsrf_ucat(i) = floodplain_curve(i)%depth (volwater)
             ENDIF
 
          ENDDO
@@ -1053,14 +1054,25 @@ CONTAINS
                   mflux_fc(i) = mflux_fc(i) * dt_this
                   IF (is_built_resv(i)) qresv_out(ucat2resv(i)) = hflux_fc(i)
                ENDDO
-               CALL push_ups2ucat_sum (hflux_fc, hflux_sumups, mflux_fc, mflux_sumups)
+               IF (DEF_Reservoir_Method > 0) THEN
+                  ! Cache the actual limited reservoir release for the next dispatch.
+                  hflux_resv = 0._r8
+                  WHERE (ucatfilter .and. is_built_resv) hflux_resv = hflux_fc
+                  CALL push_ups2ucat_sum (hflux_fc, hflux_sumups, mflux_fc, mflux_sumups, &
+                     hflux_resv, mflux_resv)
+               ELSE
+                  CALL push_ups2ucat_sum (hflux_fc, hflux_sumups, mflux_fc, mflux_sumups)
+               ENDIF
                WHERE (ucatfilter)
                   sum_hflux_riv = hflux_fc - hflux_sumups
                   sum_mflux_riv = mflux_fc - mflux_sumups
                END WHERE
                DO i = 1, numucat
                   IF (.not. ucatfilter(i)) CYCLE
-                  IF (is_built_resv(i)) qresv_in(ucat2resv(i)) = hflux_sumups(i)
+                  IF (is_built_resv(i)) THEN
+                     qresv_in(ucat2resv(i)) = hflux_sumups(i)
+                     IF (DEF_Reservoir_Method > 0) qresv_ups_prev(ucat2resv(i)) = mflux_resv(i)
+                  ENDIF
                ENDDO
                IF (DEF_GRIDBASED_ROUTING_MOMENTUM_DT_LIMIT) THEN
                   DO i = 1, numucat

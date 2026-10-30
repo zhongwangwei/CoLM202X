@@ -895,8 +895,9 @@ SUBROUTINE CoLMMAIN ( &
          ! interception call above exposes the real drainage rate for MT builds
          ! (mt_leaf_qdrp_*); using the net value here lost all old-canopy solute
          ! flushing (N02).
-         gross_intr_rain = max(max(qintr_rain, 0._r8) + max(mt_leaf_qdrp_rain, 0._r8), 0._r8)
-         gross_intr_snow = max(max(qintr_snow, 0._r8) + max(mt_leaf_qdrp_snow, 0._r8), 0._r8)
+         ! Old-water unloading can make net interception negative.
+         gross_intr_rain = max(qintr_rain + max(mt_leaf_qdrp_rain, 0._r8), 0._r8)
+         gross_intr_snow = max(qintr_snow + max(mt_leaf_qdrp_snow, 0._r8), 0._r8)
          CALL mt_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, &
             ldew_rain_int_trc, ldew_snow_int_trc)
 #ifdef CROP

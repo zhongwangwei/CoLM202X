@@ -792,7 +792,7 @@ CONTAINS
    real(r8) :: dt_i, volwater, dry_drain
    real(r8), allocatable :: fwd_send(:), fwd_recv(:), rev_send(:), rev_recv(:)
    real(r8), allocatable :: out_total(:), up_rev(:), donor_out(:), rev_sum(:), bif_out(:)
-   logical :: internal_receiver, reverse_allowed
+   logical :: reverse_allowed
    real(r8) :: vol_j, dt_j, rev_share, dt_don
    real(r8), allocatable :: bif_dn_levee(:), dry_coeff(:), bif_add(:), bif_add_lev(:), bif_hist(:)
    real(r8), allocatable :: received_visible(:)
@@ -872,42 +872,11 @@ CONTAINS
                ! cancel it with the correct source signature.
                dry_drain = max(mt_mass(imt, i), 0._r8) + max(mt_inp_buf(imt, i), 0._r8)
                IF (dry_drain > mt_tiny) THEN
-                  ! An internal cell that drains completely (host net-outflow
-                  ! timestep, same-step inflow allowed) still holds genuine
-                  ! material: its outflow used the pre-mixing concentration, so
-                  ! the same-step inflow excess was not exported.  That mass
-                  ! belongs to the downstream receiver, not to a numerical
-                  ! sink.  Forward it along the main-channel edge; only a
-                  ! terminal cell (no downstream unit catchment) really
-                  ! discharges to the outside and books mt_dry_drain.
-                  ! An internal cell is one with a downstream unit catchment.
-                  ! The flux sign must NOT be part of this test: with reverse
-                  ! flow allowed the old code sent every internal drained cell
-                  ! to the split delivery, and a negative flux there means the
-                  ! mass goes to the reverse receivers.  Requiring hflux >= 0
-                  ! would book those cells as a terminal sink instead, which
-                  ! changes the default (no bifurcation, no levee) behaviour.
-                  ! With reverse flow disabled out_total is max(hflux,0), so a
-                  ! negative-flux cell naturally parks its mass in
-                  ! mt_dry_pending instead of losing it.
-                  ! An inland depression (next = -10) has no downstream cell
-                  ! to name, but the hydrodynamics still lets it drain into
-                  ! the domain through its neighbours' reverse edges.  Its own
-                  ! hflux_fc is forced to zero by the -10 branch, so it cannot
-                  ! be used as the test; treat every depression as internal.
-                  ! If no receiver turns out to be reachable, the mass is kept
-                  ! in mt_dry_pending instead of being booked outside.
-                  internal_receiver = ucat_next(i) > 0 .or. ucat_next(i) == -10 .or. bif_active
-                  ! An internal cell hands the residue to the split delivery
-                  ! whether or not reverse flow is allowed.  The delivery
-                  ! falls back to the forward edge alone when it is not (see
-                  ! the up_rev assignment below), so gating this branch on
-                  ! reverse_allowed used to book the residue of every internal
-                  ! dry cell as a terminal sink while bifurcation or levees
-                  ! were active -- mass that never reached its downstream
-                  ! neighbour, and that the discharge ledger cannot see
-                  ! because mt_dry_drain is summed into it.
-                  IF (internal_receiver .and. present(hflux_fc_in)) THEN
+                  ! A terminal can also drain toward upstream cells through
+                  ! reverse faces. Split every residual over actual outgoing
+                  ! faces; only its terminal forward share leaves the domain.
+                  ! With no outgoing face, the split keeps pending inventory.
+                  IF (present(hflux_fc_in)) THEN
                      ! N07: hand the drained mass to the split delivery below.
                      ! It is distributed over EVERY actual outflow edge during
                      ! this substep, weighted by that edge's water flux:

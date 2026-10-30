@@ -2303,6 +2303,7 @@ CONTAINS
    real(r8), optional, intent(in) :: initial_conc(:,:), initial_bed(:,:)
    real(r8), optional, intent(in) :: joint_sed_scale(:,:), joint_bed_scale(:,:)
    real(r8), allocatable, save :: rivout_forward(:), rivout_reverse(:)
+   real(r8), allocatable, save :: reverse_outgoing(:), donor_outgoing(:)
    real(r8), allocatable, save :: sedout_first(:,:), bedout_first(:,:)
    ! Per-invocation carrier endpoints.  They used to be module SAVE arrays,
    ! so a recursive substep call wrote its own endpoints into the buffer
@@ -2324,6 +2325,10 @@ CONTAINS
       IF (.not. p_is_worker) RETURN
       IF (.not. ieee_is_finite(dt) .or. dt <= 0._r8) &
          CALL CoLM_stop('sediment advection interval must be finite and positive')
+      IF (any(.not. ieee_is_finite(rivout_signed)) .or. &
+          any(.not. ieee_is_finite(rivout_abs)) .or. &
+          any(.not. ieee_is_finite(rivsto_donor)) .or. any(.not. ieee_is_finite(rivsto_end))) &
+         CALL CoLM_stop('sediment advection water inputs must be finite')
 
       ! N01: the ordinary (non-BIF/levee) path previously made one
       ! donor-snapshot export per morphology interval.  When the interval's
@@ -2340,11 +2345,23 @@ CONTAINS
       ! shared initial stock and are left unchanged here.
       IF (.not. present(initial_conc) .and. .not. present(joint_sed_scale) .and. &
           .not. present(joint_bed_scale)) THEN
+         IF (allocated(reverse_outgoing)) THEN
+            IF (size(reverse_outgoing) /= numucat) deallocate(reverse_outgoing, donor_outgoing)
+         ENDIF
+         IF (.not. allocated(reverse_outgoing)) allocate(reverse_outgoing(numucat), donor_outgoing(numucat))
+         ! A reverse face drains its downstream cell; collect every such face
+         ! at that donor before adding the donor's own forward outflow.
+         reverse_outgoing = max(0._r8, 0.5_r8 * (rivout_abs - rivout_signed))
+         donor_outgoing = 0._r8
+         CALL worker_push_data(push_ups2ucat, reverse_outgoing, donor_outgoing, &
+            fillvalue=0._r8, mode='sum')
+         donor_outgoing = donor_outgoing + max(0._r8, 0.5_r8 * (rivout_abs + rivout_signed))
          nsub = 1
          DO i = 1, numucat
             IF (rivsto_donor(i) > SED_MIN_SUBSTEP_CARRIER) THEN
-               cfl_ratio = rivout_abs(i) * dt / rivsto_donor(i)
-               IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(cfl_ratio)
+               cfl_ratio = donor_outgoing(i) * dt / rivsto_donor(i)
+               ! Preserve the explicit limit failure without overflowing CEILING.
+               IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(min(cfl_ratio, 241._r8))
             ENDIF
          ENDDO
          ! Every substep exchanges donor state with the downstream
@@ -2410,11 +2427,6 @@ CONTAINS
             RETURN
          ENDIF
       ENDIF
-      IF (any(.not. ieee_is_finite(rivout_signed)) .or. &
-          any(.not. ieee_is_finite(rivout_abs)) .or. &
-          any(.not. ieee_is_finite(rivsto_donor)) .or. any(.not. ieee_is_finite(rivsto_end))) &
-         CALL CoLM_stop('sediment advection water inputs must be finite')
-
       ! ponytail: scratch retains peak domain size; resize on domain reinitialization.
       IF (allocated(sedout_first)) THEN
          IF (size(sedout_first,1) /= nsed .or. size(sedout_first,2) /= numucat) &
@@ -2480,6 +2492,8 @@ CONTAINS
       sedout = sedout + sedout_first
       bedout = bedout + bedout_first
 
+      sed_ups = 0._r8
+      bed_ups = 0._r8
       DO ised = 1, nsed
          CALL worker_push_data(push_ups2ucat, sedout(ised,:), sed_ups(ised,:), &
             fillvalue = 0._r8, mode = 'sum')
