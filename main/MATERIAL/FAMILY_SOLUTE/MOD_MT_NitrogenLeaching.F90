@@ -39,7 +39,7 @@ MODULE MOD_MT_NitrogenLeaching
    USE MOD_Namelist,           only: DEF_USE_NITRIF
    USE MOD_BGC_Vars_1DFluxes,  only: sminn_leached_vr, smin_nh4_leached_vr, &
                                      smin_no3_leached_vr, smin_no3_runoff_vr
-   USE MOD_MT_Defs,            only: nmts, tracers, tracer_lower, tracer_is_solute
+   USE MOD_MT_Defs,            only: nmts, materials, material_lower, material_is_solute
    USE MOD_MT_Vars,            only: mt_rnof_step, a_trc_rsub, a_trc_rsur, &
                                      a_trc_rnof, a_trc_bgc_leach
 
@@ -62,8 +62,8 @@ CONTAINS
       IF (nmts <= 0) RETURN
 
       DO imt = 1, nmts
-         IF (.not. tracer_is_solute(imt)) CYCLE
-         lname = tracer_lower(trim(tracers(imt)%name))
+         IF (.not. material_is_solute(imt)) CYCLE
+         lname = material_lower(trim(materials(imt)%name))
          IF (lname /= 'nh4' .and. lname /= 'no3') CYCLE
 
          sub_mass    = 0._r8

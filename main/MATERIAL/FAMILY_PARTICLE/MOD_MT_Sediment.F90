@@ -248,11 +248,11 @@ CONTAINS
    SUBROUTINE register_sediment_mt_provider()
    !-------------------------------------------------------------------------------------
       USE MOD_MT_Defs, only: FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE
-      USE MOD_MT_Lifecycle, only: tracer_lifecycle_hooks_type, register_mt_provider
+      USE MOD_MT_Lifecycle, only: material_lifecycle_hooks_type, register_mt_provider
       IMPLICIT NONE
-      type(tracer_lifecycle_hooks_type) :: hooks
+      type(material_lifecycle_hooks_type) :: hooks
 
-      hooks = tracer_lifecycle_hooks_type()
+      hooks = material_lifecycle_hooks_type()
       hooks%route_init            => grid_sediment_init
       hooks%route_read_restart    => read_sediment_restart
       hooks%route_forcing_put     => sediment_forcing_put
@@ -364,7 +364,7 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    SUBROUTINE read_sediment_parameter_file()
    !-------------------------------------------------------------------------------------
-   USE MOD_MT_Defs, only: tracer_param_file_for_index
+   USE MOD_MT_Defs, only: material_param_file_for_index
    IMPLICIT NONE
 
    type(sediment_parameter_type) :: DEF_SEDIMENT
@@ -375,7 +375,7 @@ CONTAINS
    namelist /nl_colm_sediment_parameter/ DEF_SEDIMENT
 
       IF (sediment_itrc <= 0) sediment_itrc = sediment_mt_index()
-      CALL tracer_param_file_for_index(sediment_itrc, 'SEDIMENT,SED', file_param, found)
+      CALL material_param_file_for_index(sediment_itrc, 'SEDIMENT,SED', file_param, found)
       IF (.not. found) THEN
          IF (p_is_io) WRITE(*,'(A)') 'Sediment parameters: code defaults (no DEF_SEDIMENT_PARAM_FILE).'
          RETURN
@@ -2293,7 +2293,8 @@ CONTAINS
       initial_conc, initial_bed, joint_sed_scale, joint_bed_scale)
    ! One explicit donor-snapshot transport per morphology interval.  Compute
    ! both directions before changing any cell's suspended or bed inventory.
-   USE MOD_Grid_RiverLakeNetwork, only: numucat, push_ups2ucat
+   USE MOD_Grid_RiverLakeNetwork, only: numucat, push_ups2ucat, &
+      p_comm_rivsys, rivsys_by_multiple_procs
    USE MOD_WorkerPushData
    IMPLICIT NONE
 
@@ -2303,7 +2304,15 @@ CONTAINS
    real(r8), optional, intent(in) :: joint_sed_scale(:,:), joint_bed_scale(:,:)
    real(r8), allocatable, save :: rivout_forward(:), rivout_reverse(:)
    real(r8), allocatable, save :: sedout_first(:,:), bedout_first(:,:)
-   real(r8), allocatable, save :: w_don(:), w_end(:)
+   ! Per-invocation carrier endpoints.  They used to be module SAVE arrays,
+   ! so a recursive substep call wrote its own endpoints into the buffer
+   ! its parent was still reading: the second outer substep .75->.5 then
+   ! subdivided from .6875->.625 instead of .75->.625.
+   real(r8), allocatable :: w_don(:), w_end(:)
+   ! Interval integrals of the per-substep rates (see the substep loop).
+   real(r8), allocatable :: netflw_int(:,:), exch_int(:,:)
+   ! Same interval integration for the transported sediment rates.
+   real(r8), allocatable :: sedout_int(:,:), bedout_int(:,:)
    real(r8), allocatable, save :: avail_sto(:,:), avail_bed_solid(:,:)
    real(r8), allocatable, save :: bed_donor(:,:)
    real(r8), allocatable, save :: sed_ups(:,:), bed_ups(:,:), cell_mass_before(:)
@@ -2338,6 +2347,22 @@ CONTAINS
                IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(cfl_ratio)
             ENDIF
          ENDDO
+         ! Every substep exchanges donor state with the downstream
+         ! neighbour, so all ranks of one river system must run the same
+         ! number of substeps: with a per-rank count, two ranks of the same
+         ! river would issue a different number of exchanges and either block
+         ! or pair a snapshot against the wrong substep.  The reduction runs
+         ! on every recursion level (a local nsub of 1 still takes part) and
+         ! over the river-system communicator, so a single-rank river pays
+         ! nothing.
+#ifdef USEMPI
+         IF (rivsys_by_multiple_procs) THEN
+            IF (p_comm_rivsys == MPI_COMM_NULL) &
+               CALL CoLM_stop('sediment substep sync lacks a river-system communicator')
+            CALL mpi_allreduce (MPI_IN_PLACE, nsub, 1, MPI_INTEGER, MPI_MAX, &
+               p_comm_rivsys, p_err)
+         ENDIF
+#endif
          ! N09: never silently truncate a required material CFL count:
          ! capping violates the gross-outflow<=donor-water invariant.
          IF (nsub > 240) THEN
@@ -2352,10 +2377,19 @@ CONTAINS
             ! N10: the carrier water must advance with the material substeps.
             ! Host water is only known at the interval endpoints, so use the
             ! same linear endpoint interpolation the provider already uses.
-            IF (allocated(w_don)) THEN
-               IF (size(w_don) /= numucat) DEALLOCATE(w_don, w_end)
-            ENDIF
-            IF (.not. allocated(w_don)) ALLOCATE(w_don(numucat), w_end(numucat))
+            ALLOCATE(w_don(numucat), w_end(numucat))
+            ! The substeps set netflw_adv_step / exch_d_adv_step to their own
+            ! rate, so reading them after the loop reported the LAST substep
+            ! as if it had covered the whole interval.  Integrate instead:
+            ! integral = sum(rate_i * dt_i), and the interval rate is that
+            ! integral over the interval length.  Nested recursion already
+            ! hands back an interval-averaged rate, so this composes.
+            ALLOCATE(netflw_int(nsed,numucat), exch_int(nsed,numucat))
+            ALLOCATE(sedout_int(nsed,numucat), bedout_int(nsed,numucat))
+            netflw_int = 0._r8
+            exch_int   = 0._r8
+            sedout_int = 0._r8
+            bedout_int = 0._r8
             DO isub = 1, nsub
                frac_lo = real(isub - 1, r8) / real(nsub, r8)
                frac_hi = real(isub, r8) / real(nsub, r8)
@@ -2363,7 +2397,16 @@ CONTAINS
                w_end(:) = max(rivsto_donor + (rivsto_end - rivsto_donor) * frac_hi, 0._r8)
                CALL calc_sediment_advection(dt / real(nsub, r8), rivout_signed, rivout_abs, &
                   w_don, w_end)
+               netflw_int = netflw_int + netflw_adv_step * (dt / real(nsub, r8))
+               exch_int   = exch_int   + exch_d_adv_step   * (dt / real(nsub, r8))
+               sedout_int = sedout_int + sedout * (dt / real(nsub, r8))
+               bedout_int = bedout_int + bedout * (dt / real(nsub, r8))
             ENDDO
+            netflw_adv_step = netflw_int / dt
+            exch_d_adv_step = exch_int / dt
+            sedout = sedout_int / dt
+            bedout = bedout_int / dt
+            DEALLOCATE(netflw_int, exch_int, sedout_int, bedout_int, w_don, w_end)
             RETURN
          ENDIF
       ENDIF
@@ -3172,9 +3215,9 @@ CONTAINS
 #endif
 
       IF (.not. file_ok) THEN
-         ! A pre-tracer initial checkpoint has neither river-tracer commit nor
-         ! sediment fields.  Mirror the river-tracer cold-start contract; a
-         ! committed tracer checkpoint missing sediment is incomplete instead.
+         ! A pre-material initial checkpoint has neither river-material commit nor
+         ! sediment fields.  Mirror the river-material cold-start contract; a
+         ! committed material checkpoint missing sediment is incomplete instead.
          IF ((DEF_USE_LEVEE .or. DEF_USE_BIFURCATION) .and. has_river_mt_commit) THEN
             IF (p_is_io) WRITE(*,'(A)') &
                'ERROR: levee/bifurcation sediment restart requires a complete sediment transaction.'

@@ -1185,8 +1185,19 @@ CONTAINS
                   veloc_riv(i) = min(0., veloc_riv(i))
                ENDIF
 
-               veloc_riv(i) = min(veloc_riv(i),  20.)
-               veloc_riv(i) = max(veloc_riv(i), -20.)
+               ! momen_riv is defined as wdsrf_ucat * veloc_riv.  The clamp
+               ! must update it as well: otherwise the next substep reads a
+               ! velocity of 20 m/s next to a momentum of 30 (depth 1 m), so
+               ! the face flux, the CFL estimate and the friction term use
+               ! inconsistent state.  Cells that are not clamped keep exactly
+               ! the previous behaviour.
+               IF (veloc_riv(i) > 20._r8) THEN
+                  veloc_riv(i) = 20._r8
+                  momen_riv(i) = wdsrf_ucat(i) * veloc_riv(i)
+               ELSEIF (veloc_riv(i) < -20._r8) THEN
+                  veloc_riv(i) = -20._r8
+                  momen_riv(i) = wdsrf_ucat(i) * veloc_riv(i)
+               ENDIF
 
             ENDDO
 

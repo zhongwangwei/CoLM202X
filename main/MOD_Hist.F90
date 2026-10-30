@@ -23,7 +23,7 @@ MODULE MOD_Hist
    USE MOD_MT_Sediment, only: mt_sediment_snapshot_hist_acc
 #endif
 #ifdef MaterialTransport
-   USE MOD_MT_Vars, only: flush_Tracer_Acc
+   USE MOD_MT_Vars, only: flush_Material_Acc
    USE MOD_MT_Hist, only: mt_hist_out
    USE MOD_MT_HostFixes, only: mt_hist_continue_file
    USE MOD_MT_Namelist, only: mt_any_enabled
@@ -54,7 +54,7 @@ MODULE MOD_Hist
 
    character(len=256) :: file_last = 'null'
 #ifdef MaterialTransport
-   character(len=256) :: file_last_tracer = 'null'
+   character(len=256) :: file_last_material = 'null'
 #endif
 
 !--------------------------------------------------------------------------
@@ -77,7 +77,7 @@ CONTAINS
       flush_mt = .false.
       IF (present(lulcc_call)) flush_mt = lulcc_call
       CALL FLUSH_acc_fluxes (flush_mt=flush_mt)
-      CALL flush_Tracer_Acc ()
+      CALL flush_Material_Acc ()
 #else
       CALL FLUSH_acc_fluxes ()
 #endif
@@ -194,8 +194,8 @@ CONTAINS
    integer :: itime_in_file
 #ifdef MaterialTransport
    real(r8) :: history_window_seconds
-   character(len=256) :: file_hist_tracer
-   integer :: itime_in_file_tracer
+   character(len=256) :: file_hist_material
+   integer :: itime_in_file_material
 #ifdef SinglePoint
    logical :: site_hist_writeback_saved
 #endif
@@ -250,7 +250,7 @@ CONTAINS
       IF (itstamp <= ptstamp) THEN
          CALL FLUSH_acc_fluxes ()
 #ifdef MaterialTransport
-         CALL flush_Tracer_Acc ()
+         CALL flush_Material_Acc ()
 #endif
 #ifdef GridRiverLakeFlow
          CALL flush_acc_fluxes_riverlake ()
@@ -357,14 +357,14 @@ CONTAINS
 #ifdef USEMPI
             CALL mpi_allreduce(MPI_IN_PLACE, history_window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
 #endif
-            file_hist_tracer = trim(dir_hist) // '/' // trim(casename) //'_hist_material_'//trim(cdate)//'.nc'
-            CALL mt_hist_continue_file (file_hist_tracer, idate, HistForm, file_last_tracer)
+            file_hist_material = trim(dir_hist) // '/' // trim(casename) //'_hist_material_'//trim(cdate)//'.nc'
+            CALL mt_hist_continue_file (file_hist_material, idate, HistForm, file_last_material)
 #ifdef SinglePoint
             ! The single-site cache belongs to the host stream, not this file.
             site_hist_writeback_saved = USE_SITE_HistWriteBack
             USE_SITE_HistWriteBack = .false.
 #endif
-            CALL hist_write_time (file_hist_tracer, file_last_tracer, 'time', idate, itime_in_file_tracer)
+            CALL hist_write_time (file_hist_material, file_last_material, 'time', idate, itime_in_file_material)
 #ifdef SinglePoint
             USE_SITE_HistWriteBack = site_hist_writeback_saved
 #endif
@@ -373,16 +373,16 @@ CONTAINS
             ! by the write-back process, so the window is not written there.
             IF (HistForm=='Gridded' .and. p_is_master .and. trim(DEF_HIST_mode)=='one' &
                 .and. .not. DEF_HIST_WriteBack) THEN
-               CALL ncio_write_serial_time (file_hist_tracer, 'history_window_seconds', &
-                  itime_in_file_tracer, history_window_seconds, 'time')
-               CALL ncio_write_serial_time (file_hist_tracer, 'history_window_end_minutes', &
-                  itime_in_file_tracer, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
+               CALL ncio_write_serial_time (file_hist_material, 'history_window_seconds', &
+                  itime_in_file_material, history_window_seconds, 'time')
+               CALL ncio_write_serial_time (file_hist_material, 'history_window_end_minutes', &
+                  itime_in_file_material, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
                   real(mod(idate(3),60),r8)/60._r8, 'time')
-               IF (itime_in_file_tracer==1) THEN
-                  CALL ncio_put_attr(file_hist_tracer, 'history_window_seconds', 'units', 's')
-                  CALL ncio_put_attr(file_hist_tracer, 'history_window_seconds', 'long_name', &
+               IF (itime_in_file_material==1) THEN
+                  CALL ncio_put_attr(file_hist_material, 'history_window_seconds', 'units', 's')
+                  CALL ncio_put_attr(file_hist_material, 'history_window_seconds', 'long_name', &
                      'elapsed window ending at history_window_end_minutes; terminal and resumed records can overlap')
-                  CALL ncio_put_attr(file_hist_tracer, 'history_window_end_minutes', 'units', &
+                  CALL ncio_put_attr(file_hist_material, 'history_window_end_minutes', 'units', &
                      'minutes since 1900-1-1 0:0:0')
                ENDIF
             ENDIF
@@ -5430,10 +5430,10 @@ ENDIF
 #ifdef MaterialTransport
          IF (mt_any_enabled()) THEN
             IF (allocated(forcmask_pch)) THEN
-               CALL mt_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               CALL mt_hist_out (file_hist_material, itime_in_file_material, HistForm, &
                   sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
             ELSE
-               CALL mt_hist_out (file_hist_tracer, itime_in_file_tracer, HistForm, &
+               CALL mt_hist_out (file_hist_material, itime_in_file_material, HistForm, &
                   sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_empty)
             ENDIF
          ENDIF
@@ -5447,7 +5447,7 @@ ENDIF
 
          CALL FLUSH_acc_fluxes ()
 #ifdef MaterialTransport
-         CALL flush_Tracer_Acc ()
+         CALL flush_Material_Acc ()
 #endif
 
 #ifdef SinglePoint
@@ -5458,7 +5458,7 @@ ENDIF
 
          file_last = file_hist
 #ifdef MaterialTransport
-         file_last_tracer = file_hist_tracer
+         file_last_material = file_hist_material
 #endif
 
       ENDIF

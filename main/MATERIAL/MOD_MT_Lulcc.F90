@@ -23,7 +23,7 @@ MODULE MOD_MT_Lulcc
 ! and new patch areas element by element, so a remap that could not conserve
 ! mass stops the run instead of silently creating or losing material.
 !
-! Moved here from the fork's MOD_Lulcc_Driver (#ifdef TRACER blocks).
+! Moved here from the fork's MOD_Lulcc_Driver (#ifdef MATERIAL blocks).
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
@@ -219,7 +219,7 @@ CONTAINS
    USE MOD_Vars_Global, only: maxsnl, nl_soil
    USE MOD_Vars_TimeVariables, only: ldew, ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
                                      wa, wdsrf, wetwat, scv
-   USE MOD_MT_Defs,   only: nmts, mt_uses_generic_water, tracer_init_water_ratio, &
+   USE MOD_MT_Defs,   only: nmts, mt_uses_generic_water, material_init_water_ratio, &
                             mt_water_min_for_ratio
    USE MOD_MT_Vars,   only: mt_wetwat, mt_surface_solid, mt_patch_land_water_mass, &
                             mt_ldew_rain, mt_ldew_snow, mt_wliq_soisno, mt_wice_soisno, &
@@ -260,7 +260,7 @@ CONTAINS
          followed = .false.
          DO imt = 1, nmts
             IF (.not. mt_uses_generic_water(imt)) CYCLE
-            R_init = tracer_init_water_ratio(imt)
+            R_init = material_init_water_ratio(imt)
             mt_wetwat(imt,ip) = max(wetwat(ip), 0._r8) * R_init
             CALL mt_equilibrate_dissolved (imt, max(wetwat(ip), 0._r8), &
                mt_wetwat(imt,ip), mt_surface_solid(imt,ip))

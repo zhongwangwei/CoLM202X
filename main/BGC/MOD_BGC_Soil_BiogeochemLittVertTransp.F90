@@ -158,8 +158,8 @@ CONTAINS
                conc_trcr_c(j) = decomp_cpools_vr(j,s,i)
                conc_trcr_n(j) = decomp_npools_vr(j,s,i)
 
-               ! dz_tracer below is the difference between gridcell edges  (dz_soi)
-               ! dz_node_tracer is difference between cell centers
+               ! dz_material below is the difference between gridcell edges  (dz_soi)
+               ! dz_node_material is difference between cell centers
 
                ! Calculate the D and F terms in the Patankar algorithm
                IF (j == 1) THEN

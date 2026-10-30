@@ -180,8 +180,8 @@ PROGRAM CoLM
    integer :: itrc_cama
 #endif
 #ifdef MaterialTransport
-   logical :: tracer_loaded_restart
-   character(len=256) :: tracer_restart_file
+   logical :: material_loaded_restart
+   character(len=256) :: material_restart_file
 #endif
 
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
@@ -352,7 +352,7 @@ PROGRAM CoLM
       CALL mt_land_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
          casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
          wice_soisno, wa, wdsrf, wetwat, scv, waterstorage, &
-         loaded_restart=tracer_loaded_restart, restart_file=tracer_restart_file)
+         loaded_restart=material_loaded_restart, restart_file=material_restart_file)
 #endif
       ! Read in SNICAR optical and aging parameters
       IF (DEF_USE_SNICAR) THEN
@@ -379,7 +379,7 @@ PROGRAM CoLM
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
 #ifdef MaterialTransport
       CALL mt_forcing_init (gforc, numpatch)
-      CALL mt_forcing_read_restart (tracer_restart_file, tracer_loaded_restart)
+      CALL mt_forcing_read_restart (material_restart_file, material_loaded_restart)
 #endif
       CALL allocate_2D_Forcing (gforc)
 

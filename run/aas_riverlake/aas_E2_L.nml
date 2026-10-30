@@ -1,0 +1,180 @@
+&nl_colm
+
+! ==============================================================================
+!  AAS 河湖流实验 —— E7_ALL：dam + levee + bifurcation 全开
+! ------------------------------------------------------------------------------
+!  这份文件是 8 组实验的【模板】。其余 7 组由 gen_experiments.sh 从本文件生成，
+!  只替换 4 处：DEF_CASE_NAME、DEF_dir_output、DEF_dir_restart、以及下面
+!  "实验开关" 一节的三行。除此之外 8 组逐字节相同 —— 这是"差异只来自三个
+!  开关"这一论断的技术保证，不要手工单独修改某一组的其他字段。
+!
+!  实验矩阵（Table 1）：
+!    实验     Reservoir_Method   USE_LEVEE   USE_BIFURCATION
+!    E0_CTL          0            .false.        .false.
+!    E1_D            1            .false.        .false.
+!    E2_L            0            .true.         .false.
+!    E3_B            0            .false.        .true.
+!    E4_DL           1            .true.         .false.
+!    E5_DB           1            .false.        .true.
+!    E6_LB           0            .true.         .true.
+!    E7_ALL          1            .true.         .true.     <== 本文件
+!
+!  时段说明：
+!    start 2000-01-01 —— 从共享 spinup 的 1999-12-31 restart 接续。
+!    2000 年是各组【汇流】二次 spinup，让河道/洪泛/水库蓄量分化到各自平衡态，
+!    后处理时丢弃。评估期 = 2001-2005。
+!    大河河道蓄量 e-folding 约 2-4 个月，1 年充分。
+!
+!  前置检查（提交作业前务必执行，否则会跑到一半才失败）：
+!    ncdump -h $RUNTIME/unitcatchment/grid_routing_data_15min.nc \
+!      | grep -E "levee_frc|levee_hgt|bifurcation_|dam_seq|dam_year"
+!    必须能看到：
+!      levee_frc, levee_hgt                                    <- DEF_USE_LEVEE 需要
+!      bifurcation_upst/down/distance/elevation/width/manning  <- DEF_USE_BIFURCATION 需要
+!      dam_seq, dam_year, dam_GRAND_ID,
+!      dam_TotalVol_mcm, dam_ConVol_mcm, dam_Qn, dam_Qf        <- DEF_Reservoir_Method>0 需要
+!    仓库里 run/Amazon.nml 用的是 grid_routing_data_15min_sed_levee.nc（含 levee），
+!    而 run/Amazon_iso_0p5_2020.nml 用的是 grid_routing_data_15min.nc —— 文件名不同
+!    说明不是同一份数据，缺字段就必须换文件或重新制备。
+! ==============================================================================
+
+   DEF_CASE_NAME = 'E2_L'
+
+   ! ----- 模拟域：全球 -----
+   DEF_domain%edges =  -90.0
+   DEF_domain%edgen =   90.0
+   DEF_domain%edgew = -180.0
+   DEF_domain%edgee =  180.0
+
+   ! ----- 时间：2000 汇流 spinup（丢弃）+ 2001-2005 评估 -----
+   DEF_simulation_time%greenwich     = .TRUE.
+   DEF_simulation_time%start_year    = 2000
+   DEF_simulation_time%start_month   = 1
+   DEF_simulation_time%start_day     = 1
+   DEF_simulation_time%start_sec     = 0
+   DEF_simulation_time%end_year      = 2005
+   DEF_simulation_time%end_month     = 12
+   DEF_simulation_time%end_day       = 31
+   DEF_simulation_time%end_sec       = 86400
+   DEF_simulation_time%spinup_repeat = 0
+   DEF_simulation_time%timestep      = 1800.
+
+   ! ----- 路径（逐组不同，由 gen_experiments.sh 替换）-----
+   DEF_dir_rawdata = '/share/home/dq013/zhwei/colm/data/CoLMrawdata/'
+   DEF_dir_runtime = '/share/home/dq013/zhwei/colm/data/CoLMruntime/'
+   DEF_dir_output  = '/share/home/dq013/zhwei/colm/cases/aas_riverlake/output/E2_L/'
+   DEF_dir_restart = '/share/home/dq013/zhwei/colm/cases/aas_riverlake/restart/E2_L/'
+
+   ! ----- 陆面分辨率 0.5 度（汇流是 0.25 度，见下）-----
+   DEF_GRIDBASED_lon_res = 0.5
+   DEF_GRIDBASED_lat_res = 0.5
+
+   ! ----- 土壤初始场 -----
+   ! 注意：本组从 spinup 的 restart 接续，SoilInit 实际不会覆盖 restart 值，
+   ! 保留此项只为与 spinup 配置严格一致，避免任何配置漂移。
+   DEF_USE_SoilInit  = .true.
+   DEF_file_SoilInit = '/share/home/dq013/zhwei/colm/data/CoLMruntime/soilstate.nc'
+
+   ! ----- 植被：月尺度气候态 LAI，年际不变 -----
+   DEF_LAI_MONTHLY       = .true.
+   DEF_LAI_CHANGE_YEARLY = .false.
+   DEF_USE_LAIFEEDBACK   = .false.
+
+   ! ----- 关闭与本文无关的过程 -----
+   DEF_USE_PLANTHYDRAULICS = .false.
+   DEF_USE_OZONESTRESS     = .false.
+   DEF_USE_OZONEDATA       = .false.
+   DEF_USE_IRRIGATION      = .false.
+   DEF_USE_SNICAR          = .false.
+   DEF_VEG_SNOW            = .false.
+   DEF_Interception_scheme = 1
+
+   ! ----- 产流与土壤水 -----
+   DEF_USE_VariablySaturatedFlow = .true.
+   DEF_Runoff_SCHEME             = 3
+   DEF_USE_Dynamic_Lake          = .true.
+
+   ! ==========================================================================
+   !  汇流网格：0.25 度 (15 min) unit catchment
+   ! --------------------------------------------------------------------------
+   !  陆面 0.5 度 -> 汇流 0.25 度 的映射由参数文件里的 inpmat_* 定义，
+   !  在 MOD_Grid_RiverLakeFlow.F90:314-323 完成 remap + 面积归一化 + push。
+   !  这是【单向】耦合：汇流状态不回写陆面 patch，所以 8 组陆面解逐比特相同。
+   ! ==========================================================================
+   DEF_UnitCatchment_file       = '/share/home/dq013/zhwei/colm/data/CoLMruntime/unitcatchment/grid_routing_data_15min.nc'
+   DEF_GRIDBASED_ROUTING_MAX_DT = 3600.
+   DEF_USE_EstimatedRiverDepth  = .true.
+
+   ! ==========================================================================
+   !  ★★★ 实验开关 —— 8 组之间【仅有这三行不同】★★★
+   ! --------------------------------------------------------------------------
+   !  DEF_Reservoir_Method
+   !    0 = 关。reservoir_init() 根本不被调用 (CoLM.F90:296)，参数文件不读、
+   !        lake_type 不被改写，是干净的开关，无残留影响。
+   !    1 = Funato et al. (2024) CaMa-Flood v4.20 调度方案，按库容分四段出流
+   !        (MOD_Grid_Reservoir.F90:260-283)。建坝年份门控已内置：
+   !        MOD_Grid_RiverLakeFlow.F90:560 用 year >= dam_build_year 判断，
+   !        建坝前该单元退化为普通河道走 local-inertial 演算。
+   !
+   !  DEF_USE_LEVEE
+   !    把洪泛平原蓄量分成河侧(unprotected)与保护侧(protected)，只有漫堤后水
+   !    才进入保护侧。需要参数 levee_frc / levee_hgt。
+   !    移植自 CaMa-Flood v4 (Zhao et al., 2025, WRR)。
+   !
+   !  DEF_USE_BIFURCATION
+   !    分层的分汊通道，CaMa 风格 local-inertial 更新 + 蓄量限制器。
+   !    需要参数 bifurcation_upst/down/distance/elevation/width/manning。
+   !    ！性能提示：开启后强制【全局】dt 同步 (MOD_Grid_RiverLakeFlow.F90:974)，
+   !      因为分汊路径跨河系配对供受水单元，单一全局 dt 才能保证配对体积转移
+   !      守恒。关闭时只在河系通信子 p_comm_rivsys 内 allreduce (同文件:980)。
+   !      因此 B/DB/LB/ALL 四组会明显慢于另外四组 —— 这是物理必然，不是 bug，
+   !      并且是论文 Section 4.5 要量化的结果之一。
+   !
+   !  ！注意：DEF_USE_BIFURCATION 与 TRACER 互斥 (MOD_Namelist.F90:1521-1526)，
+   !    本文不开 TRACER，无冲突。
+   ! ==========================================================================
+   DEF_Reservoir_Method = 0
+   DEF_USE_LEVEE        = .true.
+   DEF_USE_BIFURCATION  = .false.
+
+   ! 水库参数文件。仅在 DEF_Reservoir_Method > 0 时被读取；
+   ! 通常与 DEF_UnitCatchment_file 是同一个文件。
+   DEF_ReservoirPara_file = '/share/home/dq013/zhwei/colm/data/CoLMruntime/unitcatchment/grid_routing_data_15min.nc'
+
+   ! ----- 大气强迫：JRA3Q -----
+   DEF_forcing_namelist = '/share/home/dq013/zhwei/colm/script/CoLM202X/run/forcing/JRA3Q.nml'
+
+   ! ==========================================================================
+   !  历史输出
+   ! --------------------------------------------------------------------------
+   !  日频输出用于日尺度 KGE 与 Q95/Q99。全球 0.25 度单变量约 1.5 GB/年，
+   !  控制手段有三：
+   !    1. groupby=MONTH 每月一个文件，便于并行后处理
+   !    2. CompressLevel=4（河道场大量 fillvalue，压缩比很高，代价可忽略）
+   !    3. hist_vars_routing.nml 关掉陆面变量 —— 8 组陆面解逐比特相同，
+   !       只需在 E0_CTL 输出一份陆面场即可（E0_CTL 用 hist_vars_land_full.nml）
+   !
+   !  受 DEF_hist_vars 控制的汇流变量见 hist_vars_routing.nml。
+   !  不受控制、只要 DEF_USE_* 开启就必定输出的：
+   !    f_rivsto, f_fldsto, f_flddph, f_storge, f_sfcelv  (总是)
+   !    f_levsto, f_levdph                                (DEF_USE_LEVEE)
+   !    f_bifout, f_bifflw_lev                            (DEF_USE_BIFURCATION)
+   ! ==========================================================================
+   DEF_HIST_lon_res  = 0.5
+   DEF_HIST_lat_res  = 0.5
+   DEF_HIST_FREQ     = 'DAILY'
+   DEF_HIST_groupby  = 'MONTH'
+   DEF_WRST_FREQ     = 'YEARLY'
+   DEF_HIST_mode     = 'one'
+   DEF_HIST_CompressLevel = 4
+   DEF_REST_CompressLevel = 1
+   DEF_HIST_WriteBack     = .false.
+
+   ! 注意：不要写 DEF_hist_vars_out_default —— 该变量在 share/MOD_Namelist.F90 中
+   ! 【从未定义】，尽管 run/Amazon.nml:52 等既有 nml 里出现过它。
+   ! 变量筛选完全由下面这个清单文件完成：DEF_hist_vars 各字段默认全为 .true.
+   ! (MOD_Namelist.F90:618-1125)，清单文件覆盖之 (:2133-2142)，漏列的字段
+   ! 会以 .true. 生效并被输出，所以清单必须完整列出全部 482 个字段。
+   DEF_HIST_vars_namelist = '/share/home/dq013/zhwei/colm/script/CoLM202X/run/aas_riverlake/hist_vars_routing.nml'
+
+/

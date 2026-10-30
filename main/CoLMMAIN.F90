@@ -232,7 +232,7 @@ SUBROUTINE CoLMMAIN ( &
    USE MOD_MT_RiverLakeCoupling, only: flood_mt_credit_patch, flood_mt_evap_patch, &
       flood_mt_land_patch
    USE MOD_MT_LandPhase, only: mt_flood_evap_loss
-   USE MOD_MT_Defs, only: tracers
+   USE MOD_MT_Defs, only: materials
    USE MOD_MT_Solute, only: mt_has_dissolved_limit
 #endif
 #endif
@@ -680,7 +680,7 @@ SUBROUTINE CoLMMAIN ( &
    integer ps, pe, pc
 #ifdef MaterialTransport
    ! material transport only
-   real(r8) :: xerr_tracer
+   real(r8) :: xerr_material
    real(r8), allocatable :: wliq_soisno_old_trc(:), wice_soisno_old_trc(:)
    real(r8), allocatable :: soil_thaw_mass_th(:), soil_frzc_mass_th(:)
    real(r8), allocatable :: wice_snow_bef_trc(:)
@@ -705,7 +705,7 @@ SUBROUTINE CoLMMAIN ( &
    real(r8) :: raw_trc
    real(r8) :: fevpa_trc, flood_input_trc
 #ifdef GridRiverLakeFlow
-   real(r8) :: flood_input_tracer(nmts)   ! material of the flood infiltration
+   real(r8) :: flood_input_material(nmts)   ! material of the flood infiltration
    real(r8) :: flood_evap_temp_trc            ! temperature of the flood water [K]
 #endif
    integer  :: itrc_loc
@@ -850,7 +850,7 @@ SUBROUTINE CoLMMAIN ( &
 ! [3] Canopy interception and precipitation onto ground surface
 !----------------------------------------------------------------------
 #ifdef MaterialTransport
-         ! canopy tracer pools matching the store the interception acts on
+         ! canopy material pools matching the store the interception acts on
          CALL mt_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, &
             ldew_rain_old_trc, ldew_snow_old_trc)
 #endif
@@ -1237,20 +1237,20 @@ SUBROUTINE CoLMMAIN ( &
          ! Material of the flood infiltration: the published credit less the
          ! vapour exchange, in the share of the water left after evaporation that
          ! infiltrated; solutes with a solubility limit carry at most that limit.
-         flood_input_tracer = 0._r8
+         flood_input_material = 0._r8
          IF (LWINFILT .and. patchtype == 0 .and. qinfl_fld > 0._r8 .and. &
              allocated(flood_mt_credit_patch)) THEN
             IF (flood_credit_patch(ipatch)*1000._r8 <= fevpg_fld*deltim) THEN
                IF (qinfl_fld*deltim > 1.e-12_r8*max(flood_credit_patch(ipatch)*1000._r8, 1._r8)) &
-                  CALL CoLM_stop('grid flood feedback: infiltration without published tracer credit')
+                  CALL CoLM_stop('grid flood feedback: infiltration without published material credit')
             ELSE
-               flood_input_tracer = (flood_mt_credit_patch(:,ipatch) - &
+               flood_input_material = (flood_mt_credit_patch(:,ipatch) - &
                   flood_mt_evap_patch(:,ipatch)) * &
                   (qinfl_fld*deltim/(flood_credit_patch(ipatch)*1000._r8-fevpg_fld*deltim))
                DO itrc_loc = 1, nmts
                   IF (.not. mt_has_dissolved_limit(itrc_loc)) CYCLE
-                  flood_input_tracer(itrc_loc) = min(max(flood_input_tracer(itrc_loc),0._r8), &
-                     tracers(itrc_loc)%max_dissolved_conc*qinfl_fld*deltim)
+                  flood_input_material(itrc_loc) = min(max(flood_input_material(itrc_loc),0._r8), &
+                     materials(itrc_loc)%max_dissolved_conc*qinfl_fld*deltim)
                ENDDO
             ENDIF
          ENDIF
@@ -1317,13 +1317,13 @@ SUBROUTINE CoLMMAIN ( &
                dz_sno_frac = dz_soisno(lbsn:0), &
                permeable_soil = permeable_soil_trc &
 #ifdef GridRiverLakeFlow
-               , flood_mt_input = flood_input_tracer, flood_infil_water = qinfl_fld*deltim &
+               , flood_mt_input = flood_input_material, flood_infil_water = qinfl_fld*deltim &
 #endif
                )
 #ifdef GridRiverLakeFlow
             ! what entered the soil, for the river-side ledger
             IF (allocated(flood_mt_land_patch)) &
-               flood_mt_land_patch(:,ipatch) = flood_input_tracer
+               flood_mt_land_patch(:,ipatch) = flood_input_material
 #endif
          ENDIF
 #endif
@@ -1512,7 +1512,7 @@ SUBROUTINE CoLMMAIN ( &
          IF (patchtype == 0) fevpa_trc = fevpa - fevpg_fld
 #endif
          CALL mt_apply_decay(ipatch, snl, nl_soil, deltim)
-         CALL mt_balance_check(ipatch, snl, nl_soil, deltim, xerr_tracer, &
+         CALL mt_balance_check(ipatch, snl, nl_soil, deltim, xerr_material, &
             patchtype_in = patchtype, water_err_in = errorw, &
             water_dS_in = endwb - totwb + flood_input_trc * deltim, &
             water_input_in = (forc_prc + forc_prl + flood_input_trc) * deltim, &

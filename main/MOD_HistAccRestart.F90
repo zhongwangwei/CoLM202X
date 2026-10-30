@@ -913,7 +913,7 @@ CONTAINS
       ! <<< fields from allocate_acc_fluxes
 
 #ifdef MaterialTransport
-      ! Material sums (MOD_MT_Vars, allocate_Tracer_Vars). After a cold
+      ! Material sums (MOD_MT_Vars, allocate_Material_Vars). After a cold
       ! start of the materials the saved sums belong to another state (or
       ! another species list) and are not read; their window starts again.
       IF (mode == HACC_WRITE .or. mt_land_restart_loaded) THEN

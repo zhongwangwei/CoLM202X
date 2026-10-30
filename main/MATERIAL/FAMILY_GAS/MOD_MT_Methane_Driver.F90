@@ -2,7 +2,7 @@
 #if (defined MaterialTransport) && (defined BGC)
 MODULE MOD_MT_Methane_Driver
 !=======================================================================
-! Driver wrapper for Methane reactive-tracer physics.
+! Driver wrapper for Methane reactive-material physics.
 !=======================================================================
 	USE MOD_Precision, only: r8
 	USE MOD_Vars_Global, only: nl_soil
@@ -75,7 +75,7 @@ CONTAINS
 		     reset_methane_inactive_lake_microbe_diagnostics, &
 		     microbial_prod_potential, microbial_oxid_potential, &
 		     microbial_prod_potential_comp, microbial_oxid_potential_comp
-		! ----- Methane tracer state (module-level allocatables) -----
+		! ----- Methane material state (module-level allocatables) -----
 		USE MOD_MT_Methane_State, only: net_methane, co2_hr_methane, methane_prod_depth, o2_decomp_depth, &
 		     co2_decomp_depth, methane_oxid_depth, o2_oxid_depth, co2_oxid_depth, &
 		     methane_aere_depth, methane_tran_depth, o2_aere_depth, co2_aere_depth, methane_ebul_depth, &

@@ -6,8 +6,8 @@ MODULE MOD_MT_Vars
    USE MOD_Precision
    USE MOD_MT_Namelist, only: DEF_MT_LULCC_ABORT_NBAD
    USE MOD_SPMD_Task, only: p_is_io, CoLM_stop
-   USE MOD_MT_Defs, only: nmts, tracers, tracer_build_descriptor_identity, &
-      mt_uses_generic_water, tracer_is_isotope, tracer_aquifer_actual_water
+   USE MOD_MT_Defs, only: nmts, materials, material_build_descriptor_identity, &
+      mt_uses_generic_water, material_is_isotope, material_aquifer_actual_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
 
    IMPLICIT NONE
@@ -44,28 +44,28 @@ MODULE MOD_MT_Vars
    real(r8), allocatable :: mt_subsurface_solid(:,:)
    real(r8), allocatable :: mt_waterstorage_solid(:,:)
 
-   ! Tracer mirror of MOD_Vars_TimeVariables::waterstorage. Irrigation
+   ! Material mirror of MOD_Vars_TimeVariables::waterstorage. Irrigation
    ! (drip/flood/paddy/sprinkler) is an internal transfer from the
    ! per-patch waterstorage reservoir to soil / canopy; water-side
    ! balance (CoLMMAIN:806) treats it that way, so the atmospheric-input
    ! term (forc_prc+forc_prl) does NOT include irrigation. Without a
-   ! matching tracer reservoir the tracer side would have to record
+   ! matching material reservoir the material side would have to record
    ! irrigation as external input, creating a systematic offset between
-   ! the water and tracer conservation accountings. mt_waterstorage
+   ! the water and material conservation accountings. mt_waterstorage
    ! carries the isotope composition of the reservoir and is debited
    ! by exactly the same volume the water side withdraws each step.
    real(r8), allocatable :: mt_waterstorage(:,:)     ! (nmts, numpatch)
 
-   ! Snow water equivalent tracer for pre-layer accumulation [kg/m2]
-   ! Tracks tracer in scv before a snow layer is created (snl=0).
+   ! Snow water equivalent material for pre-layer accumulation [kg/m2]
+   ! Tracks material in scv before a snow layer is created (snl=0).
    ! When the first snow layer forms, mt_scv is transferred to mt_wice_soisno.
    real(r8), allocatable :: mt_scv        (:,:)  ! (nmts, numpatch)
 
-   ! Throughfall tracer reaching ground [kg/m2 per step]
+   ! Throughfall material reaching ground [kg/m2 per step]
    ! Rain and snow kept separate: rain enters the surface mixed pool via
    ! mt_soil_water; snow enters mt_scv via mt_newsnow (mirrors
    ! water side where gwat only carries pg_rain). A previous "mt_pg_to_ground
-   ! = rain+snow" combined var double-counted snow tracer when used in the
+   ! = rain+snow" combined var double-counted snow material when used in the
    ! surface pool — removed to prevent reintroduction.
    real(r8), allocatable :: mt_pg_rain_ground(:,:)    ! (nmts, numpatch)
    real(r8), allocatable :: mt_pg_snow_ground(:,:)    ! (nmts, numpatch)
@@ -75,7 +75,7 @@ MODULE MOD_MT_Vars
                                                        ! glacier/waterbody substep adds to it. Transient state,
                                                        ! not in restart.
 
-   ! Tracer carried by snowmelt sm from thin-snow (snl==0) scv during THERMAL.
+   ! Material carried by snowmelt sm from thin-snow (snl==0) scv during THERMAL.
    ! Set in CoLMMAIN after THERMAL based on the actual mt_scv reduction;
    ! consumed by mt_soil_water when snl==0 .and. sm>0. Replaces the old
    ! "sm * R_precip" injection which used a fixed init delta instead of the
@@ -90,9 +90,9 @@ MODULE MOD_MT_Vars
    real(r8), allocatable :: mt_leaf_peclet (:,:)      ! previous Peclet mixing factor [-]
    real(r8), allocatable :: mt_leaf_water_moles(:,:)  ! previous leaf water content [mol/m2]
    real(r8), allocatable :: mt_leaf_iso_storage(:,:)  ! NSS isotope storage anomaly [R*mm]
-   logical,  allocatable :: mt_runtime_forced(:)      ! tracer has runtime atmospheric forcing
+   logical,  allocatable :: mt_runtime_forced(:)      ! material has runtime atmospheric forcing
 
-   ! LULCC snapshots for prognostic land-water tracer pools. These are
+   ! LULCC snapshots for prognostic land-water material pools. These are
    ! saved before LULCC rebuilds landpatch and remapped after the new patch
    ! layout exists, mirroring the methane LULCC path.
    logical :: land_mt_lulcc_snapshot_valid = .false.
@@ -121,11 +121,11 @@ MODULE MOD_MT_Vars
    real(r8), allocatable :: lulcc_trc_leaf_iso_storage_old(:,:)
 
    real(r8), allocatable :: a_trc_precip   (:,:)
-   ! Signed tracer mass exchanged with atmospheric vapour with NO net water
+   ! Signed material mass exchanged with atmospheric vapour with NO net water
    ! flux (two-way equilibrium exchange on wet surfaces).  It is a genuine
    ! boundary flux, so it must be tracked separately from a_trc_precip: the
    ! latter is paired with a water flux and is cross-checked against
-   ! water_input * R_init on fixed-signature tracers.
+   ! water_input * R_init on fixed-signature materials.
    real(r8), allocatable :: a_trc_vapor_exchange(:,:)
    real(r8), allocatable :: a_water_precip (:,:)
 	   integer, parameter :: MT_EVAP_KIND_TOTAL       = 0
@@ -161,10 +161,10 @@ MODULE MOD_MT_Vars
    real(r8), allocatable :: mt_storage_beg(:,:)
    real(r8), allocatable :: mt_balance_err(:,:)
 	   ! Net decay source/sink applied during the current land step.
-	   ! Positive adds tracer to storage; negative removes tracer.
+	   ! Positive adds material to storage; negative removes material.
 	   real(r8), allocatable :: mt_decay_source_step(:,:)
 	   ! Explicit numerical source/sink used only to reconcile solver residuals
-	   ! that have no physical flux signature. Positive adds tracer to storage.
+	   ! that have no physical flux signature. Positive adds material to storage.
 	   real(r8), allocatable :: mt_numerical_residual_step(:,:)
 	   real(r8), allocatable :: mt_numerical_water_step(:,:)
 
@@ -180,7 +180,7 @@ MODULE MOD_MT_Vars
    ! sum, but the history writer only had canopy + soil + snow, so users could
    ! not see the δ values of wa (aquifer), wdsrf (surface water), wetwat
    ! (wetland pool) or scv (pre-layer thin snow). These accumulators let
-   ! MOD_Hist emit a per-pool tracer ratio diagnostic alongside the existing
+   ! MOD_Hist emit a per-pool material ratio diagnostic alongside the existing
    ! ldew / soisno outputs.
 	   real(r8), allocatable :: a_trc_wa_mass    (:,:)   ! (nmts, numpatch)
 	   real(r8), allocatable :: a_water_wa       (:)     ! (numpatch)
@@ -202,11 +202,11 @@ MODULE MOD_MT_Vars
    ! External state contract.  LULCC snapshots and remapping work arrays stay
    ! private; only pools and diagnostics consumed by the land physics, restart,
    ! history, and host facades are exposed.
-   PUBLIC :: allocate_Tracer_Vars, deallocate_Tracer_Vars, flush_Tracer_Acc
+   PUBLIC :: allocate_Material_Vars, deallocate_Material_Vars, flush_Material_Acc
    PUBLIC :: save_land_mt_lulcc_state, remap_land_mt_lulcc_state
    PUBLIC :: mt_patch_land_water_mass
    PUBLIC :: zero_provider_owned_land_mt_state, sync_mt_patch_ratio
-   PUBLIC :: tracer_book_evap_loss
+   PUBLIC :: material_book_evap_loss
    PUBLIC :: mt_add_rnof_step, mt_reset_rnof_step
 
    PUBLIC :: mt_ldew_rain, mt_ldew_snow
@@ -249,11 +249,11 @@ MODULE MOD_MT_Vars
 
 CONTAINS
 
-   SUBROUTINE allocate_Tracer_Vars (numpatch, maxsnl, nl_soil)
+   SUBROUTINE allocate_Material_Vars (numpatch, maxsnl, nl_soil)
       IMPLICIT NONE
       integer, intent(in) :: numpatch, maxsnl, nl_soil
       integer :: imt
-      ! History writers slice tracer rows on every rank, including the master
+      ! History writers slice material rows on every rank, including the master
       ! and empty workers. Keep their second dimension empty, not unallocated.
       IF (nmts <= 0) RETURN
 
@@ -287,8 +287,8 @@ CONTAINS
       allocate(mt_runtime_forced(nmts));                mt_runtime_forced = .false.
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
-         mt_leaf_delta_e(imt, :) = tracers(imt)%init_delta
-         mt_leaf_delta_b(imt, :) = tracers(imt)%init_delta
+         mt_leaf_delta_e(imt, :) = materials(imt)%init_delta
+         mt_leaf_delta_b(imt, :) = materials(imt)%init_delta
       ENDDO
 
 	      allocate(a_trc_precip    (nmts, numpatch));           a_trc_precip    = 0._r8
@@ -344,9 +344,9 @@ CONTAINS
       allocate(a_trc_solid_mass(nmts, numpatch));           a_trc_solid_mass = 0._r8
       allocate(a_trc_scv_mass   (nmts, numpatch));          a_trc_scv_mass    = 0._r8
       allocate(a_water_scv      (numpatch));                    a_water_scv       = 0._r8
-   END SUBROUTINE allocate_Tracer_Vars
+   END SUBROUTINE allocate_Material_Vars
 
-   SUBROUTINE deallocate_Tracer_Vars ()
+   SUBROUTINE deallocate_Material_Vars ()
       IMPLICIT NONE
       IF (allocated(mt_ldew_rain  )) deallocate(mt_ldew_rain  )
       IF (allocated(mt_ldew_snow  )) deallocate(mt_ldew_snow  )
@@ -426,7 +426,7 @@ CONTAINS
       IF (allocated(a_trc_solid_mass)) deallocate(a_trc_solid_mass)
       IF (allocated(a_trc_scv_mass   )) deallocate(a_trc_scv_mass   )
       IF (allocated(a_water_scv      )) deallocate(a_water_scv      )
-   END SUBROUTINE deallocate_Tracer_Vars
+   END SUBROUTINE deallocate_Material_Vars
 
    SUBROUTINE save_land_mt_lulcc_state ()
       IMPLICIT NONE
@@ -548,21 +548,21 @@ CONTAINS
          CALL compute_lulcc_snapshot_land_water_mass(old_patch_area, mass_before)
       ENDIF
 
-      IF (allocated(mt_ldew_rain)) CALL deallocate_Tracer_Vars()
+      IF (allocated(mt_ldew_rain)) CALL deallocate_Material_Vars()
       IF (nnew <= 0) THEN
          IF (allocated(mass_before)) deallocate(mass_before, mass_after)
          CALL clear_land_mt_lulcc_snapshot()
          RETURN
       ENDIF
 
-      CALL allocate_Tracer_Vars(nnew, maxsnl_saved, nl_soil_saved)
+      CALL allocate_Material_Vars(nnew, maxsnl_saved, nl_soil_saved)
       IF (.not. allocated(mt_ldew_rain)) THEN
          IF (allocated(mass_before)) deallocate(mass_before, mass_after)
          CALL clear_land_mt_lulcc_snapshot()
          RETURN
       ENDIF
 
-      ! Extensive tracer pools are stored per unit patch area.  When both old
+      ! Extensive material pools are stored per unit patch area.  When both old
       ! and new patch areas are available, remap them by conserving area-mass:
       ! old_pool * old_area is partitioned into the target class fractions and
       ! divided by the new patch area.  Dimensionless/intensive diagnostics
@@ -774,7 +774,7 @@ CONTAINS
                   ' worst_rel=', rel_err
                IF (worst_itrc > 0) THEN
                   WRITE(*,'(A,I0,3A,2(A,E12.5))') '  material=', worst_itrc, &
-                     ' name=', trim(tracers(worst_itrc)%name), ' ', &
+                     ' name=', trim(materials(worst_itrc)%name), ' ', &
                      ' before=', before(worst_itrc), ' after=', after(worst_itrc)
                ENDIF
             ENDIF
@@ -921,7 +921,7 @@ CONTAINS
          ENDDO
          ! Do not fall back across land-cover classes; a missing class match
          ! should cold-start from allocation defaults instead of contaminating
-         ! a newly created patch with another surface type's tracer pools.
+         ! a newly created patch with another surface type's material pools.
       END FUNCTION fallback_source
 
       ! Whether the remap gives new patch np any source: a positive transfer
@@ -1035,7 +1035,7 @@ CONTAINS
 
          ! Area of old patch op that is transferred into target patch np.
          ! Summing this weight over all target patches of the same element and
-         ! source class returns old_patch_area(op), so extensive tracer mass is
+         ! source class returns old_patch_area(op), so extensive material mass is
          ! conserved when target area is non-zero.
          w = max(0._r8, old_patch_area(op)) * target_area / class_target_area
       END FUNCTION lulcc_mass_transfer_area
@@ -1135,7 +1135,7 @@ CONTAINS
       land_mt_lulcc_snapshot_valid = .false.
    END SUBROUTINE clear_land_mt_lulcc_snapshot
 
-   SUBROUTINE flush_Tracer_Acc ()
+   SUBROUTINE flush_Material_Acc ()
       IMPLICIT NONE
 	      IF (allocated(a_trc_precip )) a_trc_precip  = 0._r8
 	      IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange = 0._r8
@@ -1189,7 +1189,7 @@ CONTAINS
 	      IF (allocated(mt_decay_source_step)) mt_decay_source_step = 0._r8
 	      IF (allocated(mt_numerical_residual_step)) mt_numerical_residual_step = 0._r8
 	      IF (allocated(mt_numerical_water_step)) mt_numerical_water_step = 0._r8
-	   END SUBROUTINE flush_Tracer_Acc
+	   END SUBROUTINE flush_Material_Acc
 
    SUBROUTINE zero_provider_owned_land_mt_state ()
       IMPLICIT NONE
@@ -1271,10 +1271,10 @@ CONTAINS
       ENDDO
    END SUBROUTINE zero_provider_owned_land_mt_state
 
-	   SUBROUTINE tracer_book_evap_loss (imt, ipatch, tracer_mass, water_mass, evap_kind)
+	   SUBROUTINE material_book_evap_loss (imt, ipatch, material_mass, water_mass, evap_kind)
 	      IMPLICIT NONE
 	      integer,  intent(in) :: imt, ipatch
-	      real(r8), intent(in) :: tracer_mass, water_mass
+	      real(r8), intent(in) :: material_mass, water_mass
 	      integer,  intent(in), optional :: evap_kind
 	      integer :: kind
 
@@ -1283,7 +1283,7 @@ CONTAINS
 	      kind = MT_EVAP_KIND_TOTAL
 	      IF (present(evap_kind)) kind = evap_kind
 
-	      a_trc_evap(imt, ipatch) = a_trc_evap(imt, ipatch) + tracer_mass
+	      a_trc_evap(imt, ipatch) = a_trc_evap(imt, ipatch) + material_mass
 	      IF (allocated(a_water_evap_gross)) THEN
 	         a_water_evap_gross(imt, ipatch) = a_water_evap_gross(imt, ipatch) &
 	            + max(water_mass, 0._r8)
@@ -1292,37 +1292,37 @@ CONTAINS
 	      SELECT CASE (kind)
 	      CASE (MT_EVAP_KIND_TRANSP)
 	         IF (allocated(a_trc_transp)) a_trc_transp(imt, ipatch) = &
-	            a_trc_transp(imt, ipatch) + tracer_mass
+	            a_trc_transp(imt, ipatch) + material_mass
 	         IF (allocated(a_water_transp)) a_water_transp(imt, ipatch) = &
 	            a_water_transp(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_SOILEVAP)
 	         IF (allocated(a_trc_soilevap)) a_trc_soilevap(imt, ipatch) = &
-	            a_trc_soilevap(imt, ipatch) + tracer_mass
+	            a_trc_soilevap(imt, ipatch) + material_mass
 	         IF (allocated(a_water_soilevap)) a_water_soilevap(imt, ipatch) = &
 	            a_water_soilevap(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_CANOPYEVAP)
 	         IF (allocated(a_trc_canopyevap)) a_trc_canopyevap(imt, ipatch) = &
-	            a_trc_canopyevap(imt, ipatch) + tracer_mass
+	            a_trc_canopyevap(imt, ipatch) + material_mass
 	         IF (allocated(a_water_canopyevap)) a_water_canopyevap(imt, ipatch) = &
 	            a_water_canopyevap(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_SUBL)
 	         IF (allocated(a_trc_subl)) a_trc_subl(imt, ipatch) = &
-	            a_trc_subl(imt, ipatch) + tracer_mass
+	            a_trc_subl(imt, ipatch) + material_mass
 	         IF (allocated(a_water_subl)) a_water_subl(imt, ipatch) = &
 	            a_water_subl(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_WETLAND)
 	         IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap(imt, ipatch) = &
-	            a_trc_wetland_evap(imt, ipatch) + tracer_mass
+	            a_trc_wetland_evap(imt, ipatch) + material_mass
 	         IF (allocated(a_water_wetland_evap)) a_water_wetland_evap(imt, ipatch) = &
 	            a_water_wetland_evap(imt, ipatch) + max(water_mass, 0._r8)
 	      END SELECT
-	   END SUBROUTINE tracer_book_evap_loss
+	   END SUBROUTINE material_book_evap_loss
 
    !---------------------------------------------------------------
    ! Main-step runoff hand-off to the river routing.
    !
    ! Lake/waterbody patches are integrated in sub-steps of 1800 s inside
-   ! one land step; each substep computes its own tracer runoff mass
+   ! one land step; each substep computes its own material runoff mass
    ! ``mt_rnof``.  The river coupling reads ``mt_rnof_step`` once per land
    ! step, so every substep must ADD its mass here.  The counter is cleared
    ! exactly once per main step (CoLM.F90 before CoLMDRIVER); it must not be
@@ -1354,14 +1354,14 @@ CONTAINS
    END SUBROUTINE mt_reset_rnof_step
 
    !---------------------------------------------------------------
-   ! Rebuild one tracer's prognostic storage from a caller-owned
+   ! Rebuild one material's prognostic storage from a caller-owned
    ! mixed-box ratio. This is used by patch branches that do not run
-   ! the full tracer hydrology pipeline (glacier / waterbody) but can
+   ! the full material hydrology pipeline (glacier / waterbody) but can
    ! no longer assume a fixed R_init signature when runtime forcing or
    ! fractionation is enabled.
    !
    ! `snl` is the accounting lower bound used by mt_save_storage:
-   ! layers below snl+1 are zeroed so hidden snow-layer tracer cannot
+   ! layers below snl+1 are zeroed so hidden snow-layer material cannot
    ! leak outside the caller's conservation account.
    !---------------------------------------------------------------
    SUBROUTINE sync_mt_patch_ratio (imt, ipatch, snl, maxsnl, nl_soil, &
@@ -1393,8 +1393,8 @@ CONTAINS
          ENDIF
       ENDDO
 
-      IF (tracer_is_isotope(imt)) THEN
-         mt_wa(imt, ipatch) = tracer_aquifer_actual_water( &
+      IF (material_is_isotope(imt)) THEN
+         mt_wa(imt, ipatch) = material_aquifer_actual_water( &
             wa, mt_aquifer_ref_water(ipatch)) * R_mix - mt_aquifer_ref_mass(imt, ipatch)
       ELSE
          mt_wa(imt, ipatch) = wa * R_mix

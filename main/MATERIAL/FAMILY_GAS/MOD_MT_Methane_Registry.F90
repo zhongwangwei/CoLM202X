@@ -3,7 +3,7 @@
 #if (defined MaterialTransport) && (defined BGC)
 MODULE MOD_MT_Methane_Registry
 !=======================================================================
-! Methane's tracer index is populated by lifecycle provider registration.
+! Methane's material index is populated by lifecycle provider registration.
 !
 !=======================================================================
 
@@ -11,7 +11,7 @@ MODULE MOD_MT_Methane_Registry
    SAVE
    PRIVATE
 
-   ! Sentinel value: tracer absent (or non-reactive) in the registry.
+   ! Sentinel value: material absent (or non-reactive) in the registry.
    integer, parameter :: METHANE_GAS_ABSENT = -1
 
    integer :: igas_ch4 = METHANE_GAS_ABSENT

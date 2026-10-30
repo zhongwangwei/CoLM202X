@@ -5,18 +5,18 @@ MODULE MOD_MT_Conservation
 
    USE MOD_Precision
    USE MOD_MT_Namelist, only: DEF_MT_BALANCE_ABORT_NBAD, DEF_MT_RESID_ABORT_NBAD
-   USE MOD_MT_Defs, only: nmts, mt_tiny, tracer_init_water_ratio, &
-      tracer_can_use_fixed_signature, mt_uses_generic_water
-   USE MOD_MT_Solute, only: tracer_decay_fraction, mt_has_dissolved_limit
-   USE MOD_MT_Frac, only: tracer_fractionation_active
+   USE MOD_MT_Defs, only: nmts, mt_tiny, material_init_water_ratio, &
+      material_can_use_fixed_signature, mt_uses_generic_water
+   USE MOD_MT_Solute, only: material_decay_fraction, mt_has_dissolved_limit
+   USE MOD_MT_Frac, only: material_fractionation_active
    USE MOD_MT_Vars
-#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+#ifdef MATERIAL_SIGNED_SOIL_DEBT_EXPERIMENT
    USE MOD_SPMD_Task, only: CoLM_stop
 #endif
 
    IMPLICIT NONE
 
-   ! Hard balance tolerance for the water-corrected per-patch tracer residual.
+   ! Hard balance tolerance for the water-corrected per-patch material residual.
    ! Keep ordinary land patches strict without using an unrealistically tiny
    ! absolute floor: double-precision budget sums over many storage/flux
    ! components can leave bounded roundoff residuals even when accounting is
@@ -41,12 +41,12 @@ MODULE MOD_MT_Conservation
    real(r8), allocatable, save :: snap_rsub  (:,:)
    real(r8), allocatable, save :: snap_qinfl (:,:)
    real(r8), allocatable, save :: snap_qcharge(:,:)
-   real(r8), allocatable, save :: snap_storage_comp(:,:,:) ! (component, tracer, patch)
+   real(r8), allocatable, save :: snap_storage_comp(:,:,:) ! (component, material, patch)
 
    ! Worker-local worst-patch tracker for mt_balance_check. Previously
    ! the routine only printed when `ipatch <= 1 .and. imt == 1`, so every
    ! other failing patch was invisible. These counters accumulate across
-   ! patches within a step; caller drains them via tracer_balance_report
+   ! patches within a step; caller drains them via material_balance_report
    ! at step end.
    real(r8), save :: balance_worst_err   = 0._r8
    real(r8), save :: balance_worst_diag(19) = 0._r8
@@ -58,7 +58,7 @@ MODULE MOD_MT_Conservation
    integer,  save :: balance_worst_itrc   = 0
    integer,  save :: balance_worst_ptype  = -1
    integer,  save :: balance_nbad         = 0
-   ! Fixed-signature tracers have a second, independent contract: each water-
+   ! Fixed-signature materials have a second, independent contract: each water-
    ! carrying boundary flux must equal the matching water flux times R_init.
    ! Keep this separate from mass conservation so neither check can hide the
    ! other by substituting theoretical fluxes for the amounts actually booked.
@@ -70,7 +70,7 @@ MODULE MOD_MT_Conservation
    integer,  save :: signature_worst_ptype  = -1
    integer,  save :: signature_nbad         = 0
    ! P1 diagnostic: the per-layer mt_wliq<->wliq_soisno reconciliation
-   ! (MOD_MT_SoilWater) injects/removes tracer booked as numerical_source_sink.
+   ! (MOD_MT_SoilWater) injects/removes material booked as numerical_source_sink.
    ! This is an explicit solver-closure term, not an unbooked transport leak, so
    ! the hard transport-balance check subtracts it like decay_source_sink.
    ! It still has its own independent hard cap below; otherwise a large
@@ -89,7 +89,7 @@ MODULE MOD_MT_Conservation
 
    PUBLIC :: deallocate_mt_conservation
    PUBLIC :: mt_apply_decay
-   PUBLIC :: tracer_balance_report
+   PUBLIC :: material_balance_report
 
 CONTAINS
 
@@ -133,7 +133,7 @@ CONTAINS
       logical  :: fixed_signature_storage
 
          IF (nmts <= 0) RETURN
-#ifdef TRACER_SIGNED_SOIL_DEBT_EXPERIMENT
+#ifdef MATERIAL_SIGNED_SOIL_DEBT_EXPERIMENT
          IF (any(mt_wliq_soisno(:,1:nl_soil,ipatch) < 0._r8)) &
             CALL CoLM_stop('signed soil debt: rejected full timestep; direct-kernel experiment only')
 #endif
@@ -165,19 +165,19 @@ CONTAINS
             IF (allocated(mt_numerical_residual_step)) mt_numerical_residual_step(imt, ipatch) = 0._r8
             IF (allocated(mt_numerical_water_step)) mt_numerical_water_step(imt, ipatch) = 0._r8
 
-         ! Phase-1 re-sync of the irrigation reservoir tracer to current
+         ! Phase-1 re-sync of the irrigation reservoir material to current
          ! waterstorage. Under no-fractionation tests all refills arrive at
          ! R_init so the ratio is constant. When fractionation is active, do
          ! not overwrite the reservoir isotope state with the initial delta.
-         fixed_signature_storage = tracer_can_use_fixed_signature(imt) .and. &
-            .not. tracer_fractionation_active(imt) .and. &
+         fixed_signature_storage = material_can_use_fixed_signature(imt) .and. &
+            .not. material_fractionation_active(imt) .and. &
             .not. mt_has_dissolved_limit(imt)
          IF (allocated(mt_runtime_forced)) THEN
             fixed_signature_storage = fixed_signature_storage .and. .not. mt_runtime_forced(imt)
          ENDIF
          IF (present(waterstorage) .and. allocated(mt_waterstorage) .and. &
              fixed_signature_storage) THEN
-            R_init = tracer_init_water_ratio(imt)
+            R_init = material_init_water_ratio(imt)
             mt_waterstorage(imt, ipatch) = max(waterstorage, 0._r8) * R_init
          ENDIF
 
@@ -262,7 +262,7 @@ CONTAINS
 
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
-         decay_fraction = tracer_decay_fraction(imt, deltim)
+         decay_fraction = material_decay_fraction(imt, deltim)
          IF (decay_fraction <= 0._r8) CYCLE
 
          source_sink = 0._r8
@@ -314,7 +314,7 @@ CONTAINS
          real(r8), intent(inout) :: source_sink
          real(r8) :: before
 
-         ! Negative tracer pools can occur only in signed water-debt states
+         ! Negative material pools can occur only in signed water-debt states
          ! such as wa. Do not turn those numerical debts into chemical source.
          IF (pool <= mt_tiny) RETURN
          before = pool
@@ -324,14 +324,14 @@ CONTAINS
 
    END SUBROUTINE mt_apply_decay
 
-   SUBROUTINE mt_balance_check (ipatch, snl, nl_soil, deltim, xerr_tracer, &
+   SUBROUTINE mt_balance_check (ipatch, snl, nl_soil, deltim, xerr_material, &
                                     patchtype_in, water_err_in, water_dS_in, &
                                     water_input_in, water_output_in, &
                                     water_evap_in, water_rnof_in, flood_heterogeneous_in)
       IMPLICIT NONE
       integer,  intent(in)  :: ipatch, snl, nl_soil
       real(r8), intent(in)  :: deltim
-      real(r8), intent(out) :: xerr_tracer
+      real(r8), intent(out) :: xerr_material
       ! Optional patchtype passthrough so MT_BAL report can identify the
       ! offending branch (0=soil, 1=urban, 2=wetland, 3=glacier, 4=waterbody).
       ! Kept optional so old call sites (if any) still compile.
@@ -362,7 +362,7 @@ CONTAINS
       real(r8) :: storage_comp_dS (n_storage_diag)
       logical  :: fixed_signature_step, water_corrected_check
 
-      xerr_tracer = 0._r8
+      xerr_material = 0._r8
       IF (nmts <= 0) RETURN
       lb_store = max(lbound(mt_wliq_soisno, 2), snl + 1)
 
@@ -409,9 +409,9 @@ CONTAINS
          storage_comp_beg = snap_storage_comp(:, imt, ipatch)
          storage_comp_dS = storage_comp_end - storage_comp_beg
 
-         R_init = tracer_init_water_ratio(imt)
-         water_corrected_check = tracer_can_use_fixed_signature(imt)
-         fixed_signature_step = water_corrected_check .and. .not. tracer_fractionation_active(imt)
+         R_init = material_init_water_ratio(imt)
+         water_corrected_check = material_can_use_fixed_signature(imt)
+         fixed_signature_step = water_corrected_check .and. .not. material_fractionation_active(imt)
          IF (allocated(mt_runtime_forced)) THEN
             fixed_signature_step = fixed_signature_step .and. .not. mt_runtime_forced(imt)
          ENDIF
@@ -423,7 +423,7 @@ CONTAINS
          IF (present(flood_heterogeneous_in)) THEN
             IF (flood_heterogeneous_in) THEN
                fixed_signature_step = .false.
-               ! The raw tracer budget already subtracts its explicitly
+               ! The raw material budget already subtracts its explicitly
                ! booked numerical source/sink. Applying R_init times the
                ! host water closure as well would double-correct a flooded
                ! column whose incoming isotope ratio is not R_init.
@@ -447,7 +447,7 @@ CONTAINS
          step_input_check = step_input
          step_output_check = step_output
 
-         ! Two-way equilibrium exchange with atmospheric vapour moves tracer
+         ! Two-way equilibrium exchange with atmospheric vapour moves material
          ! across the patch boundary with NO accompanying water flux, so it
          ! is included in mass conservation but excluded from the separate
          ! fixed-signature check. Signed: positive = net uptake.
@@ -499,11 +499,11 @@ CONTAINS
          ENDIF
          water_err_R = (water_err - booked_host_water) * R_init
          err_minus_water = err - water_err_R
-         ! The hard tracer check should ignore host water-budget non-closure
-         ! for isotope tracers. Fractionation and runtime atmospheric forcing
+         ! The hard material check should ignore host water-budget non-closure
+         ! for isotope materials. Fractionation and runtime atmospheric forcing
          ! keep their process-owned flux signatures above, but they should not
-         ! make the hard tracer check count host water non-closure as tracer
-         ! non-conservation. A real tracer accounting bug remains visible in
+         ! make the hard material check count host water non-closure as material
+         ! non-conservation. A real material accounting bug remains visible in
          ! err_minus_water.
          IF (present(water_err_in) .and. water_corrected_check) THEN
             check_err = err_minus_water
@@ -585,7 +585,7 @@ CONTAINS
 
          IF (abs(check_err) > balance_tol) THEN
             ! Track worst-ever failure within this step (worker-local).
-            ! tracer_balance_report surfaces the accumulated bulk at end of step.
+            ! material_balance_report surfaces the accumulated bulk at end of step.
             IF (abs(check_err) > abs(balance_worst_err)) THEN
                balance_worst_err    = check_err
                balance_worst_diag(1) = err
@@ -652,9 +652,9 @@ CONTAINS
          ! entirely. Report the raw residual instead; a rate is meaningless
          ! without a timestep anyway.
          IF (deltim > 0._r8) THEN
-            xerr_tracer = max(xerr_tracer, abs(check_err) / deltim)
+            xerr_material = max(xerr_material, abs(check_err) / deltim)
          ELSE
-            xerr_tracer = max(xerr_tracer, abs(check_err))
+            xerr_material = max(xerr_material, abs(check_err))
          ENDIF
       ENDDO
    END SUBROUTINE mt_balance_check
@@ -672,7 +672,7 @@ CONTAINS
    ! the same ranks that produced the counts. Worker rank 0 prints the
    ! summary (not p_is_master, which lives on a different comm).
    !---------------------------------------------------------------
-   SUBROUTINE tracer_balance_report ()
+   SUBROUTINE material_balance_report ()
       USE MOD_SPMD_Task, only: CoLM_stop
 #ifdef USEMPI
       USE MOD_SPMD_Task, only: p_comm_worker, p_iam_worker, p_err, p_is_worker
@@ -841,7 +841,7 @@ CONTAINS
 #endif
 
       IF (print_me .and. nbad_total > 0) THEN
-         ! "nbad_entries" = (patch, tracer) pairs exceeding tol.
+         ! "nbad_entries" = (patch, material) pairs exceeding tol.
          ! Upper bound on unique patches is nbad_entries / nmts
          ! (each patch contributes at most nmts entries).
          ! ptype: 0=soil 1=urban 2=wetland 3=glacier 4=waterbody, -1=unknown.
@@ -989,7 +989,7 @@ CONTAINS
       resid_hard_worst_itrc   = 0
       resid_hard_worst_ptype  = -1
       resid_hard_nbad      = 0
-   END SUBROUTINE tracer_balance_report
+   END SUBROUTINE material_balance_report
 
 END MODULE MOD_MT_Conservation
 #endif

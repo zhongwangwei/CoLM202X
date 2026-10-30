@@ -117,7 +117,7 @@
 #endif
 !    Material transport is only meaningful with river-lake routing: enable it
 !    automatically and drop the CaMa-Flood alternative (which does not route
-!    land runoff tracers). URBAN_MODEL is not supported together with it.
+!    land runoff materials). URBAN_MODEL is not supported together with it.
 #if (defined MaterialTransport && defined URBAN_MODEL)
 #error "MaterialTransport does not support URBAN_MODEL; disable URBAN_MODEL to build material transport."
 #endif

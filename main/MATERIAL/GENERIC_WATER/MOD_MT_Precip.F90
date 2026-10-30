@@ -6,7 +6,7 @@ MODULE MOD_MT_Precip
    USE MOD_Precision
    USE MOD_MT_Defs, only: nmts, mt_tiny, mt_water_min_for_ratio, mt_uses_generic_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
-   USE MOD_MT_Forcing, only: tracer_forcing_rain_value, tracer_forcing_snow_value
+   USE MOD_MT_Forcing, only: material_forcing_rain_value, material_forcing_snow_value
    USE MOD_MT_Vars, only: mt_ldew_rain, mt_ldew_snow, a_trc_precip, &
       mt_pg_rain_ground, mt_pg_snow_ground, mt_waterstorage, &
       mt_canopy_solid, mt_surface_solid, mt_waterstorage_solid
@@ -19,7 +19,7 @@ MODULE MOD_MT_Precip
 CONTAINS
 
    !---------------------------------------------------------------
-   ! Canopy tracer update after LEAF_INTERCEPTION.
+   ! Canopy material update after LEAF_INTERCEPTION.
    !
    ! Physical process:
    !   1. Precipitation arrives: forc_rain, forc_snow
@@ -28,16 +28,16 @@ CONTAINS
    !   4. If canopy saturates, excess drips: carries MIXED canopy R
    !   5. Phase change inside LEAF_INTERCEPTION (NoahMP/MATSIRO/VIC/
    !      JULES) moves ldew_smelt_out from ldew_snow to ldew_rain and/or
-   !      ldew_frzc_out from ldew_rain to ldew_snow. Tracer mass has to
+   !      ldew_frzc_out from ldew_rain to ldew_snow. Material mass has to
    !      migrate coherently, otherwise the rain pool loses signal from
-   !      the melt event (and vice versa for freeze) and the snow tracer
+   !      the melt event (and vice versa for freeze) and the snow material
    !      gets mis-attributed as drip to mt_pg_snow_ground downstream.
    !
-   ! Tracer to ground = throughfall*R_precip + drip*R_mixed
+   ! Material to ground = throughfall*R_precip + drip*R_mixed
    !   (rain → mt_pg_rain_ground → surface pool via mt_soil_water;
    !    snow → mt_pg_snow_ground → mt_scv via mt_newsnow)
    !
-   ! Canopy tracer: migrate phase change first (updates "effective"
+   ! Canopy material: migrate phase change first (updates "effective"
    ! pre-interception anchor so the rain/snow stages below see a
    ! consistent (ldew_*_old, mt_ldew_*) pair), then for each phase
    ! remove xsc, mix interception with remainder, and finally strip drip.
@@ -61,7 +61,7 @@ CONTAINS
       ! Sprinkler irrigation rate (mm/s). LEAF_INTERCEPTION merges this
       ! into the rain stream (MOD_LeafInterception.F90:187,232), so the
       ! "total rain arriving" at the patch is (forc_rain + this). Without
-      ! counting it here the tracer input is under-reported and the
+      ! counting it here the material input is under-reported and the
       ! throughfall-vs-interception partition uses the wrong denominator.
       real(r8), intent(in) :: qflx_irrig_sprinkler
       ! Gross rain/snow rate entering the canopy mixed pool [mm/s], >=0.
@@ -80,19 +80,19 @@ CONTAINS
       ! mixes in (capacity overflow on LAI-driven satcap shrink, phase-
       ! change overflow, snow unloading in NoahMP, etc). That mass carries
       ! the pre-mix canopy signature, NOT R_mixed. Without separating it
-      ! out, the tracer drip term would lump xsc with the post-mix tex
+      ! out, the material drip term would lump xsc with the post-mix tex
       ! and dilute old canopy signatures with fresh precipitation.
       real(r8), intent(in) :: xsc_rain_out
       real(r8), intent(in) :: xsc_snow_out
       ! Canopy rain<->snow phase change mass [grid-scale mm, >=0].
       ! ldew_smelt_mass is the canopy snow -> rain transfer this step
       ! (melt); ldew_frzc_mass is the canopy rain -> snow transfer
-      ! (freeze). Each nonzero value triggers an equal-mass tracer
+      ! (freeze). Each nonzero value triggers an equal-mass material
       ! migration between mt_ldew_snow and mt_ldew_rain before the
       ! rain/snow stages run, and the pre-interception anchors
       ! (ldew_*_old_eff, mt_ldew_*) are updated so R_canopy_pre in each
       ! stage reflects the post-migration pool composition. Without this
-      ! step the snow-pool tracer would be spuriously classified as drip
+      ! step the snow-pool material would be spuriously classified as drip
       ! and sent to mt_pg_snow_ground (and the rain pool would
       ! under-report the melt signal).
       real(r8), intent(in) :: ldew_smelt_mass
@@ -111,7 +111,7 @@ CONTAINS
       real(r8) :: sprinkler_rate       ! non-negative sprinkler water input [mm/s]
       real(r8) :: sprinkler_water      ! sprinkler water transferred this step [mm]
       real(r8) :: xsc_mass             ! pre-mix release in this step [mm]
-      real(r8) :: mt_xsc              ! pre-mix release tracer mass
+      real(r8) :: mt_xsc              ! pre-mix release material mass
       real(r8) :: R_canopy_pre         ! canopy signature BEFORE mix
       real(r8) :: ldew_rain_pre_mix    ! post-xsc, pre-mix storage [mm]
       real(r8) :: ldew_snow_pre_mix
@@ -124,7 +124,7 @@ CONTAINS
       real(r8) :: ldew_snow_old_eff
       real(r8) :: smelt_mass, frzc_mass ! effective phase-change masses
       real(r8) :: R_snow_pre, R_rain_pre
-      real(r8) :: mt_smelt, mt_frzc   ! tracer mass migrated this step
+      real(r8) :: mt_smelt, mt_frzc   ! material mass migrated this step
       real(r8) :: canopy_trc_beg, canopy_trc_end, canopy_input_trc
       real(r8) :: canopy_resid, ground_trc_total, desired_ground_total
       real(r8) :: sprinkler_trc
@@ -145,10 +145,10 @@ CONTAINS
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
          ! Rain and snow take their own forcing ratio: they differ only where
-         ! the forcing record is near-dry (see tracer_forcing_rain_value in
+         ! the forcing record is near-dry (see material_forcing_rain_value in
          ! MOD_MT_Forcing); elsewhere both are the same value as before.
-         R_rain_atm   = tracer_forcing_rain_value(imt, ipatch)
-         R_snow_input = tracer_forcing_snow_value(imt, ipatch)
+         R_rain_atm   = material_forcing_rain_value(imt, ipatch)
+         R_snow_input = material_forcing_snow_value(imt, ipatch)
          storage_ratio = R_rain_atm
          CALL mt_equilibrate_dissolved(imt, max(ldew_rain_old, 0._r8), &
             mt_ldew_rain(imt, ipatch), mt_canopy_solid(imt, ipatch))
@@ -161,7 +161,7 @@ CONTAINS
          ! treats it as an internal transfer from waterstorage (not a
          ! term in forc_prc+forc_prl). Mirror that: debit
          ! mt_waterstorage for sprinkler and keep a_trc_precip purely
-         ! atmospheric, so the tracer budget's "external input"
+         ! atmospheric, so the material budget's "external input"
          ! matches the water-side definition.
          ! The second term is exactly zero when rain and snow share a ratio,
          ! which keeps this sum bit-identical to the single-ratio form.
@@ -181,7 +181,7 @@ CONTAINS
             sprinkler_trc = min(max(sprinkler_trc, 0._r8), max(mt_waterstorage(imt, ipatch), 0._r8))
             mt_waterstorage(imt, ipatch) = mt_waterstorage(imt, ipatch) &
                - sprinkler_trc
-            ! The canopy must receive exactly the tracer actually removed,
+            ! The canopy must receive exactly the material actually removed,
             ! including near-dry and dissolved-inventory-limited withdrawals.
             IF (sprinkler_water > mt_tiny) storage_ratio = sprinkler_trc / sprinkler_water
             IF (present(waterstorage_before)) THEN
@@ -206,7 +206,7 @@ CONTAINS
          ! snow pool into the rain pool (ldew_smelt_mass > 0) or frozen
          ! part of the rain pool into the snow pool (ldew_frzc_mass > 0)
          ! BEFORE touching any new precipitation this step. Without
-         ! migrating the tracer mass along with the bulk water, the snow
+         ! migrating the material mass along with the bulk water, the snow
          ! block below would see d_ldew < 0 (for melt) and falsely
          ! classify ldew_smelt_mass as drip to mt_pg_snow_ground, while
          ! the rain pool would silently lose the meltwater's signature.
@@ -253,7 +253,7 @@ CONTAINS
          ! releases the entire old single-bucket canopy store as rain or snow
          ! according to tleaf, then zeros both ldew phase pools.  Its xsc
          ! diagnostic therefore names the RELEASE phase, not necessarily the
-         ! phase in which the old water/tracer entered this routine.  Repack the
+         ! phase in which the old water/material entered this routine.  Repack the
          ! complete old canopy inventory into that host-selected phase before
          ! the ordinary xsc calculation.  Otherwise old snow released as rain
          ! remains stranded in mt_ldew_snow (and old rain released as snow is
@@ -330,7 +330,7 @@ CONTAINS
          ! OLD canopy pool flushed out before any new rain mixes in
          ! (capacity overflow, phase-change overflow, unloading). It
          ! carries the canopy's pre-mix signature R_canopy_pre, derived
-         ! from the entry tracer storage and entry bulk water.
+         ! from the entry material storage and entry bulk water.
          ! Use the post-phase-change effective old-pool so R_canopy_pre
          ! reflects the actual pool entering the xsc stage.
          xsc_mass = min(max(0._r8, xsc_rain_out) * deltim, ldew_rain_old_eff)
@@ -364,12 +364,12 @@ CONTAINS
          drip = max(max(pg_rain, 0._r8) * deltim - xsc_mass - throughfall, 0._r8)
          drip = min(drip, max(intercepted, 0._r8))
 
-         ! Rain tracer reaching the ground: pure-gap throughfall keeps the
+         ! Rain material reaching the ground: pure-gap throughfall keeps the
          ! input rain signature, while drip carries the mixed canopy ratio.
          mt_throughfall = throughfall * R_rain_input
          mt_drip = drip * R_mixed
 
-         ! Canopy tracer: blended pool minus drip
+         ! Canopy material: blended pool minus drip
          mt_ldew_rain(imt, ipatch) = max(mt_mixed - drip * R_mixed, 0._r8)
 
          mt_rain_ground = mt_throughfall + mt_xsc + mt_drip
@@ -406,7 +406,7 @@ CONTAINS
          mt_snow_ground = throughfall * R_snow_input + mt_xsc + drip * R_mixed
 
          ! Close the combined canopy interception budget exactly:
-         !   Δ(canopy tracer) = rain/snow input tracer - ground tracer.
+         !   Δ(canopy material) = rain/snow input material - ground material.
          ! The phase-specific partition above follows water-side release
          ! diagnostics, but several interception schemes expose only net
          ! pg_* plus clamped xsc/gross terms. That can leave O(1e-8)
@@ -440,7 +440,7 @@ CONTAINS
          CALL mt_equilibrate_dissolved(imt, max(pg_rain, 0._r8) * deltim, &
             mt_rain_ground, mt_surface_solid(imt, ipatch))
 
-        ! Store rain/snow tracer separately: rain feeds the surface mixed
+        ! Store rain/snow material separately: rain feeds the surface mixed
         ! pool in mt_soil_water; snow feeds mt_scv in mt_newsnow.
          mt_pg_rain_ground(imt, ipatch) = mt_rain_ground
          mt_pg_snow_ground(imt, ipatch) = mt_snow_ground
@@ -455,13 +455,13 @@ CONTAINS
    ! With DEF_VEG_SNOW = .false. the host interception works on ldew only
    ! (excess and new water go to the rain or the snow side by tleaf) and
    ! ldew_rain/ldew_snow are re-split afterwards in the leaf temperature
-   ! code. The host values are left untouched; only the tracer pools are
+   ! code. The host values are left untouched; only the material pools are
    ! arranged here so that they match the store the host is acting on.
    !
-   ! mt_canopy_lump (before interception): put all canopy tracer into the
+   ! mt_canopy_lump (before interception): put all canopy material into the
    !   phase the host interception uses and return that phase's water.
    ! mt_canopy_split (before the energy balance): split ldew the way the
-   !   leaf temperature code splits it, and the tracer in the same ratio.
+   !   leaf temperature code splits it, and the material in the same ratio.
    ! With DEF_VEG_SNOW = .true. both return the host components unchanged.
    !---------------------------------------------------------------
    SUBROUTINE mt_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, rain_eff, snow_eff)
@@ -526,7 +526,7 @@ CONTAINS
 
    !---------------------------------------------------------------
    ! Rain and snow parts of ldew as the DEF_VEG_SNOW = .false. branch of
-   ! LeafTemperature splits it; no tracer pool is changed. Also used after
+   ! LeafTemperature splits it; no material pool is changed. Also used after
    ! the energy balance: LeafTemperaturePC has no such re-split, so its
    ! ldew_rain/ldew_snow need not add up to ldew there.
    !---------------------------------------------------------------

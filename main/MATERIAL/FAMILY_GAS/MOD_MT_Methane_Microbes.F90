@@ -3,7 +3,7 @@
 #if (defined MaterialTransport) && (defined BGC)
 MODULE MOD_MT_Methane_Microbes
 !=======================================================================
-! Optional microbial-pool diagnostics for the Methane tracer.
+! Optional microbial-pool diagnostics for the Methane material.
 !
 ! This module is deliberately off by default.  When enabled with
 ! DEF_METHANE%use_microbial_pools it advances simple active/dormant
