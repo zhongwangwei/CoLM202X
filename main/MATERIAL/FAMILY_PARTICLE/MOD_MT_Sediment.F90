@@ -2338,6 +2338,17 @@ CONTAINS
                IF (cfl_ratio > real(nsub, r8)) nsub = ceiling(cfl_ratio)
             ENDIF
          ENDDO
+         ! The substep count must be the same on every rank: each substep calls
+         ! calc_sediment_advection, which exchanges donor concentration, bed
+         ! load, shear velocity and width with the downstream neighbour.  With
+         ! a per-rank count, ranks of one river system would issue a different
+         ! number of exchanges and either block or pair against the wrong
+         ! substep.  Taking the maximum over the workers keeps every rank on
+         ! the same schedule (and, as before, only refines locally).
+#ifdef USEMPI
+         CALL mpi_allreduce (MPI_IN_PLACE, nsub, 1, MPI_INTEGER, MPI_MAX, &
+            p_comm_worker, p_err)
+#endif
          ! N09: never silently truncate a required material CFL count:
          ! capping violates the gross-outflow<=donor-water invariant.
          IF (nsub > 240) THEN
