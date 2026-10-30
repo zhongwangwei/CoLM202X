@@ -223,6 +223,7 @@ MODULE MOD_MT_RiverLake
    PUBLIC :: mt_levsto
    PUBLIC :: mt_solid, mt_levsto_solid, mt_riverlake_equilibrate_cell
    PUBLIC :: mt_dry_drain
+   PRIVATE :: mt_bif_dry_prepare, mt_bif_dry_deliver
    PUBLIC :: mt_dry_stat
    PUBLIC :: mt_riverlake_release_pending_drain
    PUBLIC :: mt_decay_source
@@ -783,7 +784,7 @@ CONTAINS
    integer,  intent(in) :: ucat2resv_in(:)
    logical,  intent(in), optional :: is_built_resv(:)
    real(r8), intent(in), optional :: hflux_fc_in(:)  ! downstream face flux [m3/s]
-   logical,  intent(in), optional :: allow_reverse_flow  ! host has no BIF/levee pathways
+   logical,  intent(in), optional :: allow_reverse_flow  ! actual main-channel reverse edges
 
    real(r8), intent(in), optional :: bif_hflux_lev_in(:,:)
 
@@ -795,6 +796,7 @@ CONTAINS
    real(r8) :: vol_j, dt_j, rev_share, dt_don
    real(r8), allocatable :: bif_dn_levee(:), dry_coeff(:), bif_add(:), bif_add_lev(:), bif_hist(:)
    logical :: bif_active
+   real(r8), allocatable :: active_flux(:)
 
       IF (nmts <= 0) RETURN
       IF (.not. p_is_worker) RETURN
@@ -807,7 +809,23 @@ CONTAINS
       IF (present(allow_reverse_flow)) reverse_allowed = allow_reverse_flow
       IF (.not. present(hflux_fc_in)) reverse_allowed = .false.
 
+      allocate(active_flux(numucat))
+      active_flux = 0._r8
       DO i = 1, numucat
+         IF (.not. ucatfilter(i)) CYCLE
+         IF (irivsys(i) <= 0 .or. irivsys(i) > size(dt_all)) CYCLE
+         dt_i = dt_all(irivsys(i))
+         IF (dt_i <= 0._r8) CYCLE
+         IF (present(hflux_fc_in)) active_flux(i) = hflux_fc_in(i)
+      ENDDO
+
+      DO i = 1, numucat
+         ! Finished routing groups retain old face fluxes. They must neither
+         ! drain inventory again nor contribute those stale faces to a split.
+         IF (.not. ucatfilter(i)) CYCLE
+         IF (irivsys(i) <= 0 .or. irivsys(i) > size(dt_all)) CYCLE
+         dt_i = dt_all(irivsys(i))
+         IF (dt_i <= 0._r8) CYCLE
          IF (present(is_built_resv)) THEN
             CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, volwater, is_built_resv(i))
          ELSE
@@ -966,10 +984,9 @@ CONTAINS
          ! fluxes|.  `push_ups2ucat` aggregates upstream-cell values at the
          ! downstream cell, so this is available locally after one push.
          IF (reverse_allowed) THEN
-            up_rev(:) = max(-hflux_fc_in(:), 0._r8)
+            up_rev(:) = max(-active_flux(:), 0._r8)
          ELSE
-            ! No reverse flow in this configuration (bifurcation or levees):
-            ! deliver along the forward main-channel edge only.
+            ! The caller explicitly disabled main-channel reverse delivery.
             up_rev(:) = 0._r8
          ENDIF
          rev_sum(:) = 0._r8
@@ -980,7 +997,7 @@ CONTAINS
             allocate(dry_coeff(numucat), bif_add(numucat), bif_add_lev(numucat), bif_hist(numucat))
          ENDIF
          DO i = 1, numucat
-            out_total(i) = max(hflux_fc_in(i), 0._r8) + rev_sum(i) + bif_out(i)
+            out_total(i) = max(active_flux(i), 0._r8) + rev_sum(i) + bif_out(i)
          ENDDO
 
          ! A donor with no actual main-channel outflow has nowhere physical to
@@ -1014,7 +1031,7 @@ CONTAINS
             DO i = 1, numucat
                IF (mt_dry_split(imt, i) <= mt_tiny) CYCLE
                IF (out_total(i) > mt_tiny) THEN
-                  fwd_send(i) = mt_dry_split(imt, i) * max(hflux_fc_in(i), 0._r8) / out_total(i)
+                  fwd_send(i) = mt_dry_split(imt, i) * max(active_flux(i), 0._r8) / out_total(i)
                   IF (ucat_next(i) <= 0) THEN
                      mt_dry_drain(imt,i) = mt_dry_drain(imt,i) + fwd_send(i)
                      IF (allocated(mt_dry_stat)) mt_dry_stat(imt,4) = mt_dry_stat(imt,4) + fwd_send(i)
@@ -1065,8 +1082,8 @@ CONTAINS
                ! reverse share: receiver pulls its donor's drained mass and
                ! weights it by its own reverse edge flux (known locally)
                IF (reverse_allowed .and. rev_recv(i) > mt_tiny .and. &
-                   hflux_fc_in(i) < 0._r8 .and. donor_out(i) > mt_tiny) THEN
-                  rev_share = rev_recv(i) * abs(hflux_fc_in(i)) / donor_out(i)
+                   active_flux(i) < 0._r8 .and. donor_out(i) > mt_tiny) THEN
+                  rev_share = rev_recv(i) * abs(active_flux(i)) / donor_out(i)
                   IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 2) = mt_dry_stat(imt, 2) + rev_share
                   IF (allocated(a_trc_out) .and. ucatfilter(i)) THEN
                      dt_j = 0._r8
@@ -1118,6 +1135,7 @@ CONTAINS
    ! Only visible dry mass is extracted by diag_accumulate. Protected donors
    ! therefore contribute no capacity; receivers may be in either water pool.
    SUBROUTINE mt_bif_dry_prepare(q, gross, down_levee)
+      USE, INTRINSIC :: ieee_arithmetic, only: ieee_is_finite
       USE MOD_Grid_RiverLakeNetwork, only: numucat, pth_upst_local, push_bif_dn2pth, push_bif_influx
       USE MOD_Grid_RiverLakeLevee, only: has_levee
       USE MOD_WorkerPushData
@@ -1128,6 +1146,7 @@ CONTAINS
       integer :: p, k, u
       logical :: up_protected, dn_protected
 
+      IF (any(.not. ieee_is_finite(q))) CALL CoLM_stop('nonfinite dry BIF water flux')
       IF (size(q,2) /= size(pth_upst_local)) CALL CoLM_stop('dry BIF pathway shape mismatch')
       allocate(down_levee(size(q,2)))
       flags = 0._r8
