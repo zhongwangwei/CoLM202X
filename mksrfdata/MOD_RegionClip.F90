@@ -53,7 +53,10 @@ CONTAINS
    logical, allocatable :: pftmask  (:)
 #endif
 
-   integer :: month, YY, itime, Julian_day, nsl, ilc
+   integer :: month, YY, itime, Julian_day, nsl, ilc, ifield
+   character(len=3), parameter :: canopy_fields(3) = ['ncd', 'ncw', 'bcw']
+   character(len=8), parameter :: twi_fields(6) = &
+      [character(len=8) :: 'mean_twi', 'fsatmax', 'fsatdcf', 'alp_twi', 'chi_twi', 'mu_twi']
    integer :: start_year, end_year
    character(len=1) :: c1
    character(len=2) :: c2, cx
@@ -82,10 +85,8 @@ CONTAINS
 #if defined URBAN_MODEL || defined HYPERSPECTRAL
       CALL clip_error('RegionClip does not support URBAN_MODEL or HYPERSPECTRAL surface data')
 #endif
-      IF (DEF_Interception_scheme == 8 .or. &
-          (DEF_Runoff_SCHEME == 0 .and. DEF_TOPMOD_method /= 0) .or. &
-          DEF_USE_Forcing_Downscaling .or. DEF_USE_Forcing_Downscaling_Simple) &
-         CALL clip_error('RegionClip does not support canopy-structure, topographic-wetness or downscaling surface data')
+      IF (DEF_USE_Forcing_Downscaling .or. DEF_USE_Forcing_Downscaling_Simple) &
+         CALL clip_error('RegionClip does not support downscaling surface data')
 
       IF (p_is_master) THEN
          IF (trim(adjustl(dir_landdata_in)) == trim(adjustl(dir_landdata_out))) THEN
@@ -415,6 +416,24 @@ CONTAINS
                ENDIF
 #endif
 
+               IF (DEF_Interception_scheme == 8) THEN
+                  CALL system('mkdir -p '//trim(dir_landdata_out)//'/cstructure/'//lc_cyear)
+                  DO ifield = 1, size(canopy_fields)
+                     file_in = trim(dir_landdata_in)//'/cstructure/'//trim(input_year)//'/'// &
+                        canopy_fields(ifield)//'_patches.nc'
+                     file_out = trim(dir_landdata_out)//'/cstructure/'//lc_cyear//'/'// &
+                        canopy_fields(ifield)//'_patches.nc'
+                     CALL clip_vector(file_in, file_out, iblk, jblk, canopy_fields(ifield)//'_patches', patchmask)
+#if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
+                     file_in = trim(dir_landdata_in)//'/cstructure/'//trim(input_year)//'/'// &
+                        canopy_fields(ifield)//'_pfts.nc'
+                     file_out = trim(dir_landdata_out)//'/cstructure/'//lc_cyear//'/'// &
+                        canopy_fields(ifield)//'_pfts.nc'
+                     CALL clip_vector(file_in, file_out, iblk, jblk, canopy_fields(ifield)//'_pfts', pftmask)
+#endif
+                  ENDDO
+               ENDIF
+
                ! lake depth
                CALL system('mkdir -p ' // trim(dir_landdata_out) // '/lakedepth/' // lc_cyear)
                file_in  = trim(dir_landdata_in)  // '/lakedepth/' // trim(input_year) // '/lakedepth_patches.nc'
@@ -644,6 +663,15 @@ CONTAINS
                file_in = trim(dir_landdata_in)//'/topography/'//trim(input_year)//'/sloperatio_patches.nc'
                file_out = trim(dir_landdata_out)//'/topography/'//lc_cyear//'/sloperatio_patches.nc'
                CALL clip_vector(file_in, file_out, iblk, jblk, 'sloperatio_patches', patchmask)
+               IF (DEF_Runoff_SCHEME == 0 .and. DEF_TOPMOD_method /= 0) THEN
+                  DO ifield = 1, size(twi_fields)
+                     file_in = trim(dir_landdata_in)//'/topography/'//trim(input_year)//'/'// &
+                        trim(twi_fields(ifield))//'_patches.nc'
+                     file_out = trim(dir_landdata_out)//'/topography/'//lc_cyear//'/'// &
+                        trim(twi_fields(ifield))//'_patches.nc'
+                     CALL clip_vector(file_in, file_out, iblk, jblk, trim(twi_fields(ifield))//'_patches', patchmask)
+                  ENDDO
+               ENDIF
                file_in = trim(dir_landdata_in)//'/soil/'//trim(input_year)//'/soiltexture_patches.nc'
                file_out = trim(dir_landdata_out)//'/soil/'//lc_cyear//'/soiltexture_patches.nc'
                CALL clip_vector(file_in, file_out, iblk, jblk, 'soiltext_patches', patchmask)
