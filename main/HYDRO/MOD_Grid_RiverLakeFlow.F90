@@ -887,7 +887,8 @@ CONTAINS
                      irsv = ucat2resv(i)
                      qresv_in(irsv) = - sum_hflux_riv(i) + qresv_ups_prev(irsv)
 
-                     IF (volresv(irsv) > 1.e-4 * volresv_total(irsv)) THEN
+                     IF (volresv(irsv) > 1.e-4 * volresv_total(irsv) .or. &
+                         (DEF_Reservoir_Method == 2 .and. volresv(irsv) > 0._r8)) THEN
                         CALL reservoir_operation (DEF_Reservoir_Method, &
                            irsv, qresv_in(irsv), volresv(irsv), qresv_out(irsv))
                      ELSE

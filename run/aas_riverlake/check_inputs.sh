@@ -11,12 +11,17 @@
 #    而 run/Amazon_iso_0p5_2020.nml:55 用的是 grid_routing_data_15min.nc ——
 #    文件名不同说明不是同一份数据，不能假定后者也含 levee/bifurcation 字段。
 #
-#  用法：  ./check_inputs.sh [参数文件路径]
+#  用法：  ./check_inputs.sh [参数文件路径] [水库方案:1或2，默认1]
 #          不给参数时使用下面的默认路径。
 # ==============================================================================
 set -uo pipefail
 
 PARA=${1:-/share/home/dq013/zhwei/colm/data/CoLMruntime/unitcatchment/grid_routing_data_15min.nc}
+RESERVOIR_METHOD=${2:-1}
+case "$RESERVOIR_METHOD" in
+    1|2) ;;
+    *) echo "错误：水库方案必须为 1 或 2" >&2; exit 1 ;;
+esac
 
 command -v ncdump >/dev/null 2>&1 || { echo "错误：找不到 ncdump" >&2; exit 1; }
 [ -f "$PARA" ] || { echo "错误：参数文件不存在 -> $PARA" >&2; exit 1; }
@@ -59,6 +64,11 @@ dam_ConVol_mcm:水库:DEF_Reservoir_Method
 dam_Qn:水库:DEF_Reservoir_Method
 dam_Qf:水库:DEF_Reservoir_Method
 "
+if [ "$RESERVOIR_METHOD" = 2 ]; then
+    CHECKS="$CHECKS
+dam_upreal:水库H22(km2):DEF_Reservoir_Method
+"
+fi
 
 MISS_CORE=0; MISS_LEV=0; MISS_BIF=0; MISS_DAM=0
 printf "%-24s %-16s %-24s %s\n" 变量 用途 需要它的开关 状态
