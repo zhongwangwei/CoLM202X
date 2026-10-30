@@ -862,15 +862,18 @@ CONTAINS
 
       write(*,*) 'Copy and clip ', trim(varname), ' from ', trim(input), ' to ', trim(output)
 
-      IF (.not. ncio_var_exist(input, varname)) THEN
-         write(*,*) 'Variable ', trim(varname), ' in ', trim(input), ' not found.'
-      ENDIF
+      inquire (file=trim(input), exist=fexists)
+      IF (.not. fexists) CALL clip_error('Missing required block file: '//trim(input)//' [field '//trim(varname)//']')
 
       vlen_in  = size (vecmask)
       vlen_out = count(vecmask)
 
-      CALL nccheck( nf90_open (trim(input), NF90_NOWRITE, ncidin) )
-      CALL nccheck( nf90_inq_varid (ncidin, trim(varname), varidin) )
+      CALL nccheck( nf90_open (trim(input), NF90_NOWRITE, ncidin), &
+         'RegionClip required field '//trim(varname)//' in '//trim(input) )
+      IF (nf90_inq_varid(ncidin, trim(varname), varidin) /= NF90_NOERR) THEN
+         CALL nccheck(nf90_close(ncidin))
+         CALL clip_error('Missing required field: '//trim(varname)//' in '//trim(input))
+      ENDIF
       CALL nccheck( nf90_inquire_variable (ncidin, varidin, xtype = xtype, ndims = ndims) )
       IF (ndims < 1 .or. ndims > 3 .or. &
           (xtype /= NF90_INT .and. xtype /= NF90_INT64 .and. xtype /= NF90_DOUBLE)) &
