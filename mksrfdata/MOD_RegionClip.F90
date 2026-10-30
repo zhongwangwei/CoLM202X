@@ -793,7 +793,7 @@ CONTAINS
    character(len=256) :: input, output
    integer :: ncidin,  ncidout
    integer :: varidin, varidout
-   integer :: vlen_in, vlen_out, xtype, ndims, id, i1, i2, natts, iatt
+   integer :: vlen_in, vlen_out, xtype, ndims, id, i1, i2, natts, iatt, dimlen_out, dimlen_expected
    character(len=256) :: attname
    logical :: fexists, dim_exist
    integer, allocatable :: dimids (:), dimlens (:)
@@ -808,7 +808,11 @@ CONTAINS
    integer, allocatable :: data_i4_out3 (:,:,:)
 
    integer*8, allocatable :: data_i8_in1  (:)
+   integer*8, allocatable :: data_i8_in2  (:,:)
+   integer*8, allocatable :: data_i8_in3  (:,:,:)
    integer*8, allocatable :: data_i8_out1 (:)
+   integer*8, allocatable :: data_i8_out2 (:,:)
+   integer*8, allocatable :: data_i8_out3 (:,:,:)
 
    real(r8), allocatable :: data_r8_in1 (:)
    real(r8), allocatable :: data_r8_in2 (:,:)
@@ -819,10 +823,14 @@ CONTAINS
    real(r8), allocatable :: data_r8_out3 (:,:,:)
 
       ! Zero selected entries have no vector block file in the producer contract.
-      IF (count(vecmask) == 0) RETURN
+      CALL get_filename_block (file_out, iblk, jblk, output)
+      IF (count(vecmask) == 0) THEN
+         inquire (file=trim(output), exist=fexists)
+         IF (fexists) CALL clip_error('Output dimension mismatch: '//trim(output)//' [empty selection]')
+         RETURN
+      ENDIF
 
       CALL get_filename_block (file_in,  iblk, jblk, input )
-      CALL get_filename_block (file_out, iblk, jblk, output)
 
       write(*,*) 'Copy and clip ', trim(varname), ' from ', trim(input), ' to ', trim(output)
 
@@ -836,6 +844,9 @@ CONTAINS
       CALL nccheck( nf90_open (trim(input), NF90_NOWRITE, ncidin) )
       CALL nccheck( nf90_inq_varid (ncidin, trim(varname), varidin) )
       CALL nccheck( nf90_inquire_variable (ncidin, varidin, xtype = xtype, ndims = ndims) )
+      IF (ndims < 1 .or. ndims > 3 .or. &
+          (xtype /= NF90_INT .and. xtype /= NF90_INT64 .and. xtype /= NF90_DOUBLE)) &
+         CALL clip_error('Unsupported vector type/rank: '//trim(input))
       allocate (dimids   (ndims))
       allocate (dimnames (ndims))
       allocate (dimlens  (ndims))
@@ -844,13 +855,25 @@ CONTAINS
          CALL nccheck( nf90_inquire_dimension (ncidin, dimids(id), dimnames(id), dimlens(id)) )
       ENDDO
       IF (dimlens(ndims) /= vlen_in) CALL clip_error('Vector/mask length mismatch: '//trim(input))
-      IF (ndims > 3 .or. (xtype /= NF90_INT .and. xtype /= NF90_INT64 .and. xtype /= NF90_DOUBLE)) &
-         CALL clip_error('Unsupported vector type/rank: '//trim(input))
       CALL nccheck( nf90_close (ncidin) )
 
       inquire (file=trim(output), exist=fexists)
       IF (.not. fexists) THEN
          CALL ncio_create_file (output)
+      ELSE
+         ! Validate every existing dimension before changing a reused block file.
+         CALL nccheck( nf90_open (trim(output), NF90_NOWRITE, ncidout) )
+         DO id = 1, ndims
+            IF (nf90_inq_dimid(ncidout, trim(dimnames(id)), dimids(id)) /= NF90_NOERR) CYCLE
+            CALL nccheck(nf90_inquire_dimension(ncidout, dimids(id), len=dimlen_out))
+            dimlen_expected = dimlens(id)
+            IF (id == ndims) dimlen_expected = vlen_out
+            IF (dimlen_out /= dimlen_expected) THEN
+               CALL nccheck(nf90_close(ncidout))
+               CALL clip_error('Output dimension mismatch: '//trim(output)//' ['//trim(dimnames(id))//']')
+            ENDIF
+         ENDDO
+         CALL nccheck( nf90_close (ncidout) )
       ENDIF
 
       DO id = 1, ndims
@@ -945,6 +968,18 @@ CONTAINS
 
             deallocate (data_i4_in2 )
             deallocate (data_i4_out2)
+         ELSEIF (xtype == NF90_INT64) THEN
+            allocate (data_i8_in2 (dimlens(1),vlen_in))
+            CALL nccheck( nf90_get_var (ncidin, varidin, data_i8_in2) )
+
+            allocate (data_i8_out2 (dimlens(1),vlen_out))
+            DO i1 = 1, dimlens(1)
+               data_i8_out2(i1,:) = pack(data_i8_in2(i1,:), vecmask)
+            ENDDO
+            CALL nccheck( nf90_put_var (ncidout, varidout, data_i8_out2) )
+
+            deallocate (data_i8_in2 )
+            deallocate (data_i8_out2)
          ELSEIF (xtype == NF90_DOUBLE) THEN
             allocate (data_r8_in2 (dimlens(1),vlen_in))
             CALL nccheck( nf90_get_var (ncidin,  varidin , data_r8_in2) )
@@ -974,6 +1009,20 @@ CONTAINS
 
             deallocate (data_i4_in3 )
             deallocate (data_i4_out3)
+         ELSEIF (xtype == NF90_INT64) THEN
+            allocate (data_i8_in3 (dimlens(1),dimlens(2),vlen_in))
+            CALL nccheck( nf90_get_var (ncidin, varidin, data_i8_in3) )
+
+            allocate (data_i8_out3 (dimlens(1),dimlens(2),vlen_out))
+            DO i1 = 1, dimlens(1)
+               DO i2 = 1, dimlens(2)
+                  data_i8_out3(i1,i2,:) = pack(data_i8_in3(i1,i2,:), vecmask)
+               ENDDO
+            ENDDO
+            CALL nccheck( nf90_put_var (ncidout, varidout, data_i8_out3) )
+
+            deallocate (data_i8_in3 )
+            deallocate (data_i8_out3)
          ELSEIF (xtype == NF90_DOUBLE) THEN
             allocate (data_r8_in3 (dimlens(1),dimlens(2),vlen_in))
             CALL nccheck( nf90_get_var (ncidin,  varidin , data_r8_in3) )
