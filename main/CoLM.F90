@@ -30,7 +30,7 @@ PROGRAM CoLM
    USE MOD_Forcing
    USE MOD_Hist
 #ifdef MaterialTransport
-   USE MOD_HistAccRestart, only: read_history_acc_restart
+   USE MOD_HistAccRestart, only: read_history_acc_restart, save_history_acc_restart
 #endif
    USE MOD_CheckEquilibrium
    USE MOD_TimeManager
@@ -669,6 +669,13 @@ PROGRAM CoLM
             ENDIF
 #else
             CALL WRITE_TimeVariables (jdate, lc_year,  casename, dir_restart)
+#endif
+#ifdef MaterialTransport
+            ! History-accumulator sidecar, written with the restart it belongs
+            ! to.  Its reader discards a window that is already complete at
+            ! this point (a daily restart always is), so only a restart in the
+            ! middle of a window continues that window.
+            CALL save_history_acc_restart (jdate)
 #endif
 
 #if (defined CaMa_Flood)

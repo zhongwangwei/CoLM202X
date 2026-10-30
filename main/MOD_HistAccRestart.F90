@@ -107,11 +107,25 @@ CONTAINS
    ! Called right after WRITE_TimeVariables with the same date.
 
    USE MOD_LandPatch, only: landpatch
+   USE MOD_Namelist, only: DEF_simulation_time
    IMPLICIT NONE
 
    integer, intent(in) :: jdate(3)
 
    character(len=256) :: file
+   real(r8) :: window_seconds
+
+      ! Nothing to carry over when the window is complete at this restart: the
+      ! reader would discard it (see read_history_acc_restart), and the sidecar
+      ! holds every accumulator at patch resolution, so writing it would cost
+      ! hundreds of MB per restart for nothing.
+      window_seconds = hacc_window_seconds (jdate)
+      IF (window_seconds > 0._r8 .and. nac > 0._r8 .and. &
+          nac * DEF_simulation_time%timestep >= window_seconds - &
+          0.5_r8 * DEF_simulation_time%timestep) THEN
+         snapshot_date = -1
+         RETURN
+      ENDIF
 
       IF (any(snapshot_date /= jdate)) CALL write_sidecar (jdate)
       snapshot_date = -1
@@ -122,19 +136,69 @@ CONTAINS
    END SUBROUTINE save_history_acc_restart
 
    !-----------------------------------------------------------------------
+   real(r8) FUNCTION hacc_window_seconds (jdate)
+
+   ! Length in seconds of the history window that ended at jdate, or -1 when
+   ! the frequency does not pin it down (TIMESTEP is handled by the caller's
+   ! tolerance, MONTHLY/YEARLY only when the restart sits on the boundary).
+
+   USE MOD_Namelist, only: DEF_HIST_FREQ, DEF_simulation_time
+   USE MOD_TimeManager, only: julian2monthday
+   IMPLICIT NONE
+
+   integer, intent(in) :: jdate(3)
+
+   integer :: month, mday, year, mprev, yprev
+   integer :: mdays(12) = (/31,28,31,30,31,30,31,31,30,31,30,31/)
+
+      hacc_window_seconds = -1._r8
+      SELECT CASE (trim(adjustl(DEF_HIST_FREQ)))
+      CASE ('TIMESTEP')
+         hacc_window_seconds = DEF_simulation_time%timestep
+      CASE ('HOURLY')
+         hacc_window_seconds = 3600._r8
+      CASE ('DAILY')
+         hacc_window_seconds = 86400._r8
+      CASE ('MONTHLY')
+         CALL julian2monthday (jdate(1), jdate(2), month, mday)
+         IF (mday == 1) THEN
+            year = jdate(1)
+            mprev = month - 1
+            IF (mprev == 0) THEN
+               mprev = 12
+               year = year - 1
+            ENDIF
+            IF (mprev == 2) THEN
+               mdays(2) = 28
+               IF (mod(year,4) == 0 .and. (mod(year,100) /= 0 .or. mod(year,400) == 0)) mdays(2) = 29
+            ENDIF
+            hacc_window_seconds = real(mdays(mprev), r8) * 86400._r8
+         ENDIF
+      CASE ('YEARLY')
+         IF (jdate(2) == 1) THEN
+            yprev = jdate(1) - 1
+            hacc_window_seconds = 365._r8 * 86400._r8
+            IF (mod(yprev,4) == 0 .and. (mod(yprev,100) /= 0 .or. mod(yprev,400) == 0)) &
+               hacc_window_seconds = 366._r8 * 86400._r8
+         ENDIF
+      END SELECT
+
+   END FUNCTION hacc_window_seconds
+
+   !-----------------------------------------------------------------------
    SUBROUTINE read_history_acc_restart (jdate)
 
    ! Called once at the start of a run, after hist_init and the river-lake
    ! initialization, with the date of the restart that was read.
 
-   USE MOD_Namelist, only: DEF_HIST_FREQ
+   USE MOD_Namelist, only: DEF_HIST_FREQ, DEF_simulation_time
    USE MOD_LandPatch, only: landpatch, numpatch
    IMPLICIT NONE
 
    integer, intent(in) :: jdate(3)
 
    character(len=256) :: file
-   real(r8) :: vmin, vmax
+   real(r8) :: vmin, vmax, window_seconds
 
       CALL sidecar_filename (jdate, file)
 
@@ -173,6 +237,21 @@ CONTAINS
       IF (vmin /= vmax .or. vmin < 0._r8 .or. vmin /= anint(vmin)) THEN
          IF (p_is_master) write(*,'(A)') 'ERROR: invalid sample count in '//trim(file)
          CALL CoLM_stop ()
+      ENDIF
+
+      ! A window that is already complete at the restart point has been, or
+      ! will be, written out by the run that produced this restart: a daily
+      ! restart at midnight always carries a full day.  Restoring it would make
+      ! the first window after the restart cover two windows (a split run then
+      ! reports mean(window1, window2) instead of window2).  Only a genuinely
+      ! partial window -- a restart in the middle of one -- is restored.
+      window_seconds = hacc_window_seconds (jdate)
+      IF (window_seconds > 0._r8 .and. vmin > 0._r8 .and. &
+          vmin * DEF_simulation_time%timestep >= window_seconds - &
+          0.5_r8 * DEF_simulation_time%timestep) THEN
+         IF (p_is_master) write(*,'(A)') &
+            'Note: the restart closes a complete history window; the history window starts at the restart.'
+         RETURN
       ENDIF
 
       IF (vmin > 0._r8) THEN
