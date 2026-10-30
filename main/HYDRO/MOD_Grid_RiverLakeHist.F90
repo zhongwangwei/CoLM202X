@@ -105,9 +105,9 @@ CONTAINS
 
       ! ----- for auxiliary data -----
       IF (p_is_worker) THEN
-         IF (numucat  > 0) allocate (vec_ucat  (numucat ))
-         IF (numinpm  > 0) allocate (vec_grid  (numinpm ))
-         IF (numinpm  > 0) allocate (vec_inpm  (numinpm ))
+         allocate (vec_ucat  (numucat ))
+         allocate (vec_grid  (numinpm ))
+         allocate (vec_inpm  (numinpm ))
          allocate (vec_patch (numpatch))
 
          ! Patches excluding (type >= 99), virtual patches and thos forcing missed
@@ -141,7 +141,7 @@ CONTAINS
             END WHERE
          ENDIF
 
-         IF (numinpm > 0) allocate (sum_grid_area (numinpm))
+         allocate (sum_grid_area (numinpm))
          CALL worker_remap_data_pset2grid (remap_patch2inpm, vec_patch, vec_grid, &
             fillvalue = spval, filter = filter_ucat)
          CALL worker_push_data (allreduce_inpm, vec_grid, sum_grid_area, fillvalue = spval)
@@ -177,7 +177,7 @@ CONTAINS
             END WHERE
          ENDIF
 
-         IF (numinpm > 0) allocate (sum_rmth_area (numinpm))
+         allocate (sum_rmth_area (numinpm))
 
          CALL worker_remap_data_pset2grid (remap_patch2inpm, vec_patch, vec_grid, &
             fillvalue = spval, filter = filter_rivmth)
@@ -319,7 +319,7 @@ CONTAINS
       ENDIF
 
       IF (p_is_worker) THEN
-         IF (numinpm  > 0) allocate (acc_vec_grid (numinpm ))
+         allocate (acc_vec_grid (numinpm ))
       ENDIF
 
       IF (DEF_hist_vars%riv_height) THEN
@@ -433,7 +433,7 @@ CONTAINS
                allocate (a_floodfrc_ucat (0))
             ENDIF
 
-            IF (numinpm > 0) allocate (a_floodfrc_inpm (numinpm))
+            allocate (a_floodfrc_inpm (numinpm))
 
             CALL worker_push_data (push_ucat2inpm, a_floodfrc_ucat, a_floodfrc_inpm, &
                fillvalue = spval, mode = 'average')

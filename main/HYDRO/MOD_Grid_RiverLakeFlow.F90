@@ -92,6 +92,8 @@ CONTAINS
 
       integer :: i, irsv
       logical :: bif_restart_loaded
+      real(r8) :: migrated_stage
+      logical, allocatable :: levee_storage_folded(:)
 
       acctime_rnof_max = DEF_GRIDBASED_ROUTING_MAX_DT
 
@@ -117,13 +119,15 @@ CONTAINS
       ! static slope of the cells upstream of reservoirs (reads topo_distance)
       IF (DEF_Reservoir_Method > 0) CALL reservoir_upstream_init ()
 
+      allocate (levee_storage_folded(numucat))
+      levee_storage_folded = .false.
       CALL levee_init()
       IF (len_trim(gridriver_restart_file) > 0) THEN
          CALL read_levee_restart(gridriver_restart_file, &
             restart_transaction_validated, restart_feature_manifest_present, &
             restart_levee_enabled, fold_protected_to_visible = .not. DEF_USE_LEVEE, &
             volwater_ucat_io = volwater_ucat, volwater_ucat_valid_io = volwater_ucat_valid, &
-            wdsrf_ucat_in = wdsrf_ucat)
+            wdsrf_ucat_in = wdsrf_ucat, storage_folded_out = levee_storage_folded)
       ENDIF
 
       IF (DEF_USE_BIFURCATION) THEN
@@ -140,12 +144,26 @@ CONTAINS
          ENDIF
       ENDIF
 
-      IF (.not. (DEF_USE_BIFURCATION .or. DEF_USE_LEVEE) .and. restart_levee_enabled &
-          .and. volwater_ucat_valid .and. p_is_worker) THEN
+      ! Folding changes storage; disabling levees also changes the stage-volume
+      ! curve when the old protected pool was empty. Preserve extrapolation
+      ! history for ordinary cells whose stored stage already matches the curve.
+      IF (volwater_ucat_valid .and. p_is_worker) THEN
          DO i = 1, numucat
-            wdsrf_ucat(i) = floodplain_curve(i)%depth(volwater_ucat(i))
+            IF (lake_type(i) == 2) CYCLE
+            IF (.not. levee_storage_folded(i)) THEN
+               IF (.not. restart_levee_enabled) CYCLE
+               IF (DEF_USE_LEVEE .and. has_levee(i)) CYCLE
+               migrated_stage = floodplain_curve(i)%depth(volwater_ucat(i))
+               IF (abs(migrated_stage - wdsrf_ucat(i)) <= &
+                   64._r8 * epsilon(1._r8) * max(1._r8, abs(migrated_stage), abs(wdsrf_ucat(i)))) CYCLE
+            ELSE
+               migrated_stage = floodplain_curve(i)%depth(volwater_ucat(i))
+            ENDIF
+            wdsrf_ucat(i) = migrated_stage
+            wdsrf_ucat_prev(i) = wdsrf_ucat(i)
          ENDDO
       ENDIF
+      deallocate (levee_storage_folded)
 
       CALL rebuild_volwater_ucat ()
 
@@ -386,7 +404,7 @@ CONTAINS
    real(r8) :: veloct_fc, height_fc, momen_fc, zsurf_fc
    real(r8) :: bedelv_fc, height_up, height_dn
    real(r8) :: vwave_up, vwave_dn, hflux_up, hflux_dn, mflux_up, mflux_dn
-   real(r8) :: volwater, friction, floodarea, rivsto_hist
+   real(r8) :: volwater, friction, floodarea, rivsto_hist, depression_capacity
    real(r8) :: fldfrc_levee, visible_hflux, protected_hflux, protected_clip
    real(r8) :: vis_vol_bef_lv, levsto_bef_lv, vis_vol_bef_lv2, levsto_bef_lv2
    real(r8) :: totalflood_evap, totalflood_infil, flood_vec(3)
@@ -898,8 +916,12 @@ CONTAINS
 
                ! hflux_sumups now holds the release of the reservoirs directly upstream
                DO i = 1, numucat
-                  IF (ucatfilter(i) .and. is_built_resv(i)) &
+                  IF (ucatfilter(i) .and. is_built_resv(i)) THEN
                      qresv_ups_prev(ucat2resv(i)) = hflux_sumups(i)
+                     ! Dispatch above intentionally uses the lagged upstream
+                     ! release; history records the current water balance.
+                     qresv_in(ucat2resv(i)) = hflux_fc(i) - sum_hflux_riv(i)
+                  ENDIF
                ENDDO
 
             ENDIF
@@ -1130,13 +1152,15 @@ CONTAINS
 
                ! for inland depression, remove excess water (to be optimized)
                IF (ucat_next(i) == -10) THEN
-                  IF (volwater > topo_rivstomax(i)) THEN
-                     hflux_fc(i) = (volwater - topo_rivstomax(i)) / dt_all(irivsys(i))
+                  depression_capacity = topo_rivstomax(i)
+                  IF (is_built_resv(i)) depression_capacity = volresv_total(ucat2resv(i))
+                  IF (volwater > depression_capacity) THEN
+                     hflux_fc(i) = (volwater - depression_capacity) / dt_all(irivsys(i))
                      IF (is_built_resv(i)) qresv_out(ucat2resv(i)) = hflux_fc(i)
 #ifdef MaterialTransport
-                     CALL mt_rlc_inland_depression (i, volwater, topo_rivstomax(i), dt_all(irivsys(i)))
+                     CALL mt_rlc_inland_depression (i, volwater, depression_capacity, dt_all(irivsys(i)))
 #endif
-                     volwater = topo_rivstomax(i)
+                     volwater = depression_capacity
                   ENDIF
                ENDIF
 

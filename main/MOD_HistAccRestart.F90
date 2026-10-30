@@ -123,15 +123,21 @@ CONTAINS
    integer, intent(in) :: jdate(3)
 
    character(len=256) :: file
-   real(r8) :: window_seconds
+   real(r8) :: window_seconds, window_nac
 
       ! Nothing to carry over when the window is complete at this restart: the
       ! reader would discard it (see read_history_acc_restart), and the sidecar
       ! holds every accumulator at patch resolution, so writing it would cost
       ! hundreds of MB per restart for nothing.
+      ! nac is maintained on workers; all ranks must take the same return.
+      window_nac = 0._r8
+      IF (p_is_worker) window_nac = nac
+#ifdef USEMPI
+      CALL mpi_allreduce (MPI_IN_PLACE, window_nac, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+#endif
       window_seconds = hacc_window_seconds (jdate)
-      IF (window_seconds > 0._r8 .and. nac > 0._r8 .and. &
-          nac * DEF_simulation_time%timestep >= window_seconds - &
+      IF (window_seconds > 0._r8 .and. window_nac > 0._r8 .and. &
+          window_nac * DEF_simulation_time%timestep >= window_seconds - &
           0.5_r8 * DEF_simulation_time%timestep) THEN
          snapshot_date = -1
          RETURN
@@ -278,7 +284,10 @@ CONTAINS
 #ifdef GridRiverLakeFlow
       CALL require_var (file, 'hacc_river', landpatch, 'patch', 1, 0, 0)
       CALL read_marker (file, 'hacc_river', vmin, vmax)
-      IF (vmax > 0._r8) CALL river_sums (trim(file)//'.river', HACC_READ)
+      IF (vmax > 0._r8) THEN
+         CALL river_sums (trim(file)//'.river', HACC_READ)
+         hist_acc_window_restored = .true.
+      ENDIF
 #endif
 
       ! Every rank must reach the same verdict: the material river history

@@ -95,7 +95,7 @@ MODULE MOD_MT_RiverLake
    ! Running totals of the dry-cell bookkeeping, per species:
    !   1 = drained mass handed to the split delivery (internal cells)
    !   2 = mass actually delivered to receivers
-   !   3 = mass parked in mt_dry_pending (no physical receiver yet)
+   !   3 = current pending inventory (computed when reporting, not cumulative)
    !   4 = mass booked as the terminal sink
    ! mt_dry_drain itself is cleared at the end of every routing call, so the
    ! totals have to be accumulated here to be reportable at the end.
@@ -795,6 +795,8 @@ CONTAINS
    logical :: internal_receiver, reverse_allowed
    real(r8) :: vol_j, dt_j, rev_share, dt_don
    real(r8), allocatable :: bif_dn_levee(:), dry_coeff(:), bif_add(:), bif_add_lev(:), bif_hist(:)
+   real(r8), allocatable :: received_visible(:)
+   real(r8) :: pending_receipt
    logical :: bif_active
    real(r8), allocatable :: active_flux(:)
 
@@ -809,23 +811,20 @@ CONTAINS
       IF (present(allow_reverse_flow)) reverse_allowed = allow_reverse_flow
       IF (.not. present(hflux_fc_in)) reverse_allowed = .false.
 
+      ! A cell is only visited by the substeps of its own routing group.  A
+      ! group that has already finished this timestep keeps the face fluxes of
+      ! its last substep, so those cells must neither be dry-cleaned again nor
+      ! contribute those stale faces to any split below: active_flux is the
+      ! per-call copy that is zero where the group is not active.
       allocate(active_flux(numucat))
       active_flux = 0._r8
+
       DO i = 1, numucat
          IF (.not. ucatfilter(i)) CYCLE
          IF (irivsys(i) <= 0 .or. irivsys(i) > size(dt_all)) CYCLE
          dt_i = dt_all(irivsys(i))
          IF (dt_i <= 0._r8) CYCLE
          IF (present(hflux_fc_in)) active_flux(i) = hflux_fc_in(i)
-      ENDDO
-
-      DO i = 1, numucat
-         ! Finished routing groups retain old face fluxes. They must neither
-         ! drain inventory again nor contribute those stale faces to a split.
-         IF (.not. ucatfilter(i)) CYCLE
-         IF (irivsys(i) <= 0 .or. irivsys(i) > size(dt_all)) CYCLE
-         dt_i = dt_all(irivsys(i))
-         IF (dt_i <= 0._r8) CYCLE
          IF (present(is_built_resv)) THEN
             CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, volwater, is_built_resv(i))
          ELSE
@@ -842,8 +841,6 @@ CONTAINS
                CALL mt_riverlake_equilibrate_cell(i, volwater, 0._r8)
             ENDIF
          ENDIF
-         dt_i = 0._r8
-         IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
          IF (volwater <= mt_v_dry_off) THEN
             DO imt = 1, nmts
                IF (.not. mt_uses_generic_water(imt)) CYCLE
@@ -941,43 +938,40 @@ CONTAINS
             IF (.not. mt_uses_generic_water(imt)) CYCLE
             CALL update_mt_concentration(imt, i, volwater)
          ENDDO
-         IF (.not. ucatfilter(i)) CYCLE
-         IF (irivsys(i) <= 0 .or. irivsys(i) > size(dt_all)) CYCLE
-      IF (dt_i <= 0._r8) CYCLE
-      a_trc_acctime(i) = a_trc_acctime(i) + dt_i
-      IF (volwater > mt_v_dry_off) THEN
-         IF (allocated(a_water_storage)) a_water_storage(i) = a_water_storage(i) + volwater * dt_i
-      ENDIF
-      IF (allocated(a_levsto_water) .and. allocated(levsto) .and. allocated(has_levee)) THEN
-         IF (i <= size(levsto) .and. i <= size(has_levee)) THEN
-            IF (has_levee(i) .and. levsto(i) > mt_v_dry_off) THEN
-               a_levsto_water(i) = a_levsto_water(i) + levsto(i) * dt_i
-            ENDIF
+         a_trc_acctime(i) = a_trc_acctime(i) + dt_i
+         IF (volwater > mt_v_dry_off) THEN
+            IF (allocated(a_water_storage)) a_water_storage(i) = a_water_storage(i) + volwater * dt_i
          ENDIF
-      ENDIF
-
-      DO imt = 1, nmts
-         IF (.not. mt_uses_generic_water(imt)) CYCLE
-         IF (volwater > mt_v_dry_off .and. allocated(a_trc_storage_mass)) THEN
-            a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) &
-               + mt_mass(imt, i) * dt_i
-         ENDIF
-         IF (allocated(a_trc_levsto_mass) .and. allocated(mt_levsto) .and. &
-             allocated(levsto) .and. allocated(has_levee)) THEN
-            IF (i <= size(mt_levsto, 2) .and. i <= size(levsto) .and. i <= size(has_levee)) THEN
+         IF (allocated(a_levsto_water) .and. allocated(levsto) .and. allocated(has_levee)) THEN
+            IF (i <= size(levsto) .and. i <= size(has_levee)) THEN
                IF (has_levee(i) .and. levsto(i) > mt_v_dry_off) THEN
-                  a_trc_levsto_mass(imt, i) = a_trc_levsto_mass(imt, i) &
-                     + mt_levsto(imt, i) * dt_i
+                  a_levsto_water(i) = a_levsto_water(i) + levsto(i) * dt_i
                ENDIF
             ENDIF
          ENDIF
-         a_trc_out   (imt, i) = a_trc_out   (imt, i) + mt_flux_out(imt, i) * dt_i
+
+         DO imt = 1, nmts
+            IF (.not. mt_uses_generic_water(imt)) CYCLE
+            IF (volwater > mt_v_dry_off .and. allocated(a_trc_storage_mass)) THEN
+               a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) &
+                  + mt_mass(imt, i) * dt_i
+            ENDIF
+            IF (allocated(a_trc_levsto_mass) .and. allocated(mt_levsto) .and. &
+                allocated(levsto) .and. allocated(has_levee)) THEN
+               IF (i <= size(mt_levsto, 2) .and. i <= size(levsto) .and. i <= size(has_levee)) THEN
+                  IF (has_levee(i) .and. levsto(i) > mt_v_dry_off) THEN
+                     a_trc_levsto_mass(imt, i) = a_trc_levsto_mass(imt, i) &
+                        + mt_levsto(imt, i) * dt_i
+                  ENDIF
+               ENDIF
+            ENDIF
+            a_trc_out   (imt, i) = a_trc_out   (imt, i) + mt_flux_out(imt, i) * dt_i
             a_trc_bifout(imt, i) = a_trc_bifout(imt, i) + mt_bif_net_saved(imt, i) * dt_i
          ENDDO
       ENDDO
 
       IF (allocated(mt_dry_split) .and. present(hflux_fc_in) .and. (numucat > 0 .or. bif_active)) THEN
-         allocate(fwd_send(numucat), fwd_recv(numucat), rev_send(numucat), rev_recv(numucat))
+         allocate(fwd_send(numucat), fwd_recv(numucat), rev_send(numucat), rev_recv(numucat), received_visible(numucat))
          allocate(out_total(numucat), up_rev(numucat), donor_out(numucat), rev_sum(numucat), &
             bif_out(numucat))
          ! reverse-outflow demand of every donor: sum of |negative upstream face
@@ -1008,8 +1002,6 @@ CONTAINS
                   IF (mt_dry_split(imt, i) <= mt_tiny) CYCLE
                   IF (allocated(mt_dry_pending)) THEN
                      mt_dry_pending(imt, i) = mt_dry_pending(imt, i) + mt_dry_split(imt, i)
-                     IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 3) = &
-                        mt_dry_stat(imt, 3) + mt_dry_split(imt, i)
                   ENDIF
                   mt_dry_split(imt, i) = 0._r8
                ENDDO
@@ -1024,6 +1016,7 @@ CONTAINS
             ! where this species has no drained mass is skipped below, so a
             ! stale value from the previous species would otherwise be sent
             ! as this species' mass (cross-species contamination).
+            received_visible = 0._r8
             fwd_send(:) = 0._r8
             rev_send(:) = 0._r8
             fwd_recv(:) = 0._r8
@@ -1075,6 +1068,7 @@ CONTAINS
                ! forward mass arrives as an upstream sum
                IF (fwd_recv(i) > mt_tiny) THEN
                   mt_mass(imt, i) = mt_mass(imt, i) + fwd_recv(i)
+                  received_visible(i) = received_visible(i) + fwd_recv(i)
                   CALL update_mt_concentration(imt, i, vol_j)
                   IF (vol_j > mt_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
                      a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) + fwd_recv(i) * dt_j
@@ -1091,6 +1085,7 @@ CONTAINS
                      IF (dt_j > 0._r8) a_trc_out(imt, i) = a_trc_out(imt, i) - rev_share
                   ENDIF
                   mt_mass(imt, i) = mt_mass(imt, i) + rev_share
+                  received_visible(i) = received_visible(i) + rev_share
                   CALL update_mt_concentration(imt, i, vol_j)
                   IF (vol_j > mt_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
                      a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) + rev_share * dt_j
@@ -1101,6 +1096,7 @@ CONTAINS
                WHERE (out_total > mt_tiny) dry_coeff = mt_dry_split(imt,:) / max(out_total, tiny(1._r8))
                CALL mt_bif_dry_deliver(bif_hflux_lev_in, bif_dn_levee, dry_coeff, &
                   bif_add, bif_add_lev, bif_hist)
+               received_visible = received_visible + bif_add
                mt_mass(imt,:) = mt_mass(imt,:) + bif_add
                mt_levsto(imt,:) = mt_levsto(imt,:) + bif_add_lev
                IF (allocated(mt_dry_stat)) mt_dry_stat(imt,2) = mt_dry_stat(imt,2) + sum(bif_add+bif_add_lev)
@@ -1123,6 +1119,22 @@ CONTAINS
                   ENDIF
                ENDDO
             ENDIF
+            ! A dry receiver has no carrier concentration. Keep this already
+            ! booked transfer in explicit inventory until a later active step;
+            ! do not chain it through another edge with the same water flux.
+            DO i = 1, numucat
+               IF (received_visible(i) <= mt_tiny) CYCLE
+               IF (present(is_built_resv)) THEN
+                  CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j, is_built_resv(i))
+               ELSE
+                  CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j)
+               ENDIF
+               IF (vol_j > mt_v_dry_off) CYCLE
+               pending_receipt = min(received_visible(i), mt_mass(imt,i))
+               mt_dry_pending(imt,i) = mt_dry_pending(imt,i) + pending_receipt
+               mt_mass(imt,i) = mt_mass(imt,i) - pending_receipt
+               CALL update_mt_concentration(imt, i, vol_j)
+            ENDDO
             mt_dry_split(imt, :) = 0._r8
          ENDDO
          deallocate(fwd_send, fwd_recv, rev_send, rev_recv)
@@ -1469,9 +1481,13 @@ CONTAINS
 
          ! --- 1. Concentration from pre-update single-pool state ---
          DO i = 1, numucat
-            CALL get_cell_volume(i, wdsrf(i), volresv, ucat2resv, volwater, is_built_resv(i))
+            mt_conc_flux(i) = 0._r8
+            mt_prot_conc_flux(i) = 0._r8
+            IF (.not. ucatfilter(i)) CYCLE
             dt_i = 0._r8
             IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_i = dt_all(irivsys(i))
+            IF (dt_i <= 0._r8) CYCLE
+            CALL get_cell_volume(i, wdsrf(i), volresv, ucat2resv, volwater, is_built_resv(i))
             ! The restart/state contract admits only sub-tolerance negative
             ! roundoff. Canonicalize it before forming a concentration: a
             ! negative flux would violate the limiter's nonnegative monotone
@@ -3645,9 +3661,9 @@ CONTAINS
    integer :: k
    real(r8) :: stats(4)
 
-      ! Dry-cell accounting summary, accumulated over the whole run before
-      ! mt_dry_drain is cleared at the end of each routing call:
-      !   drained (internal) / delivered / pending / terminal sink.
+      ! Processed/delivered are cumulative handling throughput, so a mass
+      ! parcel handled on multiple edges/steps contributes on each occasion.
+      ! Pending is current inventory, not the sum of repeated parking events.
       !
       ! Every rank must enter the allreduce: mt_dry_stat exists only on
       ! workers, so guarding the collective with allocated() would hang the
@@ -3658,11 +3674,13 @@ CONTAINS
             IF (.not. mt_uses_generic_water(k)) CYCLE
             stats(:) = 0._r8
             IF (p_is_worker .and. allocated(mt_dry_stat)) stats(1:4) = mt_dry_stat(k, 1:4)
+            stats(3) = 0._r8
+            IF (p_is_worker .and. allocated(mt_dry_pending)) stats(3) = sum(mt_dry_pending(k,:))
 #ifdef USEMPI
             CALL mpi_allreduce (MPI_IN_PLACE, stats, 4, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
 #endif
             IF (p_is_master) WRITE(*,'(A,A,A,4ES14.6)') ' Dry-cell accounting ', &
-               trim(material_names(k)), ' drained/delivered/pending/sink:', &
+               trim(material_names(k)), ' processed/delivered/pending_inventory/sink:', &
                stats(1), stats(2), stats(3), stats(4)
          ENDDO
       ENDIF

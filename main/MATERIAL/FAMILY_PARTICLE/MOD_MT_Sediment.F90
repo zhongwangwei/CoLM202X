@@ -3616,6 +3616,11 @@ CONTAINS
       ENDIF
       IF (allocated(buf)) deallocate(buf)
 
+#ifdef USEMPI
+      IF (p_is_worker) CALL mpi_allreduce(MPI_IN_PLACE, sed_hist_acctime, 1, MPI_REAL8, &
+         MPI_MAX, p_comm_worker, p_err)
+#endif
+
       IF (.not. has_schema) THEN
          ! Without a descriptor the old bed/queued/history state cannot be
          ! interpreted under possibly changed porosity, grain, or yield
@@ -3908,7 +3913,6 @@ CONTAINS
       IF (.not. sediment_particle_enabled()) RETURN
       nuc = 0
       IF (numucat > 0) nuc = numucat
-      IF (sedhistsnap_valid) RETURN
       IF (allocated(sedhistsnap_con)) deallocate(sedhistsnap_con, sedhistsnap_out, sedhistsnap_bed, &
          sedhistsnap_inp, sedhistsnap_net, sedhistsnap_lay, sedhistsnap_shear)
       allocate(sedhistsnap_con(nsed,nuc), sedhistsnap_out(nsed,nuc), sedhistsnap_bed(nsed,nuc), &
