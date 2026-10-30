@@ -424,7 +424,7 @@ CONTAINS
 
             IF (numucat > 0) THEN
                allocate (a_floodfrc_ucat (numucat))
-               WHERE (topo_area > 0)
+               WHERE (topo_area > 0 .and. a_floodarea /= spval)
                   a_floodfrc_ucat = a_floodarea / topo_area
                ELSE WHERE
                   a_floodfrc_ucat = spval
@@ -462,6 +462,12 @@ CONTAINS
                a_flddph = a_flddph / acctime_ucat
                a_storge = a_storge / acctime_ucat
                a_sfcelv = a_sfcelv / acctime_ucat
+            ELSE WHERE
+               a_rivsto = spval
+               a_fldsto = spval
+               a_flddph = spval
+               a_storge = spval
+               a_sfcelv = spval
             END WHERE
          ENDIF
       ENDIF
@@ -494,8 +500,8 @@ CONTAINS
                levsto_local = a_levsto / acctime_ucat
                levdph_local = a_levdph / acctime_ucat
             ELSE WHERE
-               levsto_local = 0._r8
-               levdph_local = 0._r8
+               levsto_local = spval
+               levdph_local = spval
             END WHERE
          ELSE
             allocate (levsto_local (0))
@@ -520,7 +526,7 @@ CONTAINS
             WHERE (acctime_ucat > 0.)
                bifout_local = a_bifout / acctime_ucat
             ELSE WHERE
-               bifout_local = 0._r8
+               bifout_local = spval
             END WHERE
          ELSE
             allocate (bifout_local (0))
@@ -541,12 +547,12 @@ CONTAINS
                      IF (a_bifflw_acctime(i) > 0._r8) THEN
                         bifflw_local(:, i) = a_bifflw_lev(:, i) / a_bifflw_acctime(i)
                      ELSE
-                        bifflw_local(:, i) = 0._r8
+                        bifflw_local(:, i) = spval
                      ENDIF
                   ENDDO
                ELSE
                   allocate (bifflw_local (npthlev_bif, npthout_local))
-                  bifflw_local = 0._r8
+                  bifflw_local = spval
                ENDIF
                allocate (pth_global_id_bif (ncol_local_bif))
                pth_global_id_bif(:) = pth_global_id(:)
@@ -686,10 +692,15 @@ CONTAINS
    !---------------------------------------
    SUBROUTINE hist_grid_riverlake_final ()
 
+   USE MOD_DataType, only: block_data_real8_2d_free_mem
    USE MOD_Grid_RiverLakeHistRoute, only: route_hist_final
    IMPLICIT NONE
 
       CALL route_hist_final ()
+
+      CALL block_data_real8_2d_free_mem (sumarea_ucat)
+      CALL block_data_real8_2d_free_mem (sumarea_inpm)
+      CALL block_data_real8_2d_free_mem (allups_mask_grid)
 
       IF (allocated(acctime_ucat    )) deallocate (acctime_ucat    )
       IF (allocated(a_wdsrf_ucat    )) deallocate (a_wdsrf_ucat    )

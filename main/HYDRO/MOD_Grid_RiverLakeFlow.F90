@@ -153,6 +153,8 @@ CONTAINS
             IF (.not. levee_storage_folded(i)) THEN
                IF (.not. restart_levee_enabled) CYCLE
                IF (DEF_USE_LEVEE .and. has_levee(i)) CYCLE
+               ! Cold-start zero storage is rebuilt from its positive stage below.
+               IF (volwater_ucat(i) <= 0._r8 .and. wdsrf_ucat(i) > RIVERMIN) CYCLE
                migrated_stage = floodplain_curve(i)%depth(volwater_ucat(i))
                IF (abs(migrated_stage - wdsrf_ucat(i)) <= &
                    64._r8 * epsilon(1._r8) * max(1._r8, abs(migrated_stage), abs(wdsrf_ucat(i)))) CYCLE

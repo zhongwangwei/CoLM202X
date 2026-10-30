@@ -2710,6 +2710,9 @@ CONTAINS
       DO ised = 1, nsed
          reverse_sed = max(-sedout(ised,:), 0._r8) * dt
          reverse_bed = max(-bedout(ised,:), 0._r8) * dt
+         ! A zero-request push leaves its receive buffer untouched.
+         summed_sed = 0._r8
+         summed_bed = 0._r8
          CALL worker_push_data(push_ups2ucat, reverse_sed, summed_sed, fillvalue=0._r8, mode='sum')
          CALL worker_push_data(push_ups2ucat, reverse_bed, summed_bed, fillvalue=0._r8, mode='sum')
          suspended_demand(ised,:) = suspended_demand(ised,:) + summed_sed
@@ -3767,6 +3770,7 @@ CONTAINS
    ! One collective validator is shared by restart read and write.  Signed
    ! transport accumulators need only be finite; mass, bed, carrier-time, and
    ! nonnegative diagnostic accumulators must also be >= 0.
+   ! Checkpoints are only supported between completed routing windows.
    !-------------------------------------------------------------------------------------
    IMPLICIT NONE
    character(len=*), intent(in) :: context
@@ -3784,7 +3788,7 @@ CONTAINS
             any(sedbed_protected < 0._r8) .or. &
             any(.not. sediment_restart_value_finite(layer)) .or. any(layer < 0._r8) .or. &
             any(.not. sediment_restart_value_finite(seddep)) .or. any(seddep < 0._r8) .or. &
-            any(.not. sediment_restart_value_finite(sed_acc_time)) .or. any(sed_acc_time < 0._r8) .or. &
+            any(.not. sediment_restart_value_finite(sed_acc_time)) .or. any(sed_acc_time /= 0._r8) .or. &
             any(.not. sediment_restart_value_finite(sed_acc_v2)) .or. any(sed_acc_v2 < 0._r8) .or. &
             any(.not. sediment_restart_value_finite(sed_acc_wdsrf)) .or. any(sed_acc_wdsrf < 0._r8) .or. &
             any(.not. sediment_restart_value_finite(sed_acc_rivsto)) .or. any(sed_acc_rivsto < 0._r8) .or. &
@@ -3840,7 +3844,7 @@ CONTAINS
       IF (state_bad) THEN
          IF (p_is_io) WRITE(*,'(A,A,A)') &
             'ERROR: sediment checkpoint ', trim(context), &
-            ' contains non-finite or physically negative state.'
+            ' contains invalid state or an unfinished routing window.'
          CALL CoLM_stop()
       ENDIF
 
@@ -4510,6 +4514,16 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    IMPLICIT NONE
       sed_push_groups_checked = .false.
+      sed_st_calls = 0
+      sed_st_morph = 0
+      sed_st_adv = 0
+      sed_st_dt_min = huge(1._r8)
+      sed_adv_substep_calls = 0
+      sed_adv_substep_sum = 0
+      sed_adv_substep_max = 0
+      sed_bif_substep_calls = 0
+      sed_bif_substep_sum = 0
+      sed_bif_substep_max = 0
       IF (allocated(sed_frc      )) deallocate(sed_frc      )
       IF (allocated(sed_slope    )) deallocate(sed_slope    )
       IF (allocated(sDiam        )) deallocate(sDiam        )

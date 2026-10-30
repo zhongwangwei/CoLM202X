@@ -3477,7 +3477,21 @@ CONTAINS
             ENDIF
          ENDIF
          CALL check_isotope_aquifer(imt, ipatch, wa, mt_wa(imt, ipatch), 'wetland end')
+         ! Recover retained nonvolatile solute when its ice carrier is exhausted.
          DO j = lb, nl_soil
+            IF (material_is_nonvolatile_solute(imt) .and. &
+                mt_wice_soisno(imt, j, ipatch) > mt_tiny) THEN
+               IF (max(wice_soisno(j), 0._r8) <= mt_water_min_for_ratio) THEN
+                  IF (max(wliq_soisno(j), 0._r8) > mt_water_min_for_ratio) THEN
+                     mt_wliq_soisno(imt, j, ipatch) = &
+                        mt_wliq_soisno(imt, j, ipatch) + mt_wice_soisno(imt, j, ipatch)
+                  ELSE
+                     mt_solid_soisno(imt, j, ipatch) = &
+                        mt_solid_soisno(imt, j, ipatch) + mt_wice_soisno(imt, j, ipatch)
+                  ENDIF
+                  mt_wice_soisno(imt, j, ipatch) = 0._r8
+               ENDIF
+            ENDIF
             CALL mt_equilibrate_dissolved(imt, max(wliq_soisno(j), 0._r8), &
                mt_wliq_soisno(imt, j, ipatch), mt_solid_soisno(imt, j, ipatch))
          ENDDO
