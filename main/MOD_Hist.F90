@@ -266,14 +266,19 @@ CONTAINS
       ! saved, so the raw sums are saved here first. Nothing happens at other
       ! steps; it only writes a file in the restart directory and changes no
       ! model or history variable.
-      CALL hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)
+      IF (hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)) THEN
 #if (defined MaterialTransport) && (defined GridRiverLakeFlow)
-      ! N05: keep the material history rows of this partial terminal window for
-      ! the physical restart written after the output flush (host side does the
-      ! same for its own accumulators).
-      CALL mt_riverlake_snapshot_hist_acc ()
-      CALL mt_sediment_snapshot_hist_acc ()
+         ! Keep the material history rows of this partial terminal window for
+         ! the physical restart written after the output flush.  The snapshot
+         ! is taken only when hist_acc_final_snapshot kept one (last step and a
+         ! partial window); taking it every step copied nmts*numucat arrays for
+         ! nothing, and left the sediment snapshot marked valid from the first
+         ! step after a restart, so the next restart then wrote that stale copy
+         ! instead of the running sums.
+         CALL mt_riverlake_snapshot_hist_acc ()
+         CALL mt_sediment_snapshot_hist_acc ()
 #endif
+      ENDIF
 
       select CASE (trim(adjustl(DEF_HIST_FREQ)))
       CASE ('TIMESTEP')

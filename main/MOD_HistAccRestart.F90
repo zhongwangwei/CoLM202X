@@ -47,6 +47,9 @@ MODULE MOD_HistAccRestart
 
    PUBLIC :: read_history_acc_restart
    PUBLIC :: save_history_acc_restart
+   ! .true. when the reader actually restored a PARTIAL window; the material
+   ! river history follows the same decision so the two never disagree.
+   PUBLIC :: hist_acc_window_restored
    PUBLIC :: hist_acc_final_snapshot
 
    integer, parameter :: HACC_WRITE = 1
@@ -55,10 +58,15 @@ MODULE MOD_HistAccRestart
    ! date of a sidecar already written by hist_acc_final_snapshot
    integer :: snapshot_date(3) = -1
 
+   ! Set by read_history_acc_restart: .true. only when a partial window was
+   ! restored.  A complete window is discarded, and then every material
+   ! history window must start at the restart as well.
+   logical :: hist_acc_window_restored = .false.
+
 CONTAINS
 
    !-----------------------------------------------------------------------
-   SUBROUTINE hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)
+   logical FUNCTION hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)
 
    ! Called by hist_out after the sums of this step are accumulated. At the
    ! last step of the run, when the history window is not complete, hist_out
@@ -76,6 +84,7 @@ CONTAINS
    integer :: jdate(3)
    logical :: window_end
 
+      hist_acc_final_snapshot = .false.
       IF (itstamp < etstamp) RETURN
 
       SELECT CASE (trim(adjustl(DEF_HIST_FREQ)))
@@ -98,8 +107,9 @@ CONTAINS
       CALL adj2begin (jdate)
       CALL write_sidecar (jdate)
       snapshot_date = jdate
+      hist_acc_final_snapshot = .true.
 
-   END SUBROUTINE hist_acc_final_snapshot
+   END FUNCTION hist_acc_final_snapshot
 
    !-----------------------------------------------------------------------
    SUBROUTINE save_history_acc_restart (jdate)
@@ -200,6 +210,7 @@ CONTAINS
    character(len=256) :: file
    real(r8) :: vmin, vmax, window_seconds
 
+      hist_acc_window_restored = .false.
       CALL sidecar_filename (jdate, file)
 
       IF (.not. any_block_exists (file)) THEN
@@ -257,6 +268,7 @@ CONTAINS
       IF (vmin > 0._r8) THEN
          IF (p_is_worker) nac = vmin
          CALL hacc_fields (file, HACC_READ)
+         hist_acc_window_restored = .true.
 #ifdef EXTERNAL_LAKE
          IF (p_is_master) write(*,'(A)') &
             'Warning: external-lake history accumulators are not restored; their first window is partial.'
@@ -267,6 +279,13 @@ CONTAINS
       CALL require_var (file, 'hacc_river', landpatch, 'patch', 1, 0, 0)
       CALL read_marker (file, 'hacc_river', vmin, vmax)
       IF (vmax > 0._r8) CALL river_sums (trim(file)//'.river', HACC_READ)
+#endif
+
+      ! Every rank must reach the same verdict: the material river history
+      ! drops its restored window when this is .false.
+#ifdef USEMPI
+      CALL mpi_allreduce (MPI_IN_PLACE, hist_acc_window_restored, 1, MPI_LOGICAL, &
+         MPI_LAND, p_comm_glb, p_err)
 #endif
 
    END SUBROUTINE read_history_acc_restart

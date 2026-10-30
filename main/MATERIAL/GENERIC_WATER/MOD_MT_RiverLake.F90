@@ -92,6 +92,14 @@ MODULE MOD_MT_RiverLake
    ! Flux variables (diagnostic, per routing period)
    real(r8), allocatable :: mt_flux_out  (:,:) ! Tracer outflux [R*m3/s] (nmts, numucat)
    real(r8), allocatable :: mt_dry_drain(:,:) ! Terminal (mouth) sink from forced drain [R*m3]
+   ! Running totals of the dry-cell bookkeeping, per species:
+   !   1 = drained mass handed to the split delivery (internal cells)
+   !   2 = mass actually delivered to receivers
+   !   3 = mass parked in mt_dry_pending (no physical receiver yet)
+   !   4 = mass booked as the terminal sink
+   ! mt_dry_drain itself is cleared at the end of every routing call, so the
+   ! totals have to be accumulated here to be reportable at the end.
+   real(r8), allocatable :: mt_dry_stat(:,:)  ! [R*m3]
    real(r8), allocatable :: mt_dry_fwd(:,:)   ! Internal drained mass forwarded downstream [R*m3]
    real(r8), allocatable :: mt_dry_rev(:,:)   ! (legacy) unique-reverse buffer
    real(r8), allocatable :: mt_dry_split(:,:) ! Internal drained mass split by actual outflow flux [R*m3]
@@ -195,6 +203,7 @@ MODULE MOD_MT_RiverLake
    PUBLIC :: mt_riverlake_input_from_runoff
    PUBLIC :: mt_riverlake_flush_acc
    PUBLIC :: mt_riverlake_read_restart
+   PUBLIC :: mt_riverlake_drop_hist_window
    PUBLIC :: mt_riverlake_write_restart
    PUBLIC :: mt_riverlake_write_hist_acc_restart, mt_riverlake_read_hist_acc_restart
    PUBLIC :: mt_riverlake_snapshot_hist_acc
@@ -214,6 +223,7 @@ MODULE MOD_MT_RiverLake
    PUBLIC :: mt_levsto
    PUBLIC :: mt_solid, mt_levsto_solid, mt_riverlake_equilibrate_cell
    PUBLIC :: mt_dry_drain
+   PUBLIC :: mt_dry_stat
    PUBLIC :: mt_riverlake_release_pending_drain
    PUBLIC :: mt_decay_source
    PUBLIC :: mt_riverlake_levee_repartition
@@ -253,6 +263,7 @@ CONTAINS
          allocate (mt_conc     (nmts, numucat))
          allocate (mt_flux_out (nmts, numucat))
          allocate (mt_dry_drain(nmts, numucat))
+         allocate (mt_dry_stat(nmts, 4))
          allocate (mt_dry_fwd  (nmts, numucat))
          allocate (mt_dry_rev  (nmts, numucat))
          allocate (mt_dry_split(nmts, numucat))
@@ -281,6 +292,7 @@ CONTAINS
          mt_conc     = 0._r8
          mt_flux_out  = 0._r8
          mt_dry_drain = 0._r8
+         mt_dry_stat  = 0._r8
          mt_dry_fwd   = 0._r8
          mt_dry_rev   = 0._r8
          mt_dry_split = 0._r8
@@ -848,11 +860,27 @@ CONTAINS
                   ! sink.  Forward it along the main-channel edge; only a
                   ! terminal cell (no downstream unit catchment) really
                   ! discharges to the outside and books mt_dry_drain.
+                  ! An internal cell is one with a downstream unit catchment.
+                  ! The flux sign must NOT be part of this test: with reverse
+                  ! flow allowed the old code sent every internal drained cell
+                  ! to the split delivery, and a negative flux there means the
+                  ! mass goes to the reverse receivers.  Requiring hflux >= 0
+                  ! would book those cells as a terminal sink instead, which
+                  ! changes the default (no bifurcation, no levee) behaviour.
+                  ! With reverse flow disabled out_total is max(hflux,0), so a
+                  ! negative-flux cell naturally parks its mass in
+                  ! mt_dry_pending instead of losing it.
                   internal_receiver = ucat_next(i) > 0
+                  ! An internal cell hands the residue to the split delivery
+                  ! whether or not reverse flow is allowed.  The delivery
+                  ! falls back to the forward edge alone when it is not (see
+                  ! the up_rev assignment below), so gating this branch on
+                  ! reverse_allowed used to book the residue of every internal
+                  ! dry cell as a terminal sink while bifurcation or levees
+                  ! were active -- mass that never reached its downstream
+                  ! neighbour, and that the discharge ledger cannot see
+                  ! because mt_dry_drain is summed into it.
                   IF (internal_receiver .and. present(hflux_fc_in)) THEN
-                     internal_receiver = hflux_fc_in(i) >= 0._r8
-                  ENDIF
-                  IF (ucat_next(i) > 0 .and. present(hflux_fc_in) .and. reverse_allowed) THEN
                      ! N07: hand the drained mass to the split delivery below.
                      ! It is distributed over EVERY actual outflow edge during
                      ! this substep, weighted by that edge's water flux:
@@ -862,9 +890,11 @@ CONTAINS
                      ! This conserves mass and matches the host flux split also
                      ! for confluences (several upstream branches).
                      mt_dry_split(imt, i) = mt_dry_split(imt, i) + dry_drain
+                     IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 1) = mt_dry_stat(imt, 1) + dry_drain
                   ELSE
                      IF (allocated(mt_dry_drain)) mt_dry_drain(imt, i) = &
                         mt_dry_drain(imt, i) + dry_drain
+                     IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 4) = mt_dry_stat(imt, 4) + dry_drain
                      ! Keep advective outflux and the terminal dry-cell sink
                      ! separate. CoLMDEBUG books mt_flux_out at river mouths
                      ! and adds mt_dry_drain globally; folding the sink into
@@ -916,14 +946,19 @@ CONTAINS
          ENDDO
       ENDDO
 
-      IF (allocated(mt_dry_split) .and. present(hflux_fc_in) .and. numucat > 0 .and. &
-          reverse_allowed) THEN
+      IF (allocated(mt_dry_split) .and. present(hflux_fc_in) .and. numucat > 0) THEN
          allocate(fwd_send(numucat), fwd_recv(numucat), rev_send(numucat), rev_recv(numucat))
          allocate(out_total(numucat), up_rev(numucat), donor_out(numucat), rev_sum(numucat))
          ! reverse-outflow demand of every donor: sum of |negative upstream face
          ! fluxes|.  `push_ups2ucat` aggregates upstream-cell values at the
          ! downstream cell, so this is available locally after one push.
-         up_rev(:) = max(-hflux_fc_in(:), 0._r8)
+         IF (reverse_allowed) THEN
+            up_rev(:) = max(-hflux_fc_in(:), 0._r8)
+         ELSE
+            ! No reverse flow in this configuration (bifurcation or levees):
+            ! deliver along the forward main-channel edge only.
+            up_rev(:) = 0._r8
+         ENDIF
          rev_sum(:) = 0._r8
          CALL worker_push_data (push_ups2ucat, up_rev, rev_sum, fillvalue = 0._r8, mode = 'sum')
          DO i = 1, numucat
@@ -935,8 +970,11 @@ CONTAINS
             IF (out_total(i) <= mt_tiny) THEN
                DO imt = 1, nmts
                   IF (mt_dry_split(imt, i) <= mt_tiny) CYCLE
-                  IF (allocated(mt_dry_pending)) &
+                  IF (allocated(mt_dry_pending)) THEN
                      mt_dry_pending(imt, i) = mt_dry_pending(imt, i) + mt_dry_split(imt, i)
+                     IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 3) = &
+                        mt_dry_stat(imt, 3) + mt_dry_split(imt, i)
+                  ENDIF
                   mt_dry_split(imt, i) = 0._r8
                ENDDO
             ENDIF
@@ -958,12 +996,18 @@ CONTAINS
                IF (mt_dry_split(imt, i) <= mt_tiny) CYCLE
                IF (out_total(i) > mt_tiny) fwd_send(i) = &
                   mt_dry_split(imt, i) * max(hflux_fc_in(i), 0._r8) / out_total(i)
-               rev_send(i) = mt_dry_split(imt, i)
+               ! rev_send carries the WHOLE split, so it must stay zero when
+               ! reverse flow is disabled: the forward share is already the
+               ! entire drained mass (out_total = max(hflux,0)), and a single
+               ! negative hflux downstream would deliver it a second time.
+               IF (reverse_allowed) rev_send(i) = mt_dry_split(imt, i)
             ENDDO
             CALL worker_push_data (push_ups2ucat, fwd_send, fwd_recv, fillvalue = 0._r8, mode = 'sum')
             CALL worker_push_data (push_next2ucat, rev_send, rev_recv, fillvalue = 0._r8)
             DO i = 1, numucat
                IF (fwd_recv(i) <= mt_tiny .and. rev_recv(i) <= mt_tiny) CYCLE
+               IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 2) = &
+                  mt_dry_stat(imt, 2) + max(fwd_recv(i), 0._r8)
                IF (present(is_built_resv)) THEN
                   CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j, is_built_resv(i))
                ELSE
@@ -980,9 +1024,10 @@ CONTAINS
                ENDIF
                ! reverse share: receiver pulls its donor's drained mass and
                ! weights it by its own reverse edge flux (known locally)
-               IF (rev_recv(i) > mt_tiny .and. hflux_fc_in(i) < 0._r8 .and. &
-                   donor_out(i) > mt_tiny) THEN
+               IF (reverse_allowed .and. rev_recv(i) > mt_tiny .and. &
+                   hflux_fc_in(i) < 0._r8 .and. donor_out(i) > mt_tiny) THEN
                   rev_share = rev_recv(i) * abs(hflux_fc_in(i)) / donor_out(i)
+                  IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 2) = mt_dry_stat(imt, 2) + rev_share
                   mt_mass(imt, i) = mt_mass(imt, i) + rev_share
                   CALL update_mt_concentration(imt, i, vol_j)
                   IF (vol_j > mt_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
@@ -2243,12 +2288,39 @@ CONTAINS
    !-------------------------------------------------------------------------------------
    ! Read tracer restart
    !-------------------------------------------------------------------------------------
+   !-------------------------------------------------------------------------------------
+   ! Drop the restored material history window and start a new one at the
+   ! restart.  Called when MOD_HistAccRestart decided that the restart closes a
+   ! complete history window: the rows a restart carries at a window boundary
+   ! cover the window that just ended, and keeping them would make the first
+   ! window after the restart span two windows.  Sharing the host's decision
+   ! keeps both histories on the same window without duplicating the calendar
+   ! logic here.
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE mt_riverlake_drop_hist_window ()
+
+   IMPLICIT NONE
+
+      IF (.not. p_is_worker) RETURN
+      IF (allocated(a_trc_storage_mass)) a_trc_storage_mass = 0._r8
+      IF (allocated(a_water_storage)) a_water_storage = 0._r8
+      IF (allocated(a_trc_levsto_mass)) a_trc_levsto_mass = 0._r8
+      IF (allocated(a_levsto_water)) a_levsto_water = 0._r8
+      IF (allocated(a_trc_out)) a_trc_out = 0._r8
+      IF (allocated(a_trc_bifout)) a_trc_bifout = 0._r8
+      IF (allocated(a_trc_acctime)) a_trc_acctime = 0._r8
+      IF (allocated(mt_n2o_source)) mt_n2o_source = 0._r8
+
+   END SUBROUTINE mt_riverlake_drop_hist_window
+
+
    SUBROUTINE mt_riverlake_read_restart (file_restart, found_restart, missing_mask)
 
    USE MOD_Vector_ReadWrite
    USE MOD_Grid_RiverLakeNetwork, only: numucat, totalnumucat, ucat_data_address, &
       ucat_gdid, ucat_next
    USE MOD_Grid_RiverLakeLevee, only: has_levee_bf => has_levee
+   USE MOD_Grid_RiverLakeHistState, only: acctime_ucat
    IMPLICIT NONE
 
    character(len=*), intent(in) :: file_restart
@@ -2262,7 +2334,7 @@ CONTAINS
 
    integer :: imt
    integer :: ii_bf, itrc_bf
-   logical :: network_meta_matches, field_present
+   logical :: network_meta_matches, field_present, hist_complete, hist_time_present
    logical :: has_transport_tracer, descriptor_compatible
    character(len=64) :: varname
    real(r8), allocatable :: tmpvec(:)
@@ -2432,21 +2504,46 @@ CONTAINS
       CALL vector_read_and_scatter(file_restart, tmpvec, numucat, 'acc_rnof_ref', ucat_data_address)
       IF (p_is_worker .and. numucat > 0) acc_rnof_ref(:) = tmpvec(:)
 
-      ! History window: always start a fresh one after a restart.
+      ! History window.  The rows persisted by mt_riverlake_write_restart are
+      ! restored when the restart sits in the MIDDLE of a window (monthly
+      ! history with daily restarts, say): the first record after the restart
+      ! then covers the same period a continuous run would report.
       !
-      ! The host never restores its history window (MOD_HistAccRestart's
-      ! save_history_acc_restart has no caller, so no sidecar is ever written
-      ! and hist_init opens a new window at the model start).  This routine
-      ! used to restore the rows persisted below, which made the first
-      ! post-restart window cover the old window as well: a daily restart then
-      ! reported mean(day1, day2) instead of day2 (verified bitwise, and the
-      ! river inflow was identical, so only the window denominator differed).
-      ! Restoring them is also unsafe in principle, because the restart is
-      ! written at the end of the closing step, BEFORE the history flush of
-      ! that window, so the rows always carry a complete window.
+      ! A restart on a window boundary carries a COMPLETE window instead, and
+      ! restoring that would make the first window after the restart cover two
+      ! windows.  Measured: before this rule, a daily restart reported
+      ! 0.5876 kg N/s where the continuous run reported 0.7247, i.e. exactly
+      ! (0.4505 + 0.7247)/2 = day1 and day2 averaged, and the restart file
+      ! itself carried mt_hist_acctime = 86400 (172800 on the second day) --
+      ! the window had not been flushed at the moment the restart was written,
+      ! although hist_out runs before WRITE_TimeVariables in the main loop.
       !
-      ! The rows are still written (schema unchanged) so a restart file keeps a
-      ! self-contained description of the window that ended there.
+      ! Which case applies is decided once, by MOD_HistAccRestart, from the
+      ! restart date (a restart on mday == 1 closes a month, and so on); the
+      ! material rows simply follow that verdict through
+      ! mt_riverlake_drop_hist_window, so the two histories cannot disagree.
+      ! History is one unit: partial optional legacy rows must not be mixed
+      ! with a full-window denominator or with another row's history window.
+      hist_complete = .true.
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         write(varname, '(A,A)') 'mt_hist_stor_', trim(tracer_names(imt))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., field_present)
+         hist_complete = hist_complete .and. field_present
+         write(varname, '(A,A)') 'mt_hist_levsto_', trim(tracer_names(imt))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., field_present)
+         hist_complete = hist_complete .and. field_present
+         write(varname, '(A,A)') 'mt_hist_out_', trim(tracer_names(imt))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., field_present)
+         hist_complete = hist_complete .and. field_present
+         write(varname, '(A,A)') 'mt_hist_bifout_', trim(tracer_names(imt))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., field_present)
+         hist_complete = hist_complete .and. field_present
+      ENDDO
+      CALL probe_riverlake_restart_vector(file_restart, 'mt_hist_water_storage', .false., field_present)
+      hist_complete = hist_complete .and. field_present
+      CALL probe_riverlake_restart_vector(file_restart, 'mt_hist_levsto_water', .false., field_present)
+      hist_complete = hist_complete .and. field_present
       IF (p_is_worker) THEN
          a_trc_storage_mass = 0._r8
          a_water_storage = 0._r8
@@ -2455,10 +2552,42 @@ CONTAINS
          a_trc_out = 0._r8
          a_trc_bifout = 0._r8
          a_trc_acctime = 0._r8
-         IF (allocated(mt_n2o_source)) mt_n2o_source = 0._r8
       ENDIF
-      IF (p_is_master) WRITE(*,'(A)') &
-         '  NOTE mt_riverlake_read_restart: the material history window starts at the restart.'
+      IF (.not. hist_complete) THEN
+         IF (p_is_master) WRITE(*,'(A)') &
+            '  NOTE mt_riverlake_read_restart: legacy material history starts a post-restart window.'
+      ELSE
+      DO imt = 1, nmts
+         IF (.not. mt_uses_generic_water(imt)) CYCLE
+         write(varname, '(A,A)') 'mt_hist_stor_', trim(tracer_names(imt))
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_storage_mass, imt=imt)
+         write(varname, '(A,A)') 'mt_hist_levsto_', trim(tracer_names(imt))
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_levsto_mass, imt=imt)
+         write(varname, '(A,A)') 'mt_hist_out_', trim(tracer_names(imt))
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_out, imt=imt)
+         write(varname, '(A,A)') 'mt_hist_bifout_', trim(tracer_names(imt))
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_bifout, imt=imt)
+         write(varname, '(A,A)') 'mt_hist_n2o_', trim(tracer_names(imt))
+         CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., hist_time_present)
+         IF (hist_time_present) THEN
+            CALL read_mt_hist_acc (file_restart, trim(varname), acc2=mt_n2o_source, imt=imt)
+         ELSEIF (allocated(mt_n2o_source)) THEN
+            ! Restarts written before the N2O diagnostic carry no numerator;
+            ! start its window at zero instead of failing the reader.
+            mt_n2o_source(imt, :) = 0._r8
+         ENDIF
+      ENDDO
+      CALL read_mt_hist_acc (file_restart, 'mt_hist_water_storage', acc1=a_water_storage)
+      CALL read_mt_hist_acc (file_restart, 'mt_hist_levsto_water', acc1=a_levsto_water)
+      CALL probe_riverlake_restart_vector(file_restart, 'mt_hist_acctime', .false., hist_time_present)
+      IF (hist_time_present) THEN
+         CALL read_mt_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_trc_acctime)
+      ELSEIF (p_is_worker .and. allocated(acctime_ucat)) THEN
+         ! Transitional files with all six numerators but no local clock used
+         ! the water history clock; preserve that complete window on upgrade.
+         a_trc_acctime = acctime_ucat
+      ENDIF
+      ENDIF
 
       ! Reject corrupt loaded rows before the levee-configuration migration can
       ! fold protected mass into the visible pool and thereby hide its origin.
@@ -3334,6 +3463,31 @@ CONTAINS
 
    IMPLICIT NONE
 
+   integer :: k
+   real(r8) :: stats(4)
+
+      ! Dry-cell accounting summary, accumulated over the whole run before
+      ! mt_dry_drain is cleared at the end of each routing call:
+      !   drained (internal) / delivered / pending / terminal sink.
+      !
+      ! Every rank must enter the allreduce: mt_dry_stat exists only on
+      ! workers, so guarding the collective with allocated() would hang the
+      ! run at shutdown with the results already written.  Non-workers
+      ! contribute zeros.
+      IF (nmts > 0 .and. allocated(tracer_names)) THEN
+         DO k = 1, nmts
+            IF (.not. mt_uses_generic_water(k)) CYCLE
+            stats(:) = 0._r8
+            IF (p_is_worker .and. allocated(mt_dry_stat)) stats(1:4) = mt_dry_stat(k, 1:4)
+#ifdef USEMPI
+            CALL mpi_allreduce (MPI_IN_PLACE, stats, 4, MPI_REAL8, MPI_SUM, p_comm_glb, p_err)
+#endif
+            IF (p_is_master) WRITE(*,'(A,A,A,4ES14.6)') ' Dry-cell accounting ', &
+               trim(tracer_names(k)), ' drained/delivered/pending/sink:', &
+               stats(1), stats(2), stats(3), stats(4)
+         ENDDO
+      ENDIF
+
       IF (allocated(tracer_names )) deallocate (tracer_names )
       IF (allocated(mt_mass     )) deallocate (mt_mass     )
       IF (allocated(mt_conc     )) deallocate (mt_conc     )
@@ -3350,6 +3504,7 @@ CONTAINS
       IF (allocated(a_trc_bifout     )) deallocate (a_trc_bifout     )
       IF (allocated(a_trc_acctime    )) deallocate (a_trc_acctime    )
       IF (allocated(mt_dry_drain    )) deallocate (mt_dry_drain    )
+      IF (allocated(mt_dry_stat     )) deallocate (mt_dry_stat     )
       IF (allocated(mt_dry_fwd      )) deallocate (mt_dry_fwd      )
       IF (allocated(mt_dry_rev      )) deallocate (mt_dry_rev      )
       IF (allocated(mt_dry_split    )) deallocate (mt_dry_split    )

@@ -202,6 +202,7 @@ MODULE MOD_MT_Sediment
    PUBLIC :: register_sediment_mt_provider
    PUBLIC :: mt_sediment_substep_stats
    PUBLIC :: mt_sediment_snapshot_hist_acc
+   PUBLIC :: mt_sediment_drop_hist_window
 
    integer, parameter :: MAX_SED_PARAM_CLASSES = 100
    type :: sediment_parameter_type
@@ -3832,6 +3833,29 @@ CONTAINS
    END SUBROUTINE write_sediment_scalar_meta
 
    !-------------------------------------------------------------------------------------
+   !-------------------------------------------------------------------------------------
+   ! Drop the restored sediment history window and start a new one, mirroring
+   ! mt_riverlake_drop_hist_window: called when MOD_HistAccRestart decided the
+   ! restart closes a complete history window, so both material families and
+   ! the host keep the same window.
+   !-------------------------------------------------------------------------------------
+   SUBROUTINE mt_sediment_drop_hist_window ()
+
+   IMPLICIT NONE
+
+      IF (.not. p_is_worker) RETURN
+      IF (allocated(a_sedcon)) a_sedcon = 0._r8
+      IF (allocated(a_sedout)) a_sedout = 0._r8
+      IF (allocated(a_bedout)) a_bedout = 0._r8
+      IF (allocated(a_sedinp)) a_sedinp = 0._r8
+      IF (allocated(a_netflw)) a_netflw = 0._r8
+      IF (allocated(a_layer)) a_layer = 0._r8
+      IF (allocated(a_shearvel)) a_shearvel = 0._r8
+      sed_hist_acctime = 0._r8
+
+   END SUBROUTINE mt_sediment_drop_hist_window
+
+
    SUBROUTINE mt_sediment_snapshot_hist_acc ()
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE

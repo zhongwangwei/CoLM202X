@@ -30,7 +30,15 @@ PROGRAM CoLM
    USE MOD_Forcing
    USE MOD_Hist
 #ifdef MaterialTransport
-   USE MOD_HistAccRestart, only: read_history_acc_restart, save_history_acc_restart
+   USE MOD_HistAccRestart, only: read_history_acc_restart, save_history_acc_restart, &
+      hist_acc_window_restored
+#ifdef GridRiverLakeFlow
+   USE MOD_MT_RiverLake, only: mt_riverlake_drop_hist_window
+   ! MOD_MT_Sediment exists only with the grid river-lake flow (it USEs
+   ! GridRiverLakeFlow-only modules), so it is guarded like every other
+   ! reference to it in the tree.
+   USE MOD_MT_Sediment, only: mt_sediment_drop_hist_window
+#endif
 #endif
    USE MOD_CheckEquilibrium
    USE MOD_TimeManager
@@ -444,6 +452,15 @@ PROGRAM CoLM
 
 #ifdef MaterialTransport
       CALL read_history_acc_restart (jdate)
+      ! The material river and sediment histories must live on the same window
+      ! as the host's: when the sidecar reader dropped a complete window, drop
+      ! the restored material rows as well.  A partial window is kept by all.
+      IF (.not. hist_acc_window_restored) THEN
+#ifdef GridRiverLakeFlow
+         CALL mt_riverlake_drop_hist_window ()
+         CALL mt_sediment_drop_hist_window ()
+#endif
+      ENDIF
 #endif
 
       CALL ParaOpt_init (jdate, lc_year)
