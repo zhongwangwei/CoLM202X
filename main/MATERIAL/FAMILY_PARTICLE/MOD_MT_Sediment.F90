@@ -226,21 +226,21 @@ MODULE MOD_MT_Sediment
       real(r8) :: bed_depth = -1._r8
    end type sediment_parameter_type
 
-   integer, save :: sediment_itrc = 0
+   integer, save :: sediment_imt = 0
 CONTAINS
 
    !-------------------------------------------------------------------------------------
    logical FUNCTION sediment_particle_enabled()
    !-------------------------------------------------------------------------------------
       IMPLICIT NONE
-      sediment_particle_enabled = sediment_itrc > 0
+      sediment_particle_enabled = sediment_imt > 0
    END FUNCTION sediment_particle_enabled
 
    !-------------------------------------------------------------------------------------
    integer FUNCTION sediment_mt_index()
    !-------------------------------------------------------------------------------------
    IMPLICIT NONE
-      sediment_mt_index = sediment_itrc
+      sediment_mt_index = sediment_imt
 
    END FUNCTION sediment_mt_index
 
@@ -266,7 +266,7 @@ CONTAINS
       hooks%route_final           => grid_sediment_final
 
       CALL register_mt_provider('SEDIMENT', 'SED', 'sediment', &
-         FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE, hooks, sediment_itrc)
+         FAMILY_PARTICLE, STATE_OWNER_PROVIDER, REACTION_NONE, hooks, sediment_imt)
 
    END SUBROUTINE register_sediment_mt_provider
 
@@ -374,8 +374,8 @@ CONTAINS
    character(len=512) :: iomsg
    namelist /nl_colm_sediment_parameter/ DEF_SEDIMENT
 
-      IF (sediment_itrc <= 0) sediment_itrc = sediment_mt_index()
-      CALL material_param_file_for_index(sediment_itrc, 'SEDIMENT,SED', file_param, found)
+      IF (sediment_imt <= 0) sediment_imt = sediment_mt_index()
+      CALL material_param_file_for_index(sediment_imt, 'SEDIMENT,SED', file_param, found)
       IF (.not. found) THEN
          IF (p_is_io) WRITE(*,'(A)') 'Sediment parameters: code defaults (no DEF_SEDIMENT_PARAM_FILE).'
          RETURN

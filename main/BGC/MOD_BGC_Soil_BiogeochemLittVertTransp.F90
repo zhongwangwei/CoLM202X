@@ -74,8 +74,8 @@ CONTAINS
    real(r8) :: pe_p1(1:nl_soil+1)                      ! Peclet # for next j
    real(r8) :: pe_m1(1:nl_soil+1)                      ! Peclet # for previous j
    real(r8) :: dz_node(1:nl_soil+1)                    ! difference between nodes
-   real(r8) :: conc_trcr_c(0:nl_soil+1)                ! dummy term
-   real(r8) :: conc_trcr_n(0:nl_soil+1)                ! dummy term
+   real(r8) :: conc_mt_c(0:nl_soil+1)                ! dummy term
+   real(r8) :: conc_mt_n(0:nl_soil+1)                ! dummy term
    real(r8) :: a_p_0
    integer  :: s,j,l                                   ! indices
    integer  :: jtop                                    ! top level at each column
@@ -149,14 +149,14 @@ CONTAINS
             ENDDO
 
                     ! Set Pe (Peclet #) and D/dz throughout column
-            conc_trcr_c(0) = 0._r8
-            conc_trcr_n(0) = 0._r8
-            conc_trcr_c(nbedrock+1:nl_soil+1) = 0._r8
-            conc_trcr_n(nbedrock+1:nl_soil+1) = 0._r8
+            conc_mt_c(0) = 0._r8
+            conc_mt_n(0) = 0._r8
+            conc_mt_c(nbedrock+1:nl_soil+1) = 0._r8
+            conc_mt_n(nbedrock+1:nl_soil+1) = 0._r8
 
             DO j = 1,nl_soil+1
-               conc_trcr_c(j) = decomp_cpools_vr(j,s,i)
-               conc_trcr_n(j) = decomp_npools_vr(j,s,i)
+               conc_mt_c(j) = decomp_cpools_vr(j,s,i)
+               conc_mt_n(j) = decomp_npools_vr(j,s,i)
 
                ! dz_material below is the difference between gridcell edges  (dz_soi)
                ! dz_node_material is difference between cell centers
@@ -229,39 +229,39 @@ CONTAINS
                   a_tri(j) = -(d_m1_zm1(j) * aaa(pe_m1(j)) + max( f_m1(j), 0._r8)) ! Eqn 5.47 Patankar
                   c_tri(j) = -(d_p1_zp1(j) * aaa(pe_p1(j)) + max(-f_p1(j), 0._r8))
                   b_tri(j) = - a_tri(j) - c_tri(j) + a_p_0
-                  r_tri_c(j) = decomp_cpools_sourcesink(j,s,i) * dz_soi(j) /deltim + (a_p_0 - adv_flux(j)) * conc_trcr_c(j)
-                  r_tri_n(j) = decomp_npools_sourcesink(j,s,i) * dz_soi(j) /deltim + (a_p_0 - adv_flux(j)) * conc_trcr_n(j)
+                  r_tri_c(j) = decomp_cpools_sourcesink(j,s,i) * dz_soi(j) /deltim + (a_p_0 - adv_flux(j)) * conc_mt_c(j)
+                  r_tri_n(j) = decomp_npools_sourcesink(j,s,i) * dz_soi(j) /deltim + (a_p_0 - adv_flux(j)) * conc_mt_n(j)
                   IF(DEF_USE_SASU .or. DEF_USE_DiagMatrix)THEN
-                     upperVX_c_vr_acc(j,s,i) = upperVX_c_vr_acc(j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_trcr_c(j+1)! upwards transfer
-                     diagVX_c_vr_acc (j,s,i) = diagVX_c_vr_acc (j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_trcr_c(j)! EXIT flux
-                     upperVX_n_vr_acc(j,s,i) = upperVX_n_vr_acc(j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_trcr_n(j+1)! upwards transfer
-                     diagVX_n_vr_acc (j,s,i) = diagVX_n_vr_acc (j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_trcr_n(j)! EXIT flux
+                     upperVX_c_vr_acc(j,s,i) = upperVX_c_vr_acc(j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_mt_c(j+1)! upwards transfer
+                     diagVX_c_vr_acc (j,s,i) = diagVX_c_vr_acc (j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_mt_c(j)! EXIT flux
+                     upperVX_n_vr_acc(j,s,i) = upperVX_n_vr_acc(j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_mt_n(j+1)! upwards transfer
+                     diagVX_n_vr_acc (j,s,i) = diagVX_n_vr_acc (j,s,i) -  c_tri(j) / dz_soi(j) * deltim * conc_mt_n(j)! EXIT flux
                   ENDIF
                ELSEIF (j < nl_soil+1) THEN
 
                   a_tri(j) = -(d_m1_zm1(j) * aaa(pe_m1(j)) + max( f_m1(j), 0._r8)) ! Eqn 5.47 Patankar
                   c_tri(j) = -(d_p1_zp1(j) * aaa(pe_p1(j)) + max(-f_p1(j), 0._r8))
                   b_tri(j) = - a_tri(j) - c_tri(j) + a_p_0
-                  r_tri_c(j) = decomp_cpools_sourcesink(j,s,i) * dz_soi(j) /deltim + a_p_0 * conc_trcr_c(j)
-                  r_tri_n(j) = decomp_npools_sourcesink(j,s,i) * dz_soi(j) /deltim + a_p_0 * conc_trcr_n(j)
+                  r_tri_c(j) = decomp_cpools_sourcesink(j,s,i) * dz_soi(j) /deltim + a_p_0 * conc_mt_c(j)
+                  r_tri_n(j) = decomp_npools_sourcesink(j,s,i) * dz_soi(j) /deltim + a_p_0 * conc_mt_n(j)
 
                   IF(DEF_USE_SASU .or. DEF_USE_DiagMatrix)THEN
                      IF(j .le. nbedrock)THEN
-                        lowerVX_c_vr_acc(j,s,i) = lowerVX_c_vr_acc(j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_trcr_c(j-1)
-                        lowerVX_n_vr_acc(j,s,i) = lowerVX_n_vr_acc(j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_trcr_n(j-1)
+                        lowerVX_c_vr_acc(j,s,i) = lowerVX_c_vr_acc(j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_mt_c(j-1)
+                        lowerVX_n_vr_acc(j,s,i) = lowerVX_n_vr_acc(j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_mt_n(j-1)
                         IF(j .ne. nl_soil)THEN
-                           upperVX_c_vr_acc(j,s,i) = upperVX_c_vr_acc(j,s,i) - c_tri(j) / dz_soi(j) * deltim * conc_trcr_c(j+1)
-                           upperVX_n_vr_acc(j,s,i) = upperVX_n_vr_acc(j,s,i) - c_tri(j) / dz_soi(j) * deltim * conc_trcr_n(j+1)
-                           diagVX_c_vr_acc(j,s,i)  = diagVX_c_vr_acc(j,s,i) + (b_tri(j) - a_p_0) / dz_soi(j) * deltim * conc_trcr_c(j)
-                           diagVX_n_vr_acc(j,s,i)  = diagVX_n_vr_acc(j,s,i) + (b_tri(j) - a_p_0) / dz_soi(j) * deltim * conc_trcr_n(j)
+                           upperVX_c_vr_acc(j,s,i) = upperVX_c_vr_acc(j,s,i) - c_tri(j) / dz_soi(j) * deltim * conc_mt_c(j+1)
+                           upperVX_n_vr_acc(j,s,i) = upperVX_n_vr_acc(j,s,i) - c_tri(j) / dz_soi(j) * deltim * conc_mt_n(j+1)
+                           diagVX_c_vr_acc(j,s,i)  = diagVX_c_vr_acc(j,s,i) + (b_tri(j) - a_p_0) / dz_soi(j) * deltim * conc_mt_c(j)
+                           diagVX_n_vr_acc(j,s,i)  = diagVX_n_vr_acc(j,s,i) + (b_tri(j) - a_p_0) / dz_soi(j) * deltim * conc_mt_n(j)
                         ELSE
-                           diagVX_c_vr_acc(j,s,i)  = diagVX_c_vr_acc (j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_trcr_c(j)
-                           diagVX_n_vr_acc(j,s,i)  = diagVX_n_vr_acc (j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_trcr_n(j)
+                           diagVX_c_vr_acc(j,s,i)  = diagVX_c_vr_acc (j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_mt_c(j)
+                           diagVX_n_vr_acc(j,s,i)  = diagVX_n_vr_acc (j,s,i) - a_tri(j) / dz_soi(j) * deltim * conc_mt_n(j)
                         ENDIF
                      ELSE
                         IF(j .eq. nbedrock + 1 .and. j .ne. nl_soil .and. j .gt. 1)THEN
-                           diagVX_c_vr_acc(j-1,s,i) = diagVX_c_vr_acc(j-1,s,i) + a_tri(j) / dz_soi(j-1) * deltim * conc_trcr_c(j-1)
-                           diagVX_n_vr_acc(j-1,s,i) = diagVX_n_vr_acc(j-1,s,i) + a_tri(j) / dz_soi(j-1) * deltim * conc_trcr_n(j-1)
+                           diagVX_c_vr_acc(j-1,s,i) = diagVX_c_vr_acc(j-1,s,i) + a_tri(j) / dz_soi(j-1) * deltim * conc_mt_c(j-1)
+                           diagVX_n_vr_acc(j-1,s,i) = diagVX_n_vr_acc(j-1,s,i) + a_tri(j) / dz_soi(j-1) * deltim * conc_mt_n(j-1)
                         ENDIF
                      ENDIF
                   ENDIF
@@ -278,25 +278,25 @@ CONTAINS
 
             ! subtract initial concentration and source terms for tendency calculation
             DO j = 1, nl_soil
-               decomp_cpools_transport_tendency(j,s,i) = 0.-(conc_trcr_c(j) + decomp_cpools_sourcesink(j,s,i))
-               decomp_npools_transport_tendency(j,s,i) = 0.-(conc_trcr_n(j) + decomp_npools_sourcesink(j,s,i))
+               decomp_cpools_transport_tendency(j,s,i) = 0.-(conc_mt_c(j) + decomp_cpools_sourcesink(j,s,i))
+               decomp_npools_transport_tendency(j,s,i) = 0.-(conc_mt_n(j) + decomp_npools_sourcesink(j,s,i))
             ENDDO
 
-            CALL tridia(nl_soil+2, a_tri  (:), b_tri(:), c_tri(:), r_tri_c(:), conc_trcr_c(0:nl_soil+1))
-            CALL tridia(nl_soil+2, a_tri  (:), b_tri(:), c_tri(:), r_tri_n(:), conc_trcr_n(0:nl_soil+1))
+            CALL tridia(nl_soil+2, a_tri  (:), b_tri(:), c_tri(:), r_tri_c(:), conc_mt_c(0:nl_soil+1))
+            CALL tridia(nl_soil+2, a_tri  (:), b_tri(:), c_tri(:), r_tri_n(:), conc_mt_n(0:nl_soil+1))
 
             ! add post-transport concentration to calculate tendency term
             DO j = 1, nl_soil
-               decomp_cpools_transport_tendency(j,s,i) = decomp_cpools_transport_tendency(j,s,i) + conc_trcr_c(j)
+               decomp_cpools_transport_tendency(j,s,i) = decomp_cpools_transport_tendency(j,s,i) + conc_mt_c(j)
                decomp_cpools_transport_tendency(j,s,i) = decomp_cpools_transport_tendency(j,s,i) / deltim
-               decomp_npools_transport_tendency(j,s,i) = decomp_npools_transport_tendency(j,s,i) + conc_trcr_n(j)
+               decomp_npools_transport_tendency(j,s,i) = decomp_npools_transport_tendency(j,s,i) + conc_mt_n(j)
                decomp_npools_transport_tendency(j,s,i) = decomp_npools_transport_tendency(j,s,i) / deltim
             ENDDO
          ELSE
             ! for CWD pools, just add
             DO j = 1,nl_soil
-               conc_trcr_c(j) = decomp_cpools_vr(j,s,i) + decomp_cpools_sourcesink(j,s,i)
-               conc_trcr_n(j) = decomp_npools_vr(j,s,i) + decomp_npools_sourcesink(j,s,i)
+               conc_mt_c(j) = decomp_cpools_vr(j,s,i) + decomp_cpools_sourcesink(j,s,i)
+               conc_mt_n(j) = decomp_npools_vr(j,s,i) + decomp_npools_sourcesink(j,s,i)
                IF (j > nbedrock .and. decomp_cpools_sourcesink(j,s,i) > 0._r8) THEN
                   write(*,*) 'C source >0',i,j,s,decomp_cpools_sourcesink(j,s,i)
                ENDIF
@@ -313,15 +313,15 @@ CONTAINS
          ENDIF ! not CWD
 
          DO j = 1,nl_soil
-            decomp_cpools_vr(j,s,i) = conc_trcr_c(j)
-            decomp_npools_vr(j,s,i) = conc_trcr_n(j)
+            decomp_cpools_vr(j,s,i) = conc_mt_c(j)
+            decomp_npools_vr(j,s,i) = conc_mt_n(j)
             ! Correct for small amounts of carbon that leak into bedrock
             IF (j > nbedrock) THEN
                decomp_cpools_vr(nbedrock,s,i) = decomp_cpools_vr(nbedrock,s,i) + &
-                  conc_trcr_c(j) * (dz_soi(j) / dz_soi(nbedrock))
+                  conc_mt_c(j) * (dz_soi(j) / dz_soi(nbedrock))
                decomp_cpools_vr(j,s,i) = 0._r8
                decomp_npools_vr(nbedrock,s,i) = decomp_npools_vr(nbedrock,s,i) + &
-                  conc_trcr_n(j) * (dz_soi(j) / dz_soi(nbedrock))
+                  conc_mt_n(j) * (dz_soi(j) / dz_soi(nbedrock))
                decomp_npools_vr(j,s,i) = 0._r8
             ENDIF
          ENDDO

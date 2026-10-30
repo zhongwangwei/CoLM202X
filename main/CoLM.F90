@@ -177,7 +177,7 @@ PROGRAM CoLM
    integer :: n_spinupcycle, i_spinupcycle, istep
    logical :: is_spinup
 #if (defined MaterialTransport) && (defined CaMa_Flood)
-   integer :: itrc_cama
+   integer :: imt_cama
 #endif
 #ifdef MaterialTransport
    logical :: material_loaded_restart

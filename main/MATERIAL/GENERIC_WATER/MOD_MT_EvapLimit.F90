@@ -30,10 +30,10 @@ MODULE MOD_MT_EvapLimit
 
 CONTAINS
 
-   real(r8) FUNCTION material_atmospheric_mt_loss (pool_trc, pool_water, water_loss, &
+   real(r8) FUNCTION material_atmospheric_mt_loss (pool_mt, pool_water, water_loss, &
       temp_k, from_ice, evap_affine_fn, mt_tiny, r_max, is_nonvolatile, skin_mass)
 
-      real(r8), intent(in) :: pool_trc
+      real(r8), intent(in) :: pool_mt
       real(r8), intent(in) :: pool_water
       real(r8), intent(in) :: water_loss
       real(r8), intent(in) :: temp_k
@@ -50,10 +50,10 @@ CONTAINS
       IF (is_nonvolatile) THEN
          material_atmospheric_mt_loss = 0._r8
       ELSEIF (from_ice .and. present(skin_mass)) THEN
-         material_atmospheric_mt_loss = material_skin_limited_mt_loss(pool_trc, pool_water, &
+         material_atmospheric_mt_loss = material_skin_limited_mt_loss(pool_mt, pool_water, &
             water_loss, skin_mass, temp_k, from_ice, evap_affine_fn, mt_tiny, r_max)
       ELSE
-         material_atmospheric_mt_loss = material_evaporative_mt_loss(pool_trc, pool_water, &
+         material_atmospheric_mt_loss = material_evaporative_mt_loss(pool_mt, pool_water, &
             water_loss, temp_k, from_ice, evap_affine_fn, mt_tiny, r_max)
       ENDIF
    END FUNCTION material_atmospheric_mt_loss
@@ -80,10 +80,10 @@ CONTAINS
    ! Limits: skin_mass -> infinity reproduces the layer-mixed behaviour
    ! exactly; skin_mass = 0 reproduces IsoGSM's non-fractionating limit.
    !---------------------------------------------------------------
-   real(r8) FUNCTION material_skin_limited_mt_loss (pool_trc, pool_water, water_loss, &
+   real(r8) FUNCTION material_skin_limited_mt_loss (pool_mt, pool_water, water_loss, &
       skin_mass, temp_k, from_ice, evap_affine_fn, mt_tiny, r_max)
 
-      real(r8), intent(in) :: pool_trc
+      real(r8), intent(in) :: pool_mt
       real(r8), intent(in) :: pool_water
       real(r8), intent(in) :: water_loss
       real(r8), intent(in) :: skin_mass
@@ -94,14 +94,14 @@ CONTAINS
       real(r8), intent(in) :: r_max
 
       real(r8) :: w_frac, w_bulk, frac_loss, bulk_loss
-      real(r8) :: remaining_trc, remaining_water
+      real(r8) :: remaining_mt, remaining_water
 
       material_skin_limited_mt_loss = 0._r8
       IF (pool_water <= mt_tiny .or. water_loss <= mt_tiny) RETURN
       IF (water_loss >= pool_water * (1._r8 - 1.e-12_r8)) THEN
          ! Whole pool leaves: the integrated outgoing material is the whole
          ! inventory, independent of how much of it fractionated.
-         material_skin_limited_mt_loss = max(pool_trc, 0._r8)
+         material_skin_limited_mt_loss = max(pool_mt, 0._r8)
          RETURN
       ENDIF
 
@@ -110,23 +110,23 @@ CONTAINS
 
       frac_loss = 0._r8
       IF (w_frac > mt_tiny) THEN
-         frac_loss = material_evaporative_mt_loss(pool_trc, pool_water, w_frac, &
+         frac_loss = material_evaporative_mt_loss(pool_mt, pool_water, w_frac, &
             temp_k, from_ice, evap_affine_fn, mt_tiny, r_max)
       ENDIF
 
-      remaining_trc = pool_trc - frac_loss
+      remaining_mt = pool_mt - frac_loss
       remaining_water = pool_water - w_frac
       bulk_loss = 0._r8
       IF (w_bulk > mt_tiny) THEN
          IF (remaining_water > mt_tiny) THEN
-            bulk_loss = min(w_bulk * max(remaining_trc, 0._r8) / remaining_water, &
-               max(remaining_trc, 0._r8))
+            bulk_loss = min(w_bulk * max(remaining_mt, 0._r8) / remaining_water, &
+               max(remaining_mt, 0._r8))
          ELSE
-            bulk_loss = max(remaining_trc, 0._r8)
+            bulk_loss = max(remaining_mt, 0._r8)
          ENDIF
       ENDIF
 
-      material_skin_limited_mt_loss = min(frac_loss + bulk_loss, max(pool_trc, 0._r8))
+      material_skin_limited_mt_loss = min(frac_loss + bulk_loss, max(pool_mt, 0._r8))
    END FUNCTION material_skin_limited_mt_loss
 
    !---------------------------------------------------------------
@@ -158,10 +158,10 @@ CONTAINS
    ! The result is signed: when the ambient vapour is heavier than the
    ! pool's equilibrium vapour the pool takes up heavy isotopes.
    !---------------------------------------------------------------
-   real(r8) FUNCTION material_evaporative_mt_loss (pool_trc, pool_water, water_loss, &
+   real(r8) FUNCTION material_evaporative_mt_loss (pool_mt, pool_water, water_loss, &
       temp_k, from_ice, evap_affine_fn, mt_tiny, r_max)
 
-      real(r8), intent(in) :: pool_trc
+      real(r8), intent(in) :: pool_mt
       real(r8), intent(in) :: pool_water
       real(r8), intent(in) :: water_loss
       real(r8), intent(in) :: temp_k
@@ -181,11 +181,11 @@ CONTAINS
          ! finite pool, the integrated outgoing material is the whole material
          ! inventory.  Applying a last instantaneous fractionation ratio would
          ! leave non-zero material in a zero-water pool and break conservation.
-         material_evaporative_mt_loss = max(pool_trc, 0._r8)
+         material_evaporative_mt_loss = max(pool_mt, 0._r8)
          RETURN
       ENDIF
 
-      source_ratio = max(pool_trc, 0._r8) / pool_water
+      source_ratio = max(pool_mt, 0._r8) / pool_water
       CALL evap_affine_fn(temp_k, from_ice, slope, offset)
       residual_water = pool_water - water_loss
 
@@ -193,9 +193,9 @@ CONTAINS
           (r_max > 0._r8 .and. source_ratio >= r_max)) THEN
          ! Non-fractionating (no fractionation, sublimation, or at the
          ! ceiling): the vapour leaves at the pool ratio.
-         material_evaporative_mt_loss = min(water_loss * source_ratio, max(pool_trc, 0._r8))
+         material_evaporative_mt_loss = min(water_loss * source_ratio, max(pool_mt, 0._r8))
          IF (r_max > 0._r8 .and. source_ratio <= r_max) THEN
-            min_loss_for_cap = max(pool_trc, 0._r8) - r_max * residual_water
+            min_loss_for_cap = max(pool_mt, 0._r8) - r_max * residual_water
             material_evaporative_mt_loss = max(material_evaporative_mt_loss, min_loss_for_cap)
          ENDIF
          RETURN
@@ -212,8 +212,8 @@ CONTAINS
       residual_ratio = max(source_ratio * growth + offset * offset_factor, 0._r8)
       IF (r_max > 0._r8) residual_ratio = min(residual_ratio, r_max)
 
-      material_evaporative_mt_loss = min(max(pool_trc, 0._r8) - residual_ratio * residual_water, &
-         max(pool_trc, 0._r8))
+      material_evaporative_mt_loss = min(max(pool_mt, 0._r8) - residual_ratio * residual_water, &
+         max(pool_mt, 0._r8))
 
    END FUNCTION material_evaporative_mt_loss
 

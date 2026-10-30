@@ -60,7 +60,7 @@ CONTAINS
               qintr_rain ,qintr_snow ,t_precip   ,hprl       ,dheatl     ,smp        ,&
 #ifdef MaterialTransport
               hk         ,hksati     ,rootflux   ,ipft_index                          &
-             ,canopy_smelt_mass_out, canopy_frzc_mass_out, raw_trc_out               )
+             ,canopy_smelt_mass_out, canopy_frzc_mass_out, raw_mt_out               )
 #else
               hk         ,hksati     ,rootflux   ,ipft_index                          )
 #endif
@@ -276,7 +276,7 @@ CONTAINS
    ! Diagnostics for material transport only; not used by the host.
    real(r8), intent(out), optional :: canopy_smelt_mass_out ! canopy snow melted this step [mm]
    real(r8), intent(out), optional :: canopy_frzc_mass_out  ! canopy water frozen this step [mm]
-   real(r8), intent(out), optional :: raw_trc_out           ! moisture resistance raw [s/m]
+   real(r8), intent(out), optional :: raw_mt_out           ! moisture resistance raw [s/m]
 #endif
 
    real(r8), intent(inout) :: &
@@ -1512,7 +1512,7 @@ ENDIF
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
 #ifdef MaterialTransport
-      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
+      IF (present(raw_mt_out)) raw_mt_out = max(raw, 0._r8)
 #endif
 
    END SUBROUTINE LeafTemperature

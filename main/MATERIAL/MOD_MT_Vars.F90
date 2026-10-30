@@ -96,37 +96,37 @@ MODULE MOD_MT_Vars
    ! saved before LULCC rebuilds landpatch and remapped after the new patch
    ! layout exists, mirroring the methane LULCC path.
    logical :: land_mt_lulcc_snapshot_valid = .false.
-   real(r8), allocatable :: lulcc_trc_ldew_rain_old(:,:)
-   real(r8), allocatable :: lulcc_trc_ldew_snow_old(:,:)
-   real(r8), allocatable :: lulcc_trc_wliq_soisno_old(:,:,:)
-   real(r8), allocatable :: lulcc_trc_wice_soisno_old(:,:,:)
-   real(r8), allocatable :: lulcc_trc_wa_old(:,:)
-   real(r8), allocatable :: lulcc_trc_aquifer_ref_water_old(:,:)
-   real(r8), allocatable :: lulcc_trc_aquifer_ref_mass_old(:,:)
-   real(r8), allocatable :: lulcc_trc_wdsrf_old(:,:)
-   real(r8), allocatable :: lulcc_trc_wetwat_old(:,:)
-   real(r8), allocatable :: lulcc_trc_surface_residue_old(:,:)
-   real(r8), allocatable :: lulcc_trc_subsurface_residue_old(:,:)
-   real(r8), allocatable :: lulcc_trc_solid_soisno_old(:,:,:)
-   real(r8), allocatable :: lulcc_trc_canopy_solid_old(:,:)
-   real(r8), allocatable :: lulcc_trc_surface_solid_old(:,:)
-   real(r8), allocatable :: lulcc_trc_subsurface_solid_old(:,:)
-   real(r8), allocatable :: lulcc_trc_waterstorage_solid_old(:,:)
-   real(r8), allocatable :: lulcc_trc_waterstorage_old(:,:)
-   real(r8), allocatable :: lulcc_trc_scv_old(:,:)
-   real(r8), allocatable :: lulcc_trc_leaf_delta_e_old(:,:)
-   real(r8), allocatable :: lulcc_trc_leaf_delta_b_old(:,:)
-   real(r8), allocatable :: lulcc_trc_leaf_peclet_old(:,:)
-   real(r8), allocatable :: lulcc_trc_leaf_water_moles_old(:,:)
-   real(r8), allocatable :: lulcc_trc_leaf_iso_storage_old(:,:)
+   real(r8), allocatable :: lulcc_mt_ldew_rain_old(:,:)
+   real(r8), allocatable :: lulcc_mt_ldew_snow_old(:,:)
+   real(r8), allocatable :: lulcc_mt_wliq_soisno_old(:,:,:)
+   real(r8), allocatable :: lulcc_mt_wice_soisno_old(:,:,:)
+   real(r8), allocatable :: lulcc_mt_wa_old(:,:)
+   real(r8), allocatable :: lulcc_mt_aquifer_ref_water_old(:,:)
+   real(r8), allocatable :: lulcc_mt_aquifer_ref_mass_old(:,:)
+   real(r8), allocatable :: lulcc_mt_wdsrf_old(:,:)
+   real(r8), allocatable :: lulcc_mt_wetwat_old(:,:)
+   real(r8), allocatable :: lulcc_mt_surface_residue_old(:,:)
+   real(r8), allocatable :: lulcc_mt_subsurface_residue_old(:,:)
+   real(r8), allocatable :: lulcc_mt_solid_soisno_old(:,:,:)
+   real(r8), allocatable :: lulcc_mt_canopy_solid_old(:,:)
+   real(r8), allocatable :: lulcc_mt_surface_solid_old(:,:)
+   real(r8), allocatable :: lulcc_mt_subsurface_solid_old(:,:)
+   real(r8), allocatable :: lulcc_mt_waterstorage_solid_old(:,:)
+   real(r8), allocatable :: lulcc_mt_waterstorage_old(:,:)
+   real(r8), allocatable :: lulcc_mt_scv_old(:,:)
+   real(r8), allocatable :: lulcc_mt_leaf_delta_e_old(:,:)
+   real(r8), allocatable :: lulcc_mt_leaf_delta_b_old(:,:)
+   real(r8), allocatable :: lulcc_mt_leaf_peclet_old(:,:)
+   real(r8), allocatable :: lulcc_mt_leaf_water_moles_old(:,:)
+   real(r8), allocatable :: lulcc_mt_leaf_iso_storage_old(:,:)
 
-   real(r8), allocatable :: a_trc_precip   (:,:)
+   real(r8), allocatable :: a_mt_precip   (:,:)
    ! Signed material mass exchanged with atmospheric vapour with NO net water
    ! flux (two-way equilibrium exchange on wet surfaces).  It is a genuine
-   ! boundary flux, so it must be tracked separately from a_trc_precip: the
+   ! boundary flux, so it must be tracked separately from a_mt_precip: the
    ! latter is paired with a water flux and is cross-checked against
    ! water_input * R_init on fixed-signature materials.
-   real(r8), allocatable :: a_trc_vapor_exchange(:,:)
+   real(r8), allocatable :: a_mt_vapor_exchange(:,:)
    real(r8), allocatable :: a_water_precip (:,:)
 	   integer, parameter :: MT_EVAP_KIND_TOTAL       = 0
 	   integer, parameter :: MT_EVAP_KIND_TRANSP      = 1
@@ -134,29 +134,29 @@ MODULE MOD_MT_Vars
 	   integer, parameter :: MT_EVAP_KIND_CANOPYEVAP  = 3
 	   integer, parameter :: MT_EVAP_KIND_SUBL        = 4
 	   integer, parameter :: MT_EVAP_KIND_WETLAND     = 5
-	   real(r8), allocatable :: a_trc_evap     (:,:)
+	   real(r8), allocatable :: a_mt_evap     (:,:)
 	   real(r8), allocatable :: a_water_evap_gross(:,:)
-	   real(r8), allocatable :: a_trc_transp   (:,:)
-	   real(r8), allocatable :: a_trc_transp_src(:,:)
+	   real(r8), allocatable :: a_mt_transp   (:,:)
+	   real(r8), allocatable :: a_mt_transp_src(:,:)
 	   real(r8), allocatable :: a_water_transp (:,:)
-	   real(r8), allocatable :: a_trc_soilevap (:,:)
+	   real(r8), allocatable :: a_mt_soilevap (:,:)
 	   real(r8), allocatable :: a_water_soilevap(:,:)
-	   real(r8), allocatable :: a_trc_canopyevap(:,:)
+	   real(r8), allocatable :: a_mt_canopyevap(:,:)
 	   real(r8), allocatable :: a_water_canopyevap(:,:)
-	   real(r8), allocatable :: a_trc_subl(:,:)
+	   real(r8), allocatable :: a_mt_subl(:,:)
 	   real(r8), allocatable :: a_water_subl(:,:)
-	   real(r8), allocatable :: a_trc_wetland_evap(:,:)
+	   real(r8), allocatable :: a_mt_wetland_evap(:,:)
 	   real(r8), allocatable :: a_water_wetland_evap(:,:)
-   real(r8), allocatable :: a_trc_rsur     (:,:)
-   real(r8), allocatable :: a_trc_rsub     (:,:)
+   real(r8), allocatable :: a_mt_rsur     (:,:)
+   real(r8), allocatable :: a_mt_rsub     (:,:)
    ! External nitrogen input from BGC leaching, booked separately so the
    ! balance check can count it as an input and the fixed-signature check can
    ! exclude it (it is not precipitation).  kg N m-2 per step.
-   real(r8), allocatable :: a_trc_bgc_leach(:,:)
-   real(r8), allocatable :: a_trc_rnof     (:,:)
+   real(r8), allocatable :: a_mt_bgc_leach(:,:)
+   real(r8), allocatable :: a_mt_rnof     (:,:)
    real(r8), allocatable :: a_water_rnof   (:,:)
-   real(r8), allocatable :: a_trc_qinfl    (:,:)
-   real(r8), allocatable :: a_trc_qcharge  (:,:)
+   real(r8), allocatable :: a_mt_qinfl    (:,:)
+   real(r8), allocatable :: a_mt_qcharge  (:,:)
 
    real(r8), allocatable :: mt_storage_beg(:,:)
    real(r8), allocatable :: mt_balance_err(:,:)
@@ -168,11 +168,11 @@ MODULE MOD_MT_Vars
 	   real(r8), allocatable :: mt_numerical_residual_step(:,:)
 	   real(r8), allocatable :: mt_numerical_water_step(:,:)
 
-   real(r8), allocatable :: a_trc_ldew_mass (:,:)
+   real(r8), allocatable :: a_mt_ldew_mass (:,:)
    real(r8), allocatable :: a_water_ldew    (:)
-   real(r8), allocatable :: a_trc_soil_mass (:,:,:)  ! (nmts, nl_soil, numpatch)
+   real(r8), allocatable :: a_mt_soil_mass (:,:,:)  ! (nmts, nl_soil, numpatch)
    real(r8), allocatable :: a_water_soil    (:,:)     ! (nl_soil, numpatch)
-   real(r8), allocatable :: a_trc_snow_mass (:,:,:)  ! (nmts, abs(maxsnl), numpatch) snow layers
+   real(r8), allocatable :: a_mt_snow_mass (:,:,:)  ! (nmts, abs(maxsnl), numpatch) snow layers
    real(r8), allocatable :: a_water_snow    (:,:)     ! (abs(maxsnl), numpatch) snow layers
 
    ! Surface / aquifer / wetland / thin-snow diagnostic accumulators.
@@ -182,21 +182,21 @@ MODULE MOD_MT_Vars
    ! (wetland pool) or scv (pre-layer thin snow). These accumulators let
    ! MOD_Hist emit a per-pool material ratio diagnostic alongside the existing
    ! ldew / soisno outputs.
-	   real(r8), allocatable :: a_trc_wa_mass    (:,:)   ! (nmts, numpatch)
+	   real(r8), allocatable :: a_mt_wa_mass    (:,:)   ! (nmts, numpatch)
 	   real(r8), allocatable :: a_water_wa       (:)     ! (numpatch)
-	   real(r8), allocatable :: a_trc_wa_debt_mass(:,:)  ! signed-debt magnitude diagnostics
+	   real(r8), allocatable :: a_mt_wa_debt_mass(:,:)  ! signed-debt magnitude diagnostics
 	   real(r8), allocatable :: a_water_wa_debt   (:)    ! aquifer debt magnitude
    real(r8), allocatable :: a_water_aquifer_actual(:)
-   real(r8), allocatable :: a_trc_aquifer_actual_mass(:,:)
-   real(r8), allocatable :: a_trc_wdsrf_mass (:,:)
+   real(r8), allocatable :: a_mt_aquifer_actual_mass(:,:)
+   real(r8), allocatable :: a_mt_wdsrf_mass (:,:)
    real(r8), allocatable :: a_water_wdsrf    (:)
-   real(r8), allocatable :: a_trc_wetwat_mass(:,:)
+   real(r8), allocatable :: a_mt_wetwat_mass(:,:)
    real(r8), allocatable :: a_water_wetwat   (:)
-   real(r8), allocatable :: a_trc_surface_residue_mass(:,:)
-   real(r8), allocatable :: a_trc_subsurface_residue_mass(:,:)
-   real(r8), allocatable :: a_trc_layer_dry_mass(:,:)
-   real(r8), allocatable :: a_trc_solid_mass(:,:)
-   real(r8), allocatable :: a_trc_scv_mass   (:,:)
+   real(r8), allocatable :: a_mt_surface_residue_mass(:,:)
+   real(r8), allocatable :: a_mt_subsurface_residue_mass(:,:)
+   real(r8), allocatable :: a_mt_layer_dry_mass(:,:)
+   real(r8), allocatable :: a_mt_solid_mass(:,:)
+   real(r8), allocatable :: a_mt_scv_mass   (:,:)
    real(r8), allocatable :: a_water_scv      (:)
 
    ! External state contract.  LULCC snapshots and remapping work arrays stay
@@ -225,22 +225,22 @@ MODULE MOD_MT_Vars
 
    PUBLIC :: MT_EVAP_KIND_TRANSP, MT_EVAP_KIND_SOILEVAP
    PUBLIC :: MT_EVAP_KIND_CANOPYEVAP, MT_EVAP_KIND_SUBL, MT_EVAP_KIND_WETLAND
-   PUBLIC :: a_trc_precip, a_water_precip, a_trc_evap, a_water_evap_gross
-   PUBLIC :: a_trc_vapor_exchange
-   PUBLIC :: a_trc_transp, a_trc_transp_src, a_water_transp
-   PUBLIC :: a_trc_soilevap, a_water_soilevap
-   PUBLIC :: a_trc_canopyevap, a_water_canopyevap
-   PUBLIC :: a_trc_subl, a_water_subl, a_trc_wetland_evap, a_water_wetland_evap
-   PUBLIC :: a_trc_rsur, a_trc_rsub, a_trc_rnof, a_water_rnof, a_trc_qinfl, a_trc_qcharge
-   PUBLIC :: a_trc_bgc_leach
-   PUBLIC :: a_trc_ldew_mass, a_water_ldew
-   PUBLIC :: a_trc_soil_mass, a_water_soil, a_trc_snow_mass, a_water_snow
-   PUBLIC :: a_trc_wa_mass, a_water_wa, a_trc_wa_debt_mass, a_water_wa_debt
-   PUBLIC :: a_water_aquifer_actual, a_trc_aquifer_actual_mass
-   PUBLIC :: a_trc_wdsrf_mass, a_water_wdsrf
-   PUBLIC :: a_trc_wetwat_mass, a_water_wetwat
-   PUBLIC :: a_trc_surface_residue_mass, a_trc_subsurface_residue_mass
-   PUBLIC :: a_trc_layer_dry_mass, a_trc_solid_mass, a_trc_scv_mass, a_water_scv
+   PUBLIC :: a_mt_precip, a_water_precip, a_mt_evap, a_water_evap_gross
+   PUBLIC :: a_mt_vapor_exchange
+   PUBLIC :: a_mt_transp, a_mt_transp_src, a_water_transp
+   PUBLIC :: a_mt_soilevap, a_water_soilevap
+   PUBLIC :: a_mt_canopyevap, a_water_canopyevap
+   PUBLIC :: a_mt_subl, a_water_subl, a_mt_wetland_evap, a_water_wetland_evap
+   PUBLIC :: a_mt_rsur, a_mt_rsub, a_mt_rnof, a_water_rnof, a_mt_qinfl, a_mt_qcharge
+   PUBLIC :: a_mt_bgc_leach
+   PUBLIC :: a_mt_ldew_mass, a_water_ldew
+   PUBLIC :: a_mt_soil_mass, a_water_soil, a_mt_snow_mass, a_water_snow
+   PUBLIC :: a_mt_wa_mass, a_water_wa, a_mt_wa_debt_mass, a_water_wa_debt
+   PUBLIC :: a_water_aquifer_actual, a_mt_aquifer_actual_mass
+   PUBLIC :: a_mt_wdsrf_mass, a_water_wdsrf
+   PUBLIC :: a_mt_wetwat_mass, a_water_wetwat
+   PUBLIC :: a_mt_surface_residue_mass, a_mt_subsurface_residue_mass
+   PUBLIC :: a_mt_layer_dry_mass, a_mt_solid_mass, a_mt_scv_mass, a_water_scv
 
    ! Whether the land material state came from the restart file (not a
    ! cold start); only then do the history sums saved with it belong to the
@@ -291,29 +291,29 @@ CONTAINS
          mt_leaf_delta_b(imt, :) = materials(imt)%init_delta
       ENDDO
 
-	      allocate(a_trc_precip    (nmts, numpatch));           a_trc_precip    = 0._r8
-	      allocate(a_trc_vapor_exchange(nmts, numpatch));       a_trc_vapor_exchange = 0._r8
+	      allocate(a_mt_precip    (nmts, numpatch));           a_mt_precip    = 0._r8
+	      allocate(a_mt_vapor_exchange(nmts, numpatch));       a_mt_vapor_exchange = 0._r8
 	      allocate(a_water_precip  (nmts, numpatch));           a_water_precip  = 0._r8
-		      allocate(a_trc_evap      (nmts, numpatch));           a_trc_evap      = 0._r8
+		      allocate(a_mt_evap      (nmts, numpatch));           a_mt_evap      = 0._r8
 		      allocate(a_water_evap_gross(nmts, numpatch));         a_water_evap_gross = 0._r8
-		      allocate(a_trc_transp    (nmts, numpatch));           a_trc_transp    = 0._r8
-		      allocate(a_trc_transp_src(nmts, numpatch));           a_trc_transp_src = 0._r8
+		      allocate(a_mt_transp    (nmts, numpatch));           a_mt_transp    = 0._r8
+		      allocate(a_mt_transp_src(nmts, numpatch));           a_mt_transp_src = 0._r8
 		      allocate(a_water_transp  (nmts, numpatch));           a_water_transp  = 0._r8
-		      allocate(a_trc_soilevap  (nmts, numpatch));           a_trc_soilevap  = 0._r8
+		      allocate(a_mt_soilevap  (nmts, numpatch));           a_mt_soilevap  = 0._r8
 		      allocate(a_water_soilevap(nmts, numpatch));           a_water_soilevap = 0._r8
-		      allocate(a_trc_canopyevap(nmts, numpatch));           a_trc_canopyevap = 0._r8
+		      allocate(a_mt_canopyevap(nmts, numpatch));           a_mt_canopyevap = 0._r8
 		      allocate(a_water_canopyevap(nmts, numpatch));         a_water_canopyevap = 0._r8
-		      allocate(a_trc_subl      (nmts, numpatch));           a_trc_subl      = 0._r8
+		      allocate(a_mt_subl      (nmts, numpatch));           a_mt_subl      = 0._r8
 		      allocate(a_water_subl    (nmts, numpatch));           a_water_subl    = 0._r8
-		      allocate(a_trc_wetland_evap(nmts, numpatch));         a_trc_wetland_evap = 0._r8
+		      allocate(a_mt_wetland_evap(nmts, numpatch));         a_mt_wetland_evap = 0._r8
 		      allocate(a_water_wetland_evap(nmts, numpatch));       a_water_wetland_evap = 0._r8
-      allocate(a_trc_rsur      (nmts, numpatch));           a_trc_rsur      = 0._r8
-      allocate(a_trc_rsub      (nmts, numpatch));           a_trc_rsub      = 0._r8
-      allocate(a_trc_bgc_leach (nmts, numpatch));           a_trc_bgc_leach = 0._r8
-      allocate(a_trc_rnof      (nmts, numpatch));           a_trc_rnof      = 0._r8
+      allocate(a_mt_rsur      (nmts, numpatch));           a_mt_rsur      = 0._r8
+      allocate(a_mt_rsub      (nmts, numpatch));           a_mt_rsub      = 0._r8
+      allocate(a_mt_bgc_leach (nmts, numpatch));           a_mt_bgc_leach = 0._r8
+      allocate(a_mt_rnof      (nmts, numpatch));           a_mt_rnof      = 0._r8
       allocate(a_water_rnof    (nmts, numpatch));           a_water_rnof    = 0._r8
-      allocate(a_trc_qinfl     (nmts, numpatch));           a_trc_qinfl     = 0._r8
-      allocate(a_trc_qcharge   (nmts, numpatch));           a_trc_qcharge   = 0._r8
+      allocate(a_mt_qinfl     (nmts, numpatch));           a_mt_qinfl     = 0._r8
+      allocate(a_mt_qcharge   (nmts, numpatch));           a_mt_qcharge   = 0._r8
 
 	      allocate(mt_storage_beg (nmts, numpatch));           mt_storage_beg = 0._r8
 	      allocate(mt_balance_err (nmts, numpatch));           mt_balance_err = 0._r8
@@ -321,28 +321,28 @@ CONTAINS
 	      allocate(mt_numerical_residual_step(nmts, numpatch)); mt_numerical_residual_step = 0._r8
 	      allocate(mt_numerical_water_step(nmts, numpatch)); mt_numerical_water_step = 0._r8
 
-	      allocate(a_trc_ldew_mass (nmts, numpatch));           a_trc_ldew_mass = 0._r8
+	      allocate(a_mt_ldew_mass (nmts, numpatch));           a_mt_ldew_mass = 0._r8
       allocate(a_water_ldew    (numpatch));                     a_water_ldew    = 0._r8
-      allocate(a_trc_soil_mass (nmts, nl_soil, numpatch));  a_trc_soil_mass = 0._r8
+      allocate(a_mt_soil_mass (nmts, nl_soil, numpatch));  a_mt_soil_mass = 0._r8
       allocate(a_water_soil    (nl_soil, numpatch));             a_water_soil    = 0._r8
-      allocate(a_trc_snow_mass (nmts, abs(maxsnl), numpatch)); a_trc_snow_mass = 0._r8
+      allocate(a_mt_snow_mass (nmts, abs(maxsnl), numpatch)); a_mt_snow_mass = 0._r8
       allocate(a_water_snow    (abs(maxsnl), numpatch));            a_water_snow    = 0._r8
 
-	      allocate(a_trc_wa_mass    (nmts, numpatch));          a_trc_wa_mass     = 0._r8
+	      allocate(a_mt_wa_mass    (nmts, numpatch));          a_mt_wa_mass     = 0._r8
 	      allocate(a_water_wa       (numpatch));                    a_water_wa        = 0._r8
-	      allocate(a_trc_wa_debt_mass(nmts, numpatch));         a_trc_wa_debt_mass = 0._r8
+	      allocate(a_mt_wa_debt_mass(nmts, numpatch));         a_mt_wa_debt_mass = 0._r8
 	      allocate(a_water_wa_debt   (numpatch));                   a_water_wa_debt    = 0._r8
       allocate(a_water_aquifer_actual(numpatch));              a_water_aquifer_actual = 0._r8
-      allocate(a_trc_aquifer_actual_mass(nmts, numpatch)); a_trc_aquifer_actual_mass = 0._r8
-      allocate(a_trc_wdsrf_mass (nmts, numpatch));          a_trc_wdsrf_mass  = 0._r8
+      allocate(a_mt_aquifer_actual_mass(nmts, numpatch)); a_mt_aquifer_actual_mass = 0._r8
+      allocate(a_mt_wdsrf_mass (nmts, numpatch));          a_mt_wdsrf_mass  = 0._r8
       allocate(a_water_wdsrf    (numpatch));                    a_water_wdsrf     = 0._r8
-      allocate(a_trc_wetwat_mass(nmts, numpatch));          a_trc_wetwat_mass = 0._r8
+      allocate(a_mt_wetwat_mass(nmts, numpatch));          a_mt_wetwat_mass = 0._r8
       allocate(a_water_wetwat   (numpatch));                    a_water_wetwat    = 0._r8
-      allocate(a_trc_surface_residue_mass(nmts, numpatch)); a_trc_surface_residue_mass = 0._r8
-      allocate(a_trc_subsurface_residue_mass(nmts, numpatch)); a_trc_subsurface_residue_mass = 0._r8
-      allocate(a_trc_layer_dry_mass(nmts, numpatch));       a_trc_layer_dry_mass = 0._r8
-      allocate(a_trc_solid_mass(nmts, numpatch));           a_trc_solid_mass = 0._r8
-      allocate(a_trc_scv_mass   (nmts, numpatch));          a_trc_scv_mass    = 0._r8
+      allocate(a_mt_surface_residue_mass(nmts, numpatch)); a_mt_surface_residue_mass = 0._r8
+      allocate(a_mt_subsurface_residue_mass(nmts, numpatch)); a_mt_subsurface_residue_mass = 0._r8
+      allocate(a_mt_layer_dry_mass(nmts, numpatch));       a_mt_layer_dry_mass = 0._r8
+      allocate(a_mt_solid_mass(nmts, numpatch));           a_mt_solid_mass = 0._r8
+      allocate(a_mt_scv_mass   (nmts, numpatch));          a_mt_scv_mass    = 0._r8
       allocate(a_water_scv      (numpatch));                    a_water_scv       = 0._r8
    END SUBROUTINE allocate_Material_Vars
 
@@ -376,55 +376,55 @@ CONTAINS
       IF (allocated(mt_leaf_water_moles)) deallocate(mt_leaf_water_moles)
       IF (allocated(mt_leaf_iso_storage)) deallocate(mt_leaf_iso_storage)
       IF (allocated(mt_runtime_forced)) deallocate(mt_runtime_forced)
-		      IF (allocated(a_trc_precip   )) deallocate(a_trc_precip   )
-		      IF (allocated(a_trc_vapor_exchange)) deallocate(a_trc_vapor_exchange)
+		      IF (allocated(a_mt_precip   )) deallocate(a_mt_precip   )
+		      IF (allocated(a_mt_vapor_exchange)) deallocate(a_mt_vapor_exchange)
 		      IF (allocated(a_water_precip )) deallocate(a_water_precip )
-		      IF (allocated(a_trc_evap     )) deallocate(a_trc_evap     )
+		      IF (allocated(a_mt_evap     )) deallocate(a_mt_evap     )
 		      IF (allocated(a_water_evap_gross)) deallocate(a_water_evap_gross)
-		      IF (allocated(a_trc_transp   )) deallocate(a_trc_transp   )
-		      IF (allocated(a_trc_transp_src)) deallocate(a_trc_transp_src)
+		      IF (allocated(a_mt_transp   )) deallocate(a_mt_transp   )
+		      IF (allocated(a_mt_transp_src)) deallocate(a_mt_transp_src)
 		      IF (allocated(a_water_transp )) deallocate(a_water_transp )
-		      IF (allocated(a_trc_soilevap )) deallocate(a_trc_soilevap )
+		      IF (allocated(a_mt_soilevap )) deallocate(a_mt_soilevap )
 		      IF (allocated(a_water_soilevap)) deallocate(a_water_soilevap)
-		      IF (allocated(a_trc_canopyevap)) deallocate(a_trc_canopyevap)
+		      IF (allocated(a_mt_canopyevap)) deallocate(a_mt_canopyevap)
 		      IF (allocated(a_water_canopyevap)) deallocate(a_water_canopyevap)
-		      IF (allocated(a_trc_subl     )) deallocate(a_trc_subl     )
+		      IF (allocated(a_mt_subl     )) deallocate(a_mt_subl     )
 		      IF (allocated(a_water_subl   )) deallocate(a_water_subl   )
-		      IF (allocated(a_trc_wetland_evap)) deallocate(a_trc_wetland_evap)
+		      IF (allocated(a_mt_wetland_evap)) deallocate(a_mt_wetland_evap)
 		      IF (allocated(a_water_wetland_evap)) deallocate(a_water_wetland_evap)
-      IF (allocated(a_trc_rsur     )) deallocate(a_trc_rsur     )
-      IF (allocated(a_trc_rsub     )) deallocate(a_trc_rsub     )
-      IF (allocated(a_trc_bgc_leach)) deallocate(a_trc_bgc_leach)
-      IF (allocated(a_trc_rnof     )) deallocate(a_trc_rnof     )
+      IF (allocated(a_mt_rsur     )) deallocate(a_mt_rsur     )
+      IF (allocated(a_mt_rsub     )) deallocate(a_mt_rsub     )
+      IF (allocated(a_mt_bgc_leach)) deallocate(a_mt_bgc_leach)
+      IF (allocated(a_mt_rnof     )) deallocate(a_mt_rnof     )
       IF (allocated(a_water_rnof   )) deallocate(a_water_rnof   )
-      IF (allocated(a_trc_qinfl    )) deallocate(a_trc_qinfl    )
-      IF (allocated(a_trc_qcharge  )) deallocate(a_trc_qcharge  )
+      IF (allocated(a_mt_qinfl    )) deallocate(a_mt_qinfl    )
+      IF (allocated(a_mt_qcharge  )) deallocate(a_mt_qcharge  )
 	      IF (allocated(mt_storage_beg)) deallocate(mt_storage_beg)
 	      IF (allocated(mt_balance_err)) deallocate(mt_balance_err)
 	      IF (allocated(mt_decay_source_step)) deallocate(mt_decay_source_step)
 	      IF (allocated(mt_numerical_residual_step)) deallocate(mt_numerical_residual_step)
 	      IF (allocated(mt_numerical_water_step)) deallocate(mt_numerical_water_step)
-	      IF (allocated(a_trc_ldew_mass)) deallocate(a_trc_ldew_mass)
+	      IF (allocated(a_mt_ldew_mass)) deallocate(a_mt_ldew_mass)
       IF (allocated(a_water_ldew   )) deallocate(a_water_ldew   )
-      IF (allocated(a_trc_soil_mass)) deallocate(a_trc_soil_mass)
+      IF (allocated(a_mt_soil_mass)) deallocate(a_mt_soil_mass)
       IF (allocated(a_water_soil   )) deallocate(a_water_soil   )
-      IF (allocated(a_trc_snow_mass)) deallocate(a_trc_snow_mass)
+      IF (allocated(a_mt_snow_mass)) deallocate(a_mt_snow_mass)
       IF (allocated(a_water_snow   )) deallocate(a_water_snow   )
-	      IF (allocated(a_trc_wa_mass    )) deallocate(a_trc_wa_mass    )
+	      IF (allocated(a_mt_wa_mass    )) deallocate(a_mt_wa_mass    )
 	      IF (allocated(a_water_wa       )) deallocate(a_water_wa       )
-	      IF (allocated(a_trc_wa_debt_mass)) deallocate(a_trc_wa_debt_mass)
+	      IF (allocated(a_mt_wa_debt_mass)) deallocate(a_mt_wa_debt_mass)
 	      IF (allocated(a_water_wa_debt   )) deallocate(a_water_wa_debt   )
       IF (allocated(a_water_aquifer_actual)) deallocate(a_water_aquifer_actual)
-      IF (allocated(a_trc_aquifer_actual_mass)) deallocate(a_trc_aquifer_actual_mass)
-      IF (allocated(a_trc_wdsrf_mass )) deallocate(a_trc_wdsrf_mass )
+      IF (allocated(a_mt_aquifer_actual_mass)) deallocate(a_mt_aquifer_actual_mass)
+      IF (allocated(a_mt_wdsrf_mass )) deallocate(a_mt_wdsrf_mass )
       IF (allocated(a_water_wdsrf    )) deallocate(a_water_wdsrf    )
-      IF (allocated(a_trc_wetwat_mass)) deallocate(a_trc_wetwat_mass)
+      IF (allocated(a_mt_wetwat_mass)) deallocate(a_mt_wetwat_mass)
       IF (allocated(a_water_wetwat   )) deallocate(a_water_wetwat   )
-      IF (allocated(a_trc_surface_residue_mass)) deallocate(a_trc_surface_residue_mass)
-      IF (allocated(a_trc_subsurface_residue_mass)) deallocate(a_trc_subsurface_residue_mass)
-      IF (allocated(a_trc_layer_dry_mass)) deallocate(a_trc_layer_dry_mass)
-      IF (allocated(a_trc_solid_mass)) deallocate(a_trc_solid_mass)
-      IF (allocated(a_trc_scv_mass   )) deallocate(a_trc_scv_mass   )
+      IF (allocated(a_mt_surface_residue_mass)) deallocate(a_mt_surface_residue_mass)
+      IF (allocated(a_mt_subsurface_residue_mass)) deallocate(a_mt_subsurface_residue_mass)
+      IF (allocated(a_mt_layer_dry_mass)) deallocate(a_mt_layer_dry_mass)
+      IF (allocated(a_mt_solid_mass)) deallocate(a_mt_solid_mass)
+      IF (allocated(a_mt_scv_mass   )) deallocate(a_mt_scv_mass   )
       IF (allocated(a_water_scv      )) deallocate(a_water_scv      )
    END SUBROUTINE deallocate_Material_Vars
 
@@ -438,55 +438,55 @@ CONTAINS
 
       CALL clear_land_mt_lulcc_snapshot()
 
-      allocate(lulcc_trc_ldew_rain_old(size(mt_ldew_rain,1), size(mt_ldew_rain,2)))
-      lulcc_trc_ldew_rain_old = mt_ldew_rain
-      allocate(lulcc_trc_ldew_snow_old(size(mt_ldew_snow,1), size(mt_ldew_snow,2)))
-      lulcc_trc_ldew_snow_old = mt_ldew_snow
-      allocate(lulcc_trc_wliq_soisno_old(size(mt_wliq_soisno,1), &
+      allocate(lulcc_mt_ldew_rain_old(size(mt_ldew_rain,1), size(mt_ldew_rain,2)))
+      lulcc_mt_ldew_rain_old = mt_ldew_rain
+      allocate(lulcc_mt_ldew_snow_old(size(mt_ldew_snow,1), size(mt_ldew_snow,2)))
+      lulcc_mt_ldew_snow_old = mt_ldew_snow
+      allocate(lulcc_mt_wliq_soisno_old(size(mt_wliq_soisno,1), &
          lbound(mt_wliq_soisno,2):ubound(mt_wliq_soisno,2), size(mt_wliq_soisno,3)))
-      lulcc_trc_wliq_soisno_old = mt_wliq_soisno
-      allocate(lulcc_trc_wice_soisno_old(size(mt_wice_soisno,1), &
+      lulcc_mt_wliq_soisno_old = mt_wliq_soisno
+      allocate(lulcc_mt_wice_soisno_old(size(mt_wice_soisno,1), &
          lbound(mt_wice_soisno,2):ubound(mt_wice_soisno,2), size(mt_wice_soisno,3)))
-      lulcc_trc_wice_soisno_old = mt_wice_soisno
-      allocate(lulcc_trc_wa_old(size(mt_wa,1), size(mt_wa,2)))
-      lulcc_trc_wa_old = mt_wa
-      allocate(lulcc_trc_aquifer_ref_water_old(1, size(mt_aquifer_ref_water)))
-      lulcc_trc_aquifer_ref_water_old(1, :) = mt_aquifer_ref_water
-      allocate(lulcc_trc_aquifer_ref_mass_old(size(mt_aquifer_ref_mass,1), size(mt_aquifer_ref_mass,2)))
-      lulcc_trc_aquifer_ref_mass_old = mt_aquifer_ref_mass
-      allocate(lulcc_trc_wdsrf_old(size(mt_wdsrf,1), size(mt_wdsrf,2)))
-      lulcc_trc_wdsrf_old = mt_wdsrf
-      allocate(lulcc_trc_wetwat_old(size(mt_wetwat,1), size(mt_wetwat,2)))
-      lulcc_trc_wetwat_old = mt_wetwat
-      allocate(lulcc_trc_surface_residue_old(size(mt_surface_residue,1), size(mt_surface_residue,2)))
-      lulcc_trc_surface_residue_old = mt_surface_residue
-      allocate(lulcc_trc_subsurface_residue_old(size(mt_subsurface_residue,1), size(mt_subsurface_residue,2)))
-      lulcc_trc_subsurface_residue_old = mt_subsurface_residue
-      allocate(lulcc_trc_solid_soisno_old(size(mt_solid_soisno,1), &
+      lulcc_mt_wice_soisno_old = mt_wice_soisno
+      allocate(lulcc_mt_wa_old(size(mt_wa,1), size(mt_wa,2)))
+      lulcc_mt_wa_old = mt_wa
+      allocate(lulcc_mt_aquifer_ref_water_old(1, size(mt_aquifer_ref_water)))
+      lulcc_mt_aquifer_ref_water_old(1, :) = mt_aquifer_ref_water
+      allocate(lulcc_mt_aquifer_ref_mass_old(size(mt_aquifer_ref_mass,1), size(mt_aquifer_ref_mass,2)))
+      lulcc_mt_aquifer_ref_mass_old = mt_aquifer_ref_mass
+      allocate(lulcc_mt_wdsrf_old(size(mt_wdsrf,1), size(mt_wdsrf,2)))
+      lulcc_mt_wdsrf_old = mt_wdsrf
+      allocate(lulcc_mt_wetwat_old(size(mt_wetwat,1), size(mt_wetwat,2)))
+      lulcc_mt_wetwat_old = mt_wetwat
+      allocate(lulcc_mt_surface_residue_old(size(mt_surface_residue,1), size(mt_surface_residue,2)))
+      lulcc_mt_surface_residue_old = mt_surface_residue
+      allocate(lulcc_mt_subsurface_residue_old(size(mt_subsurface_residue,1), size(mt_subsurface_residue,2)))
+      lulcc_mt_subsurface_residue_old = mt_subsurface_residue
+      allocate(lulcc_mt_solid_soisno_old(size(mt_solid_soisno,1), &
          lbound(mt_solid_soisno,2):ubound(mt_solid_soisno,2), size(mt_solid_soisno,3)))
-      lulcc_trc_solid_soisno_old = mt_solid_soisno
-      allocate(lulcc_trc_canopy_solid_old(size(mt_canopy_solid,1), size(mt_canopy_solid,2)))
-      lulcc_trc_canopy_solid_old = mt_canopy_solid
-      allocate(lulcc_trc_surface_solid_old(size(mt_surface_solid,1), size(mt_surface_solid,2)))
-      lulcc_trc_surface_solid_old = mt_surface_solid
-      allocate(lulcc_trc_subsurface_solid_old(size(mt_subsurface_solid,1), size(mt_subsurface_solid,2)))
-      lulcc_trc_subsurface_solid_old = mt_subsurface_solid
-      allocate(lulcc_trc_waterstorage_solid_old(size(mt_waterstorage_solid,1), size(mt_waterstorage_solid,2)))
-      lulcc_trc_waterstorage_solid_old = mt_waterstorage_solid
-      allocate(lulcc_trc_waterstorage_old(size(mt_waterstorage,1), size(mt_waterstorage,2)))
-      lulcc_trc_waterstorage_old = mt_waterstorage
-      allocate(lulcc_trc_scv_old(size(mt_scv,1), size(mt_scv,2)))
-      lulcc_trc_scv_old = mt_scv
-      allocate(lulcc_trc_leaf_delta_e_old(size(mt_leaf_delta_e,1), size(mt_leaf_delta_e,2)))
-      lulcc_trc_leaf_delta_e_old = mt_leaf_delta_e
-      allocate(lulcc_trc_leaf_delta_b_old(size(mt_leaf_delta_b,1), size(mt_leaf_delta_b,2)))
-      lulcc_trc_leaf_delta_b_old = mt_leaf_delta_b
-      allocate(lulcc_trc_leaf_peclet_old(size(mt_leaf_peclet,1), size(mt_leaf_peclet,2)))
-      lulcc_trc_leaf_peclet_old = mt_leaf_peclet
-      allocate(lulcc_trc_leaf_water_moles_old(size(mt_leaf_water_moles,1), size(mt_leaf_water_moles,2)))
-      lulcc_trc_leaf_water_moles_old = mt_leaf_water_moles
-      allocate(lulcc_trc_leaf_iso_storage_old(size(mt_leaf_iso_storage,1), size(mt_leaf_iso_storage,2)))
-      lulcc_trc_leaf_iso_storage_old = mt_leaf_iso_storage
+      lulcc_mt_solid_soisno_old = mt_solid_soisno
+      allocate(lulcc_mt_canopy_solid_old(size(mt_canopy_solid,1), size(mt_canopy_solid,2)))
+      lulcc_mt_canopy_solid_old = mt_canopy_solid
+      allocate(lulcc_mt_surface_solid_old(size(mt_surface_solid,1), size(mt_surface_solid,2)))
+      lulcc_mt_surface_solid_old = mt_surface_solid
+      allocate(lulcc_mt_subsurface_solid_old(size(mt_subsurface_solid,1), size(mt_subsurface_solid,2)))
+      lulcc_mt_subsurface_solid_old = mt_subsurface_solid
+      allocate(lulcc_mt_waterstorage_solid_old(size(mt_waterstorage_solid,1), size(mt_waterstorage_solid,2)))
+      lulcc_mt_waterstorage_solid_old = mt_waterstorage_solid
+      allocate(lulcc_mt_waterstorage_old(size(mt_waterstorage,1), size(mt_waterstorage,2)))
+      lulcc_mt_waterstorage_old = mt_waterstorage
+      allocate(lulcc_mt_scv_old(size(mt_scv,1), size(mt_scv,2)))
+      lulcc_mt_scv_old = mt_scv
+      allocate(lulcc_mt_leaf_delta_e_old(size(mt_leaf_delta_e,1), size(mt_leaf_delta_e,2)))
+      lulcc_mt_leaf_delta_e_old = mt_leaf_delta_e
+      allocate(lulcc_mt_leaf_delta_b_old(size(mt_leaf_delta_b,1), size(mt_leaf_delta_b,2)))
+      lulcc_mt_leaf_delta_b_old = mt_leaf_delta_b
+      allocate(lulcc_mt_leaf_peclet_old(size(mt_leaf_peclet,1), size(mt_leaf_peclet,2)))
+      lulcc_mt_leaf_peclet_old = mt_leaf_peclet
+      allocate(lulcc_mt_leaf_water_moles_old(size(mt_leaf_water_moles,1), size(mt_leaf_water_moles,2)))
+      lulcc_mt_leaf_water_moles_old = mt_leaf_water_moles
+      allocate(lulcc_mt_leaf_iso_storage_old(size(mt_leaf_iso_storage,1), size(mt_leaf_iso_storage,2)))
+      lulcc_mt_leaf_iso_storage_old = mt_leaf_iso_storage
 
       land_mt_lulcc_snapshot_valid = .true.
    END SUBROUTINE save_land_mt_lulcc_state
@@ -533,14 +533,14 @@ CONTAINS
       logical :: check_lulcc_mass
 
       IF (.not. land_mt_lulcc_snapshot_valid) RETURN
-      IF (.not. allocated(lulcc_trc_wliq_soisno_old)) THEN
+      IF (.not. allocated(lulcc_mt_wliq_soisno_old)) THEN
          CALL clear_land_mt_lulcc_snapshot()
          RETURN
       ENDIF
 
       nnew = size(patchclass_new)
-      maxsnl_saved = lbound(lulcc_trc_wliq_soisno_old, 2) - 1
-      nl_soil_saved = ubound(lulcc_trc_wliq_soisno_old, 2)
+      maxsnl_saved = lbound(lulcc_mt_wliq_soisno_old, 2) - 1
+      nl_soil_saved = ubound(lulcc_mt_wliq_soisno_old, 2)
       check_lulcc_mass = present(lccpct_patches) .and. present(new_patch_area) .and. &
          present(old_patch_area)
       IF (check_lulcc_mass) THEN
@@ -567,33 +567,33 @@ CONTAINS
       ! old_pool * old_area is partitioned into the target class fractions and
       ! divided by the new patch area.  Dimensionless/intensive diagnostics
       ! remain area-weighted means.
-      CALL remap2d_mass(lulcc_trc_ldew_rain_old,         mt_ldew_rain)
-      CALL remap2d_mass(lulcc_trc_ldew_snow_old,         mt_ldew_snow)
-      CALL remap3d_mass(lulcc_trc_wliq_soisno_old,       mt_wliq_soisno)
-      CALL remap3d_mass(lulcc_trc_wice_soisno_old,       mt_wice_soisno)
-      CALL remap2d_mass(lulcc_trc_wa_old,                mt_wa)
+      CALL remap2d_mass(lulcc_mt_ldew_rain_old,         mt_ldew_rain)
+      CALL remap2d_mass(lulcc_mt_ldew_snow_old,         mt_ldew_snow)
+      CALL remap3d_mass(lulcc_mt_wliq_soisno_old,       mt_wliq_soisno)
+      CALL remap3d_mass(lulcc_mt_wice_soisno_old,       mt_wice_soisno)
+      CALL remap2d_mass(lulcc_mt_wa_old,                mt_wa)
       allocate(remapped_ref_water(1, nnew))
       remapped_ref_water = 0._r8
-      CALL remap2d_mass(lulcc_trc_aquifer_ref_water_old, remapped_ref_water)
+      CALL remap2d_mass(lulcc_mt_aquifer_ref_water_old, remapped_ref_water)
       mt_aquifer_ref_water = remapped_ref_water(1, :)
       deallocate(remapped_ref_water)
-      CALL remap2d_mass(lulcc_trc_aquifer_ref_mass_old, mt_aquifer_ref_mass)
-      CALL remap2d_mass(lulcc_trc_wdsrf_old,             mt_wdsrf)
-      CALL remap2d_mass(lulcc_trc_wetwat_old,            mt_wetwat)
-      CALL remap2d_mass(lulcc_trc_surface_residue_old,    mt_surface_residue)
-      CALL remap2d_mass(lulcc_trc_subsurface_residue_old, mt_subsurface_residue)
-      CALL remap3d_mass(lulcc_trc_solid_soisno_old,       mt_solid_soisno)
-      CALL remap2d_mass(lulcc_trc_canopy_solid_old,       mt_canopy_solid)
-      CALL remap2d_mass(lulcc_trc_surface_solid_old,      mt_surface_solid)
-      CALL remap2d_mass(lulcc_trc_subsurface_solid_old,   mt_subsurface_solid)
-      CALL remap2d_mass(lulcc_trc_waterstorage_solid_old, mt_waterstorage_solid)
-      CALL remap2d_mass(lulcc_trc_waterstorage_old,      mt_waterstorage)
-      CALL remap2d_mass(lulcc_trc_scv_old,               mt_scv)
-      CALL remap2d_intensive(lulcc_trc_leaf_delta_e_old,      mt_leaf_delta_e)
-      CALL remap2d_intensive(lulcc_trc_leaf_delta_b_old,      mt_leaf_delta_b)
-      CALL remap2d_intensive(lulcc_trc_leaf_peclet_old,       mt_leaf_peclet)
-      CALL remap2d_mass(lulcc_trc_leaf_water_moles_old,  mt_leaf_water_moles)
-      CALL remap2d_mass(lulcc_trc_leaf_iso_storage_old,  mt_leaf_iso_storage)
+      CALL remap2d_mass(lulcc_mt_aquifer_ref_mass_old, mt_aquifer_ref_mass)
+      CALL remap2d_mass(lulcc_mt_wdsrf_old,             mt_wdsrf)
+      CALL remap2d_mass(lulcc_mt_wetwat_old,            mt_wetwat)
+      CALL remap2d_mass(lulcc_mt_surface_residue_old,    mt_surface_residue)
+      CALL remap2d_mass(lulcc_mt_subsurface_residue_old, mt_subsurface_residue)
+      CALL remap3d_mass(lulcc_mt_solid_soisno_old,       mt_solid_soisno)
+      CALL remap2d_mass(lulcc_mt_canopy_solid_old,       mt_canopy_solid)
+      CALL remap2d_mass(lulcc_mt_surface_solid_old,      mt_surface_solid)
+      CALL remap2d_mass(lulcc_mt_subsurface_solid_old,   mt_subsurface_solid)
+      CALL remap2d_mass(lulcc_mt_waterstorage_solid_old, mt_waterstorage_solid)
+      CALL remap2d_mass(lulcc_mt_waterstorage_old,      mt_waterstorage)
+      CALL remap2d_mass(lulcc_mt_scv_old,               mt_scv)
+      CALL remap2d_intensive(lulcc_mt_leaf_delta_e_old,      mt_leaf_delta_e)
+      CALL remap2d_intensive(lulcc_mt_leaf_delta_b_old,      mt_leaf_delta_b)
+      CALL remap2d_intensive(lulcc_mt_leaf_peclet_old,       mt_leaf_peclet)
+      CALL remap2d_mass(lulcc_mt_leaf_water_moles_old,  mt_leaf_water_moles)
+      CALL remap2d_mass(lulcc_mt_leaf_iso_storage_old,  mt_leaf_iso_storage)
 
       ! The host re-initialises every patch for the new year and copies back
       ! only some of its water (MOD_Lulcc_Initialize, REST_LulccTimeVariables,
@@ -651,33 +651,33 @@ CONTAINS
          real(r8), intent(out) :: total(:)
 
          total = 0._r8
-         IF (allocated(lulcc_trc_ldew_rain_old))    CALL accumulate_lulcc_mass_2d(lulcc_trc_ldew_rain_old, area, total)
-         IF (allocated(lulcc_trc_ldew_snow_old))    CALL accumulate_lulcc_mass_2d(lulcc_trc_ldew_snow_old, area, total)
-         IF (allocated(lulcc_trc_wliq_soisno_old))  CALL accumulate_lulcc_mass_3d(lulcc_trc_wliq_soisno_old, area, total)
-         IF (allocated(lulcc_trc_wice_soisno_old))  CALL accumulate_lulcc_mass_3d(lulcc_trc_wice_soisno_old, area, total)
-         IF (allocated(lulcc_trc_wa_old))           CALL accumulate_lulcc_mass_2d(lulcc_trc_wa_old, area, total)
-         IF (allocated(lulcc_trc_aquifer_ref_mass_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_aquifer_ref_mass_old, area, total)
-         IF (allocated(lulcc_trc_wdsrf_old))        CALL accumulate_lulcc_mass_2d(lulcc_trc_wdsrf_old, area, total)
-         IF (allocated(lulcc_trc_wetwat_old))       CALL accumulate_lulcc_mass_2d(lulcc_trc_wetwat_old, area, total)
-         IF (allocated(lulcc_trc_surface_residue_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_surface_residue_old, area, total)
-         IF (allocated(lulcc_trc_subsurface_residue_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_subsurface_residue_old, area, total)
-         IF (allocated(lulcc_trc_solid_soisno_old)) &
-            CALL accumulate_lulcc_mass_3d(lulcc_trc_solid_soisno_old, area, total)
-         IF (allocated(lulcc_trc_canopy_solid_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_canopy_solid_old, area, total)
-         IF (allocated(lulcc_trc_surface_solid_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_surface_solid_old, area, total)
-         IF (allocated(lulcc_trc_subsurface_solid_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_subsurface_solid_old, area, total)
-         IF (allocated(lulcc_trc_waterstorage_solid_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_solid_old, area, total)
-         IF (allocated(lulcc_trc_waterstorage_old)) CALL accumulate_lulcc_mass_2d(lulcc_trc_waterstorage_old, area, total)
-         IF (allocated(lulcc_trc_scv_old))          CALL accumulate_lulcc_mass_2d(lulcc_trc_scv_old, area, total)
-         IF (allocated(lulcc_trc_leaf_iso_storage_old)) &
-            CALL accumulate_lulcc_mass_2d(lulcc_trc_leaf_iso_storage_old, area, total)
+         IF (allocated(lulcc_mt_ldew_rain_old))    CALL accumulate_lulcc_mass_2d(lulcc_mt_ldew_rain_old, area, total)
+         IF (allocated(lulcc_mt_ldew_snow_old))    CALL accumulate_lulcc_mass_2d(lulcc_mt_ldew_snow_old, area, total)
+         IF (allocated(lulcc_mt_wliq_soisno_old))  CALL accumulate_lulcc_mass_3d(lulcc_mt_wliq_soisno_old, area, total)
+         IF (allocated(lulcc_mt_wice_soisno_old))  CALL accumulate_lulcc_mass_3d(lulcc_mt_wice_soisno_old, area, total)
+         IF (allocated(lulcc_mt_wa_old))           CALL accumulate_lulcc_mass_2d(lulcc_mt_wa_old, area, total)
+         IF (allocated(lulcc_mt_aquifer_ref_mass_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_aquifer_ref_mass_old, area, total)
+         IF (allocated(lulcc_mt_wdsrf_old))        CALL accumulate_lulcc_mass_2d(lulcc_mt_wdsrf_old, area, total)
+         IF (allocated(lulcc_mt_wetwat_old))       CALL accumulate_lulcc_mass_2d(lulcc_mt_wetwat_old, area, total)
+         IF (allocated(lulcc_mt_surface_residue_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_surface_residue_old, area, total)
+         IF (allocated(lulcc_mt_subsurface_residue_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_subsurface_residue_old, area, total)
+         IF (allocated(lulcc_mt_solid_soisno_old)) &
+            CALL accumulate_lulcc_mass_3d(lulcc_mt_solid_soisno_old, area, total)
+         IF (allocated(lulcc_mt_canopy_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_canopy_solid_old, area, total)
+         IF (allocated(lulcc_mt_surface_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_surface_solid_old, area, total)
+         IF (allocated(lulcc_mt_subsurface_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_subsurface_solid_old, area, total)
+         IF (allocated(lulcc_mt_waterstorage_solid_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_waterstorage_solid_old, area, total)
+         IF (allocated(lulcc_mt_waterstorage_old)) CALL accumulate_lulcc_mass_2d(lulcc_mt_waterstorage_old, area, total)
+         IF (allocated(lulcc_mt_scv_old))          CALL accumulate_lulcc_mass_2d(lulcc_mt_scv_old, area, total)
+         IF (allocated(lulcc_mt_leaf_iso_storage_old)) &
+            CALL accumulate_lulcc_mass_2d(lulcc_mt_leaf_iso_storage_old, area, total)
       END SUBROUTINE compute_lulcc_snapshot_land_water_mass
 
       SUBROUTINE compute_current_lulcc_land_water_mass(area, total)
@@ -747,11 +747,11 @@ CONTAINS
 
       SUBROUTINE assert_lulcc_land_water_mass_conserved(before, after)
          real(r8), intent(in) :: before(:), after(:)
-         integer :: imt, nbad, worst_itrc
+         integer :: imt, nbad, worst_imt
          real(r8) :: diff, scale, tol, abs_err, rel_err, worst_abs
 
          nbad = 0
-         worst_itrc = 0
+         worst_imt = 0
          worst_abs = 0._r8
          DO imt = 1, min(size(before), size(after), nmts)
             IF (.not. mt_uses_generic_water(imt)) CYCLE
@@ -761,7 +761,7 @@ CONTAINS
             tol = max(lulcc_mass_abs_tol, lulcc_mass_rel_tol * scale)
             IF (abs_err > worst_abs) THEN
                worst_abs = abs_err
-               worst_itrc = imt
+               worst_imt = imt
                rel_err = abs_err / scale
             ENDIF
             IF (abs_err > tol) nbad = nbad + 1
@@ -772,10 +772,10 @@ CONTAINS
                WRITE(*,'(A,I0,A,E12.5,A,E12.5)') &
                   'MT_LULCC_BAL failed: nbad=', nbad, ' worst_abs=', worst_abs, &
                   ' worst_rel=', rel_err
-               IF (worst_itrc > 0) THEN
-                  WRITE(*,'(A,I0,3A,2(A,E12.5))') '  material=', worst_itrc, &
-                     ' name=', trim(materials(worst_itrc)%name), ' ', &
-                     ' before=', before(worst_itrc), ' after=', after(worst_itrc)
+               IF (worst_imt > 0) THEN
+                  WRITE(*,'(A,I0,3A,2(A,E12.5))') '  material=', worst_imt, &
+                     ' name=', trim(materials(worst_imt)%name), ' ', &
+                     ' before=', before(worst_imt), ' after=', after(worst_imt)
                ENDIF
             ENDIF
             CALL CoLM_stop('MT LULCC remap land-water mass conservation failed')
@@ -1109,78 +1109,78 @@ CONTAINS
    SUBROUTINE clear_land_mt_lulcc_snapshot ()
       IMPLICIT NONE
 
-      IF (allocated(lulcc_trc_ldew_rain_old)) deallocate(lulcc_trc_ldew_rain_old)
-      IF (allocated(lulcc_trc_ldew_snow_old)) deallocate(lulcc_trc_ldew_snow_old)
-      IF (allocated(lulcc_trc_wliq_soisno_old)) deallocate(lulcc_trc_wliq_soisno_old)
-      IF (allocated(lulcc_trc_wice_soisno_old)) deallocate(lulcc_trc_wice_soisno_old)
-      IF (allocated(lulcc_trc_wa_old)) deallocate(lulcc_trc_wa_old)
-      IF (allocated(lulcc_trc_aquifer_ref_water_old)) deallocate(lulcc_trc_aquifer_ref_water_old)
-      IF (allocated(lulcc_trc_aquifer_ref_mass_old)) deallocate(lulcc_trc_aquifer_ref_mass_old)
-      IF (allocated(lulcc_trc_wdsrf_old)) deallocate(lulcc_trc_wdsrf_old)
-      IF (allocated(lulcc_trc_wetwat_old)) deallocate(lulcc_trc_wetwat_old)
-      IF (allocated(lulcc_trc_surface_residue_old)) deallocate(lulcc_trc_surface_residue_old)
-      IF (allocated(lulcc_trc_subsurface_residue_old)) deallocate(lulcc_trc_subsurface_residue_old)
-      IF (allocated(lulcc_trc_solid_soisno_old)) deallocate(lulcc_trc_solid_soisno_old)
-      IF (allocated(lulcc_trc_canopy_solid_old)) deallocate(lulcc_trc_canopy_solid_old)
-      IF (allocated(lulcc_trc_surface_solid_old)) deallocate(lulcc_trc_surface_solid_old)
-      IF (allocated(lulcc_trc_subsurface_solid_old)) deallocate(lulcc_trc_subsurface_solid_old)
-      IF (allocated(lulcc_trc_waterstorage_solid_old)) deallocate(lulcc_trc_waterstorage_solid_old)
-      IF (allocated(lulcc_trc_waterstorage_old)) deallocate(lulcc_trc_waterstorage_old)
-      IF (allocated(lulcc_trc_scv_old)) deallocate(lulcc_trc_scv_old)
-      IF (allocated(lulcc_trc_leaf_delta_e_old)) deallocate(lulcc_trc_leaf_delta_e_old)
-      IF (allocated(lulcc_trc_leaf_delta_b_old)) deallocate(lulcc_trc_leaf_delta_b_old)
-      IF (allocated(lulcc_trc_leaf_peclet_old)) deallocate(lulcc_trc_leaf_peclet_old)
-      IF (allocated(lulcc_trc_leaf_water_moles_old)) deallocate(lulcc_trc_leaf_water_moles_old)
-      IF (allocated(lulcc_trc_leaf_iso_storage_old)) deallocate(lulcc_trc_leaf_iso_storage_old)
+      IF (allocated(lulcc_mt_ldew_rain_old)) deallocate(lulcc_mt_ldew_rain_old)
+      IF (allocated(lulcc_mt_ldew_snow_old)) deallocate(lulcc_mt_ldew_snow_old)
+      IF (allocated(lulcc_mt_wliq_soisno_old)) deallocate(lulcc_mt_wliq_soisno_old)
+      IF (allocated(lulcc_mt_wice_soisno_old)) deallocate(lulcc_mt_wice_soisno_old)
+      IF (allocated(lulcc_mt_wa_old)) deallocate(lulcc_mt_wa_old)
+      IF (allocated(lulcc_mt_aquifer_ref_water_old)) deallocate(lulcc_mt_aquifer_ref_water_old)
+      IF (allocated(lulcc_mt_aquifer_ref_mass_old)) deallocate(lulcc_mt_aquifer_ref_mass_old)
+      IF (allocated(lulcc_mt_wdsrf_old)) deallocate(lulcc_mt_wdsrf_old)
+      IF (allocated(lulcc_mt_wetwat_old)) deallocate(lulcc_mt_wetwat_old)
+      IF (allocated(lulcc_mt_surface_residue_old)) deallocate(lulcc_mt_surface_residue_old)
+      IF (allocated(lulcc_mt_subsurface_residue_old)) deallocate(lulcc_mt_subsurface_residue_old)
+      IF (allocated(lulcc_mt_solid_soisno_old)) deallocate(lulcc_mt_solid_soisno_old)
+      IF (allocated(lulcc_mt_canopy_solid_old)) deallocate(lulcc_mt_canopy_solid_old)
+      IF (allocated(lulcc_mt_surface_solid_old)) deallocate(lulcc_mt_surface_solid_old)
+      IF (allocated(lulcc_mt_subsurface_solid_old)) deallocate(lulcc_mt_subsurface_solid_old)
+      IF (allocated(lulcc_mt_waterstorage_solid_old)) deallocate(lulcc_mt_waterstorage_solid_old)
+      IF (allocated(lulcc_mt_waterstorage_old)) deallocate(lulcc_mt_waterstorage_old)
+      IF (allocated(lulcc_mt_scv_old)) deallocate(lulcc_mt_scv_old)
+      IF (allocated(lulcc_mt_leaf_delta_e_old)) deallocate(lulcc_mt_leaf_delta_e_old)
+      IF (allocated(lulcc_mt_leaf_delta_b_old)) deallocate(lulcc_mt_leaf_delta_b_old)
+      IF (allocated(lulcc_mt_leaf_peclet_old)) deallocate(lulcc_mt_leaf_peclet_old)
+      IF (allocated(lulcc_mt_leaf_water_moles_old)) deallocate(lulcc_mt_leaf_water_moles_old)
+      IF (allocated(lulcc_mt_leaf_iso_storage_old)) deallocate(lulcc_mt_leaf_iso_storage_old)
       land_mt_lulcc_snapshot_valid = .false.
    END SUBROUTINE clear_land_mt_lulcc_snapshot
 
    SUBROUTINE flush_Material_Acc ()
       IMPLICIT NONE
-	      IF (allocated(a_trc_precip )) a_trc_precip  = 0._r8
-	      IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange = 0._r8
+	      IF (allocated(a_mt_precip )) a_mt_precip  = 0._r8
+	      IF (allocated(a_mt_vapor_exchange)) a_mt_vapor_exchange = 0._r8
 	      IF (allocated(a_water_precip)) a_water_precip = 0._r8
-		      IF (allocated(a_trc_evap   )) a_trc_evap    = 0._r8
+		      IF (allocated(a_mt_evap   )) a_mt_evap    = 0._r8
 		      IF (allocated(a_water_evap_gross)) a_water_evap_gross = 0._r8
-		      IF (allocated(a_trc_transp )) a_trc_transp  = 0._r8
-		      IF (allocated(a_trc_transp_src)) a_trc_transp_src = 0._r8
+		      IF (allocated(a_mt_transp )) a_mt_transp  = 0._r8
+		      IF (allocated(a_mt_transp_src)) a_mt_transp_src = 0._r8
 		      IF (allocated(a_water_transp)) a_water_transp = 0._r8
-		      IF (allocated(a_trc_soilevap)) a_trc_soilevap = 0._r8
+		      IF (allocated(a_mt_soilevap)) a_mt_soilevap = 0._r8
 		      IF (allocated(a_water_soilevap)) a_water_soilevap = 0._r8
-		      IF (allocated(a_trc_canopyevap)) a_trc_canopyevap = 0._r8
+		      IF (allocated(a_mt_canopyevap)) a_mt_canopyevap = 0._r8
 		      IF (allocated(a_water_canopyevap)) a_water_canopyevap = 0._r8
-		      IF (allocated(a_trc_subl    )) a_trc_subl = 0._r8
+		      IF (allocated(a_mt_subl    )) a_mt_subl = 0._r8
 		      IF (allocated(a_water_subl  )) a_water_subl = 0._r8
-		      IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap = 0._r8
+		      IF (allocated(a_mt_wetland_evap)) a_mt_wetland_evap = 0._r8
 		      IF (allocated(a_water_wetland_evap)) a_water_wetland_evap = 0._r8
-      IF (allocated(a_trc_rsur   )) a_trc_rsur    = 0._r8
-      IF (allocated(a_trc_rsub   )) a_trc_rsub    = 0._r8
-      IF (allocated(a_trc_bgc_leach)) a_trc_bgc_leach = 0._r8
-      IF (allocated(a_trc_rnof   )) a_trc_rnof    = 0._r8
+      IF (allocated(a_mt_rsur   )) a_mt_rsur    = 0._r8
+      IF (allocated(a_mt_rsub   )) a_mt_rsub    = 0._r8
+      IF (allocated(a_mt_bgc_leach)) a_mt_bgc_leach = 0._r8
+      IF (allocated(a_mt_rnof   )) a_mt_rnof    = 0._r8
       IF (allocated(a_water_rnof )) a_water_rnof  = 0._r8
-      IF (allocated(a_trc_qinfl  )) a_trc_qinfl   = 0._r8
-      IF (allocated(a_trc_qcharge)) a_trc_qcharge  = 0._r8
-      IF (allocated(a_trc_ldew_mass)) a_trc_ldew_mass = 0._r8
+      IF (allocated(a_mt_qinfl  )) a_mt_qinfl   = 0._r8
+      IF (allocated(a_mt_qcharge)) a_mt_qcharge  = 0._r8
+      IF (allocated(a_mt_ldew_mass)) a_mt_ldew_mass = 0._r8
       IF (allocated(a_water_ldew   )) a_water_ldew    = 0._r8
-      IF (allocated(a_trc_soil_mass)) a_trc_soil_mass = 0._r8
+      IF (allocated(a_mt_soil_mass)) a_mt_soil_mass = 0._r8
       IF (allocated(a_water_soil   )) a_water_soil    = 0._r8
-      IF (allocated(a_trc_snow_mass)) a_trc_snow_mass = 0._r8
+      IF (allocated(a_mt_snow_mass)) a_mt_snow_mass = 0._r8
       IF (allocated(a_water_snow   )) a_water_snow    = 0._r8
-	      IF (allocated(a_trc_wa_mass    )) a_trc_wa_mass     = 0._r8
+	      IF (allocated(a_mt_wa_mass    )) a_mt_wa_mass     = 0._r8
 	      IF (allocated(a_water_wa       )) a_water_wa        = 0._r8
-	      IF (allocated(a_trc_wa_debt_mass)) a_trc_wa_debt_mass = 0._r8
+	      IF (allocated(a_mt_wa_debt_mass)) a_mt_wa_debt_mass = 0._r8
 	      IF (allocated(a_water_wa_debt   )) a_water_wa_debt    = 0._r8
       IF (allocated(a_water_aquifer_actual)) a_water_aquifer_actual = 0._r8
-      IF (allocated(a_trc_aquifer_actual_mass)) a_trc_aquifer_actual_mass = 0._r8
-      IF (allocated(a_trc_wdsrf_mass )) a_trc_wdsrf_mass  = 0._r8
+      IF (allocated(a_mt_aquifer_actual_mass)) a_mt_aquifer_actual_mass = 0._r8
+      IF (allocated(a_mt_wdsrf_mass )) a_mt_wdsrf_mass  = 0._r8
       IF (allocated(a_water_wdsrf    )) a_water_wdsrf     = 0._r8
-      IF (allocated(a_trc_wetwat_mass)) a_trc_wetwat_mass = 0._r8
-      IF (allocated(a_trc_surface_residue_mass)) a_trc_surface_residue_mass = 0._r8
-      IF (allocated(a_trc_subsurface_residue_mass)) a_trc_subsurface_residue_mass = 0._r8
-      IF (allocated(a_trc_layer_dry_mass)) a_trc_layer_dry_mass = 0._r8
-      IF (allocated(a_trc_solid_mass)) a_trc_solid_mass = 0._r8
+      IF (allocated(a_mt_wetwat_mass)) a_mt_wetwat_mass = 0._r8
+      IF (allocated(a_mt_surface_residue_mass)) a_mt_surface_residue_mass = 0._r8
+      IF (allocated(a_mt_subsurface_residue_mass)) a_mt_subsurface_residue_mass = 0._r8
+      IF (allocated(a_mt_layer_dry_mass)) a_mt_layer_dry_mass = 0._r8
+      IF (allocated(a_mt_solid_mass)) a_mt_solid_mass = 0._r8
       IF (allocated(a_water_wetwat   )) a_water_wetwat    = 0._r8
-      IF (allocated(a_trc_scv_mass   )) a_trc_scv_mass    = 0._r8
+      IF (allocated(a_mt_scv_mass   )) a_mt_scv_mass    = 0._r8
       IF (allocated(a_water_scv      )) a_water_scv       = 0._r8
       IF (allocated(mt_pg_rain_ground)) mt_pg_rain_ground = 0._r8
       IF (allocated(mt_pg_snow_ground)) mt_pg_snow_ground = 0._r8
@@ -1227,47 +1227,47 @@ CONTAINS
          IF (allocated(mt_leaf_water_moles)) mt_leaf_water_moles(imt, :) = 0._r8
          IF (allocated(mt_leaf_iso_storage)) mt_leaf_iso_storage(imt, :) = 0._r8
 
-         IF (allocated(a_trc_precip   )) a_trc_precip   (imt, :) = 0._r8
-         IF (allocated(a_trc_vapor_exchange)) a_trc_vapor_exchange(imt, :) = 0._r8
+         IF (allocated(a_mt_precip   )) a_mt_precip   (imt, :) = 0._r8
+         IF (allocated(a_mt_vapor_exchange)) a_mt_vapor_exchange(imt, :) = 0._r8
          IF (allocated(a_water_precip )) a_water_precip (imt, :) = 0._r8
-         IF (allocated(a_trc_evap     )) a_trc_evap     (imt, :) = 0._r8
+         IF (allocated(a_mt_evap     )) a_mt_evap     (imt, :) = 0._r8
          IF (allocated(a_water_evap_gross)) a_water_evap_gross(imt, :) = 0._r8
-         IF (allocated(a_trc_transp   )) a_trc_transp   (imt, :) = 0._r8
-         IF (allocated(a_trc_transp_src)) a_trc_transp_src(imt, :) = 0._r8
+         IF (allocated(a_mt_transp   )) a_mt_transp   (imt, :) = 0._r8
+         IF (allocated(a_mt_transp_src)) a_mt_transp_src(imt, :) = 0._r8
          IF (allocated(a_water_transp )) a_water_transp (imt, :) = 0._r8
-         IF (allocated(a_trc_soilevap )) a_trc_soilevap (imt, :) = 0._r8
+         IF (allocated(a_mt_soilevap )) a_mt_soilevap (imt, :) = 0._r8
          IF (allocated(a_water_soilevap)) a_water_soilevap(imt, :) = 0._r8
-         IF (allocated(a_trc_canopyevap)) a_trc_canopyevap(imt, :) = 0._r8
+         IF (allocated(a_mt_canopyevap)) a_mt_canopyevap(imt, :) = 0._r8
          IF (allocated(a_water_canopyevap)) a_water_canopyevap(imt, :) = 0._r8
-         IF (allocated(a_trc_subl     )) a_trc_subl     (imt, :) = 0._r8
+         IF (allocated(a_mt_subl     )) a_mt_subl     (imt, :) = 0._r8
          IF (allocated(a_water_subl   )) a_water_subl   (imt, :) = 0._r8
-         IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap(imt, :) = 0._r8
+         IF (allocated(a_mt_wetland_evap)) a_mt_wetland_evap(imt, :) = 0._r8
          IF (allocated(a_water_wetland_evap)) a_water_wetland_evap(imt, :) = 0._r8
-         IF (allocated(a_trc_rsur     )) a_trc_rsur     (imt, :) = 0._r8
-         IF (allocated(a_trc_rsub     )) a_trc_rsub     (imt, :) = 0._r8
-         IF (allocated(a_trc_bgc_leach)) a_trc_bgc_leach(imt, :) = 0._r8
-         IF (allocated(a_trc_rnof     )) a_trc_rnof     (imt, :) = 0._r8
+         IF (allocated(a_mt_rsur     )) a_mt_rsur     (imt, :) = 0._r8
+         IF (allocated(a_mt_rsub     )) a_mt_rsub     (imt, :) = 0._r8
+         IF (allocated(a_mt_bgc_leach)) a_mt_bgc_leach(imt, :) = 0._r8
+         IF (allocated(a_mt_rnof     )) a_mt_rnof     (imt, :) = 0._r8
          IF (allocated(a_water_rnof   )) a_water_rnof   (imt, :) = 0._r8
-         IF (allocated(a_trc_qinfl    )) a_trc_qinfl    (imt, :) = 0._r8
-         IF (allocated(a_trc_qcharge  )) a_trc_qcharge  (imt, :) = 0._r8
+         IF (allocated(a_mt_qinfl    )) a_mt_qinfl    (imt, :) = 0._r8
+         IF (allocated(a_mt_qcharge  )) a_mt_qcharge  (imt, :) = 0._r8
          IF (allocated(mt_storage_beg)) mt_storage_beg(imt, :) = 0._r8
          IF (allocated(mt_balance_err)) mt_balance_err(imt, :) = 0._r8
          IF (allocated(mt_decay_source_step)) mt_decay_source_step(imt, :) = 0._r8
          IF (allocated(mt_numerical_residual_step)) mt_numerical_residual_step(imt, :) = 0._r8
          IF (allocated(mt_numerical_water_step)) mt_numerical_water_step(imt, :) = 0._r8
-         IF (allocated(a_trc_ldew_mass)) a_trc_ldew_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_soil_mass)) a_trc_soil_mass(imt, :, :) = 0._r8
-         IF (allocated(a_trc_snow_mass)) a_trc_snow_mass(imt, :, :) = 0._r8
-         IF (allocated(a_trc_wa_mass    )) a_trc_wa_mass    (imt, :) = 0._r8
-         IF (allocated(a_trc_aquifer_actual_mass)) a_trc_aquifer_actual_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_wa_debt_mass)) a_trc_wa_debt_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_wdsrf_mass )) a_trc_wdsrf_mass (imt, :) = 0._r8
-         IF (allocated(a_trc_wetwat_mass)) a_trc_wetwat_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_surface_residue_mass)) a_trc_surface_residue_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_subsurface_residue_mass)) a_trc_subsurface_residue_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_layer_dry_mass)) a_trc_layer_dry_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_solid_mass)) a_trc_solid_mass(imt, :) = 0._r8
-         IF (allocated(a_trc_scv_mass   )) a_trc_scv_mass   (imt, :) = 0._r8
+         IF (allocated(a_mt_ldew_mass)) a_mt_ldew_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_soil_mass)) a_mt_soil_mass(imt, :, :) = 0._r8
+         IF (allocated(a_mt_snow_mass)) a_mt_snow_mass(imt, :, :) = 0._r8
+         IF (allocated(a_mt_wa_mass    )) a_mt_wa_mass    (imt, :) = 0._r8
+         IF (allocated(a_mt_aquifer_actual_mass)) a_mt_aquifer_actual_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_wa_debt_mass)) a_mt_wa_debt_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_wdsrf_mass )) a_mt_wdsrf_mass (imt, :) = 0._r8
+         IF (allocated(a_mt_wetwat_mass)) a_mt_wetwat_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_surface_residue_mass)) a_mt_surface_residue_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_subsurface_residue_mass)) a_mt_subsurface_residue_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_layer_dry_mass)) a_mt_layer_dry_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_solid_mass)) a_mt_solid_mass(imt, :) = 0._r8
+         IF (allocated(a_mt_scv_mass   )) a_mt_scv_mass   (imt, :) = 0._r8
       ENDDO
    END SUBROUTINE zero_provider_owned_land_mt_state
 
@@ -1279,11 +1279,11 @@ CONTAINS
 	      integer :: kind
 
 	      IF (nmts <= 0) RETURN
-	      IF (.not. allocated(a_trc_evap)) RETURN
+	      IF (.not. allocated(a_mt_evap)) RETURN
 	      kind = MT_EVAP_KIND_TOTAL
 	      IF (present(evap_kind)) kind = evap_kind
 
-	      a_trc_evap(imt, ipatch) = a_trc_evap(imt, ipatch) + material_mass
+	      a_mt_evap(imt, ipatch) = a_mt_evap(imt, ipatch) + material_mass
 	      IF (allocated(a_water_evap_gross)) THEN
 	         a_water_evap_gross(imt, ipatch) = a_water_evap_gross(imt, ipatch) &
 	            + max(water_mass, 0._r8)
@@ -1291,28 +1291,28 @@ CONTAINS
 
 	      SELECT CASE (kind)
 	      CASE (MT_EVAP_KIND_TRANSP)
-	         IF (allocated(a_trc_transp)) a_trc_transp(imt, ipatch) = &
-	            a_trc_transp(imt, ipatch) + material_mass
+	         IF (allocated(a_mt_transp)) a_mt_transp(imt, ipatch) = &
+	            a_mt_transp(imt, ipatch) + material_mass
 	         IF (allocated(a_water_transp)) a_water_transp(imt, ipatch) = &
 	            a_water_transp(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_SOILEVAP)
-	         IF (allocated(a_trc_soilevap)) a_trc_soilevap(imt, ipatch) = &
-	            a_trc_soilevap(imt, ipatch) + material_mass
+	         IF (allocated(a_mt_soilevap)) a_mt_soilevap(imt, ipatch) = &
+	            a_mt_soilevap(imt, ipatch) + material_mass
 	         IF (allocated(a_water_soilevap)) a_water_soilevap(imt, ipatch) = &
 	            a_water_soilevap(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_CANOPYEVAP)
-	         IF (allocated(a_trc_canopyevap)) a_trc_canopyevap(imt, ipatch) = &
-	            a_trc_canopyevap(imt, ipatch) + material_mass
+	         IF (allocated(a_mt_canopyevap)) a_mt_canopyevap(imt, ipatch) = &
+	            a_mt_canopyevap(imt, ipatch) + material_mass
 	         IF (allocated(a_water_canopyevap)) a_water_canopyevap(imt, ipatch) = &
 	            a_water_canopyevap(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_SUBL)
-	         IF (allocated(a_trc_subl)) a_trc_subl(imt, ipatch) = &
-	            a_trc_subl(imt, ipatch) + material_mass
+	         IF (allocated(a_mt_subl)) a_mt_subl(imt, ipatch) = &
+	            a_mt_subl(imt, ipatch) + material_mass
 	         IF (allocated(a_water_subl)) a_water_subl(imt, ipatch) = &
 	            a_water_subl(imt, ipatch) + max(water_mass, 0._r8)
 	      CASE (MT_EVAP_KIND_WETLAND)
-	         IF (allocated(a_trc_wetland_evap)) a_trc_wetland_evap(imt, ipatch) = &
-	            a_trc_wetland_evap(imt, ipatch) + material_mass
+	         IF (allocated(a_mt_wetland_evap)) a_mt_wetland_evap(imt, ipatch) = &
+	            a_mt_wetland_evap(imt, ipatch) + material_mass
 	         IF (allocated(a_water_wetland_evap)) a_water_wetland_evap(imt, ipatch) = &
 	            a_water_wetland_evap(imt, ipatch) + max(water_mass, 0._r8)
 	      END SELECT

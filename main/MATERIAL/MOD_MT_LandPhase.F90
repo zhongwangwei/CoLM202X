@@ -87,7 +87,7 @@ CONTAINS
       logical, intent(out), optional :: loaded_restart
       character(len=*), intent(out), optional :: restart_file
 
-      character(len=256) :: file_restart_trc
+      character(len=256) :: file_restart_mt
       character(len=14)  :: cdate_restart
       character(len=256) :: cyear_restart
       real(r8), allocatable :: material_dummy_patch(:)
@@ -97,9 +97,9 @@ CONTAINS
 
       write(cyear_restart,'(i4.4)') lc_year
       write(cdate_restart,'(i4.4,"-",i3.3,"-",i5.5)') jdate(1), jdate(2), jdate(3)
-      file_restart_trc = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)// &
+      file_restart_mt = trim(dir_restart)//'/'//trim(cdate_restart)//'/'//trim(casename)// &
                          '_restart_'//trim(cdate_restart)//'_lc'//trim(cyear_restart)//'.nc'
-      IF (present(restart_file)) restart_file = file_restart_trc
+      IF (present(restart_file)) restart_file = file_restart_mt
       IF (present(loaded_restart)) loaded_restart = .false.
 
       have_patch_state = present(ldew_rain) .and. present(ldew_snow) .and. &
@@ -117,14 +117,14 @@ CONTAINS
          IF (have_waterstorage) THEN
             CALL material_init_from_arrays (numpatch, maxsnl, nl_soil, &
                ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
-               wa, wdsrf, wetwat, scv, file_restart_trc, waterstorage, &
+               wa, wdsrf, wetwat, scv, file_restart_mt, waterstorage, &
                init_month=init_month, lc_year=lc_year, jdate=jdate, &
                casename=casename, dir_restart=dir_restart, dir_landdata=dir_landdata, &
                loaded_restart=loaded_restart)
          ELSE
             CALL material_init_from_arrays (numpatch, maxsnl, nl_soil, &
                ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &
-               wa, wdsrf, wetwat, scv, file_restart_trc, init_month=init_month, &
+               wa, wdsrf, wetwat, scv, file_restart_mt, init_month=init_month, &
                lc_year=lc_year, jdate=jdate, casename=casename, &
                dir_restart=dir_restart, dir_landdata=dir_landdata, loaded_restart=loaded_restart)
          ENDIF
@@ -138,7 +138,7 @@ CONTAINS
             material_dummy_patch, material_dummy_patch, &
             material_dummy_soisno, material_dummy_soisno, &
             material_dummy_patch, material_dummy_patch, material_dummy_patch, &
-            material_dummy_patch, file_restart_trc, init_month=init_month, &
+            material_dummy_patch, file_restart_mt, init_month=init_month, &
             lc_year=lc_year, jdate=jdate, casename=casename, &
             dir_restart=dir_restart, dir_landdata=dir_landdata, loaded_restart=loaded_restart)
          deallocate(material_dummy_patch, material_dummy_soisno)

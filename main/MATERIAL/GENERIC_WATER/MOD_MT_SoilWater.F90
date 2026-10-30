@@ -38,11 +38,11 @@ MODULE MOD_MT_SoilWater
          mt_wdsrf, mt_wetwat, mt_surface_residue, mt_subsurface_residue, &
          mt_waterstorage, mt_solid_soisno, mt_surface_solid, &
          mt_subsurface_solid, mt_waterstorage_solid, &
-            a_trc_precip, a_water_precip, a_trc_transp_src, a_trc_evap, a_trc_transp, &
+            a_mt_precip, a_water_precip, a_mt_transp_src, a_mt_evap, a_mt_transp, &
             a_water_transp, a_water_evap_gross, material_book_evap_loss, &
             MT_EVAP_KIND_TRANSP, MT_EVAP_KIND_SOILEVAP, MT_EVAP_KIND_SUBL, &
             MT_EVAP_KIND_WETLAND, &
-            a_trc_qinfl, a_trc_qcharge, a_trc_rsur, a_trc_rsub, a_trc_rnof, &
+            a_mt_qinfl, a_mt_qcharge, a_mt_rsur, a_mt_rsub, a_mt_rnof, &
          mt_pg_rain_ground, mt_rnof_step, mt_sm_carry, &
          mt_leaf_delta_e, mt_leaf_delta_b, mt_leaf_peclet, mt_leaf_water_moles, &
          mt_leaf_iso_storage, mt_numerical_residual_step, mt_numerical_water_step
@@ -240,7 +240,7 @@ CONTAINS
       real(r8) :: mt_soil_upflow         ! material from true soil-to-surface upflow
       real(r8) :: mt_soil_evap           ! material removed by top-boundary evaporation deficit
       real(r8) :: mt_upflow_deferred     ! upflow material layer 1 pays after the qlayer transfers
-      real(r8) :: evap_pool_water, evap_deficit_trc   ! layer-1 evaporation beyond its liquid
+      real(r8) :: evap_pool_water, evap_deficit_mt   ! layer-1 evaporation beyond its liquid
       real(r8) :: mt_wliq_qlayer_bef(1:nl_soil), water_shadow_qlayer_bef(1:nl_soil)
       logical  :: sweep_ok(1:nl_soil)
       real(r8) :: qlayer_through(1:nl_soil)
@@ -266,7 +266,7 @@ CONTAINS
       real(r8) :: flood_water, surface_base_water, surface_base_balance
       real(r8) :: flood_ground_evap_water, flood_ground_evap_material
       real(r8) :: late_water, late_material, late_ratio, late_runoff_water, early_runoff_water, late_scale
-      real(r8) :: early_runoff_trc       ! early runoff drawn from the ordinary surface pool [mm/step]
+      real(r8) :: early_runoff_mt       ! early runoff drawn from the ordinary surface pool [mm/step]
       real(r8) :: flood_overflow_water   ! pond overflow of the late flood pool [mm/step]
       real(r8) :: flood_destination_water
       real(r8) :: top_exfil_water       ! soil-to-surface exfiltration water [mm/step]
@@ -327,7 +327,7 @@ CONTAINS
       real(r8) :: source_fallback_ratio
       real(r8) :: relhum_leaf, leaf_area_use, rst_use, ra_use, tleaf_use
       real(r8) :: leaf_delta_e_new, leaf_delta_b_new, leaf_peclet_new, leaf_moles_new
-      real(r8) :: soil_resid_trc, soil_resid_water
+      real(r8) :: soil_resid_mt, soil_resid_water
       logical  :: transp_frac_active
 #ifdef MATERIAL_SIGNED_SOIL_DEBT_EXPERIMENT
       logical :: signed_debt_step
@@ -396,7 +396,7 @@ CONTAINS
          ! Liquid proxy for the irrigation storage ratio (see below).
          R_precip = material_forcing_rain_value(imt, ipatch)
          R_atm = material_forcing_vapor_value(imt, ipatch)
-         soil_resid_trc = 0._r8
+         soil_resid_mt = 0._r8
          soil_resid_water = 0._r8
          water_shadow(1:nl_soil) = wliq_soisno_bef(1:nl_soil)
 
@@ -521,9 +521,9 @@ CONTAINS
                         CALL material_book_evap_loss(imt, ipatch, mt_flux, &
                            etroot_actual(j), MT_EVAP_KIND_TRANSP)
 #if 0
-                           a_trc_evap(imt, ipatch) = a_trc_evap(imt, ipatch) + mt_flux
+                           a_mt_evap(imt, ipatch) = a_mt_evap(imt, ipatch) + mt_flux
 #endif
-                        a_trc_transp_src(imt, ipatch) = a_trc_transp_src(imt, ipatch) + mt_flux
+                        a_mt_transp_src(imt, ipatch) = a_mt_transp_src(imt, ipatch) + mt_flux
                      ENDIF
                   ENDIF
                   water_shadow(j) = water_shadow(j) - etroot_actual(j)
@@ -547,7 +547,7 @@ CONTAINS
                ELSE
                   CALL material_book_evap_loss(imt, ipatch, mt_flux, &
                      etroot_aquifer, MT_EVAP_KIND_TRANSP)
-                  a_trc_transp_src(imt, ipatch) = a_trc_transp_src(imt, ipatch) + mt_flux
+                  a_mt_transp_src(imt, ipatch) = a_mt_transp_src(imt, ipatch) + mt_flux
                ENDIF
             ENDIF
          ENDIF
@@ -561,7 +561,7 @@ CONTAINS
                transp_source_mt_total = transp_source_mt_total + mt_flux
             ELSE
                CALL material_book_evap_loss(imt, ipatch, mt_flux, surface_et_water, MT_EVAP_KIND_TRANSP)
-               a_trc_transp_src(imt, ipatch) = a_trc_transp_src(imt, ipatch) + mt_flux
+               a_mt_transp_src(imt, ipatch) = a_mt_transp_src(imt, ipatch) + mt_flux
             ENDIF
          ENDIF
 
@@ -642,9 +642,9 @@ CONTAINS
                IF (transp_frac_active) THEN
                   transp_source_mt_total = transp_source_mt_total - root_return_mt_total
                ELSE
-                  a_trc_evap(imt,ipatch) = a_trc_evap(imt,ipatch) - root_return_mt_total
-                  a_trc_transp(imt,ipatch) = a_trc_transp(imt,ipatch) - root_return_mt_total
-                  a_trc_transp_src(imt,ipatch) = a_trc_transp_src(imt,ipatch) - root_return_mt_total
+                  a_mt_evap(imt,ipatch) = a_mt_evap(imt,ipatch) - root_return_mt_total
+                  a_mt_transp(imt,ipatch) = a_mt_transp(imt,ipatch) - root_return_mt_total
+                  a_mt_transp_src(imt,ipatch) = a_mt_transp_src(imt,ipatch) - root_return_mt_total
                   a_water_transp(imt,ipatch) = a_water_transp(imt,ipatch) - root_return_water
                   a_water_evap_gross(imt,ipatch) = a_water_evap_gross(imt,ipatch) - root_return_water
                ENDIF
@@ -664,8 +664,8 @@ CONTAINS
                   max(mt_wliq_soisno(imt,j,ipatch), 0._r8))
                mt_wliq_soisno(imt,j,ipatch) = mt_wliq_soisno(imt,j,ipatch) - mt_flux
                water_shadow(j) = water_shadow(j) - rsub_donor_water
-               a_trc_rsub(imt,ipatch) = a_trc_rsub(imt,ipatch) + mt_flux
-               a_trc_rnof(imt,ipatch) = a_trc_rnof(imt,ipatch) + mt_flux
+               a_mt_rsub(imt,ipatch) = a_mt_rsub(imt,ipatch) + mt_flux
+               a_mt_rnof(imt,ipatch) = a_mt_rnof(imt,ipatch) + mt_flux
                mt_rnof_step(imt,ipatch) = mt_rnof_step(imt,ipatch) + mt_flux
             ENDDO
             rsub_donor_water = max(rsub_source_surface, 0._r8)
@@ -678,8 +678,8 @@ CONTAINS
                mt_flux = min(rsub_donor_water * rsub_donor_ratio, &
                   max(mt_wdsrf(imt,ipatch), 0._r8))
                mt_wdsrf(imt,ipatch) = mt_wdsrf(imt,ipatch) - mt_flux
-               a_trc_rsub(imt,ipatch) = a_trc_rsub(imt,ipatch) + mt_flux
-               a_trc_rnof(imt,ipatch) = a_trc_rnof(imt,ipatch) + mt_flux
+               a_mt_rsub(imt,ipatch) = a_mt_rsub(imt,ipatch) + mt_flux
+               a_mt_rnof(imt,ipatch) = a_mt_rnof(imt,ipatch) + mt_flux
                mt_rnof_step(imt,ipatch) = mt_rnof_step(imt,ipatch) + mt_flux
             ENDIF
             rsub_donor_water = max(rsub_source_aquifer, 0._r8)
@@ -698,14 +698,14 @@ CONTAINS
                CALL check_isotope_aquifer(imt, ipatch, &
                   wa_bef-etroot_aquifer-rsub_donor_water, mt_wa(imt,ipatch), &
                   'after aquifer baseflow')
-               a_trc_rsub(imt,ipatch) = a_trc_rsub(imt,ipatch) + mt_flux
-               a_trc_rnof(imt,ipatch) = a_trc_rnof(imt,ipatch) + mt_flux
+               a_mt_rsub(imt,ipatch) = a_mt_rsub(imt,ipatch) + mt_flux
+               a_mt_rnof(imt,ipatch) = a_mt_rnof(imt,ipatch) + mt_flux
                mt_rnof_step(imt,ipatch) = mt_rnof_step(imt,ipatch) + mt_flux
             ENDIF
          ENDIF
 
                   IF (transp_frac_active) THEN
-                     a_trc_transp_src(imt, ipatch) = a_trc_transp_src(imt, ipatch) &
+                     a_mt_transp_src(imt, ipatch) = a_mt_transp_src(imt, ipatch) &
                         + transp_source_mt_total
                      ! NSS changes only the transpired vapor signature. Root uptake
                   ! still removes source/xylem water; the source-vapor difference
@@ -746,7 +746,7 @@ CONTAINS
             mt_flux = max(eff_qfros_snow, 0._r8) * &
                deposition_ratio_for(layer_temp(lb_snow), .true.) * deltim
             mt_wice_soisno(imt, lb_snow, ipatch) = mt_wice_soisno(imt, lb_snow, ipatch) + mt_flux
-            a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+            a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + max(eff_qfros_snow, 0._r8) * deltim
 
             ! Post-frost ice pool (water and material)
@@ -808,7 +808,7 @@ CONTAINS
             mt_flux = max(eff_qsdew_snow, 0._r8) * &
                deposition_ratio_for(layer_temp(lb_snow), .false.) * deltim
             mt_wliq_soisno(imt, lb_snow, ipatch) = mt_wliq_soisno(imt, lb_snow, ipatch) + mt_flux
-            a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+            a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + max(eff_qsdew_snow, 0._r8) * deltim
 
             ! Evaporate from the full pool (wliq_bef + qsubl_deficit + rain + dew)
@@ -972,7 +972,7 @@ CONTAINS
          !          the deficit directly from layer 1 as evaporation output.
          !      (b) soil water truly exfiltrates into the surface pool.
          !    Only (b) should enter the surface mixed pool. Case (a) must be
-         !    booked to a_trc_evap, otherwise active fractionation shows a
+         !    booked to a_mt_evap, otherwise active fractionation shows a
          !    storage loss equal to the negative-qinfl material diagnostic.
          ! ============================================================
 
@@ -1051,10 +1051,10 @@ CONTAINS
             ! pool can only be overflow of that late pool. Drawing it from the
             ! ordinary pool emptied the pool and the max(.,0) clamp created
             ! material (NEC: 13 mm exfiltration, 0.8 mm ordinary pool, 4 mm rsur).
-            early_runoff_trc = early_runoff_water
+            early_runoff_mt = early_runoff_water
             flood_overflow_water = 0._r8
             IF (flood_water > 0._r8 .and. early_runoff_water > surface_base_water) THEN
-               early_runoff_trc = surface_base_water
+               early_runoff_mt = surface_base_water
                flood_overflow_water = early_runoff_water - surface_base_water
             ENDIF
 
@@ -1088,16 +1088,16 @@ CONTAINS
                   kinetic_on_soil_surface = .true.
                   mt_soil_evap = atmospheric_loss_material(mt_wliq_soisno(imt, 1, ipatch), &
                      max(water_shadow(1), 0._r8), evap_pool_water, layer_temp(1), .false.)
-                  evap_deficit_trc = 0._r8
+                  evap_deficit_mt = 0._r8
                   IF (top_soil_evap_water > evap_pool_water .and. &
                       .not. material_is_nonvolatile_solute(imt)) THEN
-                     evap_deficit_trc = (top_soil_evap_water - evap_pool_water) &
+                     evap_deficit_mt = (top_soil_evap_water - evap_pool_water) &
                         * evap_ratio_for(ratio_layer(1), layer_temp(1), .false.)
                   ENDIF
                   kinetic_on_soil_surface = .false.
                   mt_wliq_soisno(imt, 1, ipatch) = mt_wliq_soisno(imt, 1, ipatch) - mt_soil_evap
-                  mt_upflow_deferred = mt_upflow_deferred + evap_deficit_trc
-                  mt_soil_evap = mt_soil_evap + evap_deficit_trc
+                  mt_upflow_deferred = mt_upflow_deferred + evap_deficit_mt
+                  mt_soil_evap = mt_soil_evap + evap_deficit_mt
                   CALL material_book_evap_loss(imt, ipatch, mt_soil_evap, top_soil_evap_water, &
                      MT_EVAP_KIND_SOILEVAP)
                water_shadow(1) = water_shadow(1) - top_soil_evap_water
@@ -1253,7 +1253,7 @@ CONTAINS
          ! irrigation. The material path mirrors this: debit
          ! mt_waterstorage at its current ratio (Phase-1 invariant
          ! keeps it at R_init, so we use R_precip as a proxy) and do
-         ! NOT add to a_trc_precip. Without this mirroring the material
+         ! NOT add to a_mt_precip. Without this mirroring the material
          ! budget claims more atmospheric input than the water budget.
          IF (qflx_irrig_ground > mt_tiny) THEN
             storage_ratio = R_precip
@@ -1340,10 +1340,10 @@ CONTAINS
          ENDIF
 
          ! Distribute: wdsrf residual, surface runoff, infiltration
-         IF (early_runoff_trc > mt_tiny) THEN
-            mt_flux = early_runoff_trc * ratio
-            a_trc_rsur(imt, ipatch) = a_trc_rsur(imt, ipatch) + mt_flux
-            a_trc_rnof(imt, ipatch) = a_trc_rnof(imt, ipatch) + mt_flux
+         IF (early_runoff_mt > mt_tiny) THEN
+            mt_flux = early_runoff_mt * ratio
+            a_mt_rsur(imt, ipatch) = a_mt_rsur(imt, ipatch) + mt_flux
+            a_mt_rnof(imt, ipatch) = a_mt_rnof(imt, ipatch) + mt_flux
             mt_rnof_step(imt, ipatch) = mt_rnof_step(imt, ipatch) + mt_flux
             mt_pool_total = max(mt_pool_total-mt_flux,0._r8)
          ENDIF
@@ -1411,8 +1411,8 @@ CONTAINS
          mt_wdsrf(imt, ipatch) = max(wdsrf, 0._r8) * late_ratio
          IF (flood_overflow_water > mt_tiny) THEN
             mt_flux = flood_overflow_water * late_ratio
-            a_trc_rsur(imt, ipatch) = a_trc_rsur(imt, ipatch) + mt_flux
-            a_trc_rnof(imt, ipatch) = a_trc_rnof(imt, ipatch) + mt_flux
+            a_mt_rsur(imt, ipatch) = a_mt_rsur(imt, ipatch) + mt_flux
+            a_mt_rnof(imt, ipatch) = a_mt_rnof(imt, ipatch) + mt_flux
             mt_rnof_step(imt, ipatch) = mt_rnof_step(imt, ipatch) + mt_flux
          ENDIF
 
@@ -1423,12 +1423,12 @@ CONTAINS
          ENDIF
 
          IF (qinfl > mt_tiny) THEN
-            a_trc_qinfl(imt, ipatch) = a_trc_qinfl(imt, ipatch) + qinfl * late_ratio * deltim
+            a_mt_qinfl(imt, ipatch) = a_mt_qinfl(imt, ipatch) + qinfl * late_ratio * deltim
          ELSEIF (qinfl < -mt_tiny) THEN
-            a_trc_qinfl(imt, ipatch) = a_trc_qinfl(imt, ipatch) + qinfl * ratio_layer(1) * deltim
+            a_mt_qinfl(imt, ipatch) = a_mt_qinfl(imt, ipatch) + qinfl * ratio_layer(1) * deltim
          ENDIF
          IF (present(flood_mt_input)) THEN
-            a_trc_precip(imt,ipatch) = a_trc_precip(imt,ipatch) + flood_mt_input(imt)
+            a_mt_precip(imt,ipatch) = a_mt_precip(imt,ipatch) + flood_mt_input(imt)
          ENDIF
 
          ! ============================================================
@@ -1712,7 +1712,7 @@ CONTAINS
                mt_flux = min(mt_flux, max(mt_wliq_soisno(imt, j, ipatch), 0._r8))
                mt_wliq_soisno(imt, j, ipatch) = mt_wliq_soisno(imt, j, ipatch) - mt_flux
                mt_wa(imt, ipatch) = mt_wa(imt, ipatch) + mt_flux
-               a_trc_qcharge(imt, ipatch) = a_trc_qcharge(imt, ipatch) + mt_flux
+               a_mt_qcharge(imt, ipatch) = a_mt_qcharge(imt, ipatch) + mt_flux
                water_shadow(j) = water_shadow(j) - qcharge_eff * deltim
             ELSEIF (qcharge_eff < -mt_tiny) THEN
             CALL check_isotope_aquifer(imt, ipatch, aquifer_water_pre_qcharge, &
@@ -1732,7 +1732,7 @@ CONTAINS
             mt_wa(imt, ipatch) = mt_wa(imt, ipatch) - mt_flux
                j = nl_soil
                mt_wliq_soisno(imt, j, ipatch) = mt_wliq_soisno(imt, j, ipatch) + mt_flux
-               a_trc_qcharge(imt, ipatch) = a_trc_qcharge(imt, ipatch) - mt_flux
+               a_mt_qcharge(imt, ipatch) = a_mt_qcharge(imt, ipatch) - mt_flux
                water_shadow(j) = water_shadow(j) - qcharge_eff * deltim
             ENDIF
 
@@ -1785,8 +1785,8 @@ CONTAINS
             mt_flux = rsub * ratio_src * deltim
             mt_flux = min(mt_flux, max(mt_wliq_soisno(imt, j, ipatch), 0._r8))
             mt_wliq_soisno(imt, j, ipatch) = mt_wliq_soisno(imt, j, ipatch) - mt_flux
-            a_trc_rsub(imt, ipatch) = a_trc_rsub(imt, ipatch) + mt_flux
-               a_trc_rnof(imt, ipatch) = a_trc_rnof(imt, ipatch) + mt_flux
+            a_mt_rsub(imt, ipatch) = a_mt_rsub(imt, ipatch) + mt_flux
+               a_mt_rnof(imt, ipatch) = a_mt_rnof(imt, ipatch) + mt_flux
             mt_rnof_step(imt, ipatch) = mt_rnof_step(imt, ipatch) + mt_flux
             water_shadow(j) = water_shadow(j) - rsub * deltim
          ENDIF
@@ -1804,7 +1804,7 @@ CONTAINS
             IF (dew_surface_water > mt_tiny) THEN
                mt_flux = dew_surface_water*deposition_ratio_for(layer_temp(1), .false.)
                pending_surface_material = pending_surface_material + mt_flux
-               a_trc_precip(imt,ipatch) = a_trc_precip(imt,ipatch) + mt_flux
+               a_mt_precip(imt,ipatch) = a_mt_precip(imt,ipatch) + mt_flux
                a_water_precip(imt,ipatch) = a_water_precip(imt,ipatch) + dew_surface_water
             ENDIF
             late_water = max(wdsrf,0._r8) + late_runoff_water
@@ -1825,8 +1825,8 @@ CONTAINS
             ENDIF
             mt_wdsrf(imt,ipatch) = max(wdsrf,0._r8)*late_surface_ratio
             mt_flux = late_runoff_water*late_surface_ratio
-            a_trc_rsur(imt,ipatch) = a_trc_rsur(imt,ipatch) + mt_flux
-            a_trc_rnof(imt,ipatch) = a_trc_rnof(imt,ipatch) + mt_flux
+            a_mt_rsur(imt,ipatch) = a_mt_rsur(imt,ipatch) + mt_flux
+            a_mt_rnof(imt,ipatch) = a_mt_rnof(imt,ipatch) + mt_flux
             mt_rnof_step(imt,ipatch) = mt_rnof_step(imt,ipatch) + mt_flux
          ENDIF
 
@@ -1838,7 +1838,7 @@ CONTAINS
          IF (eff_qsdew_topliq > mt_tiny) THEN
                mt_flux = eff_qsdew_topliq * deposition_ratio_for(layer_temp(1), .false.) * deltim
                mt_wliq_soisno(imt, 1, ipatch) = mt_wliq_soisno(imt, 1, ipatch) + mt_flux
-               a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+               a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
                a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + eff_qsdew_topliq * deltim
                water_shadow(1) = water_shadow(1) + eff_qsdew_topliq * deltim
             ENDIF
@@ -1871,7 +1871,7 @@ CONTAINS
          IF (eff_qfros_top > mt_tiny) THEN
             mt_flux = eff_qfros_top * deposition_ratio_for(layer_temp(1), .true.) * deltim
             mt_wice_soisno(imt, 1, ipatch) = mt_wice_soisno(imt, 1, ipatch) + mt_flux
-            a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+            a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + eff_qfros_top * deltim
          ENDIF
          IF (eff_qsubl_top > mt_tiny) THEN
@@ -2056,11 +2056,11 @@ CONTAINS
                   IF (water_resid >= 0._r8) THEN
                      mt_flux = water_resid * water_shadow_ratio
                      mt_wliq_soisno(imt, j, ipatch) = mt_wliq_soisno(imt, j, ipatch) + mt_flux
-                     soil_resid_trc = soil_resid_trc + mt_flux
+                     soil_resid_mt = soil_resid_mt + mt_flux
                   ELSE
                      mt_flux = min(-water_resid * water_shadow_ratio, max(mt_wliq_soisno(imt, j, ipatch), 0._r8))
                      mt_wliq_soisno(imt, j, ipatch) = mt_wliq_soisno(imt, j, ipatch) - mt_flux
-                     soil_resid_trc = soil_resid_trc - mt_flux
+                     soil_resid_mt = soil_resid_mt - mt_flux
                   ENDIF
                ENDIF
             ENDDO
@@ -2069,14 +2069,14 @@ CONTAINS
                ! physical aquifer / runoff / evaporation flux. Keep it out of
                ! mt_wa and expose it to the conservation checker as an
                ! explicit numerical source/sink.
-                  IF (abs(soil_resid_trc) > mt_tiny) THEN
+                  IF (abs(soil_resid_mt) > mt_tiny) THEN
                      IF (allocated(mt_numerical_residual_step)) THEN
                         mt_numerical_residual_step(imt, ipatch) = &
-                           mt_numerical_residual_step(imt, ipatch) + soil_resid_trc
+                           mt_numerical_residual_step(imt, ipatch) + soil_resid_mt
                         mt_numerical_water_step(imt, ipatch) = &
                            mt_numerical_water_step(imt, ipatch) + soil_resid_water
                      ELSE
-                        mt_wa(imt, ipatch) = mt_wa(imt, ipatch) - soil_resid_trc
+                        mt_wa(imt, ipatch) = mt_wa(imt, ipatch) - soil_resid_mt
                      ENDIF
                   ENDIF
                      IF (abs(material_aquifer_actual_water(wa, aquifer_ref_water)) <= mt_water_min_for_ratio) THEN
@@ -2530,8 +2530,8 @@ CONTAINS
          ENDIF
       END FUNCTION current_liq_ratio
 
-      real(r8) FUNCTION atmospheric_loss_material (pool_trc, pool_water, water_loss, temp_k, from_ice)
-         real(r8), intent(in) :: pool_trc
+      real(r8) FUNCTION atmospheric_loss_material (pool_mt, pool_water, water_loss, temp_k, from_ice)
+         real(r8), intent(in) :: pool_mt
          real(r8), intent(in) :: pool_water
          real(r8), intent(in) :: water_loss
          real(r8), intent(in) :: temp_k
@@ -2539,7 +2539,7 @@ CONTAINS
 
          ! from_ice routes through the surface-skin limiter: a snow layer is
          ! not a well-mixed reservoir for sublimation.
-         atmospheric_loss_material = material_atmospheric_mt_loss(pool_trc, pool_water, &
+         atmospheric_loss_material = material_atmospheric_mt_loss(pool_mt, pool_water, &
             water_loss, temp_k, from_ice, evap_affine_for, mt_tiny, &
             merge(materials(imt)%ref_ratio * (1._r8 + mt_delta_sanity_max / 1000._r8), &
                   0._r8, material_fractionation_active(imt)), material_is_nonvolatile_solute(imt), &
@@ -2853,7 +2853,7 @@ CONTAINS
                deposition_ratio_for(layer_temp(lb_snow), .true.) * deltim
             mt_wice_soisno(imt, lb_snow, ipatch) = &
                mt_wice_soisno(imt, lb_snow, ipatch) + mt_flux
-            a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+            a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + max(eff_qfros_snow, 0._r8) * deltim
 
             water_ice_pool = wice_soisno_bef(lb_snow) + max(eff_qfros_snow, 0._r8) * deltim
@@ -2898,7 +2898,7 @@ CONTAINS
                deposition_ratio_for(layer_temp(lb_snow), .false.) * deltim
             mt_wliq_soisno(imt, lb_snow, ipatch) = &
                mt_wliq_soisno(imt, lb_snow, ipatch) + mt_flux
-            a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+            a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + max(eff_qsdew_snow, 0._r8) * deltim
 
             IF (eff_qseva_snow > mt_tiny) THEN
@@ -3181,7 +3181,7 @@ CONTAINS
          ! input term ignores it. The material path mirrors that — debit
          ! mt_waterstorage at R_atm (Phase-1 invariant), add the
          ! matching mass to the wetland pool, and do NOT increment
-         ! a_trc_precip. See MOD_MT_SoilWater.F90 main
+         ! a_mt_precip. See MOD_MT_SoilWater.F90 main
          ! mt_soil_water branch for the symmetric treatment.
          IF (qflx_irrig_ground > mt_tiny) THEN
             pool_water  = pool_water  + qflx_irrig_ground * deltim
@@ -3229,7 +3229,7 @@ CONTAINS
             mt_dew_input = q_dew_in * deposition_ratio_for(layer_temp(1), .false.)
             mt_frost_input = q_frost_in * deposition_ratio_for(layer_temp(1), .true.)
             pool_material = pool_material + mt_dew_input + mt_frost_input
-            a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_dew_input + mt_frost_input
+            a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_dew_input + mt_frost_input
             a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + q_dew_in + q_frost_in
          ENDIF
 
@@ -3241,7 +3241,7 @@ CONTAINS
                mt_flux = q_vapor_uptake * deposition_ratio_for(layer_temp(1), .false.)
                pool_water  = pool_water  + q_vapor_uptake
                pool_material = pool_material + mt_flux
-               a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_flux
+               a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_flux
                a_water_precip(imt, ipatch) = a_water_precip(imt, ipatch) + q_vapor_uptake
             ENDIF
          ENDIF
@@ -3376,7 +3376,7 @@ CONTAINS
          IF (q_etr_out > mt_tiny .or. abs(transp_output_material) > mt_tiny) THEN
             CALL material_book_evap_loss(imt, ipatch, transp_output_material, q_etr_out, &
                MT_EVAP_KIND_TRANSP)
-            a_trc_transp_src(imt, ipatch) = a_trc_transp_src(imt, ipatch) + mt_etr_loss
+            a_mt_transp_src(imt, ipatch) = a_mt_transp_src(imt, ipatch) + mt_etr_loss
          ENDIF
          pool_material = pool_material - mt_loss
          pool_water = pool_water - loss_water
@@ -3440,8 +3440,8 @@ CONTAINS
 
             IF (rsur > mt_tiny) THEN
                mt_rsur_local = rsur * deltim * pool_ratio
-               a_trc_rsur   (imt, ipatch) = a_trc_rsur   (imt, ipatch) + mt_rsur_local
-               a_trc_rnof   (imt, ipatch) = a_trc_rnof   (imt, ipatch) + mt_rsur_local
+               a_mt_rsur   (imt, ipatch) = a_mt_rsur   (imt, ipatch) + mt_rsur_local
+               a_mt_rnof   (imt, ipatch) = a_mt_rnof   (imt, ipatch) + mt_rsur_local
                mt_rnof_step(imt, ipatch) = mt_rnof_step(imt, ipatch) + mt_rsur_local
             ENDIF
          ENDIF
@@ -3499,8 +3499,8 @@ CONTAINS
          ENDIF
       END FUNCTION layer_temp
 
-      real(r8) FUNCTION atmospheric_loss_material (pool_trc, pool_water, water_loss, temp_k, from_ice)
-         real(r8), intent(in) :: pool_trc
+      real(r8) FUNCTION atmospheric_loss_material (pool_mt, pool_water, water_loss, temp_k, from_ice)
+         real(r8), intent(in) :: pool_mt
          real(r8), intent(in) :: pool_water
          real(r8), intent(in) :: water_loss
          real(r8), intent(in) :: temp_k
@@ -3508,7 +3508,7 @@ CONTAINS
 
          ! from_ice routes through the surface-skin limiter: a snow layer is
          ! not a well-mixed reservoir for sublimation.
-         atmospheric_loss_material = material_atmospheric_mt_loss(pool_trc, pool_water, &
+         atmospheric_loss_material = material_atmospheric_mt_loss(pool_mt, pool_water, &
             water_loss, temp_k, from_ice, evap_affine_for, mt_tiny, &
             merge(materials(imt)%ref_ratio * (1._r8 + mt_delta_sanity_max / 1000._r8), &
                   0._r8, material_fractionation_active(imt)), material_is_nonvolatile_solute(imt), &

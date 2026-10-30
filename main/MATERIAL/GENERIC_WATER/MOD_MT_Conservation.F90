@@ -55,7 +55,7 @@ MODULE MOD_MT_Conservation
    real(r8), save :: balance_worst_sds (n_storage_diag) = 0._r8
    real(r8), save :: balance_worst_fcomp(n_flux_diag) = 0._r8
    integer,  save :: balance_worst_ipatch = 0
-   integer,  save :: balance_worst_itrc   = 0
+   integer,  save :: balance_worst_imt   = 0
    integer,  save :: balance_worst_ptype  = -1
    integer,  save :: balance_nbad         = 0
    ! Fixed-signature materials have a second, independent contract: each water-
@@ -66,7 +66,7 @@ MODULE MOD_MT_Conservation
    real(r8), save :: signature_worst_tol      = 0._r8
    real(r8), save :: signature_worst_terms(3) = 0._r8 ! input, evap, runoff
    integer,  save :: signature_worst_ipatch = 0
-   integer,  save :: signature_worst_itrc   = 0
+   integer,  save :: signature_worst_imt   = 0
    integer,  save :: signature_worst_ptype  = -1
    integer,  save :: signature_nbad         = 0
    ! P1 diagnostic: the per-layer mt_wliq<->wliq_soisno reconciliation
@@ -82,7 +82,7 @@ MODULE MOD_MT_Conservation
    real(r8), save :: resid_hard_worst_abs = 0._r8
    real(r8), save :: resid_hard_worst_tol = 0._r8
    integer,  save :: resid_hard_worst_ipatch = 0
-   integer,  save :: resid_hard_worst_itrc   = 0
+   integer,  save :: resid_hard_worst_imt   = 0
    integer,  save :: resid_hard_worst_ptype  = -1
    integer,  save :: resid_nbad           = 0
    integer,  save :: resid_hard_nbad      = 0
@@ -229,17 +229,17 @@ CONTAINS
          mt_storage_beg(imt, ipatch) = sum(storage_comp)
 
          ! Snapshot accumulators at start of this step
-         snap_precip(imt, ipatch) = a_trc_precip(imt, ipatch)
-         IF (allocated(a_trc_vapor_exchange)) &
-            snap_vapor_exchange(imt, ipatch) = a_trc_vapor_exchange(imt, ipatch)
-         IF (allocated(a_trc_bgc_leach)) &
-            snap_bgc_leach(imt, ipatch) = a_trc_bgc_leach(imt, ipatch)
-         snap_evap  (imt, ipatch) = a_trc_evap  (imt, ipatch)
-         snap_rnof  (imt, ipatch) = a_trc_rnof  (imt, ipatch)
-         snap_rsur  (imt, ipatch) = a_trc_rsur  (imt, ipatch)
-         snap_rsub  (imt, ipatch) = a_trc_rsub  (imt, ipatch)
-         snap_qinfl (imt, ipatch) = a_trc_qinfl (imt, ipatch)
-         snap_qcharge(imt, ipatch) = a_trc_qcharge(imt, ipatch)
+         snap_precip(imt, ipatch) = a_mt_precip(imt, ipatch)
+         IF (allocated(a_mt_vapor_exchange)) &
+            snap_vapor_exchange(imt, ipatch) = a_mt_vapor_exchange(imt, ipatch)
+         IF (allocated(a_mt_bgc_leach)) &
+            snap_bgc_leach(imt, ipatch) = a_mt_bgc_leach(imt, ipatch)
+         snap_evap  (imt, ipatch) = a_mt_evap  (imt, ipatch)
+         snap_rnof  (imt, ipatch) = a_mt_rnof  (imt, ipatch)
+         snap_rsur  (imt, ipatch) = a_mt_rsur  (imt, ipatch)
+         snap_rsub  (imt, ipatch) = a_mt_rsub  (imt, ipatch)
+         snap_qinfl (imt, ipatch) = a_mt_qinfl (imt, ipatch)
+         snap_qcharge(imt, ipatch) = a_mt_qcharge(imt, ipatch)
       ENDDO
    END SUBROUTINE mt_save_storage
 
@@ -436,13 +436,13 @@ CONTAINS
          ! signature agreement with water_flux*R_init is checked independently
          ! below; substituting theoretical values here would hide accounting
          ! errors in precipitation or evaporation.
-         step_input  = a_trc_precip(imt, ipatch) - snap_precip(imt, ipatch)
-         step_evap   = a_trc_evap(imt, ipatch) - snap_evap(imt, ipatch)
-         step_rsur   = a_trc_rsur(imt, ipatch) - snap_rsur(imt, ipatch)
-         step_rsub   = a_trc_rsub(imt, ipatch) - snap_rsub(imt, ipatch)
-         step_qinfl  = a_trc_qinfl(imt, ipatch) - snap_qinfl(imt, ipatch)
-         step_qcharge = a_trc_qcharge(imt, ipatch) - snap_qcharge(imt, ipatch)
-         step_rnof   = a_trc_rnof(imt, ipatch) - snap_rnof(imt, ipatch)
+         step_input  = a_mt_precip(imt, ipatch) - snap_precip(imt, ipatch)
+         step_evap   = a_mt_evap(imt, ipatch) - snap_evap(imt, ipatch)
+         step_rsur   = a_mt_rsur(imt, ipatch) - snap_rsur(imt, ipatch)
+         step_rsub   = a_mt_rsub(imt, ipatch) - snap_rsub(imt, ipatch)
+         step_qinfl  = a_mt_qinfl(imt, ipatch) - snap_qinfl(imt, ipatch)
+         step_qcharge = a_mt_qcharge(imt, ipatch) - snap_qcharge(imt, ipatch)
+         step_rnof   = a_mt_rnof(imt, ipatch) - snap_rnof(imt, ipatch)
          step_output = step_evap + step_rnof
          step_input_check = step_input
          step_output_check = step_output
@@ -452,8 +452,8 @@ CONTAINS
          ! is included in mass conservation but excluded from the separate
          ! fixed-signature check. Signed: positive = net uptake.
          step_vapor_exchange = 0._r8
-         IF (allocated(a_trc_vapor_exchange)) THEN
-            step_vapor_exchange = a_trc_vapor_exchange(imt, ipatch) &
+         IF (allocated(a_mt_vapor_exchange)) THEN
+            step_vapor_exchange = a_mt_vapor_exchange(imt, ipatch) &
                                 - snap_vapor_exchange(imt, ipatch)
          ENDIF
          step_input_check = step_input_check + step_vapor_exchange
@@ -462,13 +462,13 @@ CONTAINS
          ! input (it left the BGC mineral-N pool, not the atmosphere).  The
          ! injection happens after this step's check (CoLMDRIVER, after BGC),
          ! so the next step's snapshot already holds it together with the
-         ! matching a_trc_rnof output; the two cancel and the balance stays
+         ! matching a_mt_rnof output; the two cancel and the balance stays
          ! exact.  It is counted in mass conservation but kept out of the
          ! precipitation signature check for the same reason as the vapour
          ! exchange above.
          step_bgc_leach = 0._r8
-         IF (allocated(a_trc_bgc_leach)) &
-            step_bgc_leach = a_trc_bgc_leach(imt, ipatch) - snap_bgc_leach(imt, ipatch)
+         IF (allocated(a_mt_bgc_leach)) &
+            step_bgc_leach = a_mt_bgc_leach(imt, ipatch) - snap_bgc_leach(imt, ipatch)
          step_input_check = step_input_check + step_bgc_leach
 
          ! Conservation: Δstorage = input - output + source_sink.
@@ -574,7 +574,7 @@ CONTAINS
                signature_worst_tol = signature_tol
                signature_worst_terms = (/ in_minus_water_R, evap_minus_water_R, rnof_minus_water_R /)
                signature_worst_ipatch = ipatch
-               signature_worst_itrc = imt
+               signature_worst_imt = imt
                IF (present(patchtype_in)) THEN
                   signature_worst_ptype = patchtype_in
                ELSE
@@ -613,7 +613,7 @@ CONTAINS
                balance_worst_fcomp = (/ step_input, step_evap, step_rsur, step_rsub, &
                   step_rnof, step_qinfl, step_qcharge /)
                balance_worst_ipatch = ipatch
-               balance_worst_itrc   = imt
+               balance_worst_imt   = imt
                IF (present(patchtype_in)) THEN
                   balance_worst_ptype = patchtype_in
                ELSE
@@ -636,7 +636,7 @@ CONTAINS
                resid_hard_worst_abs = abs(numerical_source_sink)
                resid_hard_worst_tol = resid_tol
                resid_hard_worst_ipatch = ipatch
-               resid_hard_worst_itrc   = imt
+               resid_hard_worst_imt   = imt
                IF (present(patchtype_in)) THEN
                   resid_hard_worst_ptype = patchtype_in
                ELSE
@@ -690,8 +690,8 @@ CONTAINS
       integer  :: winner_rank
       integer  :: resid_winner_rank
       integer  :: signature_winner_rank
-      integer  :: resid_hard_ipatch_total, resid_hard_itrc_total, resid_hard_ptype_total
-      integer  :: signature_ipatch_total, signature_itrc_total, signature_ptype_total
+      integer  :: resid_hard_ipatch_total, resid_hard_imt_total, resid_hard_ptype_total
+      integer  :: signature_ipatch_total, signature_imt_total, signature_ptype_total
       logical  :: print_me
       real(r8) :: maxima_local(4), maxima_total(4)
       integer  :: counts_local(4), counts_total(4)
@@ -713,14 +713,14 @@ CONTAINS
       resid_hard_tol_total  = resid_hard_worst_tol
       resid_hard_nbad_total = resid_hard_nbad
       resid_hard_ipatch_total = resid_hard_worst_ipatch
-      resid_hard_itrc_total   = resid_hard_worst_itrc
+      resid_hard_imt_total   = resid_hard_worst_imt
       resid_hard_ptype_total  = resid_hard_worst_ptype
       signature_abs_total     = signature_worst_abs
       signature_tol_total     = signature_worst_tol
       signature_terms_total   = signature_worst_terms
       signature_nbad_total    = signature_nbad
       signature_ipatch_total  = signature_worst_ipatch
-      signature_itrc_total    = signature_worst_itrc
+      signature_imt_total    = signature_worst_imt
       signature_ptype_total   = signature_worst_ptype
       winner_rank = 0
       resid_winner_rank = 0
@@ -755,13 +755,13 @@ CONTAINS
             IF (resid_winner_rank /= 0) THEN
                IF (p_iam_worker == resid_winner_rank) THEN
                   CALL mpi_send(resid_hard_worst_ipatch, 1, MPI_INTEGER, 0, 101, p_comm_worker, p_err)
-                  CALL mpi_send(resid_hard_worst_itrc,   1, MPI_INTEGER, 0, 102, p_comm_worker, p_err)
+                  CALL mpi_send(resid_hard_worst_imt,   1, MPI_INTEGER, 0, 102, p_comm_worker, p_err)
                   CALL mpi_send(resid_hard_worst_ptype,  1, MPI_INTEGER, 0, 103, p_comm_worker, p_err)
                   CALL mpi_send(resid_hard_worst_tol,    1, MPI_REAL8,   0, 104, p_comm_worker, p_err)
                ELSEIF (p_iam_worker == 0) THEN
                   CALL mpi_recv(resid_hard_ipatch_total, 1, MPI_INTEGER, resid_winner_rank, 101, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
-                  CALL mpi_recv(resid_hard_itrc_total,   1, MPI_INTEGER, resid_winner_rank, 102, &
+                  CALL mpi_recv(resid_hard_imt_total,   1, MPI_INTEGER, resid_winner_rank, 102, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
                   CALL mpi_recv(resid_hard_ptype_total,  1, MPI_INTEGER, resid_winner_rank, 103, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
@@ -779,14 +779,14 @@ CONTAINS
             IF (signature_winner_rank /= 0) THEN
                IF (p_iam_worker == signature_winner_rank) THEN
                   CALL mpi_send(signature_worst_ipatch, 1, MPI_INTEGER, 0, 105, p_comm_worker, p_err)
-                  CALL mpi_send(signature_worst_itrc,   1, MPI_INTEGER, 0, 106, p_comm_worker, p_err)
+                  CALL mpi_send(signature_worst_imt,   1, MPI_INTEGER, 0, 106, p_comm_worker, p_err)
                   CALL mpi_send(signature_worst_ptype,  1, MPI_INTEGER, 0, 107, p_comm_worker, p_err)
                   CALL mpi_send(signature_worst_tol,    1, MPI_REAL8,   0, 108, p_comm_worker, p_err)
                   CALL mpi_send(signature_worst_terms,  3, MPI_REAL8,   0, 109, p_comm_worker, p_err)
                ELSEIF (p_iam_worker == 0) THEN
                   CALL mpi_recv(signature_ipatch_total, 1, MPI_INTEGER, signature_winner_rank, 105, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
-                  CALL mpi_recv(signature_itrc_total,   1, MPI_INTEGER, signature_winner_rank, 106, &
+                  CALL mpi_recv(signature_imt_total,   1, MPI_INTEGER, signature_winner_rank, 106, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
                   CALL mpi_recv(signature_ptype_total,  1, MPI_INTEGER, signature_winner_rank, 107, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
@@ -806,7 +806,7 @@ CONTAINS
             IF (winner_rank /= 0) THEN
                IF (p_iam_worker == winner_rank) THEN
                   CALL mpi_send(balance_worst_ipatch, 1, MPI_INTEGER, 0, 91, p_comm_worker, p_err)
-                  CALL mpi_send(balance_worst_itrc,   1, MPI_INTEGER, 0, 92, p_comm_worker, p_err)
+                  CALL mpi_send(balance_worst_imt,   1, MPI_INTEGER, 0, 92, p_comm_worker, p_err)
                   CALL mpi_send(balance_worst_ptype,  1, MPI_INTEGER, 0, 93, p_comm_worker, p_err)
                   CALL mpi_send(balance_worst_diag,  19, MPI_REAL8,   0, 94, p_comm_worker, p_err)
                   CALL mpi_send(balance_worst_sds, n_storage_diag, MPI_REAL8, 0, 95, p_comm_worker, p_err)
@@ -816,7 +816,7 @@ CONTAINS
                ELSEIF (p_iam_worker == 0) THEN
                   CALL mpi_recv(balance_worst_ipatch, 1, MPI_INTEGER, winner_rank, 91, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
-                  CALL mpi_recv(balance_worst_itrc,   1, MPI_INTEGER, winner_rank, 92, &
+                  CALL mpi_recv(balance_worst_imt,   1, MPI_INTEGER, winner_rank, 92, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
                   CALL mpi_recv(balance_worst_ptype,  1, MPI_INTEGER, winner_rank, 93, &
                                 p_comm_worker, MPI_STATUS_IGNORE, p_err)
@@ -852,7 +852,7 @@ CONTAINS
             'MT_BAL step report: nbad_entries=', nbad_total, &
             ' worst_abs_err=', reduced_abs, &
             ' @ipatch=', balance_worst_ipatch, &
-            ' imt=', balance_worst_itrc, &
+            ' imt=', balance_worst_imt, &
             ' ptype=', balance_worst_ptype, &
             ' owner=', winner_rank, &
             ' err=', balance_worst_diag(1), &
@@ -877,7 +877,7 @@ CONTAINS
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
             'MT_BAL_DCOMP @ipatch=', balance_worst_ipatch, &
-            ' imt=', balance_worst_itrc, &
+            ' imt=', balance_worst_imt, &
             ' ptype=', balance_worst_ptype, &
             ' d_ldew=', balance_worst_sds(1), &
             ' d_soil_liq=', balance_worst_sds(2), &
@@ -894,7 +894,7 @@ CONTAINS
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5)') &
             'MT_BAL_FCOMP @ipatch=', balance_worst_ipatch, &
-            ' imt=', balance_worst_itrc, &
+            ' imt=', balance_worst_imt, &
             ' ptype=', balance_worst_ptype, &
             ' precip=', balance_worst_fcomp(1), &
             ' evap=', balance_worst_fcomp(2), &
@@ -906,7 +906,7 @@ CONTAINS
          WRITE(*,'(A,I8,A,I4,A,I3,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,&
                   &A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5,A,E12.5)') &
             'MT_BAL_SEND @ipatch=', balance_worst_ipatch, &
-            ' imt=', balance_worst_itrc, &
+            ' imt=', balance_worst_imt, &
             ' ptype=', balance_worst_ptype, &
             ' ldew=', balance_worst_send(1), &
             ' soil_liq=', balance_worst_send(2), &
@@ -936,7 +936,7 @@ CONTAINS
             ' worst_abs=', resid_hard_abs_total, &
             ' tol=', resid_hard_tol_total, &
             ' @ipatch=', resid_hard_ipatch_total, &
-            ' imt=', resid_hard_itrc_total, &
+            ' imt=', resid_hard_imt_total, &
             ' ptype=', resid_hard_ptype_total, &
             ' owner=', resid_winner_rank
          CALL CoLM_stop ('MT_BAL hard failure: numerical residual exceeds independent threshold')
@@ -948,7 +948,7 @@ CONTAINS
             ' worst_abs=', signature_abs_total, &
             ' tol=', signature_tol_total, &
             ' @ipatch=', signature_ipatch_total, &
-            ' imt=', signature_itrc_total, &
+            ' imt=', signature_imt_total, &
             ' ptype=', signature_ptype_total, &
             ' owner=', signature_winner_rank, &
             ' input_minus_water_R=', signature_terms_total(1), &
@@ -971,14 +971,14 @@ CONTAINS
       balance_worst_sds    = 0._r8
       balance_worst_fcomp  = 0._r8
       balance_worst_ipatch = 0
-      balance_worst_itrc   = 0
+      balance_worst_imt   = 0
       balance_worst_ptype  = -1
       balance_nbad         = 0
       signature_worst_abs      = 0._r8
       signature_worst_tol      = 0._r8
       signature_worst_terms    = 0._r8
       signature_worst_ipatch   = 0
-      signature_worst_itrc     = 0
+      signature_worst_imt     = 0
       signature_worst_ptype    = -1
       signature_nbad           = 0
       resid_worst_abs      = 0._r8
@@ -986,7 +986,7 @@ CONTAINS
       resid_hard_worst_abs = 0._r8
       resid_hard_worst_tol = 0._r8
       resid_hard_worst_ipatch = 0
-      resid_hard_worst_itrc   = 0
+      resid_hard_worst_imt   = 0
       resid_hard_worst_ptype  = -1
       resid_hard_nbad      = 0
    END SUBROUTINE material_balance_report

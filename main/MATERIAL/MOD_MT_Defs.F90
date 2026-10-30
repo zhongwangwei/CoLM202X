@@ -121,7 +121,7 @@ MODULE MOD_MT_Defs
       ! ------------------------------------------------------------------
       ! Physical minimum water mass (kg/m² ≈ mm) for delta diagnostics.
    ! Below this the water pool is floating-point noise (e.g. wa ≈ 1e-5
-   ! mm in a patch that just went near zero), and R_sample = trc/water
+   ! mm in a patch that just went near zero), and R_sample = mt/water
    ! amplifies round-off into ±10000‰ deltas that are not physical.
    ! 1e-3 kg/m² = 1 μm water depth; this keeps legitimate trace water
    ! (dew/frost puddles, residual soil moisture) in the diagnostic while
@@ -893,12 +893,12 @@ CONTAINS
 
    CONTAINS
 
-      SUBROUTINE material_descriptor_error (itrc_local, field_name, reason)
-         integer, intent(in) :: itrc_local
+      SUBROUTINE material_descriptor_error (imt_local, field_name, reason)
+         integer, intent(in) :: imt_local
          character(len=*), intent(in) :: field_name, reason
 
          IF (p_is_master) THEN
-            write(*,'(5A)') 'ERROR material_defs_init: material "', trim(materials(itrc_local)%name), &
+            write(*,'(5A)') 'ERROR material_defs_init: material "', trim(materials(imt_local)%name), &
                '" field ', trim(field_name), ': '//trim(reason)
          ENDIF
          CALL CoLM_stop()
@@ -1106,7 +1106,7 @@ CONTAINS
             ! of treating a bogus delta as physical.
 #if (defined CoLMDEBUG)
             write(*,'(A,E12.5,A,E12.5)') &
-               ' WARNING mass_to_delta: R_sample<0 trc=', mt_mass, ' water=', water_mass
+               ' WARNING mass_to_delta: R_sample<0 mt=', mt_mass, ' water=', water_mass
 #endif
             mass_to_delta = spval
          ELSE

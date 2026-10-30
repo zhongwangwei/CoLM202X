@@ -325,7 +325,7 @@ CONTAINS
          DO imt = 1, nmts
             IF (.not. mt_uses_generic_water(imt)) CYCLE
             mt_mass_bef(imt) = pool_total(imt)
-            mt_mass_inp(imt) = sum(acc_trc_inp(imt,:))
+            mt_mass_inp(imt) = sum(acc_mt_inp(imt,:))
          ENDDO
       ENDIF
 #endif
@@ -333,8 +333,8 @@ CONTAINS
       IF (numucat > 0) THEN
          DO imt = 1, nmts
             IF (.not. mt_uses_generic_water(imt)) CYCLE
-            mt_inp_buf(imt,:) = mt_inp_buf(imt,:) + acc_trc_inp(imt,:)
-            acc_trc_inp(imt,:) = 0._r8
+            mt_inp_buf(imt,:) = mt_inp_buf(imt,:) + acc_mt_inp(imt,:)
+            acc_mt_inp(imt,:) = 0._r8
          ENDDO
       ENDIF
 
@@ -358,7 +358,7 @@ CONTAINS
       IF (present(with_input)) THEN
          IF (with_input) THEN
             CALL mt_riverlake_levee_repartition (i, vis_bef, lev_bef, vis_aft, lev_aft, &
-               pending_trc_pool = mt_inp_buf(:,i))
+               pending_mt_pool = mt_inp_buf(:,i))
             RETURN
          ENDIF
       ENDIF
@@ -682,7 +682,7 @@ CONTAINS
          ENDIF
 
          IF (numucat > 0) THEN
-            IF (allocated(acc_trc_inp))   acc_trc_inp   = 0._r8
+            IF (allocated(acc_mt_inp))   acc_mt_inp   = 0._r8
             IF (allocated(acc_rnof_ref))  acc_rnof_ref  = 0._r8
             IF (allocated(mt_dry_drain)) mt_dry_drain = 0._r8
          ENDIF

@@ -7,7 +7,7 @@ MODULE MOD_MT_Precip
    USE MOD_MT_Defs, only: nmts, mt_tiny, mt_water_min_for_ratio, mt_uses_generic_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
    USE MOD_MT_Forcing, only: material_forcing_rain_value, material_forcing_snow_value
-   USE MOD_MT_Vars, only: mt_ldew_rain, mt_ldew_snow, a_trc_precip, &
+   USE MOD_MT_Vars, only: mt_ldew_rain, mt_ldew_snow, a_mt_precip, &
       mt_pg_rain_ground, mt_pg_snow_ground, mt_waterstorage, &
       mt_canopy_solid, mt_surface_solid, mt_waterstorage_solid
    USE MOD_Const_Physical, only: tfrz
@@ -125,10 +125,10 @@ CONTAINS
       real(r8) :: smelt_mass, frzc_mass ! effective phase-change masses
       real(r8) :: R_snow_pre, R_rain_pre
       real(r8) :: mt_smelt, mt_frzc   ! material mass migrated this step
-      real(r8) :: canopy_trc_beg, canopy_trc_end, canopy_input_trc
-      real(r8) :: canopy_resid, ground_trc_total, desired_ground_total
-      real(r8) :: sprinkler_trc
-      real(r8) :: canopy_old_water, canopy_release_trc
+      real(r8) :: canopy_mt_beg, canopy_mt_end, canopy_input_mt
+      real(r8) :: canopy_resid, ground_mt_total, desired_ground_total
+      real(r8) :: sprinkler_mt
+      real(r8) :: canopy_old_water, canopy_release_mt
       real(r8) :: release_rain, release_snow, release_total
 
       IF (nmts <= 0) RETURN
@@ -152,7 +152,7 @@ CONTAINS
          storage_ratio = R_rain_atm
          CALL mt_equilibrate_dissolved(imt, max(ldew_rain_old, 0._r8), &
             mt_ldew_rain(imt, ipatch), mt_canopy_solid(imt, ipatch))
-         canopy_trc_beg = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch) &
+         canopy_mt_beg = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch) &
             + mt_canopy_solid(imt, ipatch)
 
          ! Atmospheric precipitation is external input; count into the
@@ -160,12 +160,12 @@ CONTAINS
          ! canopy/ground here via LEAF_INTERCEPTION, but water-side
          ! treats it as an internal transfer from waterstorage (not a
          ! term in forc_prc+forc_prl). Mirror that: debit
-         ! mt_waterstorage for sprinkler and keep a_trc_precip purely
+         ! mt_waterstorage for sprinkler and keep a_mt_precip purely
          ! atmospheric, so the material budget's "external input"
          ! matches the water-side definition.
          ! The second term is exactly zero when rain and snow share a ratio,
          ! which keeps this sum bit-identical to the single-ratio form.
-         a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) &
+         a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) &
             + (forc_rain + forc_snow) * R_snow_input * deltim &
             + forc_rain * (R_rain_atm - R_snow_input) * deltim
 
@@ -177,20 +177,20 @@ CONTAINS
                   storage_ratio = mt_waterstorage(imt, ipatch) / waterstorage_before
                ENDIF
             ENDIF
-            sprinkler_trc = sprinkler_water * storage_ratio
-            sprinkler_trc = min(max(sprinkler_trc, 0._r8), max(mt_waterstorage(imt, ipatch), 0._r8))
+            sprinkler_mt = sprinkler_water * storage_ratio
+            sprinkler_mt = min(max(sprinkler_mt, 0._r8), max(mt_waterstorage(imt, ipatch), 0._r8))
             mt_waterstorage(imt, ipatch) = mt_waterstorage(imt, ipatch) &
-               - sprinkler_trc
+               - sprinkler_mt
             ! The canopy must receive exactly the material actually removed,
             ! including near-dry and dissolved-inventory-limited withdrawals.
-            IF (sprinkler_water > mt_tiny) storage_ratio = sprinkler_trc / sprinkler_water
+            IF (sprinkler_water > mt_tiny) storage_ratio = sprinkler_mt / sprinkler_water
             IF (present(waterstorage_before)) THEN
                CALL mt_equilibrate_dissolved(imt, &
                   max(waterstorage_before - sprinkler_water, 0._r8), &
                   mt_waterstorage(imt, ipatch), mt_waterstorage_solid(imt, ipatch))
             ENDIF
          ELSE
-            sprinkler_trc = sprinkler_water * storage_ratio
+            sprinkler_mt = sprinkler_water * storage_ratio
          ENDIF
 
          R_rain_input = R_rain_atm
@@ -268,17 +268,17 @@ CONTAINS
                 (max(xsc_rain_out, 0._r8) * deltim <= mt_water_min_for_ratio))) .and. &
              (max(xsc_rain_out, 0._r8) + max(xsc_snow_out, 0._r8)) * deltim &
                 >= canopy_old_water - mt_water_min_for_ratio) THEN
-            canopy_release_trc = mt_ldew_rain(imt, ipatch) + &
+            canopy_release_mt = mt_ldew_rain(imt, ipatch) + &
                mt_ldew_snow(imt, ipatch) + mt_canopy_solid(imt, ipatch)
             mt_canopy_solid(imt, ipatch) = 0._r8
             IF (max(xsc_rain_out, 0._r8) * deltim > mt_water_min_for_ratio) THEN
-               mt_ldew_rain(imt, ipatch) = canopy_release_trc
+               mt_ldew_rain(imt, ipatch) = canopy_release_mt
                mt_ldew_snow(imt, ipatch) = 0._r8
                ldew_rain_old_eff = canopy_old_water
                ldew_snow_old_eff = 0._r8
             ELSE
                mt_ldew_rain(imt, ipatch) = 0._r8
-               mt_ldew_snow(imt, ipatch) = canopy_release_trc
+               mt_ldew_snow(imt, ipatch) = canopy_release_mt
                ldew_rain_old_eff = 0._r8
                ldew_snow_old_eff = canopy_old_water
             ENDIF
@@ -299,12 +299,12 @@ CONTAINS
                release_rain = canopy_old_water * (release_rain / release_total)
                release_snow = canopy_old_water - release_rain
             ENDIF
-            canopy_release_trc = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
+            canopy_release_mt = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch)
             ! Retain the established empty-canopy flush of solid inventory,
             ! also when the complete release has BOTH phases.
             IF (max(ldew_rain, 0._r8) + max(ldew_snow, 0._r8) <= mt_water_min_for_ratio .and. &
                 release_total >= canopy_old_water - mt_water_min_for_ratio) THEN
-               canopy_release_trc = canopy_release_trc + mt_canopy_solid(imt, ipatch)
+               canopy_release_mt = canopy_release_mt + mt_canopy_solid(imt, ipatch)
                mt_canopy_solid(imt, ipatch) = 0._r8
             ENDIF
             IF (release_snow > ldew_snow_old_eff) THEN
@@ -317,11 +317,11 @@ CONTAINS
             ! Compute the smaller share directly, avoiding cancellation for
             ! tiny releases from a much larger canopy reservoir.
             IF (ldew_rain_old_eff <= ldew_snow_old_eff) THEN
-               mt_ldew_rain(imt, ipatch) = canopy_release_trc * (ldew_rain_old_eff / canopy_old_water)
-               mt_ldew_snow(imt, ipatch) = canopy_release_trc - mt_ldew_rain(imt, ipatch)
+               mt_ldew_rain(imt, ipatch) = canopy_release_mt * (ldew_rain_old_eff / canopy_old_water)
+               mt_ldew_snow(imt, ipatch) = canopy_release_mt - mt_ldew_rain(imt, ipatch)
             ELSE
-               mt_ldew_snow(imt, ipatch) = canopy_release_trc * (ldew_snow_old_eff / canopy_old_water)
-               mt_ldew_rain(imt, ipatch) = canopy_release_trc - mt_ldew_snow(imt, ipatch)
+               mt_ldew_snow(imt, ipatch) = canopy_release_mt * (ldew_snow_old_eff / canopy_old_water)
+               mt_ldew_rain(imt, ipatch) = canopy_release_mt - mt_ldew_snow(imt, ipatch)
             ENDIF
          ENDIF
 
@@ -413,20 +413,20 @@ CONTAINS
          ! residuals which later show up as wetland/soil balance errors.
          ! Preserve the prognostic canopy pools and put the tiny correction
          ! on the internal ground flux consumed by mt_soil_water /
-         ! mt_wetland; atmospheric a_trc_precip remains unchanged.
+         ! mt_wetland; atmospheric a_mt_precip remains unchanged.
          CALL mt_equilibrate_dissolved(imt, max(ldew_rain, 0._r8), &
             mt_ldew_rain(imt, ipatch), mt_canopy_solid(imt, ipatch))
-         canopy_trc_end = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch) &
+         canopy_mt_end = mt_ldew_rain(imt, ipatch) + mt_ldew_snow(imt, ipatch) &
             + mt_canopy_solid(imt, ipatch)
-         canopy_input_trc = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_snow_input
-         canopy_resid = canopy_trc_end - canopy_trc_beg - canopy_input_trc &
+         canopy_input_mt = rain_total * deltim * R_rain_input + max(forc_snow, 0._r8) * deltim * R_snow_input
+         canopy_resid = canopy_mt_end - canopy_mt_beg - canopy_input_mt &
                       + mt_rain_ground + mt_snow_ground
          IF (abs(canopy_resid) > mt_tiny) THEN
-            ground_trc_total = mt_rain_ground + mt_snow_ground
-            desired_ground_total = max(ground_trc_total - canopy_resid, 0._r8)
-            IF (ground_trc_total > mt_tiny) THEN
-               mt_rain_ground = mt_rain_ground * desired_ground_total / ground_trc_total
-               mt_snow_ground = mt_snow_ground * desired_ground_total / ground_trc_total
+            ground_mt_total = mt_rain_ground + mt_snow_ground
+            desired_ground_total = max(ground_mt_total - canopy_resid, 0._r8)
+            IF (ground_mt_total > mt_tiny) THEN
+               mt_rain_ground = mt_rain_ground * desired_ground_total / ground_mt_total
+               mt_snow_ground = mt_snow_ground * desired_ground_total / ground_mt_total
             ELSEIF (rain_total > mt_tiny) THEN
                mt_rain_ground = desired_ground_total
             ELSE

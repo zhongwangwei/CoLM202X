@@ -65,12 +65,12 @@ MODULE MOD_MT_Forcing
 
    logical :: mt_runtime_forcing_enabled = .false.
    integer :: mt_forcing_log_count = 0
-   integer :: n_trc_forc_vars = 0
+   integer :: n_mt_forc_vars = 0
    integer :: idx_total_precip = 0
    integer :: idx_total_vapor = 0
 
    integer, allocatable :: mt_var_stream(:)
-   integer, allocatable :: mt_var_itrc(:)
+   integer, allocatable :: mt_var_imt(:)
    integer, allocatable :: mt_var_mode(:)
    integer, allocatable :: mt_var_total(:)
    integer, allocatable :: mt_var_dtime(:)
@@ -169,11 +169,11 @@ CONTAINS
          CALL CoLM_stop()
       ENDIF
 
-      allocate(mt_forcn(n_trc_forc_vars))
+      allocate(mt_forcn(n_mt_forc_vars))
       IF (p_is_io) THEN
-         allocate(mt_forcn_LB(n_trc_forc_vars))
-         allocate(mt_forcn_UB(n_trc_forc_vars))
-         DO iv = 1, n_trc_forc_vars
+         allocate(mt_forcn_LB(n_mt_forc_vars))
+         allocate(mt_forcn_UB(n_mt_forc_vars))
+         DO iv = 1, n_mt_forc_vars
             CALL allocate_block_data(mt_gforc, mt_forcn(iv))
             CALL allocate_block_data(mt_gforc, mt_forcn_LB(iv))
             CALL allocate_block_data(mt_gforc, mt_forcn_UB(iv))
@@ -181,11 +181,11 @@ CONTAINS
          CALL allocate_block_data(mt_gforc, mt_metdata)
       ENDIF
 
-      allocate(mt_forc_patch(numpatch, n_trc_forc_vars))
+      allocate(mt_forc_patch(numpatch, n_mt_forc_vars))
       mt_forc_patch(:,:) = 0._r8
 
       IF (p_is_master) THEN
-         WRITE(*,'(A,I0,A)') 'Material runtime forcing enabled: ', n_trc_forc_vars, &
+         WRITE(*,'(A,I0,A)') 'Material runtime forcing enabled: ', n_mt_forc_vars, &
             ' variable(s) from main forcing namelist.'
       ENDIF
    END SUBROUTINE mt_forcing_init
@@ -202,12 +202,12 @@ CONTAINS
       CALL material_forcing_read_LBUB(idate, dir_forcing)
 
       IF (p_is_io) THEN
-         DO iv = 1, n_trc_forc_vars
+         DO iv = 1, n_mt_forc_vars
             CALL material_forcing_interpolate_var(idate, iv)
          ENDDO
       ENDIF
 
-      DO iv = 1, n_trc_forc_vars
+      DO iv = 1, n_mt_forc_vars
          CALL mt_mg2p_forc%grid2pset(mt_forcn(iv), mt_forc_patch(:, iv))
       ENDDO
 
@@ -238,7 +238,7 @@ CONTAINS
       IF (allocated(mt_runtime_forced)) mt_runtime_forced(:) = .false.
       mt_runtime_forcing_enabled = .false.
       mt_forcing_log_count = 0
-      n_trc_forc_vars = 0
+      n_mt_forc_vars = 0
       idx_total_precip = 0
       idx_total_vapor = 0
    END SUBROUTINE mt_forcing_final
@@ -510,9 +510,9 @@ CONTAINS
       integer, allocatable, intent(out) :: identity(:,:)
       integer :: iv
 
-      allocate(identity(MT_FORC_ID_WIDTH, n_trc_forc_vars+1))
+      allocate(identity(MT_FORC_ID_WIDTH, n_mt_forc_vars+1))
       identity = 0
-      identity(1:8,1) = [n_trc_forc_vars, nmts, DEF_forcing%startyr, &
+      identity(1:8,1) = [n_mt_forc_vars, nmts, DEF_forcing%startyr, &
          DEF_forcing%startmo, merge(1,0,DEF_forcing%leapyear), idx_total_precip, &
          idx_total_vapor, 0]
       CALL forcing_identity_put(identity, 1, 1, DEF_forcing%dataset)
@@ -521,8 +521,8 @@ CONTAINS
       CALL forcing_identity_put(identity, 1, 4, DEF_forcing%fprefix(2))
       CALL forcing_identity_put(identity, 1, 5, DEF_forcing%fprefix(4))
       CALL forcing_identity_put(identity, 1, 6, DEF_dir_forcing)
-      DO iv = 1, n_trc_forc_vars
-         identity(1:8,iv+1) = [mt_var_stream(iv), mt_var_itrc(iv), mt_var_mode(iv), &
+      DO iv = 1, n_mt_forc_vars
+         identity(1:8,iv+1) = [mt_var_stream(iv), mt_var_imt(iv), mt_var_mode(iv), &
             mt_var_total(iv), mt_var_dtime(iv), mt_var_offset(iv), 0, 0]
          CALL forcing_identity_put(identity, iv+1, 1, mt_var_fprefix(iv))
          CALL forcing_identity_put(identity, iv+1, 2, mt_var_vname(iv))
@@ -564,9 +564,9 @@ CONTAINS
       character(len=256) :: fileblock
 
       IF (nmts <= 0) RETURN
-      IF (n_trc_forc_vars > 0 .and. .not. allocated(mt_forc_precip_value)) &
+      IF (n_mt_forc_vars > 0 .and. .not. allocated(mt_forc_precip_value)) &
          CALL CoLM_stop('material forcing cache is not allocated at restart write')
-      IF (n_trc_forc_vars > 0 .and. p_is_worker) THEN
+      IF (n_mt_forc_vars > 0 .and. p_is_worker) THEN
          IF (size(mt_forc_precip_value,1) /= nmts .or. &
              size(mt_forc_precip_value,2) /= landpatch%nset .or. &
              any(shape(mt_forc_vapor_value) /= shape(mt_forc_precip_value))) &
@@ -581,10 +581,10 @@ CONTAINS
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
             CALL ncio_write_serial(fileblock, 'mt_forcing_cache_schema', MT_FORC_CACHE_SCHEMA)
-            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_count', n_trc_forc_vars)
+            CALL ncio_write_serial(fileblock, 'mt_forcing_cache_count', n_mt_forc_vars)
          ENDDO
       ENDIF
-      IF (n_trc_forc_vars <= 0) RETURN
+      IF (n_mt_forc_vars <= 0) RETURN
       CALL material_forcing_identity(identity)
       IF (p_is_io) THEN
          DO iblkgrp = 1, landpatch%nblkgrp
@@ -592,7 +592,7 @@ CONTAINS
             jblk = landpatch%yblkgrp(iblkgrp)
             CALL get_filename_block(file_restart, iblk, jblk, fileblock)
             CALL ncio_define_dimension(fileblock, 'mt_forcing_id_field', MT_FORC_ID_WIDTH)
-            CALL ncio_define_dimension(fileblock, 'mt_forcing_id_var', n_trc_forc_vars+1)
+            CALL ncio_define_dimension(fileblock, 'mt_forcing_id_var', n_mt_forc_vars+1)
             CALL ncio_define_dimension(fileblock, 'mt_forcing_species', nmts)
             CALL ncio_write_serial(fileblock, 'mt_forcing_cache_identity', identity, &
                'mt_forcing_id_field', 'mt_forcing_id_var', DEF_REST_CompressLevel)
@@ -622,7 +622,7 @@ CONTAINS
       character(len=256) :: fileblock
 
       IF (.not. loaded_restart .or. nmts <= 0) RETURN
-      IF (n_trc_forc_vars > 0) CALL material_forcing_identity(expected)
+      IF (n_mt_forc_vars > 0) CALL material_forcing_identity(expected)
       counts = 0
       IF (p_is_io) THEN
          DO iblkgrp = 1, landpatch%nblkgrp
@@ -658,7 +658,7 @@ CONTAINS
             CALL ncio_read_serial(fileblock, 'mt_forcing_cache_schema', schema)
             CALL ncio_read_serial(fileblock, 'mt_forcing_cache_count', nvars)
             IF ((schema /= MT_FORC_CACHE_SCHEMA .and. schema /= 1) .or. &
-                nvars /= n_trc_forc_vars) THEN
+                nvars /= n_mt_forc_vars) THEN
                counts(3) = counts(3) + 1
                CYCLE
             ENDIF
@@ -746,11 +746,11 @@ CONTAINS
          CALL CoLM_stop('mixed schema-1/schema-2 material forcing cache blocks')
       schema = MT_FORC_CACHE_SCHEMA
       IF (counts(5) > 0) schema = 1
-      IF (counts(1) > 0 .and. n_trc_forc_vars > 0) &
+      IF (counts(1) > 0 .and. n_mt_forc_vars > 0) &
          CALL CoLM_stop('old material restart lacks last-valid forcing cache; cannot reconstruct it')
       IF (counts(2) > 0) CALL CoLM_stop('incomplete or malformed material forcing cache restart')
       IF (counts(3) > 0) CALL CoLM_stop('material forcing cache configuration differs from restart')
-      IF (n_trc_forc_vars <= 0) RETURN
+      IF (n_mt_forc_vars <= 0) RETURN
       CALL ncio_read_vector(file_restart, 'mt_forcing_precip_last', nmts, landpatch, &
          precip)
       CALL ncio_read_vector(file_restart, 'mt_forcing_vapor_last', nmts, landpatch, &
@@ -816,7 +816,7 @@ CONTAINS
       CALL material_forcing_input_load()
       CALL material_forcing_deallocate_config()
       allocate(mt_var_stream(2*nmts + 6))
-      allocate(mt_var_itrc(2*nmts + 6))
+      allocate(mt_var_imt(2*nmts + 6))
       allocate(mt_var_mode(2*nmts + 6))
       allocate(mt_var_total(2*nmts + 6))
       allocate(mt_var_dtime(2*nmts + 6))
@@ -829,7 +829,7 @@ CONTAINS
       allocate(mt_tstamp_UB(2*nmts + 6))
       allocate(has_precip(nmts), has_vapor(nmts))
 
-      n_trc_forc_vars = 0
+      n_mt_forc_vars = 0
       idx_total_precip = 0
       idx_total_vapor = 0
       has_precip(:) = .false.
@@ -849,20 +849,20 @@ CONTAINS
          IF (k > 0) THEN
             spec = material_forcing_input_get(imt, k)
             mode = material_forcing_parse_mode(spec%input_mode)
-            nold = n_trc_forc_vars
+            nold = n_mt_forc_vars
             CALL material_forcing_add_var(STREAM_PRECIP, imt, mode, &
                spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
-            has_precip(imt) = n_trc_forc_vars > nold
+            has_precip(imt) = n_mt_forc_vars > nold
          ENDIF
 
          k = material_forcing_input_find(imt, 'vapor')
          IF (k > 0) THEN
             spec = material_forcing_input_get(imt, k)
             mode = material_forcing_parse_mode(spec%input_mode)
-            nold = n_trc_forc_vars
+            nold = n_mt_forc_vars
             CALL material_forcing_add_var(STREAM_VAPOR, imt, mode, &
                spec%fprefix, spec%vname, spec%tintalgo, spec%dtime, spec%offset)
-            has_vapor(imt) = n_trc_forc_vars > nold
+            has_vapor(imt) = n_mt_forc_vars > nold
          ENDIF
 
          IF (material_fractionation_active(imt) .and. .not. has_vapor(imt)) THEN
@@ -876,7 +876,7 @@ CONTAINS
          ENDIF
       ENDDO
 
-      mt_runtime_forcing_enabled = n_trc_forc_vars > 0
+      mt_runtime_forcing_enabled = n_mt_forc_vars > 0
       IF (allocated(mt_runtime_forced)) THEN
          mt_runtime_forced(:) = has_precip(:) .or. has_vapor(:)
       ENDIF
@@ -887,7 +887,7 @@ CONTAINS
       IMPLICIT NONE
 
       IF (allocated(mt_var_stream)) deallocate(mt_var_stream)
-      IF (allocated(mt_var_itrc)) deallocate(mt_var_itrc)
+      IF (allocated(mt_var_imt)) deallocate(mt_var_imt)
       IF (allocated(mt_var_mode)) deallocate(mt_var_mode)
       IF (allocated(mt_var_total)) deallocate(mt_var_total)
       IF (allocated(mt_var_dtime)) deallocate(mt_var_dtime)
@@ -926,18 +926,18 @@ CONTAINS
          ENDIF
       ENDIF
 
-      n_trc_forc_vars = n_trc_forc_vars + 1
-      mt_var_stream(n_trc_forc_vars) = stream
-      mt_var_itrc(n_trc_forc_vars) = imt
-      mt_var_mode(n_trc_forc_vars) = mode
-      mt_var_total(n_trc_forc_vars) = total_idx
-      mt_var_fprefix(n_trc_forc_vars) = trim(fprefix)
-      mt_var_vname(n_trc_forc_vars) = trim(vname)
-      mt_var_tintalgo(n_trc_forc_vars) = trim(tintalgo)
-      mt_var_timelog(n_trc_forc_vars) = 'instant'
-      IF (total_idx > 0) mt_var_timelog(n_trc_forc_vars) = mt_var_timelog(total_idx)
-      mt_var_dtime(n_trc_forc_vars) = dtime
-      mt_var_offset(n_trc_forc_vars) = offset
+      n_mt_forc_vars = n_mt_forc_vars + 1
+      mt_var_stream(n_mt_forc_vars) = stream
+      mt_var_imt(n_mt_forc_vars) = imt
+      mt_var_mode(n_mt_forc_vars) = mode
+      mt_var_total(n_mt_forc_vars) = total_idx
+      mt_var_fprefix(n_mt_forc_vars) = trim(fprefix)
+      mt_var_vname(n_mt_forc_vars) = trim(vname)
+      mt_var_tintalgo(n_mt_forc_vars) = trim(tintalgo)
+      mt_var_timelog(n_mt_forc_vars) = 'instant'
+      IF (total_idx > 0) mt_var_timelog(n_mt_forc_vars) = mt_var_timelog(total_idx)
+      mt_var_dtime(n_mt_forc_vars) = dtime
+      mt_var_offset(n_mt_forc_vars) = offset
    END SUBROUTINE material_forcing_add_var
 
    integer FUNCTION material_forcing_ensure_total (stream)
@@ -952,10 +952,10 @@ CONTAINS
                   DEF_forcing%dtime(4), '.'
                CALL CoLM_stop()
             ENDIF
-            n_trc_forc_vars = n_trc_forc_vars + 1
-            idx_total_precip = n_trc_forc_vars
+            n_mt_forc_vars = n_mt_forc_vars + 1
+            idx_total_precip = n_mt_forc_vars
             mt_var_stream(idx_total_precip) = STREAM_TOTAL_PRECIP
-            mt_var_itrc(idx_total_precip) = 0
+            mt_var_imt(idx_total_precip) = 0
             mt_var_mode(idx_total_precip) = MODE_VALUE
             mt_var_total(idx_total_precip) = 0
             mt_var_fprefix(idx_total_precip) = trim(DEF_forcing%fprefix(4))
@@ -974,10 +974,10 @@ CONTAINS
                   DEF_forcing%dtime(2), '.'
                CALL CoLM_stop()
             ENDIF
-            n_trc_forc_vars = n_trc_forc_vars + 1
-            idx_total_vapor = n_trc_forc_vars
+            n_mt_forc_vars = n_mt_forc_vars + 1
+            idx_total_vapor = n_mt_forc_vars
             mt_var_stream(idx_total_vapor) = STREAM_TOTAL_VAPOR
-            mt_var_itrc(idx_total_vapor) = 0
+            mt_var_imt(idx_total_vapor) = 0
             mt_var_mode(idx_total_vapor) = MODE_VALUE
             mt_var_total(idx_total_vapor) = 0
             mt_var_fprefix(idx_total_vapor) = trim(DEF_forcing%fprefix(2))
@@ -1067,7 +1067,7 @@ CONTAINS
 
       mtstamp = idate
 
-      DO iv = 1, n_trc_forc_vars
+      DO iv = 1, n_mt_forc_vars
          IF (.not.(mt_tstamp_LB(iv) == 'NULL') .and. .not.(mt_tstamp_UB(iv) == 'NULL') .and. &
              mt_tstamp_LB(iv) <= mtstamp .and. mtstamp < mt_tstamp_UB(iv)) CYCLE
 
@@ -1152,8 +1152,8 @@ CONTAINS
       IF (.not. allocated(mt_forc_patch)) RETURN
       IF (.not. allocated(mt_forc_precip_value)) RETURN
 
-      DO iv = 1, n_trc_forc_vars
-         imt = mt_var_itrc(iv)
+      DO iv = 1, n_mt_forc_vars
+         imt = mt_var_imt(iv)
          IF (imt < 1 .or. imt > nmts) CYCLE
          DO ip = 1, size(mt_forc_patch, 1)
             CALL material_forcing_decode_value(iv, ip, value, value_valid, decode_status)
@@ -1200,7 +1200,7 @@ CONTAINS
       integer :: imt
 
       material_forcing_reliable_record = .true.
-      imt = mt_var_itrc(iv)
+      imt = mt_var_imt(iv)
       IF (.not. mt_forc_phase_fill(imt)) RETURN
       IF (mt_var_mode(iv) /= MODE_HEAVY_OVER_TOTAL .and. &
           mt_var_mode(iv) /= MODE_NORMALIZED_OVER_TOTAL) RETURN
@@ -1223,7 +1223,7 @@ CONTAINS
       decode_status = DECODE_INVALID
       raw = mt_forc_patch(ip, iv)
 
-      imt = mt_var_itrc(iv)
+      imt = mt_var_imt(iv)
       SELECT CASE (mt_var_mode(iv))
       CASE (MODE_HEAVY_OVER_TOTAL, MODE_NORMALIZED_OVER_TOTAL)
          total_idx = mt_var_total(iv)
@@ -1573,7 +1573,7 @@ CONTAINS
          IF (p_is_master) WRITE(*,'(A)') 'ERROR material forcing dtime is not configured.'
          CALL CoLM_stop()
       ENDIF
-      IF (iv < 1 .or. iv > n_trc_forc_vars) THEN
+      IF (iv < 1 .or. iv > n_mt_forc_vars) THEN
          IF (p_is_master) WRITE(*,'(A,I0,A)') 'ERROR material forcing variable index ', iv, ' is out of range.'
          CALL CoLM_stop()
       ENDIF
@@ -1753,8 +1753,8 @@ CONTAINS
       integer :: iv
 
       material_forcing_precip_configured = .false.
-      DO iv = 1, n_trc_forc_vars
-         IF (mt_var_stream(iv) == STREAM_PRECIP .and. mt_var_itrc(iv) == imt) THEN
+      DO iv = 1, n_mt_forc_vars
+         IF (mt_var_stream(iv) == STREAM_PRECIP .and. mt_var_imt(iv) == imt) THEN
             material_forcing_precip_configured = .true.
             RETURN
          ENDIF
@@ -1767,8 +1767,8 @@ CONTAINS
       integer :: iv
 
       material_forcing_vapor_configured = .false.
-      DO iv = 1, n_trc_forc_vars
-         IF (mt_var_stream(iv) == STREAM_VAPOR .and. mt_var_itrc(iv) == imt) THEN
+      DO iv = 1, n_mt_forc_vars
+         IF (mt_var_stream(iv) == STREAM_VAPOR .and. mt_var_imt(iv) == imt) THEN
             material_forcing_vapor_configured = .true.
             RETURN
          ENDIF

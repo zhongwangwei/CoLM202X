@@ -306,8 +306,8 @@ CONTAINS
    integer :: neibor         ! adjacent node selected for combination
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:), zwtrc_solid(:)
-   integer :: ntr
+   real(r8), allocatable :: zwmt_ice(:), zwmt_liq(:), zwmt_solid(:)
+   integer :: nmt
    integer :: imt
 #endif
    data dzmin /0.010, 0.015, 0.025, 0.055, 0.115/
@@ -315,9 +315,9 @@ CONTAINS
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         ntr = size(mt_wliq, 1)
-         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr), zwtrc_solid(ntr))
-         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8; zwtrc_solid = 0._r8
+         nmt = size(mt_wliq, 1)
+         allocate(zwmt_ice(nmt), zwmt_liq(nmt), zwmt_solid(nmt))
+         zwmt_ice = 0._r8; zwmt_liq = 0._r8; zwmt_solid = 0._r8
       ENDIF
 #endif
 ! check the mass of ice lens of snow, when the total less than a small value,
@@ -329,7 +329,7 @@ CONTAINS
             wice_soisno(j+1) = wice_soisno(j+1) + wice_soisno(j)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, ntr
+               DO imt = 1, nmt
                   mt_wliq(imt, j+1) = mt_wliq(imt, j+1) + mt_wliq(imt, j)
                   mt_wice(imt, j+1) = mt_wice(imt, j+1) + mt_wice(imt, j)
                   IF (present(mt_solid)) mt_solid(imt, j+1) = &
@@ -347,7 +347,7 @@ CONTAINS
                   dz_soisno(i) = dz_soisno(i-1)
 #ifdef MaterialTransport
                   IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, ntr
+                     DO imt = 1, nmt
                         mt_wliq(imt, i) = mt_wliq(imt, i-1)
                         mt_wice(imt, i) = mt_wice(imt, i-1)
                         IF (present(mt_solid)) mt_solid(imt, i) = mt_solid(imt, i-1)
@@ -386,7 +386,7 @@ CONTAINS
 !*       write(6,*) 'all snow has gone'
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) &
-            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
+            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
 #endif
          RETURN
       ELSE
@@ -401,11 +401,11 @@ CONTAINS
             zwliq = zwliq + wliq_soisno(j)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, ntr
-                  zwtrc_ice(imt) = zwtrc_ice(imt) + mt_wice(imt, j)
-                  zwtrc_liq(imt) = zwtrc_liq(imt) + mt_wliq(imt, j)
-                  IF (present(mt_solid)) zwtrc_solid(imt) = &
-                     zwtrc_solid(imt) + mt_solid(imt, j)
+               DO imt = 1, nmt
+                  zwmt_ice(imt) = zwmt_ice(imt) + mt_wice(imt, j)
+                  zwmt_liq(imt) = zwmt_liq(imt) + mt_wliq(imt, j)
+                  IF (present(mt_solid)) zwmt_solid(imt) = &
+                     zwmt_solid(imt) + mt_solid(imt, j)
                ENDDO
             ENDIF
 #endif
@@ -425,16 +425,16 @@ CONTAINS
 !*       write(6,'(17h all snow is gone)')
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            IF (present(mt_scv)) mt_scv(:) = zwtrc_ice(:)
-            DO imt = 1, ntr
-               mt_wliq(imt, 1) = mt_wliq(imt, 1) + zwtrc_liq(imt)
+            IF (present(mt_scv)) mt_scv(:) = zwmt_ice(:)
+            DO imt = 1, nmt
+               mt_wliq(imt, 1) = mt_wliq(imt, 1) + zwmt_liq(imt)
                IF (present(mt_solid)) mt_solid(imt, 1) = &
-                  mt_solid(imt, 1) + zwtrc_solid(imt)
+                  mt_solid(imt, 1) + zwmt_solid(imt)
             ENDDO
             mt_wliq(:, lb:0) = 0._r8
             mt_wice(:, lb:0) = 0._r8
             IF (present(mt_solid)) mt_solid(:, lb:0) = 0._r8
-            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
+            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
          ENDIF
 #endif
          RETURN
@@ -476,7 +476,7 @@ CONTAINS
                                dz_soisno(l), wliq_soisno(l), wice_soisno(l), t_soisno(l) )
 #ifdef MaterialTransport
                   IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, ntr
+                     DO imt = 1, nmt
                         mt_wliq(imt, j) = mt_wliq(imt, j) + mt_wliq(imt, l)
                         mt_wice(imt, j) = mt_wice(imt, j) + mt_wice(imt, l)
                         IF (present(mt_solid)) mt_solid(imt, j) = &
@@ -495,7 +495,7 @@ CONTAINS
                         dz_soisno(k) = dz_soisno(k-1)
 #ifdef MaterialTransport
                         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                           DO imt = 1, ntr
+                           DO imt = 1, nmt
                               mt_wliq(imt, k) = mt_wliq(imt, k-1)
                               mt_wice(imt, k) = mt_wice(imt, k-1)
                               IF (present(mt_solid)) mt_solid(imt, k) = mt_solid(imt, k-1)
@@ -541,7 +541,7 @@ CONTAINS
 
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) &
-         deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
+         deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
 #endif
    END SUBROUTINE snowlayerscombine
 
@@ -594,18 +594,18 @@ CONTAINS
    real(r8) zwice,zwliq,propor
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:), strc_solid(:,:)
-   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:), z_strc_solid(:)
-   integer :: ntr, imt
+   real(r8), allocatable :: smt_wice(:,:), smt_wliq(:,:), smt_solid(:,:)
+   real(r8), allocatable :: z_smt_wice(:), z_smt_wliq(:), z_smt_solid(:)
+   integer :: nmt, imt
 #endif
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         ntr = size(mt_wliq, 1)
-         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5), strc_solid(ntr, 5))
-         allocate(z_strc_wice(ntr), z_strc_wliq(ntr), z_strc_solid(ntr))
-         strc_wice = 0._r8; strc_wliq = 0._r8; strc_solid = 0._r8
-         z_strc_wice = 0._r8; z_strc_wliq = 0._r8; z_strc_solid = 0._r8
+         nmt = size(mt_wliq, 1)
+         allocate(smt_wice(nmt, 5), smt_wliq(nmt, 5), smt_solid(nmt, 5))
+         allocate(z_smt_wice(nmt), z_smt_wliq(nmt), z_smt_solid(nmt))
+         smt_wice = 0._r8; smt_wliq = 0._r8; smt_solid = 0._r8
+         z_smt_wice = 0._r8; z_smt_wliq = 0._r8; z_smt_solid = 0._r8
       ENDIF
 #endif
 
@@ -617,10 +617,10 @@ CONTAINS
          tsno(k)  = t_soisno (k + snl)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, ntr
-               strc_wice(imt, k) = mt_wice(imt, k + snl)
-               strc_wliq(imt, k) = mt_wliq(imt, k + snl)
-               IF (present(mt_solid)) strc_solid(imt, k) = mt_solid(imt, k + snl)
+            DO imt = 1, nmt
+               smt_wice(imt, k) = mt_wice(imt, k + snl)
+               smt_wliq(imt, k) = mt_wliq(imt, k + snl)
+               IF (present(mt_solid)) smt_solid(imt, k) = mt_solid(imt, k + snl)
             ENDDO
          ENDIF
 #endif
@@ -635,9 +635,9 @@ CONTAINS
          swliq(1) = swliq(1)/2.
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 1) = strc_wice(:, 1) / 2._r8
-            strc_wliq(:, 1) = strc_wliq(:, 1) / 2._r8
-            IF (present(mt_solid)) strc_solid(:, 1) = strc_solid(:, 1) / 2._r8
+            smt_wice(:, 1) = smt_wice(:, 1) / 2._r8
+            smt_wliq(:, 1) = smt_wliq(:, 1) / 2._r8
+            IF (present(mt_solid)) smt_solid(:, 1) = smt_solid(:, 1) / 2._r8
          ENDIF
 #endif
 
@@ -647,9 +647,9 @@ CONTAINS
          tsno(2)  = tsno(1)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 2) = strc_wice(:, 1)
-            strc_wliq(:, 2) = strc_wliq(:, 1)
-            IF (present(mt_solid)) strc_solid(:, 2) = strc_solid(:, 1)
+            smt_wice(:, 2) = smt_wice(:, 1)
+            smt_wliq(:, 2) = smt_wliq(:, 1)
+            IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 1)
          ENDIF
 #endif
 !        write(6,*)'Subdivided Top Node into two layer (1/2)'
@@ -664,9 +664,9 @@ CONTAINS
          zwliq = propor*swliq(1)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_strc_wice(:) = propor * strc_wice(:, 1)
-            z_strc_wliq(:) = propor * strc_wliq(:, 1)
-            IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 1)
+            z_smt_wice(:) = propor * smt_wice(:, 1)
+            z_smt_wliq(:) = propor * smt_wliq(:, 1)
+            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 1)
          ENDIF
 #endif
 
@@ -675,9 +675,9 @@ CONTAINS
          swliq(1) = propor*swliq(1)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 1) = propor * strc_wice(:, 1)
-            strc_wliq(:, 1) = propor * strc_wliq(:, 1)
-            IF (present(mt_solid)) strc_solid(:, 1) = propor * strc_solid(:, 1)
+            smt_wice(:, 1) = propor * smt_wice(:, 1)
+            smt_wliq(:, 1) = propor * smt_wliq(:, 1)
+            IF (present(mt_solid)) smt_solid(:, 1) = propor * smt_solid(:, 1)
          ENDIF
 #endif
          dzsno(1) = 0.02
@@ -686,9 +686,9 @@ CONTAINS
                     drr,zwliq,zwice,tsno(1))
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 2) = strc_wice(:, 2) + z_strc_wice(:)
-            strc_wliq(:, 2) = strc_wliq(:, 2) + z_strc_wliq(:)
-            IF (present(mt_solid)) strc_solid(:, 2) = strc_solid(:, 2) + z_strc_solid(:)
+            smt_wice(:, 2) = smt_wice(:, 2) + z_smt_wice(:)
+            smt_wliq(:, 2) = smt_wliq(:, 2) + z_smt_wliq(:)
+            IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) + z_smt_solid(:)
          ENDIF
 #endif
 
@@ -703,9 +703,9 @@ CONTAINS
             swliq(2) = swliq(2)/2.
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 2) = strc_wice(:, 2) / 2._r8
-               strc_wliq(:, 2) = strc_wliq(:, 2) / 2._r8
-               IF (present(mt_solid)) strc_solid(:, 2) = strc_solid(:, 2) / 2._r8
+               smt_wice(:, 2) = smt_wice(:, 2) / 2._r8
+               smt_wliq(:, 2) = smt_wliq(:, 2) / 2._r8
+               IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) / 2._r8
             ENDIF
 #endif
 
@@ -715,9 +715,9 @@ CONTAINS
             tsno(3)  = tsno(2)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 3) = strc_wice(:, 2)
-               strc_wliq(:, 3) = strc_wliq(:, 2)
-               IF (present(mt_solid)) strc_solid(:, 3) = strc_solid(:, 2)
+               smt_wice(:, 3) = smt_wice(:, 2)
+               smt_wliq(:, 3) = smt_wliq(:, 2)
+               IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 2)
             ENDIF
 #endif
          ENDIF
@@ -732,9 +732,9 @@ CONTAINS
          zwliq = propor*swliq(2)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_strc_wice(:) = propor * strc_wice(:, 2)
-            z_strc_wliq(:) = propor * strc_wliq(:, 2)
-            IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 2)
+            z_smt_wice(:) = propor * smt_wice(:, 2)
+            z_smt_wliq(:) = propor * smt_wliq(:, 2)
+            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 2)
          ENDIF
 #endif
 
@@ -743,9 +743,9 @@ CONTAINS
          swliq(2) = propor*swliq(2)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 2) = propor * strc_wice(:, 2)
-            strc_wliq(:, 2) = propor * strc_wliq(:, 2)
-            IF (present(mt_solid)) strc_solid(:, 2) = propor * strc_solid(:, 2)
+            smt_wice(:, 2) = propor * smt_wice(:, 2)
+            smt_wliq(:, 2) = propor * smt_wliq(:, 2)
+            IF (present(mt_solid)) smt_solid(:, 2) = propor * smt_solid(:, 2)
          ENDIF
 #endif
          dzsno(2) = 0.05
@@ -754,9 +754,9 @@ CONTAINS
                     drr,     zwliq,   zwice,   tsno(2))
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 3) = strc_wice(:, 3) + z_strc_wice(:)
-            strc_wliq(:, 3) = strc_wliq(:, 3) + z_strc_wliq(:)
-            IF (present(mt_solid)) strc_solid(:, 3) = strc_solid(:, 3) + z_strc_solid(:)
+            smt_wice(:, 3) = smt_wice(:, 3) + z_smt_wice(:)
+            smt_wliq(:, 3) = smt_wliq(:, 3) + z_smt_wliq(:)
+            IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) + z_smt_solid(:)
          ENDIF
 #endif
 
@@ -771,9 +771,9 @@ CONTAINS
             swliq(3) = swliq(3)/2.
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 3) = strc_wice(:, 3) / 2._r8
-               strc_wliq(:, 3) = strc_wliq(:, 3) / 2._r8
-               IF (present(mt_solid)) strc_solid(:, 3) = strc_solid(:, 3) / 2._r8
+               smt_wice(:, 3) = smt_wice(:, 3) / 2._r8
+               smt_wliq(:, 3) = smt_wliq(:, 3) / 2._r8
+               IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) / 2._r8
             ENDIF
 #endif
 
@@ -783,9 +783,9 @@ CONTAINS
             tsno(4)  = tsno(3)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 4) = strc_wice(:, 3)
-               strc_wliq(:, 4) = strc_wliq(:, 3)
-               IF (present(mt_solid)) strc_solid(:, 4) = strc_solid(:, 3)
+               smt_wice(:, 4) = smt_wice(:, 3)
+               smt_wliq(:, 4) = smt_wliq(:, 3)
+               IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 3)
             ENDIF
 #endif
          ENDIF
@@ -800,9 +800,9 @@ CONTAINS
          zwliq = propor*swliq(3)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_strc_wice(:) = propor * strc_wice(:, 3)
-            z_strc_wliq(:) = propor * strc_wliq(:, 3)
-            IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 3)
+            z_smt_wice(:) = propor * smt_wice(:, 3)
+            z_smt_wliq(:) = propor * smt_wliq(:, 3)
+            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 3)
          ENDIF
 #endif
 
@@ -811,9 +811,9 @@ CONTAINS
          swliq(3) = propor*swliq(3)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 3) = propor * strc_wice(:, 3)
-            strc_wliq(:, 3) = propor * strc_wliq(:, 3)
-            IF (present(mt_solid)) strc_solid(:, 3) = propor * strc_solid(:, 3)
+            smt_wice(:, 3) = propor * smt_wice(:, 3)
+            smt_wliq(:, 3) = propor * smt_wliq(:, 3)
+            IF (present(mt_solid)) smt_solid(:, 3) = propor * smt_solid(:, 3)
          ENDIF
 #endif
          dzsno(3) = 0.11
@@ -822,9 +822,9 @@ CONTAINS
                     drr,     zwliq,   zwice,   tsno(3))
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 4) = strc_wice(:, 4) + z_strc_wice(:)
-            strc_wliq(:, 4) = strc_wliq(:, 4) + z_strc_wliq(:)
-            IF (present(mt_solid)) strc_solid(:, 4) = strc_solid(:, 4) + z_strc_solid(:)
+            smt_wice(:, 4) = smt_wice(:, 4) + z_smt_wice(:)
+            smt_wliq(:, 4) = smt_wliq(:, 4) + z_smt_wliq(:)
+            IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) + z_smt_solid(:)
          ENDIF
 #endif
 
@@ -839,9 +839,9 @@ CONTAINS
             swliq(4) = swliq(4)/2.
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 4) = strc_wice(:, 4) / 2._r8
-               strc_wliq(:, 4) = strc_wliq(:, 4) / 2._r8
-               IF (present(mt_solid)) strc_solid(:, 4) = strc_solid(:, 4) / 2._r8
+               smt_wice(:, 4) = smt_wice(:, 4) / 2._r8
+               smt_wliq(:, 4) = smt_wliq(:, 4) / 2._r8
+               IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) / 2._r8
             ENDIF
 #endif
 
@@ -851,9 +851,9 @@ CONTAINS
             tsno(5)  = tsno(4)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 5) = strc_wice(:, 4)
-               strc_wliq(:, 5) = strc_wliq(:, 4)
-               IF (present(mt_solid)) strc_solid(:, 5) = strc_solid(:, 4)
+               smt_wice(:, 5) = smt_wice(:, 4)
+               smt_wliq(:, 5) = smt_wliq(:, 4)
+               IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 4)
             ENDIF
 #endif
          ENDIF
@@ -868,9 +868,9 @@ CONTAINS
          zwliq = propor*swliq(4)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_strc_wice(:) = propor * strc_wice(:, 4)
-            z_strc_wliq(:) = propor * strc_wliq(:, 4)
-            IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 4)
+            z_smt_wice(:) = propor * smt_wice(:, 4)
+            z_smt_wliq(:) = propor * smt_wliq(:, 4)
+            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 4)
          ENDIF
 #endif
 
@@ -879,9 +879,9 @@ CONTAINS
          swliq(4) = propor*swliq(4)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 4) = propor * strc_wice(:, 4)
-            strc_wliq(:, 4) = propor * strc_wliq(:, 4)
-            IF (present(mt_solid)) strc_solid(:, 4) = propor * strc_solid(:, 4)
+            smt_wice(:, 4) = propor * smt_wice(:, 4)
+            smt_wliq(:, 4) = propor * smt_wliq(:, 4)
+            IF (present(mt_solid)) smt_solid(:, 4) = propor * smt_solid(:, 4)
          ENDIF
 #endif
          dzsno(4) = 0.23
@@ -890,9 +890,9 @@ CONTAINS
                     drr,     zwliq,   zwice,   tsno(4))
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            strc_wice(:, 5) = strc_wice(:, 5) + z_strc_wice(:)
-            strc_wliq(:, 5) = strc_wliq(:, 5) + z_strc_wliq(:)
-            IF (present(mt_solid)) strc_solid(:, 5) = strc_solid(:, 5) + z_strc_solid(:)
+            smt_wice(:, 5) = smt_wice(:, 5) + z_smt_wice(:)
+            smt_wliq(:, 5) = smt_wliq(:, 5) + z_smt_wliq(:)
+            IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 5) + z_smt_solid(:)
          ENDIF
 #endif
 
@@ -910,10 +910,10 @@ CONTAINS
          t_soisno(k)  = tsno (k - snl)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, ntr
-               mt_wice(imt, k) = strc_wice(imt, k - snl)
-               mt_wliq(imt, k) = strc_wliq(imt, k - snl)
-               IF (present(mt_solid)) mt_solid(imt, k) = strc_solid(imt, k - snl)
+            DO imt = 1, nmt
+               mt_wice(imt, k) = smt_wice(imt, k - snl)
+               mt_wliq(imt, k) = smt_wliq(imt, k - snl)
+               IF (present(mt_solid)) mt_solid(imt, k) = smt_solid(imt, k - snl)
             ENDDO
          ENDIF
 #endif
@@ -927,8 +927,8 @@ CONTAINS
 
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         deallocate(strc_wice, strc_wliq, strc_solid, &
-            z_strc_wice, z_strc_wliq, z_strc_solid)
+         deallocate(smt_wice, smt_wliq, smt_solid, &
+            z_smt_wice, z_smt_wliq, z_smt_solid)
       ENDIF
 #endif
    END SUBROUTINE snowlayersdivide
@@ -1074,17 +1074,17 @@ CONTAINS
    integer :: neibor        ! adjacent node selected for combination
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: zwtrc_ice(:), zwtrc_liq(:), zwtrc_solid(:)
-   integer :: ntr, imt
+   real(r8), allocatable :: zwmt_ice(:), zwmt_liq(:), zwmt_solid(:)
+   integer :: nmt, imt
 #endif
    data dzmin /0.010, 0.015, 0.025, 0.055, 0.115/
 
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         ntr = size(mt_wliq, 1)
-         allocate(zwtrc_ice(ntr), zwtrc_liq(ntr), zwtrc_solid(ntr))
-         zwtrc_ice = 0._r8; zwtrc_liq = 0._r8; zwtrc_solid = 0._r8
+         nmt = size(mt_wliq, 1)
+         allocate(zwmt_ice(nmt), zwmt_liq(nmt), zwmt_solid(nmt))
+         zwmt_ice = 0._r8; zwmt_liq = 0._r8; zwmt_solid = 0._r8
       ENDIF
 #endif
 ! check the mass of ice lens of snow, when the total less than a small value,
@@ -1096,7 +1096,7 @@ CONTAINS
             wice_soisno(j+1) = wice_soisno(j+1) + wice_soisno(j)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, ntr
+               DO imt = 1, nmt
                   mt_wliq(imt, j+1) = mt_wliq(imt, j+1) + mt_wliq(imt, j)
                   mt_wice(imt, j+1) = mt_wice(imt, j+1) + mt_wice(imt, j)
                   IF (present(mt_solid)) mt_solid(imt, j+1) = &
@@ -1128,7 +1128,7 @@ CONTAINS
                   dz_soisno(i) = dz_soisno(i-1)
 #ifdef MaterialTransport
                   IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, ntr
+                     DO imt = 1, nmt
                         mt_wliq(imt, i) = mt_wliq(imt, i-1)
                         mt_wice(imt, i) = mt_wice(imt, i-1)
                         IF (present(mt_solid)) mt_solid(imt, i) = mt_solid(imt, i-1)
@@ -1190,7 +1190,7 @@ CONTAINS
 !*       write(6,*) 'all snow has gone'
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) &
-            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
+            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
 #endif
          RETURN
       ELSE
@@ -1205,11 +1205,11 @@ CONTAINS
             zwliq = zwliq + wliq_soisno(j)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, ntr
-                  zwtrc_ice(imt) = zwtrc_ice(imt) + mt_wice(imt, j)
-                  zwtrc_liq(imt) = zwtrc_liq(imt) + mt_wliq(imt, j)
-                  IF (present(mt_solid)) zwtrc_solid(imt) = &
-                     zwtrc_solid(imt) + mt_solid(imt, j)
+               DO imt = 1, nmt
+                  zwmt_ice(imt) = zwmt_ice(imt) + mt_wice(imt, j)
+                  zwmt_liq(imt) = zwmt_liq(imt) + mt_wliq(imt, j)
+                  IF (present(mt_solid)) zwmt_solid(imt) = &
+                     zwmt_solid(imt) + mt_solid(imt, j)
                ENDDO
             ENDIF
 #endif
@@ -1240,16 +1240,16 @@ CONTAINS
 !*       write(6,'(17h all snow is gone)')
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            IF (present(mt_scv)) mt_scv(:) = zwtrc_ice(:)
-            DO imt = 1, ntr
-               mt_wliq(imt, 1) = mt_wliq(imt, 1) + zwtrc_liq(imt)
+            IF (present(mt_scv)) mt_scv(:) = zwmt_ice(:)
+            DO imt = 1, nmt
+               mt_wliq(imt, 1) = mt_wliq(imt, 1) + zwmt_liq(imt)
                IF (present(mt_solid)) mt_solid(imt, 1) = &
-                  mt_solid(imt, 1) + zwtrc_solid(imt)
+                  mt_solid(imt, 1) + zwmt_solid(imt)
             ENDDO
             mt_wliq(:, lb:0) = 0._r8
             mt_wice(:, lb:0) = 0._r8
             IF (present(mt_solid)) mt_solid(:, lb:0) = 0._r8
-            deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
+            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
          ENDIF
 #endif
          RETURN
@@ -1291,7 +1291,7 @@ CONTAINS
                                dz_soisno(l), wliq_soisno(l), wice_soisno(l), t_soisno(l) )
 #ifdef MaterialTransport
                   IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, ntr
+                     DO imt = 1, nmt
                         mt_wliq(imt, j) = mt_wliq(imt, j) + mt_wliq(imt, l)
                         mt_wice(imt, j) = mt_wice(imt, j) + mt_wice(imt, l)
                         IF (present(mt_solid)) mt_solid(imt, j) = &
@@ -1322,7 +1322,7 @@ CONTAINS
                         dz_soisno(k) = dz_soisno(k-1)
 #ifdef MaterialTransport
                         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                           DO imt = 1, ntr
+                           DO imt = 1, nmt
                               mt_wliq(imt, k) = mt_wliq(imt, k-1)
                               mt_wice(imt, k) = mt_wice(imt, k-1)
                               IF (present(mt_solid)) mt_solid(imt, k) = mt_solid(imt, k-1)
@@ -1379,7 +1379,7 @@ CONTAINS
 
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) &
-         deallocate(zwtrc_ice, zwtrc_liq, zwtrc_solid)
+         deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
 #endif
    END SUBROUTINE SnowLayersCombine_snicar
 !-----------------------------------------------------------------------
@@ -1458,18 +1458,18 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: strc_wice(:,:), strc_wliq(:,:), strc_solid(:,:)
-   real(r8), allocatable :: z_strc_wice(:), z_strc_wliq(:), z_strc_solid(:)
-   integer :: ntr, imt
+   real(r8), allocatable :: smt_wice(:,:), smt_wliq(:,:), smt_solid(:,:)
+   real(r8), allocatable :: z_smt_wice(:), z_smt_wliq(:), z_smt_solid(:)
+   integer :: nmt, imt
 #endif
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         ntr = size(mt_wliq, 1)
-         allocate(strc_wice(ntr, 5), strc_wliq(ntr, 5), strc_solid(ntr, 5))
-         allocate(z_strc_wice(ntr), z_strc_wliq(ntr), z_strc_solid(ntr))
-         strc_wice = 0._r8; strc_wliq = 0._r8; strc_solid = 0._r8
-         z_strc_wice = 0._r8; z_strc_wliq = 0._r8; z_strc_solid = 0._r8
+         nmt = size(mt_wliq, 1)
+         allocate(smt_wice(nmt, 5), smt_wliq(nmt, 5), smt_solid(nmt, 5))
+         allocate(z_smt_wice(nmt), z_smt_wliq(nmt), z_smt_solid(nmt))
+         smt_wice = 0._r8; smt_wliq = 0._r8; smt_solid = 0._r8
+         z_smt_wice = 0._r8; z_smt_wliq = 0._r8; z_smt_solid = 0._r8
       ENDIF
 #endif
 
@@ -1492,10 +1492,10 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, ntr
-               strc_wice(imt, k) = mt_wice(imt, k + snl)
-               strc_wliq(imt, k) = mt_wliq(imt, k + snl)
-               IF (present(mt_solid)) strc_solid(imt, k) = mt_solid(imt, k + snl)
+            DO imt = 1, nmt
+               smt_wice(imt, k) = mt_wice(imt, k + snl)
+               smt_wliq(imt, k) = mt_wliq(imt, k + snl)
+               IF (present(mt_solid)) smt_solid(imt, k) = mt_solid(imt, k + snl)
             ENDDO
          ENDIF
 #endif
@@ -1514,9 +1514,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 1) = strc_wice(:, 1) / 2._r8
-               strc_wliq(:, 1) = strc_wliq(:, 1) / 2._r8
-               IF (present(mt_solid)) strc_solid(:, 1) = strc_solid(:, 1) / 2._r8
+               smt_wice(:, 1) = smt_wice(:, 1) / 2._r8
+               smt_wliq(:, 1) = smt_wliq(:, 1) / 2._r8
+               IF (present(mt_solid)) smt_solid(:, 1) = smt_solid(:, 1) / 2._r8
             ENDIF
 #endif
 
@@ -1528,9 +1528,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 2) = strc_wice(:, 1)
-               strc_wliq(:, 2) = strc_wliq(:, 1)
-               IF (present(mt_solid)) strc_solid(:, 2) = strc_solid(:, 1)
+               smt_wice(:, 2) = smt_wice(:, 1)
+               smt_wliq(:, 2) = smt_wliq(:, 1)
+               IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 1)
             ENDIF
 #endif
 
@@ -1551,9 +1551,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_strc_wice(:) = propor * strc_wice(:, 1)
-               z_strc_wliq(:) = propor * strc_wliq(:, 1)
-               IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 1)
+               z_smt_wice(:) = propor * smt_wice(:, 1)
+               z_smt_wliq(:) = propor * smt_wliq(:, 1)
+               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 1)
             ENDIF
 #endif
 
@@ -1565,9 +1565,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 1) = propor * strc_wice(:, 1)
-               strc_wliq(:, 1) = propor * strc_wliq(:, 1)
-               IF (present(mt_solid)) strc_solid(:, 1) = propor * strc_solid(:, 1)
+               smt_wice(:, 1) = propor * smt_wice(:, 1)
+               smt_wliq(:, 1) = propor * smt_wliq(:, 1)
+               IF (present(mt_solid)) smt_solid(:, 1) = propor * smt_solid(:, 1)
             ENDIF
 #endif
 
@@ -1581,9 +1581,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 2) = strc_wice(:, 2) + z_strc_wice(:)
-               strc_wliq(:, 2) = strc_wliq(:, 2) + z_strc_wliq(:)
-               IF (present(mt_solid)) strc_solid(:, 2) = strc_solid(:, 2) + z_strc_solid(:)
+               smt_wice(:, 2) = smt_wice(:, 2) + z_smt_wice(:)
+               smt_wliq(:, 2) = smt_wliq(:, 2) + z_smt_wliq(:)
+               IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) + z_smt_solid(:)
             ENDIF
 #endif
 
@@ -1601,9 +1601,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
                IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  strc_wice(:, 2) = strc_wice(:, 2) / 2._r8
-                  strc_wliq(:, 2) = strc_wliq(:, 2) / 2._r8
-                  IF (present(mt_solid)) strc_solid(:, 2) = strc_solid(:, 2) / 2._r8
+                  smt_wice(:, 2) = smt_wice(:, 2) / 2._r8
+                  smt_wliq(:, 2) = smt_wliq(:, 2) / 2._r8
+                  IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) / 2._r8
                ENDIF
 #endif
 
@@ -1615,9 +1615,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
                IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  strc_wice(:, 3) = strc_wice(:, 2)
-                  strc_wliq(:, 3) = strc_wliq(:, 2)
-                  IF (present(mt_solid)) strc_solid(:, 3) = strc_solid(:, 2)
+                  smt_wice(:, 3) = smt_wice(:, 2)
+                  smt_wliq(:, 3) = smt_wliq(:, 2)
+                  IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 2)
                ENDIF
 #endif
 
@@ -1637,9 +1637,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_strc_wice(:) = propor * strc_wice(:, 2)
-               z_strc_wliq(:) = propor * strc_wliq(:, 2)
-               IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 2)
+               z_smt_wice(:) = propor * smt_wice(:, 2)
+               z_smt_wliq(:) = propor * smt_wliq(:, 2)
+               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 2)
             ENDIF
 #endif
 
@@ -1651,9 +1651,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 2) = propor * strc_wice(:, 2)
-               strc_wliq(:, 2) = propor * strc_wliq(:, 2)
-               IF (present(mt_solid)) strc_solid(:, 2) = propor * strc_solid(:, 2)
+               smt_wice(:, 2) = propor * smt_wice(:, 2)
+               smt_wliq(:, 2) = propor * smt_wliq(:, 2)
+               IF (present(mt_solid)) smt_solid(:, 2) = propor * smt_solid(:, 2)
             ENDIF
 #endif
 
@@ -1667,9 +1667,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 3) = strc_wice(:, 3) + z_strc_wice(:)
-               strc_wliq(:, 3) = strc_wliq(:, 3) + z_strc_wliq(:)
-               IF (present(mt_solid)) strc_solid(:, 3) = strc_solid(:, 3) + z_strc_solid(:)
+               smt_wice(:, 3) = smt_wice(:, 3) + z_smt_wice(:)
+               smt_wliq(:, 3) = smt_wliq(:, 3) + z_smt_wliq(:)
+               IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) + z_smt_solid(:)
             ENDIF
 #endif
 
@@ -1687,9 +1687,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
                IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  strc_wice(:, 3) = strc_wice(:, 3) / 2._r8
-                  strc_wliq(:, 3) = strc_wliq(:, 3) / 2._r8
-                  IF (present(mt_solid)) strc_solid(:, 3) = strc_solid(:, 3) / 2._r8
+                  smt_wice(:, 3) = smt_wice(:, 3) / 2._r8
+                  smt_wliq(:, 3) = smt_wliq(:, 3) / 2._r8
+                  IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) / 2._r8
                ENDIF
 #endif
 
@@ -1701,9 +1701,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
                IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  strc_wice(:, 4) = strc_wice(:, 3)
-                  strc_wliq(:, 4) = strc_wliq(:, 3)
-                  IF (present(mt_solid)) strc_solid(:, 4) = strc_solid(:, 3)
+                  smt_wice(:, 4) = smt_wice(:, 3)
+                  smt_wliq(:, 4) = smt_wliq(:, 3)
+                  IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 3)
                ENDIF
 #endif
 
@@ -1724,9 +1724,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_strc_wice(:) = propor * strc_wice(:, 3)
-               z_strc_wliq(:) = propor * strc_wliq(:, 3)
-               IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 3)
+               z_smt_wice(:) = propor * smt_wice(:, 3)
+               z_smt_wliq(:) = propor * smt_wliq(:, 3)
+               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 3)
             ENDIF
 #endif
 
@@ -1738,9 +1738,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 3) = propor * strc_wice(:, 3)
-               strc_wliq(:, 3) = propor * strc_wliq(:, 3)
-               IF (present(mt_solid)) strc_solid(:, 3) = propor * strc_solid(:, 3)
+               smt_wice(:, 3) = propor * smt_wice(:, 3)
+               smt_wliq(:, 3) = propor * smt_wliq(:, 3)
+               IF (present(mt_solid)) smt_solid(:, 3) = propor * smt_solid(:, 3)
             ENDIF
 #endif
 
@@ -1754,9 +1754,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 4) = strc_wice(:, 4) + z_strc_wice(:)
-               strc_wliq(:, 4) = strc_wliq(:, 4) + z_strc_wliq(:)
-               IF (present(mt_solid)) strc_solid(:, 4) = strc_solid(:, 4) + z_strc_solid(:)
+               smt_wice(:, 4) = smt_wice(:, 4) + z_smt_wice(:)
+               smt_wliq(:, 4) = smt_wliq(:, 4) + z_smt_wliq(:)
+               IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) + z_smt_solid(:)
             ENDIF
 #endif
 
@@ -1774,9 +1774,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
                IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  strc_wice(:, 4) = strc_wice(:, 4) / 2._r8
-                  strc_wliq(:, 4) = strc_wliq(:, 4) / 2._r8
-                  IF (present(mt_solid)) strc_solid(:, 4) = strc_solid(:, 4) / 2._r8
+                  smt_wice(:, 4) = smt_wice(:, 4) / 2._r8
+                  smt_wliq(:, 4) = smt_wliq(:, 4) / 2._r8
+                  IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) / 2._r8
                ENDIF
 #endif
 
@@ -1788,9 +1788,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
                IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  strc_wice(:, 5) = strc_wice(:, 4)
-                  strc_wliq(:, 5) = strc_wliq(:, 4)
-                  IF (present(mt_solid)) strc_solid(:, 5) = strc_solid(:, 4)
+                  smt_wice(:, 5) = smt_wice(:, 4)
+                  smt_wliq(:, 5) = smt_wliq(:, 4)
+                  IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 4)
                ENDIF
 #endif
 
@@ -1811,9 +1811,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_strc_wice(:) = propor * strc_wice(:, 4)
-               z_strc_wliq(:) = propor * strc_wliq(:, 4)
-               IF (present(mt_solid)) z_strc_solid(:) = propor * strc_solid(:, 4)
+               z_smt_wice(:) = propor * smt_wice(:, 4)
+               z_smt_wliq(:) = propor * smt_wliq(:, 4)
+               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 4)
             ENDIF
 #endif
 
@@ -1825,9 +1825,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 4) = propor * strc_wice(:, 4)
-               strc_wliq(:, 4) = propor * strc_wliq(:, 4)
-               IF (present(mt_solid)) strc_solid(:, 4) = propor * strc_solid(:, 4)
+               smt_wice(:, 4) = propor * smt_wice(:, 4)
+               smt_wliq(:, 4) = propor * smt_wliq(:, 4)
+               IF (present(mt_solid)) smt_solid(:, 4) = propor * smt_solid(:, 4)
             ENDIF
 #endif
 
@@ -1841,9 +1841,9 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
             IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               strc_wice(:, 5) = strc_wice(:, 5) + z_strc_wice(:)
-               strc_wliq(:, 5) = strc_wliq(:, 5) + z_strc_wliq(:)
-               IF (present(mt_solid)) strc_solid(:, 5) = strc_solid(:, 5) + z_strc_solid(:)
+               smt_wice(:, 5) = smt_wice(:, 5) + z_smt_wice(:)
+               smt_wliq(:, 5) = smt_wliq(:, 5) + z_smt_wliq(:)
+               IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 5) + z_smt_solid(:)
             ENDIF
 #endif
 
@@ -1874,10 +1874,10 @@ CONTAINS
 
 #ifdef MaterialTransport
          IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, ntr
-               mt_wice(imt, k) = strc_wice(imt, k - snl)
-               mt_wliq(imt, k) = strc_wliq(imt, k - snl)
-               IF (present(mt_solid)) mt_solid(imt, k) = strc_solid(imt, k - snl)
+            DO imt = 1, nmt
+               mt_wice(imt, k) = smt_wice(imt, k - snl)
+               mt_wliq(imt, k) = smt_wliq(imt, k - snl)
+               IF (present(mt_solid)) mt_solid(imt, k) = smt_solid(imt, k - snl)
             ENDDO
          ENDIF
 #endif
@@ -1891,8 +1891,8 @@ CONTAINS
 
 #ifdef MaterialTransport
       IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         deallocate(strc_wice, strc_wliq, strc_solid, &
-            z_strc_wice, z_strc_wliq, z_strc_solid)
+         deallocate(smt_wice, smt_wliq, smt_solid, &
+            z_smt_wice, z_smt_wliq, z_smt_solid)
       ENDIF
 #endif
    END SUBROUTINE SnowLayersDivide_snicar

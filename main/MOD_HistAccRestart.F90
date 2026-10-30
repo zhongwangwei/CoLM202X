@@ -926,49 +926,49 @@ CONTAINS
       ! start of the materials the saved sums belong to another state (or
       ! another species list) and are not read; their window starts again.
       IF (mode == HACC_WRITE .or. mt_land_restart_loaded) THEN
-         CALL hacc_field2d (file, mode, 'a_trc_precip', a_trc_precip, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_vapor_exchange', a_trc_vapor_exchange, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_precip', a_mt_precip, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_vapor_exchange', a_mt_vapor_exchange, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_precip', a_water_precip, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_evap', a_trc_evap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_evap', a_mt_evap, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_evap_gross', a_water_evap_gross, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_transp', a_trc_transp, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_transp_src', a_trc_transp_src, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_transp', a_mt_transp, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_transp_src', a_mt_transp_src, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_transp', a_water_transp, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_soilevap', a_trc_soilevap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_soilevap', a_mt_soilevap, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_soilevap', a_water_soilevap, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_canopyevap', a_trc_canopyevap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_canopyevap', a_mt_canopyevap, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_canopyevap', a_water_canopyevap, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_subl', a_trc_subl, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_subl', a_mt_subl, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_subl', a_water_subl, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_wetland_evap', a_trc_wetland_evap, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_wetland_evap', a_mt_wetland_evap, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_wetland_evap', a_water_wetland_evap, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_rsur', a_trc_rsur, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_rsub', a_trc_rsub, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_rnof', a_trc_rnof, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_rsur', a_mt_rsur, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_rsub', a_mt_rsub, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_rnof', a_mt_rnof, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_rnof', a_water_rnof, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_qinfl', a_trc_qinfl, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_qcharge', a_trc_qcharge, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_ldew_mass', a_trc_ldew_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_qinfl', a_mt_qinfl, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_qcharge', a_mt_qcharge, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_ldew_mass', a_mt_ldew_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_ldew', a_water_ldew, landpatch, 'patch')
-         CALL hacc_field3d (file, mode, 'a_trc_soil_mass', a_trc_soil_mass, landpatch, 'patch')
+         CALL hacc_field3d (file, mode, 'a_mt_soil_mass', a_mt_soil_mass, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_soil', a_water_soil, landpatch, 'patch')
-         CALL hacc_field3d (file, mode, 'a_trc_snow_mass', a_trc_snow_mass, landpatch, 'patch')
+         CALL hacc_field3d (file, mode, 'a_mt_snow_mass', a_mt_snow_mass, landpatch, 'patch')
          CALL hacc_field2d (file, mode, 'a_water_snow', a_water_snow, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_wa_mass', a_trc_wa_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_wa_mass', a_mt_wa_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_wa', a_water_wa, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_wa_debt_mass', a_trc_wa_debt_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_wa_debt_mass', a_mt_wa_debt_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_wa_debt', a_water_wa_debt, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_aquifer_actual', a_water_aquifer_actual, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_aquifer_actual_mass', a_trc_aquifer_actual_mass, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_wdsrf_mass', a_trc_wdsrf_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_aquifer_actual_mass', a_mt_aquifer_actual_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_wdsrf_mass', a_mt_wdsrf_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_wdsrf', a_water_wdsrf, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_wetwat_mass', a_trc_wetwat_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_wetwat_mass', a_mt_wetwat_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_wetwat', a_water_wetwat, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_surface_residue_mass', a_trc_surface_residue_mass, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_subsurface_residue_mass', a_trc_subsurface_residue_mass, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_layer_dry_mass', a_trc_layer_dry_mass, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_solid_mass', a_trc_solid_mass, landpatch, 'patch')
-         CALL hacc_field2d (file, mode, 'a_trc_scv_mass', a_trc_scv_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_surface_residue_mass', a_mt_surface_residue_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_subsurface_residue_mass', a_mt_subsurface_residue_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_layer_dry_mass', a_mt_layer_dry_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_solid_mass', a_mt_solid_mass, landpatch, 'patch')
+         CALL hacc_field2d (file, mode, 'a_mt_scv_mass', a_mt_scv_mass, landpatch, 'patch')
          CALL hacc_field1d (file, mode, 'a_water_scv', a_water_scv, landpatch, 'patch')
       ELSEIF (p_is_master) THEN
          write(*,*) 'Note: materials were cold-started; their history window starts at the model start.'
@@ -1101,6 +1101,25 @@ CONTAINS
    END SUBROUTINE hacc_field1d
 
    !-----------------------------------------------------------------------
+   FUNCTION hacc_read_name (file, name, pixelset) RESULT (read_name)
+
+   USE MOD_Pixelset, only: pixelset_type
+   USE MOD_NetCDFVector, only: ncio_vector_exist
+   IMPLICIT NONE
+
+   character(len=*), intent(in) :: file, name
+   type(pixelset_type), intent(in) :: pixelset
+   character(len=:), allocatable :: read_name
+
+      read_name = name
+      IF (index(name, 'a_mt_') /= 1) RETURN
+      ! Prefer the new field globally, even when only some blocks contain it.
+      ! require_var must reject an incomplete/corrupt new field, not read stale data.
+      IF (.not. ncio_vector_exist(file, name, pixelset)) read_name = 'a_trc_'//name(6:)
+
+   END FUNCTION hacc_read_name
+
+   !-----------------------------------------------------------------------
    SUBROUTINE hacc_field2d (file, mode, name, var, pixelset, vecname)
 
    USE MOD_Namelist, only: DEF_REST_CompressLevel
@@ -1113,6 +1132,7 @@ CONTAINS
    real(r8), allocatable, intent(inout) :: var (:,:)
    type(pixelset_type),   intent(in)    :: pixelset
 
+   character(len=:), allocatable :: read_name
    integer :: n(1)
    real(r8), allocatable :: empty (:,:)
 
@@ -1133,8 +1153,9 @@ CONTAINS
             deallocate (empty)
          ENDIF
       ELSE
-         CALL require_var (file, name, pixelset, vecname, 2, n(1), 0)
-         CALL ncio_read_vector (file, name, n(1), pixelset, var)
+         read_name = hacc_read_name (file, name, pixelset)
+         CALL require_var (file, read_name, pixelset, vecname, 2, n(1), 0)
+         CALL ncio_read_vector (file, read_name, n(1), pixelset, var)
       ENDIF
 
    END SUBROUTINE hacc_field2d
@@ -1152,6 +1173,7 @@ CONTAINS
    real(r8), allocatable, intent(inout) :: var (:,:,:)
    type(pixelset_type),   intent(in)    :: pixelset
 
+   character(len=:), allocatable :: read_name
    integer :: n(2)
    real(r8), allocatable :: empty (:,:,:)
 
@@ -1173,8 +1195,9 @@ CONTAINS
             deallocate (empty)
          ENDIF
       ELSE
-         CALL require_var (file, name, pixelset, vecname, 3, n(1), n(2))
-         CALL ncio_read_vector (file, name, n(1), n(2), pixelset, var)
+         read_name = hacc_read_name (file, name, pixelset)
+         CALL require_var (file, read_name, pixelset, vecname, 3, n(1), n(2))
+         CALL ncio_read_vector (file, read_name, n(1), n(2), pixelset, var)
       ENDIF
 
    END SUBROUTINE hacc_field3d

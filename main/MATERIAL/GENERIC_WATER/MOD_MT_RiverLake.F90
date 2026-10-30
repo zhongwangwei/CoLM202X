@@ -107,14 +107,14 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable :: mt_decay_source(:,:) ! Net reactive source/sink over routing period
    ! Nitrogen converted to N2O at the land-to-river entry, positive mass
    ! [kg N] per routing period.  Diagnostic only: the mass is removed from
-   ! the river input before it enters acc_trc_inp, so the river balance stays
+   ! the river input before it enters acc_mt_inp, so the river balance stays
    ! closed without an extra source term.
    real(r8), allocatable :: mt_n2o_source(:,:)
 
    ! Input: material amount flux from runoff
-   real(r8), allocatable :: acc_trc_inp  (:,:) ! Accumulated material input [R*m3] (nmts, numucat)
+   real(r8), allocatable :: acc_mt_inp  (:,:) ! Accumulated material input [R*m3] (nmts, numucat)
    real(r8), allocatable :: mt_inp_buf  (:,:) ! Buffered runoff material awaiting release [R*m3]
-   real(r8), allocatable :: acc_rnof_ref (:)   ! Accumulated runoff water volume paired with acc_trc_inp [m3]
+   real(r8), allocatable :: acc_rnof_ref (:)   ! Accumulated runoff water volume paired with acc_mt_inp [m3]
 
    ! Bifurcation net flux (saved from last mt_riverlake_substep for diagnostics)
    real(r8), allocatable :: mt_bif_net_saved (:,:) ! Per-cell net bif flux [mass/s] (nmts, numucat)
@@ -126,13 +126,13 @@ MODULE MOD_MT_RiverLake
    ! volumes dominate isotope delta min/max. This does not alter state.
    real(r8), parameter :: mt_delta_diag_vmin = 1._r8
    ! History accumulators
-   real(r8), allocatable :: a_trc_storage_mass(:,:) ! Accumulated visible storage material [R*m3*s]
+   real(r8), allocatable :: a_mt_storage_mass(:,:) ! Accumulated visible storage material [R*m3*s]
    real(r8), allocatable :: a_water_storage(:)       ! Accumulated visible water storage [m3*s]
-   real(r8), allocatable :: a_trc_levsto_mass(:,:)   ! Accumulated protected storage material [R*m3*s]
+   real(r8), allocatable :: a_mt_levsto_mass(:,:)   ! Accumulated protected storage material [R*m3*s]
    real(r8), allocatable :: a_levsto_water(:)        ! Accumulated protected water storage [m3*s]
-   real(r8), allocatable :: a_trc_out    (:,:) ! Accumulated material outflux [mass/s * s] (nmts, numucat)
-   real(r8), allocatable :: a_trc_bifout (:,:) ! Accumulated material bif net flux [mass/s * s] (nmts, numucat)
-   real(r8), allocatable :: a_trc_acctime(:)   ! Material history elapsed time [s]
+   real(r8), allocatable :: a_mt_out    (:,:) ! Accumulated material outflux [mass/s * s] (nmts, numucat)
+   real(r8), allocatable :: a_mt_bifout (:,:) ! Accumulated material bif net flux [mass/s * s] (nmts, numucat)
+   real(r8), allocatable :: a_mt_acctime(:)   ! Material history elapsed time [s]
 
    ! N05 terminal-window snapshot.  When a run stops inside a history window,
    ! hist_out writes the partial window and flush_acc then zeroes the live
@@ -157,9 +157,9 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable, save :: mt_prot_conc_flux(:)
    real(r8), allocatable, save :: conc_dn_pth(:)
    real(r8), allocatable, save :: mt_prot_conc_dn_pth(:)
-   real(r8), allocatable, save :: mt_pth_1trc(:)
+   real(r8), allocatable, save :: mt_pth_single(:)
    real(r8), allocatable, save :: mt_pth_lev(:)
-   real(r8), allocatable, save :: mt_pth_levtrc(:,:)
+   real(r8), allocatable, save :: mt_pth_levee(:,:)
    real(r8), allocatable, save :: bif_recv(:)
    real(r8), allocatable, save :: bif_lev_recv(:)
    real(r8), allocatable, save :: bif_net(:)
@@ -184,8 +184,8 @@ MODULE MOD_MT_RiverLake
    real(r8), allocatable, save :: mt_dn_out_lev_recv(:)
 
    PRIVATE :: conc_next, flux_ups, mt_flux, mt_conc_flux, mt_prot_conc_flux
-   PRIVATE :: conc_dn_pth, mt_prot_conc_dn_pth, mt_pth_1trc, mt_pth_lev
-   PRIVATE :: mt_pth_levtrc, bif_recv, bif_lev_recv, bif_net, mt_bif_lev_net
+   PRIVATE :: conc_dn_pth, mt_prot_conc_dn_pth, mt_pth_single, mt_pth_lev
+   PRIVATE :: mt_pth_levee, bif_recv, bif_lev_recv, bif_net, mt_bif_lev_net
    PRIVATE :: has_levee_r8, has_levee_dn_pth, dt_ucat, dt_dn_pth
    PRIVATE :: mt_in_mass, mt_in_mass_lev, mt_out_mass, mt_out_mass_lev
    PRIVATE :: rate_cell, rate_cell_lev, rate_next, rate_dn_pth, rate_dn_pth_lev
@@ -271,17 +271,17 @@ CONTAINS
          allocate (mt_dry_pending(nmts, numucat))
          allocate (mt_decay_source(nmts, numucat))
          allocate (mt_n2o_source  (nmts, numucat))
-         allocate (acc_trc_inp        (nmts, numucat))
+         allocate (acc_mt_inp        (nmts, numucat))
          allocate (mt_inp_buf        (nmts, numucat))
          allocate (acc_rnof_ref       (numucat))
          allocate (mt_bif_net_saved  (nmts, numucat))
-         allocate (a_trc_storage_mass (nmts, numucat))
+         allocate (a_mt_storage_mass (nmts, numucat))
          allocate (a_water_storage    (numucat))
-         allocate (a_trc_levsto_mass (nmts, numucat))
+         allocate (a_mt_levsto_mass (nmts, numucat))
          allocate (a_levsto_water    (numucat))
-         allocate (a_trc_out          (nmts, numucat))
-         allocate (a_trc_bifout       (nmts, numucat))
-         allocate (a_trc_acctime      (numucat))
+         allocate (a_mt_out          (nmts, numucat))
+         allocate (a_mt_bifout       (nmts, numucat))
+         allocate (a_mt_acctime      (numucat))
          allocate (mt_levsto         (nmts, numucat))
          IF (has_finite_solute) THEN
             allocate (mt_solid(nmts, numucat), mt_levsto_solid(nmts, numucat))
@@ -300,17 +300,17 @@ CONTAINS
          mt_dry_pending = 0._r8
          mt_decay_source = 0._r8
          mt_n2o_source   = 0._r8
-         acc_trc_inp  = 0._r8
+         acc_mt_inp  = 0._r8
          mt_inp_buf  = 0._r8
          acc_rnof_ref = 0._r8
          mt_bif_net_saved = 0._r8
-         a_trc_storage_mass = 0._r8
+         a_mt_storage_mass = 0._r8
          a_water_storage = 0._r8
-         a_trc_levsto_mass = 0._r8
+         a_mt_levsto_mass = 0._r8
          a_levsto_water = 0._r8
-         a_trc_out    = 0._r8
-         a_trc_bifout = 0._r8
-         a_trc_acctime = 0._r8
+         a_mt_out    = 0._r8
+         a_mt_bifout = 0._r8
+         a_mt_acctime = 0._r8
          mt_levsto   = 0._r8
       ENDIF
 
@@ -445,10 +445,10 @@ CONTAINS
       ! MATERIAL may be compiled while the runtime registry intentionally
       ! contains zero materials (DEF_MT_NUM=0).  In that mode mt_riverlake_init()
       ! returns without allocating the routing buffers, so the input path must
-      ! be a no-op instead of touching acc_rnof_ref / acc_trc_inp.
+      ! be a no-op instead of touching acc_rnof_ref / acc_mt_inp.
       IF (nmts <= 0) RETURN
       IF (.not. allocated(acc_rnof_ref)) RETURN
-      IF (.not. allocated(acc_trc_inp)) RETURN
+      IF (.not. allocated(acc_mt_inp)) RETURN
       IF (numucat_in <= 0) RETURN
 
       ! Cache per-material R_default once; absent mt_rnof_ext it is used
@@ -500,7 +500,7 @@ CONTAINS
                IF (allocated(mt_n2o_source)) &
                   mt_n2o_source(imt, i) = mt_n2o_source(imt, i) + n2o_in
             ENDIF
-            acc_trc_inp(imt, i) = acc_trc_inp(imt, i) + mass_in
+            acc_mt_inp(imt, i) = acc_mt_inp(imt, i) + mass_in
          ENDDO
       ENDDO
 
@@ -631,7 +631,7 @@ CONTAINS
    ! a uniform pool-ratio split which homogenises the two compartments).
    !-------------------------------------------------------------------------------------
    SUBROUTINE mt_riverlake_levee_repartition (icell, vis_vol_bef, levsto_bef, vis_vol_aft, levsto_aft, &
-                                        pending_trc_pool)
+                                        pending_mt_pool)
 
    USE MOD_MT_Defs, only: mt_tiny, materials
    IMPLICIT NONE
@@ -645,7 +645,7 @@ CONTAINS
    ! the post-input state. Without this, the ratio is diluted
    ! (denominator includes runoff water but numerator does not include the
    ! matching runoff material), leaking the Phase-1 R_init invariant.
-   real(r8), intent(inout), optional :: pending_trc_pool(:)
+   real(r8), intent(inout), optional :: pending_mt_pool(:)
 
    integer  :: imt
    real(r8) :: d_lev, ratio, mt_move
@@ -666,9 +666,9 @@ CONTAINS
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
          vis_pending = 0._r8
-         IF (present(pending_trc_pool)) THEN
-            IF (imt <= size(pending_trc_pool)) &
-               vis_pending = max(pending_trc_pool(imt), 0._r8)
+         IF (present(pending_mt_pool)) THEN
+            IF (imt <= size(pending_mt_pool)) &
+               vis_pending = max(pending_mt_pool(imt), 0._r8)
          ENDIF
          IF (d_lev > 0._r8) THEN
             ! Visible -> protected. Use post-input ratio (mt_mass + pending) /
@@ -703,9 +703,9 @@ CONTAINS
             ENDIF
             mt_mass  (imt, icell) = mt_mass  (imt, icell) - debit_mass
             mt_levsto(imt, icell) = mt_levsto(imt, icell) + mt_move
-            IF (present(pending_trc_pool) .and. abs(debit_pending) > 0._r8) THEN
-               IF (imt <= size(pending_trc_pool)) THEN
-                  pending_trc_pool(imt) = pending_trc_pool(imt) - debit_pending
+            IF (present(pending_mt_pool) .and. abs(debit_pending) > 0._r8) THEN
+               IF (imt <= size(pending_mt_pool)) THEN
+                  pending_mt_pool(imt) = pending_mt_pool(imt) - debit_pending
                ENDIF
             ENDIF
          ELSE
@@ -896,7 +896,7 @@ CONTAINS
                      ! and adds mt_dry_drain globally; folding the sink into
                      ! both arrays counted a dry mouth twice.
                      IF (dt_i > 0._r8 .and. ucatfilter(i)) &
-                        a_trc_out(imt, i) = a_trc_out(imt, i) + dry_drain
+                        a_mt_out(imt, i) = a_mt_out(imt, i) + dry_drain
                   ENDIF
                ENDIF
                mt_mass(imt, i)    = 0._r8
@@ -907,7 +907,7 @@ CONTAINS
             IF (.not. mt_uses_generic_water(imt)) CYCLE
             CALL update_mt_concentration(imt, i, volwater)
          ENDDO
-         a_trc_acctime(i) = a_trc_acctime(i) + dt_i
+         a_mt_acctime(i) = a_mt_acctime(i) + dt_i
          IF (volwater > mt_v_dry_off) THEN
             IF (allocated(a_water_storage)) a_water_storage(i) = a_water_storage(i) + volwater * dt_i
          ENDIF
@@ -921,21 +921,21 @@ CONTAINS
 
          DO imt = 1, nmts
             IF (.not. mt_uses_generic_water(imt)) CYCLE
-            IF (volwater > mt_v_dry_off .and. allocated(a_trc_storage_mass)) THEN
-               a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) &
+            IF (volwater > mt_v_dry_off .and. allocated(a_mt_storage_mass)) THEN
+               a_mt_storage_mass(imt, i) = a_mt_storage_mass(imt, i) &
                   + mt_mass(imt, i) * dt_i
             ENDIF
-            IF (allocated(a_trc_levsto_mass) .and. allocated(mt_levsto) .and. &
+            IF (allocated(a_mt_levsto_mass) .and. allocated(mt_levsto) .and. &
                 allocated(levsto) .and. allocated(has_levee)) THEN
                IF (i <= size(mt_levsto, 2) .and. i <= size(levsto) .and. i <= size(has_levee)) THEN
                   IF (has_levee(i) .and. levsto(i) > mt_v_dry_off) THEN
-                     a_trc_levsto_mass(imt, i) = a_trc_levsto_mass(imt, i) &
+                     a_mt_levsto_mass(imt, i) = a_mt_levsto_mass(imt, i) &
                         + mt_levsto(imt, i) * dt_i
                   ENDIF
                ENDIF
             ENDIF
-            a_trc_out   (imt, i) = a_trc_out   (imt, i) + mt_flux_out(imt, i) * dt_i
-            a_trc_bifout(imt, i) = a_trc_bifout(imt, i) + mt_bif_net_saved(imt, i) * dt_i
+            a_mt_out   (imt, i) = a_mt_out   (imt, i) + mt_flux_out(imt, i) * dt_i
+            a_mt_bifout(imt, i) = a_mt_bifout(imt, i) + mt_bif_net_saved(imt, i) * dt_i
          ENDDO
       ENDDO
 
@@ -1009,10 +1009,10 @@ CONTAINS
                   ! recorded there (see the receive loop), with the sign the
                   ! advective ledger uses for a reverse face flux (negative:
                   ! mass entering this cell from its downstream neighbour).
-                  IF (p_is_worker .and. allocated(a_trc_out) .and. ucatfilter(i)) THEN
+                  IF (p_is_worker .and. allocated(a_mt_out) .and. ucatfilter(i)) THEN
                      dt_don = 0._r8
                      IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_don = dt_all(irivsys(i))
-                     IF (dt_don > 0._r8) a_trc_out(imt, i) = a_trc_out(imt, i) + fwd_send(i)
+                     IF (dt_don > 0._r8) a_mt_out(imt, i) = a_mt_out(imt, i) + fwd_send(i)
                   ENDIF
                ENDIF
                ! rev_send carries the WHOLE split, so it must stay zero when
@@ -1039,8 +1039,8 @@ CONTAINS
                   mt_mass(imt, i) = mt_mass(imt, i) + fwd_recv(i)
                   received_visible(i) = received_visible(i) + fwd_recv(i)
                   CALL update_mt_concentration(imt, i, vol_j)
-                  IF (vol_j > mt_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
-                     a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) + fwd_recv(i) * dt_j
+                  IF (vol_j > mt_v_dry_off .and. allocated(a_mt_storage_mass) .and. dt_j > 0._r8) &
+                     a_mt_storage_mass(imt, i) = a_mt_storage_mass(imt, i) + fwd_recv(i) * dt_j
                ENDIF
                ! reverse share: receiver pulls its donor's drained mass and
                ! weights it by its own reverse edge flux (known locally)
@@ -1048,16 +1048,16 @@ CONTAINS
                    active_flux(i) < 0._r8 .and. donor_out(i) > mt_tiny) THEN
                   rev_share = rev_recv(i) * abs(active_flux(i)) / donor_out(i)
                   IF (allocated(mt_dry_stat)) mt_dry_stat(imt, 2) = mt_dry_stat(imt, 2) + rev_share
-                  IF (allocated(a_trc_out) .and. ucatfilter(i)) THEN
+                  IF (allocated(a_mt_out) .and. ucatfilter(i)) THEN
                      dt_j = 0._r8
                      IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_j = dt_all(irivsys(i))
-                     IF (dt_j > 0._r8) a_trc_out(imt, i) = a_trc_out(imt, i) - rev_share
+                     IF (dt_j > 0._r8) a_mt_out(imt, i) = a_mt_out(imt, i) - rev_share
                   ENDIF
                   mt_mass(imt, i) = mt_mass(imt, i) + rev_share
                   received_visible(i) = received_visible(i) + rev_share
                   CALL update_mt_concentration(imt, i, vol_j)
-                  IF (vol_j > mt_v_dry_off .and. allocated(a_trc_storage_mass) .and. dt_j > 0._r8) &
-                     a_trc_storage_mass(imt, i) = a_trc_storage_mass(imt, i) + rev_share * dt_j
+                  IF (vol_j > mt_v_dry_off .and. allocated(a_mt_storage_mass) .and. dt_j > 0._r8) &
+                     a_mt_storage_mass(imt, i) = a_mt_storage_mass(imt, i) + rev_share * dt_j
                ENDIF
             ENDDO
             IF (bif_active) THEN
@@ -1073,7 +1073,7 @@ CONTAINS
                   dt_j = 0._r8
                   IF (irivsys(i) > 0 .and. irivsys(i) <= size(dt_all)) dt_j = dt_all(irivsys(i))
                   IF (.not. ucatfilter(i) .or. dt_j <= 0._r8) CYCLE
-                  a_trc_bifout(imt,i) = a_trc_bifout(imt,i) + bif_hist(i)
+                  a_mt_bifout(imt,i) = a_mt_bifout(imt,i) + bif_hist(i)
                   IF (present(is_built_resv)) THEN
                      CALL get_cell_volume(i, wdsrf(i), volresv_in, ucat2resv_in, vol_j, is_built_resv(i))
                   ELSE
@@ -1081,10 +1081,10 @@ CONTAINS
                   ENDIF
                   CALL update_mt_concentration(imt, i, vol_j)
                   IF (vol_j > mt_v_dry_off) &
-                     a_trc_storage_mass(imt,i) = a_trc_storage_mass(imt,i) + bif_add(i)*dt_j
+                     a_mt_storage_mass(imt,i) = a_mt_storage_mass(imt,i) + bif_add(i)*dt_j
                   IF (allocated(levsto)) THEN
                      IF (levsto(i) > mt_v_dry_off) &
-                        a_trc_levsto_mass(imt,i) = a_trc_levsto_mass(imt,i) + bif_add_lev(i)*dt_j
+                        a_mt_levsto_mass(imt,i) = a_mt_levsto_mass(imt,i) + bif_add_lev(i)*dt_j
                   ENDIF
                ENDDO
             ENDIF
@@ -1227,9 +1227,9 @@ CONTAINS
       IF (bif_active) THEN
          CALL ensure_real1_workspace(conc_dn_pth, npth)
          CALL ensure_real1_workspace(mt_prot_conc_dn_pth, npth)
-         CALL ensure_real1_workspace(mt_pth_1trc, npth)
+         CALL ensure_real1_workspace(mt_pth_single, npth)
          CALL ensure_real1_workspace(mt_pth_lev, npth)
-         CALL ensure_real2_workspace(mt_pth_levtrc, nlev_bif, npth)
+         CALL ensure_real2_workspace(mt_pth_levee, nlev_bif, npth)
          CALL ensure_real1_workspace(bif_recv, nucat)
          CALL ensure_real1_workspace(bif_lev_recv, nucat)
          CALL ensure_real1_workspace(rate_dn_pth, npth)
@@ -1305,9 +1305,9 @@ CONTAINS
       IF (allocated(mt_prot_conc_flux    )) deallocate(mt_prot_conc_flux    )
       IF (allocated(conc_dn_pth           )) deallocate(conc_dn_pth           )
       IF (allocated(mt_prot_conc_dn_pth  )) deallocate(mt_prot_conc_dn_pth  )
-      IF (allocated(mt_pth_1trc          )) deallocate(mt_pth_1trc          )
+      IF (allocated(mt_pth_single          )) deallocate(mt_pth_single          )
       IF (allocated(mt_pth_lev           )) deallocate(mt_pth_lev           )
-      IF (allocated(mt_pth_levtrc        )) deallocate(mt_pth_levtrc        )
+      IF (allocated(mt_pth_levee        )) deallocate(mt_pth_levee        )
       IF (allocated(bif_recv              )) deallocate(bif_recv              )
       IF (allocated(bif_lev_recv          )) deallocate(bif_lev_recv          )
       IF (allocated(bif_net               )) deallocate(bif_net               )
@@ -1573,9 +1573,9 @@ CONTAINS
             CALL worker_push_data (push_bif_dn2pth, mt_conc_flux, conc_dn_pth, fillvalue = 0._r8)
             CALL worker_push_data (push_bif_dn2pth, mt_prot_conc_flux, mt_prot_conc_dn_pth, fillvalue = 0._r8)
 
-            mt_pth_1trc(:) = 0._r8
+            mt_pth_single(:) = 0._r8
             mt_pth_lev(:) = 0._r8
-            mt_pth_levtrc(:,:) = 0._r8
+            mt_pth_levee(:,:) = 0._r8
             DO ipth = 1, npth_bif
                i_up = pth_upst_local(ipth)
                IF (i_up < 1 .or. i_up > numucat) CYCLE
@@ -1602,7 +1602,7 @@ CONTAINS
                         mt_pth_fl = conc_dn_pth(ipth) * layer_wflux
                      ENDIF
                   ENDIF
-                  mt_pth_levtrc(ilev, ipth) = mt_pth_fl
+                  mt_pth_levee(ilev, ipth) = mt_pth_fl
 
                   IF (ilev > 1 .and. upstream_has_levee) THEN
                      mt_bif_lev_net(i_up) = mt_bif_lev_net(i_up) + mt_pth_fl
@@ -1618,7 +1618,7 @@ CONTAINS
                   IF (ilev > 1 .and. downstream_has_levee) THEN
                      mt_pth_lev(ipth) = mt_pth_lev(ipth) + mt_pth_fl
                   ELSE
-                     mt_pth_1trc(ipth) = mt_pth_1trc(ipth) + mt_pth_fl
+                     mt_pth_single(ipth) = mt_pth_single(ipth) + mt_pth_fl
                   ENDIF
                ENDDO
             ENDDO
@@ -1626,7 +1626,7 @@ CONTAINS
             ! Bif scatter to all downstream cells.  mt_pth_* keep the
             ! upstream-sign pathway flux; the downstream cell's net
             ! contribution is therefore subtracted after push.
-            CALL worker_push_data (push_bif_influx, mt_pth_1trc, bif_recv, &
+            CALL worker_push_data (push_bif_influx, mt_pth_single, bif_recv, &
                fillvalue = 0._r8, mode = 'sum')
             CALL worker_push_data (push_bif_influx, mt_pth_lev, bif_lev_recv, &
                fillvalue = 0._r8, mode = 'sum')
@@ -1689,7 +1689,7 @@ CONTAINS
                DO ilev = 1, nlev_bif
                   layer_wflux = bif_hflux_lev_in(ilev, ipth)
                   IF (abs(layer_wflux) <= mt_tiny) CYCLE
-                  mt_pth_fl = mt_pth_levtrc(ilev, ipth)
+                  mt_pth_fl = mt_pth_levee(ilev, ipth)
                   IF (layer_wflux >= 0._r8) THEN
                      IF (ilev > 1 .and. upstream_has_levee) THEN
                         mt_out_mass_lev(i_up) = mt_out_mass_lev(i_up) + abs(mt_pth_fl) * dt_i
@@ -1825,7 +1825,7 @@ CONTAINS
             IF (bif_workspace_active) THEN
                CALL worker_push_data(push_bif_dn2pth, rate_cell, rate_dn_pth, fillvalue = 1._r8)
                CALL worker_push_data(push_bif_dn2pth, rate_cell_lev, rate_dn_pth_lev, fillvalue = 1._r8)
-               mt_pth_1trc(:) = 0._r8
+               mt_pth_single(:) = 0._r8
                mt_pth_lev(:) = 0._r8
                DO ipth = 1, npth_bif
                   i_up = pth_upst_local(ipth)
@@ -1840,7 +1840,7 @@ CONTAINS
 
                   DO ilev = 1, nlev_bif
                      layer_wflux = bif_hflux_lev_in(ilev, ipth)
-                     mt_pth_fl = mt_pth_levtrc(ilev, ipth)
+                     mt_pth_fl = mt_pth_levee(ilev, ipth)
                      IF (abs(layer_wflux) <= mt_tiny .or. abs(mt_pth_fl) <= mt_tiny) CYCLE
 
                      IF (layer_wflux >= 0._r8) THEN
@@ -1859,7 +1859,7 @@ CONTAINS
                         IF (ilev > 1 .and. downstream_has_levee) THEN
                            mt_pth_lev(ipth) = mt_pth_lev(ipth) + max(mt_pth_fl, 0._r8) * dt_donor
                         ELSE
-                           mt_pth_1trc(ipth) = mt_pth_1trc(ipth) + max(mt_pth_fl, 0._r8) * dt_donor
+                           mt_pth_single(ipth) = mt_pth_single(ipth) + max(mt_pth_fl, 0._r8) * dt_donor
                         ENDIF
                      ELSE
                         IF (ilev > 1 .and. downstream_has_levee) THEN
@@ -1877,7 +1877,7 @@ CONTAINS
                      ENDIF
                   ENDDO
                ENDDO
-               CALL worker_push_data(push_bif_influx, mt_pth_1trc, bif_recv, &
+               CALL worker_push_data(push_bif_influx, mt_pth_single, bif_recv, &
                   fillvalue = 0._r8, mode = 'sum')
                CALL worker_push_data(push_bif_influx, mt_pth_lev, bif_lev_recv, &
                   fillvalue = 0._r8, mode = 'sum')
@@ -1987,13 +1987,13 @@ CONTAINS
                         mt_rate = rate_dn_pth(ipth)
                      ENDIF
                   ENDIF
-                  mt_pth_levtrc(ilev, ipth) = mt_pth_levtrc(ilev, ipth) * mt_rate
+                  mt_pth_levee(ilev, ipth) = mt_pth_levee(ilev, ipth) * mt_rate
                ENDDO
             ENDDO
             ! Rebuild visible/protected bif nets from scaled layer fluxes.
             bif_net(:) = 0._r8
             mt_bif_lev_net(:) = 0._r8
-            mt_pth_1trc(:) = 0._r8
+            mt_pth_single(:) = 0._r8
             mt_pth_lev(:) = 0._r8
             DO ipth = 1, npth_bif
                i_up = pth_upst_local(ipth)
@@ -2003,7 +2003,7 @@ CONTAINS
                   upstream_has_levee, downstream_has_levee)
 
                DO ilev = 1, nlev_bif
-                  mt_pth_fl = mt_pth_levtrc(ilev, ipth)
+                  mt_pth_fl = mt_pth_levee(ilev, ipth)
                   IF (abs(mt_pth_fl) <= mt_tiny) CYCLE
                   IF (ilev > 1 .and. upstream_has_levee) THEN
                      mt_bif_lev_net(i_up) = mt_bif_lev_net(i_up) + mt_pth_fl
@@ -2015,11 +2015,11 @@ CONTAINS
                   IF (ilev > 1 .and. downstream_has_levee) THEN
                      mt_pth_lev(ipth) = mt_pth_lev(ipth) + mt_pth_fl
                   ELSE
-                     mt_pth_1trc(ipth) = mt_pth_1trc(ipth) + mt_pth_fl
+                     mt_pth_single(ipth) = mt_pth_single(ipth) + mt_pth_fl
                   ENDIF
                ENDDO
             ENDDO
-            CALL worker_push_data (push_bif_influx, mt_pth_1trc, bif_recv, &
+            CALL worker_push_data (push_bif_influx, mt_pth_single, bif_recv, &
                fillvalue = 0._r8, mode = 'sum')
             CALL worker_push_data (push_bif_influx, mt_pth_lev, bif_lev_recv, &
                fillvalue = 0._r8, mode = 'sum')
@@ -2365,7 +2365,7 @@ CONTAINS
                ENDIF
                IF (.not. ieee_is_finite(mt_inp_buf(imt, i))) &
                   invalid_counts(3) = invalid_counts(3) + 1
-               IF (.not. ieee_is_finite(acc_trc_inp(imt, i))) &
+               IF (.not. ieee_is_finite(acc_mt_inp(imt, i))) &
                   invalid_counts(4) = invalid_counts(4) + 1
                IF (.not. ieee_is_finite(mt_levsto(imt, i))) THEN
                   invalid_counts(6) = invalid_counts(6) + 1
@@ -2430,20 +2430,20 @@ CONTAINS
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
 
-      ! Reset the *history* accumulators only. acc_trc_inp / acc_rnof_ref are
+      ! Reset the *history* accumulators only. acc_mt_inp / acc_rnof_ref are
       ! routing-period state, not history state, and are reset at the end of
       ! each routing period in MOD_Grid_RiverLakeFlow.F90:1263-1264. Resetting
-      ! acc_rnof_ref here too would leave acc_trc_inp / acc_rnof_ref with
+      ! acc_rnof_ref here too would leave acc_mt_inp / acc_rnof_ref with
       ! mismatched windows when history flushes happen between routing periods
       ! (acctime_rnof_max > deltim), corrupting restart recovery.
       IF (numucat > 0) THEN
-         IF (allocated(a_trc_storage_mass)) a_trc_storage_mass = 0._r8
+         IF (allocated(a_mt_storage_mass)) a_mt_storage_mass = 0._r8
          IF (allocated(a_water_storage)) a_water_storage = 0._r8
-         IF (allocated(a_trc_levsto_mass)) a_trc_levsto_mass = 0._r8
+         IF (allocated(a_mt_levsto_mass)) a_mt_levsto_mass = 0._r8
          IF (allocated(a_levsto_water)) a_levsto_water = 0._r8
-         IF (allocated(a_trc_out   )) a_trc_out    = 0._r8
-         IF (allocated(a_trc_bifout)) a_trc_bifout = 0._r8
-         IF (allocated(a_trc_acctime)) a_trc_acctime = 0._r8
+         IF (allocated(a_mt_out   )) a_mt_out    = 0._r8
+         IF (allocated(a_mt_bifout)) a_mt_bifout = 0._r8
+         IF (allocated(a_mt_acctime)) a_mt_acctime = 0._r8
          IF (allocated(mt_n2o_source)) mt_n2o_source = 0._r8
       ENDIF
 
@@ -2466,13 +2466,13 @@ CONTAINS
    IMPLICIT NONE
 
       IF (.not. p_is_worker) RETURN
-      IF (allocated(a_trc_storage_mass)) a_trc_storage_mass = 0._r8
+      IF (allocated(a_mt_storage_mass)) a_mt_storage_mass = 0._r8
       IF (allocated(a_water_storage)) a_water_storage = 0._r8
-      IF (allocated(a_trc_levsto_mass)) a_trc_levsto_mass = 0._r8
+      IF (allocated(a_mt_levsto_mass)) a_mt_levsto_mass = 0._r8
       IF (allocated(a_levsto_water)) a_levsto_water = 0._r8
-      IF (allocated(a_trc_out)) a_trc_out = 0._r8
-      IF (allocated(a_trc_bifout)) a_trc_bifout = 0._r8
-      IF (allocated(a_trc_acctime)) a_trc_acctime = 0._r8
+      IF (allocated(a_mt_out)) a_mt_out = 0._r8
+      IF (allocated(a_mt_bifout)) a_mt_bifout = 0._r8
+      IF (allocated(a_mt_acctime)) a_mt_acctime = 0._r8
       IF (allocated(mt_n2o_source)) mt_n2o_source = 0._r8
 
    END SUBROUTINE mt_riverlake_drop_hist_window
@@ -2497,7 +2497,7 @@ CONTAINS
    logical, optional, intent(out) :: missing_mask(:)
 
    integer :: imt
-   integer :: ii_bf, itrc_bf
+   integer :: ii_bf, imt_bf
    logical :: network_meta_matches, field_present, hist_complete, hist_time_present
    logical :: has_transport_material, descriptor_compatible
    character(len=64) :: varname
@@ -2540,20 +2540,20 @@ CONTAINS
             IF (allocated(mt_mass)) mt_mass = 0._r8
             IF (allocated(mt_conc)) mt_conc = 0._r8
             IF (allocated(mt_inp_buf)) mt_inp_buf = 0._r8
-            IF (allocated(acc_trc_inp)) acc_trc_inp = 0._r8
+            IF (allocated(acc_mt_inp)) acc_mt_inp = 0._r8
             IF (allocated(acc_rnof_ref)) acc_rnof_ref = 0._r8
             IF (allocated(mt_levsto)) mt_levsto = 0._r8
             IF (allocated(mt_solid)) THEN
                mt_solid = 0._r8
                mt_levsto_solid = 0._r8
             ENDIF
-            IF (allocated(a_trc_storage_mass)) a_trc_storage_mass = 0._r8
+            IF (allocated(a_mt_storage_mass)) a_mt_storage_mass = 0._r8
             IF (allocated(a_water_storage)) a_water_storage = 0._r8
-            IF (allocated(a_trc_levsto_mass)) a_trc_levsto_mass = 0._r8
+            IF (allocated(a_mt_levsto_mass)) a_mt_levsto_mass = 0._r8
             IF (allocated(a_levsto_water)) a_levsto_water = 0._r8
-            IF (allocated(a_trc_out)) a_trc_out = 0._r8
-            IF (allocated(a_trc_bifout)) a_trc_bifout = 0._r8
-            IF (allocated(a_trc_acctime)) a_trc_acctime = 0._r8
+            IF (allocated(a_mt_out)) a_mt_out = 0._r8
+            IF (allocated(a_mt_bifout)) a_mt_bifout = 0._r8
+            IF (allocated(a_mt_acctime)) a_mt_acctime = 0._r8
          ENDIF
          IF (present(found_restart)) found_restart = .false.
          RETURN
@@ -2661,7 +2661,7 @@ CONTAINS
 
          write(varname, '(A,A)') 'mt_accinp_', trim(material_names(imt))
          CALL vector_read_and_scatter(file_restart, tmpvec, numucat, trim(varname), ucat_data_address)
-         IF (p_is_worker .and. numucat > 0) acc_trc_inp(imt, :) = tmpvec(:)
+         IF (p_is_worker .and. numucat > 0) acc_mt_inp(imt, :) = tmpvec(:)
 
       ENDDO
 
@@ -2709,13 +2709,13 @@ CONTAINS
       CALL probe_riverlake_restart_vector(file_restart, 'mt_hist_levsto_water', .false., field_present)
       hist_complete = hist_complete .and. field_present
       IF (p_is_worker) THEN
-         a_trc_storage_mass = 0._r8
+         a_mt_storage_mass = 0._r8
          a_water_storage = 0._r8
-         a_trc_levsto_mass = 0._r8
+         a_mt_levsto_mass = 0._r8
          a_levsto_water = 0._r8
-         a_trc_out = 0._r8
-         a_trc_bifout = 0._r8
-         a_trc_acctime = 0._r8
+         a_mt_out = 0._r8
+         a_mt_bifout = 0._r8
+         a_mt_acctime = 0._r8
       ENDIF
       IF (.not. hist_complete) THEN
          IF (p_is_master) WRITE(*,'(A)') &
@@ -2724,13 +2724,13 @@ CONTAINS
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
          write(varname, '(A,A)') 'mt_hist_stor_', trim(material_names(imt))
-         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_storage_mass, imt=imt)
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_storage_mass, imt=imt)
          write(varname, '(A,A)') 'mt_hist_levsto_', trim(material_names(imt))
-         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_levsto_mass, imt=imt)
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_levsto_mass, imt=imt)
          write(varname, '(A,A)') 'mt_hist_out_', trim(material_names(imt))
-         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_out, imt=imt)
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_out, imt=imt)
          write(varname, '(A,A)') 'mt_hist_bifout_', trim(material_names(imt))
-         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_bifout, imt=imt)
+         CALL read_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_bifout, imt=imt)
          write(varname, '(A,A)') 'mt_hist_n2o_', trim(material_names(imt))
          CALL probe_riverlake_restart_vector(file_restart, trim(varname), .false., hist_time_present)
          IF (hist_time_present) THEN
@@ -2745,11 +2745,11 @@ CONTAINS
       CALL read_mt_hist_acc (file_restart, 'mt_hist_levsto_water', acc1=a_levsto_water)
       CALL probe_riverlake_restart_vector(file_restart, 'mt_hist_acctime', .false., hist_time_present)
       IF (hist_time_present) THEN
-         CALL read_mt_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_trc_acctime)
+         CALL read_mt_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_mt_acctime)
       ELSEIF (p_is_worker .and. allocated(acctime_ucat)) THEN
          ! Transitional files with all six numerators but no local clock used
          ! the water history clock; preserve that complete window on upgrade.
-         a_trc_acctime = acctime_ucat
+         a_mt_acctime = acctime_ucat
       ENDIF
       ENDIF
 
@@ -2767,16 +2767,16 @@ CONTAINS
          DO ii_bf = 1, numucat
             IF (ii_bf <= size(has_levee_bf)) THEN
                IF (.not. has_levee_bf(ii_bf)) THEN
-                  DO itrc_bf = 1, nmts
-                     IF (.not. mt_uses_generic_water(itrc_bf)) CYCLE
-                     mt_mass(itrc_bf, ii_bf) = mt_mass(itrc_bf, ii_bf) &
-                        + mt_levsto(itrc_bf, ii_bf)
-                     mt_levsto(itrc_bf, ii_bf) = 0._r8
+                  DO imt_bf = 1, nmts
+                     IF (.not. mt_uses_generic_water(imt_bf)) CYCLE
+                     mt_mass(imt_bf, ii_bf) = mt_mass(imt_bf, ii_bf) &
+                        + mt_levsto(imt_bf, ii_bf)
+                     mt_levsto(imt_bf, ii_bf) = 0._r8
                      IF (allocated(mt_solid)) THEN
-                        IF (mt_has_dissolved_limit(itrc_bf)) THEN
-                           mt_solid(itrc_bf, ii_bf) = mt_solid(itrc_bf, ii_bf) &
-                              + mt_levsto_solid(itrc_bf, ii_bf)
-                           mt_levsto_solid(itrc_bf, ii_bf) = 0._r8
+                        IF (mt_has_dissolved_limit(imt_bf)) THEN
+                           mt_solid(imt_bf, ii_bf) = mt_solid(imt_bf, ii_bf) &
+                              + mt_levsto_solid(imt_bf, ii_bf)
+                           mt_levsto_solid(imt_bf, ii_bf) = 0._r8
                         ENDIF
                      ENDIF
                   ENDDO
@@ -2875,32 +2875,32 @@ CONTAINS
    SUBROUTINE mt_riverlake_snapshot_hist_acc ()
    USE MOD_Grid_RiverLakeNetwork, only: numucat
    IMPLICIT NONE
-   integer :: ntr, nuc
+   integer :: nmt, nuc
 
       IF (.not. p_is_worker) RETURN
       IF (nmts <= 0) RETURN
-      ntr = nmts
+      nmt = nmts
       nuc = 0
       IF (numucat > 0) nuc = numucat
 
       IF (allocated(histsnap_stor)) deallocate(histsnap_stor, histsnap_levsto, histsnap_out, &
          histsnap_bifout, histsnap_n2o, histsnap_wstor, histsnap_wlevsto, histsnap_acctime)
-      allocate(histsnap_stor(ntr,nuc), histsnap_levsto(ntr,nuc), histsnap_out(ntr,nuc), &
-         histsnap_bifout(ntr,nuc), histsnap_n2o(ntr,nuc), histsnap_wstor(nuc), &
+      allocate(histsnap_stor(nmt,nuc), histsnap_levsto(nmt,nuc), histsnap_out(nmt,nuc), &
+         histsnap_bifout(nmt,nuc), histsnap_n2o(nmt,nuc), histsnap_wstor(nuc), &
          histsnap_wlevsto(nuc), histsnap_acctime(nuc))
       histsnap_stor = 0._r8; histsnap_levsto = 0._r8; histsnap_out = 0._r8
       histsnap_bifout = 0._r8; histsnap_n2o = 0._r8
       histsnap_wstor = 0._r8; histsnap_wlevsto = 0._r8
       histsnap_acctime = 0._r8
       IF (nuc > 0) THEN
-         IF (allocated(a_trc_storage_mass)) histsnap_stor = a_trc_storage_mass
-         IF (allocated(a_trc_levsto_mass)) histsnap_levsto = a_trc_levsto_mass
-         IF (allocated(a_trc_out)) histsnap_out = a_trc_out
-         IF (allocated(a_trc_bifout)) histsnap_bifout = a_trc_bifout
+         IF (allocated(a_mt_storage_mass)) histsnap_stor = a_mt_storage_mass
+         IF (allocated(a_mt_levsto_mass)) histsnap_levsto = a_mt_levsto_mass
+         IF (allocated(a_mt_out)) histsnap_out = a_mt_out
+         IF (allocated(a_mt_bifout)) histsnap_bifout = a_mt_bifout
          IF (allocated(mt_n2o_source)) histsnap_n2o = mt_n2o_source
          IF (allocated(a_water_storage)) histsnap_wstor = a_water_storage
          IF (allocated(a_levsto_water)) histsnap_wlevsto = a_levsto_water
-         IF (allocated(a_trc_acctime)) histsnap_acctime = a_trc_acctime
+         IF (allocated(a_mt_acctime)) histsnap_acctime = a_mt_acctime
       ENDIF
       histsnap_valid = .true.
 
@@ -2916,19 +2916,19 @@ CONTAINS
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
          write(name, '(A,A)') 'mt_hist_stor_', trim(material_names(imt))
-         CALL write_mt_hist_acc(file, trim(name), acc2=a_trc_storage_mass, imt=imt)
+         CALL write_mt_hist_acc(file, trim(name), acc2=a_mt_storage_mass, imt=imt)
          write(name, '(A,A)') 'mt_hist_levsto_', trim(material_names(imt))
-         CALL write_mt_hist_acc(file, trim(name), acc2=a_trc_levsto_mass, imt=imt)
+         CALL write_mt_hist_acc(file, trim(name), acc2=a_mt_levsto_mass, imt=imt)
          write(name, '(A,A)') 'mt_hist_out_', trim(material_names(imt))
-         CALL write_mt_hist_acc(file, trim(name), acc2=a_trc_out, imt=imt)
+         CALL write_mt_hist_acc(file, trim(name), acc2=a_mt_out, imt=imt)
          write(name, '(A,A)') 'mt_hist_bifout_', trim(material_names(imt))
-         CALL write_mt_hist_acc(file, trim(name), acc2=a_trc_bifout, imt=imt)
+         CALL write_mt_hist_acc(file, trim(name), acc2=a_mt_bifout, imt=imt)
          write(name, '(A,A)') 'mt_hist_n2o_', trim(material_names(imt))
          CALL write_mt_hist_acc(file, trim(name), acc2=mt_n2o_source, imt=imt)
       ENDDO
       CALL write_mt_hist_acc(file, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL write_mt_hist_acc(file, 'mt_hist_levsto_water', acc1=a_levsto_water)
-      CALL write_mt_hist_acc(file, 'mt_hist_acctime', acc1=a_trc_acctime)
+      CALL write_mt_hist_acc(file, 'mt_hist_acctime', acc1=a_mt_acctime)
    END SUBROUTINE mt_riverlake_write_hist_acc_restart
 
    SUBROUTINE mt_riverlake_read_hist_acc_restart(file)
@@ -2957,13 +2957,13 @@ CONTAINS
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
          write(name, '(A,A)') 'mt_hist_stor_', trim(material_names(imt))
-         CALL read_mt_hist_acc(file, trim(name), acc2=a_trc_storage_mass, imt=imt)
+         CALL read_mt_hist_acc(file, trim(name), acc2=a_mt_storage_mass, imt=imt)
          write(name, '(A,A)') 'mt_hist_levsto_', trim(material_names(imt))
-         CALL read_mt_hist_acc(file, trim(name), acc2=a_trc_levsto_mass, imt=imt)
+         CALL read_mt_hist_acc(file, trim(name), acc2=a_mt_levsto_mass, imt=imt)
          write(name, '(A,A)') 'mt_hist_out_', trim(material_names(imt))
-         CALL read_mt_hist_acc(file, trim(name), acc2=a_trc_out, imt=imt)
+         CALL read_mt_hist_acc(file, trim(name), acc2=a_mt_out, imt=imt)
          write(name, '(A,A)') 'mt_hist_bifout_', trim(material_names(imt))
-         CALL read_mt_hist_acc(file, trim(name), acc2=a_trc_bifout, imt=imt)
+         CALL read_mt_hist_acc(file, trim(name), acc2=a_mt_bifout, imt=imt)
          write(name, '(A,A)') 'mt_hist_n2o_', trim(material_names(imt))
          CALL probe_riverlake_restart_vector(file, trim(name), .false., present_on_disk)
          IF (present_on_disk) THEN
@@ -2976,7 +2976,7 @@ CONTAINS
       ENDDO
       CALL read_mt_hist_acc(file, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL read_mt_hist_acc(file, 'mt_hist_levsto_water', acc1=a_levsto_water)
-      CALL read_mt_hist_acc(file, 'mt_hist_acctime', acc1=a_trc_acctime)
+      CALL read_mt_hist_acc(file, 'mt_hist_acctime', acc1=a_mt_acctime)
    END SUBROUTINE mt_riverlake_read_hist_acc_restart
 
    !-------------------------------------------------------------------------------------
@@ -3078,7 +3078,7 @@ CONTAINS
          ! below; both must persist so a restart written mid-period
          ! recovers the queued land-material input instead of dropping it.
          IF (p_is_worker .and. numucat > 0) THEN
-            tmpvec(:) = acc_trc_inp(imt, :)
+            tmpvec(:) = acc_mt_inp(imt, :)
          ENDIF
          write(varname, '(A,A)') 'mt_accinp_', trim(material_names(imt))
          CALL vector_gather_and_write ( &
@@ -3106,7 +3106,7 @@ CONTAINS
          ENDIF
       ENDDO
 
-      ! Shared runoff reference paired with acc_trc_inp for the active
+      ! Shared runoff reference paired with acc_mt_inp for the active
       ! routing period. Written once (not per material).
       IF (p_is_worker .and. numucat > 0) THEN
          tmpvec(:) = acc_rnof_ref(:)
@@ -3119,40 +3119,40 @@ CONTAINS
       ! At a terminal (partial-window) stop the live rows were cleared by the
       ! history flush; swap the pre-flush snapshot in for these rows only.
       IF (histsnap_valid .and. p_is_worker .and. numucat > 0 .and. &
-          allocated(histsnap_stor) .and. allocated(a_trc_storage_mass)) THEN
+          allocated(histsnap_stor) .and. allocated(a_mt_storage_mass)) THEN
          allocate(t2a(nmts,numucat), t2b(nmts,numucat), t2c(nmts,numucat), &
             t2d(nmts,numucat), t2e(nmts,numucat), t1a(numucat), t1b(numucat), t1c(numucat))
-         t2a = a_trc_storage_mass; t2b = a_trc_levsto_mass; t2c = a_trc_out; t2d = a_trc_bifout
+         t2a = a_mt_storage_mass; t2b = a_mt_levsto_mass; t2c = a_mt_out; t2d = a_mt_bifout
          IF (allocated(mt_n2o_source)) THEN
             t2e = mt_n2o_source
             IF (allocated(histsnap_n2o)) mt_n2o_source = histsnap_n2o
          ENDIF
-         t1a = a_water_storage; t1b = a_levsto_water; t1c = a_trc_acctime
-         a_trc_storage_mass = histsnap_stor; a_trc_levsto_mass = histsnap_levsto
-         a_trc_out = histsnap_out; a_trc_bifout = histsnap_bifout
+         t1a = a_water_storage; t1b = a_levsto_water; t1c = a_mt_acctime
+         a_mt_storage_mass = histsnap_stor; a_mt_levsto_mass = histsnap_levsto
+         a_mt_out = histsnap_out; a_mt_bifout = histsnap_bifout
          a_water_storage = histsnap_wstor; a_levsto_water = histsnap_wlevsto
-         a_trc_acctime = histsnap_acctime
+         a_mt_acctime = histsnap_acctime
       ENDIF
       DO imt = 1, nmts
          IF (.not. mt_uses_generic_water(imt)) CYCLE
          write(varname, '(A,A)') 'mt_hist_stor_', trim(material_names(imt))
-         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_storage_mass, imt=imt)
+         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_storage_mass, imt=imt)
          write(varname, '(A,A)') 'mt_hist_levsto_', trim(material_names(imt))
-         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_levsto_mass, imt=imt)
+         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_levsto_mass, imt=imt)
          write(varname, '(A,A)') 'mt_hist_out_', trim(material_names(imt))
-         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_out, imt=imt)
+         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_out, imt=imt)
          write(varname, '(A,A)') 'mt_hist_bifout_', trim(material_names(imt))
-         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_trc_bifout, imt=imt)
+         CALL write_mt_hist_acc (file_restart, trim(varname), acc2=a_mt_bifout, imt=imt)
          write(varname, '(A,A)') 'mt_hist_n2o_', trim(material_names(imt))
          CALL write_mt_hist_acc (file_restart, trim(varname), acc2=mt_n2o_source, imt=imt)
       ENDDO
       CALL write_mt_hist_acc (file_restart, 'mt_hist_water_storage', acc1=a_water_storage)
       CALL write_mt_hist_acc (file_restart, 'mt_hist_levsto_water', acc1=a_levsto_water)
-      CALL write_mt_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_trc_acctime)
+      CALL write_mt_hist_acc (file_restart, 'mt_hist_acctime', acc1=a_mt_acctime)
       IF (allocated(t2a)) THEN
-         a_trc_storage_mass = t2a; a_trc_levsto_mass = t2b; a_trc_out = t2c; a_trc_bifout = t2d
+         a_mt_storage_mass = t2a; a_mt_levsto_mass = t2b; a_mt_out = t2c; a_mt_bifout = t2d
          IF (allocated(mt_n2o_source)) mt_n2o_source = t2e
-         a_water_storage = t1a; a_levsto_water = t1b; a_trc_acctime = t1c
+         a_water_storage = t1a; a_levsto_water = t1b; a_mt_acctime = t1c
          deallocate(t2a, t2b, t2c, t2d, t2e, t1a, t1b, t1c)
       ENDIF
       IF (histsnap_valid) THEN
@@ -3217,7 +3217,7 @@ CONTAINS
       ! Output-side FP-dust clamp threshold. Same rationale as
       ! check_mt_state: mt_mass can carry sub-picomass alternating
       ! residue from upwind flux add/subtract, which propagates to
-      ! mt_conc / a_trc_out / a_trc_bifout. The underlying
+      ! mt_conc / a_mt_out / a_mt_bifout. The underlying
       ! state is preserved intact (so transport / limiter regressions
       ! remain visible via the WARNING watchdog); only this display
       ! slice hides the noise floor.
@@ -3246,12 +3246,12 @@ CONTAINS
          ! leaves numerator and denominator alike.
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = spval
-            IF (allocated(a_trc_storage_mass) .and. allocated(a_water_storage)) THEN
+            IF (allocated(a_mt_storage_mass) .and. allocated(a_water_storage)) THEN
                DO i = 1, numucat
-                  IF (i > size(a_trc_acctime)) CYCLE
-                  IF (a_trc_acctime(i) <= 0._r8) CYCLE
-                  IF (a_water_storage(i) <= mt_delta_diag_vmin * a_trc_acctime(i)) CYCLE
-                  tmpvec(i) = a_trc_storage_mass(imt, i) / a_water_storage(i)
+                  IF (i > size(a_mt_acctime)) CYCLE
+                  IF (a_mt_acctime(i) <= 0._r8) CYCLE
+                  IF (a_water_storage(i) <= mt_delta_diag_vmin * a_mt_acctime(i)) CYCLE
+                  tmpvec(i) = a_mt_storage_mass(imt, i) / a_water_storage(i)
                ENDDO
             ENDIF
             WHERE (abs(tmpvec) < mt_hist_fp_dust) tmpvec = 0._r8
@@ -3274,12 +3274,12 @@ CONTAINS
                         IF (i > size(allups_mask_ucat)) CYCLE
                         IF (allups_mask_ucat(i) < 0.5_r8) CYCLE
                      ENDIF
-                     IF (i > size(a_trc_acctime)) CYCLE
-                     IF (a_trc_acctime(i) <= 0._r8) CYCLE
+                     IF (i > size(a_mt_acctime)) CYCLE
+                     IF (a_mt_acctime(i) <= 0._r8) CYCLE
                      IF (.not. allocated(a_water_storage)) CYCLE
-                     IF (.not. allocated(a_trc_storage_mass)) CYCLE
-                     IF (a_water_storage(i) <= mt_delta_diag_vmin * a_trc_acctime(i)) CYCLE
-                     ratio_loc = a_trc_storage_mass(imt, i) / a_water_storage(i)
+                     IF (.not. allocated(a_mt_storage_mass)) CYCLE
+                     IF (a_water_storage(i) <= mt_delta_diag_vmin * a_mt_acctime(i)) CYCLE
+                     ratio_loc = a_mt_storage_mass(imt, i) / a_water_storage(i)
                      IF (ratio_loc <= mt_tiny) CYCLE
                      delta_loc = (ratio_loc / materials(imt)%ref_ratio - 1.0_r8) * 1000.0_r8
                      IF (abs(delta_loc) <= mt_delta_sanity_max) tmpvec(i) = delta_loc
@@ -3298,8 +3298,8 @@ CONTAINS
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = spval
             DO i = 1, numucat
-               IF (i <= size(a_trc_acctime)) THEN
-                  IF (a_trc_acctime(i) > 0._r8) tmpvec(i) = a_trc_out(imt, i) / a_trc_acctime(i)
+               IF (i <= size(a_mt_acctime)) THEN
+                  IF (a_mt_acctime(i) > 0._r8) tmpvec(i) = a_mt_out(imt, i) / a_mt_acctime(i)
                ENDIF
             ENDDO
             WHERE (abs(tmpvec) < mt_hist_fp_dust) tmpvec = 0._r8
@@ -3320,9 +3320,9 @@ CONTAINS
          IF (p_is_worker .and. numucat > 0) THEN
             tmpvec(:) = spval
             DO i = 1, numucat
-               IF (i <= size(a_trc_acctime)) THEN
-                  IF (a_trc_acctime(i) > 0._r8) &
-                     tmpvec(i) = mt_n2o_source(imt, i) / a_trc_acctime(i)
+               IF (i <= size(a_mt_acctime)) THEN
+                  IF (a_mt_acctime(i) > 0._r8) &
+                     tmpvec(i) = mt_n2o_source(imt, i) / a_mt_acctime(i)
                ENDIF
             ENDDO
             WHERE (abs(tmpvec) < mt_hist_fp_dust) tmpvec = 0._r8
@@ -3339,12 +3339,12 @@ CONTAINS
             ! --- Protected-side material storage behind levees ---
             IF (p_is_worker .and. numucat > 0) THEN
                tmpvec(:) = 0._r8
-               IF (allocated(a_trc_levsto_mass)) THEN
+               IF (allocated(a_mt_levsto_mass)) THEN
                   tmpvec(:) = spval
                   DO i = 1, numucat
-                     IF (i <= size(a_trc_acctime)) THEN
-                        IF (a_trc_acctime(i) > 0._r8) &
-                           tmpvec(i) = a_trc_levsto_mass(imt, i) / a_trc_acctime(i)
+                     IF (i <= size(a_mt_acctime)) THEN
+                        IF (a_mt_acctime(i) > 0._r8) &
+                           tmpvec(i) = a_mt_levsto_mass(imt, i) / a_mt_acctime(i)
                      ENDIF
                   ENDDO
                ENDIF
@@ -3362,16 +3362,16 @@ CONTAINS
                IF (p_is_worker .and. numucat > 0) THEN
                   tmpvec(:) = spval
                   IF (materials(imt)%ref_ratio > mt_tiny .and. &
-                      allocated(a_trc_levsto_mass) .and. allocated(a_levsto_water)) THEN
+                      allocated(a_mt_levsto_mass) .and. allocated(a_levsto_water)) THEN
                      DO i = 1, numucat
                         IF (allocated(allups_mask_ucat)) THEN
                            IF (i > size(allups_mask_ucat)) CYCLE
                            IF (allups_mask_ucat(i) < 0.5_r8) CYCLE
                         ENDIF
-                        IF (i > size(a_trc_acctime)) CYCLE
-                        IF (a_trc_acctime(i) <= 0._r8) CYCLE
-                        IF (a_levsto_water(i) <= mt_delta_diag_vmin * a_trc_acctime(i)) CYCLE
-                        ratio_loc = a_trc_levsto_mass(imt, i) / a_levsto_water(i)
+                        IF (i > size(a_mt_acctime)) CYCLE
+                        IF (a_mt_acctime(i) <= 0._r8) CYCLE
+                        IF (a_levsto_water(i) <= mt_delta_diag_vmin * a_mt_acctime(i)) CYCLE
+                        ratio_loc = a_mt_levsto_mass(imt, i) / a_levsto_water(i)
                         IF (ratio_loc <= mt_tiny) CYCLE
                         delta_loc = (ratio_loc / materials(imt)%ref_ratio - 1.0_r8) * 1000.0_r8
                         IF (abs(delta_loc) <= mt_delta_sanity_max) tmpvec(i) = delta_loc
@@ -3392,8 +3392,8 @@ CONTAINS
             IF (p_is_worker .and. numucat > 0) THEN
                tmpvec(:) = spval
                DO i = 1, numucat
-                  IF (i <= size(a_trc_acctime)) THEN
-                     IF (a_trc_acctime(i) > 0._r8) tmpvec(i) = a_trc_bifout(imt, i) / a_trc_acctime(i)
+                  IF (i <= size(a_mt_acctime)) THEN
+                     IF (a_mt_acctime(i) > 0._r8) tmpvec(i) = a_mt_bifout(imt, i) / a_mt_acctime(i)
                   ENDIF
                ENDDO
                WHERE (abs(tmpvec) < mt_hist_fp_dust) tmpvec = 0._r8
@@ -3586,7 +3586,7 @@ CONTAINS
          write(label,'(5A)') 'mt_outflux_', trim(material_names(imt)), ' [', trim(mt_flux_units), ']'
          CALL check_vector_data (label, tmp)
 
-         IF (p_is_worker .and. numucat > 0) tmp = acc_trc_inp(imt,:)
+         IF (p_is_worker .and. numucat > 0) tmp = acc_mt_inp(imt,:)
          write(label,'(5A)') 'mt_inp_', trim(material_names(imt)), ' [', trim(mt_mass_units), ']'
          CALL check_vector_data (label, tmp)
 
@@ -3658,17 +3658,17 @@ CONTAINS
       IF (allocated(mt_mass     )) deallocate (mt_mass     )
       IF (allocated(mt_conc     )) deallocate (mt_conc     )
       IF (allocated(mt_flux_out )) deallocate (mt_flux_out )
-      IF (allocated(acc_trc_inp       )) deallocate (acc_trc_inp       )
+      IF (allocated(acc_mt_inp       )) deallocate (acc_mt_inp       )
       IF (allocated(mt_inp_buf       )) deallocate (mt_inp_buf       )
       IF (allocated(acc_rnof_ref      )) deallocate (acc_rnof_ref      )
       IF (allocated(mt_bif_net_saved)) deallocate (mt_bif_net_saved)
-      IF (allocated(a_trc_storage_mass)) deallocate (a_trc_storage_mass)
+      IF (allocated(a_mt_storage_mass)) deallocate (a_mt_storage_mass)
       IF (allocated(a_water_storage   )) deallocate (a_water_storage   )
-      IF (allocated(a_trc_levsto_mass )) deallocate (a_trc_levsto_mass )
+      IF (allocated(a_mt_levsto_mass )) deallocate (a_mt_levsto_mass )
       IF (allocated(a_levsto_water    )) deallocate (a_levsto_water    )
-      IF (allocated(a_trc_out        )) deallocate (a_trc_out        )
-      IF (allocated(a_trc_bifout     )) deallocate (a_trc_bifout     )
-      IF (allocated(a_trc_acctime    )) deallocate (a_trc_acctime    )
+      IF (allocated(a_mt_out        )) deallocate (a_mt_out        )
+      IF (allocated(a_mt_bifout     )) deallocate (a_mt_bifout     )
+      IF (allocated(a_mt_acctime    )) deallocate (a_mt_acctime    )
       IF (allocated(mt_dry_drain    )) deallocate (mt_dry_drain    )
       IF (allocated(mt_dry_stat     )) deallocate (mt_dry_stat     )
       IF (allocated(mt_dry_fwd      )) deallocate (mt_dry_fwd      )

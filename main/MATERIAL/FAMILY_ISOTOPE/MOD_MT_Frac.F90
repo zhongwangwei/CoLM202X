@@ -114,35 +114,35 @@ CONTAINS
          max(material_alpha_liq_vap(imt, temp_k), mt_tiny)
    END FUNCTION material_alpha_ice_liq
 
-   real(r8) FUNCTION material_rayleigh_freezing_loss (imt, pool_trc, pool_water, &
+   real(r8) FUNCTION material_rayleigh_freezing_loss (imt, pool_mt, pool_water, &
       freeze_water, temp_k)
       integer,  intent(in) :: imt
-      real(r8), intent(in) :: pool_trc
+      real(r8), intent(in) :: pool_mt
       real(r8), intent(in) :: pool_water
       real(r8), intent(in) :: freeze_water
       real(r8), intent(in) :: temp_k
       real(r8) :: alpha_il
       real(r8) :: liquid_fraction, remaining_water
-      real(r8) :: source_ratio, remaining_ratio, remaining_trc
+      real(r8) :: source_ratio, remaining_ratio, remaining_mt
 
       material_rayleigh_freezing_loss = 0._r8
       IF (pool_water <= mt_tiny .or. freeze_water <= mt_tiny) RETURN
-      IF (pool_trc <= mt_tiny) RETURN
+      IF (pool_mt <= mt_tiny) RETURN
 
       IF (freeze_water >= pool_water * (1._r8 - 1.e-12_r8)) THEN
-         material_rayleigh_freezing_loss = max(pool_trc, 0._r8)
+         material_rayleigh_freezing_loss = max(pool_mt, 0._r8)
          RETURN
       ENDIF
 
-      source_ratio = max(pool_trc, 0._r8) / pool_water
+      source_ratio = max(pool_mt, 0._r8) / pool_water
       IF (.not. material_fractionation_active(imt)) THEN
-         material_rayleigh_freezing_loss = min(freeze_water * source_ratio, max(pool_trc, 0._r8))
+         material_rayleigh_freezing_loss = min(freeze_water * source_ratio, max(pool_mt, 0._r8))
          RETURN
       ENDIF
 
       alpha_il = material_alpha_ice_liq(imt, temp_k)
       IF (alpha_il <= mt_tiny .or. alpha_il /= alpha_il) THEN
-         material_rayleigh_freezing_loss = min(freeze_water * source_ratio, max(pool_trc, 0._r8))
+         material_rayleigh_freezing_loss = min(freeze_water * source_ratio, max(pool_mt, 0._r8))
          RETURN
       ENDIF
 
@@ -152,9 +152,9 @@ CONTAINS
       remaining_water = pool_water - freeze_water
       liquid_fraction = max(remaining_water / pool_water, mt_tiny)
       remaining_ratio = source_ratio * liquid_fraction ** (alpha_il - 1._r8)
-      remaining_trc = remaining_water * remaining_ratio
-      material_rayleigh_freezing_loss = min(max(pool_trc - remaining_trc, 0._r8), &
-         max(pool_trc, 0._r8))
+      remaining_mt = remaining_water * remaining_ratio
+      material_rayleigh_freezing_loss = min(max(pool_mt - remaining_mt, 0._r8), &
+         max(pool_mt, 0._r8))
    END FUNCTION material_rayleigh_freezing_loss
 
    real(r8) FUNCTION material_diffusivity_ratio_air (imt)
@@ -649,9 +649,9 @@ CONTAINS
    !
    ! Pure function of its arguments so it can be verified standalone.
    !---------------------------------------------------------------
-   real(r8) FUNCTION material_equilibration_exchange (pool_trc, pool_water, &
+   real(r8) FUNCTION material_equilibration_exchange (pool_mt, pool_water, &
       vapor_ratio, alpha_eq, equilibration_fraction)
-      real(r8), intent(in) :: pool_trc
+      real(r8), intent(in) :: pool_mt
       real(r8), intent(in) :: pool_water
       real(r8), intent(in) :: vapor_ratio
       real(r8), intent(in) :: alpha_eq
@@ -665,14 +665,14 @@ CONTAINS
       f = min(max(equilibration_fraction, 0._r8), 1._r8)
       IF (f <= 0._r8) RETURN
 
-      ratio_old = pool_trc / pool_water
+      ratio_old = pool_mt / pool_water
       ratio_equilibrium = alpha_eq * vapor_ratio
       material_equilibration_exchange = pool_water * f * (ratio_equilibrium - ratio_old)
 
       ! Never drive the pool's inventory negative.
       IF (material_equilibration_exchange < 0._r8) THEN
          material_equilibration_exchange = &
-            -min(-material_equilibration_exchange, max(pool_trc, 0._r8))
+            -min(-material_equilibration_exchange, max(pool_mt, 0._r8))
       ENDIF
    END FUNCTION material_equilibration_exchange
 

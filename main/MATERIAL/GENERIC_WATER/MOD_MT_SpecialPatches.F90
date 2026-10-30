@@ -21,9 +21,9 @@ MODULE MOD_MT_SpecialPatches
       mt_apply_decay
    USE MOD_MT_Hist, only: mt_hist_accumulate
    USE MOD_MT_Vars, only: mt_wliq_soisno, mt_wice_soisno, mt_scv, mt_wdsrf, &
-      mt_ldew_rain, mt_ldew_snow, mt_rnof_step, a_trc_precip, material_book_evap_loss, &
+      mt_ldew_rain, mt_ldew_snow, mt_rnof_step, a_mt_precip, material_book_evap_loss, &
       MT_EVAP_KIND_SOILEVAP, MT_EVAP_KIND_SUBL, &
-      a_trc_rsur, a_trc_rnof, mt_wetwat, mt_waterstorage, mt_storage_beg, &
+      a_mt_rsur, a_mt_rnof, mt_wetwat, mt_waterstorage, mt_storage_beg, &
       mt_surface_residue, mt_subsurface_residue, mt_runtime_forced, &
       mt_solid_soisno, mt_canopy_solid, mt_surface_solid, &
       mt_subsurface_solid, mt_waterstorage_solid, sync_mt_patch_ratio, &
@@ -56,7 +56,7 @@ CONTAINS
       real(r8), intent(in) :: wliq_soisno(maxsnl+1:nl_soil)
       real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
 
-      integer  :: imt, j_trc, snl_trc
+      integer  :: imt, j_mt, snl_mt
       real(r8) :: R_init, R_precip, R_rain, R_vapor, R_final
       real(r8) :: R_dew, R_frost, R_runoff
       real(r8) :: precip_mass, rain_mass, rnof_mass
@@ -122,8 +122,8 @@ CONTAINS
          mt_waterstorage_solid(imt, ipatch) = 0._r8
       ENDDO
 
-      snl_trc = 0
-      CALL mt_save_storage(ipatch, snl_trc, nl_soil)
+      snl_mt = 0
+      CALL mt_save_storage(ipatch, snl_mt, nl_soil)
       precip_mass = (prc_rain + prl_rain + prc_snow + prl_snow) * deltim
       rain_mass   = (prc_rain + prl_rain) * deltim
       rnof_mass   = max(rnof, 0._r8) * deltim
@@ -136,8 +136,8 @@ CONTAINS
       water_input = precip_mass + dep_mass
       water_dS = endwb - totwb - glacier_overflow_mass
       water_end = max(wdsrf, 0._r8) + max(scv, 0._r8)
-      DO j_trc = 1, nl_soil
-         water_end = water_end + max(wliq_soisno(j_trc), 0._r8) + max(wice_soisno(j_trc), 0._r8)
+      DO j_mt = 1, nl_soil
+         water_end = water_end + max(wliq_soisno(j_mt), 0._r8) + max(wice_soisno(j_mt), 0._r8)
       ENDDO
       water_beg = water_end - water_dS
 
@@ -249,15 +249,15 @@ CONTAINS
             R_final   = R_init
          ENDIF
 
-         IF (mt_input > 0._r8) a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_input
+         IF (mt_input > 0._r8) a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_input
          CALL material_book_evap_loss(imt, ipatch, mt_evap_liq, evap_liq_mass, MT_EVAP_KIND_SOILEVAP)
          CALL material_book_evap_loss(imt, ipatch, mt_evap_ice, evap_ice_mass, MT_EVAP_KIND_SUBL)
          IF (mt_rnof > 0._r8) THEN
             CALL mt_add_rnof_step (imt, ipatch, mt_rnof)
-            a_trc_rsur(imt, ipatch) = a_trc_rsur(imt, ipatch) + mt_rnof
-            a_trc_rnof(imt, ipatch) = a_trc_rnof(imt, ipatch) + mt_rnof
+            a_mt_rsur(imt, ipatch) = a_mt_rsur(imt, ipatch) + mt_rnof
+            a_mt_rnof(imt, ipatch) = a_mt_rnof(imt, ipatch) + mt_rnof
          ENDIF
-         CALL sync_mt_patch_ratio(imt, ipatch, snl_trc, maxsnl, nl_soil, &
+         CALL sync_mt_patch_ratio(imt, ipatch, snl_mt, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, 0._r8, wdsrf, scv, R_final)
          IF (material_is_isotope(imt)) THEN
             ! sync has transferred the anomaly included in mt_storage_beg.
@@ -282,13 +282,13 @@ CONTAINS
          ENDIF
       ENDDO
 
-      CALL mt_apply_decay(ipatch, snl_trc, nl_soil, deltim)
-      CALL mt_balance_check(ipatch, snl_trc, nl_soil, deltim, xerr_material, &
+      CALL mt_apply_decay(ipatch, snl_mt, nl_soil, deltim)
+      CALL mt_balance_check(ipatch, snl_mt, nl_soil, deltim, xerr_material, &
          patchtype_in = 3, water_err_in = errorw, water_dS_in = water_dS, &
          water_input_in = precip_mass + dep_mass, water_output_in = evap_mass + rnof_mass, &
          water_evap_in = evap_mass, water_rnof_in = rnof_mass)
-      CALL mt_hist_accumulate(ipatch, snl_trc, maxsnl, nl_soil, 0._r8, 0._r8, &
-         wliq_soisno(snl_trc+1:nl_soil), wice_soisno(snl_trc+1:nl_soil), 0._r8, wdsrf, 0._r8, scv)
+      CALL mt_hist_accumulate(ipatch, snl_mt, maxsnl, nl_soil, 0._r8, 0._r8, &
+         wliq_soisno(snl_mt+1:nl_soil), wice_soisno(snl_mt+1:nl_soil), 0._r8, wdsrf, 0._r8, scv)
 
    CONTAINS
 
@@ -330,7 +330,7 @@ CONTAINS
       real(r8), intent(in) :: wice_soisno(maxsnl+1:nl_soil)
       logical,  intent(in) :: use_dynamic_lake
 
-      integer  :: imt, j_trc
+      integer  :: imt, j_mt
       real(r8) :: R_init, R_precip, R_rain, R_vapor, R_pool, R_final
       real(r8) :: R_dew, R_frost, R_runoff
       real(r8) :: atm_precip_mass, deficit_mass, precip_mass, rnof_mass
@@ -404,9 +404,9 @@ CONTAINS
       water_input = precip_mass + dep_mass
       water_dS = endwb - totwb
       water_end = wa + max(wdsrf, 0._r8)
-      DO j_trc = maxsnl + 1, nl_soil
-         IF (j_trc >= snl + 1) THEN
-            water_end = water_end + max(wliq_soisno(j_trc), 0._r8) + max(wice_soisno(j_trc), 0._r8)
+      DO j_mt = maxsnl + 1, nl_soil
+         IF (j_mt >= snl + 1) THEN
+            water_end = water_end + max(wliq_soisno(j_mt), 0._r8) + max(wice_soisno(j_mt), 0._r8)
          ENDIF
       ENDDO
       IF (snl >= 0) water_end = water_end + max(scv, 0._r8)
@@ -526,13 +526,13 @@ CONTAINS
             R_final   = R_init
          ENDIF
 
-         IF (mt_input > 0._r8) a_trc_precip(imt, ipatch) = a_trc_precip(imt, ipatch) + mt_input
+         IF (mt_input > 0._r8) a_mt_precip(imt, ipatch) = a_mt_precip(imt, ipatch) + mt_input
          CALL material_book_evap_loss(imt, ipatch, mt_evap_liq, evap_liq_mass, MT_EVAP_KIND_SOILEVAP)
          CALL material_book_evap_loss(imt, ipatch, mt_evap_ice, evap_ice_mass, MT_EVAP_KIND_SUBL)
          IF (mt_rnof > 0._r8) THEN
             CALL mt_add_rnof_step (imt, ipatch, mt_rnof)
-            a_trc_rsur(imt, ipatch) = a_trc_rsur(imt, ipatch) + mt_rnof
-            a_trc_rnof(imt, ipatch) = a_trc_rnof(imt, ipatch) + mt_rnof
+            a_mt_rsur(imt, ipatch) = a_mt_rsur(imt, ipatch) + mt_rnof
+            a_mt_rnof(imt, ipatch) = a_mt_rnof(imt, ipatch) + mt_rnof
          ENDIF
          CALL sync_mt_patch_ratio(imt, ipatch, snl, maxsnl, nl_soil, &
             wliq_soisno, wice_soisno, wa, wdsrf, scv, R_final)

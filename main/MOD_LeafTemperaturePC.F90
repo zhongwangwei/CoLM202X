@@ -69,7 +69,7 @@ CONTAINS
                qintr_rain ,qintr_snow ,t_precip   ,hprl       ,&
                dheatl     ,smp        ,hk         ,hksati     ,&
 #ifdef MaterialTransport
-               rootflux   ,canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_trc_out )
+               rootflux   ,canopy_smelt_mass_p_out, canopy_frzc_mass_p_out, raw_mt_out )
 #else
                rootflux    )
 #endif
@@ -276,7 +276,7 @@ CONTAINS
    ! Diagnostics for material transport only; not used by the host.
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_smelt_mass_p_out ! canopy snow melted [mm]
    real(r8), dimension(ps:pe), intent(out), optional :: canopy_frzc_mass_p_out  ! canopy water frozen [mm]
-   real(r8), intent(out), optional :: raw_trc_out  ! moisture resistance raw [s/m]
+   real(r8), intent(out), optional :: raw_mt_out  ! moisture resistance raw [s/m]
 #endif
 
    real(r8), intent(inout) :: &
@@ -544,7 +544,7 @@ CONTAINS
 #ifdef MaterialTransport
       IF (present(canopy_smelt_mass_p_out)) canopy_smelt_mass_p_out(:) = 0._r8
       IF (present(canopy_frzc_mass_p_out))  canopy_frzc_mass_p_out(:)  = 0._r8
-      IF (present(raw_trc_out)) raw_trc_out = 0._r8
+      IF (present(raw_mt_out)) raw_mt_out = 0._r8
 #endif
       ! When there is no vegetation in this Plant Community Patch, RETURN
       IF (.not. is_vegetated_patch) THEN
@@ -2099,7 +2099,7 @@ ENDIF
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
 #ifdef MaterialTransport
-      IF (present(raw_trc_out)) raw_trc_out = max(raw, 0._r8)
+      IF (present(raw_mt_out)) raw_mt_out = max(raw, 0._r8)
 #endif
 
    END SUBROUTINE LeafTemperaturePC
