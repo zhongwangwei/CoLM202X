@@ -89,8 +89,8 @@ segment-exit markers, checks every valid floating-point value is finite,
 checks the expected two daily records and material/sediment fields, then
 compares both revisions and both continuous/split histories and restart states.
 Numerical output files stay on T7920; its result directory contains comparison
-summaries and copied model/build logs for retrieval. See the validation report
-for actual job IDs, outcomes and remaining coverage limits.
+summaries and copied model/build logs for retrieval. Job IDs and outcomes are
+recorded in local validation artifacts and the pull-request validation summary.
 
 The model runner itself uses only Python's standard library; all numerical
 output comparisons are performed by the separate verifier.
@@ -149,8 +149,8 @@ thermal observations to THERMAL's initializer; water snapshots and water reset
 remain owned by preparation. PhaseChange still supports standalone initialization.
 
 Interface-only factoring also requires equal preprocessed tokens and statement
-boundaries with MaterialTransport on/off. Phase-5 result and build evidence is in
-`docs/superpowers/specs/2026-10-31-material-host-cleanup-phase5-results.md`.
+boundaries with MaterialTransport on/off. Session plans and validation notes stay
+local; build evidence is retained under the corresponding local artifact directory.
 
 
 ## Consolidated material stages (phase 6)
@@ -175,4 +175,4 @@ The snow stage comparison executes actual standard/SNICAR topology routines and
 compares the new normalized entry with the frozen MAIN sequence, including empty
 snow and snow layers collapsing during combine. Legacy land-boundary/scaffolding
 checks retain their earlier baselines and adapt to the new owning entry.
-See the phase-6 results report for executed checks, build evidence and limitations.
+Executed checks and build evidence are recorded in local artifacts and the PR summary.
