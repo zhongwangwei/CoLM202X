@@ -30,15 +30,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    USE MOD_Namelist, only: DEF_forcing, DEF_URBAN_RUN
    USE MOD_Forcing, only: forcmask_pch
 #ifdef MaterialTransport
-   USE MOD_MT_LandPhase, only: mt_resolve_step, mt_lake_step, &
-      mt_wetland_decomp, mt_soil_step, mt_report
-   USE MOD_MT_Defs, only: nmts
-   USE MOD_SPMD_Task, only: CoLM_stop
+   USE MOD_MT_LandPhase, only: mt_lake_step, mt_land_after_bgc, mt_report
    USE MOD_MT_SpecialPatches, only: mt_waterbody_hist_sample
-#endif
-#if (defined MaterialTransport && defined BGC)
-   ! Reads the BGC leaching flux without changing BGC physics (see module).
-   USE MOD_MT_NitrogenLeaching, only: mt_bgc_n_leaching
 #endif
 #ifdef HYPERSPECTRAL
   USE MOD_HighRes_Parameters
@@ -73,15 +66,8 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
    real(r8) :: deltim_phy
    integer  :: steps_in_one_deltim
    integer  :: i, m, u, k
-#ifdef MaterialTransport
-   integer  :: istep_local
-#endif
 
 ! ======================================================================
-
-#ifdef MaterialTransport
-      CALL mt_resolve_step (istep_in, istep_local)
-#endif
 
       DO i = 1, numpatch
 
@@ -238,7 +224,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
                fm(i),           fh(i),           fq(i)                             )
 
 #ifdef MaterialTransport
-               CALL mt_lake_step (istep_local, i, idate, deltim_phy, k, steps_in_one_deltim)
+               CALL mt_lake_step (istep_in, i, idate, deltim_phy, k, steps_in_one_deltim)
 #endif
             ENDDO
          ENDIF
@@ -252,14 +238,7 @@ SUBROUTINE CoLMDRIVER (idate,deltim,dolai,doalb,dosst,oro)
             CALL bgc_driver (i,idate(1:3),deltim, patchlatr(i)*180/PI,patchlonr(i)*180/PI)
          ENDIF
 #ifdef MaterialTransport
-         CALL mt_wetland_decomp (i, deltim)
-         CALL mt_soil_step (istep_local, i, idate, deltim)
-#ifdef BGC
-         ! Book the BGC mineral-N leaching loss as an external solute input.
-         ! BGC physics is untouched; this only reads the flux it already
-         ! removed from sminn/smin_no3 and adds it to the runoff hand-off.
-         CALL mt_bgc_n_leaching (i, patchtype(i), deltim)
-#endif
+         CALL mt_land_after_bgc (istep_in, i, idate, deltim, patchtype(i))
 #endif
 #endif
 

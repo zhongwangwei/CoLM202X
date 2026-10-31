@@ -7,7 +7,7 @@ MODULE MOD_MT_Snow
    USE MOD_MT_Defs, only: nmts, mt_tiny, mt_uses_generic_water
    USE MOD_MT_Solute, only: mt_equilibrate_dissolved
 	   USE MOD_MT_Vars, only: mt_wliq_soisno, mt_wice_soisno, mt_pg_snow_ground, &
-	      mt_scv, mt_wetwat, mt_solid_soisno, mt_numerical_residual_step
+	      mt_scv, mt_sm_carry, mt_wetwat, mt_solid_soisno, mt_numerical_residual_step
    USE MOD_Namelist, only: DEF_USE_VariablySaturatedFlow
 
    IMPLICIT NONE
@@ -207,6 +207,43 @@ CONTAINS
          ENDIF
       ENDDO
    END SUBROUTINE mt_newsnow
+
+   SUBROUTINE mt_snowmelt_carry (ipatch, snl, scv, scv_before)
+      integer, intent(in) :: ipatch, snl
+      real(r8), intent(in) :: scv, scv_before
+      integer :: imt_loc
+      real(r8) :: ratio_loc
+
+         ! snow melt carried from a vanishing or shrinking no-layer snow pack
+         IF (snl == 0) THEN
+            IF (scv < mt_tiny) THEN
+               DO imt_loc = 1, nmts
+                  IF (.not. mt_uses_generic_water(imt_loc)) CYCLE
+                  mt_sm_carry(imt_loc, ipatch) = mt_scv(imt_loc, ipatch)
+                  mt_scv(imt_loc, ipatch) = 0._r8
+               ENDDO
+            ELSEIF (scv < scv_before - mt_tiny) THEN
+               ratio_loc = scv / max(scv_before, mt_tiny)
+               ratio_loc = max(min(ratio_loc, 1._r8), 0._r8)
+               DO imt_loc = 1, nmts
+                  IF (.not. mt_uses_generic_water(imt_loc)) CYCLE
+                  mt_sm_carry(imt_loc, ipatch) = mt_scv(imt_loc, ipatch) * (1._r8 - ratio_loc)
+                  mt_scv(imt_loc, ipatch) = mt_scv(imt_loc, ipatch) * ratio_loc
+               ENDDO
+            ELSE
+               DO imt_loc = 1, nmts
+                  IF (.not. mt_uses_generic_water(imt_loc)) CYCLE
+                  mt_sm_carry(imt_loc, ipatch) = 0._r8
+               ENDDO
+            ENDIF
+         ELSE
+            DO imt_loc = 1, nmts
+               IF (.not. mt_uses_generic_water(imt_loc)) CYCLE
+               mt_sm_carry(imt_loc, ipatch) = 0._r8
+            ENDDO
+         ENDIF
+
+   END SUBROUTINE mt_snowmelt_carry
 
    ! material_snow_layer_adj was removed: the prior post-hoc redistribution
    ! (total-material / total-water share) homogenised the snow column every

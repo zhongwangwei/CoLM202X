@@ -4,7 +4,9 @@
 MODULE MOD_MT_LandPhase
 
    USE MOD_Precision
+   USE MOD_MT_LandWork, only: mt_land_work
    USE MOD_MT_Defs
+   USE MOD_MT_HydroDiagnostics, only: mt_water_diagnostics
    USE MOD_MT_Solute, only: mt_solute_read_parameters
    USE MOD_MT_Vars
    USE MOD_MT_Precip
@@ -14,8 +16,11 @@ MODULE MOD_MT_LandPhase
    USE MOD_MT_Conservation
    USE MOD_MT_Rest
    USE MOD_MT_SoilInit
+#ifdef GridRiverLakeFlow
+   USE MOD_MT_RiverLakeCoupling, only: mt_rlc_land_flood_input, mt_rlc_land_publish_input
+#endif
    USE MOD_SPMD_Task
-   USE MOD_Namelist, only: DEF_USE_IRRIGATION
+   USE MOD_Namelist, only: DEF_USE_IRRIGATION, DEF_SPLIT_SOILSNOW, DEF_USE_Dynamic_Wetland
    USE MOD_MT_Lifecycle, only: material_lifecycle_init, &
       material_lifecycle_land_init, material_lifecycle_land_final, &
       material_lifecycle_lake_step, &
@@ -43,12 +48,18 @@ MODULE MOD_MT_LandPhase
    ! -- Lifecycle: one-shot init/final, called from CoLM.F90 --------------
    PUBLIC :: mt_land_init, mt_land_final
 
+   PUBLIC :: mt_land_work, mt_land_interception, mt_land_water_fluxes
+   PUBLIC :: mt_land_thermal_step, mt_land_newsnow, mt_land_after_bgc
+#ifdef CaMa_Flood
+   PUBLIC :: mt_land_check_flood_feedback
+#endif
+
    ! -- Column phase: per-patch soil-water/precip/evap/snow transport,
    !    called inside the CoLMMAIN patch loop (per ipatch, snl, nl_soil) --
    PUBLIC :: nmts, mt_tiny, mt_uses_generic_water
-   PUBLIC :: mt_precip, mt_evapo, mt_soil_water, mt_wetland
+   PUBLIC :: mt_precip, mt_evapo, mt_land_water_step
    PUBLIC :: mt_flood_evap_loss
-   PUBLIC :: mt_newsnow, mt_save_storage, mt_balance_check
+   PUBLIC :: mt_newsnow, mt_snowmelt_carry, mt_save_storage, mt_balance_check
    PUBLIC :: mt_apply_decay
    PUBLIC :: mt_wliq_soisno, mt_wice_soisno, mt_solid_soisno, mt_scv
    PUBLIC :: mt_ldew_rain, mt_ldew_snow, mt_sm_carry
@@ -62,6 +73,253 @@ MODULE MOD_MT_LandPhase
    PUBLIC :: mt_flush_acc_fluxes, mt_accumulate_fluxes
 
 CONTAINS
+
+   SUBROUTINE mt_land_thermal_step(work, ipatch, deltim, snl, nl_soil, &
+      ldew, ldew_rain, ldew_snow, tleaf, wliq_soisno, wice_soisno, t_soisno, forc_q, forc_psrf, scv)
+      type(mt_land_work), intent(inout) :: work
+      integer, intent(in) :: ipatch, snl, nl_soil
+      real(r8), intent(in) :: deltim, ldew, ldew_rain, ldew_snow, tleaf, forc_q, forc_psrf, scv
+      real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil)
+      real(r8), intent(in) :: t_soisno(snl+1:nl_soil)
+
+      CALL mt_canopy_parts(ldew, ldew_rain, ldew_snow, tleaf, &
+         work%canopy_rain_postthermal, work%canopy_snow_postthermal)
+      CALL mt_evapo(ipatch, deltim, snl, nl_soil, &
+         work%canopy_rain_postthermal, work%canopy_snow_postthermal, &
+         work%canopy_rain_prethermal, work%canopy_snow_prethermal, &
+         wliq_soisno, wice_soisno, work%wliq_before, work%wice_before, &
+         canopy_smelt_mass_th=work%thermal%canopy%melt, &
+         canopy_frzc_mass_th=work%thermal%canopy%freeze, &
+         soil_thaw_mass_th=work%thermal%soil_thaw, soil_frzc_mass_th=work%thermal%soil_freeze, &
+         tleaf_frac=tleaf, t_soisno_frac=t_soisno, forc_q_frac=forc_q, forc_psrf_frac=forc_psrf)
+      CALL mt_snowmelt_carry(ipatch, snl, scv, work%snow_before)
+      CALL work%save_water(snl+1, nl_soil, wliq_soisno, wice_soisno)
+   END SUBROUTINE mt_land_thermal_step
+
+   SUBROUTINE mt_land_newsnow(work, ipatch, patchtype, snl, snl_bef, nl_soil, pg_snow, &
+      deltim, scv, wetwat, wliq_soisno, wice_soisno)
+      type(mt_land_work), intent(inout) :: work
+      integer, intent(in) :: ipatch, patchtype, snl, snl_bef, nl_soil
+      real(r8), intent(in) :: pg_snow, deltim, scv, wetwat
+      real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil)
+
+      work%snow_before = scv
+      IF (snl < 0) THEN
+         CALL mt_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
+            scv, work%snow_before, wetwat, wliq_soisno(snl+1:0), wice_soisno(snl+1:0), &
+            work%snow_ice_before(snl+1:0))
+      ELSE
+         CALL mt_newsnow(ipatch, patchtype, snl, snl_bef, pg_snow, deltim, &
+            scv, work%snow_before, wetwat)
+      ENDIF
+   END SUBROUTINE mt_land_newsnow
+
+   SUBROUTINE mt_land_after_bgc(istep_in, ipatch, idate, deltim, patchtype)
+#ifdef BGC
+      USE MOD_MT_NitrogenLeaching, only: mt_bgc_n_leaching
+#endif
+      integer, intent(in), optional :: istep_in
+      integer, intent(in) :: ipatch, idate(3), patchtype
+      integer :: istep_local
+      real(r8), intent(in) :: deltim
+
+      CALL mt_resolve_step(istep_in, istep_local)
+      CALL mt_wetland_decomp(ipatch, deltim)
+      CALL mt_soil_step(istep_local, ipatch, idate, deltim)
+#ifdef BGC
+      CALL mt_bgc_n_leaching(ipatch, patchtype, deltim)
+#endif
+   END SUBROUTINE mt_land_after_bgc
+
+
+   SUBROUTINE mt_land_interception (ipatch, deltim, snl, nl_soil, work, &
+      ldew, ldew_rain, ldew_snow, tleaf, forc_rain, forc_snow, &
+      qintr, qintr_rain, qintr_snow, pg_rain, pg_snow, qflx_irrig_sprinkler, &
+      canopy_drain_rain, canopy_drain_snow)
+
+      integer, intent(in) :: ipatch, snl, nl_soil
+      type(mt_land_work), intent(inout) :: work
+      real(r8), intent(in) :: deltim, ldew, ldew_rain, ldew_snow, tleaf
+      real(r8), intent(in) :: forc_rain, forc_snow, qintr, qintr_rain, qintr_snow
+      real(r8), intent(in) :: pg_rain, pg_snow, qflx_irrig_sprinkler
+      real(r8), intent(in) :: canopy_drain_rain, canopy_drain_snow
+
+      ! Interception parts derived from its outputs (rates, mm/s):
+      ! throughfall = input - qintr_*, so old-canopy release xsc = pg_* - throughfall.
+      work%rain_release = max(pg_rain - (forc_rain + qflx_irrig_sprinkler - qintr_rain), 0._r8)
+      work%snow_release = max(pg_snow - (forc_snow - qintr_snow), 0._r8)
+      ! qintr_* are NET interception (input - direct throughfall - drainage);
+      ! mt_precip needs the GROSS interception (input - direct throughfall)
+      ! to split pure-gap throughfall from post-mix canopy drip.  The leaf
+      ! interception call above exposes the real drainage rate for MT builds
+      ! (mt_leaf_qdrp_*); using the net value here lost all old-canopy solute
+      ! flushing (N02).
+      ! Old-water unloading can make net interception negative.
+      work%gross_rain = max(qintr_rain + max(canopy_drain_rain, 0._r8), 0._r8)
+      work%gross_snow = max(qintr_snow + max(canopy_drain_snow, 0._r8), 0._r8)
+      CALL mt_canopy_lump (ipatch, ldew, ldew_rain, ldew_snow, tleaf, &
+         work%canopy_rain_intercepted, work%canopy_snow_intercepted)
+#ifdef CROP
+      IF (DEF_USE_IRRIGATION) THEN
+         CALL mt_save_storage(ipatch, snl, nl_soil, work%irrigation_storage_before)
+      ELSE
+         CALL mt_save_storage(ipatch, snl, nl_soil)
+      ENDIF
+#else
+      CALL mt_save_storage(ipatch, snl, nl_soil)
+#endif
+      ! the host interception has no canopy phase change (melt/freeze masses are zero)
+      CALL mt_precip(ipatch, deltim, &
+         forc_rain, forc_snow, qintr, qintr_rain, qintr_snow, &
+         pg_rain, pg_snow, work%canopy_rain_intercepted, work%canopy_snow_intercepted, &
+         work%canopy_rain_before, work%canopy_snow_before, &
+         qflx_irrig_sprinkler, &
+         work%gross_rain, work%gross_snow, &
+         work%rain_release, work%snow_release, &
+         0._r8, 0._r8, work%irrigation_storage_before)
+   END SUBROUTINE mt_land_interception
+
+   SUBROUTINE mt_land_water_fluxes (work, water_diag, wa, qinfl, deltim)
+      type(mt_land_work), intent(inout) :: work
+      type(mt_water_diagnostics), intent(in) :: water_diag
+      real(r8), intent(in) :: wa, qinfl, deltim
+
+      ! Water recharging the aquifer, consistent with the root and baseflow
+      ! parts taken from it.
+      work%recharge = (wa - work%wa_before + water_diag%etroot_aquifer + &
+         max(water_diag%rsub_source_aquifer, 0._r8)) / max(deltim, mt_tiny)
+      ! The host qinfl also counts the ponding water that the aquifer
+      ! exchange took for roots and baseflow; those parts are booked by
+      ! etroot_surface and rsub_source_surface, so leave them out here.
+      work%infiltration = qinfl - (water_diag%etroot_surface + water_diag%rsub_source_surface) / deltim
+
+   END SUBROUTINE mt_land_water_fluxes
+
+#ifdef CaMa_Flood
+   SUBROUTINE mt_land_check_flood_feedback (patchtype, enabled)
+      integer, intent(in) :: patchtype
+      logical, intent(in) :: enabled
+      integer :: imt_loc
+
+      ! CaMa-Flood exchanges no materials with the land; stop instead of
+      ! booking flood water without composition.
+      IF (enabled .and. patchtype == 0 .and. nmts > 0) THEN
+         DO imt_loc = 1, nmts
+            IF (.not. mt_uses_generic_water(imt_loc)) CYCLE
+            CALL CoLM_stop('Material transport: CaMa flood feedback (LWINFILT) is not supported.')
+         ENDDO
+      ENDIF
+   END SUBROUTINE mt_land_check_flood_feedback
+#endif
+
+   SUBROUTINE mt_land_water_step (ipatch, deltim, snl, nl_soil, patchtype, work, water_diag, &
+      qlayer, rsur, rsub, qseva, qsdew, qsubl, qfros, &
+      qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+      qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, etr, sm, fsno, &
+      wliq_soisno, wice_soisno, wa, wdsrf, wetwat, pg_rain, pg_snow, &
+      t_soisno, porsl, dz_soisno, forc_us, forc_vs, forc_q, forc_psrf, &
+      tleaf, lai, rst, rss, qinfl, qflx_irrig_drip, qflx_irrig_flood, qflx_irrig_paddy &
+#ifdef GridRiverLakeFlow
+      ,flood_credit_patch, fevpg_fld, qinfl_fld &
+#endif
+      )
+
+      integer, intent(in) :: ipatch, snl, nl_soil, patchtype
+      type(mt_land_work), intent(inout) :: work
+      type(mt_water_diagnostics), intent(in) :: water_diag
+      real(r8), intent(in) :: deltim, qlayer(0:nl_soil), rsur, rsub
+      real(r8), intent(in) :: qseva, qsdew, qsubl, qfros
+      real(r8), intent(in) :: qseva_soil, qsdew_soil, qsubl_soil, qfros_soil
+      real(r8), intent(in) :: qseva_snow, qsdew_snow, qsubl_snow, qfros_snow
+      real(r8), intent(in) :: etr, sm, fsno, wa, wdsrf, wetwat, pg_rain, pg_snow
+      real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil)
+      real(r8), intent(in) :: t_soisno(snl+1:nl_soil), porsl(nl_soil)
+      real(r8), intent(in) :: dz_soisno(min(snl+1,0):nl_soil)
+      real(r8), intent(in) :: forc_us, forc_vs, forc_q, forc_psrf, tleaf, lai, rst, rss
+      real(r8), intent(in) :: qinfl, qflx_irrig_drip, qflx_irrig_flood, qflx_irrig_paddy
+#ifdef GridRiverLakeFlow
+      real(r8), allocatable, intent(in) :: flood_credit_patch(:)
+      real(r8), intent(in) :: fevpg_fld, qinfl_fld
+      real(r8) :: flood_input_material(nmts)
+#endif
+      integer :: lbsn
+
+      work%irrigation = qflx_irrig_drip + qflx_irrig_flood + qflx_irrig_paddy
+      CALL mt_land_water_fluxes(work, water_diag, wa, qinfl, deltim)
+#ifdef GridRiverLakeFlow
+      CALL mt_rlc_land_flood_input(ipatch, patchtype, flood_credit_patch, &
+         fevpg_fld, qinfl_fld, deltim, flood_input_material)
+#endif
+      lbsn = min(snl+1,0)
+      IF (patchtype == 2 .and. .not. DEF_USE_Dynamic_Wetland) THEN
+         CALL mt_wetland(ipatch, deltim, snl, nl_soil, &
+            rsur, &
+            qseva, qsdew, qsubl, qfros, &
+            qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+            qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+            etr, sm, fsno, DEF_SPLIT_SOILSNOW, &
+            wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+            work%wliq_before, work%wice_before, &
+            wa, work%wa_before, wdsrf, work%wdsrf_before, &
+            wetwat, work%wetwat_before, pg_rain, pg_snow, &
+            t_soisno(snl+1:nl_soil), porsl(1:nl_soil), &
+            dz_soisno(snl+1:nl_soil), &
+            work%irrigation, &
+            forc_us, forc_vs, work%irrigation_storage_ground, &
+            snow_qout_layer = water_diag%snow_qout_layer(lbsn:0), &
+            forc_q_frac = forc_q, &
+            forc_psrf_frac = forc_psrf, &
+            tleaf_frac = tleaf, &
+            lai_frac = lai, &
+            rst_frac = rst, &
+            ra_frac = work%thermal%canopy%raw, &
+            dz_sno_frac = dz_soisno(lbsn:0))
+      ELSE
+         CALL mt_soil_water(ipatch, deltim, snl, nl_soil, &
+            qlayer, work%infiltration, work%recharge, rsur, rsub, &
+            qseva, qsdew, qsubl, qfros, &
+            qseva_soil, qsdew_soil, qsubl_soil, qfros_soil, &
+            qseva_snow, qsdew_snow, qsubl_snow, qfros_snow, &
+            sm, fsno, DEF_SPLIT_SOILSNOW, &
+            wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+            work%wliq_before, work%wice_before, &
+            wa, work%wa_before, wdsrf, work%wdsrf_before, &
+            wetwat, work%wetwat_before, pg_rain, pg_snow, &
+            water_diag%wblc_ice_sink, &
+            water_diag%etroot_actual, water_diag%etroot_aquifer, &
+            work%irrigation, &
+            work%irrigation_storage_ground, &
+            etroot_surface = water_diag%etroot_surface, dew_overflow = water_diag%dew_overflow, &
+            frost_displaced = water_diag%frost_displaced, late_surface_runoff = water_diag%late_runoff, &
+            rsub_source_layer = water_diag%rsub_source_layer, &
+            rsub_source_surface = water_diag%rsub_source_surface, &
+            rsub_source_aquifer = water_diag%rsub_source_aquifer, &
+            imperv_evap_wdsrf = water_diag%imperv_evap_wdsrf, &
+            imperv_evap_soil = water_diag%imperv_evap_soil, &
+            imperv_subl_soil = water_diag%imperv_subl_soil, &
+            snow_qout_layer = water_diag%snow_qout_layer(lbsn:0), &
+            qgtop_solver = water_diag%qgtop, &
+            tleaf_frac = tleaf, &
+            t_soisno_frac = t_soisno(snl+1:nl_soil), &
+            forc_q_frac = forc_q, &
+            forc_psrf_frac = forc_psrf, &
+            lai_frac = lai, &
+            rst_frac = rst, &
+            ra_frac = work%thermal%canopy%raw, &
+            rss_frac = rss, &
+            dz_soi_frac = dz_soisno(1:nl_soil), &
+            porsl_frac = porsl(1:nl_soil), &
+            dz_sno_frac = dz_soisno(lbsn:0), &
+            permeable_soil = water_diag%permeable_soil &
+#ifdef GridRiverLakeFlow
+            ,flood_mt_input = flood_input_material, flood_infil_water = qinfl_fld*deltim &
+#endif
+            )
+      ENDIF
+#ifdef GridRiverLakeFlow
+      CALL mt_rlc_land_publish_input(ipatch, patchtype, DEF_USE_Dynamic_Wetland, flood_input_material)
+#endif
+   END SUBROUTINE mt_land_water_step
 
    SUBROUTINE mt_land_init (numpatch, maxsnl, nl_soil, init_month, lc_year, jdate, &
       casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
@@ -277,16 +535,18 @@ CONTAINS
 
    END SUBROUTINE mt_resolve_step
 
-   SUBROUTINE mt_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
+   SUBROUTINE mt_lake_step (istep_in, ipatch, idate, deltim_phy, isub, nsub)
 
       IMPLICIT NONE
-      integer,  intent(in) :: istep_local
+      integer, intent(in), optional :: istep_in
+      integer :: istep_local
       integer,  intent(in) :: ipatch
       integer,  intent(in) :: idate(3)
       real(r8), intent(in) :: deltim_phy
       integer,  intent(in) :: isub
       integer,  intent(in) :: nsub
 
+      CALL mt_resolve_step(istep_in, istep_local)
       CALL material_lifecycle_lake_step (istep_local, ipatch, idate, deltim_phy, isub, nsub)
 
    END SUBROUTINE mt_lake_step

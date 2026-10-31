@@ -77,7 +77,7 @@ PROGRAM MKSRFDATA
 #endif
    USE MOD_RegionClip
 #if (defined MaterialTransport) && (defined BGC)
-   USE MOD_MT_Methane_Preprocessing, only: methane_preprocessing_requirements
+   USE MOD_MT_Methane_Aggregation, only: methane_aggregate_surface_data, methane_clip_surface_data
 #endif
 #ifdef SrfdataDiag
    USE MOD_SrfdataDiag, only: gdiag, srfdata_diag_init
@@ -109,9 +109,6 @@ PROGRAM MKSRFDATA
    character(len=4) :: cyear
    integer*8 :: start_time, end_time, c_per_sec, time_used
    logical   :: skip_rest
-#if (defined MaterialTransport) && (defined BGC)
-   logical   :: requires_lake_soilc, requires_spatial_ph
-#endif
 
 
 #ifdef USEMPI
@@ -153,9 +150,7 @@ PROGRAM MKSRFDATA
       IF (USE_srfdata_from_larger_region) THEN
 
 #if (defined MaterialTransport) && (defined BGC)
-         CALL methane_preprocessing_requirements(requires_lake_soilc, requires_spatial_ph)
-         CALL srfdata_region_clip (DEF_dir_existing_srfdata, DEF_dir_landdata, &
-            requires_lake_soilc, requires_spatial_ph)
+         CALL methane_clip_surface_data(DEF_dir_existing_srfdata, DEF_dir_landdata)
 #else
          CALL srfdata_region_clip (DEF_dir_existing_srfdata, DEF_dir_landdata, .false., .false.)
 #endif
@@ -517,13 +512,7 @@ IF (.not. (skip_rest)) THEN
       CALL Aggregation_SoilParameters  (grid_soil, dir_rawdata, dir_landdata, lc_year)
 
 #if (defined MaterialTransport) && (defined BGC)
-      ! Methane surface data, only when the methane settings ask for them
-      ! (lake CH4 production; spatial soil pH); nothing else is changed.
-      CALL methane_preprocessing_requirements (requires_lake_soilc, requires_spatial_ph)
-      IF (requires_lake_soilc) &
-         CALL Aggregation_LakeSoilC    (grid_soil, dir_rawdata, dir_landdata, lc_year)
-      IF (requires_spatial_ph) &
-         CALL Aggregation_MethanePH    (dir_rawdata, dir_landdata, lc_year)
+      CALL methane_aggregate_surface_data(grid_soil, dir_rawdata, dir_landdata, lc_year)
 #endif
 
       CALL Aggregation_SoilBrightness  (grid_500m, dir_rawdata, dir_landdata, lc_year)

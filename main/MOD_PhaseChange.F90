@@ -4,7 +4,13 @@ MODULE MOD_PhaseChange
 
 !-----------------------------------------------------------------------
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_ThermalDiagnostics, only: mt_thermal_diagnostics, mt_phase_reset, mt_phase_record
+#endif
    IMPLICIT NONE
+#ifdef MaterialTransport
+   PRIVATE :: mt_thermal_diagnostics, mt_phase_reset, mt_phase_record
+#endif
    SAVE
 
 ! PUBLIC MEMBER FUNCTIONS:
@@ -30,12 +36,11 @@ CONTAINS
                      theta_r,alpha_vgm,n_vgm,L_vgm,&
                      sc_vgm,fc_vgm,&
 #endif
-#ifdef MaterialTransport
                      dz &
-                    ,qphs_thaw_lay, qphs_frzc_lay)
-#else
-                     dz)
+#ifdef MaterialTransport
+                     ,thermal_diag &
 #endif
+                     )
 
 !-----------------------------------------------------------------------
 ! !DESCRIPTION:
@@ -106,8 +111,7 @@ CONTAINS
    real(r8), intent(out) :: xmf                        !total latent heat of phase change
     integer, intent(out) :: imelt(lb:nl_soil)          !flag for melting or freezing [-]
 #ifdef MaterialTransport
-   real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
-   real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
+   type(mt_thermal_diagnostics), intent(inout), optional :: thermal_diag
 #endif
 
 !-------------------------- Local Variables ----------------------------
@@ -126,8 +130,7 @@ CONTAINS
       sm = 0.
       xmf = 0.
 #ifdef MaterialTransport
-      IF (present(qphs_thaw_lay)) qphs_thaw_lay(:) = 0._r8
-      IF (present(qphs_frzc_lay)) qphs_frzc_lay(:) = 0._r8
+      CALL mt_phase_reset(thermal_diag, lb, nl_soil)
 #endif
       DO j = lb, nl_soil
          imelt(j) = 0
@@ -319,10 +322,7 @@ CONTAINS
             sm = sm + max(0.,(wice0(j)-wice_soisno(j)))/deltim
 
 #ifdef MaterialTransport
-            IF (present(qphs_thaw_lay)) &
-               qphs_thaw_lay(j) = max(wice0(j) - wice_soisno(j), 0._r8)
-            IF (present(qphs_frzc_lay)) &
-               qphs_frzc_lay(j) = max(wice_soisno(j) - wice0(j), 0._r8)
+            CALL mt_phase_record(thermal_diag, j, wice0(j), wice_soisno(j))
 #endif
          ENDIF
       ENDDO
@@ -350,12 +350,11 @@ CONTAINS
                      theta_r,alpha_vgm,n_vgm,L_vgm,&
                      sc_vgm,fc_vgm,&
 #endif
-#ifdef MaterialTransport
                      dz &
-                    ,qphs_thaw_lay, qphs_frzc_lay)
-#else
-                     dz)
+#ifdef MaterialTransport
+                     ,thermal_diag &
 #endif
+                     )
 
 !-----------------------------------------------------------------------
 ! !DESCRIPTION:
@@ -427,8 +426,7 @@ CONTAINS
    real(r8), intent(out) :: xmf                        !total latent heat of phase change
     integer, intent(out) :: imelt(lb:nl_soil)          !flag for melting or freezing [-]
 #ifdef MaterialTransport
-   real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
-   real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
+   type(mt_thermal_diagnostics), intent(inout), optional :: thermal_diag
 #endif
 
 !-------------------------- Local Variables ----------------------------
@@ -448,8 +446,7 @@ CONTAINS
       sm = 0.
       xmf = 0.
 #ifdef MaterialTransport
-      IF (present(qphs_thaw_lay)) qphs_thaw_lay(:) = 0._r8
-      IF (present(qphs_frzc_lay)) qphs_frzc_lay(:) = 0._r8
+      CALL mt_phase_reset(thermal_diag, lb, nl_soil)
 #endif
       DO j = lb, nl_soil
          imelt(j) = 0
@@ -647,10 +644,7 @@ CONTAINS
             sm = sm + max(0.,(wice0(j)-wice_soisno(j)))/deltim
 
 #ifdef MaterialTransport
-            IF (present(qphs_thaw_lay)) &
-               qphs_thaw_lay(j) = max(wice0(j) - wice_soisno(j), 0._r8)
-            IF (present(qphs_frzc_lay)) &
-               qphs_frzc_lay(j) = max(wice_soisno(j) - wice0(j), 0._r8)
+            CALL mt_phase_record(thermal_diag, j, wice0(j), wice_soisno(j))
 #endif
          ENDIF
       ENDDO

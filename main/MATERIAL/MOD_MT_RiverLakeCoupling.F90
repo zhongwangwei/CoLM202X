@@ -23,7 +23,7 @@ MODULE MOD_MT_RiverLakeCoupling
    USE MOD_Precision
    USE MOD_SPMD_Task
    USE MOD_Namelist
-   USE MOD_MT_Defs, only: nmts, mt_uses_generic_water, material_is_nonvolatile_solute
+   USE MOD_MT_Defs, only: nmts, materials, mt_uses_generic_water, material_is_nonvolatile_solute
    USE MOD_MT_Solute, only: mt_has_dissolved_limit, mt_equilibrate_dissolved
    USE MOD_MT_RiverLake
    USE MOD_MT_Lifecycle, only: mt_lifecycle_route_has_active, mt_lifecycle_route_init, &
@@ -81,6 +81,84 @@ MODULE MOD_MT_RiverLakeCoupling
    PUBLIC :: flood_mt_credit_patch, flood_mt_evap_patch, flood_mt_land_patch
 
 CONTAINS
+
+   SUBROUTINE mt_rlc_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
+      USE MOD_MT_Lifecycle, only: mt_lifecycle_route_write_history
+      character(len=*), intent(in) :: file_hist_ucat
+      integer, intent(in) :: itime_in_file_ucat
+      real(r8), intent(in) :: acctime_ucat(:)
+
+      CALL mt_riverlake_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
+      CALL mt_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
+   END SUBROUTINE mt_rlc_write_history
+
+   SUBROUTINE mt_rlc_flush_history ()
+      USE MOD_MT_Lifecycle, only: mt_lifecycle_route_flush_history
+
+      CALL mt_riverlake_flush_acc ()
+      CALL mt_lifecycle_route_flush_history ()
+   END SUBROUTINE mt_rlc_flush_history
+
+   SUBROUTINE mt_rlc_land_flood_evap (ipatch, patchtype, water_credit, &
+         evaporation, deltim, temperature, forc_q, forc_psrf, forc_us, forc_vs)
+
+      USE MOD_Namelist, only: LWINFILT => DEF_GridRiverLake_FloodFeedback
+      USE MOD_MT_Evapo, only: mt_flood_evap_loss
+      integer, intent(in) :: ipatch, patchtype
+      real(r8), allocatable, intent(in) :: water_credit(:) ! published patch water [m]
+      real(r8), intent(in) :: evaporation ! water rate [mm/s]
+      real(r8), intent(in) :: deltim, temperature, forc_q, forc_psrf, forc_us, forc_vs
+
+      ! Vapour exchange is debited from the river pools at the next routing call.
+      IF (allocated(flood_mt_evap_patch)) THEN
+         flood_mt_evap_patch(:,ipatch) = 0._r8
+         IF (LWINFILT .and. patchtype == 0 .and. evaporation > 0._r8) &
+            CALL mt_flood_evap_loss(ipatch, water_credit(ipatch)*1000._r8, &
+               flood_mt_credit_patch(:,ipatch), evaporation*deltim, temperature, &
+               forc_q, forc_psrf, forc_us, forc_vs, flood_mt_evap_patch(:,ipatch))
+      ENDIF
+   END SUBROUTINE mt_rlc_land_flood_evap
+
+   SUBROUTINE mt_rlc_land_flood_input (ipatch, patchtype, water_credit, &
+         evaporation, infiltration, deltim, material_input)
+
+      USE MOD_Namelist, only: LWINFILT => DEF_GridRiverLake_FloodFeedback
+      integer, intent(in) :: ipatch, patchtype
+      real(r8), allocatable, intent(in) :: water_credit(:) ! published patch water [m]
+      real(r8), intent(in) :: evaporation, infiltration ! water rates [mm/s]
+      real(r8), intent(in) :: deltim
+      real(r8), intent(out) :: material_input(nmts)
+      integer :: imt
+
+      ! Infiltration carries its share of the credit remaining after evaporation.
+      material_input = 0._r8
+      IF (LWINFILT .and. patchtype == 0 .and. infiltration > 0._r8 .and. &
+          allocated(flood_mt_credit_patch)) THEN
+         IF (water_credit(ipatch)*1000._r8 <= evaporation*deltim) THEN
+            IF (infiltration*deltim > 1.e-12_r8*max(water_credit(ipatch)*1000._r8, 1._r8)) &
+               CALL CoLM_stop('grid flood feedback: infiltration without published material credit')
+         ELSE
+            material_input = (flood_mt_credit_patch(:,ipatch) - &
+               flood_mt_evap_patch(:,ipatch)) * &
+               (infiltration*deltim/(water_credit(ipatch)*1000._r8-evaporation*deltim))
+            DO imt = 1, nmts
+               IF (.not. mt_has_dissolved_limit(imt)) CYCLE
+               material_input(imt) = min(max(material_input(imt),0._r8), &
+                  materials(imt)%max_dissolved_conc*infiltration*deltim)
+            ENDDO
+         ENDIF
+      ENDIF
+   END SUBROUTINE mt_rlc_land_flood_input
+
+   SUBROUTINE mt_rlc_land_publish_input (ipatch, patchtype, dynamic_wetland, material_input)
+      integer, intent(in) :: ipatch, patchtype
+      logical, intent(in) :: dynamic_wetland
+      real(r8), intent(in) :: material_input(:)
+
+      IF (.not. (patchtype == 2 .and. .not. dynamic_wetland)) THEN
+         IF (allocated(flood_mt_land_patch)) flood_mt_land_patch(:,ipatch) = material_input
+      ENDIF
+   END SUBROUTINE mt_rlc_land_publish_input
 
    ! ---------
    SUBROUTINE mt_rlc_init (start_year, restart_file)

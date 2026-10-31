@@ -5,7 +5,7 @@ HEADER = include/define.h
 
 INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
-	: main : main/MATERIAL : main/MATERIAL/GENERIC_WATER : main/MATERIAL/FAMILY_ISOTOPE : main/MATERIAL/FAMILY_SOLUTE : main/MATERIAL/FAMILY_PARTICLE : main/MATERIAL/FAMILY_GAS : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
+	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
 
 # ********** Targets ALL **********
@@ -66,6 +66,7 @@ OBJS_SHARED =    \
 				  MOD_ElmVector.o              \
 				  MOD_HRUVector.o              \
 				  MOD_MeshFilter.o             \
+				  MOD_MT_SurfaceData.o            \
 				  MOD_RegionClip.o
 
 ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
@@ -73,22 +74,7 @@ ${OBJS_SHARED} : %.o : %.F90 ${HEADER}
 
 OBJS_SHARED_T = $(addprefix .bld/,${OBJS_SHARED})
 
-# Material transport settings, also read by mksrfdata (methane surface data);
-# every file is empty unless MaterialTransport is defined.
-OBJS_MT_CONFIG = \
-				  MOD_MT_Namelist.o                \
-				  MOD_MT_Defs.o                    \
-				  MOD_MT_NcIO.o                    \
-				  MOD_MT_Methane_Registry.o        \
-				  MOD_MT_Methane_Const.o           \
-				  MOD_MT_Methane_Preprocessing.o   \
-				  MOD_MT_Methane_PHMapping.o
-
-
-${OBJS_MT_CONFIG} : %.o : %.F90 ${HEADER} ${OBJS_SHARED}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
-
-OBJS_MT_CONFIG_T = $(addprefix .bld/,${OBJS_MT_CONFIG})
+include main/MATERIAL/Makefile.material
 
 OBJS_MKSRFDATA = \
 				  Aggregation_PercentagesPFT.o           \
@@ -107,8 +93,7 @@ OBJS_MKSRFDATA = \
 				  Aggregation_Urban.o                    \
 				  Aggregation_SoilTexture.o              \
 				  MOD_Lulcc_TransferTrace.o              \
-				  Aggregation_LakeSoilC.o                \
-				  Aggregation_MethanePH.o                \
+				  MOD_MT_Methane_Aggregation.o           \
 				  MKSRFDATA.o
 
 MKSRFDATA.o: MOD_MT_Methane_Preprocessing.o
@@ -153,6 +138,8 @@ OBJS_BASIC =    \
 				 MOD_Grid_RiverLakeTimeVars.o    \
 				 MOD_MT_RiverLake.o              \
 				 MOD_MT_Sediment.o               \
+				 MOD_MT_HostHistory.o            \
+				 MOD_MT_BGC_NH4.o                \
 				 MOD_BGC_Vars_1DFluxes.o         \
 				 MOD_BGC_Vars_1DPFTFluxes.o      \
 				 MOD_BGC_Vars_PFTimeVariables.o  \
@@ -168,6 +155,11 @@ OBJS_BASIC =    \
 				 MOD_Vars_1DPFTFluxes.o          \
 				 MOD_Vars_1DFluxes.o             \
 				 MOD_Vars_1DForcing.o            \
+				 MOD_MT_HydroDiagnostics.o      \
+				 MOD_MT_ThermalDiagnostics.o     \
+				 MOD_MT_CanopyDiagnostics.o      \
+				 MOD_MT_LandWork.o              \
+				 MOD_MT_SnowRemap.o             \
 				 MOD_Hydro_SoilFunction.o        \
 				 MOD_Hydro_SoilWater.o           \
 				 MOD_Eroot.o                     \
@@ -191,6 +183,7 @@ OBJS_BASIC =    \
 				 MOD_MT_SoilWater.o              \
 				 MOD_MT_NitrogenLeaching.o       \
 				 MOD_MT_Snow.o                   \
+				 MOD_MT_HistoryRestart.o         \
 				 MOD_MT_Rest.o                   \
 				 MOD_LAIEmpirical.o              \
 				 MOD_LAIReadin.o                 \
@@ -369,6 +362,7 @@ OBJS_MAIN = \
 				MOD_Runoff.o                              \
 				MOD_SoilSnowHydrology.o                   \
 				MOD_SnowLayersCombineDivide.o             \
+				MOD_MT_SnowHost.o                         \
 				MOD_PhaseChange.o                         \
 				MOD_Glacier.o                             \
 				MOD_Lake.o                                \
@@ -439,6 +433,7 @@ OBJS_MAIN = \
 				MOD_Lulcc_Initialize.o                    \
 				MOD_MT_Lulcc.o                            \
 				MOD_Lulcc_Driver.o                        \
+				MOD_MT_Runtime.o                          \
 				CoLMDRIVER.o                              \
 				CoLMMAIN.o                                \
 				CoLM.o
@@ -448,18 +443,6 @@ $(OBJS_MAIN) : %.o : %.F90 ${HEADER} ${OBJS_SHARED} ${OBJS_BASIC}
 
 MOD_Urban_Thermal.o: MOD_Urban_Flux.o
 MOD_LeafTemperature.o MOD_LeafTemperaturePC.o: MOD_LeafInterception.o
-# The object lists are compiled in list order, and the material-transport
-# modules are listed after the host modules that use them.  These edges are
-# the ones make needs to build that chain out of order; each is a direct USE
-# whose target sits later in OBJS_BASIC.
-MOD_Vars_TimeVariables.o: MOD_MT_Rest.o
-MOD_MT_Rest.o: MOD_MT_Forcing.o MOD_MT_Vars.o
-MOD_MT_Forcing.o: MOD_MT_Vars.o MOD_MT_Frac.o MOD_MT_Providers.o MOD_MT_ForcingInput.o \
-                  MOD_UserSpecifiedForcing.o MOD_Vars_1DForcing.o
-MOD_MT_Frac.o: MOD_MT_Isotope_Registry.o MOD_MT_Providers.o
-MOD_MT_Providers.o: MOD_MT_Isotope_HDO.o MOD_MT_Isotope_O18.o
-MOD_MT_Vars.o: MOD_MT_Isotope_Lulcc.o
-MOD_UserSpecifiedForcing.o: MOD_Qsadv.o
 
 OBJS_MAIN_T = $(addprefix .bld/,${OBJS_MAIN})
 

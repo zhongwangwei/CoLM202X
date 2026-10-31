@@ -28,8 +28,7 @@ MODULE MOD_BGC_CNBalanceCheck
        fert_to_sminn, soyfixn_to_sminn, denit, fire_nloss, wood_harvestn, grainn_to_cropprodn, &
        sminn_leached, f_n2o_nit, smin_no3_leached, smin_no3_runoff, som_n_leached, sminn_to_plant
 #ifdef MaterialTransport
-   ! Optional NH4 leaching of the material-transport build.
-   USE MOD_BGC_Vars_1DFluxes, only: smin_nh4_leached
+   USE MOD_MT_BGC_NH4, only: mt_nh4_balance_outputs, mt_nh4_report_loss
 #endif
    USE MOD_BGC_Vars_PFTimeVariables, only: &
        leafc_p, frootc_p, livestemc_p, deadstemc_p, livecrootc_p, deadcrootc_p, &
@@ -56,6 +55,9 @@ MODULE MOD_BGC_CNBalanceCheck
        phenology_to_met_c, phenology_to_cel_c, phenology_to_lig_c
    
    IMPLICIT NONE
+#ifdef MaterialTransport
+   PRIVATE :: mt_nh4_balance_outputs, mt_nh4_report_loss
+#endif
    
    PUBLIC BeginCNBalance
    PUBLIC CBalanceCheck
@@ -233,8 +235,8 @@ CONTAINS
   
       IF(DEF_USE_NITRIF)THEN
 #ifdef MaterialTransport
-         col_noutputs = col_noutputs + f_n2o_nit(i) + smin_nh4_leached(i) + &
-                        smin_no3_leached(i) + smin_no3_runoff(i)
+         CALL mt_nh4_balance_outputs(i, col_noutputs, f_n2o_nit(i), &
+            smin_no3_leached(i), smin_no3_runoff(i))
 #else
          col_noutputs = col_noutputs + f_n2o_nit(i) + smin_no3_leached(i) + smin_no3_runoff(i)
 #endif
@@ -260,7 +262,7 @@ CONTAINS
                                                  smin_no3_runoff(i)*deltim, denit(i)*deltim,fire_nloss(i)*deltim,&
                                                  ( wood_harvestn(i) + grainn_to_cropprodn(i))*deltim
 #ifdef MaterialTransport
-         write(*,*)'NH4 leached mass         = ',smin_nh4_leached(i)*deltim
+         CALL mt_nh4_report_loss(i, deltim)
 #endif
          write(*,*)'net flux                 = ',(col_ninputs-col_noutputs)*deltim
          write(*,*)'inputs,ffix,nfix,ndep    = ',ffix_to_sminn(i)*deltim,nfix_to_sminn(i)*deltim,ndep_to_sminn(i)*deltim,&

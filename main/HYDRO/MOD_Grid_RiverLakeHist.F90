@@ -13,10 +13,8 @@ MODULE MOD_Grid_RiverLakeHist
    USE MOD_Precision
    USE MOD_Grid_RiverLakeHistState
 #ifdef MaterialTransport
-   ! river material history (f_mt_* variables); writes only material fields
-   USE MOD_MT_RiverLake, only: mt_riverlake_write_history, mt_riverlake_flush_acc
-   ! and the history of the materials with their own river state (sediment)
-   USE MOD_MT_Lifecycle, only: mt_lifecycle_route_write_history, mt_lifecycle_route_flush_history
+   USE MOD_MT_RiverLakeCoupling, only: mt_rlc_write_history, mt_rlc_flush_history
+   PRIVATE :: mt_rlc_write_history, mt_rlc_flush_history
 #endif
 
    ! -- PUBLIC SUBROUTINEs --
@@ -578,8 +576,7 @@ CONTAINS
       IF (allocated (acc_vec_grid   )) deallocate (acc_vec_grid   )
 
 #ifdef MaterialTransport
-      CALL mt_riverlake_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
-      CALL mt_lifecycle_route_write_history (file_hist_ucat, itime_in_file_ucat)
+      CALL mt_rlc_write_history (file_hist_ucat, itime_in_file_ucat, acctime_ucat)
 #endif
 
       ! ----- reservoir variables -----
@@ -681,8 +678,7 @@ CONTAINS
          ENDIF
 
 #ifdef MaterialTransport
-         CALL mt_riverlake_flush_acc ()
-         CALL mt_lifecycle_route_flush_history ()
+         CALL mt_rlc_flush_history ()
 #endif
 
       ENDIF

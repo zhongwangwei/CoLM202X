@@ -16,6 +16,9 @@ MODULE MOD_BGC_CNSummary
 ! Xingjie Lu, 2022, modify original CLM5 to be compatible with CoLM code structure. 
 
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_BGC_NH4, only: mt_nh4_sum_layer
+#endif
     USE MOD_Namelist, only: DEF_USE_NITRIF, DEF_USE_DiagMatrix, DEF_USE_FIRE
    USE MOD_Vars_PFTimeInvariants, only: pftclass
    USE MOD_Vars_PFTimeVariables, only:irrig_method_p, lai_p
@@ -93,9 +96,6 @@ MODULE MOD_BGC_CNSummary
        cropprod1c_loss, grainc_to_cropprodc, grainc_to_seed, grainn_to_cropprodn, &
 #endif
         sminn_leached, sminn_leached_vr, smin_no3_leached, smin_no3_leached_vr, smin_no3_runoff, smin_no3_runoff_vr, &
-#ifdef MaterialTransport
-        smin_nh4_leached, smin_nh4_leached_vr, &
-#endif
         f_n2o_nit, f_n2o_nit_vr, decomp_cpools_transport_tendency, decomp_npools_transport_tendency, &
         denit, f_denit_vr, m_decomp_cpools_to_fire_vr, m_decomp_npools_to_fire_vr, &
        pft_fire_closs, pft_fire_nloss, litfire, &
@@ -188,6 +188,9 @@ MODULE MOD_BGC_CNSummary
    USE MOD_SPMD_Task
      
    IMPLICIT NONE
+#ifdef MaterialTransport
+   PRIVATE :: mt_nh4_sum_layer
+#endif
  
    PUBLIC CNDriverSummarizeStates
    PUBLIC CNDriverSummarizeFluxes
@@ -713,7 +716,7 @@ CONTAINS
       DO j = 1, nl_soil
          supplement_to_sminn(i) = supplement_to_sminn(i) + supplement_to_sminn_vr(j,i) * dz_soi(j)
 #ifdef MaterialTransport
-         smin_nh4_leached(i)    = smin_nh4_leached(i)    + smin_nh4_leached_vr(j,i) * dz_soi(j)
+         CALL mt_nh4_sum_layer(j, i, dz_soi(j))
 #endif
          smin_no3_leached(i)    = smin_no3_leached(i)    + smin_no3_leached_vr(j,i) * dz_soi(j)
          smin_no3_runoff(i)     = smin_no3_runoff(i)     + smin_no3_runoff_vr(j,i) * dz_soi(j)

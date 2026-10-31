@@ -13,9 +13,13 @@ MODULE MOD_Vars_1DAccFluxes
 #endif
 #ifdef MaterialTransport
    USE MOD_MT_LandPhase, only: mt_flush_acc_fluxes, mt_accumulate_fluxes
-   USE MOD_MT_Namelist, only: mt_any_enabled
+   USE MOD_MT_HostHistory, only: mt_allocate_frcsat_count, mt_deallocate_frcsat_count, &
+      mt_flush_frcsat_count, mt_accumulate_frcsat
 #endif
 
+#ifdef MaterialTransport
+   PRIVATE :: mt_allocate_frcsat_count, mt_deallocate_frcsat_count, mt_flush_frcsat_count, mt_accumulate_frcsat
+#endif
    real(r8) :: nac ! number of accumulation
    real(r8), allocatable :: nac_ln      (:)
    real(r8), allocatable :: nac_dt      (:)
@@ -91,9 +95,6 @@ MODULE MOD_Vars_1DAccFluxes
    real(r8), allocatable :: a_snowdp    (:)
    real(r8), allocatable :: a_fsno      (:)
    real(r8), allocatable :: a_frcsat    (:)
-#ifdef MaterialTransport
-   real(r8), allocatable :: nac_frcsat  (:)
-#endif
    real(r8), allocatable :: a_sigf      (:)
    real(r8), allocatable :: a_green     (:)
    real(r8), allocatable :: a_lai       (:)
@@ -686,9 +687,7 @@ CONTAINS
             allocate (a_fsno      (numpatch))
             allocate (a_frcsat    (numpatch))
 #ifdef MaterialTransport
-            IF (mt_any_enabled()) THEN
-               allocate (nac_frcsat (numpatch))
-            ENDIF
+            CALL mt_allocate_frcsat_count(numpatch)
 #endif
             allocate (a_sigf      (numpatch))
             allocate (a_green     (numpatch))
@@ -1288,7 +1287,7 @@ CONTAINS
             deallocate (a_fsno      )
             deallocate (a_frcsat    )
 #ifdef MaterialTransport
-            IF (allocated(nac_frcsat)) deallocate (nac_frcsat)
+            CALL mt_deallocate_frcsat_count()
 #endif
             deallocate (a_sigf      )
             deallocate (a_green     )
@@ -1904,7 +1903,7 @@ CONTAINS
             a_fsno      (:) = spval
             a_frcsat    (:) = spval
 #ifdef MaterialTransport
-            IF (allocated(nac_frcsat)) nac_frcsat(:) = 0._r8
+            CALL mt_flush_frcsat_count()
 #endif
             a_sigf      (:) = spval
             a_green     (:) = spval
@@ -2592,19 +2591,9 @@ CONTAINS
             CALL acc1d (snowdp        , a_snowdp         )
             CALL acc1d (fsno          , a_fsno           )
 #ifdef MaterialTransport
-            IF (mt_any_enabled()) THEN
-               CALL acc1d (frcsat, a_frcsat, frcsat_hist_valid)
-               DO i = 1, numpatch
-                  IF (.not. frcsat_hist_valid(i)) CYCLE
-                  ! A legacy partial window has no recoverable valid-sample count.
-                  IF (nac_frcsat(i) < 0._r8) CYCLE
-                  IF (frcsat(i) /= spval) nac_frcsat(i) = nac_frcsat(i) + 1._r8
-               ENDDO
-            ELSE
-#endif
+            CALL mt_accumulate_frcsat(frcsat, a_frcsat, acc1d)
+#else
             CALL acc1d (frcsat        , a_frcsat         )
-#ifdef MaterialTransport
-            ENDIF
 #endif
             CALL acc1d (sigf          , a_sigf           )
             CALL acc1d (green         , a_green          )

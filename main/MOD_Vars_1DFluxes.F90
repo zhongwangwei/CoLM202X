@@ -6,6 +6,9 @@ MODULE MOD_Vars_1DFluxes
 !-----------------------------------------------------------------------
 
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_HostHistory, only: mt_allocate_frcsat_valid, mt_deallocate_frcsat_valid
+#endif
 #if (defined LULC_IGBP_PFT || defined LULC_IGBP_PC)
    USE MOD_Vars_1DPFTFluxes
 #endif
@@ -22,6 +25,9 @@ MODULE MOD_Vars_1DFluxes
    USE MOD_DA_Vars_1DFluxes
 #endif
    IMPLICIT NONE
+#ifdef MaterialTransport
+   PRIVATE :: mt_allocate_frcsat_valid, mt_deallocate_frcsat_valid
+#endif
    SAVE
 
 !-----------------------------------------------------------------------
@@ -69,9 +75,6 @@ MODULE MOD_Vars_1DFluxes
    real(r8), allocatable :: xerr   (:) !the error of water balance [mm/s]
    real(r8), allocatable :: zerr   (:) !the error of energy balance [W/m2]
    real(r8), allocatable :: frcsat (:) !fraction of saturation area [-]
-#ifdef MaterialTransport
-   logical, allocatable :: frcsat_hist_valid(:)
-#endif
    real(r8), allocatable :: rsur   (:) !surface runoff (mm h2o/s)
    real(r8), allocatable :: rsur_se(:) !saturation excess surface runoff (mm h2o/s)
    real(r8), allocatable :: rsur_ie(:) !infiltration excess surface runoff (mm h2o/s)
@@ -163,7 +166,7 @@ CONTAINS
 
             allocate ( frcsat (numpatch) )  ; frcsat (:) = spval ! fraction of saturation area [-]
 #ifdef MaterialTransport
-            allocate (frcsat_hist_valid(numpatch)); frcsat_hist_valid(:) = .true.
+            CALL mt_allocate_frcsat_valid(numpatch)
 #endif
             allocate ( rsur   (numpatch) )  ; rsur   (:) = spval ! surface runoff (mm h2o/s)
             allocate ( rsur_se(numpatch) )  ; rsur_se(:) = spval ! saturation excess surface runoff (mm h2o/s)
@@ -264,7 +267,7 @@ CONTAINS
             deallocate ( zerr    )  ! the error of energy balance [W/m2]
             deallocate ( frcsat  )  ! fraction of saturation area [-]
 #ifdef MaterialTransport
-            deallocate (frcsat_hist_valid)
+            CALL mt_deallocate_frcsat_valid()
 #endif
             deallocate ( rsur    )  ! surface runoff (mm h2o/s)
             deallocate ( rsur_se )  ! saturation excess surface runoff (mm h2o/s)

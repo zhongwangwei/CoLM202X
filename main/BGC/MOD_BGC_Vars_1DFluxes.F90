@@ -11,8 +11,14 @@ MODULE MOD_BGC_Vars_1DFluxes
 
 
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_BGC_NH4, only: smin_nh4_leached_vr, smin_nh4_leached
+#endif
    IMPLICIT NONE
    SAVE
+#ifdef MaterialTransport
+   PRIVATE :: smin_nh4_leached_vr, smin_nh4_leached
+#endif
 
 !--------------------- BGC variables --------------------------------------
 ! ecosystem vegetation carbon/nitrogen flux
@@ -232,11 +238,6 @@ MODULE MOD_BGC_Vars_1DFluxes
    real(r8), allocatable :: fire_mortality_to_cwdn   (:,:)   ! fire mortality-associated plant N loss to coarse woody debris N (gN m-3 s-1)
 
    real(r8), allocatable :: sminn_leached_vr         (:,:)   ! vertical resolved: soil mineral N loss due to leaching (gN m-3 s-1)
-#ifdef MaterialTransport
-   ! NH4-specific leaching, written only by the material-transport build when
-   ! DEF_USE_NH4_LEACHING is on (see MOD_BGC_Soil_BiogeochemNLeaching).
-   real(r8), allocatable :: smin_nh4_leached_vr      (:,:)   ! vertical resolved: soil mineral NH4 loss due to leaching (gN m-3 s-1)
-#endif
    real(r8), allocatable :: smin_no3_leached_vr      (:,:)   ! vertical resolved: soil mineral NO3 loss due to leaching (gN m-3 s-1)
    real(r8), allocatable :: smin_no3_runoff_vr       (:,:)   ! vertical resolved: soil mineral NO3 loss due to runoff (gN m-3 s-1)
    real(r8), allocatable :: net_nmin_vr              (:,:)   ! vertical resolved: net N mineralization (gN m-3 s-1)
@@ -275,9 +276,6 @@ MODULE MOD_BGC_Vars_1DFluxes
    real(r8), allocatable :: soyfixn_to_sminn         (:)     ! soybean N fixation to soil mineral N (gN m-2 s-1)
    real(r8), allocatable :: denit                    (:)     ! total N denitrification (gN m-2 s-1)
    real(r8), allocatable :: sminn_leached            (:)     ! soil mineral N loss due to leaching (gN m-2 s-1)
-#ifdef MaterialTransport
-   real(r8), allocatable :: smin_nh4_leached         (:)     ! soil mineral NH4 loss due to leaching (gN m-2 s-1)
-#endif
    real(r8), allocatable :: f_n2o_nit                (:)     ! flux of N2O from N nitrification (gN m-2 s-1)
    real(r8), allocatable :: smin_no3_leached         (:)     ! soil mineral NO3 loss due to leaching (gN m-2 s-1)
    real(r8), allocatable :: smin_no3_runoff          (:)     ! soil mineral NO3 loss due to runoff (gN m-2 s-1)

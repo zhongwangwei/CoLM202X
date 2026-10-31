@@ -4,6 +4,10 @@ MODULE MOD_SnowLayersCombineDivide
 
 !-----------------------------------------------------------------------
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_SnowRemap, only: mt_snow_combine_work, mt_snow_divide_work, &
+      mt_snow_merge, mt_snow_copy, mt_snow_clear
+#endif
    IMPLICIT NONE
    SAVE
 
@@ -18,6 +22,10 @@ MODULE MOD_SnowLayersCombineDivide
 ! PRIVATE MEMBER FUNCTIONS:
    PRIVATE :: combo
    PRIVATE :: winddriftcompaction
+#ifdef MaterialTransport
+   PRIVATE :: mt_snow_combine_work, mt_snow_divide_work
+   PRIVATE :: mt_snow_merge, mt_snow_copy, mt_snow_clear
+#endif
 
 
 !-----------------------------------------------------------------------
@@ -250,12 +258,11 @@ CONTAINS
 
    !-----------------------------------------------------------------------
    SUBROUTINE snowlayerscombine (lb,snl, &
-#ifdef MaterialTransport
               z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno,scv,snowdp &
-              ,mt_wliq, mt_wice, mt_solid, mt_scv)
-#else
-              z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno,scv,snowdp)
+#ifdef MaterialTransport
+              ,mt_wliq, mt_wice, mt_solid, mt_scv &
 #endif
+              )
 
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
@@ -306,19 +313,13 @@ CONTAINS
    integer :: neibor         ! adjacent node selected for combination
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: zwmt_ice(:), zwmt_liq(:), zwmt_solid(:)
-   integer :: nmt
-   integer :: imt
+   TYPE(mt_snow_combine_work) :: mt_work
 #endif
    data dzmin /0.010, 0.015, 0.025, 0.055, 0.115/
 
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         nmt = size(mt_wliq, 1)
-         allocate(zwmt_ice(nmt), zwmt_liq(nmt), zwmt_solid(nmt))
-         zwmt_ice = 0._r8; zwmt_liq = 0._r8; zwmt_solid = 0._r8
-      ENDIF
+      CALL mt_work%init(mt_wliq, mt_wice)
 #endif
 ! check the mass of ice lens of snow, when the total less than a small value,
 ! combine it with the underlying neighbor
@@ -328,14 +329,7 @@ CONTAINS
             wliq_soisno(j+1) = wliq_soisno(j+1) + wliq_soisno(j)
             wice_soisno(j+1) = wice_soisno(j+1) + wice_soisno(j)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, nmt
-                  mt_wliq(imt, j+1) = mt_wliq(imt, j+1) + mt_wliq(imt, j)
-                  mt_wice(imt, j+1) = mt_wice(imt, j+1) + mt_wice(imt, j)
-                  IF (present(mt_solid)) mt_solid(imt, j+1) = &
-                     mt_solid(imt, j+1) + mt_solid(imt, j)
-               ENDDO
-            ENDIF
+            CALL mt_snow_merge(lb, j+1, j, mt_wliq, mt_wice, mt_solid)
 #endif
 
 ! shift all elements above this down one.
@@ -346,33 +340,17 @@ CONTAINS
                   wice_soisno(i) = wice_soisno(i-1)
                   dz_soisno(i) = dz_soisno(i-1)
 #ifdef MaterialTransport
-                  IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, nmt
-                        mt_wliq(imt, i) = mt_wliq(imt, i-1)
-                        mt_wice(imt, i) = mt_wice(imt, i-1)
-                        IF (present(mt_solid)) mt_solid(imt, i) = mt_solid(imt, i-1)
-                     ENDDO
-                  ENDIF
+                  CALL mt_snow_copy(lb, i, i-1, mt_wliq, mt_wice, mt_solid)
 #endif
                ENDDO
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  mt_wliq(:, snl+1) = 0._r8
-                  mt_wice(:, snl+1) = 0._r8
-                  IF (present(mt_solid)) mt_solid(:, snl+1) = 0._r8
-               ENDIF
+               CALL mt_snow_clear(lb, snl+1, snl+1, mt_wliq, mt_wice, mt_solid)
 #endif
             ENDIF
 
             snl = snl + 1
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               IF (snl >= lb) THEN
-                  mt_wliq(:, lb:snl) = 0._r8
-                  mt_wice(:, lb:snl) = 0._r8
-                  IF (present(mt_solid)) mt_solid(:, lb:snl) = 0._r8
-               ENDIF
-            ENDIF
+            CALL mt_snow_clear(lb, lb, snl, mt_wliq, mt_wice, mt_solid)
 #endif
 !*          write(6,*) 'one snow layer is gone'
 
@@ -384,10 +362,6 @@ CONTAINS
          scv = 0.
          snowdp = 0.
 !*       write(6,*) 'all snow has gone'
-#ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) &
-            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
-#endif
          RETURN
       ELSE
          scv = 0.
@@ -400,14 +374,7 @@ CONTAINS
             zwice = zwice + wice_soisno(j)
             zwliq = zwliq + wliq_soisno(j)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, nmt
-                  zwmt_ice(imt) = zwmt_ice(imt) + mt_wice(imt, j)
-                  zwmt_liq(imt) = zwmt_liq(imt) + mt_wliq(imt, j)
-                  IF (present(mt_solid)) zwmt_solid(imt) = &
-                     zwmt_solid(imt) + mt_solid(imt, j)
-               ENDDO
-            ENDIF
+            CALL mt_work%accumulate(lb, j, mt_wliq, mt_wice, mt_solid)
 #endif
          ENDDO
       ENDIF
@@ -424,18 +391,7 @@ CONTAINS
          wliq_soisno(1) = wliq_soisno(1) + zwliq
 !*       write(6,'(17h all snow is gone)')
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            IF (present(mt_scv)) mt_scv(:) = zwmt_ice(:)
-            DO imt = 1, nmt
-               mt_wliq(imt, 1) = mt_wliq(imt, 1) + zwmt_liq(imt)
-               IF (present(mt_solid)) mt_solid(imt, 1) = &
-                  mt_solid(imt, 1) + zwmt_solid(imt)
-            ENDDO
-            mt_wliq(:, lb:0) = 0._r8
-            mt_wice(:, lb:0) = 0._r8
-            IF (present(mt_solid)) mt_solid(:, lb:0) = 0._r8
-            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
-         ENDIF
+         CALL mt_work%collapse(lb, mt_wliq, mt_wice, mt_solid, mt_scv)
 #endif
          RETURN
 
@@ -475,14 +431,7 @@ CONTAINS
                   CALL combo ( dz_soisno(j), wliq_soisno(j), wice_soisno(j), t_soisno(j),&
                                dz_soisno(l), wliq_soisno(l), wice_soisno(l), t_soisno(l) )
 #ifdef MaterialTransport
-                  IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, nmt
-                        mt_wliq(imt, j) = mt_wliq(imt, j) + mt_wliq(imt, l)
-                        mt_wice(imt, j) = mt_wice(imt, j) + mt_wice(imt, l)
-                        IF (present(mt_solid)) mt_solid(imt, j) = &
-                           mt_solid(imt, j) + mt_solid(imt, l)
-                     ENDDO
-                  ENDIF
+                  CALL mt_snow_merge(lb, j, l, mt_wliq, mt_wice, mt_solid)
 #endif
 
 ! Now shift all elements above this down one.
@@ -494,26 +443,14 @@ CONTAINS
                         wliq_soisno(k) = wliq_soisno(k-1)
                         dz_soisno(k) = dz_soisno(k-1)
 #ifdef MaterialTransport
-                        IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                           DO imt = 1, nmt
-                              mt_wliq(imt, k) = mt_wliq(imt, k-1)
-                              mt_wice(imt, k) = mt_wice(imt, k-1)
-                              IF (present(mt_solid)) mt_solid(imt, k) = mt_solid(imt, k-1)
-                           ENDDO
-                        ENDIF
+                        CALL mt_snow_copy(lb, k, k-1, mt_wliq, mt_wice, mt_solid)
 #endif
                      ENDDO
                   ENDIF
 
                   snl = snl + 1
 #ifdef MaterialTransport
-                  IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     IF (snl >= lb) THEN
-                        mt_wliq(:, lb:snl) = 0._r8
-                        mt_wice(:, lb:snl) = 0._r8
-                        IF (present(mt_solid)) mt_solid(:, lb:snl) = 0._r8
-                     ENDIF
-                  ENDIF
+                  CALL mt_snow_clear(lb, lb, snl, mt_wliq, mt_wice, mt_solid)
 #endif
 
 !*    write(6,'(7h Nodes ,i4,4h and,i4,14h combined into,i4)') l,j,j
@@ -539,20 +476,15 @@ CONTAINS
 
       ENDIF                       !!! snow layers combined
 
-#ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) &
-         deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
-#endif
    END SUBROUTINE snowlayerscombine
 
 
 
-#ifdef MaterialTransport
    SUBROUTINE snowlayersdivide(lb,snl,z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno &
-                               ,mt_wliq, mt_wice, mt_solid)
-#else
-   SUBROUTINE snowlayersdivide(lb,snl,z_soisno,dz_soisno,zi_soisno,wliq_soisno,wice_soisno,t_soisno)
+#ifdef MaterialTransport
+                               ,mt_wliq, mt_wice, mt_solid &
 #endif
+                               )
 
 !=======================================================================
 !  Original author: Yongjiu Dai, September 15, 1999
@@ -594,19 +526,11 @@ CONTAINS
    real(r8) zwice,zwliq,propor
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: smt_wice(:,:), smt_wliq(:,:), smt_solid(:,:)
-   real(r8), allocatable :: z_smt_wice(:), z_smt_wliq(:), z_smt_solid(:)
-   integer :: nmt, imt
+   TYPE(mt_snow_divide_work) :: mt_work
 #endif
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         nmt = size(mt_wliq, 1)
-         allocate(smt_wice(nmt, 5), smt_wliq(nmt, 5), smt_solid(nmt, 5))
-         allocate(z_smt_wice(nmt), z_smt_wliq(nmt), z_smt_solid(nmt))
-         smt_wice = 0._r8; smt_wliq = 0._r8; smt_solid = 0._r8
-         z_smt_wice = 0._r8; z_smt_wliq = 0._r8; z_smt_solid = 0._r8
-      ENDIF
+      CALL mt_work%init(mt_wliq, mt_wice, mt_solid)
 #endif
 
       msno = abs(snl)
@@ -616,13 +540,7 @@ CONTAINS
          swliq(k) = wliq_soisno(k + snl)
          tsno(k)  = t_soisno (k + snl)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, nmt
-               smt_wice(imt, k) = mt_wice(imt, k + snl)
-               smt_wliq(imt, k) = mt_wliq(imt, k + snl)
-               IF (present(mt_solid)) smt_solid(imt, k) = mt_solid(imt, k + snl)
-            ENDDO
-         ENDIF
+         CALL mt_work%load_layer(lb, k, k+snl, mt_wliq, mt_wice, mt_solid)
 #endif
       ENDDO
 
@@ -634,11 +552,7 @@ CONTAINS
          swice(1) = swice(1)/2.
          swliq(1) = swliq(1)/2.
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 1) = smt_wice(:, 1) / 2._r8
-            smt_wliq(:, 1) = smt_wliq(:, 1) / 2._r8
-            IF (present(mt_solid)) smt_solid(:, 1) = smt_solid(:, 1) / 2._r8
-         ENDIF
+         CALL mt_work%halve(1)
 #endif
 
          dzsno(2) = dzsno(1)
@@ -646,11 +560,7 @@ CONTAINS
          swliq(2) = swliq(1)
          tsno(2)  = tsno(1)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 2) = smt_wice(:, 1)
-            smt_wliq(:, 2) = smt_wliq(:, 1)
-            IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 1)
-         ENDIF
+         CALL mt_work%copy_layer(2, 1)
 #endif
 !        write(6,*)'Subdivided Top Node into two layer (1/2)'
          ENDIF
@@ -663,33 +573,21 @@ CONTAINS
          zwice = propor*swice(1)
          zwliq = propor*swliq(1)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_smt_wice(:) = propor * smt_wice(:, 1)
-            z_smt_wliq(:) = propor * smt_wliq(:, 1)
-            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 1)
-         ENDIF
+         CALL mt_work%save_excess(1, propor)
 #endif
 
          propor = 0.02/dzsno(1)
          swice(1) = propor*swice(1)
          swliq(1) = propor*swliq(1)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 1) = propor * smt_wice(:, 1)
-            smt_wliq(:, 1) = propor * smt_wliq(:, 1)
-            IF (present(mt_solid)) smt_solid(:, 1) = propor * smt_solid(:, 1)
-         ENDIF
+         CALL mt_work%scale(1, propor)
 #endif
          dzsno(1) = 0.02
 
          CALL combo(dzsno(2),swliq(2),swice(2),tsno(2), &
                     drr,zwliq,zwice,tsno(1))
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 2) = smt_wice(:, 2) + z_smt_wice(:)
-            smt_wliq(:, 2) = smt_wliq(:, 2) + z_smt_wliq(:)
-            IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) + z_smt_solid(:)
-         ENDIF
+         CALL mt_work%add_excess(2)
 #endif
 
 !        write(6,*) 'Subdivided Top Node &
@@ -702,11 +600,7 @@ CONTAINS
             swice(2) = swice(2)/2.
             swliq(2) = swliq(2)/2.
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 2) = smt_wice(:, 2) / 2._r8
-               smt_wliq(:, 2) = smt_wliq(:, 2) / 2._r8
-               IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) / 2._r8
-            ENDIF
+            CALL mt_work%halve(2)
 #endif
 
             dzsno(3) = dzsno(2)
@@ -714,11 +608,7 @@ CONTAINS
             swliq(3) = swliq(2)
             tsno(3)  = tsno(2)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 3) = smt_wice(:, 2)
-               smt_wliq(:, 3) = smt_wliq(:, 2)
-               IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 2)
-            ENDIF
+            CALL mt_work%copy_layer(3, 2)
 #endif
          ENDIF
          ENDIF
@@ -731,33 +621,21 @@ CONTAINS
          zwice = propor*swice(2)
          zwliq = propor*swliq(2)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_smt_wice(:) = propor * smt_wice(:, 2)
-            z_smt_wliq(:) = propor * smt_wliq(:, 2)
-            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 2)
-         ENDIF
+         CALL mt_work%save_excess(2, propor)
 #endif
 
          propor = 0.05/dzsno(2)
          swice(2) = propor*swice(2)
          swliq(2) = propor*swliq(2)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 2) = propor * smt_wice(:, 2)
-            smt_wliq(:, 2) = propor * smt_wliq(:, 2)
-            IF (present(mt_solid)) smt_solid(:, 2) = propor * smt_solid(:, 2)
-         ENDIF
+         CALL mt_work%scale(2, propor)
 #endif
          dzsno(2) = 0.05
 
          CALL combo(dzsno(3),swliq(3),swice(3),tsno(3), &
                     drr,     zwliq,   zwice,   tsno(2))
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 3) = smt_wice(:, 3) + z_smt_wice(:)
-            smt_wliq(:, 3) = smt_wliq(:, 3) + z_smt_wliq(:)
-            IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) + z_smt_solid(:)
-         ENDIF
+         CALL mt_work%add_excess(3)
 #endif
 
 !        write(6,*)'Subdivided 50 mm from the subsurface layer &
@@ -770,11 +648,7 @@ CONTAINS
             swice(3) = swice(3)/2.
             swliq(3) = swliq(3)/2.
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 3) = smt_wice(:, 3) / 2._r8
-               smt_wliq(:, 3) = smt_wliq(:, 3) / 2._r8
-               IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) / 2._r8
-            ENDIF
+            CALL mt_work%halve(3)
 #endif
 
             dzsno(4) = dzsno(3)
@@ -782,11 +656,7 @@ CONTAINS
             swliq(4) = swliq(3)
             tsno(4)  = tsno(3)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 4) = smt_wice(:, 3)
-               smt_wliq(:, 4) = smt_wliq(:, 3)
-               IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 3)
-            ENDIF
+            CALL mt_work%copy_layer(4, 3)
 #endif
          ENDIF
          ENDIF
@@ -799,33 +669,21 @@ CONTAINS
          zwice = propor*swice(3)
          zwliq = propor*swliq(3)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_smt_wice(:) = propor * smt_wice(:, 3)
-            z_smt_wliq(:) = propor * smt_wliq(:, 3)
-            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 3)
-         ENDIF
+         CALL mt_work%save_excess(3, propor)
 #endif
 
          propor = 0.11/dzsno(3)
          swice(3) = propor*swice(3)
          swliq(3) = propor*swliq(3)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 3) = propor * smt_wice(:, 3)
-            smt_wliq(:, 3) = propor * smt_wliq(:, 3)
-            IF (present(mt_solid)) smt_solid(:, 3) = propor * smt_solid(:, 3)
-         ENDIF
+         CALL mt_work%scale(3, propor)
 #endif
          dzsno(3) = 0.11
 
          CALL combo(dzsno(4),swliq(4),swice(4),tsno(4), &
                     drr,     zwliq,   zwice,   tsno(3))
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 4) = smt_wice(:, 4) + z_smt_wice(:)
-            smt_wliq(:, 4) = smt_wliq(:, 4) + z_smt_wliq(:)
-            IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) + z_smt_solid(:)
-         ENDIF
+         CALL mt_work%add_excess(4)
 #endif
 
 !        write(6,*)'Subdivided 110 mm from the third Node &
@@ -838,11 +696,7 @@ CONTAINS
             swice(4) = swice(4)/2.
             swliq(4) = swliq(4)/2.
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 4) = smt_wice(:, 4) / 2._r8
-               smt_wliq(:, 4) = smt_wliq(:, 4) / 2._r8
-               IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) / 2._r8
-            ENDIF
+            CALL mt_work%halve(4)
 #endif
 
             dzsno(5) = dzsno(4)
@@ -850,11 +704,7 @@ CONTAINS
             swliq(5) = swliq(4)
             tsno(5)  = tsno(4)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 5) = smt_wice(:, 4)
-               smt_wliq(:, 5) = smt_wliq(:, 4)
-               IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 4)
-            ENDIF
+            CALL mt_work%copy_layer(5, 4)
 #endif
          ENDIF
          ENDIF
@@ -867,33 +717,21 @@ CONTAINS
          zwice = propor*swice(4)
          zwliq = propor*swliq(4)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            z_smt_wice(:) = propor * smt_wice(:, 4)
-            z_smt_wliq(:) = propor * smt_wliq(:, 4)
-            IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 4)
-         ENDIF
+         CALL mt_work%save_excess(4, propor)
 #endif
 
          propor = 0.23/dzsno(4)
          swice(4) = propor*swice(4)
          swliq(4) = propor*swliq(4)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 4) = propor * smt_wice(:, 4)
-            smt_wliq(:, 4) = propor * smt_wliq(:, 4)
-            IF (present(mt_solid)) smt_solid(:, 4) = propor * smt_solid(:, 4)
-         ENDIF
+         CALL mt_work%scale(4, propor)
 #endif
          dzsno(4) = 0.23
 
          CALL combo(dzsno(5),swliq(5),swice(5),tsno(5), &
                     drr,     zwliq,   zwice,   tsno(4))
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            smt_wice(:, 5) = smt_wice(:, 5) + z_smt_wice(:)
-            smt_wliq(:, 5) = smt_wliq(:, 5) + z_smt_wliq(:)
-            IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 5) + z_smt_solid(:)
-         ENDIF
+         CALL mt_work%add_excess(5)
 #endif
 
 !        write(6,*)'Subdivided 230 mm from the fourth Node &
@@ -909,13 +747,7 @@ CONTAINS
          wliq_soisno(k) = swliq(k - snl)
          t_soisno(k)  = tsno (k - snl)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, nmt
-               mt_wice(imt, k) = smt_wice(imt, k - snl)
-               mt_wliq(imt, k) = smt_wliq(imt, k - snl)
-               IF (present(mt_solid)) mt_solid(imt, k) = smt_solid(imt, k - snl)
-            ENDDO
-         ENDIF
+         CALL mt_work%store_layer(lb, k-snl, k, mt_wliq, mt_wice, mt_solid)
 #endif
       ENDDO
 
@@ -925,12 +757,6 @@ CONTAINS
          zi_soisno(k-1) = zi_soisno(k) - dz_soisno(k)
       ENDDO
 
-#ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         deallocate(smt_wice, smt_wliq, smt_solid, &
-            z_smt_wice, z_smt_wliq, z_smt_solid)
-      ENDIF
-#endif
    END SUBROUTINE snowlayersdivide
 
 
@@ -1004,12 +830,11 @@ CONTAINS
 
 ! Aerosol Fluxes (Jan. 07, 2023)
               mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi,&
-#ifdef MaterialTransport
               mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 &
-              ,mt_wliq, mt_wice, mt_solid, mt_scv)
-#else
-              mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 )
+#ifdef MaterialTransport
+              ,mt_wliq, mt_wice, mt_solid, mt_scv &
 #endif
+              )
 ! Aerosol Fluxes (Jan. 07, 2023)
 
 
@@ -1074,18 +899,13 @@ CONTAINS
    integer :: neibor        ! adjacent node selected for combination
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: zwmt_ice(:), zwmt_liq(:), zwmt_solid(:)
-   integer :: nmt, imt
+   TYPE(mt_snow_combine_work) :: mt_work
 #endif
    data dzmin /0.010, 0.015, 0.025, 0.055, 0.115/
 
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         nmt = size(mt_wliq, 1)
-         allocate(zwmt_ice(nmt), zwmt_liq(nmt), zwmt_solid(nmt))
-         zwmt_ice = 0._r8; zwmt_liq = 0._r8; zwmt_solid = 0._r8
-      ENDIF
+      CALL mt_work%init(mt_wliq, mt_wice)
 #endif
 ! check the mass of ice lens of snow, when the total less than a small value,
 ! combine it with the underlying neighbor
@@ -1095,14 +915,7 @@ CONTAINS
             wliq_soisno(j+1) = wliq_soisno(j+1) + wliq_soisno(j)
             wice_soisno(j+1) = wice_soisno(j+1) + wice_soisno(j)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, nmt
-                  mt_wliq(imt, j+1) = mt_wliq(imt, j+1) + mt_wliq(imt, j)
-                  mt_wice(imt, j+1) = mt_wice(imt, j+1) + mt_wice(imt, j)
-                  IF (present(mt_solid)) mt_solid(imt, j+1) = &
-                     mt_solid(imt, j+1) + mt_solid(imt, j)
-               ENDDO
-            ENDIF
+            CALL mt_snow_merge(lb, j+1, j, mt_wliq, mt_wice, mt_solid)
 #endif
 
 !Aerosol Fluxes (January 07, 2023)
@@ -1127,13 +940,7 @@ CONTAINS
                   wice_soisno(i) = wice_soisno(i-1)
                   dz_soisno(i) = dz_soisno(i-1)
 #ifdef MaterialTransport
-                  IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, nmt
-                        mt_wliq(imt, i) = mt_wliq(imt, i-1)
-                        mt_wice(imt, i) = mt_wice(imt, i-1)
-                        IF (present(mt_solid)) mt_solid(imt, i) = mt_solid(imt, i-1)
-                     ENDDO
-                  ENDIF
+                  CALL mt_snow_copy(lb, i, i-1, mt_wliq, mt_wice, mt_solid)
 #endif
 
 !Aerosol Fluxes (January 07, 2023)
@@ -1148,23 +955,13 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
                ENDDO
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  mt_wliq(:, snl+1) = 0._r8
-                  mt_wice(:, snl+1) = 0._r8
-                  IF (present(mt_solid)) mt_solid(:, snl+1) = 0._r8
-               ENDIF
+               CALL mt_snow_clear(lb, snl+1, snl+1, mt_wliq, mt_wice, mt_solid)
 #endif
             ENDIF
 
             snl = snl + 1
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               IF (snl >= lb) THEN
-                  mt_wliq(:, lb:snl) = 0._r8
-                  mt_wice(:, lb:snl) = 0._r8
-                  IF (present(mt_solid)) mt_solid(:, lb:snl) = 0._r8
-               ENDIF
-            ENDIF
+            CALL mt_snow_clear(lb, lb, snl, mt_wliq, mt_wice, mt_solid)
 #endif
 !*          write(6,*) 'one snow layer is gone'
 
@@ -1188,10 +985,6 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 
 !*       write(6,*) 'all snow has gone'
-#ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) &
-            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
-#endif
          RETURN
       ELSE
          scv = 0._r8
@@ -1204,14 +997,7 @@ CONTAINS
             zwice = zwice + wice_soisno(j)
             zwliq = zwliq + wliq_soisno(j)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               DO imt = 1, nmt
-                  zwmt_ice(imt) = zwmt_ice(imt) + mt_wice(imt, j)
-                  zwmt_liq(imt) = zwmt_liq(imt) + mt_wliq(imt, j)
-                  IF (present(mt_solid)) zwmt_solid(imt) = &
-                     zwmt_solid(imt) + mt_solid(imt, j)
-               ENDDO
-            ENDIF
+            CALL mt_work%accumulate(lb, j, mt_wliq, mt_wice, mt_solid)
 #endif
          ENDDO
       ENDIF
@@ -1239,18 +1025,7 @@ CONTAINS
          wliq_soisno(1) = wliq_soisno(1) + zwliq
 !*       write(6,'(17h all snow is gone)')
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            IF (present(mt_scv)) mt_scv(:) = zwmt_ice(:)
-            DO imt = 1, nmt
-               mt_wliq(imt, 1) = mt_wliq(imt, 1) + zwmt_liq(imt)
-               IF (present(mt_solid)) mt_solid(imt, 1) = &
-                  mt_solid(imt, 1) + zwmt_solid(imt)
-            ENDDO
-            mt_wliq(:, lb:0) = 0._r8
-            mt_wice(:, lb:0) = 0._r8
-            IF (present(mt_solid)) mt_solid(:, lb:0) = 0._r8
-            deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
-         ENDIF
+         CALL mt_work%collapse(lb, mt_wliq, mt_wice, mt_solid, mt_scv)
 #endif
          RETURN
 
@@ -1290,14 +1065,7 @@ CONTAINS
                   CALL combo ( dz_soisno(j), wliq_soisno(j), wice_soisno(j), t_soisno(j),&
                                dz_soisno(l), wliq_soisno(l), wice_soisno(l), t_soisno(l) )
 #ifdef MaterialTransport
-                  IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     DO imt = 1, nmt
-                        mt_wliq(imt, j) = mt_wliq(imt, j) + mt_wliq(imt, l)
-                        mt_wice(imt, j) = mt_wice(imt, j) + mt_wice(imt, l)
-                        IF (present(mt_solid)) mt_solid(imt, j) = &
-                           mt_solid(imt, j) + mt_solid(imt, l)
-                     ENDDO
-                  ENDIF
+                  CALL mt_snow_merge(lb, j, l, mt_wliq, mt_wice, mt_solid)
 #endif
 
 !Aerosol Fluxes (January 07, 2023)
@@ -1321,13 +1089,7 @@ CONTAINS
                         wliq_soisno(k) = wliq_soisno(k-1)
                         dz_soisno(k) = dz_soisno(k-1)
 #ifdef MaterialTransport
-                        IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                           DO imt = 1, nmt
-                              mt_wliq(imt, k) = mt_wliq(imt, k-1)
-                              mt_wice(imt, k) = mt_wice(imt, k-1)
-                              IF (present(mt_solid)) mt_solid(imt, k) = mt_solid(imt, k-1)
-                           ENDDO
-                        ENDIF
+                        CALL mt_snow_copy(lb, k, k-1, mt_wliq, mt_wice, mt_solid)
 #endif
 
 !Aerosol Fluxes (January 07, 2023)
@@ -1345,13 +1107,7 @@ CONTAINS
 
                   snl = snl + 1
 #ifdef MaterialTransport
-                  IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                     IF (snl >= lb) THEN
-                        mt_wliq(:, lb:snl) = 0._r8
-                        mt_wice(:, lb:snl) = 0._r8
-                        IF (present(mt_solid)) mt_solid(:, lb:snl) = 0._r8
-                     ENDIF
-                  ENDIF
+                  CALL mt_snow_clear(lb, lb, snl, mt_wliq, mt_wice, mt_solid)
 #endif
 
 !*    write(6,'(7h Nodes ,i4,4h and,i4,14h combined into,i4)') l,j,j
@@ -1377,10 +1133,6 @@ CONTAINS
 
       ENDIF                       !!! snow layers combined
 
-#ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) &
-         deallocate(zwmt_ice, zwmt_liq, zwmt_solid)
-#endif
    END SUBROUTINE SnowLayersCombine_snicar
 !-----------------------------------------------------------------------
 
@@ -1390,12 +1142,11 @@ CONTAINS
 
 ! Aerosol Fluxes (Jan. 07, 2023)
                                        mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi,&
-#ifdef MaterialTransport
                                        mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 &
-                                       ,mt_wliq, mt_wice, mt_solid)
-#else
-                                       mss_dst1 , mss_dst2 , mss_dst3 , mss_dst4 )
+#ifdef MaterialTransport
+                                       ,mt_wliq, mt_wice, mt_solid &
 #endif
+                                       )
 ! Aerosol Fluxes (Jan. 07, 2023)
 
 
@@ -1458,19 +1209,11 @@ CONTAINS
 !Aerosol Fluxes (January 07, 2023)
 
 #ifdef MaterialTransport
-   real(r8), allocatable :: smt_wice(:,:), smt_wliq(:,:), smt_solid(:,:)
-   real(r8), allocatable :: z_smt_wice(:), z_smt_wliq(:), z_smt_solid(:)
-   integer :: nmt, imt
+   TYPE(mt_snow_divide_work) :: mt_work
 #endif
 !-----------------------------------------------------------------------
 #ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         nmt = size(mt_wliq, 1)
-         allocate(smt_wice(nmt, 5), smt_wliq(nmt, 5), smt_solid(nmt, 5))
-         allocate(z_smt_wice(nmt), z_smt_wliq(nmt), z_smt_solid(nmt))
-         smt_wice = 0._r8; smt_wliq = 0._r8; smt_solid = 0._r8
-         z_smt_wice = 0._r8; z_smt_wliq = 0._r8; z_smt_solid = 0._r8
-      ENDIF
+      CALL mt_work%init(mt_wliq, mt_wice, mt_solid)
 #endif
 
       msno = abs(snl)
@@ -1491,13 +1234,7 @@ CONTAINS
          mss_aerosol(k, 8) = mss_dst4 (k+snl)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, nmt
-               smt_wice(imt, k) = mt_wice(imt, k + snl)
-               smt_wliq(imt, k) = mt_wliq(imt, k + snl)
-               IF (present(mt_solid)) smt_solid(imt, k) = mt_solid(imt, k + snl)
-            ENDDO
-         ENDIF
+         CALL mt_work%load_layer(lb, k, k+snl, mt_wliq, mt_wice, mt_solid)
 #endif
 
       ENDDO
@@ -1513,11 +1250,7 @@ CONTAINS
             mss_aerosol(1,:) = mss_aerosol(1,:)/2.
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 1) = smt_wice(:, 1) / 2._r8
-               smt_wliq(:, 1) = smt_wliq(:, 1) / 2._r8
-               IF (present(mt_solid)) smt_solid(:, 1) = smt_solid(:, 1) / 2._r8
-            ENDIF
+            CALL mt_work%halve(1)
 #endif
 
             dzsno(2) = dzsno(1)
@@ -1527,11 +1260,7 @@ CONTAINS
             mss_aerosol(2,:) = mss_aerosol(1,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 2) = smt_wice(:, 1)
-               smt_wliq(:, 2) = smt_wliq(:, 1)
-               IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 1)
-            ENDIF
+            CALL mt_work%copy_layer(2, 1)
 #endif
 
             tsno(2)  = tsno(1)
@@ -1550,11 +1279,7 @@ CONTAINS
             z_mss_aerosol(:) = propor*mss_aerosol(1,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_smt_wice(:) = propor * smt_wice(:, 1)
-               z_smt_wliq(:) = propor * smt_wliq(:, 1)
-               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 1)
-            ENDIF
+            CALL mt_work%save_excess(1, propor)
 #endif
 
             propor = 0.02/dzsno(1)
@@ -1564,11 +1289,7 @@ CONTAINS
             mss_aerosol(1,:) = propor*mss_aerosol(1,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 1) = propor * smt_wice(:, 1)
-               smt_wliq(:, 1) = propor * smt_wliq(:, 1)
-               IF (present(mt_solid)) smt_solid(:, 1) = propor * smt_solid(:, 1)
-            ENDIF
+            CALL mt_work%scale(1, propor)
 #endif
 
             dzsno(1) = 0.02
@@ -1580,11 +1301,7 @@ CONTAINS
             mss_aerosol(2,:) = z_mss_aerosol(:) + mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 2) = smt_wice(:, 2) + z_smt_wice(:)
-               smt_wliq(:, 2) = smt_wliq(:, 2) + z_smt_wliq(:)
-               IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) + z_smt_solid(:)
-            ENDIF
+            CALL mt_work%add_excess(2)
 #endif
 
 !           write(6,*) 'Subdivided Top Node &
@@ -1600,11 +1317,7 @@ CONTAINS
                mss_aerosol(2,:) = mss_aerosol(2,:)/2.
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  smt_wice(:, 2) = smt_wice(:, 2) / 2._r8
-                  smt_wliq(:, 2) = smt_wliq(:, 2) / 2._r8
-                  IF (present(mt_solid)) smt_solid(:, 2) = smt_solid(:, 2) / 2._r8
-               ENDIF
+               CALL mt_work%halve(2)
 #endif
 
                dzsno(3) = dzsno(2)
@@ -1614,11 +1327,7 @@ CONTAINS
                mss_aerosol(3,:) = mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  smt_wice(:, 3) = smt_wice(:, 2)
-                  smt_wliq(:, 3) = smt_wliq(:, 2)
-                  IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 2)
-               ENDIF
+               CALL mt_work%copy_layer(3, 2)
 #endif
 
                tsno(3)  = tsno(2)
@@ -1636,11 +1345,7 @@ CONTAINS
             z_mss_aerosol(:) = propor*mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_smt_wice(:) = propor * smt_wice(:, 2)
-               z_smt_wliq(:) = propor * smt_wliq(:, 2)
-               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 2)
-            ENDIF
+            CALL mt_work%save_excess(2, propor)
 #endif
 
             propor = 0.05/dzsno(2)
@@ -1650,11 +1355,7 @@ CONTAINS
             mss_aerosol(2,:) = propor*mss_aerosol(2,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 2) = propor * smt_wice(:, 2)
-               smt_wliq(:, 2) = propor * smt_wliq(:, 2)
-               IF (present(mt_solid)) smt_solid(:, 2) = propor * smt_solid(:, 2)
-            ENDIF
+            CALL mt_work%scale(2, propor)
 #endif
 
             dzsno(2) = 0.05
@@ -1666,11 +1367,7 @@ CONTAINS
             mss_aerosol(3,:) = z_mss_aerosol(:) + mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 3) = smt_wice(:, 3) + z_smt_wice(:)
-               smt_wliq(:, 3) = smt_wliq(:, 3) + z_smt_wliq(:)
-               IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) + z_smt_solid(:)
-            ENDIF
+            CALL mt_work%add_excess(3)
 #endif
 
 !           write(6,*)'Subdivided 50 mm from the subsurface layer &
@@ -1686,11 +1383,7 @@ CONTAINS
                mss_aerosol(3,:) = mss_aerosol(3,:)/2.
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  smt_wice(:, 3) = smt_wice(:, 3) / 2._r8
-                  smt_wliq(:, 3) = smt_wliq(:, 3) / 2._r8
-                  IF (present(mt_solid)) smt_solid(:, 3) = smt_solid(:, 3) / 2._r8
-               ENDIF
+               CALL mt_work%halve(3)
 #endif
 
                dzsno(4) = dzsno(3)
@@ -1700,11 +1393,7 @@ CONTAINS
                mss_aerosol(4,:) = mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  smt_wice(:, 4) = smt_wice(:, 3)
-                  smt_wliq(:, 4) = smt_wliq(:, 3)
-                  IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 3)
-               ENDIF
+               CALL mt_work%copy_layer(4, 3)
 #endif
 
                tsno(4)  = tsno(3)
@@ -1723,11 +1412,7 @@ CONTAINS
             z_mss_aerosol(:) = propor*mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_smt_wice(:) = propor * smt_wice(:, 3)
-               z_smt_wliq(:) = propor * smt_wliq(:, 3)
-               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 3)
-            ENDIF
+            CALL mt_work%save_excess(3, propor)
 #endif
 
             propor = 0.11/dzsno(3)
@@ -1737,11 +1422,7 @@ CONTAINS
             mss_aerosol(3,:) = propor*mss_aerosol(3,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 3) = propor * smt_wice(:, 3)
-               smt_wliq(:, 3) = propor * smt_wliq(:, 3)
-               IF (present(mt_solid)) smt_solid(:, 3) = propor * smt_solid(:, 3)
-            ENDIF
+            CALL mt_work%scale(3, propor)
 #endif
 
             dzsno(3) = 0.11
@@ -1753,11 +1434,7 @@ CONTAINS
             mss_aerosol(4,:) = z_mss_aerosol(:) + mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 4) = smt_wice(:, 4) + z_smt_wice(:)
-               smt_wliq(:, 4) = smt_wliq(:, 4) + z_smt_wliq(:)
-               IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) + z_smt_solid(:)
-            ENDIF
+            CALL mt_work%add_excess(4)
 #endif
 
 !           write(6,*)'Subdivided 110 mm from the third Node &
@@ -1773,11 +1450,7 @@ CONTAINS
                mss_aerosol(4,:) = mss_aerosol(4,:)/2.
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  smt_wice(:, 4) = smt_wice(:, 4) / 2._r8
-                  smt_wliq(:, 4) = smt_wliq(:, 4) / 2._r8
-                  IF (present(mt_solid)) smt_solid(:, 4) = smt_solid(:, 4) / 2._r8
-               ENDIF
+               CALL mt_work%halve(4)
 #endif
 
                dzsno(5) = dzsno(4)
@@ -1787,11 +1460,7 @@ CONTAINS
                mss_aerosol(5,:) = mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-               IF (present(mt_wliq) .and. present(mt_wice)) THEN
-                  smt_wice(:, 5) = smt_wice(:, 4)
-                  smt_wliq(:, 5) = smt_wliq(:, 4)
-                  IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 4)
-               ENDIF
+               CALL mt_work%copy_layer(5, 4)
 #endif
 
                tsno(5)  = tsno(4)
@@ -1810,11 +1479,7 @@ CONTAINS
             z_mss_aerosol(:) = propor*mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               z_smt_wice(:) = propor * smt_wice(:, 4)
-               z_smt_wliq(:) = propor * smt_wliq(:, 4)
-               IF (present(mt_solid)) z_smt_solid(:) = propor * smt_solid(:, 4)
-            ENDIF
+            CALL mt_work%save_excess(4, propor)
 #endif
 
             propor = 0.23/dzsno(4)
@@ -1824,11 +1489,7 @@ CONTAINS
             mss_aerosol(4,:) = propor*mss_aerosol(4,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 4) = propor * smt_wice(:, 4)
-               smt_wliq(:, 4) = propor * smt_wliq(:, 4)
-               IF (present(mt_solid)) smt_solid(:, 4) = propor * smt_solid(:, 4)
-            ENDIF
+            CALL mt_work%scale(4, propor)
 #endif
 
             dzsno(4) = 0.23
@@ -1840,11 +1501,7 @@ CONTAINS
             mss_aerosol(5,:) = z_mss_aerosol(:) + mss_aerosol(5,:)
 !Aerosol Fluxes (January 07, 2023)
 #ifdef MaterialTransport
-            IF (present(mt_wliq) .and. present(mt_wice)) THEN
-               smt_wice(:, 5) = smt_wice(:, 5) + z_smt_wice(:)
-               smt_wliq(:, 5) = smt_wliq(:, 5) + z_smt_wliq(:)
-               IF (present(mt_solid)) smt_solid(:, 5) = smt_solid(:, 5) + z_smt_solid(:)
-            ENDIF
+            CALL mt_work%add_excess(5)
 #endif
 
 !           write(6,*)'Subdivided 230 mm from the fourth Node &
@@ -1873,13 +1530,7 @@ CONTAINS
          t_soisno(k)  = tsno (k - snl)
 
 #ifdef MaterialTransport
-         IF (present(mt_wliq) .and. present(mt_wice)) THEN
-            DO imt = 1, nmt
-               mt_wice(imt, k) = smt_wice(imt, k - snl)
-               mt_wliq(imt, k) = smt_wliq(imt, k - snl)
-               IF (present(mt_solid)) mt_solid(imt, k) = smt_solid(imt, k - snl)
-            ENDDO
-         ENDIF
+         CALL mt_work%store_layer(lb, k-snl, k, mt_wliq, mt_wice, mt_solid)
 #endif
       ENDDO
 
@@ -1889,12 +1540,6 @@ CONTAINS
          zi_soisno(k-1) = zi_soisno(k) - dz_soisno(k)
       ENDDO
 
-#ifdef MaterialTransport
-      IF (present(mt_wliq) .and. present(mt_wice)) THEN
-         deallocate(smt_wice, smt_wliq, smt_solid, &
-            z_smt_wice, z_smt_wliq, z_smt_solid)
-      ENDIF
-#endif
    END SUBROUTINE SnowLayersDivide_snicar
 
 END MODULE MOD_SnowLayersCombineDivide

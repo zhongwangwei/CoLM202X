@@ -25,11 +25,11 @@ CONTAINS
                             t_soil, t_snow, q_soil, q_snow, &
                             taux, tauy, fseng, fseng_soil, fseng_snow, &
                             fevpg, fevpg_soil, fevpg_snow, tref, qref, &
+                            z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq &
 #ifdef MaterialTransport
-                            z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq, raw_out)
-#else
-                            z0m, z0hg, zol, rib, ustar, qstar, tstar, fm, fh, fq)
+                            ,canopy_diag &
 #endif
+                            )
 
 !-----------------------------------------------------------------------
 !  This is the main SUBROUTINE to execute the calculation of thermal
@@ -51,6 +51,9 @@ CONTAINS
    USE MOD_FrictionVelocity
    USE mod_namelist, only: DEF_USE_CBL_HEIGHT,DEF_RSS_SCHEME
    USE MOD_TurbulenceLEddy
+#ifdef MaterialTransport
+   USE MOD_MT_ThermalDiagnostics, only: mt_canopy_diagnostics
+#endif
 
    IMPLICIT NONE
 
@@ -116,7 +119,7 @@ CONTAINS
 #ifdef MaterialTransport
    ! Material transport: aerodynamic resistance for water vapour, used by
    ! the isotope kinetic fractionation. Output only; nothing here reads it.
-   real(r8), intent(out), optional :: raw_out
+   type(mt_canopy_diagnostics), intent(inout), optional :: canopy_diag
 #endif
 
 !-------------------------- Local Variables ----------------------------
@@ -234,7 +237,7 @@ CONTAINS
       rah  = 1./(vonkar/fh*ustar)
       raw  = 1./(vonkar/fq*ustar)
 #ifdef MaterialTransport
-      IF (present(raw_out)) raw_out = raw
+      IF (present(canopy_diag)) canopy_diag%raw = raw
 #endif
 
       raih = rhoair*cpair/rah

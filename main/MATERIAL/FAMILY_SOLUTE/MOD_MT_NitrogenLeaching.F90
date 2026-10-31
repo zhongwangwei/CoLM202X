@@ -37,7 +37,8 @@ MODULE MOD_MT_NitrogenLeaching
    USE MOD_Precision
    USE MOD_Vars_Global,        only: nl_soil, dz_soi
    USE MOD_Namelist,           only: DEF_USE_NITRIF
-   USE MOD_BGC_Vars_1DFluxes,  only: sminn_leached_vr, smin_nh4_leached_vr, &
+   USE MOD_MT_BGC_NH4,         only: smin_nh4_leached_vr
+   USE MOD_BGC_Vars_1DFluxes,  only: sminn_leached_vr, &
                                      smin_no3_leached_vr, smin_no3_runoff_vr
    USE MOD_MT_Defs,            only: nmts, materials, material_lower, material_is_solute
    USE MOD_MT_Vars,            only: mt_rnof_step, a_mt_rsub, a_mt_rsur, &

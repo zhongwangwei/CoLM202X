@@ -34,12 +34,11 @@ CONTAINS
                          t_soisno,t_grnd,t_soil,t_snow,wice_soisno,wliq_soisno,scv,snowdp,fsno,&
                          frl,dlrad,sabg,sabg_soil,sabg_snow,sabg_snow_lyr,&
                          fseng,fseng_soil,fseng_snow,fevpg,fevpg_soil,fevpg_snow,cgrnd,htvp,emg,&
-#ifdef MaterialTransport
                          imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip &
-                        ,qphs_thaw_lay,qphs_frzc_lay)
-#else
-                         imelt,snofrz,sm,xmf,fact,pg_rain,pg_snow,t_precip)
+#ifdef MaterialTransport
+                         ,thermal_diag &
 #endif
+                         )
 
 !=======================================================================
 !  Snow and soil temperatures
@@ -79,6 +78,9 @@ CONTAINS
    USE MOD_SoilThermalParameters
    USE MOD_SPMD_Task
    USE MOD_Utils
+#ifdef MaterialTransport
+   USE MOD_MT_ThermalDiagnostics, only: mt_thermal_diagnostics
+#endif
 
    IMPLICIT NONE
 
@@ -164,8 +166,7 @@ CONTAINS
 
    real(r8), intent(out) :: snofrz(lb:0)      !snow freezing rate (lyr) [kg m-2 s-1]
 #ifdef MaterialTransport
-   real(r8), intent(out), optional :: qphs_thaw_lay(lb:nl_soil)
-   real(r8), intent(out), optional :: qphs_frzc_lay(lb:nl_soil)
+   type(mt_thermal_diagnostics), intent(inout), optional :: thermal_diag
 #endif
 
 !-------------------------- Local Variables ----------------------------
@@ -425,12 +426,11 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-#ifdef MaterialTransport
                   dz_soisno(1:nl_soil) &
-                 ,qphs_thaw_lay = qphs_thaw_lay, qphs_frzc_lay = qphs_frzc_lay)
-#else
-                  dz_soisno(1:nl_soil))
+#ifdef MaterialTransport
+                  ,thermal_diag=thermal_diag &
 #endif
+                  )
 
          ! layer freezing mass flux (positive):
          DO j = lb, 0
@@ -451,12 +451,11 @@ CONTAINS
                   theta_r,alpha_vgm,n_vgm,L_vgm,&
                   sc_vgm,fc_vgm,&
 #endif
-#ifdef MaterialTransport
                   dz_soisno(1:nl_soil) &
-                 ,qphs_thaw_lay = qphs_thaw_lay, qphs_frzc_lay = qphs_frzc_lay)
-#else
-                  dz_soisno(1:nl_soil))
+#ifdef MaterialTransport
+                  ,thermal_diag=thermal_diag &
 #endif
+                  )
       ENDIF
 
 !-----------------------------------------------------------------------

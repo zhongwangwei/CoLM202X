@@ -18,15 +18,10 @@ MODULE MOD_Hist
    USE MOD_Vars_1DAccFluxes
    USE MOD_Vars_Global, only: spval
    USE MOD_NetCDFSerial
-#if (defined MaterialTransport) && (defined GridRiverLakeFlow)
-   USE MOD_MT_RiverLake, only: mt_riverlake_snapshot_hist_acc
-   USE MOD_MT_Sediment, only: mt_sediment_snapshot_hist_acc
-#endif
 #ifdef MaterialTransport
-   USE MOD_MT_Vars, only: flush_Material_Acc
-   USE MOD_MT_Hist, only: mt_hist_out
+   USE MOD_MT_Hist, only: mt_history_record, mt_hist_initialize, mt_hist_flush, &
+      mt_hist_begin, mt_hist_write_record, mt_hist_end, mt_hist_snapshot, mt_hist_write_frcsat
    USE MOD_MT_HostFixes, only: mt_hist_continue_file
-   USE MOD_MT_Namelist, only: mt_any_enabled
 #endif
 
    USE MOD_HistGridded
@@ -46,6 +41,10 @@ MODULE MOD_Hist
    USE MOD_Lake_Hist
 #endif
 
+#ifdef MaterialTransport
+   PRIVATE :: mt_history_record, mt_hist_initialize, mt_hist_flush, mt_hist_begin, &
+      mt_hist_write_record, mt_hist_end, mt_hist_snapshot, mt_hist_write_frcsat
+#endif
    PUBLIC :: hist_init
    PUBLIC :: hist_out
    PUBLIC :: hist_final
@@ -53,9 +52,6 @@ MODULE MOD_Hist
    character(len=10) :: HistForm ! 'Gridded', 'Vector', 'Single'
 
    character(len=256) :: file_last = 'null'
-#ifdef MaterialTransport
-   character(len=256) :: file_last_material = 'null'
-#endif
 
 !--------------------------------------------------------------------------
 CONTAINS
@@ -66,18 +62,10 @@ CONTAINS
 
    character(len=*) , intent(in) :: dir_hist
    logical, optional, intent(in) :: lulcc_call
-#ifdef MaterialTransport
-   logical :: flush_mt
-#endif
 
       CALL allocate_acc_fluxes ()
 #ifdef MaterialTransport
-      ! The material accumulators may hold values read from the material
-      ! restart at start-up; clear them only when called for a LULCC change.
-      flush_mt = .false.
-      IF (present(lulcc_call)) flush_mt = lulcc_call
-      CALL FLUSH_acc_fluxes (flush_mt=flush_mt)
-      CALL flush_Material_Acc ()
+      CALL mt_hist_initialize (lulcc_call)
 #else
       CALL FLUSH_acc_fluxes ()
 #endif
@@ -187,18 +175,10 @@ CONTAINS
 
    ! Local variables
    logical :: lwrite
-#ifdef MaterialTransport
-   logical :: forcmask_empty(0)
-#endif
    character(len=256) :: file_hist
    integer :: itime_in_file
 #ifdef MaterialTransport
-   real(r8) :: history_window_seconds
-   character(len=256) :: file_hist_material
-   integer :: itime_in_file_material
-#ifdef SinglePoint
-   logical :: site_hist_writeback_saved
-#endif
+   type(mt_history_record) :: material_history
 #endif
 #if (defined CaMa_Flood)
    character(len=256) :: file_hist_cama
@@ -248,9 +228,10 @@ CONTAINS
 #endif
 
       IF (itstamp <= ptstamp) THEN
-         CALL FLUSH_acc_fluxes ()
 #ifdef MaterialTransport
-         CALL flush_Material_Acc ()
+         CALL mt_hist_flush ()
+#else
+         CALL FLUSH_acc_fluxes ()
 #endif
 #ifdef GridRiverLakeFlow
          CALL flush_acc_fluxes_riverlake ()
@@ -268,15 +249,7 @@ CONTAINS
       ! model or history variable.
       IF (hist_acc_final_snapshot (idate, deltim, itstamp, etstamp)) THEN
 #if (defined MaterialTransport) && (defined GridRiverLakeFlow)
-         ! Keep the material history rows of this partial terminal window for
-         ! the physical restart written after the output flush.  The snapshot
-         ! is taken only when hist_acc_final_snapshot kept one (last step and a
-         ! partial window); taking it every step copied nmts*numucat arrays for
-         ! nothing, and left the sediment snapshot marked valid from the first
-         ! step after a restart, so the next restart then wrote that stale copy
-         ! instead of the running sums.
-         CALL mt_riverlake_snapshot_hist_acc ()
-         CALL mt_sediment_snapshot_hist_acc ()
+         CALL mt_hist_snapshot ()
 #endif
       ENDIF
 
@@ -349,44 +322,8 @@ CONTAINS
 #endif
          CALL hist_write_time (file_hist, file_last, 'time', idate, itime_in_file)
 #ifdef MaterialTransport
-         ! material history goes to its own file, with the averaging window;
-         ! nothing is written when no material is enabled
-         IF (mt_any_enabled()) THEN
-            history_window_seconds=0._r8
-            IF (p_is_worker) history_window_seconds=max(nac,0._r8)*deltim
-#ifdef USEMPI
-            CALL mpi_allreduce(MPI_IN_PLACE, history_window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
-#endif
-            file_hist_material = trim(dir_hist) // '/' // trim(casename) //'_hist_material_'//trim(cdate)//'.nc'
-            CALL mt_hist_continue_file (file_hist_material, idate, HistForm, file_last_material)
-#ifdef SinglePoint
-            ! The single-site cache belongs to the host stream, not this file.
-            site_hist_writeback_saved = USE_SITE_HistWriteBack
-            USE_SITE_HistWriteBack = .false.
-#endif
-            CALL hist_write_time (file_hist_material, file_last_material, 'time', idate, itime_in_file_material)
-#ifdef SinglePoint
-            USE_SITE_HistWriteBack = site_hist_writeback_saved
-#endif
-            ! Written by the master into the single file; in 'block' mode that file
-            ! does not exist (per-block files), and with write-back it is created
-            ! by the write-back process, so the window is not written there.
-            IF (HistForm=='Gridded' .and. p_is_master .and. trim(DEF_HIST_mode)=='one' &
-                .and. .not. DEF_HIST_WriteBack) THEN
-               CALL ncio_write_serial_time (file_hist_material, 'history_window_seconds', &
-                  itime_in_file_material, history_window_seconds, 'time')
-               CALL ncio_write_serial_time (file_hist_material, 'history_window_end_minutes', &
-                  itime_in_file_material, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
-                  real(mod(idate(3),60),r8)/60._r8, 'time')
-               IF (itime_in_file_material==1) THEN
-                  CALL ncio_put_attr(file_hist_material, 'history_window_seconds', 'units', 's')
-                  CALL ncio_put_attr(file_hist_material, 'history_window_seconds', 'long_name', &
-                     'elapsed window ending at history_window_end_minutes; terminal and resumed records can overlap')
-                  CALL ncio_put_attr(file_hist_material, 'history_window_end_minutes', 'units', &
-                     'minutes since 1900-1-1 0:0:0')
-               ENDIF
-            ENDIF
-         ENDIF
+         CALL mt_hist_begin (material_history, dir_hist, casename, cdate, idate, HistForm, &
+            deltim, nac, hist_write_time)
 #endif
 
          IF (p_is_worker) THEN
@@ -840,20 +777,12 @@ CONTAINS
 
          ! fraction of saturation area on ground
 #ifdef MaterialTransport
-         IF (mt_any_enabled()) THEN
-            IF (allocated(nac_frcsat)) THEN
-               WHERE (nac_frcsat <= 0._r8) a_frcsat = spval
-            ENDIF
-            CALL write_history_variable_2d ( DEF_hist_vars%frcsat, &
-               a_frcsat, file_hist, 'f_frcsat', itime_in_file, sumarea, filter, &
-               'fraction of saturation area on ground','-', acc_num=nac_frcsat)
-         ELSE
-#endif
+         CALL mt_hist_write_frcsat (DEF_hist_vars%frcsat, a_frcsat, file_hist, itime_in_file, &
+            sumarea, filter, write_history_variable_2d)
+#else
          CALL write_history_variable_2d ( DEF_hist_vars%frcsat, &
             a_frcsat, file_hist, 'f_frcsat', itime_in_file, sumarea, filter, &
             'fraction of saturation area on ground','-')
-#ifdef MaterialTransport
-         ENDIF
 #endif
 
          ! fraction of veg cover, excluding snow-covered veg [-]
@@ -5428,15 +5357,8 @@ ENDIF
          IF (allocated(nac_one   )) deallocate (nac_one   )
 #endif
 #ifdef MaterialTransport
-         IF (mt_any_enabled()) THEN
-            IF (allocated(forcmask_pch)) THEN
-               CALL mt_hist_out (file_hist_material, itime_in_file_material, HistForm, &
-                  sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_pch)
-            ELSE
-               CALL mt_hist_out (file_hist_material, itime_in_file_material, HistForm, &
-                  sumarea, filter, maxsnl, nl_soil, DEF_forcing%has_missing_value, forcmask_empty)
-            ENDIF
-         ENDIF
+         CALL mt_hist_write_record (material_history, HistForm, sumarea, filter, maxsnl, nl_soil, &
+            DEF_forcing%has_missing_value, forcmask_pch)
 #endif
 
          IF (allocated(filter    )) deallocate (filter    )
@@ -5445,9 +5367,10 @@ ENDIF
          IF (allocated(filter_urb)) deallocate (filter_urb)
 #endif
 
-         CALL FLUSH_acc_fluxes ()
 #ifdef MaterialTransport
-         CALL flush_Material_Acc ()
+         CALL mt_hist_flush ()
+#else
+         CALL FLUSH_acc_fluxes ()
 #endif
 
 #ifdef SinglePoint
@@ -5458,7 +5381,7 @@ ENDIF
 
          file_last = file_hist
 #ifdef MaterialTransport
-         file_last_material = file_hist_material
+         CALL mt_hist_end (material_history)
 #endif
 
       ENDIF

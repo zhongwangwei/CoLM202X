@@ -58,12 +58,11 @@ CONTAINS
 !End WUE stomata model parameter
               hpbl       ,&
               qintr_rain ,qintr_snow ,t_precip   ,hprl       ,dheatl     ,smp        ,&
+              hk         ,hksati     ,rootflux   ,ipft_index &
 #ifdef MaterialTransport
-              hk         ,hksati     ,rootflux   ,ipft_index                          &
-             ,canopy_smelt_mass_out, canopy_frzc_mass_out, raw_mt_out               )
-#else
-              hk         ,hksati     ,rootflux   ,ipft_index                          )
+              ,canopy_diag &
 #endif
+              )
 
 !=======================================================================
 ! !DESCRIPTION:
@@ -122,6 +121,9 @@ CONTAINS
    USE MOD_PlantHydraulic, only:PlantHydraulicStress_twoleaf, getvegwp_twoleaf
    USE MOD_Ozone, only: CalcOzoneStress
    USE MOD_Qsadv
+#ifdef MaterialTransport
+   USE MOD_MT_ThermalDiagnostics, only: mt_canopy_diagnostics
+#endif
 
    IMPLICIT NONE
 
@@ -273,10 +275,7 @@ CONTAINS
         gssha,      &! stomata conductance of shaded leaf
         rootflux(1:nl_soil)  ! root water uptake from different layers
 #ifdef MaterialTransport
-   ! Diagnostics for material transport only; not used by the host.
-   real(r8), intent(out), optional :: canopy_smelt_mass_out ! canopy snow melted this step [mm]
-   real(r8), intent(out), optional :: canopy_frzc_mass_out  ! canopy water frozen this step [mm]
-   real(r8), intent(out), optional :: raw_mt_out           ! moisture resistance raw [s/m]
+   type(mt_canopy_diagnostics), intent(out), optional :: canopy_diag
 #endif
 
    real(r8), intent(inout) :: &
@@ -444,8 +443,7 @@ CONTAINS
       del    = 0.0  !change in leaf temperature from previous iteration
       dele   = 0.0  !latent head flux from leaf for previous iteration
 #ifdef MaterialTransport
-      IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = 0._r8
-      IF (present(canopy_frzc_mass_out))  canopy_frzc_mass_out  = 0._r8
+      IF (present(canopy_diag)) canopy_diag = mt_canopy_diagnostics()
 #endif
 
       dtl(0) = 0.
@@ -1486,7 +1484,7 @@ ENDIF
             ldew_snow = max(0.,ldew_snow - qmelt*deltim)
             ldew_rain = max(0.,ldew_rain + qmelt*deltim)
 #ifdef MaterialTransport
-            IF (present(canopy_smelt_mass_out)) canopy_smelt_mass_out = qmelt*deltim
+            IF (present(canopy_diag)) canopy_diag%melt = qmelt*deltim
 #endif
             !NOTE: There may be some problem, energy imbalance
             !      However, detailed treatment could be somewhat trivial
@@ -1498,7 +1496,7 @@ ENDIF
             ldew_rain = max(0.,ldew_rain - qfrz*deltim)
             ldew_snow = max(0.,ldew_snow + qfrz*deltim)
 #ifdef MaterialTransport
-            IF (present(canopy_frzc_mass_out)) canopy_frzc_mass_out = qfrz*deltim
+            IF (present(canopy_diag)) canopy_diag%freeze = qfrz*deltim
 #endif
             !NOTE: There may be some problem, energy imbalance
             !      However, detailed treatment could be somewhat trivial
@@ -1512,7 +1510,7 @@ ENDIF
       tref = thm + vonkar/(fh-fht)*dth * (fh2m/vonkar - fh/vonkar)
       qref =  qm + vonkar/(fq-fqt)*dqh * (fq2m/vonkar - fq/vonkar)
 #ifdef MaterialTransport
-      IF (present(raw_mt_out)) raw_mt_out = max(raw, 0._r8)
+      IF (present(canopy_diag)) canopy_diag%raw = max(raw, 0._r8)
 #endif
 
    END SUBROUTINE LeafTemperature

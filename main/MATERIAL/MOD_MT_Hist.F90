@@ -20,32 +20,238 @@ MODULE MOD_MT_Hist
       material_concentration_units, material_is_nonvolatile_solute, material_is_isotope, &
       material_aquifer_actual_water, material_aquifer_actual_mass
    USE MOD_MT_Vars
+   USE MOD_MT_LandWork, only: mt_land_work
+   USE MOD_MT_Conservation, only: mt_apply_decay, mt_balance_check
+   USE MOD_MT_Namelist, only: mt_any_enabled
+   USE MOD_MT_HostFixes, only: mt_hist_continue_file
+   USE MOD_MT_HostHistory, only: nac_frcsat
 
    IMPLICIT NONE
    PRIVATE
 
-   ! Everything else in here is internal. Without this the module exported all
-   ! twelve write_history_* procedures plus everything it USEs, so any module
-   ! could reach past the two entry points into the writers -- the kind of
-   ! coupling that makes the history path impossible to change safely.
-   !
-   ! The list is exactly what is used from outside today:
-   !   mt_hist_accumulate  CoLMMAIN, MOD_MT_SpecialPatches
-   !   mt_hist_out         MOD_Hist
-   !   the rest                MOD_MT_Reactive_Methane_Hist, which writes
-   !                           its own variables through the shared writers
-   ! A provider needing another writer should be added here deliberately, which
-   ! is the point: the compiler now asks the question.
-   PUBLIC :: mt_hist_accumulate
+   ! Host phases use the material facade; provider writers are explicitly exported.
+   PUBLIC :: mt_hist_accumulate, mt_land_finish_step
    PUBLIC :: mt_hist_out
    PUBLIC :: HistForm
    PUBLIC :: write_history_mt_ratio_2d
    PUBLIC :: write_history_variable_2d
    PUBLIC :: write_history_variable_3d
 
+   PUBLIC :: mt_history_record, mt_hist_initialize, mt_hist_flush, mt_hist_begin
+   PUBLIC :: mt_hist_write_record, mt_hist_end, mt_hist_snapshot, mt_hist_write_frcsat
+
+   type mt_history_record
+      private
+      character(len=256) :: filename
+      integer :: itime
+   end type mt_history_record
+   character(len=256) :: file_last_material = 'null'
+
    character(len=10) :: HistForm = 'Gridded'
 
 CONTAINS
+
+   SUBROUTINE mt_hist_initialize(lulcc_call)
+      USE MOD_Vars_1DAccFluxes, only: FLUSH_acc_fluxes
+      logical, optional, intent(in) :: lulcc_call
+      logical :: flush_mt
+
+      ! Startup may already hold restarted material sums; only LULCC clears them.
+      flush_mt = .false.
+      IF (present(lulcc_call)) flush_mt = lulcc_call
+      CALL FLUSH_acc_fluxes(flush_mt=flush_mt)
+      CALL flush_Material_Acc()
+   END SUBROUTINE mt_hist_initialize
+
+   SUBROUTINE mt_hist_flush()
+      USE MOD_Vars_1DAccFluxes, only: FLUSH_acc_fluxes
+      CALL FLUSH_acc_fluxes()
+      CALL flush_Material_Acc()
+   END SUBROUTINE mt_hist_flush
+
+   SUBROUTINE mt_hist_snapshot()
+#ifdef GridRiverLakeFlow
+      USE MOD_MT_RiverLake, only: mt_riverlake_snapshot_hist_acc
+      USE MOD_MT_Sediment, only: mt_sediment_snapshot_hist_acc
+      CALL mt_riverlake_snapshot_hist_acc()
+      CALL mt_sediment_snapshot_hist_acc()
+#endif
+   END SUBROUTINE mt_hist_snapshot
+
+   SUBROUTINE mt_hist_begin(record, dir_hist, casename, cdate, idate, HistForm, deltim, nac, write_time)
+      USE MOD_SPMD_Task
+      USE MOD_Namelist, only: DEF_HIST_mode, DEF_HIST_WriteBack
+#ifdef SinglePoint
+      USE MOD_Namelist, only: USE_SITE_HistWriteBack
+#endif
+      USE MOD_TimeManager, only: minutes_since_1900
+      type(mt_history_record), intent(out) :: record
+      character(len=*), intent(in) :: dir_hist, casename, cdate, HistForm
+      integer, intent(in) :: idate(3)
+      real(r8), intent(in) :: deltim, nac
+      real(r8) :: history_window_seconds
+#ifdef SinglePoint
+      logical :: site_hist_writeback_saved
+#endif
+      ! Use the host dispatch without importing MOD_Hist back into its dependency.
+      interface
+         SUBROUTINE write_time(filename, filelast, dataname, time, itime)
+            character(len=*), intent(in) :: filename, filelast, dataname
+            integer, intent(in) :: time(3)
+            integer, intent(out) :: itime
+         END SUBROUTINE write_time
+      end interface
+
+         ! material history goes to its own file, with the averaging window;
+         ! nothing is written when no material is enabled
+         IF (mt_any_enabled()) THEN
+            history_window_seconds=0._r8
+            IF (p_is_worker) history_window_seconds=max(nac,0._r8)*deltim
+#ifdef USEMPI
+            CALL mpi_allreduce(MPI_IN_PLACE, history_window_seconds, 1, MPI_REAL8, MPI_MAX, p_comm_glb, p_err)
+#endif
+            record%filename = trim(dir_hist) // '/' // trim(casename) //'_hist_material_'//trim(cdate)//'.nc'
+            CALL mt_hist_continue_file (record%filename, idate, HistForm, file_last_material)
+#ifdef SinglePoint
+            ! The single-site cache belongs to the host stream, not this file.
+            site_hist_writeback_saved = USE_SITE_HistWriteBack
+            USE_SITE_HistWriteBack = .false.
+#endif
+            CALL write_time (record%filename, file_last_material, 'time', idate, record%itime)
+#ifdef SinglePoint
+            USE_SITE_HistWriteBack = site_hist_writeback_saved
+#endif
+            ! Written by the master into the single file; in 'block' mode that file
+            ! does not exist (per-block files), and with write-back it is created
+            ! by the write-back process, so the window is not written there.
+            IF (HistForm=='Gridded' .and. p_is_master .and. trim(DEF_HIST_mode)=='one' &
+                .and. .not. DEF_HIST_WriteBack) THEN
+               CALL ncio_write_serial_time (record%filename, 'history_window_seconds', &
+                  record%itime, history_window_seconds, 'time')
+               CALL ncio_write_serial_time (record%filename, 'history_window_end_minutes', &
+                  record%itime, real(minutes_since_1900(idate(1), idate(2), idate(3)), r8) + &
+                  real(mod(idate(3),60),r8)/60._r8, 'time')
+               IF (record%itime==1) THEN
+                  CALL ncio_put_attr(record%filename, 'history_window_seconds', 'units', 's')
+                  CALL ncio_put_attr(record%filename, 'history_window_seconds', 'long_name', &
+                     'elapsed window ending at history_window_end_minutes; terminal and resumed records can overlap')
+                  CALL ncio_put_attr(record%filename, 'history_window_end_minutes', 'units', &
+                     'minutes since 1900-1-1 0:0:0')
+               ENDIF
+            ENDIF
+         ENDIF
+   END SUBROUTINE mt_hist_begin
+
+   SUBROUTINE mt_hist_write_record(record, hist_form_in, sumarea, filter, maxsnl, nl_soil, &
+      forcing_has_missing_value, forcmask_pch)
+      USE MOD_DataType, only: block_data_real8_2d
+      type(mt_history_record), intent(in) :: record
+      character(len=*), intent(in) :: hist_form_in
+      type(block_data_real8_2d), intent(inout) :: sumarea
+      logical, intent(inout) :: filter(:)
+      integer, intent(in) :: maxsnl, nl_soil
+      logical, intent(in) :: forcing_has_missing_value
+      logical, allocatable, intent(in) :: forcmask_pch(:)
+      logical :: forcmask_empty(0)
+
+         IF (mt_any_enabled()) THEN
+            IF (allocated(forcmask_pch)) THEN
+               CALL mt_hist_out (record%filename, record%itime, hist_form_in, &
+                  sumarea, filter, maxsnl, nl_soil, forcing_has_missing_value, forcmask_pch)
+            ELSE
+               CALL mt_hist_out (record%filename, record%itime, hist_form_in, &
+                  sumarea, filter, maxsnl, nl_soil, forcing_has_missing_value, forcmask_empty)
+            ENDIF
+         ENDIF
+   END SUBROUTINE mt_hist_write_record
+
+   SUBROUTINE mt_hist_end(record)
+      type(mt_history_record), intent(in) :: record
+      IF (mt_any_enabled()) file_last_material = record%filename
+   END SUBROUTINE mt_hist_end
+
+   SUBROUTINE mt_hist_write_frcsat(is_hist, a_frcsat, file_hist, itime_in_file, sumarea, filter, write_field)
+      USE MOD_DataType, only: block_data_real8_2d
+      logical, intent(in) :: is_hist
+      real(r8), allocatable, intent(inout) :: a_frcsat(:)
+      character(len=*), intent(in) :: file_hist
+      integer, intent(in) :: itime_in_file
+      type(block_data_real8_2d), intent(in) :: sumarea
+      logical, intent(in) :: filter(:)
+      interface
+         SUBROUTINE write_field(is_hist, acc_vec, file_hist, varname, itime_in_file, sumarea, filter, &
+            longname, units, acc_num, input_mode)
+            USE MOD_Precision
+            USE MOD_DataType, only: block_data_real8_2d
+            logical, intent(in) :: is_hist
+            real(r8), intent(inout) :: acc_vec(:)
+            character(len=*), intent(in) :: file_hist, varname, longname, units
+            integer, intent(in) :: itime_in_file
+            type(block_data_real8_2d), intent(in) :: sumarea
+            logical, intent(in) :: filter(:)
+            real(r8), intent(in), optional :: acc_num(:)
+            character(len=*), intent(in), optional :: input_mode
+         END SUBROUTINE write_field
+      end interface
+
+      IF (mt_any_enabled()) THEN
+         IF (allocated(nac_frcsat)) THEN
+            WHERE (nac_frcsat <= 0._r8) a_frcsat = spval
+         ENDIF
+         CALL write_field(is_hist, a_frcsat, file_hist, 'f_frcsat', itime_in_file, sumarea, filter, &
+            'fraction of saturation area on ground', '-', acc_num=nac_frcsat)
+      ELSE
+         CALL write_field(is_hist, a_frcsat, file_hist, 'f_frcsat', itime_in_file, sumarea, filter, &
+            'fraction of saturation area on ground', '-')
+      ENDIF
+   END SUBROUTINE mt_hist_write_frcsat
+
+
+   SUBROUTINE mt_land_finish_step (work, ipatch, snl, maxsnl, nl_soil, deltim, patchtype, &
+      errorw, endwb, totwb, forc_prc, forc_prl, fevpa, rnof, ldew_rain, ldew_snow, &
+      wliq_soisno, wice_soisno, wa, wdsrf, wetwat, scv &
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      , flood_enabled, flood_input, flood_evaporation &
+#endif
+      )
+      type(mt_land_work), intent(inout) :: work
+      integer, intent(in) :: ipatch, snl, maxsnl, nl_soil, patchtype
+      real(r8), intent(in) :: deltim, errorw, endwb, totwb, forc_prc, forc_prl, fevpa, rnof
+      real(r8), intent(in) :: ldew_rain, ldew_snow, wa, wdsrf, wetwat, scv
+      real(r8), intent(in) :: wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil)
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      logical, intent(in) :: flood_enabled
+      real(r8), intent(in) :: flood_input, flood_evaporation
+#endif
+
+      ! Water terms for the material balance. The host endwb has the flood
+      ! infiltration taken out and fevpa includes flood evaporation; undo
+      ! both so dS, input and output describe the same land water store.
+      work%flood_input = 0._r8
+      work%evaporation = fevpa
+#if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
+      IF (flood_enabled .and. patchtype == 0) work%flood_input = flood_input
+      IF (patchtype == 0) work%evaporation = fevpa - flood_evaporation
+#endif
+      CALL mt_apply_decay(ipatch, snl, nl_soil, deltim)
+      CALL mt_balance_check(ipatch, snl, nl_soil, deltim, work%balance_error, &
+         patchtype_in = patchtype, water_err_in = errorw, &
+         water_dS_in = endwb - totwb + work%flood_input * deltim, &
+         water_input_in = (forc_prc + forc_prl + work%flood_input) * deltim, &
+         water_output_in = (work%evaporation + rnof) * deltim, &
+         water_evap_in = work%evaporation * deltim, &
+         water_rnof_in = rnof * deltim &
+#ifdef GridRiverLakeFlow
+         ! flood water may carry a river signature: no fixed-signature check
+         , flood_heterogeneous_in = flood_enabled .and. patchtype == 0 &
+#endif
+         )
+
+      CALL mt_hist_accumulate(ipatch, snl, maxsnl, nl_soil, ldew_rain, ldew_snow, &
+         wliq_soisno(snl+1:nl_soil), wice_soisno(snl+1:nl_soil), &
+         wa, wdsrf, wetwat, scv)
+      CALL work%release()
+   END SUBROUTINE mt_land_finish_step
 
    SUBROUTINE mt_hist_accumulate (ipatch, snl, maxsnl, nl_soil, &
       ldew_rain, ldew_snow, wliq_soisno, wice_soisno, &

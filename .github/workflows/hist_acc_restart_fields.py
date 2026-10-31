@@ -39,6 +39,9 @@ def fields():
         if PP.match(ln):
             out.append(('pp', ln.strip()))
             continue
+        if re.match(r'\s*CALL\s+mt_allocate_frcsat_count\s*\(', ln, re.I):
+            out.append(('f', 'nac_frcsat', 1, 'landpatch', 'patch'))
+            continue
         m = ALLOC.match(ln)
         if not m or m.group(1) in SKIP:
             continue
@@ -90,7 +93,8 @@ def render(items):
             _, name, rank, pset, dname = t
             if name == 'nac_frcsat':
                 # Older partial windows have no trustworthy valid-sample count.
-                lines.append('      CALL hacc_frcsat_count (file, mode)')
+                lines.append('      CALL mt_history_frcsat_count(file, mode, HACC_WRITE, nac, a_frcsat, &')
+                lines.append('         hacc_field1d, write_marker, read_marker, require_var, global_max)')
             else:
                 lines.append(f"      CALL hacc_field{rank}d (file, mode, '{name}', {name}, {pset}, '{dname}')")
     return lines

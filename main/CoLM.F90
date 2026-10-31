@@ -29,17 +29,6 @@ PROGRAM CoLM
    USE MOD_Vars_1DAccFluxes
    USE MOD_Forcing
    USE MOD_Hist
-#ifdef MaterialTransport
-   USE MOD_HistAccRestart, only: read_history_acc_restart, save_history_acc_restart, &
-      hist_acc_window_restored
-#ifdef GridRiverLakeFlow
-   USE MOD_MT_RiverLake, only: mt_riverlake_drop_hist_window
-   ! MOD_MT_Sediment exists only with the grid river-lake flow (it USEs
-   ! GridRiverLakeFlow-only modules), so it is guarded like every other
-   ! reference to it in the tree.
-   USE MOD_MT_Sediment, only: mt_sediment_drop_hist_window
-#endif
-#endif
    USE MOD_CheckEquilibrium
    USE MOD_TimeManager
    USE MOD_RangeCheck
@@ -113,19 +102,10 @@ PROGRAM CoLM
 
    USE MOD_ParameterOptimization
 #ifdef MaterialTransport
-   USE MOD_MT_LandPhase, only: mt_land_init, mt_land_final
-   USE MOD_MT_Lifecycle, only: mt_lifecycle_reset
-   USE MOD_MT_Vars, only: mt_reset_rnof_step
-   USE MOD_MT_Defs, only: mt_defs_final
-   USE MOD_MT_HostFixes, only: mt_bgc_data_init_year
-#ifdef CaMa_Flood
-   USE MOD_MT_Defs, only: nmts, mt_uses_generic_water
-#endif
-#endif
-#ifdef MaterialTransport
-   USE MOD_MT_Forcing, only: mt_forcing_init, mt_read_forcing, &
-                                 mt_forcing_reset, mt_forcing_final, mt_forcing_read_restart, &
-                                 mt_forcing_lulcc_save, mt_forcing_lulcc_restore
+   USE MOD_MT_Runtime, only: mt_runtime_land_init, mt_runtime_forcing_init, &
+      mt_runtime_history_restore, mt_runtime_lulcc_forcing_save, mt_runtime_lulcc_forcing_restore, &
+      mt_runtime_land_final, mt_runtime_registry_final, mt_read_forcing, mt_forcing_reset, &
+      mt_reset_rnof_step, mt_bgc_data_init_year, save_history_acc_restart
 #endif
 
 #ifdef DataAssimilation
@@ -176,13 +156,6 @@ PROGRAM CoLM
    integer :: month, mday, year_p, month_p, mday_p, month_prev, mday_prev
    integer :: n_spinupcycle, i_spinupcycle, istep
    logical :: is_spinup
-#if (defined MaterialTransport) && (defined CaMa_Flood)
-   integer :: imt_cama
-#endif
-#ifdef MaterialTransport
-   logical :: material_loaded_restart
-   character(len=256) :: material_restart_file
-#endif
 
    type(timestamp) :: ststamp, itstamp, etstamp, ptstamp, time_prev
 
@@ -349,10 +322,7 @@ PROGRAM CoLM
       CALL READ_TimeVariables (jdate, lc_year, casename, dir_restart)
 
 #ifdef MaterialTransport
-      CALL mt_land_init (numpatch, maxsnl, nl_soil, s_month, lc_year, jdate, &
-         casename, dir_restart, dir_landdata, ldew_rain, ldew_snow, wliq_soisno, &
-         wice_soisno, wa, wdsrf, wetwat, scv, waterstorage, &
-         loaded_restart=material_loaded_restart, restart_file=material_restart_file)
+      CALL mt_runtime_land_init (s_month, lc_year, jdate, casename, dir_restart, dir_landdata)
 #endif
       ! Read in SNICAR optical and aging parameters
       IF (DEF_USE_SNICAR) THEN
@@ -378,8 +348,7 @@ PROGRAM CoLM
       CALL allocate_1D_Forcing ()
       CALL forcing_init (dir_forcing, deltim, ststamp, lc_year, etstamp)
 #ifdef MaterialTransport
-      CALL mt_forcing_init (gforc, numpatch)
-      CALL mt_forcing_read_restart (material_restart_file, material_loaded_restart)
+      CALL mt_runtime_forcing_init ()
 #endif
       CALL allocate_2D_Forcing (gforc)
 
@@ -451,16 +420,7 @@ PROGRAM CoLM
 #endif
 
 #ifdef MaterialTransport
-      CALL read_history_acc_restart (jdate)
-      ! The material river and sediment histories must live on the same window
-      ! as the host's: when the sidecar reader dropped a complete window, drop
-      ! the restored material rows as well.  A partial window is kept by all.
-      IF (.not. hist_acc_window_restored) THEN
-#ifdef GridRiverLakeFlow
-         CALL mt_riverlake_drop_hist_window ()
-         CALL mt_sediment_drop_hist_window ()
-#endif
-      ENDIF
+      CALL mt_runtime_history_restore (jdate)
 #endif
 
       CALL ParaOpt_init (jdate, lc_year)
@@ -613,8 +573,7 @@ PROGRAM CoLM
             CALL deallocate_1D_Fluxes
 
 #ifdef MaterialTransport
-            CALL mt_forcing_lulcc_save ()
-            CALL mt_forcing_final ()
+            CALL mt_runtime_lulcc_forcing_save ()
 #endif
             CALL forcing_final ()
             CALL hist_final    ()
@@ -629,8 +588,7 @@ PROGRAM CoLM
             CALL allocate_1D_Forcing
             CALL forcing_init (dir_forcing, deltim, itstamp, jdate(1), lulcc_call=.true.)
 #ifdef MaterialTransport
-            CALL mt_forcing_init (gforc, numpatch)
-            CALL mt_forcing_lulcc_restore ()
+            CALL mt_runtime_lulcc_forcing_restore ()
 #endif
 
             CALL hist_init (dir_hist, lulcc_call=.true.)
@@ -764,8 +722,7 @@ PROGRAM CoLM
 
       ENDDO TIMELOOP
 #ifdef MaterialTransport
-         CALL mt_forcing_final ()
-         CALL mt_land_final ()
+         CALL mt_runtime_land_final ()
 #endif
 
       CALL deallocate_TimeInvariants ()
@@ -786,8 +743,7 @@ PROGRAM CoLM
       CALL grid_riverlake_flow_final ()
 #endif
 #ifdef MaterialTransport
-      CALL mt_lifecycle_reset ()
-      CALL mt_defs_final ()
+      CALL mt_runtime_registry_final ()
 #endif
 
       CALL forcing_final ()

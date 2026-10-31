@@ -14,6 +14,9 @@ MODULE MOD_BGC_CNZeroFluxes
 ! Xingjie Lu, 2022, modify original CLM5 to be compatible with CoLM code structure. 
 
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_BGC_NH4, only: smin_nh4_leached_vr, smin_nh4_leached
+#endif
    USE MOD_Namelist, only: DEF_USE_NITRIF
  
    USE MOD_BGC_Vars_1DPFTFluxes, only:        &
@@ -340,9 +343,6 @@ MODULE MOD_BGC_CNZeroFluxes
  
        sminn_to_denit_excess_vr             , &
        sminn_leached_vr                     , &
-#ifdef MaterialTransport
-       smin_nh4_leached_vr                  , &
-#endif
        sminn_to_plant_fun_vr                , &
  
        f_nit_vr                             , &
@@ -380,9 +380,6 @@ MODULE MOD_BGC_CNZeroFluxes
        denit                                , &
        f_n2o_nit                            , &
        smin_no3_leached                     , &
-#ifdef MaterialTransport
-       smin_nh4_leached                     , &
-#endif
        smin_no3_runoff                      , &
        sminn_leached                        , &
        som_n_leached                        , &

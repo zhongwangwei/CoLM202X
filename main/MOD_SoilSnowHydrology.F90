@@ -4,6 +4,9 @@ MODULE MOD_SoilSnowHydrology
 
 !-----------------------------------------------------------------------
    USE MOD_Precision
+#ifdef MaterialTransport
+   USE MOD_MT_HydroDiagnostics, only: mt_water_diagnostics
+#endif
    USE MOD_Namelist, only: DEF_USE_PLANTHYDRAULICS, DEF_USE_SNICAR,        &
                            DEF_URBAN_RUN,           DEF_USE_IRRIGATION,    &
                            DEF_SPLIT_SOILSNOW,      DEF_Runoff_SCHEME,     &
@@ -555,16 +558,11 @@ ENDIF
               mss_bcpho   ,mss_bcphi   ,mss_ocpho   ,mss_ocphi                ,&
               mss_dst1    ,mss_dst2    ,mss_dst3    ,mss_dst4                 ,&
 !  irrigation variable
+              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy &
 #ifdef MaterialTransport
-              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy            ,&
-              etroot, wblc_ice_sink, etroot_actual, etroot_aquifer, etroot_surface, &
-              dew_overflow, frost_displaced, late_runoff, &
-              rsub_source_layer, rsub_source_surface, rsub_source_aquifer, &
-              imperv_evap_wdsrf, imperv_evap_soil, imperv_subl_soil, snow_qout_layer, qgtop_out, &
-              permeable_soil_out)
-#else
-              qflx_irrig_drip  ,qflx_irrig_flood ,qflx_irrig_paddy             )
+              ,water_diag &
 #endif
+              )
 
 !===================================================================================
 !  this is the main SUBROUTINE to execute the calculation of soil water processes
@@ -689,25 +687,7 @@ ENDIF
         qlayer(0:nl_soil)   ! water flux between soil layer [mm h2o/s]
 
 #ifdef MaterialTransport
-   ! Diagnostics for material transport only (mm per time step unless
-   ! noted). They are derived from the host water state and are never read
-   ! back by the host, so WATER_VSF gives the same result with or without
-   ! MaterialTransport.
-   real(r8), intent(out) :: etroot(1:nl_soil)         ! root flux demand per layer (mm/s)
-   real(r8), intent(out) :: wblc_ice_sink(1:nl_soil)  ! ice removed to close the solver balance
-   real(r8), intent(out) :: etroot_actual(1:nl_soil)  ! root water taken from each layer
-   real(r8), intent(out) :: etroot_aquifer            ! root water taken from the aquifer
-   real(r8), intent(out) :: etroot_surface            ! root water taken from ponding water
-   ! dew_overflow, frost_displaced and late_runoff are always zero here: the
-   ! host adds dew and frost to layer 1 without moving water to the surface.
-   real(r8), intent(out) :: dew_overflow, frost_displaced, late_runoff
-   real(r8), intent(out) :: rsub_source_layer(1:nl_soil), rsub_source_surface, rsub_source_aquifer
-   real(r8), intent(out) :: imperv_evap_wdsrf         ! ground evaporation taken from ponding water
-   real(r8), intent(out) :: imperv_evap_soil          ! ... taken from layer-1 liquid water
-   real(r8), intent(out) :: imperv_subl_soil          ! ... taken from layer-1 ice (always zero)
-   real(r8), intent(out) :: snow_qout_layer(lb:0)     ! water leaving each snow layer
-   real(r8), intent(out) :: qgtop_out                 ! top flux given to the solver (mm/s)
-   logical, intent(out), optional :: permeable_soil_out(1:nl_soil)
+   type(mt_water_diagnostics), intent(inout) :: water_diag
 #endif
 
 
@@ -750,9 +730,6 @@ ENDIF
 
    real(r8) :: err_solver, w_sum, wresi(1:nl_soil)
    real(r8) :: qgtop
-#ifdef MaterialTransport
-   real(r8) :: mt_wdsrf_pre, mt_wliq1_pre
-#endif
 
    real(r8) :: zwtmm
    real(r8) :: sp_zc(1:nl_soil), sp_zi(0:nl_soil), sp_dz(1:nl_soil) ! in mm
@@ -794,23 +771,7 @@ ENDIF
 #endif
 
 #ifdef MaterialTransport
-      IF (present(permeable_soil_out)) permeable_soil_out = .false.
-      etroot(1:nl_soil)        = 0._r8
-      wblc_ice_sink(1:nl_soil) = 0._r8
-      etroot_actual(1:nl_soil) = 0._r8
-      etroot_aquifer           = 0._r8
-      etroot_surface           = 0._r8
-      dew_overflow             = 0._r8
-      frost_displaced          = 0._r8
-      late_runoff              = 0._r8
-      rsub_source_layer        = 0._r8
-      rsub_source_surface      = 0._r8
-      rsub_source_aquifer      = 0._r8
-      imperv_evap_wdsrf        = 0._r8
-      imperv_evap_soil         = 0._r8
-      imperv_subl_soil         = 0._r8
-      IF (lb <= 0) snow_qout_layer(lb:0) = 0._r8
-      qgtop_out                = 0._r8
+      CALL water_diag%reset(nl_soil, min(lb,0))
 #endif
 
 #if (defined CaMa_Flood) || (defined GridRiverLakeFlow)
@@ -838,24 +799,22 @@ IF ((.not.DEF_SPLIT_SOILSNOW) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
          IF ((.not.DEF_USE_SNICAR) .or. (patchtype==1 .and. DEF_URBAN_RUN)) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat &
 #ifdef MaterialTransport
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
-                         snow_qout_layer(lb:0))
-#else
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+                         ,water_diag%snow_qout_layer(lb:0) &
 #endif
+                         )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
                          pg_rain,qseva,qsdew,qsubl,qfros,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) &
 #ifdef MaterialTransport
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0),&
-                         qout_snow_layer=snow_qout_layer(lb:0))
-#else
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                         ,qout_snow_layer=water_diag%snow_qout_layer(lb:0) &
 #endif
+                         )
          ENDIF
       ENDIF
 
@@ -867,24 +826,22 @@ ELSE
          IF (.not. DEF_USE_SNICAR) THEN
             CALL snowwater (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
+                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat &
 #ifdef MaterialTransport
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
-                         snow_qout_layer(lb:0))
-#else
-                         dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat)
+                         ,water_diag%snow_qout_layer(lb:0) &
 #endif
+                         )
          ELSE
             CALL snowwater_snicar (lb,deltim,ssi,wimp,&
                          pg_rain*fsno,qseva_snow,qsdew_snow,qsubl_snow,qfros_snow,&
                          dz_soisno(lb:0),wice_soisno(lb:0),wliq_soisno(lb:0),gwat,&
                          forc_aer,&
                          mss_bcpho(lb:0), mss_bcphi(lb:0), mss_ocpho(lb:0), mss_ocphi(lb:0),&
+                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) &
 #ifdef MaterialTransport
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0),&
-                         qout_snow_layer=snow_qout_layer(lb:0))
-#else
-                         mss_dst1(lb:0), mss_dst2(lb:0), mss_dst3(lb:0), mss_dst4(lb:0) )
+                         ,qout_snow_layer=water_diag%snow_qout_layer(lb:0) &
 #endif
+                         )
          ENDIF
          gwat = gwat + pg_rain*(1-fsno) - qseva_soil
       ENDIF
@@ -932,7 +889,7 @@ IF((patchtype<=1) .or. is_dry_lake &
          ENDIF
       ENDDO
 #ifdef MaterialTransport
-      IF (present(permeable_soil_out)) permeable_soil_out = is_permeable
+      water_diag%permeable_soil = is_permeable
 #endif
 
       ! surface runoff including water table and surface saturated area
@@ -1131,8 +1088,7 @@ IF((patchtype<=1) .or. is_dry_lake &
 
       IF ((.not. is_permeable(1)) .and. (qgtop < 0.)) THEN
 #ifdef MaterialTransport
-         mt_wdsrf_pre = wdsrf
-         mt_wliq1_pre = wliq_soisno(1)
+         CALL water_diag%begin_impervious_evaporation(wdsrf, wliq_soisno(1))
 #endif
          IF (wdsrf > 0) THEN
             wdsrf = wdsrf + qgtop * deltim
@@ -1144,10 +1100,7 @@ IF((patchtype<=1) .or. is_dry_lake &
             wliq_soisno(1) = max(0., wliq_soisno(1) + qgtop * deltim)
          ENDIF
 #ifdef MaterialTransport
-         ! The evaporation deficit is taken from ponding water first and then
-         ! from layer-1 liquid water, both clipped at zero by the host.
-         imperv_evap_wdsrf = mt_wdsrf_pre - wdsrf
-         imperv_evap_soil  = mt_wliq1_pre - wliq_soisno(1)
+         CALL water_diag%end_impervious_evaporation(wdsrf, wliq_soisno(1))
 #endif
 
          qgtop = 0.
@@ -1155,7 +1108,7 @@ IF((patchtype<=1) .or. is_dry_lake &
       ENDIF
 
 #ifdef MaterialTransport
-      qgtop_out = qgtop
+      water_diag%qgtop = qgtop
 #endif
       CALL soil_water_vertical_movement ( &
          nl_soil,                 deltim,                   sp_zc(1:nl_soil),    sp_zi(0:nl_soil), &
@@ -1165,8 +1118,7 @@ IF((patchtype<=1) .or. is_dry_lake &
          qinfl,                   wdsrf,                    zwtmm,               wa,               &
          vol_liq(1:nl_soil),      smp(1:nl_soil),           hk(1:nl_soil),       qlayer(0:nl_soil),&
 #ifdef MaterialTransport
-         etroot(1:nl_soil),       etroot_actual(1:nl_soil), etroot_aquifer, etroot_surface,       &
-         rsub_source_layer(1:nl_soil), rsub_source_surface, rsub_source_aquifer,                 &
+         water_diag,                                                                         &
 #endif
          1.e-3,                   wblc)
 
@@ -1205,17 +1157,14 @@ ENDIF
       ! water imbalance mainly due to insufficient liquid water for evapotranspiration
       IF (wblc > 0.) THEN
          DO j = 1, nl_soil
-            IF (wice_soisno(j) > wblc) THEN
 #ifdef MaterialTransport
-               wblc_ice_sink(j) = wblc
+            CALL water_diag%record_ice_sink(j, wice_soisno(j), wblc)
 #endif
+            IF (wice_soisno(j) > wblc) THEN
                wice_soisno(j) = wice_soisno(j) - wblc
                wblc = 0.
                EXIT
             ELSE
-#ifdef MaterialTransport
-               wblc_ice_sink(j) = wice_soisno(j)
-#endif
                wblc = wblc - wice_soisno(j)
                wice_soisno(j) = 0.
             ENDIF
@@ -1385,12 +1334,11 @@ ENDIF
 
    SUBROUTINE snowwater (lb,deltim,ssi,wimp, &
                         pg_rain,qseva,qsdew,qsubl,qfros, &
+                        dz_soisno,wice_soisno,wliq_soisno,qout_snowb &
 #ifdef MaterialTransport
-                        dz_soisno,wice_soisno,wliq_soisno,qout_snowb, &
-                        qout_snow_layer)
-#else
-                        dz_soisno,wice_soisno,wliq_soisno,qout_snowb)
+                        ,qout_snow_layer &
 #endif
+                        )
 
 !-----------------------------------------------------------------------
 !  Original author: Yongjiu Dai, /09/1999; /04/2014
@@ -1523,12 +1471,11 @@ ENDIF
 ! Aerosol Fluxes (Jan. 07, 2023)
                         forc_aer, &
                         mss_bcpho, mss_bcphi, mss_ocpho, mss_ocphi, &
+                        mss_dst1,  mss_dst2,  mss_dst3,  mss_dst4 &
 #ifdef MaterialTransport
-                        mss_dst1,  mss_dst2,  mss_dst3,  mss_dst4, &
-                        qout_snow_layer)
-#else
-                        mss_dst1,  mss_dst2,  mss_dst3,  mss_dst4 )
+                        ,qout_snow_layer &
 #endif
+                        )
 ! Aerosol Fluxes (Jan. 07, 2023)
 
 
