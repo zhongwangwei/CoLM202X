@@ -30,7 +30,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-22.04]
+        # Keep GNU 9-14 compatible with Ubuntu's packaged netcdf.mod.
+        # ubuntu-latest moved to 26.04/GNU 15, whose module format differs.
+        os: [ubuntu-24.04, ubuntu-22.04]
         mpi: ['mpich', 'openmpi', 'intelmpi']
         toolchain:
           - {compiler: gcc, version: 14}
@@ -46,7 +48,7 @@ jobs:
         # in every job.
         shard: [0, 1, 2, 3]
        # include:
-       #   - os: ubuntu-latest
+       #   - os: ubuntu-24.04
        #     toolchain: {compiler: gcc, version: 12}
         exclude:
           - os: ubuntu-22.04
@@ -54,11 +56,11 @@ jobs:
           - mpi: 'mpich'
             toolchain: {compiler: gcc, version: 9}
             # mpich compiling FCFLAG has --fallow-type-mismatch, and will cause gfortran 9 failing
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             toolchain: {compiler: gcc, version: 9}
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             toolchain: {compiler: gcc, version: 10}
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             toolchain: {compiler: gcc, version: 11}
 
     steps:
@@ -127,7 +129,7 @@ jobs:
               echo "Start Compilation ${CaseName}"
               echo "...................................................................."
 
-              make clean && make all
+              make clean && make all FC="$FC" FCMP="$FC -fopenmp"
             done < /tmp/cases.txt
 
             echo "----------------------------------------------------------------------"
