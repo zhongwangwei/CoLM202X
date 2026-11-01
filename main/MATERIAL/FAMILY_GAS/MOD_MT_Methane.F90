@@ -9,8 +9,8 @@ MODULE MOD_MT_Methane
    USE MOD_Precision
    USE MOD_SPMD_Task, only: p_is_worker, p_is_master, CoLM_stop
 #ifdef USEMPI
-   USE MPI
-   USE MOD_SPMD_Task, only: p_comm_glb, p_err
+   USE MOD_SPMD_Task, only: p_comm_glb, p_err, &
+      MPI_IN_PLACE, MPI_INTEGER, MPI_MAX, MPI_LOGICAL, MPI_LOR
 #endif
    USE MOD_MT_Defs, only: material_param_file_for_index, material_lower, &
       FAMILY_GAS, STATE_OWNER_PROVIDER, REACTION_PROVIDER

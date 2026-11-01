@@ -91,9 +91,6 @@ CONTAINS
       ! Stream-read full GIEMS-MC monthly time series + build fallback
       ! climatology.  Memory-efficient: master holds only one slab at
       ! a time; each rank stores its own per-patch time series.
-#ifdef USEMPI
-      USE MPI
-#endif
       USE netcdf
 
       character(len=*), intent(in) :: file_giems
@@ -491,7 +488,7 @@ CONTAINS
          allocate(all_pixel_index(max(1, total_requests)))
       ELSE
          ! MPI ignores root-only receive arguments away from the root, but
-         ! allocated one-element buffers keep the legacy `use mpi` interface
+         ! allocated one-element buffers keep the legacy MPI interface
          ! valid on implementations that still inspect the actual argument.
          allocate(all_pixel_index(1))
       ENDIF
@@ -776,7 +773,6 @@ CONTAINS
 
 #ifdef USEMPI
    SUBROUTINE check_giems_mpi(ierr, operation)
-      USE MPI
       integer, intent(in) :: ierr
       character(len=*), intent(in) :: operation
       integer :: error_length, ierr_string
