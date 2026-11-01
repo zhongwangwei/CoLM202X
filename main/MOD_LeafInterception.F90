@@ -377,7 +377,9 @@ CONTAINS
 
                FT = max(0.0, (tleaf - tfrz) / 1.87e5)
                FV = sqrt(forc_us*forc_us + forc_vs*forc_vs) / 1.56e5
-               tex_snow = max(0., ldew_snow/deltim) * (FV+FT)
+               ! Storage [mm] times unloading frequency [s-1] gives a rate [mm/s].
+               tex_snow = max(0._r8, ldew_snow) * (FV+FT)
+               tex_snow = min(tex_snow, max(0._r8, ldew_snow)/deltim + qintr_snow)
                tti_snow = (1.0-fvegc)*(prc_snow+prl_snow) + (fvegc*(prc_snow+prl_snow) - qintr_snow)
 
                ! rate -> mass
