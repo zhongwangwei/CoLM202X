@@ -71,7 +71,8 @@ def identity(args):
     include, lib = Path(args.include).resolve(), Path(args.lib).resolve()
     libs = {str(p.resolve()): digest(p) for p in sorted(lib.glob('libnetcdff.*')) if p.is_file()}
     nc = output(['nc-config', '--all'])
-    info = {'compiler': compiler, 'version': output(compiler + ['--version']),
+    info = {'compiler': [arg for arg in compiler if arg != '-fopenmp'],
+            'version': output(compiler + ['--version']),
             'binary': str(Path(compiler[0]).resolve()),
             'include': str(include), 'module': digest(include / 'netcdf.mod'),
             'lib': str(lib), 'libraries': libs, 'nc_config': nc,

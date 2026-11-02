@@ -102,6 +102,8 @@ class PreparationTests(unittest.TestCase):
                 args.check_fc = None
                 second, _ = netcdf.identity(args)
                 self.assertEqual(first, second)
+                args.fc += ' -fopenmp'
+                self.assertEqual(first, netcdf.identity(args)[0])
 
     def test_failed_system_probe_builds_and_publishes_only_after_success(self):
         with tempfile.TemporaryDirectory() as tmp:

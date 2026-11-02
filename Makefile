@@ -254,7 +254,7 @@ mkinidata.x : mkdir_build ${HEADER} ${OBJS_SHARED} ${OBJS_MT_CONFIG} ${OBJS_BASI
 	@echo ''
 # ----- End of Target 2 mkinidata ----
 
-CaMa = $(shell \
+CaMa := $(shell \
 	CAMA_INIT=$$(grep -E '^\#(define|undef)[[:space:]]+CaMa_Flood' $(HEADER) | head -1 | grep -q 'define' && echo 1 || echo 0); \
 	SP=$$(grep -E '^\#(define|undef)[[:space:]]+SinglePoint' $(HEADER) | tail -1 | grep -q 'define' && echo 1 || echo 0); \
 	MP=$$(if [ $$SP -eq 1 ]; then echo 0; else grep -E '^\#(define|undef)[[:space:]]+USEMPI' $(HEADER) | head -1 | grep -q 'define' && echo 1 || echo 0; fi); \
@@ -490,7 +490,7 @@ $(OBJS_POST1):%.o:%.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 $(OBJS_POST2):%.o:%.F90 ${HEADER}
-	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
+	${FF} -c ${FOPTS} ${OPENMP_FLAGS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
 
 $(OBJS_POST3):%.o:%.F90 ${HEADER}
 	${FF} -c ${FOPTS} $(INCLUDE_DIR) -o .bld/$@ $< ${MOD_CMD}.bld
@@ -502,7 +502,7 @@ hist_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST1}
 	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST1_T} -o run/$@ ${LDFLAGS}
 
 post_vector2grid.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST2}
-	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST2_T} -o run/$@ ${LDFLAGS}
+	${FF} ${FOPTS} ${OPENMP_FLAGS} ${OBJS_SHARED_T} ${OBJS_POST2_T} -o run/$@ ${LDFLAGS}
 
 srfdata_concatenate.x : ${HEADER} ${OBJS_SHARED} ${OBJS_POST3}
 	${FF} ${FOPTS} ${OBJS_SHARED_T} ${OBJS_POST3_T} -o run/$@ ${LDFLAGS}

@@ -2,7 +2,8 @@
 # mpif90 - gfortran 
 # 
 
-  FF = mpif90 -fopenmp
+  OPENMP_FLAGS = -fopenmp
+  FF = mpif90 $(if $(filter YES,$(CaMa)),$(OPENMP_FLAGS))
 
 # setup-fortran supplies FC; use it for MPI wrappers and CaMa as well.
 ifeq ($(origin FC),default)

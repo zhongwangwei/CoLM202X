@@ -81,3 +81,19 @@ git diff --exit-code ac659a3d09cf378b3e90f7b34880ceb78c22a40d -- .github/workflo
 - 七项助手单测及make集成检查通过，包含依赖编译不携带-fopenmp和失败测试详情输出。官方workflow及模型代码未改变。
 
 本次新改动仍须推送后验证完整hosted矩阵，尚不能把本地61项成功称为9个失败作业已全部修好。
+
+## 按实际消费者限定OpenMP
+
+用户提出非CaMa配置不应携带-fopenmp。源码核对发现主模型、share、mkinidata、mksrfdata无活动OpenMP调用，但postprocess/MOD_Vector2Grid.F90有两处并行循环（220/333行），其程序在CATCHMENT/UNSTRUCTURED下构建。因此默认GNU配置的FF仅在解析出的CaMa=YES时携带OpenMP；Vector2Grid对象和可执行程序单独保留编译/链接选项。其他用户Makeoptions及显式FF覆盖保留。
+
+CaMa开关每次make只解析一次，避免将宏扫描放进每条编译命令；默认FF不带OpenMP时不会把此模型选项传给依赖。依赖缓存指纹排除已被依赖构建剥离的-fopenmp，CaMa开关仍共享相同串行依赖；原命令的实际使用前探测保留。
+
+实际GNU12/MPICH/系统NetCDF-C4.9.3完整make all：
+
+| 任务 | 配置 | 结果 |
+|---|---|---|
+| codex-c0d440f5090949238b74ff149c3c83cb | GRID/PFT/BGC，CaMaON | succeeded；主程序直接链接libgomp |
+| codex-bcae2cf7b119477c9963e75a4f99f635 | GRID/PFT/BGC，CaMaOFF | succeeded；主程序无直接libgomp依赖 |
+| codex-89c411ed7e044b7a808591e92f1e1666 | UNSTRUCTURED/PFT/BGC，CaMaOFF | succeeded；主程序无直接libgomp依赖，post_vector2grid.x保留libgomp |
+
+每个任务先make clean，不复用之前主模型对象，使用已验证的匹配GNU12 NetCDF-Fortran依赖，ldd确认系统C库。均包含模型、预处理、后处理与静态库编译链接；未执行新的科学运行。tests/check_openmp_targets.py同时覆盖上述默认命令和显式FF覆盖，GNU make3.81/4.x通过；七项依赖助手测试、缓存键复用测试、make集成检查及工作流字节一致性检查通过。
