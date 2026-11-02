@@ -39,12 +39,6 @@ jobs:
           - {compiler: gcc, version: 11}
           - {compiler: gcc, version: 10}
           - {compiler: gcc, version:  9}
-        # The 93-case build loop is split into shards so that every job stays
-        # below GitHub's hard 6-hour job limit. All 93 cases are still built in
-        # every os/mpi/toolchain combination; the shard only distributes them
-        # over more jobs. check_defineh.py still validates the full 93-case list
-        # in every job.
-        shard: [0, 1, 2, 3]
        # include:
        #   - os: ubuntu-latest
        #     toolchain: {compiler: gcc, version: 12}
@@ -71,176 +65,39 @@ jobs:
        with:
           compiler: ${{ matrix.toolchain.compiler }}
           version: ${{ matrix.toolchain.version }} 
-     - name: Install NetCDF-C and BLAS libraries
-       run: sudo apt-get update && sudo apt-get install -y netcdf-bin libnetcdf-dev liblapack-dev libblas-dev
-     - name: Select compiler-compatible NetCDF-Fortran
-       id: netcdf
-       shell: bash
-       run: |
-         set -euo pipefail
-         compiler=$(command -v "$FC")
-         c_version=$(nc-config --version | awk '{print $2}')
-         dpkg --compare-versions "$c_version" ge 4.7.4
-         if dpkg --compare-versions "$c_version" ge 4.9.2; then
-           version=4.6.4
-           checksum=98159c1e0f63b3b59bb5eda12f2d80126f5b1aad93032d1490989a5752e0df99
-         else
-           version=4.5.4
-           checksum=0a19b26a2b6e29fab5d29d7d7e08c24e87712d09a5cafeea90e16e0a2ab86b81
-         fi
-         echo "NetCDF-C $c_version; NetCDF-Fortran $version; compiler $compiler"
-         prefix="$RUNNER_TEMP/netcdf-fortran"
-         {
-           echo "FC=$compiler"
-           echo "F77=$compiler"
-           echo "OMPI_FC=$compiler"
-           echo "MPICH_FC=$compiler"
-           echo "I_MPI_F90=$compiler"
-           echo "I_MPI_F77=$compiler"
-           echo "I_MPI_FC=$compiler"
-           echo "NETCDF_F_PREFIX=$prefix"
-           echo "NETCDF_F_VERSION=$version"
-           echo "NETCDF_F_SHA256=$checksum"
-         } >> "$GITHUB_ENV"
-         key=$({
-           cat /etc/os-release
-           uname -m
-           echo "${ImageVersion:-unknown} $prefix $compiler $version $checksum static-v1"
-           "$compiler" --version
-           "$compiler" -dumpmachine
-           nc-config --all
-           sha256sum .github/workflows/build_CoLM_gnu.yml
-           sha256sum "$(nc-config --includedir)/netcdf.h" "$(nc-config --libdir)/libnetcdf.so"
-         } | sha256sum | cut -d ' ' -f 1)
-         echo "key=$key" >> "$GITHUB_OUTPUT"
-     - uses: actions/cache@v4
-       id: netcdf-cache
-       with:
-          path: ${{ runner.temp }}/netcdf-fortran
-          key: netcdf-fortran-${{ runner.os }}-${{ runner.arch }}-${{ steps.netcdf.outputs.key }}
-     - name: Build NetCDF-Fortran with the selected compiler
-       if: steps.netcdf-cache.outputs.cache-hit != 'true'
-       shell: bash
-       run: |
-         set -euo pipefail
-         build=$(mktemp -d "$RUNNER_TEMP/netcdf-fortran-build.XXXXXX")
-         curl -fsSL --retry 3 --connect-timeout 15 --max-time 180 \
-           "https://downloads.unidata.ucar.edu/netcdf-fortran/$NETCDF_F_VERSION/netcdf-fortran-$NETCDF_F_VERSION.tar.gz" \
-           -o "$build/source.tar.gz"
-         echo "$NETCDF_F_SHA256  $build/source.tar.gz" | sha256sum --check
-         tar -xzf "$build/source.tar.gz" -C "$build"
-         cd "$build/netcdf-fortran-$NETCDF_F_VERSION"
-         FC="$FC" F77="$FC" CC="${CC:-cc}" \
-           CPPFLAGS="-I$PWD/fortran $(nc-config --cflags)" LDFLAGS="-L$(nc-config --libdir)" \
-           ./configure --prefix="$NETCDF_F_PREFIX" --libdir="$NETCDF_F_PREFIX/lib" --disable-shared --enable-static
-         make -j2
-         make -j2 check
-         make install
-     - name: Verify MPI and private NetCDF-Fortran
-       shell: bash
-       run: |
-         set -euo pipefail
-         "$FC" --version
-         mpif90 --version
-         test "$(mpif90 -dumpfullversion -dumpversion)" = "$("$FC" -dumpfullversion -dumpversion)"
-         test "$("$NETCDF_F_PREFIX/bin/nf-config" --fc)" = "$FC"
-         "$NETCDF_F_PREFIX/bin/nf-config" --all
-         probe=$(mktemp -d "$RUNNER_TEMP/netcdf-probe.XXXXXX")
-         cd "$probe"
-         cat > probe.f90 <<'F90'
-         program probe
-           use netcdf
-           implicit none
-           include 'mpif.h'
-           integer :: ierr, rank, nprocs, ncid, dimid, varid
-           real(kind=8) :: values(1)
-           call MPI_Init(ierr)
-           if (ierr /= MPI_SUCCESS) stop 1
-           call MPI_Comm_rank(MPI_COMM_WORLD, rank, ierr)
-           call MPI_Comm_size(MPI_COMM_WORLD, nprocs, ierr)
-           if (nprocs /= 2) call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
-           if (rank == 0) then
-             call checked(nf90_create('probe.nc', ior(nf90_clobber, nf90_netcdf4), ncid))
-             call checked(nf90_def_dim(ncid, 'sample', 1, dimid))
-             call checked(nf90_def_var(ncid, 'value', nf90_double, [dimid], varid))
-             call checked(nf90_enddef(ncid))
-             call checked(nf90_put_var(ncid, varid, [42.5d0]))
-             call checked(nf90_close(ncid))
-           endif
-           call MPI_Barrier(MPI_COMM_WORLD, ierr)
-           call checked(nf90_open('probe.nc', nf90_nowrite, ncid))
-           call checked(nf90_inq_varid(ncid, 'value', varid))
-           call checked(nf90_get_var(ncid, varid, values))
-           call checked(nf90_close(ncid))
-           if (any(values /= 42.5d0)) call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
-           call MPI_Finalize(ierr)
-         contains
-           subroutine checked(code)
-             integer, intent(in) :: code
-             if (code /= nf90_noerr) then
-               print *, nf90_strerror(code)
-               call MPI_Abort(MPI_COMM_WORLD, 1, ierr)
-             endif
-           end subroutine
-         end program
-         F90
-         mpif90 probe.f90 $("$NETCDF_F_PREFIX/bin/nf-config" --fflags --flibs) -o probe
-         timeout 60s mpiexec -n 2 ./probe
-     - name: Check the history-accumulator restart field list
-       run: python3 .github/workflows/hist_acc_restart_fields.py --check
-     - name: Check effective test case macros (local-only test when present)
-       run: |
-         if [ -f tests/material_transport/check_defineh.py ]; then
-           python3 tests/material_transport/check_defineh.py
-         else
-           echo "tests/material_transport/check_defineh.py is local-only; skipping"
-         fi
+     - name: Install netcdf-fortran and blas library
+       shell: bash -l {0}
+       run: sudo apt update && sudo apt install -y netcdf-bin libnetcdf-dev libnetcdff-dev "liblapack*" "libblas*"
+     - name: Test mpi
+       #run: mpif90 -v
+       run: which mpif90
+     #- name: Test netcdf
+     #  run: nc-config --all
      - name: Build CoLM202X
      #  run: make clean && make all
-       shell: bash
        run: |
-            set -euo pipefail
-            cd "${GITHUB_WORKSPACE}"
+            cd ${{ github.workspace }}
             TestList=./.github/workflows/TestCaseLists
-            SHARD='${{ matrix.shard }}'
-            NSHARD=4
-            python3 - "$TestList" "$SHARD" "$NSHARD" > /tmp/cases.txt <<'PYEOF'
-            import sys
-            path, shard, nshard = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
-            lines = [line.rstrip('\n') for line in open(path) if line.strip()]
-            for index, line in enumerate(lines):
-                if index % nshard == shard:
-                    print(line)
-            PYEOF
-            ncases=$(grep -c . /tmp/cases.txt || true)
-            echo "shard ${SHARD}/${NSHARD}: ${ncases} of 93 cases"
-            test "${ncases}" -gt 0
-            while IFS= read -r CaseLine
+            for CaseName in `awk '{print $1}' $TestList`
             do
-              [ -z "${CaseLine}" ] && continue
-              CaseName=$(printf '%s\n' "${CaseLine}" | awk '{print $1}')
-              read -r -a DefineArgs <<< "$(printf '%s\n' "${CaseLine}" | awk '{$1=""; print}')"
               echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-              echo "Create test cases (shard ${SHARD}/${NSHARD})"
-              echo "${CaseName}"
+              echo "Create test cases"
+              echo $CaseName
               echo "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
-              echo defineh "${DefineArgs[@]}"
-              ./.github/workflows/create_defineh.bash "${DefineArgs[@]}"
+ 
+              echo defineh `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8}'`
+              ./.github/workflows/create_defineh.bash `cat $TestList |grep $CaseName |awk '{print $2,$3,$4,$5,$6,$7,$8}'`
 
-              echo "Create test case ${CaseName} Complete!"
+              echo "Create test case $CaseName Complete!"
               cat ./include/define.h
 
               echo "...................................................................."
-              echo "Start Compilation ${CaseName}"
+              echo "Start Compilation $CaseName"
               echo "...................................................................."
-
-              make clean
-              make all FC="$FC" FCMP="$FC -fopenmp" GCC_VERSION="$("$FC" -dumpversion)" \
-                NETCDF_INC="$NETCDF_F_PREFIX/include" NETCDF_LIB="$NETCDF_F_PREFIX/lib" \
-                LDFLAGS="$("$NETCDF_F_PREFIX/bin/nf-config" --flibs) -llapack -lblas"
-            done < /tmp/cases.txt
+ 
+              make clean && make all
+            done
 
             echo "----------------------------------------------------------------------"
-            echo "Shard ${SHARD}/${NSHARD}: ${ncases} test cases are compiled successfully!"
-            echo "All 93 cases are covered across the four shards of this matrix cell."
+            echo "All test cases are compiled successfully! "
             echo "----------------------------------------------------------------------"

@@ -12,7 +12,7 @@ case ${1:?pc, pft, off, lulcc, single, or vector} in
   *) exit 2 ;;
 esac
 out=${OBREF_JOB_RESULTS:?runner output directory}
-bash .github/workflows/create_defineh.bash "$grid" "$lc" URBANOFF vanGenu CaMaOFF "$bgc" CROPOFF "$mt" "$lulcc" > "$out/config.log"
+python3 tests/create_material_defineh.py "$grid" "$lc" URBANOFF vanGenu CaMaOFF "$bgc" CROPOFF "$mt" "$lulcc" > "$out/config.log"
 cp include/define.h "$out/define.h"
 make colm.x mkinidata.x mksrfdata.x FF=mpif90 NETCDF_INC="$(nf-config --includedir)" NETCDF_LIB="$(nc-config --libdir)" \
   FOPTS='-fdefault-real-8 -fdefault-double-8 -ffree-form -O0 -g -cpp -ffree-line-length-0 -fallow-argument-mismatch -mcmodel=medium -fcheck=bounds -ffpe-trap=invalid,zero,overflow' \

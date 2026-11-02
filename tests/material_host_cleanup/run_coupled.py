@@ -93,7 +93,7 @@ def main():
         (out / 'build-source-changes.json').write_text(json.dumps(changed, indent=2) + '\n')
         command(make, root, out / 'build.log')
     else:
-        command(['bash', '.github/workflows/create_defineh.bash', 'GRID', 'LULC_IGBP_PFT',
+        command(['python3', 'tests/create_material_defineh.py', 'GRID', 'LULC_IGBP_PFT',
                  'URBANOFF', 'vanGenu', 'CaMaOFF', 'BGCON', 'CROPON', 'MTON', 'LULCCOFF'],
                 root, out / 'define.log')
         command(make, root, out / 'build.log')
