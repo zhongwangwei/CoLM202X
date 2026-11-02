@@ -65,3 +65,19 @@ git diff --exit-code ac659a3d09cf378b3e90f7b34880ceb78c22a40d -- .github/workflo
 ## 尚存边界
 
 尚未推送本次修复，恢复后23项hosted矩阵仍不能宣称通过。远程MPICH/私有提取编译器不等同GitHub全部镜像及MPI安装方式；本次尚未实际验证OpenMPI/IntelMPI的新增依赖构建路径、GNU9–11回退构建或4.5.4分支。原始88配置不分片的六小时风险仍存在，下载/构建也会增加首次耗时。无完整科学运行或科学正确性新增结论；此前旧私有NetCDF自检失败的根因未被这份新环境成功记录解释。
+
+## a65d623a hosted失败后的修复
+
+个人运行41447569138的代表GNU12/OpenMPI及GNU14/MPICH日志证实：自动重建启动后，make check失败，尚未编译模型。旧助手只保留runner文件日志，没有输出具体失败项，不能据此断言所有9项都是同一测试失败。
+
+配对复现发现前次验证遗漏的命令差异：CI传入 `mpif90 -fopenmp`，此前完整依赖验证用普通GNU命令。任务 `codex-768a0a362dd44d8492cf8954736cd46a` 给相同GNU12追加-fopenmp后，61项只有nf03_test4/f90tst_io退出139，其余60项通过。该程序有25,000,000字节实数数组；GNU的-fopenmp隐含-frecursive，使数组从静态存储移到栈。任务 `codex-377f9a60a589431394ebb2fadb223503` 证实原失败二进制在默认8192KiB栈下失败、仅诊断性放宽栈后成功；放宽栈不进入产品修复。
+
+修复仅从串行NetCDF依赖的FC/F77命令移除精确的-fopenmp参数，保留MPI wrapper、所选编译器、模型OpenMP选项和原兼容性探针；依赖源码没有OpenMP指令，不关闭模型功能。完整make check仍必须通过。新增失败日志输出会打印构建日志尾部及test-suite.log，使后续hosted失败可直接定位。
+
+- `codex-edf44f693bd24c7cb0f4ba616a14c856`：相同带-fopenmp输入经过修复后构建依赖，61/61、零skip/fail/error，安装及原带-fopenmp的I/O探测通过，终态succeeded。
+- `codex-d4a603e1f8b248a7858b05b10de8ddd1`：从官方镜像下载与CI一致的libnetcdf22 4.9.3-1build2 amd64v3包，在私有目录提取；其缓存默认值与普通包相同，ftst_vars/f03tst_vars均通过，未证实缓存默认值假设。
+- `codex-d013f22232884b29bf999f70efb78be1`：私有复制修正后的依赖构建树，删除全部测试日志与.trs后，指定上述amd64v3运行库重新执行完整make check；61/61、零skip/fail/error，终态succeeded。
+- 两次服务器镜像下载因网络失败；后由本地下载该约0.5MB公共依赖包并随验证源码快照传入私有任务，不含外部科研数据，不改变模型依赖下载地址。
+- 七项助手单测及make集成检查通过，包含依赖编译不携带-fopenmp和失败测试详情输出。官方workflow及模型代码未改变。
+
+本次新改动仍须推送后验证完整hosted矩阵，尚不能把本地61项成功称为9个失败作业已全部修好。

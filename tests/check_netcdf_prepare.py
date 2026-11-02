@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Check that dependency fallback and cache validation fail closed."""
 import argparse
+import contextlib
+from types import SimpleNamespace
 import importlib.util
 import io
 from pathlib import Path
@@ -16,6 +18,17 @@ spec.loader.exec_module(netcdf)
 
 
 class PreparationTests(unittest.TestCase):
+    def test_failed_check_reports_upstream_test_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'test-suite.log').write_text('FAIL: dependency detail')
+            stderr = io.StringIO()
+            with patch.object(netcdf.subprocess, 'run', return_value=SimpleNamespace(returncode=2)), contextlib.redirect_stderr(stderr):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    netcdf.run(['make', 'check'], root, root / 'build.log')
+            self.assertIn('FAIL: dependency detail', stderr.getvalue())
+            self.assertIn('make check', stderr.getvalue())
+
     def test_checksum_failure_removes_download(self):
         with tempfile.TemporaryDirectory() as tmp:
             archive = Path(tmp) / 'source.tar.gz'
@@ -31,6 +44,9 @@ class PreparationTests(unittest.TestCase):
 
             def run(argv, cwd, log, env=None):
                 commands.append(argv)
+                if argv[0] == './configure':
+                    self.assertEqual(env['FC'], 'gfortran')
+                    self.assertEqual(env['F77'], 'gfortran')
                 if argv == ['make', '-j2', 'check']:
                     raise subprocess.CalledProcessError(2, argv)
 
@@ -40,7 +56,7 @@ class PreparationTests(unittest.TestCase):
 
             with patch.object(netcdf, 'download'), patch.object(netcdf, 'run', side_effect=run), patch.object(netcdf, 'output', side_effect=output), patch.object(netcdf, 'probe') as probe:
                 with self.assertRaises(subprocess.CalledProcessError):
-                    netcdf.build(['gfortran'], directory)
+                    netcdf.build(['gfortran', '-fopenmp'], directory)
                 self.assertIn(['make', '-j2', 'check'], commands)
                 self.assertNotIn(['make', 'install'], commands)
                 probe.assert_not_called()

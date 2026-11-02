@@ -85,7 +85,13 @@ def run(argv, cwd, log, env=None):
     with log.open('a') as stream:
         stream.write('$ ' + shlex.join(map(str, argv)) + '\n')
         stream.flush()
-        subprocess.run(argv, cwd=cwd, env=env, stdout=stream, stderr=subprocess.STDOUT, check=True)
+        result = subprocess.run(argv, cwd=cwd, env=env, stdout=stream, stderr=subprocess.STDOUT)
+    if result.returncode:
+        print(f'Failed command; log: {log}\n' + log.read_text(errors='replace')[-16000:], file=sys.stderr)
+        if 'check' in argv:
+            for report in sorted(Path(cwd).rglob('test-suite.log')):
+                print(f'\n{report}:\n' + report.read_text(errors='replace')[-16000:], file=sys.stderr)
+        raise subprocess.CalledProcessError(result.returncode, argv)
 
 
 def probe(compiler, include, libraries, directory, log):
@@ -124,7 +130,9 @@ def build(compiler, directory):
     for key in ['FFLAGS', 'FCFLAGS', 'F77', 'CPPFLAGS', 'CFLAGS', 'LDFLAGS', 'LIBS',
                 'CPATH', 'C_INCLUDE_PATH', 'CPLUS_INCLUDE_PATH', 'MAKEFLAGS', 'MFLAGS', 'MAKELEVEL']:
         env.pop(key, None)
-    env.update(FC=shlex.join(compiler), F77=shlex.join(compiler),
+    # NetCDF's serial tests use large arrays; -fopenmp moves them onto the stack.
+    library_compiler = [arg for arg in compiler if arg != '-fopenmp']
+    env.update(FC=shlex.join(library_compiler), F77=shlex.join(library_compiler),
                CPPFLAGS='-I' + str(source / 'fortran') + ' ' + output(['nc-config', '--cflags']),
                LDFLAGS='-L' + output(['nc-config', '--libdir']),
                LIBS=output(['nc-config', '--libs']))
