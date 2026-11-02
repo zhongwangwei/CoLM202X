@@ -3,7 +3,7 @@
 include include/Makeoptions
 HEADER = include/define.h
 
-INCLUDE_DIR = -Iinclude -I.bld/ -I${NETCDF_INC}
+INCLUDE_DIR = -Iinclude -I.bld/ $(addprefix -I,$(NETCDF_F_INCLUDE)) -I${NETCDF_INC}
 VPATH = include : share : mksrfdata : mkinidata \
 	: main : main/HYDRO : main/BGC : main/URBAN : main/LULCC : main/DA \
 	: main/ParaOpt : extends/CaMa/src : postprocess : .bld
@@ -18,6 +18,7 @@ all : mkdir_build mksrfdata.x mkinidata.x colm.x postprocess.x lib
 	@echo '*                                                     *'
 	@echo '*******************************************************'
 # ******* End of Targets ALL ******
+
 
 .PHONY: mkdir_build
 mkdir_build :
@@ -258,6 +259,8 @@ CaMa = $(shell \
 	SP=$$(grep -E '^\#(define|undef)[[:space:]]+SinglePoint' $(HEADER) | tail -1 | grep -q 'define' && echo 1 || echo 0); \
 	MP=$$(if [ $$SP -eq 1 ]; then echo 0; else grep -E '^\#(define|undef)[[:space:]]+USEMPI' $(HEADER) | head -1 | grep -q 'define' && echo 1 || echo 0; fi); \
 	if [ $$CAMA_INIT -eq 0 ]; then echo NO; elif [ $$SP -eq 1 ] || [ $$MP -eq 0 ]; then echo NO; else echo YES; fi)
+include tools/netcdf.mk
+
 ifeq (${CaMa},YES)# Compile CoLM decoupled with river routing scheme (CaMa-Flood)
 #
 OBJECTS_CAMA=\

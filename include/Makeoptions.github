@@ -14,6 +14,7 @@ endif
   export I_MPI_F90 ?= $(FC)
   export I_MPI_FC ?= $(FC)
    
+  NETCDF_AUTO ?= 1
   NETCDF_LIB = /usr/lib/x86_64-linux-gnu
   NETCDF_INC = /usr/include
 

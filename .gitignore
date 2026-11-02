@@ -11,3 +11,5 @@ lib
 *.a
 *.x
 *.log
+
+/.netcdf/
