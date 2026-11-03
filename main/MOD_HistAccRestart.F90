@@ -30,7 +30,7 @@ MODULE MOD_HistAccRestart
 !  sums before the restart is saved, so hist_acc_final_snapshot keeps the raw
 !  sums first.
 !
-!  The field list between the two marker lines in hacc_fields is checked
+!   The field list between the two marker lines in hacc_fields is checked
 !  against allocate_acc_fluxes by tests/history_restart/hist_acc_restart_fields.py.
 !
 !  Not covered: accumulators of an external lake model (EXTERNAL_LAKE).
