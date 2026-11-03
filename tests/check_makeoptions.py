@@ -13,7 +13,11 @@ with tempfile.TemporaryDirectory() as tmp:
         result=subprocess.check_output(['make','-s','-f',str(makefile),f'FF={compiler}'],env=env,text=True)
         assert f'FC={compiler};FCMP={compiler} -fopenmp;MAJOR={version}' in result,result
         assert ('-fallow-argument-mismatch' in result)==(version>=10),result
+        for flag in ('-O0', '-fno-lto', '-C', '-fbounds-check', '-ffpe-trap=invalid,zero,overflow'):
+            assert flag in result, (flag, result)
         assert f'OMPI={compiler};MPICH={compiler};INTEL={compiler}' in result,result
         result=subprocess.check_output(['make','-s','-f',str(makefile),f'FF={compiler}',f'FC={compiler}','OMPI_FC=custom'],env=env,text=True)
         assert 'OMPI=custom;' in result,result
+        result=subprocess.check_output(['make','-s','-f',str(makefile),f'FF={compiler}', 'FOPTS=-O3 -g'],env=env,text=True)
+        assert 'FLAGS=-O3 -g' in result and '-O0' not in result and '-fno-lto' not in result,result
 print('PASS GNU9/14 numeric flags, environment/CLI FC, CaMa and MPI backend propagation')
